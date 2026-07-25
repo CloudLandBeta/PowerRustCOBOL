@@ -42,7 +42,7 @@ use std::collections::HashMap;
 ///
 /// Headers set via `COBOL-HTTP-SET-HEADER` persist across calls until
 /// `COBOL-HTTP-CLEAR-HEADERS` resets them.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HttpClient {
     /// Persistent extra headers sent with every request.
     headers: HashMap<String, String>,
@@ -118,6 +118,104 @@ impl HttpClient {
                 (body, code)
             }
             Err(e) => (format!("HTTP DELETE error: {e}"), 0),
+        }
+    }
+
+    // ── Timeout-aware variants (spec 032 — async operations) ──────────────────
+    //
+    // These build a per-call `ureq::Agent` carrying an overall timeout so a
+    // background worker thread cannot live forever when a server stalls. A
+    // `timeout_ms` of 0 means "no transport timeout" (the agent uses `ureq`'s
+    // defaults). Interpreter-side timeout semantics (`onTimeout`) are enforced
+    // separately by the wait-loop sweep; this bound is a thread-lifetime
+    // backstop. Behaviour is otherwise identical to the plain methods above.
+
+    /// Build a `ureq::Agent` with an optional overall timeout.
+    fn agent_with_timeout(timeout_ms: u64) -> ureq::Agent {
+        let mut builder = ureq::AgentBuilder::new();
+        if timeout_ms > 0 {
+            builder = builder.timeout(std::time::Duration::from_millis(timeout_ms));
+        }
+        builder.build()
+    }
+
+    /// GET with an overall timeout (see [`get`](Self::get)).
+    pub fn get_with_timeout(&self, url: &str, timeout_ms: u64) -> (String, u16) {
+        let url = url.trim();
+        let agent = Self::agent_with_timeout(timeout_ms);
+        let mut req = agent.get(url);
+        for (k, v) in &self.headers {
+            req = req.set(k.as_str(), v.as_str());
+        }
+        Self::finish_call(req, "GET")
+    }
+
+    /// DELETE with an overall timeout (see [`delete`](Self::delete)).
+    pub fn delete_with_timeout(&self, url: &str, timeout_ms: u64) -> (String, u16) {
+        let url = url.trim();
+        let agent = Self::agent_with_timeout(timeout_ms);
+        let mut req = agent.delete(url);
+        for (k, v) in &self.headers {
+            req = req.set(k.as_str(), v.as_str());
+        }
+        Self::finish_call(req, "DELETE")
+    }
+
+    /// POST/PUT with a string body and an overall timeout
+    /// (see [`send_with_body`](Self::send_with_body)).
+    pub fn send_with_body_timeout(
+        &self,
+        method: &str,
+        url: &str,
+        body: &str,
+        timeout_ms: u64,
+    ) -> (String, u16) {
+        let url = url.trim();
+        let agent = Self::agent_with_timeout(timeout_ms);
+
+        let content_type = self
+            .headers
+            .iter()
+            .find(|(k, _)| k.to_ascii_lowercase() == "content-type")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("application/json");
+
+        let mut req = match method {
+            "PUT" => agent.put(url),
+            _ => agent.post(url),
+        };
+        for (k, v) in &self.headers {
+            if k.to_ascii_lowercase() != "content-type" {
+                req = req.set(k.as_str(), v.as_str());
+            }
+        }
+        match req.set("Content-Type", content_type).send_string(body) {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.into_string().unwrap_or_default();
+                (body, status)
+            }
+            Err(ureq::Error::Status(code, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                (body, code)
+            }
+            Err(e) => (format!("HTTP {method} error: {e}"), 0),
+        }
+    }
+
+    /// Run a prepared no-body request and map the result to `(body, status)`.
+    fn finish_call(req: ureq::Request, label: &str) -> (String, u16) {
+        match req.call() {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.into_string().unwrap_or_default();
+                (body, status)
+            }
+            Err(ureq::Error::Status(code, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                (body, code)
+            }
+            Err(e) => (format!("HTTP {label} error: {e}"), 0),
         }
     }
 

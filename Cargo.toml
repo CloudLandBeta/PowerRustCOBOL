@@ -28,7 +28,7 @@ resolver = "2"
 [workspace.package]
 version      = "0.2.0"
 edition      = "2021"
-rust-version = "1.75"
+rust-version = "1.92"
 license      = "Apache-2.0"
 repository   = "https://github.com/yourusername/cobolt"
 homepage     = "https://github.com/yourusername/cobolt"
@@ -74,3 +74,4 @@ pretty_assertions = "1"
 # Mesh architecture dependencies
 rig-core = "0.40.0"
 tokio    = { version = "1", features = ["full"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

@@ -48,9 +48,164 @@ pub struct CoboltProject {
     /// Per-project form appearance — the default **form** theme (spec 007).
     #[serde(default)]
     pub forms: FormsConfig,
+    /// Project-scoped AI models and behavior. Credentials are deliberately not
+    /// part of this structure; they remain in the machine-local secret store.
+    #[serde(default)]
+    pub ai: ProjectAiSettings,
     /// Project-scoped reusable composite controls (spec 020).
     #[serde(default, rename = "user-controls")]
     pub user_controls: Vec<UserControlDef>,
+}
+
+/// AI configuration that belongs to one project and is persisted in
+/// `cobolt.toml`. API keys are intentionally excluded and resolve from the
+/// machine-local store by the stable model-profile id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectAiSettings {
+    /// Zero means the project predates project-scoped AI settings and should
+    /// receive a conservative one-time import from the legacy global config.
+    #[serde(default)]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub endpoint_user_edited: bool,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "crate::llm::default_system_prompt")]
+    pub system_prompt: String,
+    #[serde(default = "crate::llm::default_cobol_proficiency_prompt")]
+    pub cobol_proficiency_prompt: String,
+    #[serde(default = "crate::llm::default_temperature")]
+    pub temperature: f32,
+    #[serde(default = "crate::llm::default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "crate::llm::default_timeout_secs")]
+    pub timeout_secs: u32,
+    #[serde(default)]
+    pub verbose_log: bool,
+    #[serde(default = "crate::llm::default_max_review_revisions")]
+    pub max_review_revisions: u32,
+    #[serde(default = "crate::llm::default_agentic_ai_enabled")]
+    pub agentic_ai_enabled: bool,
+    #[serde(default)]
+    pub reviewer_provider: String,
+    #[serde(default)]
+    pub reviewer_endpoint: String,
+    #[serde(default)]
+    pub reviewer_model: String,
+    #[serde(default = "crate::llm::default_pedantic_prompt")]
+    pub pedantic_prompt: String,
+    #[serde(default = "crate::llm::default_pedantic_ui_prompt")]
+    pub pedantic_ui_prompt: String,
+    #[serde(default = "crate::llm::default_pedantic_event_prompt")]
+    pub pedantic_event_prompt: String,
+    #[serde(default)]
+    pub model_profiles: Vec<crate::llm::ModelProfile>,
+}
+
+impl Default for ProjectAiSettings {
+    fn default() -> Self {
+        Self {
+            schema_version: 0,
+            provider: String::new(),
+            endpoint: String::new(),
+            endpoint_user_edited: false,
+            model: String::new(),
+            system_prompt: crate::llm::default_system_prompt(),
+            cobol_proficiency_prompt: crate::llm::default_cobol_proficiency_prompt(),
+            temperature: crate::llm::default_temperature(),
+            max_tokens: crate::llm::default_max_tokens(),
+            timeout_secs: crate::llm::default_timeout_secs(),
+            verbose_log: false,
+            max_review_revisions: crate::llm::default_max_review_revisions(),
+            agentic_ai_enabled: true,
+            reviewer_provider: String::new(),
+            reviewer_endpoint: String::new(),
+            reviewer_model: String::new(),
+            pedantic_prompt: crate::llm::default_pedantic_prompt(),
+            pedantic_ui_prompt: crate::llm::default_pedantic_ui_prompt(),
+            pedantic_event_prompt: crate::llm::default_pedantic_event_prompt(),
+            model_profiles: Vec::new(),
+        }
+    }
+}
+
+impl ProjectAiSettings {
+    pub fn new() -> Self {
+        Self {
+            schema_version: 1,
+            ..Self::default()
+        }
+    }
+
+    pub fn from_llm(llm: &crate::llm::LlmConfig) -> Self {
+        Self {
+            schema_version: 1,
+            provider: llm.provider.clone(),
+            endpoint: llm.endpoint.clone(),
+            endpoint_user_edited: llm.endpoint_user_edited,
+            model: llm.model.clone(),
+            system_prompt: llm.system_prompt.clone(),
+            cobol_proficiency_prompt: llm.cobol_proficiency_prompt.clone(),
+            temperature: llm.temperature,
+            max_tokens: llm.max_tokens,
+            timeout_secs: llm.timeout_secs,
+            verbose_log: llm.verbose_log,
+            max_review_revisions: llm.max_review_revisions,
+            agentic_ai_enabled: llm.agentic_ai_enabled,
+            reviewer_provider: llm.reviewer_provider.clone(),
+            reviewer_endpoint: llm.reviewer_endpoint.clone(),
+            reviewer_model: llm.reviewer_model.clone(),
+            pedantic_prompt: llm.pedantic_prompt.clone(),
+            pedantic_ui_prompt: llm.pedantic_ui_prompt.clone(),
+            pedantic_event_prompt: llm.pedantic_event_prompt.clone(),
+            model_profiles: llm.model_profiles.clone(),
+        }
+    }
+
+    pub fn apply_to_llm(&self, llm: &mut crate::llm::LlmConfig) {
+        llm.provider = self.provider.clone();
+        llm.endpoint = self.endpoint.clone();
+        llm.endpoint_user_edited = self.endpoint_user_edited
+            || (!self.endpoint.trim().is_empty()
+                && !crate::llm::endpoint_is_provider_default(&self.provider, &self.endpoint));
+        llm.model = self.model.clone();
+        llm.system_prompt = self.system_prompt.clone();
+        llm.cobol_proficiency_prompt = self.cobol_proficiency_prompt.clone();
+        llm.temperature = self.temperature;
+        llm.max_tokens = self.max_tokens;
+        llm.timeout_secs = self.timeout_secs;
+        llm.verbose_log = self.verbose_log;
+        llm.max_review_revisions = self.max_review_revisions;
+        llm.agentic_ai_enabled = self.agentic_ai_enabled;
+        llm.reviewer_provider = self.reviewer_provider.clone();
+        llm.reviewer_endpoint = self.reviewer_endpoint.clone();
+        llm.reviewer_model = self.reviewer_model.clone();
+        llm.pedantic_prompt = self.pedantic_prompt.clone();
+        llm.pedantic_ui_prompt = self.pedantic_ui_prompt.clone();
+        llm.pedantic_event_prompt = self.pedantic_event_prompt.clone();
+        llm.model_profiles = self.model_profiles.clone();
+        // Profile-only projects (a model set per-agent but no top-level default,
+        // e.g. Form Designer → ollama) must still drive the direct AI surfaces,
+        // which call the top-level model. Adopt a usable profile as the default
+        // before resolving the API key so the key matches (spec 031).
+        llm.ensure_default_model_from_profiles();
+        llm.api_key = llm
+            .model_profiles
+            .iter()
+            .find(|profile| profile.provider == llm.provider && profile.model == llm.model)
+            .map(|profile| profile.resolve(llm).api_key)
+            .filter(|key| !key.is_empty())
+            .or_else(|| {
+                llm.api_keys
+                    .get(&crate::llm::api_key_slot(&llm.provider, &llm.model))
+                    .cloned()
+            })
+            .unwrap_or_default();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,6 +413,7 @@ impl CoboltProject {
             runtime: RuntimeConfig::default(),
             ide: IdeSettings::default(),
             forms: FormsConfig::default(),
+            ai: ProjectAiSettings::new(),
             user_controls: Vec::new(),
         }
     }
@@ -310,6 +466,82 @@ impl CoboltProject {
         self.files.documentation.retain(|f| f != &rel);
         self.files.generated.retain(|f| f != &rel);
         self.files.indexed.retain(|f| f != &rel);
+    }
+
+    /// Every tracked file list, mutably (spec 033 folder ops iterate all six).
+    fn all_lists_mut(&mut self) -> [&mut Vec<String>; 6] {
+        let ProjectFiles {
+            sources,
+            forms,
+            assets,
+            documentation,
+            generated,
+            indexed,
+        } = &mut self.files;
+        [sources, forms, assets, documentation, generated, indexed]
+    }
+
+    /// Rewrite every tracked path under the folder `old_dir` to sit under
+    /// `new_dir` instead (folder rename/move). Both are project-relative,
+    /// forward-slash directory paths without a trailing slash. All rewritten
+    /// paths stay relative (spec 033, R4, R21).
+    pub fn rename_prefix(&mut self, old_dir: &str, new_dir: &str) {
+        let old_dir = old_dir.replace('\\', "/");
+        let new_dir = new_dir.replace('\\', "/");
+        if old_dir.is_empty() || old_dir == new_dir {
+            return;
+        }
+        let prefix = format!("{old_dir}/");
+        for list in self.all_lists_mut() {
+            for entry in list.iter_mut() {
+                if let Some(rest) = entry.strip_prefix(&prefix) {
+                    *entry = format!("{new_dir}/{rest}");
+                } else if *entry == old_dir {
+                    // A tracked entry that *is* the directory (rare).
+                    *entry = new_dir.clone();
+                }
+            }
+        }
+    }
+
+    /// Rewrite a single tracked file path from `old_rel` to `new_rel` (drag-drop
+    /// move). Preserves the list (category) it was in. Both stay relative
+    /// (spec 033, R9, R21).
+    pub fn move_entry(&mut self, old_rel: &str, new_rel: &str) {
+        let old_rel = old_rel.replace('\\', "/");
+        let new_rel = new_rel.replace('\\', "/");
+        if old_rel == new_rel {
+            return;
+        }
+        for list in self.all_lists_mut() {
+            for entry in list.iter_mut() {
+                if *entry == old_rel {
+                    *entry = new_rel.clone();
+                }
+            }
+        }
+    }
+
+    /// Remove and return every tracked file whose path sits under the folder
+    /// `dir` (recursive folder delete). Returned paths are relative — the caller
+    /// uses them to close editor tabs / views (spec 033, R6).
+    pub fn drain_under(&mut self, dir: &str) -> Vec<String> {
+        let dir = dir.replace('\\', "/");
+        if dir.is_empty() {
+            return Vec::new();
+        }
+        let prefix = format!("{dir}/");
+        let mut removed = Vec::new();
+        for list in self.all_lists_mut() {
+            list.retain(|entry| {
+                let under = entry.starts_with(&prefix) || *entry == dir;
+                if under {
+                    removed.push(entry.clone());
+                }
+                !under
+            });
+        }
+        removed
     }
 
     /// True if `rel` is tracked by the project.
@@ -456,15 +688,43 @@ impl Category {
         !matches!(self, Category::Generated)
     }
 
+    /// The category's root subdirectory (project-relative), where its files and
+    /// folders live on disk. Assets and Documentation have their own resolvers in
+    /// the panel (legacy-case fallbacks); this returns their canonical names.
+    pub fn root_subdir(self) -> &'static str {
+        match self {
+            Category::Forms => "forms",
+            Category::IndexedFiles => "indexed",
+            Category::CommonCode => "src",
+            Category::Generated => "generated",
+            Category::Assets => "Assets",
+            Category::Documentation => cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
+        }
+    }
+
     /// Route a path to a category by extension.
     pub fn of_path(path: &str) -> Category {
-        match FileKind::from_path(path) {
+        Category::of_kind(FileKind::from_path(path))
+    }
+
+    /// The category a file kind belongs to (its "home" category).
+    pub fn of_kind(kind: FileKind) -> Category {
+        match kind {
             FileKind::Form => Category::Forms,
             FileKind::Indexed => Category::IndexedFiles,
             FileKind::Source => Category::CommonCode,
             FileKind::Documentation => Category::Documentation,
             FileKind::Asset => Category::Assets,
         }
+    }
+
+    /// The category whose root subdir is the top component of `dir_rel`, if any.
+    pub fn from_root_component(dir_rel: &str) -> Option<Category> {
+        let top = dir_rel.replace('\\', "/");
+        let top = top.split('/').next().unwrap_or("");
+        Category::TOP
+            .into_iter()
+            .find(|c| c.root_subdir().eq_ignore_ascii_case(top))
     }
 
     // NOTE: Visual icons for the project tree are hand-written vector shapes
@@ -507,7 +767,7 @@ impl FileKind {
             FileKind::Form => "Forms",
             FileKind::Indexed => "Indexed Files",
             FileKind::Asset => "Assets",
-            FileKind::Documentation => "Documentation",
+            FileKind::Documentation => "Knowledge Base",
         }
     }
 
@@ -733,6 +993,140 @@ mod tests {
 
     fn proj() -> CoboltProject {
         CoboltProject::new("T", "src/main.cbl")
+    }
+
+    #[test]
+    fn rename_prefix_rewrites_only_entries_under_dir() {
+        let mut p = proj();
+        p.add_file_to("forms/customers/order.cfrm", Category::Forms);
+        p.add_file_to("forms/customers/invoice.cfrm", Category::Forms);
+        p.add_file_to("forms/login.cfrm", Category::Forms);
+        p.add_file_to("src/customers/util.cbl", Category::CommonCode);
+
+        p.rename_prefix("forms/customers", "forms/clients");
+
+        assert!(p.files.forms.contains(&"forms/clients/order.cfrm".to_string()));
+        assert!(p.files.forms.contains(&"forms/clients/invoice.cfrm".to_string()));
+        // Untouched: a sibling not under the renamed dir, and a same-named dir in
+        // another category root.
+        assert!(p.files.forms.contains(&"forms/login.cfrm".to_string()));
+        assert!(p.files.sources.contains(&"src/customers/util.cbl".to_string()));
+        // No absolute path leaked (R21).
+        assert!(p.all_files().all(|f| !Path::new(f).is_absolute()));
+    }
+
+    #[test]
+    fn move_entry_rewrites_single_file_keeping_category() {
+        let mut p = proj();
+        p.add_file_to("forms/a/order.cfrm", Category::Forms);
+        p.move_entry("forms/a/order.cfrm", "forms/b/order.cfrm");
+        assert_eq!(p.files.forms, vec!["forms/b/order.cfrm".to_string()]);
+    }
+
+    #[test]
+    fn drain_under_removes_and_returns_subtree() {
+        let mut p = proj();
+        p.add_file_to("forms/customers/order.cfrm", Category::Forms);
+        p.add_file_to("generated/customers/order.cbl", Category::Generated);
+        p.add_file_to("forms/login.cfrm", Category::Forms);
+
+        let removed = p.drain_under("forms/customers");
+        assert_eq!(removed, vec!["forms/customers/order.cfrm".to_string()]);
+        assert!(p.files.forms.contains(&"forms/login.cfrm".to_string()));
+        // A same-named folder under a different category root is not touched.
+        assert!(p
+            .files
+            .generated
+            .contains(&"generated/customers/order.cbl".to_string()));
+    }
+
+    #[test]
+    fn project_ai_round_trip_contains_models_but_never_credentials() {
+        let mut p = proj();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.model_profiles.push(crate::llm::ModelProfile {
+            id: "project-profile".into(),
+            name: "Project model".into(),
+            provider: "openai".into(),
+            endpoint: "https://api.openai.com/v1".into(),
+            endpoint_user_edited: false,
+            model: "gpt-5".into(),
+            temperature: 0.4,
+            max_tokens: 8192,
+            timeout_secs: 120,
+        });
+        llm.store_api_key(
+            crate::llm::profile_api_key_slot("project-profile"),
+            "never-write-this-secret",
+        );
+        p.ai = ProjectAiSettings::from_llm(&llm);
+
+        let text = toml::to_string_pretty(&p).unwrap();
+        assert!(text.contains("project-profile"));
+        assert!(!text.contains("never-write-this-secret"));
+        assert!(!text.contains("api_key"));
+
+        let loaded: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.ai.schema_version, 1);
+        assert_eq!(loaded.ai.model_profiles[0].model, "gpt-5");
+    }
+
+    #[test]
+    fn applying_project_ai_switches_profiles_without_touching_machine_keys() {
+        let mut runtime = crate::llm::LlmConfig::load_defaults_for_test();
+        runtime.store_api_key(crate::llm::profile_api_key_slot("a"), "key-a");
+        runtime.store_api_key(crate::llm::profile_api_key_slot("b"), "key-b");
+
+        let mut a = ProjectAiSettings::new();
+        a.model_profiles.push(crate::llm::ModelProfile {
+            id: "a".into(),
+            name: "A".into(),
+            provider: "openai".into(),
+            endpoint: "https://api.openai.com/v1".into(),
+            endpoint_user_edited: false,
+            model: "model-a".into(),
+            temperature: 0.4,
+            max_tokens: 1000,
+            timeout_secs: 30,
+        });
+        let mut b = ProjectAiSettings::new();
+        b.model_profiles.push(crate::llm::ModelProfile {
+            id: "b".into(),
+            name: "B".into(),
+            provider: "ollama_cloud".into(),
+            endpoint: "https://ollama.com/api/chat".into(),
+            endpoint_user_edited: false,
+            model: "model-b".into(),
+            temperature: 0.7,
+            max_tokens: 2000,
+            timeout_secs: 60,
+        });
+
+        a.apply_to_llm(&mut runtime);
+        assert_eq!(runtime.model_profiles[0].id, "a");
+        assert_eq!(
+            runtime.profile("a").unwrap().resolve(&runtime).api_key,
+            "key-a"
+        );
+        b.apply_to_llm(&mut runtime);
+        assert_eq!(runtime.model_profiles[0].id, "b");
+        assert_eq!(
+            runtime.profile("b").unwrap().resolve(&runtime).api_key,
+            "key-b"
+        );
+        assert_eq!(runtime.api_keys.len(), 2);
+    }
+
+    #[test]
+    fn legacy_project_without_ai_table_is_marked_for_migration() {
+        let text = r#"
+[project]
+name = "Legacy"
+version = "1.0.0"
+main = "src/main.cbl"
+"#;
+        let loaded: CoboltProject = toml::from_str(text).unwrap();
+        assert_eq!(loaded.ai.schema_version, 0);
     }
 
     #[test]

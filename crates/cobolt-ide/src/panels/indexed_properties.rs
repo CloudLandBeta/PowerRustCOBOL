@@ -676,7 +676,7 @@ fn finish_field_edit(
 
 fn field_width(ui: &egui::Ui, max_chars: usize) -> f32 {
     let id = egui::TextStyle::Body.resolve(ui.style());
-    let cw = ui.fonts(|f| f.glyph_width(&id, 'M'));
+    let cw = ui.fonts_mut(|f| f.glyph_width(&id, 'M'));
     let cap = max_chars as f32 * cw + 10.0;
     ui.available_width().min(cap).max(cw * 3.0)
 }

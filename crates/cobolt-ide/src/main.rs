@@ -15,26 +15,46 @@
 //! ```
 
 pub mod agent;
+pub mod agent_inspection;
+pub mod agents_db;
 mod app;
 pub mod data_binding_guardian;
 pub mod docs_embed;
 pub mod file_dialog;
 pub mod fonts;
 pub mod form_runtime;
+pub mod git_exec;
+pub mod grace_host;
+pub mod model_policy;
+pub mod grace_session;
 pub mod i18n;
 pub mod inspector;
 pub mod llm;
 mod panels;
 pub mod pdf_export;
+mod project_fs;
 mod project_model;
 mod runner;
+mod target_select;
 pub mod theme;
 pub mod theme_ui;
+pub mod tool_exec;
 pub mod version;
 pub mod welcome;
 
 use app::CoboltApp;
 use version::VERSION;
+
+/// Convert an `f32` corner radius to egui 0.31+'s `u8` unit (round + clamp).
+/// UI math stays in `f32`; conversion happens only at the egui boundary.
+pub fn cr8(v: f32) -> u8 {
+    v.round().clamp(0.0, 255.0) as u8
+}
+
+/// Convert an `f32` margin to egui 0.31+'s `i8` unit (round + clamp).
+pub fn mr8(v: f32) -> i8 {
+    v.round().clamp(-128.0, 127.0) as i8
+}
 
 fn main() -> eframe::Result<()> {
     // Initialise logging.

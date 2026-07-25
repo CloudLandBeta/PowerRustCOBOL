@@ -398,7 +398,12 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
         "doc-save" => {
             let tl = Pos2::new(c.x - s * 0.5, c.y - s * 0.6);
             let br = Pos2::new(c.x + s * 0.5, c.y + s * 0.6);
-            painter.rect_stroke(Rect::from_min_max(tl, br), s * 0.1, st);
+            painter.rect_stroke(
+                Rect::from_min_max(tl, br),
+                s * 0.1,
+                st,
+                egui::StrokeKind::Middle,
+            );
             ls(
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.6),
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.25),
@@ -418,6 +423,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "doc-save-as" => {
@@ -440,8 +446,8 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Pos2::new(c.x - s * 0.35 - off, c.y - s * 0.35),
                 Pos2::new(c.x + s * 0.35 - off, c.y + s * 0.55),
             );
-            painter.rect_stroke(r1, s * 0.05, st);
-            painter.rect_stroke(r2, s * 0.05, st);
+            painter.rect_stroke(r1, s * 0.05, st, egui::StrokeKind::Middle);
+            painter.rect_stroke(r2, s * 0.05, st, egui::StrokeKind::Middle);
         }
         "doc-blank" => {
             icon_doc_outline(painter, c, s, st);
@@ -473,6 +479,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                         Rect::from_min_size(Pos2::new(x, y), Vec2::splat(s * 0.18)),
                         0.0,
                         st,
+                        egui::StrokeKind::Middle,
                     );
                 }
             }
@@ -484,7 +491,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                     Pos2::new(c.x - s * 0.35 + off, c.y - s * 0.5 + off),
                     Pos2::new(c.x + s * 0.35 + off, c.y + s * 0.4 + off),
                 );
-                painter.rect_stroke(r, s * 0.05, st);
+                painter.rect_stroke(r, s * 0.05, st, egui::StrokeKind::Middle);
             }
         }
 
@@ -506,6 +513,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::new(s * 0.8, s)),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.15, c.y - s * 0.5),
@@ -718,6 +726,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 0.0,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(Pos2::new(c.x, c.y + s * 0.4), Pos2::new(c.x, c.y + s * 0.1));
         }
@@ -729,6 +738,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x + s * 0.1, c.y - s * 0.4),
@@ -857,6 +867,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 0.7, s * 0.6)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x, c.y - s * 0.5),
@@ -876,6 +887,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 0.7, s * 0.6)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x, c.y + s * 0.05),
@@ -1024,6 +1036,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                         Rect::from_min_size(Pos2::new(x, y), Vec2::splat(s * 0.3)),
                         s * 0.03,
                         st,
+                        egui::StrokeKind::Middle,
                     );
                 }
             }
@@ -1039,7 +1052,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
         // ── Communication ───────────────────────────────────────────────────
         "mail" => {
             let r = Rect::from_center_size(c, Vec2::new(s * 0.9, s * 0.6));
-            painter.rect_stroke(r, s * 0.05, st);
+            painter.rect_stroke(r, s * 0.05, st, egui::StrokeKind::Middle);
             ls(r.left_top(), c + Vec2::new(0.0, -s * 0.05));
             ls(c + Vec2::new(0.0, -s * 0.05), r.right_top());
         }
@@ -1048,7 +1061,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Pos2::new(c.x - s * 0.45, c.y - s * 0.1),
                 Pos2::new(c.x + s * 0.45, c.y + s * 0.4),
             );
-            painter.rect_stroke(r, s * 0.05, st);
+            painter.rect_stroke(r, s * 0.05, st, egui::StrokeKind::Middle);
             ls(
                 Pos2::new(c.x - s * 0.45, c.y - s * 0.1),
                 Pos2::new(c.x, c.y - s * 0.45),
@@ -1079,7 +1092,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
         "inbox" => {
             let r =
                 Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 0.9, s * 0.6));
-            painter.rect_stroke(r, s * 0.05, st);
+            painter.rect_stroke(r, s * 0.05, st, egui::StrokeKind::Middle);
             ls(
                 Pos2::new(c.x - s * 0.45, c.y),
                 Pos2::new(c.x - s * 0.15, c.y),
@@ -1106,6 +1119,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c + Vec2::new(0.0, -s * 0.1), Vec2::new(s * 0.8, s * 0.55)),
                 s * 0.1,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.1, c.y + s * 0.18),
@@ -1121,6 +1135,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::new(s * 0.45, s * 0.85)),
                 s * 0.1,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_filled(Pos2::new(c.x, c.y + s * 0.3), s * 0.06, color);
         }
@@ -1132,6 +1147,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x + s * 0.1, c.y - s * 0.15),
@@ -1221,6 +1237,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.2, c.y + s * 0.1),
@@ -1247,6 +1264,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.1),
@@ -1378,6 +1396,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::splat(s * 0.7)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "skip-forward" => {
@@ -1548,6 +1567,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::splat(s * 0.85)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.42, c.y - s * 0.15),
@@ -1670,6 +1690,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.05),
@@ -1689,6 +1710,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.05),
@@ -1716,6 +1738,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::new(s * 0.9, s * 0.7)),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.3, c.y - s * 0.1),
@@ -1768,6 +1791,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::splat(s * 0.55)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             for i in 0..3 {
                 let off = -s * 0.15 + i as f32 * s * 0.15;
@@ -1867,6 +1891,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c + Vec2::new(0.0, s * 0.05), Vec2::new(s * 0.8, s * 0.7)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.4, c.y - s * 0.12),
@@ -1912,6 +1937,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::new(s * 0.9, s * 0.55)),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.45, c.y - s * 0.08),
@@ -1923,6 +1949,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::new(s * 0.85, s * 0.65)),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -1931,6 +1958,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "receipt" => {
@@ -2022,6 +2050,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -2030,6 +2059,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.1, c.y + s * 0.05),
@@ -2060,6 +2090,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(Pos2::new(c.x, c.y - s * 0.1), Pos2::new(c.x, c.y + s * 0.3));
         }
@@ -2071,6 +2102,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -2079,6 +2111,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -2087,6 +2120,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
 
@@ -2100,6 +2134,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y + s * 0.1),
@@ -2122,6 +2157,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.4, c.y - s * 0.15),
@@ -2268,6 +2304,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.4, c.y - s * 0.1),
@@ -2368,6 +2405,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -2376,6 +2414,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "payroll-commission" => {
@@ -2416,6 +2455,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x + s * 0.275, c.y - s * 0.05), s * 0.1, st);
         }
@@ -2470,6 +2510,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.3, c.y + s * 0.2),
@@ -2552,6 +2593,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.15),
@@ -2671,6 +2713,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -2679,6 +2722,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -2687,6 +2731,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "collection" => {
@@ -2716,6 +2761,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.4, c.y - s * 0.2),
@@ -2924,6 +2970,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.4),
@@ -2994,6 +3041,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.4, c.y - s * 0.2),
@@ -3049,6 +3097,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y + s * 0.1),
@@ -3111,6 +3160,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(c, s * 0.15, st);
             painter.text(
@@ -3230,6 +3280,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3238,6 +3289,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3246,6 +3298,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 Pos2::new(c.x, c.y + s * 0.05),
@@ -3348,6 +3401,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3356,6 +3410,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.15, c.y),
@@ -3399,6 +3454,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.05),
@@ -3488,6 +3544,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.15),
@@ -3587,6 +3644,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x, c.y - s * 0.1), s * 0.18, st);
             painter.text(
@@ -3634,6 +3692,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3642,6 +3701,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3650,6 +3710,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3658,6 +3719,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "warehouse" => {
@@ -3677,6 +3739,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3685,6 +3748,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "stock-in" => {
@@ -3696,6 +3760,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x, c.y - s * 0.45),
@@ -3719,6 +3784,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x, c.y - s * 0.05),
@@ -3742,6 +3808,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 Pos2::new(c.x - s * 0.12, c.y + s * 0.07),
@@ -3757,6 +3824,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "stock-transfer" => {
@@ -3768,6 +3836,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3776,6 +3845,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.08, c.y + s * 0.025),
@@ -3799,6 +3869,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.05),
@@ -3822,6 +3893,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3830,6 +3902,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x, c.y - s * 0.05), s * 0.1, st);
         }
@@ -3842,6 +3915,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 Pos2::new(c.x, c.y - s * 0.35),
@@ -3860,6 +3934,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x, c.y + s * 0.1), s * 0.15, st);
             ls(
@@ -3886,6 +3961,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3894,6 +3970,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -3902,6 +3979,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_filled(Pos2::new(c.x + s * 0.2, c.y + s * 0.2), s * 0.05, color);
             painter.circle_filled(Pos2::new(c.x + s * 0.35, c.y + s * 0.35), s * 0.05, color);
@@ -3935,6 +4013,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "shelf" => {
@@ -3962,6 +4041,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "bin-location" => {
@@ -3973,6 +4053,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(Pos2::new(c.x, c.y - s * 0.3), Pos2::new(c.x, c.y + s * 0.3));
             ls(Pos2::new(c.x - s * 0.4, c.y), Pos2::new(c.x + s * 0.4, c.y));
@@ -3987,6 +4068,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.25),
@@ -4009,6 +4091,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 Pos2::new(c.x, c.y),
@@ -4027,6 +4110,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.1),
@@ -4121,6 +4205,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -4129,6 +4214,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x + s * 0.0, c.y - s * 0.15),
@@ -4160,6 +4246,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 Pos2::new(c.x - s * 0.15, c.y),
@@ -4210,6 +4297,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "dead-stock" => {
@@ -4221,6 +4309,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             lsh(
                 Pos2::new(c.x - s * 0.2, c.y - s * 0.15),
@@ -4242,6 +4331,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -4250,6 +4340,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x - s * 0.3, c.y + s * 0.3), s * 0.1, st);
             painter.circle_stroke(Pos2::new(c.x + s * 0.35, c.y + s * 0.3), s * 0.1, st);
@@ -4262,6 +4353,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -4270,6 +4362,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x - s * 0.3, c.y + s * 0.3), s * 0.1, st);
             painter.circle_stroke(Pos2::new(c.x + s * 0.35, c.y + s * 0.3), s * 0.1, st);
@@ -4295,6 +4388,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -4303,6 +4397,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x - s * 0.3, c.y + s * 0.3), s * 0.1, st);
             painter.circle_stroke(Pos2::new(c.x + s * 0.35, c.y + s * 0.3), s * 0.1, st);
@@ -4325,6 +4420,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.15,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x - s * 0.3, c.y + s * 0.3), s * 0.1, st);
             painter.circle_stroke(Pos2::new(c.x + s * 0.3, c.y + s * 0.3), s * 0.1, st);
@@ -4359,6 +4455,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Smokestack
             ls(
@@ -4391,6 +4488,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -4399,6 +4497,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "airplane" => {
@@ -4459,6 +4558,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Rotor top
             ls(
@@ -4497,6 +4597,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.06,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Window
             painter.rect_stroke(
@@ -4506,6 +4607,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Wheels
             painter.circle_stroke(Pos2::new(c.x - s * 0.2, c.y + s * 0.25), s * 0.1, st);
@@ -4541,6 +4643,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Corrugation lines
             for i in -1..=1 {
@@ -4557,6 +4660,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Forks
             ls(
@@ -4732,6 +4836,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Nozzle
             ls(
@@ -4750,6 +4855,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "tire" => {
@@ -4772,6 +4878,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Pistons on top
             ls(
@@ -4802,6 +4909,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Digit separators
             for i in -1..=1 {
@@ -4819,6 +4927,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Top flaps
             ls(
@@ -4843,6 +4952,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Open flaps
             ls(
@@ -4862,6 +4972,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.25),
@@ -4889,6 +5000,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.35, c.y - s * 0.25),
@@ -4916,6 +5028,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.4, c.y - s * 0.25),
@@ -4953,6 +5066,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
         }
         "loading-dock" => {
@@ -4964,6 +5078,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Truck back
             painter.rect_stroke(
@@ -4973,6 +5088,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Ramp
             ls(
@@ -4989,6 +5105,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Clip at top
             painter.rect_stroke(
@@ -4998,6 +5115,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Arrow right
             ls(
@@ -5045,6 +5163,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             for i in -3..=3 {
                 let x = c.x + s * 0.1 * i as f32;
@@ -5263,6 +5382,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             for i in -2..=2 {
                 let y = c.y + s * 0.15 * i as f32;
@@ -5277,6 +5397,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Header area
             lsh(
@@ -5341,6 +5462,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Dotted path to house
             for i in -3..=0 {
@@ -5357,6 +5479,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Return arrow (curved left)
             ls(
@@ -5381,6 +5504,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Small boxes
             painter.rect_stroke(
@@ -5390,6 +5514,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -5398,6 +5523,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -5406,6 +5532,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Arrows down
             ls(
@@ -5430,6 +5557,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -5438,6 +5566,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -5446,6 +5575,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -5454,6 +5584,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x, c.y - s * 0.1),
@@ -5577,6 +5708,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.06,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Dial
             painter.circle_stroke(c, s * 0.2, st);
@@ -5595,6 +5727,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.06,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Keyhole
             painter.circle_stroke(Pos2::new(c.x, c.y - s * 0.05), s * 0.08, st);
@@ -5646,6 +5779,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.06,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Screen
             painter.rect_stroke(
@@ -5655,6 +5789,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Keypad dots
             for row in 0..2 {
@@ -5805,6 +5940,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.02,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Dollar in house
             painter.text(
@@ -5852,6 +5988,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             ls(
                 Pos2::new(c.x - s * 0.25, c.y - s * 0.15),
@@ -5881,6 +6018,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.06,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Spine
             ls(
@@ -5909,6 +6047,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Vertical divider
             ls(Pos2::new(c.x, c.y - s * 0.4), Pos2::new(c.x, c.y + s * 0.4));
@@ -6048,6 +6187,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.1,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Tail
             ls(
@@ -6204,6 +6344,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.1,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x, c.y - s * 0.12), s * 0.15, st);
             ls(
@@ -6224,6 +6365,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.circle_stroke(Pos2::new(c.x, c.y - s * 0.15), s * 0.12, st);
             // Text lines below
@@ -6264,6 +6406,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.04,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Lens triangle
             ls(
@@ -6398,6 +6541,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.06,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Lines of text
             ls(
@@ -6422,6 +6566,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -6430,6 +6575,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.03,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Content line
             ls(
@@ -6490,6 +6636,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.rect_stroke(
                 Rect::from_min_max(
@@ -6498,6 +6645,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 ),
                 s * 0.08,
                 st,
+                egui::StrokeKind::Middle,
             );
             // Tail for first
             ls(
@@ -6517,6 +6665,7 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Rect::from_center_size(c, Vec2::splat(s * 0.6)),
                 s * 0.05,
                 st,
+                egui::StrokeKind::Middle,
             );
             painter.text(
                 c,

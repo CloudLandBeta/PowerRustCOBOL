@@ -9,9 +9,12 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## Stack
 
-- **Rust** workspace (`crates/*`), edition per workspace `Cargo.toml`.
-- **egui / eframe 0.29** for the IDE UI (immediate-mode GUI; multi-viewport via
-  `ctx.show_viewport_immediate`).
+- **Rust** workspace (`crates/*`), edition per workspace `Cargo.toml`;
+  **MSRV 1.92** (egui 0.34+ floor).
+- **egui / eframe 0.35** for the IDE UI (immediate-mode GUI; multi-viewport via
+  `ctx.show_viewport_immediate` — viewport callbacks receive `&mut Ui`; panels
+  are `egui::Panel`, hosted on a `Ui`). *(main is still on 0.29 until the
+  `egui-035` branch — spec 027 — merges; this line describes the branch.)*
 - Tree-walking COBOL runtime (no external COBOL toolchain at runtime).
 
 ## Crates (roles)

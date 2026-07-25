@@ -11,6 +11,8 @@ categories.workspace = true
 
 [dependencies]
 rig-core = { workspace = true }
+futures = "0.3"
+schemars = "1"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,7 +27,7 @@ ndarray = { version = "0.15", optional = true }
 num_cpus = "1.16"
 ort = { version = "2.0.0-rc.12", optional = true }
 sqlite-vec = { version = "0.1", optional = true }
-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+rusqlite = { workspace = true }
 tokio-rusqlite = { version = "0.6", optional = true }
 cobolt-forms = { path = "../cobolt-forms" }
 tempfile = "3.10"
@@ -40,7 +42,6 @@ local-retrieval = [
     "dep:ndarray",
     "dep:ort",
     "dep:sqlite-vec",
-    "dep:rusqlite",
     "dep:tokio-rusqlite",
 ]
 otel = [] # Optional OpenTelemetry export support

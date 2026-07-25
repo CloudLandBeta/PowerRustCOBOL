@@ -7,6 +7,14 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 For the next agent picking up this work. State as of 2026-07-12.
 
+> **2026-07-21 — superseded.** The revamp shipped through specs 028–031 (agent
+> database, Grace, tool execution, model profiles) plus the Rig migration
+> phases 1–4 (transport, native tools, typed extractors, legacy orchestrator
+> deletion). The per-verb statement agents / `check_capability` matrix
+> (R5/R5a) and the `knowledge/verbs/` corpus were dropped by operator decision
+> — the fixed agent roster with knowledge cards, Pedantic gates, and
+> `knowledge_search` covers that goal. The seed corpus was removed.
+
 ## Where things stand
 
 - `specs/026-rig-agent-mesh/spec.md` is **complete: zero open questions**.

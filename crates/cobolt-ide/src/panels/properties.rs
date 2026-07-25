@@ -50,21 +50,32 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if ui.is_rect_visible(rect) {
         show_color_at(ui.painter(), *color, rect);
-        ui.painter()
-            .rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_gray(120)));
+        ui.painter().rect_stroke(
+            rect,
+            2.0,
+            Stroke::new(1.0, Color32::from_gray(120)),
+            egui::StrokeKind::Middle,
+        );
     }
 
     let popup_id = resp.id.with("__closing_color_popup");
     let anchor_id = resp.id.with("__closing_color_anchor");
+    let open_id = resp.id.with("__closing_color_open");
+    // Own the open/closed state ourselves (a bool in temp memory) instead of
+    // egui's popup manager: since 0.32 the manager force-closes any popup that
+    // isn't re-registered through the `Popup::show` API each frame, so a
+    // hand-rolled Area popup registered via `Popup::toggle_id` dies after one
+    // frame ("opens then closes by itself").
+    let mut open: bool = ui.memory(|m| m.data.get_temp(open_id)).unwrap_or(false);
     if resp.clicked() {
-        ui.memory_mut(|m| m.toggle_popup(popup_id));
+        open = !open;
         // Pin the popup to where the swatch is *at open time*. Using the live
         // swatch rect each frame makes the popup drift when the panel reflows or
         // scrolls during a drag (e.g. dragging the 2-D picker to its border).
         ui.memory_mut(|m| m.data.insert_temp(anchor_id, resp.rect.left_bottom()));
     }
 
-    if ui.memory(|m| m.is_popup_open(popup_id)) {
+    if open {
         let anchor: Pos2 = ui
             .memory(|m| m.data.get_temp(anchor_id))
             .unwrap_or_else(|| resp.rect.left_bottom());
@@ -100,6 +111,7 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
                             sw_rect,
                             2.0,
                             Stroke::new(1.0, Color32::from_gray(120)),
+                            egui::StrokeKind::Middle,
                         );
 
                         ui.label("#");
@@ -156,9 +168,10 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
         if !resp.clicked()
             && (ui.input(|i| i.key_pressed(Key::Escape)) || area.response.clicked_elsewhere())
         {
-            ui.memory_mut(|m| m.close_popup());
+            open = false;
         }
     }
+    ui.memory_mut(|m| m.data.insert_temp(open_id, open));
 
     resp
 }
@@ -1606,11 +1619,11 @@ fn show_binding_source_selector(ui: &mut Ui, editor: &mut BindingEditorState, tr
 }
 
 fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(78, 31, 30, 130))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(112, 58, 56)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.colored_label(Color32::from_rgb(255, 115, 100), "!");
@@ -1777,10 +1790,10 @@ fn show_preview_pagination(
 }
 
 fn show_preview_grid(ui: &mut Ui) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(15, 18, 22, 210))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(58, 64, 72)))
-        .rounding(egui::Rounding::same(5.0))
+        .corner_radius(egui::CornerRadius::same(5))
         .show(ui, |ui| {
             egui::Grid::new("data_binding_preview_grid")
                 .num_columns(6)
@@ -2030,11 +2043,11 @@ fn show_rest_auth_fields(ui: &mut Ui, auth: &mut RestAuth) {
 }
 
 fn show_json_code_preview(ui: &mut Ui, json: &str, max_height: f32) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(7, 10, 13, 235))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(55, 65, 78)))
-        .rounding(egui::Rounding::same(5.0))
-        .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+        .corner_radius(egui::CornerRadius::same(5))
+        .inner_margin(egui::Margin::symmetric(8, 8))
         .show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .max_height(max_height)
@@ -2099,11 +2112,11 @@ fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState)
         .id_salt("rest_data_binding_source_fields_scroll")
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-                .rounding(egui::Rounding::same(6.0))
-                .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                .corner_radius(egui::CornerRadius::same(6))
+                .inner_margin(egui::Margin::symmetric(8, 6))
                 .show(ui, |ui| {
                     let mut remove_at = None;
                     egui::Grid::new("rest_data_binding_source_fields")
@@ -2277,11 +2290,11 @@ fn show_cobol_table_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) 
 }
 
 fn show_jsonpath_help_panel(ui: &mut Ui) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(14, 17, 21, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
             ui.heading("JSONPath help");
             ui.add_space(8.0);
@@ -2331,11 +2344,11 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
     ui.add_space(8.0);
     let show_sql_type = editor.selected_source == Some(BindingEditorSourceKind::Sql);
     let show_cobol_table = editor.selected_source == Some(BindingEditorSourceKind::CobolTable);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
             let mut remove_at = None;
             egui::Grid::new("data_binding_source_fields")
@@ -2596,11 +2609,11 @@ fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorSta
 }
 
 fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 10))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("Dropdown configuration")
@@ -2734,11 +2747,11 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow)
 }
 
 fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("Dropdown configuration")
@@ -2966,11 +2979,11 @@ fn field_name_only(field: &str) -> &str {
 }
 
 fn source_placeholder(ui: &mut Ui, message: &str) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
             ui.label(RichText::new(message).color(Color32::GRAY));
         });
@@ -3108,15 +3121,24 @@ impl PropertiesPanel {
                 // ── Geometry ──────────────────────────────────────────────────────────
                 self.show_geometry_grid(ui, ctrl, &id, action, tr);
                 if ctrl.get_prop("CornerRadius").is_some() {
-                    int_row_inline(
-                        ui,
-                        &id,
-                        "CornerRadius",
-                        "Corner radius",
-                        ctrl,
-                        action,
-                        0..=400,
-                    );
+                    // CornerRadius rounds a Shape only when it is a Rectangle
+                    // (circles/triangles have no corners to round).
+                    let inert = matches!(ctrl.control_type, ControlType::Shape)
+                        && !matches!(
+                            ctrl.get_prop("ShapeType").map(|v| v.as_str()),
+                            None | Some("Rectangle") | Some("RoundRect")
+                        );
+                    ui.add_enabled_ui(!inert, |ui| {
+                        int_row_inline(
+                            ui,
+                            &id,
+                            "CornerRadius",
+                            "Corner radius",
+                            ctrl,
+                            action,
+                            0..=400,
+                        );
+                    });
                 }
                 ui.add_space(4.0);
 
@@ -3245,10 +3267,10 @@ impl PropertiesPanel {
         } else {
             Color32::from_rgba_unmultiplied(245, 247, 250, 190)
         };
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(fill)
             .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-            .inner_margin(egui::Margin::symmetric(3.0, 3.0))
+            .inner_margin(egui::Margin::symmetric(3, 3))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for (tab, label) in [
@@ -3409,6 +3431,57 @@ impl PropertiesPanel {
             action,
             "#F0F0F0",
         );
+        bool_prop_row(
+            ui,
+            id,
+            "BackgroundGradientEnabled",
+            "Background gradient",
+            ctrl,
+            action,
+        );
+        if ctrl
+            .get_prop("BackgroundGradientEnabled")
+            .map(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            color_prop_row(
+                ui,
+                id,
+                "BackgroundGradientStartColor",
+                "Gradient start",
+                ctrl,
+                action,
+                "#F0F0F0FF",
+            );
+            color_prop_row(
+                ui,
+                id,
+                "BackgroundGradientEndColor",
+                "Gradient end",
+                ctrl,
+                action,
+                "#C8D0DCFF",
+            );
+            combo_prop_row(
+                ui,
+                id,
+                "BackgroundGradientDirection",
+                "Gradient direction",
+                ctrl,
+                action,
+                &[
+                    "North",
+                    "NorthEast",
+                    "East",
+                    "SouthEast",
+                    "South",
+                    "SouthWest",
+                    "West",
+                    "NorthWest",
+                ],
+                "South",
+            );
+        }
         color_prop_row(
             ui,
             id,
@@ -3583,6 +3656,15 @@ impl PropertiesPanel {
             ctrl,
             action,
             "#000000",
+        );
+        color_prop_row(
+            ui,
+            id,
+            "ShadowLightColor",
+            "Light shadow color",
+            ctrl,
+            action,
+            "#FFFFFFFF",
         );
         combo_prop_row(
             ui,
@@ -4150,7 +4232,7 @@ impl PropertiesPanel {
         }
 
         let ctx = ui.ctx().clone();
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let modal_size = egui::vec2(
             (screen.width() * 0.80).clamp(720.0, 1180.0),
             (screen.height() * 0.84).max(560.0),
@@ -5119,36 +5201,6 @@ impl PropertiesPanel {
                     bool_row_inline(ui, id, "CaptionEnabled", "Caption enabled", ctrl, action);
                 }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
-                bool_row_inline(
-                    ui,
-                    id,
-                    "BackgroundGradientEnabled",
-                    "Background gradient",
-                    ctrl,
-                    action,
-                );
-                if ctrl
-                    .get_prop("BackgroundGradientEnabled")
-                    .map(|v| v.as_bool())
-                    .unwrap_or(false)
-                {
-                    color_row(ui, id, "BackgroundGradientStartColor", ctrl, action);
-                    color_row(ui, id, "BackgroundGradientEndColor", ctrl, action);
-                    combo_row_inline(
-                        ui,
-                        id,
-                        "BackgroundGradientDirection",
-                        ctrl,
-                        action,
-                        &[
-                            "Vertical",
-                            "Horizontal",
-                            "DiagonalDown",
-                            "DiagonalUp",
-                            "Radial",
-                        ],
-                    );
-                }
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
 
@@ -5558,8 +5610,9 @@ impl PropertiesPanel {
                     "ShapeType",
                     ctrl,
                     action,
-                    &["Rectangle", "Circle", "RoundRect", "Triangle"],
+                    &["Rectangle", "Circle", "Triangle"],
                 );
+                bool_row_inline(ui, id, "FormStyle", "Form style (glass)", ctrl, action);
                 combo_row_inline(
                     ui,
                     id,
@@ -5585,7 +5638,7 @@ impl PropertiesPanel {
                     "LineStyle",
                     ctrl,
                     action,
-                    &["Solid", "Dash", "Dot", "DashDot"],
+                    &["None", "Solid", "Dash", "Dot", "DashDot"],
                 );
                 color_row(ui, id, "FillColor", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
@@ -5980,6 +6033,19 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // ── Async I/O (spec 032) ──
+                section_header(ui, "Async");
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Async", "Sync"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -6058,6 +6124,19 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
+                section_header(ui, "Async");
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -6140,6 +6219,19 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, key, &cur, label, hint, action);
                 }
+                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
+                section_header(ui, "Async");
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -6269,6 +6361,7 @@ impl PropertiesPanel {
                                 cell_rect.shrink(1.5),
                                 0.0,
                                 egui::Stroke::new(2.0, Color32::BLACK),
+                                egui::StrokeKind::Middle,
                             );
                         }
                     }
@@ -6742,6 +6835,73 @@ impl PropertiesPanel {
                             .color(Color32::GRAY),
                     );
                 });
+                property_row(ui, "Background gradient", |ui| {
+                    let mut enabled = form.background_gradient_enabled;
+                    if ui.checkbox(&mut enabled, "").changed() {
+                        action
+                            .form_props
+                            .push(("BackgroundGradientEnabled".into(), enabled.to_string()));
+                    }
+                });
+                if form.background_gradient_enabled {
+                    property_row(ui, "Gradient start", |ui| {
+                        let mut color = hex_to_color32(&form.background_gradient_start_color);
+                        if color_edit_button_closing(ui, &mut color).changed() {
+                            action.form_props.push((
+                                "BackgroundGradientStartColor".into(),
+                                color32_to_hex(color),
+                            ));
+                        }
+                        ui.label(
+                            RichText::new(color32_to_hex(color))
+                                .monospace()
+                                .small()
+                                .color(Color32::GRAY),
+                        );
+                    });
+                    property_row(ui, "Gradient end", |ui| {
+                        let mut color = hex_to_color32(&form.background_gradient_end_color);
+                        if color_edit_button_closing(ui, &mut color).changed() {
+                            action
+                                .form_props
+                                .push(("BackgroundGradientEndColor".into(), color32_to_hex(color)));
+                        }
+                        ui.label(
+                            RichText::new(color32_to_hex(color))
+                                .monospace()
+                                .small()
+                                .color(Color32::GRAY),
+                        );
+                    });
+                    property_row(ui, "Gradient direction", |ui| {
+                        let current = form.background_gradient_direction.as_str();
+                        egui::ComboBox::from_id_salt("form_background_gradient_direction")
+                            .selected_text(current)
+                            .width(ui.available_width())
+                            .show_ui(ui, |ui| {
+                                for direction in [
+                                    "North",
+                                    "NorthEast",
+                                    "East",
+                                    "SouthEast",
+                                    "South",
+                                    "SouthWest",
+                                    "West",
+                                    "NorthWest",
+                                ] {
+                                    if ui
+                                        .selectable_label(current == direction, direction)
+                                        .clicked()
+                                    {
+                                        action.form_props.push((
+                                            "BackgroundGradientDirection".into(),
+                                            direction.into(),
+                                        ));
+                                    }
+                                }
+                            });
+                    });
+                }
                 property_row(ui, tr.lbl_transparency, |ui| {
                     let mut trans = form.transparency as i64;
                     if ui
@@ -6782,7 +6942,9 @@ impl PropertiesPanel {
                         .selected_text(cur)
                         .width(ui.available_width())
                         .show_ui(ui, |ui| {
-                            for opt in &["Classic", "Enhanced", "Neumorphic"] {
+                            for opt in
+                                &["Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark"]
+                            {
                                 if ui.selectable_label(cur == *opt, *opt).clicked() {
                                     // Drop any image theme-pack override, then set the
                                     // procedural glass style.
@@ -7105,7 +7267,7 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
     let left_rect = Rect::from_min_max(rect.min, egui::pos2(sep_x, rect.bottom()));
     let right_rect = Rect::from_min_max(egui::pos2(sep_x, rect.top()), rect.max);
     let cell_pad = egui::vec2(3.0, 0.0);
-    ui.allocate_new_ui(
+    ui.scope_builder(
         egui::UiBuilder::new().max_rect(left_rect.shrink2(cell_pad)),
         |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -7113,7 +7275,7 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
             });
         },
     );
-    ui.allocate_new_ui(
+    ui.scope_builder(
         egui::UiBuilder::new().max_rect(right_rect.shrink2(cell_pad)),
         |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -7269,7 +7431,8 @@ fn section_header(ui: &mut Ui, title: &str) {
     } else {
         Color32::from_rgb(56, 64, 76)
     };
-    ui.painter().rect_filled(rect, egui::Rounding::ZERO, fill);
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::ZERO, fill);
     ui.painter().text(
         rect.left_center() + egui::vec2(3.0, 0.0),
         egui::Align2::LEFT_CENTER,
@@ -7506,6 +7669,18 @@ fn bool_row(
 }
 
 /// Bool property — inline horizontal style.
+/// Read-only display of a control's runtime `Busy` flag (spec 032). `Busy` is
+/// set by the async engine while an operation is in flight and is not
+/// user-editable, so it is shown as a plain indicator rather than a checkbox.
+fn busy_row_readonly(ui: &mut Ui, ctrl: &Control) {
+    let busy = ctrl.get_prop("Busy").map(|p| p.as_bool()).unwrap_or(false);
+    property_row(ui, "Busy:", |ui| {
+        ui.add_enabled_ui(false, |ui| {
+            ui.label(if busy { "running" } else { "idle" });
+        });
+    });
+}
+
 fn bool_row_inline(
     ui: &mut Ui,
     ctrl_id: &str,

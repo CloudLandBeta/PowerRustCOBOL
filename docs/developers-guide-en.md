@@ -193,13 +193,57 @@ flowchart TB
 
 - **Project Explorer (left).** A tree rooted at your project. Six fixed
   categories — **Forms**, **Indexed Files**, **Common Code**, **Generated Code**,
-  **Assets**, **Documentation** — each with a **➕** button. To the left of each
+  **Assets**, **Knowledge Base** — each with a **➕** button. To the left of each
   item is a **status "knob"**: 🟢 green = checked/tested OK, 🟡 yellow = changed
   since last check, 🔴 red = a problem was reported. Forms expand to show their
   controls, grouped by toolbox category, and each control expands to its
   **Events**. Indexed Files expand to show record fields (like form controls).
   **Click the root node at the very top** (📁 YourProjectName) at any time to
   bring up the full project settings form in the main work area.
+
+#### Organising the project tree with folders
+
+Every category can hold an arbitrary hierarchy of **folders**, so large,
+enterprise-grade projects stay navigable (for example `forms/customers/`,
+`src/billing/`).
+
+- **Create a folder.** Click the **📁+** button on a category header to add a
+  folder at its root, or right-click any folder and choose **New folder…** to
+  nest one inside it.
+- **Rename a folder.** Right-click the folder and choose **Rename folder…**.
+  Every file the project tracks under that folder — and any open editor tab
+  pointing at one — follows the change automatically.
+- **Delete a folder.** Right-click and choose **Delete folder…**. After you
+  confirm, the folder and **everything inside it is permanently removed from
+  disk**, the files are dropped from the project, and any editors showing them
+  are closed. This cannot be undone.
+
+Folder paths are always stored **relative to the project folder**, so a project
+can be moved, zipped, or shared without breaking any references.
+
+#### Moving files: drag-and-drop
+
+- **Within the tree.** Drag a file onto another folder (or onto a category
+  header) to move it there; the file is moved on disk and its project entry is
+  updated. A file cannot overwrite an existing one of the same name, and a
+  folder cannot be dropped into itself.
+- **From the operating system.** Drag files from Finder/Explorer onto a folder
+  or category to import them. They are copied into the project and tracked with a
+  relative path. A file whose type does not match the destination category (for
+  example a `.cfrm` dropped on Common Code) is rejected.
+
+#### Keyboard navigation
+
+With the pointer over the project tree you can move around without the mouse:
+
+- **↑ / ↓** — move to the previous / next visible row. The element loads
+  immediately (its properties or editor, just like a single click), and the tree
+  scrolls as needed to keep the highlighted row in view, one row clear of the top
+  or bottom edge.
+- **→** — expand a collapsed folder; if it is already open, move into its first
+  child.
+- **←** — move up to the parent folder.
+- **Enter** — open the selected item (the same as a single click).
 
 On first launch (or any time no project is open) the IDE shows a single full
 welcome pane that is a single centered block of information (title + license +
@@ -222,7 +266,9 @@ The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fad
   **property inspector** (when you click a form or control in the tree), **or
   the project settings form** (when you click the project root at the top of
   the tree, or automatically when the IDE first opens a project — with no
-  editor visible). It uses the exact same glass pane construction
+  editor visible). The **👑 Grace** button above the project tree opens the
+  project-wide Grace chatbot in this pane. It uses the exact same glass pane
+  construction
   (CentralPanel + glass frame) as the control properties inspector for
   consistent width (no shortfall at the right border) and full 100% height
   behaviour (the pane grows/shrinks with the available area above the Output
@@ -243,8 +289,9 @@ The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fad
   The code editor (when visible) carries a **status bar** along the bottom —
   caret `Ln, Col`, the **Insert/Overwrite** mode (toggle with the `Insert`
   key), a **Trim on save** toggle (strips trailing whitespace when you save),
-  and a **Beautify** command (a safe whitespace tidy that never disturbs
-  COBOL's significant columns).
+  and, for non-Markdown documents, a **Beautify** command (a safe whitespace
+  tidy that never disturbs COBOL's significant columns). Markdown files omit
+  Beautify because COBOL formatting does not apply to them.
 
 > 📷 **Screenshot needed — `project-settings-form.png`**. Show the left tree
 > with the root node highlighted (hand cursor), and the main area with the
@@ -272,17 +319,249 @@ prompt bar never appears.
 
 **Configure it via the project root settings form.** Click the top node of the
 project tree (the 📁 line with your project name). In the **AI assistant** section
-of the form you can enter the connection details. The settings (except the
-per-project Appearance options) are global to your machine, not stored in any
-project, so the API key never travels in a repository:
+of the form you can enter the connection details. Model profiles, AI behavior,
+and agents belong to the open project and travel in its `cobolt.toml` and
+`agentic_ai/` directory. API keys remain machine-local and never travel in a
+repository:
 
 | Field | Meaning |
 |-------|---------|
-| **Endpoint URL** | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. |
-| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. |
+| **Endpoint URL** | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. An untouched provider default receives its conventional request path automatically; after you edit this field, the IDE uses the URL exactly as entered. |
+| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. Keys are remembered by the project's stable model-profile id but stored only on this machine. Selecting a saved profile restores its key; an empty field means no credential is stored for that profile on this machine. |
 | **Model** | The model identifier passed in each request. |
-| **Temperature** | Sampling randomness (0 = deterministic). |
+| **Reviewer model (Pedantic Agent)** | Optional second model that reviews the primary agent's answers with uncompromising scrutiny. If set, it must differ from the primary model (the IDE enforces this). With a reviewer configured, the **COBOL Proficiency** check runs in tandem: the primary model answers, the Pedantic Agent reviews it against the primary prompt as the authoritative specification, demands a full corrected resubmission when defects are found, re-reviews the revision, and produces the final brutally honest assessment — the dashboard then shows the *reviewer's* scores, not the model's self-scores. |
+| **Temperature** | Sampling randomness (0 = deterministic). The connection test uses this exact value because some models accept only their provider-defined default, commonly `1.0`. |
 | **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
+
+**Models Manager.** Next to *Manage agents…* in Project settings is **Models
+Manager…**. A *model profile* is a connection defined once — provider, endpoint,
+model id, sampling (temperature / max tokens / timeout) and, on your machine
+only, its API key — and given a name (e.g. "Anthropic · claude-sonnet-5"). Create,
+duplicate, test, and delete profiles here, and check a model's COBOL proficiency
+straight from the profile. **Save** commits the edited profile and closes Models
+Manager. Profiles are **project-scoped**: define a model once and reuse it for
+every agent in the current project, instead of re-typing the same endpoint, key,
+and model for each agent. The profile metadata is stored in the project's
+`cobolt.toml`; its API key lives only in your machine-local settings, keyed to
+that profile id. It is **never** written into a project file, generated COBOL,
+or a compiled/packaged application. Switching projects loads that project's own
+profiles. Existing projects receive a one-time, non-destructive import of legacy
+global profile metadata. Missing keyed profiles can also be recovered from the
+machine's valid backup unless you explicitly deleted them.
+
+**Agents Manager.** The *AI agents* row opens the project's provisioned agent
+database. Every agent has a **model profile** (picked from a dropdown — the
+proficiency-check button sits right beside it), prompt, capabilities, and
+knowledge. The internal `agentic_ai/` directory is intentionally hidden from
+the project tree; use Agents Manager for agent configuration while Grace keeps
+its workflow records there automatically. The prompt editor is vertically
+resizable from four to twenty text rows; longer prompts scroll inside the
+editor rather than increasing its height. **New Agent** and **Delete Agent**
+are currently hidden because the complete built-in mesh is created and repaired
+with the project. Both workflows remain implemented for future maintenance.
+An agent lives in your project at `agentic_ai/<agent name>/` — the multi-line
+agent prompt in `<agent name>_prompt.md`, plus `steering/`, `policies.md`,
+`skills/`, `mcp.json`, `knowledge/`, and `agent.json` (identity and runtime
+configuration — the API key is **never** stored in the project; keys stay on
+your machine, asked once per model). Agent names are unique and fixed at
+creation, because they name the folder. Every primary agent may name a
+**pedantic companion** that reviews its responses — a primary and its own
+companion must use different models, while unrelated agents may share models
+freely. The relationship is one-to-one: an orchestrator or specialist can have
+at most one Pedantic companion, and a Pedantic reviewer can belong to at most
+one reviewed agent. Select the relationship from either the primary agent's
+**Companion (Pedantic reviewer)** section or the Pedantic agent's editable
+**Pedantic Companion for** section; both selectors write the same project
+configuration. Grace's planner and the participating agents receive the exact
+relationship at runtime, so a reviewer cannot be substituted or reused for a
+different agent. Project creation provisions the fixed specialists — the
+**Form Designer Agent**, **COBOL Event Handler Script Agent**,
+**Documentation Agent**, **Data (Indexed File) Agent**, and **Version Control
+Agent** — plus **Grace**, the orchestrator. Each is immediately followed by its
+own reviewer, whose canonical name is the primary name suffixed with **Pedantic
+Reviewer**:
+
+- **Grace Pedantic Reviewer**
+- **Form Designer Agent Pedantic Reviewer**
+- **COBOL Event Handler Script Agent Pedantic Reviewer**
+- **Documentation Agent Pedantic Reviewer**
+- **Data (Indexed File) Agent Pedantic Reviewer**
+- **Version Control Agent Pedantic Reviewer**
+
+Every reviewer is created with a purpose-specific prompt, description, routing
+contract, and one-to-one companion link. The developer selects its model
+profile and may tailor its prompt, skills, tools, and knowledge; no reviewer
+must be built or associated manually. Opening an existing project runs the same
+idempotent repair: a missing built-in reviewer is recreated and relinked, while
+non-empty project prompts and other developer configuration remain
+authoritative. Older reviewer names are migrated in place without changing
+their stable IDs or selected profiles.
+
+Grace remains the single coordination
+authority (👑, always named Grace, never deletable) that plans multi-agent
+work, delegates to specialists by kind and specialization, enforces every
+pedantic review gate, and assembles the final validated result. The default
+prompt for **Grace Pedantic Reviewer** reviews request coverage, task
+decomposition, ownership, dependencies, documentation governance, evidence,
+cross-agent integration, failures, and completion claims. The project-local
+reviewer prompts remain editable in Agents Manager and fixed-agent repair
+preserves those edits. Select a model profile for each reviewer before enabling
+its review connection; a primary and its Pedantic companion cannot use the
+same model.
+
+The built-in routing contracts are explicit: Form Designer Agent owns RAD form
+design and delegates event implementation; COBOL Event Handler Script Agent
+implements those exact delegated behaviors; Documentation Agent alone writes
+project documentation and prepares normalized indexed-file schema handoffs;
+Data (Indexed File) Agent alone maintains `.cidx` definitions through the
+Indexed File UI model; Version Control Agent owns evidenced project Git
+operations and confirmation gates; and Grace Pedantic Reviewer reviews only
+Grace's orchestration. Each agent receives a role-specific default prompt.
+Empty or known legacy defaults are repaired,
+while non-empty project-edited prompts remain authoritative. Existing
+`DocumentationAgent`, `Pedantic Grace Reviewer`, `Grace Pedantic Reviewer
+Agent`, `Pedantic UI Agent`, and `Pedantic COBOL Companion` records are renamed
+on disk without changing their stable IDs or model profiles. A redundant
+`Orchestrator Pedantic Reviewer Agent` is merged into **Grace Pedantic
+Reviewer** and removed.
+
+The **👑 Grace** button above the project tree fills the current tree-pane width
+(with a 150 px minimum) and follows the pane when you resize it. It opens a
+project-scoped conversation in the Main Pane, with persistent history, workflow
+progress, and approval controls for gated operations.
+Its property-pane header identifies it as
+**👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator**.
+
+**Choosing where things go.** Because the project tree supports folders, a name
+can exist in more than one place. When you ask Grace to **create** an element
+(a form, indexed file, common-code source, documentation file, or asset), it
+opens a small centered window showing the project tree so you pick the
+destination **folder** — you can also create a new folder there on the spot.
+When you ask Grace to **edit** an element by name and more than one element
+shares that name, the same window lets you pick **which one**; if only one
+matches, Grace just edits it. Cancelling the window stops the operation, and
+Grace reports that nothing was created or edited. (This prompt appears in the
+full project Grace chat; the compact editor/designer chat surfaces cannot show
+it, so an ambiguous request there asks you to use the project Grace chat.)
+
+Every IDE chatbot routes through Grace. The surface supplies an advisory
+preference: the RAD Form Designer prefers the Form Designer Agent, its event
+editor prefers the COBOL Event Handler Script Agent, and the code editor asks
+Grace to select by capability. The preference is never exclusive. Grace can
+split a request across any enabled specialists, so a request to create a button
+and wire its `onClick` behavior can coordinate both form-design and event-handler
+tasks. Each workflow runs its configured pedantic reviews, streams progress,
+and saves an auditable record under `agentic_ai/Grace/runs/`.
+
+When the agent **repositions controls** on a form, the affected controls
+**glide** from their old places to the new ones — all at once, over about a
+second — so you can see the layout change take shape instead of the controls
+jumping. The animation is purely visual: the form and its generated code hold the
+final positions immediately.
+
+Every chatbot composer keeps **Send** immediately to the right of its prompt.
+The prompt consumes the remaining width while the command stays visible as the
+chat pane is resized; multiline composers do not move Send to a row below.
+Completed agent-response balloons include icon-only **Copy** and **Save as
+Markdown** commands with hover tooltips. Save opens in the current project's
+`Knowledge Base/` folder, requires the destination to remain inside that folder,
+writes a `.md` file, indexes it in the project SQLite knowledge database, and
+refreshes the Knowledge Base branch of the project tree. Developer messages,
+static welcome text, and in-progress streaming balloons do not show these
+response actions.
+
+Grace distinguishes read-only conversation from project work. Capability and
+help questions such as **What can you do?**, together with requests to describe,
+explain, summarize, compare, suggest, or recommend, receive a direct Markdown
+response without creating a synthetic workflow. Markdown is the expected
+chatbot format for these passive requests and is not rejected for lacking
+workflow JSON. If a request also asks Grace to create, modify, save, delete,
+implement, or otherwise change project resources, it requires executable
+workflow JSON. Named project agents use only their project-defined prompts;
+mesh transport never appends an unrelated
+CodeGenerator, FormsDesigner, or EventBinder preamble. If an actionable request
+returns malformed workflow JSON, Grace receives one explicit correction
+request. A second malformed result opens the error modal and records both
+parser failures plus the complete corrected payload in the IDE log.
+
+> 📷 **Screenshot needed — `project-grace-chat.png`**. Show the width-responsive
+> 👑 Grace button above the project tree and the project-wide Grace conversation
+> open in the Main Pane, including transcript, prompt, and conversation controls.
+
+An empty Grace conversation opens with practical examples for Indexed Files,
+CRUD forms, data-bound DataGrids, and the plan → tasks → implementation workflow.
+For durable project documentation, Grace always delegates to the fixed,
+non-deletable **Documentation Agent**. It is the only specialist allowed to
+format, create, or update project documentation. Domain specialists prepare the
+authoritative source material; Grace expresses that handoff as task
+dependencies, and the workflow supplies each approved source output to the
+Documentation Agent. For example, a request to document a form first asks the
+Form Designer Agent for the controls, layout, bindings, and events, then asks
+the Documentation Agent to format and save that approved material. The
+Documentation Agent must not invent missing domain facts.
+
+The Documentation Agent can create, read, and list text documents only under the
+project's `Knowledge Base/` folder. Successful writes are
+immediately tracked by the project and indexed in the project-local SQLite
+vector database at `data/project-knowledge.sqlite`. Grace validates this
+coordination structure before execution and requests one corrected plan when a
+documentation workflow assigns writing to another specialist or omits a
+required source dependency.
+
+Before every Grace request, including a read-only question, the IDE synchronizes
+textual files added to the project Knowledge Base by either Grace or the
+developer and searches the project-local index. Relevant excerpts take
+precedence over general model training for project-specific answers, and Grace
+cites their project-relative paths. When the Knowledge Base has no relevant
+evidence, Grace says so, labels any general guidance, and asks for missing
+project facts rather than inventing them. Every specialist receives governed,
+read-only `knowledge.search` access so approved plans, requirements, task lists,
+and prior project decisions can be retrieved in later work.
+
+Indexed-file work uses a mandatory two-specialist handoff coordinated by Grace.
+Documentation Agent first obtains a missing file name, derives the file purpose
+from the request, searches project knowledge, and analyzes the structure under
+First (1NF), Second (2NF), and Third (3NF) Normal Forms. It identifies every
+helper indexed file needed to remove repeating groups, partial dependencies, or
+transitive dependencies. For each ID field it asks the developer to choose
+**UUID** or provide an exact COBOL **PIC** definition; the agents never select an
+ID representation by assumption. Missing decisions produce a clarification
+instead of a file mutation.
+
+Preparing, proposing, or normalizing this schema handoff is Documentation
+Agent analysis, not indexed-file mutation. Only an actual `indexed_file.write`
+or explicit `.cidx` save is mutation reserved for Data (Indexed File) Agent.
+
+After that schema handoff passes Documentation Agent's Pedantic review, Grace
+delegates each definition to **Data (Indexed File) Agent**. This specialist can
+list, inspect, and write indexed definitions only through governed
+`indexed_file.*` tools backed by the same model used by the Indexed File UI. A
+successful write validates the record and keys, saves the `.cidx`, regenerates
+the indexed COBOL and copybooks, initializes data only when the assigned data
+file does not already exist, and refreshes the project's Indexed Files tree.
+Existing indexed data is never truncated during schema maintenance. Each helper
+relation is a separate definition. A finalized definition keeps the Indexed
+File UI's structural lock; the developer must explicitly unfinalize it in the
+UI before an agent can change its schema. Every result must pass **Data (Indexed
+File) Agent Pedantic Reviewer** before Grace reports completion.
+
+**Specialists execute their tools.** Under Grace, agents don't just describe
+work — they carry it out, but only through governed, evidenced channels. An
+agent may call only the tools it has been granted (its `mcp.json` / capabilities);
+an undeclared or invented tool is treated as a critical defect that fails the
+task. When the **Form Designer Agent's** work is *approved* by its pedantic
+companion, its result is applied to the open form as **one undoable change**
+through the same reviewed preview/apply path you use by hand — never by silently
+rewriting the form. The Form Designer can also *look* at the live form (a
+read-only view of the rendered widgets) to check its work; it never edits by
+driving the UI. The **Version Control Agent** runs real Git **inside your open
+project's repository only** (never PowerRustCOBOL's own): everyday, local
+operations (status, diff, log, add, commit, branch, checkout, stash) run on their
+own, while anything that reaches the network or rewrites history — push, fetch,
+pull, rebase, `reset --hard` — **pauses for your explicit approval**, showing you
+the exact command before it runs. Every tool call, with its real output and exit
+status, is recorded in the workflow record; a command that fails is reported as a
+failure, never glossed as success.
 
 A **Test connection** button sends a tiny request to your endpoint and reports
 whether the model is reachable and the key/model are accepted — use it to
@@ -378,7 +657,7 @@ HelloPower/
 ├── indexed/            ← Indexed Files (.cidx definitions)
 ├── generated/          ← Generated Code (RAD-produced .cbl — read-only)
 ├── assets/             ← Assets       (images, audio, fonts, data files)
-├── docs/               ← Documentation
+├── Knowledge Base/     ← project-specific documents and indexed knowledge
 ├── bin/                ← built binaries
 ├── debug/              ← debugging working files
 ├── temp/               ← temporary files
@@ -397,8 +676,9 @@ you can **Run** straight away and then grow.
 > specific program once you want explicit control over which one starts.
 
 > **Note.** Opening an older project that predates this layout **back-fills any
-> missing standard folders** automatically, so every project ends up with the
-> same structure.
+> missing standard folders** automatically. Content under the legacy
+> `Documentation/` and `docs/` project folders is moved into `Knowledge Base/`
+> without overwriting conflicting files.
 
 ### The six tree categories
 
@@ -409,7 +689,7 @@ you can **Run** straight away and then grow.
 | **Common Code** | hand-written COBOL you `CALL` from forms or run directly | yes |
 | **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form or `.cidx` | **read-only** (blue, lock icon) |
 | **Assets** | images, audio, fonts, data files bundled with the app | imported |
-| **Documentation** | Markdown / text / PDF notes | yes |
+| **Knowledge Base** | project-specific Markdown / text / PDF material | yes |
 
 ### Creating vs. importing
 
@@ -418,8 +698,14 @@ The **➕** on a category **creates a new item**:
 - **Forms ➕** → *New Form* dialog.
 - **Indexed Files ➕** → *New Indexed File* wizard (name, assign path, record layout, keys, storage).
 - **Common Code ➕** → a new `.cbl` from a starter template, opened in the editor.
-- **Documentation ➕** → a new Markdown file.
+- **Knowledge Base ➕** → a new Markdown file.
 - **Assets ➕** → file picker (assets are authored externally, so "create" = import).
+
+Use the folder-plus command beside **Knowledge Base** to create a top-level
+subfolder. Right-click any Knowledge Base subfolder to create a child folder or
+delete that folder. Folder deletion requires confirmation and recursively
+removes its documents, nested folders, project-manifest entries, and stale
+SQLite index entries. The `Knowledge Base/` root itself cannot be deleted.
 
 To **import an existing file** into a category, **right-click the ➕** and choose
 *Import existing…*. For **Indexed Files**, this picks an on-disk `.idx` (or similar)
@@ -455,6 +741,9 @@ regenerated on **Build / Run / Debug / Check** like form output.
 
 The Form Designer is where you lay out windows. Each open form is its **own OS
 window**, so you can have several designers and running forms side by side.
+Double-clicking a form in either the IDE project tree or a designer's **Forms**
+list opens it; if it is already open, its window is restored and brought to the
+front.
 
 ```mermaid
 flowchart LR
@@ -468,14 +757,19 @@ flowchart LR
 
 - **Toolbox (left).** Widgets grouped into **Non-Visual**, **Common**,
   **Container**, **Data**, **Graphics**, **Menu**, **Charts**, and **Dialogs**.
-  Drag any control onto the canvas.
+  Drag any control onto the canvas. Use the **◀** chevron to collapse the sidebar
+  to a narrow **icon rail** (drag from the rail still works) and **▶** to expand
+  it; drag its edge to resize it, and the width you set is restored when you
+  re-expand.
 - **Canvas (centre).** Move, resize (drag the border grips), align, and
   distribute controls. A snap-to-grid keeps things tidy. You can resize the
   **form itself** by dragging its edges.
 - **Properties pane (right).** Edits the selected control — or, with nothing
   selected, the **form** itself. The pane is organised into collapsible
   **section cards** (Form Properties, Target Device, Appearance, Background
-  Image, Size, Events). Drag its edge to widen it.
+  Image, Size, Events). Drag its edge to widen it. It is a **drawer**: the
+  vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
+  back), and it reopens at the width you last set.
 
 Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (a non-interactive render), **Run Form** (live, interactive), grid toggle, **Theme**
@@ -1077,35 +1371,50 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
-> **Events fire at run time.** Control events are handled through the same
-> generated event loop in *Run Form* and compiled output. The live renderer now
-> covers the common interactive event families:
+> **Every event in the design view fires at run time.** Control events are
+> handled through the same generated event loop in *Run Form* and compiled
+> output, grouped by family:
 >
 > - **Every visual control** gets the universal pointer set — `onClick`,
->   `onDblClick`, `onDoubleClick`, `onRightClick`, `onMiddleClick`,
+>   `onDblClick`/`onDoubleClick`, `onRightClick`, `onMiddleClick`,
 >   `onContextMenu`, `onMouseDown`, `onMouseUp`, `onMouseMove`,
 >   `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onHoverEnter`,
->   `onHoverLeave`, and `onLoad` — whenever the gesture or lifecycle condition
->   happens.
+>   `onHoverLeave` (after the control's `HoverDelayMs`, default 200 ms), and
+>   `onLoad` — plus the **geometry** set `onResize`/`onResized` and
+>   `onMove`/`onMoved`, and the **state** pair
+>   `onVisibleChanged`/`onEnabledChanged`.
+> - **Focusable controls** (Button, CheckBox, RadioButton, Slider,
+>   NumericUpDown, DateTimePicker, TextBox…) fire `onGotFocus`/`onLostFocus`
+>   and the keyboard set `onKeyDown`/`onKeyUp`/`onKeyPress`,
+>   `onEnterPressed`, `onEscapePressed` while focused.
 > - **Value controls** fire `onChange` plus their semantic aliases:
 >   `onCheckedChanged`/`onValueChanged` (check box / radio),
->   `onSelectedIndexChanged` (list / combo), the combo's `onDropDown` on open,
->   and Slider `onValueChanged` when a drag finishes.
-> - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
->   `onKeyDown`/`onKeyUp`/`onKeyPress`, `onEnterPressed`,
->   `onEscapePressed`, and `onTextChanged`.
+>   `onSelectedIndexChanged` and `onItemDoubleClick` (list), the combo's
+>   `onDropDown`/`onDropDownClosed`, Slider `onValueChanged` on drag end, and
+>   ProgressBar `onValueChanged`/`onCompleted` as COBOL writes its Value.
+> - **Text input** additionally fires `onEnter`/`onLeave` and `onTextChanged`.
+> - **Containers & composites** — TabControl `onTabClick`/`onTabChanged`;
+>   TreeView `onNodeClick`/`onNodeSelect`/`onNodeDblClick`; Panel `onScroll`
+>   (AutoScroll); MenuBar `onMenuOpen`/`onMenuClose`; DataGrid
+>   `onCellClick`/`onCellDoubleClick`/`onRowDoubleClick`/`onColumnClick`/
+>   `onScroll` plus its selection events.
+> - **Media & charts** — PictureBox `onImageLoaded`/`onImageError`; Animator
+>   `onStarted`/`onFrameChanged`/`onLooped`/`onEnded`; charts `onDataChanged`
+>   when their data properties change.
+> - **Data controls** — SqlDatabase fires `onConnectOk`/`onConnectError` on
+>   `Open`, `onQueryComplete`/`onQueryError` on `Query`/`Execute`, and
+>   `onRowFetched` on `Fetch`; RestClient fires the async lifecycle
+>   (`onComplete`/`onError`/`onCancelled`/`onTimeout` — §16); the AI agent
+>   fires `onResponse` when `Ask` returns a reply. These dispatch on the next
+>   `COBOL-WAIT-EVENT` return.
 > - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).
 >
-> Some specialised events are tied to conditions the lightweight *Run Form*
-> preview does not fully model yet — back-end completions
-> (`onResponseReceived`, `onQueryComplete`, the AI agent's
-> `onResponse`/`onError`) and a few control-internal ones (`onNodeExpand`,
-> `onCellChange`). They are still designable and generate correctly; wire them
-> where their real source exists. When in doubt, confirm in a *Run Form*
-> session.
+> Events with no engine behind them (drag-and-drop, column sorting/resizing,
+> chart zoom, tree-node expand/checkbox states…) are no longer listed in the
+> design view — an event you can bind is an event that fires.
 
 ### Adding a handler
 
@@ -1772,6 +2081,62 @@ reference: `docs/database-runtime.md`.
 > timeouts in COBOL, and never embed secrets (API keys, tokens) in a form you
 > intend to ship. Treat those as runtime configuration.
 
+### Asynchronous I/O (`Mode`, `Busy`, `TimeoutMs`, `Cancel()`)
+
+A `RestClient` call no longer blocks the whole form while it runs. The control
+is **asynchronous by default**: `GET` / `POST` / `PUT` / `DELETE` start a
+background worker, set the control's `Busy` flag, and return immediately. The
+event loop keeps dispatching (timer ticks, clicks, other controls), and the
+response arrives later as an event on the same control:
+
+- `onComplete` — the response arrived; read `ResponseBody` / `StatusCode` in
+  the handler.
+- `onError` — the transport failed (no HTTP status); `LastError` has the
+  message and `StatusCode` is `0`.
+- `onCancelled` — you called `Cancel()` while a request was in flight.
+- `onTimeout` — the request exceeded `TimeoutMs` without completing.
+
+The control surface, on `RestClient`, `SqlDatabase`, and `IndexedFile` alike:
+
+- **`Mode`** (`Async` / `Sync`) — `RestClient` defaults to `Async`;
+  `SqlDatabase` and `IndexedFile` default to `Sync` (their operations are
+  local and fast, and today they always execute synchronously — the property
+  and events exist on them for forward compatibility).
+- **`Busy`** (read-only) — `1` while an operation is in flight. A second call
+  while `Busy` is ignored; poll `Busy` or wait for the lifecycle event.
+- **`TimeoutMs`** — per-control timeout in milliseconds; `0` falls back to the
+  legacy `TimeoutSeconds × 1000`. On expiry the control fires `onTimeout` and
+  clears `Busy`.
+- **`Cancel()`** — abandon the in-flight operation immediately: `Busy` clears,
+  `onCancelled` fires, and any late result from the abandoned worker is
+  discarded safely. Calling `Cancel()` with nothing in flight is a no-op.
+
+> ⚠️ **Compatibility.** An existing form that reads `ResponseBody` on the
+> statement *after* a `GET` relies on the old blocking behaviour. Set that
+> control's `Mode` to `Sync` to keep the original same-statement result, or
+> move the read into an `onComplete` handler. The `COBOL-HTTP-*` CALL surface
+> is unchanged and always synchronous.
+
+### Driving the IDE with an AI agent (MCP)
+
+The IDE itself is agent-operable. At startup it serves the **egui inspection
+protocol** on `127.0.0.1:5719` (change the port under ⚙ *Settings* → AI —
+takes effect on restart; the Output console shows the listen address). Through
+it an agent can read the live widget tree, click and type on real IDE
+controls, resize the window, and capture screenshots.
+
+- **External agents** (Claude and other MCP clients) connect through the
+  official `egui-mcp` bridge — configure it as an MCP server pointing at the
+  IDE's address, and the agent gets see-and-drive access to every IDE surface.
+- **The built-in AI assistant** uses the same machinery in-process: each
+  request includes a snapshot of the rendered widget tree alongside the form
+  model, so the model reasons about what your form actually looks like — and
+  after applying changes it re-reads the tree to verify them.
+
+> ⚠️ **Caveat.** The endpoint is bound to `127.0.0.1` only — it is never
+> reachable from the network. It also exists **only in the IDE**: applications
+> you build and ship, and `rcrun`, contain no inspection endpoint at all.
+
 ---
 
 ## 17. The command line (rcrun)
@@ -1809,10 +2174,10 @@ flowchart LR
     SRC["src/*.cbl + forms/*.cfrm"] --> COMPILE["rcrun build"]
     COMPILE --> EMBED["parse · analyse · embed (compressed)"]
     EMBED --> EXE["bin/yourapp  (native executable)"]
-    ASSETS["assets/ + docs/"] -. "copied alongside" .-> EXE
+    ASSETS["Assets/ + Knowledge Base/"] -. "copied alongside" .-> EXE
 ```
 
-- Tracked **Assets** (and Documentation) are copied next to the binary so the
+- Tracked **Assets** and **Knowledge Base** files are copied next to the binary so the
   program finds them by relative path at run time.
 - Required licence/notice files are placed alongside the binary automatically.
 - **`dist/`** is reserved for a future "bundle everything needed to run on a
@@ -1872,6 +2237,11 @@ the toolbar **Debug** button (to the right of **Run**).
   **English, Português, Español, Français, Japanese (日本語), and Chinese (中文)**
   — chosen from the toolbar language selector. CJK glyphs render via bundled font
   fallbacks, so 日本語 / 中文 display correctly on any system.
+- **Text rendering.** The IDE renders text with the UI framework's modern font
+  engine (hinting enabled), so glyphs are noticeably crisper at small sizes than
+  in earlier releases. Form **Font** properties keep working exactly as before:
+  a face the engine cannot rasterise (for example a bitmap-only system font)
+  is skipped and the control falls back to Arial instead of failing.
 - **Branding.** The IDE uses the PowerRustCOBOL icon for its window/taskbar
   (override it with an `app-icon.png` in the config directory). **Help → About**
   shows the mascot, the version, and the Apache-2.0 licence.

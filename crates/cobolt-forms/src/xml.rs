@@ -146,6 +146,10 @@ enum OwnedEvent {
         width: u32,
         height: u32,
         background: String,
+        background_gradient_enabled: bool,
+        background_gradient_start_color: String,
+        background_gradient_end_color: String,
+        background_gradient_direction: String,
         transparency: u8,
         background_image: String,
         bg_image_mode: BgImageMode,
@@ -200,6 +204,17 @@ fn next_owned<R: std::io::BufRead>(
                     let height = get_attr_u32(e, b"height", 600)?;
                     let background =
                         get_attr(e, b"background")?.unwrap_or_else(|| "#FFFFFF".into());
+                    let background_gradient_enabled = get_attr(e, b"background-gradient-enabled")?
+                        .map(|value| value == "true" || value == "1")
+                        .unwrap_or(false);
+                    let background_gradient_start_color =
+                        get_attr(e, b"background-gradient-start")?
+                            .unwrap_or_else(|| "#F0F0F0FF".into());
+                    let background_gradient_end_color = get_attr(e, b"background-gradient-end")?
+                        .unwrap_or_else(|| "#C8D0DCFF".into());
+                    let background_gradient_direction =
+                        get_attr(e, b"background-gradient-direction")?
+                            .unwrap_or_else(|| "South".into());
                     let transparency = get_attr(e, b"transparency")?
                         .and_then(|v| v.parse::<u8>().ok())
                         .unwrap_or(0);
@@ -228,6 +243,10 @@ fn next_owned<R: std::io::BufRead>(
                         width,
                         height,
                         background,
+                        background_gradient_enabled,
+                        background_gradient_start_color,
+                        background_gradient_end_color,
+                        background_gradient_direction,
                         transparency,
                         background_image,
                         bg_image_mode,
@@ -347,6 +366,10 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 width,
                 height,
                 background,
+                background_gradient_enabled,
+                background_gradient_start_color,
+                background_gradient_end_color,
+                background_gradient_direction,
                 transparency,
                 background_image,
                 bg_image_mode,
@@ -360,6 +383,10 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
                 f.background_color = background;
+                f.background_gradient_enabled = background_gradient_enabled;
+                f.background_gradient_start_color = background_gradient_start_color;
+                f.background_gradient_end_color = background_gradient_end_color;
+                f.background_gradient_direction = background_gradient_direction;
                 f.transparency = transparency;
                 f.background_image = background_image;
                 f.bg_image_mode = bg_image_mode;
@@ -396,6 +423,27 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
 fn seed_missing_props(form: &mut Form) {
     use crate::model::{ControlType, PropValue};
     for c in &mut form.controls {
+        let universal_defaults = [
+            ("BackgroundGradientEnabled", PropValue::Bool(false)),
+            (
+                "BackgroundGradientStartColor",
+                PropValue::String(crate::model::DEFAULT_BACKGROUND_COLOR.into()),
+            ),
+            (
+                "BackgroundGradientEndColor",
+                PropValue::String("#C8D0DC".into()),
+            ),
+            (
+                "BackgroundGradientDirection",
+                PropValue::String("South".into()),
+            ),
+            ("ShadowLightColor", PropValue::String("#FFFFFFFF".into())),
+        ];
+        for (key, value) in universal_defaults {
+            if c.get_prop(key).is_none() {
+                c.set_prop(key, value);
+            }
+        }
         match c.control_type {
             ControlType::GroupBox => {
                 if c.get_prop("CaptionEnabled").is_none() {
@@ -933,6 +981,21 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
         elem.push_attribute(("width", form.width.to_string().as_str()));
         elem.push_attribute(("height", form.height.to_string().as_str()));
         elem.push_attribute(("background", form.background_color.as_str()));
+        if form.background_gradient_enabled {
+            elem.push_attribute(("background-gradient-enabled", "true"));
+            elem.push_attribute((
+                "background-gradient-start",
+                form.background_gradient_start_color.as_str(),
+            ));
+            elem.push_attribute((
+                "background-gradient-end",
+                form.background_gradient_end_color.as_str(),
+            ));
+            elem.push_attribute((
+                "background-gradient-direction",
+                form.background_gradient_direction.as_str(),
+            ));
+        }
         elem.push_attribute(("transparency", form.transparency.to_string().as_str()));
         elem.push_attribute(("grid-size", form.grid_size.to_string().as_str()));
         elem.push_attribute((

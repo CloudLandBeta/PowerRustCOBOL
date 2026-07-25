@@ -111,6 +111,10 @@ pub struct Backdrop {
     pub color_hex: String,
     /// Form transparency 0–100 (0 = opaque).
     pub transparency: u8,
+    pub gradient_enabled: bool,
+    pub gradient_start_hex: String,
+    pub gradient_end_hex: String,
+    pub gradient_direction: String,
     /// Optional background image, already resolved to a texture by the caller
     /// (the engine has no texture cache), plus its pixel size.
     pub image: Option<(egui::TextureId, Vec2)>,
@@ -122,6 +126,10 @@ impl Default for Backdrop {
         Backdrop {
             color_hex: String::new(),
             transparency: 0,
+            gradient_enabled: false,
+            gradient_start_hex: String::new(),
+            gradient_end_hex: String::new(),
+            gradient_direction: "South".into(),
             image: None,
             image_mode: BgImageMode::Fit,
         }
@@ -207,6 +215,18 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
     } else {
         Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(200))
     }
+}
+
+fn backdrop_gradient_color(color_hex: &str, transparency: u8) -> Color32 {
+    let color = crate::paint::parse_hex(color_hex).unwrap_or(Color32::TRANSPARENT);
+    let alpha = color.a() as f32 * (1.0 - transparency.min(100) as f32 / 100.0);
+    let scale = alpha / 255.0;
+    Color32::from_rgba_premultiplied(
+        (color.r() as f32 * scale) as u8,
+        (color.g() as f32 * scale) as u8,
+        (color.b() as f32 * scale) as u8,
+        alpha as u8,
+    )
 }
 
 /// Whether a control's drawn content (image, film, glass card, chart, …) should be
@@ -305,17 +325,17 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
 ///
 /// Both notch-mask call sites (runtime `mask_container_notches` and the designer's
 /// notch loop) MUST route through this — do not call `draw_container_notch_mask`
-/// with a blanket `Rounding::same(rad)`.
+/// with a blanket `CornerRadius::same(rad)`.
 pub fn corner_notch_rounding(
     container: Rect,
     radius: f32,
     controls: &[Control],
     container_idx: usize,
     control_rects: &HashMap<String, Rect>,
-) -> egui::Rounding {
+) -> egui::CornerRadius {
     let r = radius.max(0.0);
     if r < 0.5 {
-        return egui::Rounding::ZERO;
+        return egui::CornerRadius::ZERO;
     }
     let child_rects: Vec<Rect> = containers::collect_descendants(controls, container_idx)
         .into_iter()
@@ -328,26 +348,26 @@ pub fn corner_notch_rounding(
         .collect();
     let corner = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), Vec2::new(r, r));
     let hit = |sq: Rect| child_rects.iter().any(|cr| cr.intersects(sq));
-    egui::Rounding {
+    egui::CornerRadius {
         nw: if hit(corner(container.min.x, container.min.y)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
         ne: if hit(corner(container.max.x - r, container.min.y)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
         se: if hit(corner(container.max.x - r, container.max.y - r)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
         sw: if hit(corner(container.min.x, container.max.y - r)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
     }
 }
@@ -355,12 +375,21 @@ pub fn corner_notch_rounding(
 fn mask_container_notches(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
+    controls: &[Control],
     out: &RenderOutput,
     image: Option<(egui::TextureId, Rect)>,
     img_alpha: u8,
     bg: Color32,
+    gradient: Option<(Rect, Color32, Color32, &str)>,
 ) {
-    let controls = input.controls;
+    // `controls` is the EFFECTIVE (post-`expand_repeating_groups`) list the render
+    // loop drew from — NOT `input.controls`. The notch-mask guardian
+    // (`corner_notch_rounding`) decides which corners to mask by looking each
+    // descendant's rect up in `out.control_rects`, which is keyed by the drawn
+    // (instance) ids. Walking the original template here would leave a databound
+    // container's expanded card instances invisible to the guardian, so it would
+    // mask nothing and the card content bleeds past the container arc (spec 015/024
+    // repeating groups × the spec 017 notch mask).
     for (idx, base) in controls.iter().enumerate() {
         if !matches!(
             base.control_type,
@@ -393,12 +422,21 @@ fn mask_container_notches(
         };
         // Only mask corners a child actually reaches; clean corners stay untouched.
         let rounding = corner_notch_rounding(screen, rad, controls, idx, &out.control_rects);
-        crate::paint::draw_container_notch_mask(painter, screen, rounding, bg, image, img_alpha);
-        // The notch mask repaints the backdrop over the corner arcs, erasing the
-        // container's own border/rim there. Restore it so all four rounded corners
-        // keep their outline (otherwise a Panel shows a border on its straight
-        // edges but a gap at every corner).
-        crate::paint::restore_container_outline(painter, &live, screen, rad, input.glass);
+        crate::paint::draw_container_notch_mask(
+            painter, screen, rounding, bg, gradient, image, img_alpha,
+        );
+        // The notch mask repaints the backdrop over the corner arcs it touched,
+        // erasing the container's own border/rim there. Restore the rim on exactly
+        // those corners (`rounding`) — restoring an unmasked corner would
+        // double-stroke the face's own rim and leave a light spur.
+        crate::paint::restore_container_outline(
+            painter,
+            &live,
+            screen,
+            rad,
+            input.glass,
+            rounding,
+        );
     }
 }
 
@@ -1040,6 +1078,26 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
 
     painter.rect_filled(form_rect, 0.0, bg);
+    let backdrop_gradient = if input.backdrop.gradient_enabled {
+        let start = backdrop_gradient_color(
+            &input.backdrop.gradient_start_hex,
+            input.backdrop.transparency,
+        );
+        let end = backdrop_gradient_color(
+            &input.backdrop.gradient_end_hex,
+            input.backdrop.transparency,
+        );
+        painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
+            form_rect,
+            start,
+            end,
+            &input.backdrop.gradient_direction,
+            egui::CornerRadius::ZERO,
+        )));
+        Some((start, end))
+    } else {
+        None
+    };
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
     // would leave rectangular child bleed visible. Use the effective one-pass
@@ -1096,6 +1154,12 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             || base.id.eq_ignore_ascii_case("GroupBox-2")
         {
             // debug removed
+        }
+        // Visible/Enabled change events (spec 021 T9): tracked for EVERY
+        // control each frame — a control hidden THIS frame must still fire
+        // its onVisibleChanged — so this runs before the visibility skips.
+        if interactive {
+            visible_enabled_events(ui, input, controls, idx, &mut out);
         }
         if !input.state.visible(base) {
             continue;
@@ -1167,9 +1231,9 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                     overscroll = egui::Vec2::ZERO;
                 }
 
-                let _ = ui.allocate_ui_at_rect(screen, |ui| {
+                let _ = ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
                     let sa = egui::ScrollArea::new([hscroll, vscroll])
-                        .id_source(sid)
+                        .id_salt(sid)
                         .auto_shrink([false, false]);
 
                     let content_size = panel_content_size(controls, idx, screen.size());
@@ -1217,12 +1281,29 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                     let effective_scroll = offset - overscroll;
                     ui.ctx().data_mut(|d| d.insert_temp(sid, effective_scroll));
 
+                    // spec 021 T12: Panel onScroll on offset change.
+                    if base.events.iter().any(|e| e.event == "onScroll") {
+                        let last_id = sid.with("last-offset");
+                        let last = ui.data(|d| d.get_temp::<egui::Vec2>(last_id));
+                        if let Some(last) = last {
+                            if (last - offset).length() > 0.5 {
+                                out.events.push(UiEvent::with_value(
+                                    &base.id,
+                                    "onScroll",
+                                    &format!("{:.0},{:.0}", offset.y, offset.x),
+                                ));
+                            }
+                        }
+                        if last != Some(offset) {
+                            ui.data_mut(|d| d.insert_temp(last_id, offset));
+                        }
+                    }
+
                     if ui.rect_contains_pointer(screen) {
                         ui.input_mut(|i| {
                             i.events
                                 .retain(|event| !matches!(event, egui::Event::MouseWheel { .. }));
                             i.smooth_scroll_delta = egui::Vec2::ZERO;
-                            i.raw_scroll_delta = egui::Vec2::ZERO;
                         });
                     }
                 });
@@ -1314,10 +1395,20 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     mask_container_notches(
         &painter,
         input,
+        controls,
         &out,
         backdrop_img,
         backdrop_img_alpha,
         notch_bg,
+        backdrop_gradient.map(|(start, end)| {
+            let panel = ui.visuals().panel_fill;
+            (
+                form_rect,
+                crate::paint::composite_premultiplied_over(start, panel),
+                crate::paint::composite_premultiplied_over(end, panel),
+                input.backdrop.gradient_direction.as_str(),
+            )
+        }),
     );
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
@@ -1839,6 +1930,14 @@ impl UiEvent {
             value: Some(value.to_owned()),
         }
     }
+    /// Any event carrying a payload (node text, tab index, cell coordinates…).
+    fn with_value(id: &str, event: &str, value: &str) -> Self {
+        UiEvent {
+            ctrl_id: id.to_owned(),
+            event: event.to_owned(),
+            value: Some(value.to_owned()),
+        }
+    }
 }
 
 /// The egui interaction id for a running control, derived from its COBOL id.
@@ -1924,20 +2023,109 @@ fn even_tile_centers(start: f32, end: f32, nominal: f32) -> Vec<f32> {
         .collect()
 }
 
-fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, color: Color32) {
+/// Horizontal inset of a rounded-rect silhouette at vertical position `y`. Used
+/// to keep DataGrid background patterns inside the rounded corners instead of
+/// bleeding into the square corner notches (spec 027 corner bleed).
+fn rounded_edge_inset(rect: Rect, radius: f32, y: f32) -> f32 {
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    if r <= 0.0 {
+        return 0.0;
+    }
+    let d = (y - rect.min.y).min(rect.max.y - y);
+    if d < 0.0 || d >= r {
+        return 0.0;
+    }
+    let k = r - d;
+    r - (r * r - k * k).max(0.0).sqrt()
+}
+
+/// Vertical inset of a rounded-rect silhouette at horizontal position `x` — the
+/// transpose of [`rounded_edge_inset`]. How far in from the top/bottom edge the
+/// arc has cut at that `x`. Used to shorten a DataGrid's vertical grid-line
+/// separators so they follow the rounded corner instead of poking into the notch.
+fn rounded_edge_inset_v(rect: Rect, radius: f32, x: f32) -> f32 {
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    if r <= 0.0 {
+        return 0.0;
+    }
+    let d = (x - rect.min.x).min(rect.max.x - x);
+    if d < 0.0 || d >= r {
+        return 0.0;
+    }
+    let k = r - d;
+    r - (r * r - k * k).max(0.0).sqrt()
+}
+
+/// Shorten an axis-aligned DataGrid grid line so its ends stay inside the grid's
+/// rounded silhouette. A vertical separator near a side edge, or a horizontal
+/// separator near the top/bottom, otherwise runs its full extent and pokes past
+/// the arc into the corner notch (the "datagrid lines bleed past the corner"
+/// case). The DataGrid is a leaf drawn directly, and — when nested inside a
+/// translucent panel — the backdrop notch-mask can't be used, so preventing the
+/// bleed at the line is the only artifact-free fix. Returns the endpoints unchanged
+/// for a non-axis-aligned line or when the radius is negligible.
+fn clip_datagrid_line_to_corners(rect: Rect, radius: f32, pts: [egui::Pos2; 2]) -> [egui::Pos2; 2] {
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    if r < 0.5 {
+        return pts;
+    }
+    let [p0, p1] = pts;
+    if (p0.x - p1.x).abs() < 0.5 {
+        // Vertical line at x: clamp its y-span to the arc at that x.
+        let x = p0.x;
+        let v = rounded_edge_inset_v(rect, r, x);
+        let lo = p0.y.min(p1.y).max(rect.min.y + v);
+        let hi = p0.y.max(p1.y).min(rect.max.y - v);
+        [pos2(x, lo), pos2(x, hi.max(lo))]
+    } else if (p0.y - p1.y).abs() < 0.5 {
+        // Horizontal line at y: clamp its x-span to the arc at that y.
+        let y = p0.y;
+        let h = rounded_edge_inset(rect, r, y);
+        let lo = p0.x.min(p1.x).max(rect.min.x + h);
+        let hi = p0.x.max(p1.x).min(rect.max.x - h);
+        [pos2(lo, y), pos2(hi.max(lo), y)]
+    } else {
+        pts
+    }
+}
+
+fn draw_datagrid_pattern(
+    painter: &egui::Painter,
+    rect: Rect,
+    radius: f32,
+    pattern: &str,
+    color: Color32,
+) {
     let pattern = pattern.trim().to_ascii_lowercase();
     if pattern.is_empty() || pattern == "none" {
         return;
     }
 
+    // A point-pattern mark whose centre falls inside a rounded corner notch would
+    // poke past the grid's arc; skip it. `rect` is the square grid body, so marks
+    // in the corner triangles are exactly the corner bleed (spec 027).
+    let inside_silhouette = |cx: f32, cy: f32| -> bool {
+        let inset = rounded_edge_inset(rect, radius, cy);
+        cx >= rect.min.x + inset && cx <= rect.max.x - inset
+    };
+
     match pattern.as_str() {
         "stripes" | "stripe" => {
             // Horizontal bands, evenly distributed with balanced top/bottom margins.
             for cy in even_tile_centers(rect.min.y, rect.max.y, 12.0) {
+                // Recede the band's ends along the corner arcs near top/bottom.
+                let inset = rounded_edge_inset(rect, radius, cy)
+                    .max(rounded_edge_inset(rect, radius, cy - 3.0))
+                    .max(rounded_edge_inset(rect, radius, cy + 3.0));
+                let x0 = rect.min.x + inset;
+                let x1 = rect.max.x - inset;
+                if x1 <= x0 {
+                    continue;
+                }
                 painter.rect_filled(
                     Rect::from_min_max(
-                        pos2(rect.min.x, (cy - 3.0).max(rect.min.y)),
-                        pos2(rect.max.x, (cy + 3.0).min(rect.max.y)),
+                        pos2(x0, (cy - 3.0).max(rect.min.y)),
+                        pos2(x1, (cy + 3.0).min(rect.max.y)),
                     ),
                     0.0,
                     color,
@@ -1947,7 +2135,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
         "dots" | "dot" => {
             for cy in even_tile_centers(rect.min.y, rect.max.y, 12.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 12.0) {
-                    painter.circle_filled(pos2(cx, cy), 1.0, color);
+                    if inside_silhouette(cx, cy) {
+                        painter.circle_filled(pos2(cx, cy), 1.0, color);
+                    }
                 }
             }
         }
@@ -1955,6 +2145,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    if !inside_silhouette(cx, cy) {
+                        continue;
+                    }
                     painter.line_segment([pos2(cx - 3.0, cy), pos2(cx + 3.0, cy)], stroke);
                     painter.line_segment([pos2(cx, cy - 3.0), pos2(cx, cy + 3.0)], stroke);
                 }
@@ -1964,6 +2157,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    if !inside_silhouette(cx, cy) {
+                        continue;
+                    }
                     painter
                         .line_segment([pos2(cx - 3.0, cy - 3.0), pos2(cx + 3.0, cy + 3.0)], stroke);
                     painter
@@ -1975,6 +2171,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    if !inside_silhouette(cx, cy) {
+                        continue;
+                    }
                     let points = [
                         pos2(cx - 3.0, cy - 3.0),
                         pos2(cx + 3.0, cy - 3.0),
@@ -1993,7 +2192,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
-                    painter.circle_stroke(pos2(cx, cy), 3.0, stroke);
+                    if inside_silhouette(cx, cy) {
+                        painter.circle_stroke(pos2(cx, cy), 3.0, stroke);
+                    }
                 }
             }
         }
@@ -2006,6 +2207,7 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
 /// interaction). Emits only the events the control declares in `supported_events`
 /// — the data-driven loop ignores any without a bound handler. Mirrors the IDE's
 /// `control_pointer_events`, but emits neutral [`UiEvent`]s.
+#[allow(clippy::too_many_arguments)]
 fn control_pointer_events(
     ui: &egui::Ui,
     screen: Rect,
@@ -2015,6 +2217,7 @@ fn control_pointer_events(
     enabled: bool,
     out: &mut RenderOutput,
     bound_events: &[&str],
+    hover_delay_s: f64,
 ) {
     if !enabled {
         return;
@@ -2147,7 +2350,7 @@ fn control_pointer_events(
         let fired = ui
             .ctx()
             .memory(|m| m.data.get_temp::<bool>(hover_fired_id).unwrap_or(false));
-        if !fired && now - start >= 0.2 {
+        if !fired && now - start >= hover_delay_s {
             if want("onHoverEnter") {
                 out.events.push(UiEvent::ev(id, "onHoverEnter"));
             }
@@ -2165,6 +2368,168 @@ fn control_pointer_events(
             m.data.remove::<f64>(hover_start_id);
             m.data.insert_temp(hover_fired_id, false);
         });
+    }
+}
+
+/// Visible/Enabled state-change events (spec 021 T9). Compares the control's
+/// EFFECTIVE visibility (own flag + container ancestry) and enabled state
+/// against the previous frame; fires only the bound events.
+fn visible_enabled_events(
+    ui: &egui::Ui,
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    idx: usize,
+    out: &mut RenderOutput,
+) {
+    let base = &controls[idx];
+    let want_visible = base.events.iter().any(|e| e.event == "onVisibleChanged");
+    let want_enabled = base.events.iter().any(|e| e.event == "onEnabledChanged");
+    if !want_visible && !want_enabled {
+        return;
+    }
+    let visible =
+        input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs);
+    let enabled = input.state.enabled(base);
+    let mem = rt_id(&base.id).with("vis-en");
+    let prev = ui.ctx().memory(|m| m.data.get_temp::<(bool, bool)>(mem));
+    if let Some((prev_visible, prev_enabled)) = prev {
+        if want_visible && prev_visible != visible {
+            out.events.push(UiEvent::ev(&base.id, "onVisibleChanged"));
+        }
+        if want_enabled && prev_enabled != enabled {
+            out.events.push(UiEvent::ev(&base.id, "onEnabledChanged"));
+        }
+    }
+    if prev != Some((visible, enabled)) {
+        ui.ctx()
+            .memory_mut(|m| m.data.insert_temp(mem, (visible, enabled)));
+    }
+}
+
+/// Geometry change events (spec 021 T10): `onResize` on each frame the size
+/// differs from the last, `onResized` once when it settles; likewise
+/// `onMove`/`onMoved` for position. Fires regardless of Enabled — geometry is
+/// state, not interaction.
+fn control_geometry_events(
+    ui: &egui::Ui,
+    screen: Rect,
+    ctrl_id: egui::Id,
+    id: &str,
+    out: &mut RenderOutput,
+    bound: &[&str],
+) {
+    let want = |e: &str| bound.contains(&e);
+    if !want("onResize") && !want("onResized") && !want("onMove") && !want("onMoved") {
+        return;
+    }
+    let mem = ctrl_id.with("geom");
+    let prev = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<(Rect, bool, bool)>(mem));
+    let (mut size_pending, mut pos_pending) = (false, false);
+    if let Some((p, sp, pp)) = prev {
+        size_pending = sp;
+        pos_pending = pp;
+        let size_diff = (p.width() - screen.width()).abs() > 0.5
+            || (p.height() - screen.height()).abs() > 0.5;
+        let pos_diff =
+            (p.min.x - screen.min.x).abs() > 0.5 || (p.min.y - screen.min.y).abs() > 0.5;
+        if size_diff {
+            if want("onResize") {
+                out.events.push(UiEvent::ev(id, "onResize"));
+            }
+            size_pending = true;
+        } else if size_pending {
+            if want("onResized") {
+                out.events.push(UiEvent::ev(id, "onResized"));
+            }
+            size_pending = false;
+        }
+        if pos_diff {
+            if want("onMove") {
+                out.events.push(UiEvent::ev(id, "onMove"));
+            }
+            pos_pending = true;
+        } else if pos_pending {
+            if want("onMoved") {
+                out.events.push(UiEvent::ev(id, "onMoved"));
+            }
+            pos_pending = false;
+        }
+    }
+    ui.ctx()
+        .memory_mut(|m| m.data.insert_temp(mem, (screen, size_pending, pos_pending)));
+}
+
+/// Focus + keyboard events on a focusable control's primary response
+/// (spec 021 T6/T8). egui grants click-sense widgets focus on click and via
+/// Tab traversal, so `gained_focus`/`has_focus` work for plain `interact`
+/// responses. TextBox keeps its own richer handling in its arm.
+fn focus_keyboard_events(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    id: &str,
+    out: &mut RenderOutput,
+    bound: &[&str],
+) {
+    let want = |e: &str| bound.contains(&e);
+    if resp.gained_focus() && want("onGotFocus") {
+        out.events.push(UiEvent::ev(id, "onGotFocus"));
+    }
+    if resp.lost_focus() && want("onLostFocus") {
+        out.events.push(UiEvent::ev(id, "onLostFocus"));
+    }
+    if !resp.has_focus() {
+        return;
+    }
+    if !(want("onKeyDown")
+        || want("onKeyUp")
+        || want("onKeyPress")
+        || want("onEnterPressed")
+        || want("onEscapePressed"))
+    {
+        return;
+    }
+    let (down, up, typed, enter, escape) = ui.input(|i| {
+        let mut down = false;
+        let mut up = false;
+        let mut typed = false;
+        let mut enter = false;
+        let mut escape = false;
+        for e in &i.events {
+            match e {
+                egui::Event::Key {
+                    key, pressed: true, ..
+                } => {
+                    down = true;
+                    if *key == egui::Key::Enter {
+                        enter = true;
+                    }
+                    if *key == egui::Key::Escape {
+                        escape = true;
+                    }
+                }
+                egui::Event::Key { pressed: false, .. } => up = true,
+                egui::Event::Text(_) => typed = true,
+                _ => {}
+            }
+        }
+        (down, up, typed, enter, escape)
+    });
+    if down && want("onKeyDown") {
+        out.events.push(UiEvent::ev(id, "onKeyDown"));
+    }
+    if up && want("onKeyUp") {
+        out.events.push(UiEvent::ev(id, "onKeyUp"));
+    }
+    if (typed || down) && want("onKeyPress") {
+        out.events.push(UiEvent::ev(id, "onKeyPress"));
+    }
+    if enter && want("onEnterPressed") {
+        out.events.push(UiEvent::ev(id, "onEnterPressed"));
+    }
+    if escape && want("onEscapePressed") {
+        out.events.push(UiEvent::ev(id, "onEscapePressed"));
     }
 }
 
@@ -2274,20 +2639,37 @@ fn render_interactive(
     let ct = ctrl.control_type.clone();
     let painter = ui.painter_at(clip);
 
-    // Universal pointer/gesture events for every visual control.
+    // Universal pointer/gesture/geometry events for every visual control.
     let non_visual = matches!(
         ct,
         CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient
     );
+    let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
     if !non_visual {
-        let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
-        control_pointer_events(ui, screen, ctrl_id, id, &ct, enabled, out, &bound);
+        // The onHoverEnter threshold is the control's HoverDelayMs property
+        // (default 200 ms) — not a hardcoded constant.
+        let hover_delay_s = (sv(ctrl, "HoverDelayMs").parse::<f64>().unwrap_or(200.0)
+            / 1000.0)
+            .clamp(0.0, 10.0);
+        control_pointer_events(
+            ui,
+            screen,
+            ctrl_id,
+            id,
+            &ct,
+            enabled,
+            out,
+            &bound,
+            hover_delay_s,
+        );
+        control_geometry_events(ui, screen, ctrl_id, id, out, &bound);
     }
 
     match ct {
         CT::Button => {
             // WYSIWYG face; only the press/hover feedback is added here.
             let resp = decorate_hover_response(ui.interact(screen, ctrl_id, Sense::click()), ctrl);
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             let pressed = resp.is_pointer_button_down_on() && enabled;
             let hovered = resp.hovered() && enabled;
             let draw_rect = if pressed { screen.shrink(1.5) } else { screen };
@@ -2329,6 +2711,7 @@ fn render_interactive(
                 .insert("Checked".to_owned(), crate::PropValue::Bool(checked));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
                 let v = if checked { "0" } else { "1" };
                 out.prop_updates
@@ -2348,6 +2731,7 @@ fn render_interactive(
                 .insert("Checked".to_owned(), crate::PropValue::Bool(selected));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
@@ -2376,22 +2760,39 @@ fn render_interactive(
             // Keep the editable content clear of the box's own rounded corners: inset
             // by at least the corner radius so text never renders in the corner zone
             // (outside the rounded arc), which would read as bleed past the corner.
+            // Horizontal inset keeps the text clear of the rounded corners, so it
+            // is floored by the corner radius. The VERTICAL inset is not: a centred
+            // single line never reaches the corners, and flooring the top/bottom by
+            // the corner radius (or any fixed pad) pushes the text off-centre and
+            // wastes the height a tall font needs. So vertical padding is just
+            // `InnerPadding`, capped so it can never consume the whole box.
             let pad = paint::textbox_inner_padding(ctrl)
                 .max(paint::corner_radius(ctrl))
                 .min((screen.width() * 0.45).min(screen.height() * 0.45));
-            let edit_rect = screen.shrink(pad);
+            let vpad = paint::textbox_inner_padding(ctrl).min((screen.height() * 0.5 - 1.0).max(0.0));
             // A Multiline TextBox uses egui's multiline editor, which wraps text to
             // the field width (honouring WordWrap); single-line otherwise.
             let multiline = ctrl
                 .get_prop("Multiline")
                 .map(|v| v.as_bool())
                 .unwrap_or(false);
+            // Multiline text starts at the top and can reach the corners, so it
+            // keeps the corner-safe inset on every side; a single line is centred
+            // and only needs the small vertical padding.
+            let edit_rect = if multiline {
+                screen.shrink(pad)
+            } else {
+                egui::Rect::from_min_max(
+                    egui::pos2(screen.left() + pad, screen.top() + vpad),
+                    egui::pos2(screen.right() - pad, screen.bottom() - vpad),
+                )
+            };
             let resp = if multiline {
                 // egui's multiline editor auto-grows to its content, so it would
                 // spill past the TextBox's fixed height (and its rounded bottom).
                 // Host it in a scroll area clipped to the field so extra rows scroll
                 // instead of overflowing — the box keeps its designed height.
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(edit_rect);
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
@@ -2400,7 +2801,7 @@ fn render_interactive(
                             ui.add(
                                 egui::TextEdit::multiline(&mut buf)
                                     .id(ctrl_id)
-                                    .frame(false)
+                                    .frame(egui::Frame::NONE)
                                     .interactive(enabled)
                                     .desired_rows(1)
                                     .desired_width(edit_rect.width())
@@ -2411,14 +2812,21 @@ fn render_interactive(
                 })
                 .inner
             } else {
-                ui.put(
-                    edit_rect,
-                    egui::TextEdit::singleline(&mut buf)
-                        .id(ctrl_id)
-                        .frame(false)
-                        .interactive(enabled)
-                        .text_color(txt_col),
-                )
+                // Clip to the box so an oversized font is cut at the border instead
+                // of spilling out, and vertically centre the single line of text.
+                ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+                    ui.set_clip_rect(screen.intersect(ui.clip_rect()));
+                    ui.put(
+                        edit_rect,
+                        egui::TextEdit::singleline(&mut buf)
+                            .id(ctrl_id)
+                            .frame(egui::Frame::NONE)
+                            .interactive(enabled)
+                            .vertical_align(egui::Align::Center)
+                            .text_color(txt_col),
+                    )
+                })
+                .inner
             };
             if resp.changed() {
                 out.prop_updates
@@ -2491,6 +2899,7 @@ fn render_interactive(
 
             let thumb_rect = paint::slider_thumb_rect(screen, min_v, max_v, cur, is_vertical);
             let resp = ui.interact(screen, ctrl_id, Sense::drag());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             let mut display_val = cur;
             let slider_dirty_id = ctrl_id.with("value-dirty");
 
@@ -2538,7 +2947,7 @@ fn render_interactive(
                         display_val = ((raw / step).round() * step).clamp(min_v, max_v);
                     }
                 }
-                if resp.drag_released() {
+                if resp.drag_stopped() {
                     ui.data_mut(|d| {
                         d.remove::<(f32, f32)>(ctrl_id);
                     });
@@ -2559,7 +2968,7 @@ fn render_interactive(
                     .push(UiEvent::change(id, &display_val.to_string()));
                 ui.data_mut(|d| d.insert_temp(slider_dirty_id, true));
             }
-            if resp.drag_released() {
+            if resp.drag_stopped() {
                 let dirty = ui.data(|d| d.get_temp::<bool>(slider_dirty_id).unwrap_or(false));
                 if dirty {
                     out.events.push(UiEvent::ev(id, "onValueChanged"));
@@ -2584,6 +2993,7 @@ fn render_interactive(
                 screen,
                 egui::DragValue::new(&mut val).range(min..=max).speed(step),
             );
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.changed() && enabled {
                 let s = format!("{val}");
                 out.prop_updates
@@ -2602,6 +3012,17 @@ fn render_interactive(
             };
             let open_id = ctrl_id.with("combo_open");
             let is_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+            // onDropDownClosed (spec 021 T12): the popup pass flips the open
+            // flag when an item is picked or the click lands outside; compare
+            // against last frame's state here.
+            let was_open_id = ctrl_id.with("combo_was_open");
+            let was_open = ui.data(|d| d.get_temp::<bool>(was_open_id)).unwrap_or(false);
+            if was_open && !is_open {
+                out.events.push(UiEvent::ev(id, "onDropDownClosed"));
+            }
+            if was_open != is_open {
+                ui.data_mut(|d| d.insert_temp(was_open_id, is_open));
+            }
             if paint::glass_combo_header(
                 &painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha,
             ) {
@@ -2628,15 +3049,22 @@ fn render_interactive(
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let mut picked: Option<String> = None;
-            ui.allocate_ui_at_rect(screen, |ui| {
-                ui.set_enabled(enabled);
+            let mut double_picked: Option<String> = None;
+            ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+                if !enabled {
+                    ui.disable();
+                }
                 egui::ScrollArea::vertical()
                     .id_salt(ctrl_id)
                     .max_height(screen.height())
                     .show(ui, |ui| {
                         for item in &items {
-                            if ui.selectable_label(&cur == item, item).clicked() {
+                            let resp = ui.selectable_label(&cur == item, item);
+                            if resp.clicked() {
                                 picked = Some(item.clone());
+                            }
+                            if resp.double_clicked() {
+                                double_picked = Some(item.clone());
                             }
                         }
                     });
@@ -2647,6 +3075,11 @@ fn render_interactive(
                 out.events.push(UiEvent::change(id, &item));
                 out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
             }
+            if let Some(item) = double_picked {
+                // spec 021 T12: item-level double click with the item text.
+                out.events
+                    .push(UiEvent::with_value(id, "onItemDoubleClick", &item));
+            }
         }
         CT::DateTimePicker => {
             let white = Color32::from_rgb(230, 235, 255);
@@ -2654,6 +3087,7 @@ fn render_interactive(
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let val = sv(ctrl, "Value");
             let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
 
             let mut cal: paint::CalState = ui
                 .data(|d| d.get_temp::<paint::CalState>(ctrl_id))
@@ -2684,6 +3118,7 @@ fn render_interactive(
                             area_rect,
                             6.0,
                             Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)),
+                            egui::StrokeKind::Middle,
                         );
                         let prev = ui.put(
                             Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
@@ -2773,7 +3208,21 @@ fn render_interactive(
         }
         CT::DataGrid => {
             let painter = painter.with_clip_rect(painter.clip_rect().intersect(screen));
-            let cell_fg = Color32::from_rgb(225, 230, 250);
+            // Cell text honours the grid's ForegroundColor when explicitly set,
+            // falling back to the readable default (previously hardcoded).
+            let cell_fg = {
+                let raw = sv(ctrl, "ForegroundColor");
+                let default_fg = crate::model::DEFAULT_FOREGROUND_COLOR.trim_start_matches('#');
+                paint::parse_hex(&raw)
+                    .filter(|c| {
+                        c.a() > 0
+                            && !raw
+                                .trim()
+                                .trim_start_matches('#')
+                                .eq_ignore_ascii_case(default_fg)
+                    })
+                    .unwrap_or(Color32::from_rgb(225, 230, 250))
+            };
             let columns_raw = sv(ctrl, "Columns");
             let rows_raw = sv(ctrl, "Rows");
             let cols: Vec<(String, String)> = columns_raw
@@ -2944,17 +3393,61 @@ fn render_interactive(
                 if let Some(tex) = tex {
                     let mode = BgImageMode::from_str(&sv(ctrl, "GridBackgroundImageMode"));
                     let dest = image_dest(screen, tex.size_vec2(), mode);
-                    painter.image(
-                        tex.id(),
-                        dest,
-                        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (alpha * 255.0) as u8),
-                    );
+                    // Clip the background image to the grid's rounded silhouette so it
+                    // doesn't square off past the corner arcs (spec 027 corner bleed).
+                    let visible = dest.intersect(screen);
+                    if visible.width() > 0.5 && visible.height() > 0.5 {
+                        let dw = dest.width().max(1.0);
+                        let dh = dest.height().max(1.0);
+                        let uv = Rect::from_min_max(
+                            pos2(
+                                (visible.min.x - dest.min.x) / dw,
+                                (visible.min.y - dest.min.y) / dh,
+                            ),
+                            pos2(
+                                (visible.max.x - dest.min.x) / dw,
+                                (visible.max.y - dest.min.y) / dh,
+                            ),
+                        );
+                        // Round only the corners where the image actually reaches a
+                        // grid corner, so a smaller centred image is left square.
+                        let r = paint::cr8(paint::corner_radius(ctrl));
+                        let eps = 0.5;
+                        let corner = |vx: f32, sx: f32, vy: f32, sy: f32| {
+                            if (vx - sx).abs() < eps && (vy - sy).abs() < eps {
+                                r
+                            } else {
+                                0
+                            }
+                        };
+                        let rounding = egui::CornerRadius {
+                            nw: corner(visible.min.x, screen.min.x, visible.min.y, screen.min.y),
+                            ne: corner(visible.max.x, screen.max.x, visible.min.y, screen.min.y),
+                            sw: corner(visible.min.x, screen.min.x, visible.max.y, screen.max.y),
+                            se: corner(visible.max.x, screen.max.x, visible.max.y, screen.max.y),
+                        };
+                        painter.add(egui::Shape::Rect(
+                            egui::epaint::RectShape::new(
+                                visible,
+                                rounding,
+                                Color32::from_rgba_unmultiplied(
+                                    255,
+                                    255,
+                                    255,
+                                    (alpha * 255.0) as u8,
+                                ),
+                                Stroke::NONE,
+                                egui::StrokeKind::Middle,
+                            )
+                            .with_texture(tex.id(), uv),
+                        ));
+                    }
                 }
             }
             draw_datagrid_pattern(
                 &painter,
                 screen,
+                paint::corner_radius(ctrl),
                 &sv(ctrl, "GridBackgroundPattern"),
                 Color32::from_rgba_unmultiplied(255, 255, 255, 24),
             );
@@ -3006,7 +3499,6 @@ fn render_interactive(
                         _ => true,
                     });
                     i.smooth_scroll_delta = egui::Vec2::ZERO;
-                    i.raw_scroll_delta = egui::Vec2::ZERO;
                     (dx, dy)
                 });
                 if wheel_delta_y != 0.0 {
@@ -3035,6 +3527,56 @@ fn render_interactive(
                 .memory_mut(|m| m.data.insert_temp(scroll_id, scroll_y));
             ui.ctx()
                 .memory_mut(|m| m.data.insert_temp(scroll_x_id, scroll_x));
+            // spec 021 T12: onScroll whenever this frame's settled offset moved
+            // (wheel, scrollbar drag, or keyboard row navigation alike).
+            {
+                let last_id = ctrl_id.with("dg-last-scroll");
+                let last = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<(f32, f32)>(last_id));
+                if let Some((ly, lx)) = last {
+                    if (ly - scroll_y).abs() > 0.5 || (lx - scroll_x).abs() > 0.5 {
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onScroll",
+                            &format!("{scroll_y:.0},{scroll_x:.0}"),
+                        ));
+                    }
+                }
+                if last != Some((scroll_y, scroll_x)) {
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(last_id, (scroll_y, scroll_x)));
+                }
+            }
+            // spec 021 T12: column-header clicks with the display column index.
+            {
+                let mut x = header_rect.min.x - scroll_x;
+                for (display_index, measure) in column_measures.iter().enumerate() {
+                    let col_header = Rect::from_min_max(
+                        pos2(x.max(header_rect.min.x), header_rect.min.y),
+                        pos2((x + measure.width).min(header_rect.max.x), header_rect.max.y),
+                    );
+                    x += measure.width;
+                    if col_header.width() <= 0.0 {
+                        continue;
+                    }
+                    if ui
+                        .interact(
+                            col_header,
+                            ctrl_id.with(("dg-colhdr", display_index)),
+                            Sense::click(),
+                        )
+                        .clicked()
+                        && enabled
+                    {
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onColumnClick",
+                            &display_index.to_string(),
+                        ));
+                    }
+                }
+            }
             let selected_cell = ui
                 .ctx()
                 .memory(|m| m.data.get_temp::<DataGridCellSelection>(selection_id));
@@ -3051,7 +3593,7 @@ fn render_interactive(
                         &sv(ctrl, "SelectionMode"),
                         &sv(ctrl, "CSVDelimiter"),
                     ) {
-                        ui.output_mut(|o| o.copied_text = text);
+                        ui.ctx().copy_text(text);
                     }
                 }
             }
@@ -3152,6 +3694,13 @@ fn render_interactive(
                     } else {
                         ui.ctx()
                             .memory_mut(|m| m.data.insert_temp(selection_id, new_selection));
+                    }
+                    // Fire selection events when the selection actually moved.
+                    if new_selection != selected {
+                        out.events.push(UiEvent::ev(id, "onSelectionChanged"));
+                        if new_selection.row_index != selected.row_index {
+                            out.events.push(UiEvent::ev(id, "onRowSelect"));
+                        }
                     }
 
                     if display_row >= frozen_rows {
@@ -3286,11 +3835,11 @@ fn render_interactive(
             let header_radius = paint::corner_radius(ctrl) as f32;
             painter.rect_filled(
                 header_rect,
-                egui::Rounding {
-                    nw: header_radius,
-                    ne: header_radius,
-                    sw: 0.0,
-                    se: 0.0,
+                egui::CornerRadius {
+                    nw: crate::paint::cr8(header_radius),
+                    ne: crate::paint::cr8(header_radius),
+                    sw: 0,
+                    se: 0,
                 },
                 header_bg,
             );
@@ -3394,7 +3943,7 @@ fn render_interactive(
                             .hint_text("Filter...")
                             .font(FontId::proportional((font_size - 1.0).max(8.0)))
                             .desired_width((col.width - 18.0).max(16.0))
-                            .frame(false),
+                            .frame(egui::Frame::NONE),
                     );
                     if !col.frozen {
                         ui.set_clip_rect(prev_clip);
@@ -3538,26 +4087,26 @@ fn render_interactive(
             // notch-mask can't be used).
             //
             // Clamping is essential: the last row's rect usually extends *past*
-            // `screen.max.y` and is cut square by the body clip. Rounding that
+            // `screen.max.y` and is cut square by the body clip. CornerRadius that
             // off-clip rect is invisible — so we intersect with the grid rect first,
             // then round the now-on-edge bottom corners.
             let grid_cr = paint::corner_radius(ctrl);
-            let confine_bottom = move |r: Rect| -> (Rect, egui::Rounding) {
+            let confine_bottom = move |r: Rect| -> (Rect, egui::CornerRadius) {
                 let c = r.intersect(screen);
                 let eps = 0.5;
                 let at_bottom = (c.max.y - screen.max.y).abs() < eps;
-                let rnd = egui::Rounding {
-                    nw: 0.0,
-                    ne: 0.0,
+                let rnd = egui::CornerRadius {
+                    nw: 0,
+                    ne: 0,
                     sw: if at_bottom && (c.min.x - screen.min.x).abs() < eps {
-                        grid_cr
+                        crate::paint::cr8(grid_cr)
                     } else {
-                        0.0
+                        0
                     },
                     se: if at_bottom && (c.max.x - screen.max.x).abs() < eps {
-                        grid_cr
+                        crate::paint::cr8(grid_cr)
                     } else {
-                        0.0
+                        0
                     },
                 };
                 (c, rnd)
@@ -3582,6 +4131,7 @@ fn render_interactive(
                 draw_datagrid_pattern(
                     &body_painter,
                     rrect,
+                    0.0,
                     &sv(ctrl, "RowBackgroundPattern"),
                     Color32::from_rgba_unmultiplied(255, 255, 255, 18),
                 );
@@ -3639,6 +4189,24 @@ fn render_interactive(
                                     },
                                 );
                             });
+                            // spec 021 T12: cell-level click with coordinates.
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onCellClick",
+                                &format!("{row_index},{}", col.index),
+                            ));
+                        }
+                        if cell_resp.double_clicked() {
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onCellDoubleClick",
+                                &format!("{row_index},{}", col.index),
+                            ));
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onRowDoubleClick",
+                                &row_index.to_string(),
+                            ));
                         }
                         cell_selected = ui.ctx().memory(|m| {
                             m.data
@@ -3691,6 +4259,7 @@ fn render_interactive(
                         draw_datagrid_pattern(
                             &body_painter,
                             cell_rect,
+                            0.0,
                             &column.background_pattern,
                             Color32::from_rgba_unmultiplied(255, 255, 255, 26),
                         );
@@ -3810,25 +4379,26 @@ fn render_interactive(
                                     // Soft two-layer drop shadow beneath the image.
                                     img_painter.rect_filled(
                                         dest.translate(vec2(0.0, 2.0)).expand(1.0),
-                                        egui::Rounding::same(corner + 1.0),
+                                        egui::CornerRadius::same(crate::paint::cr8(corner + 1.0)),
                                         Color32::from_black_alpha(55),
                                     );
                                     img_painter.rect_filled(
                                         dest.translate(vec2(0.0, 4.0)).expand(2.5),
-                                        egui::Rounding::same(corner + 2.0),
+                                        egui::CornerRadius::same(crate::paint::cr8(corner + 2.0)),
                                         Color32::from_black_alpha(28),
                                     );
                                 }
                                 if corner > 0.0 {
-                                    img_painter.add(egui::Shape::Rect(egui::epaint::RectShape {
-                                        rect: dest,
-                                        rounding: egui::Rounding::same(corner),
-                                        fill: Color32::WHITE,
-                                        stroke: Stroke::NONE,
-                                        blur_width: 0.0,
-                                        fill_texture_id: tex.id(),
-                                        uv,
-                                    }));
+                                    img_painter.add(egui::Shape::Rect(
+                                        egui::epaint::RectShape::new(
+                                            dest,
+                                            egui::CornerRadius::same(crate::paint::cr8(corner)),
+                                            Color32::WHITE,
+                                            Stroke::NONE,
+                                            egui::StrokeKind::Middle,
+                                        )
+                                        .with_texture(tex.id(), uv),
+                                    ));
                                 } else {
                                     img_painter.image(tex.id(), dest, uv, Color32::WHITE);
                                 }
@@ -3864,6 +4434,7 @@ fn render_interactive(
                             button_rect,
                             4.0,
                             Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)),
+                            egui::StrokeKind::Middle,
                         );
                         body_painter.with_clip_rect(button_rect.shrink(3.0)).text(
                             button_rect.center(),
@@ -3900,6 +4471,7 @@ fn render_interactive(
                             check_rect,
                             3.0,
                             Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)),
+                            egui::StrokeKind::Middle,
                         );
                         let truthy = matches!(
                             raw.trim().to_ascii_lowercase().as_str(),
@@ -3941,6 +4513,7 @@ fn render_interactive(
                             dropdown_rect,
                             4.0,
                             Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 120)),
+                            egui::StrokeKind::Middle,
                         );
                         let text_clip = Rect::from_min_max(
                             dropdown_rect.min + vec2(6.0, 0.0),
@@ -4007,6 +4580,7 @@ fn render_interactive(
                                     cell,
                                     2.0,
                                     Stroke::new(1.0, Color32::from_rgb(110, 120, 160)),
+                                    egui::StrokeKind::Middle,
                                 );
                             }
                         }
@@ -4115,11 +4689,11 @@ fn render_interactive(
                     let r = paint::corner_radius(ctrl);
                     painter.rect_filled(
                         filler_rect,
-                        egui::Rounding {
-                            nw: 0.0,
-                            ne: 0.0,
-                            sw: 0.0,
-                            se: r,
+                        egui::CornerRadius {
+                            nw: 0,
+                            ne: 0,
+                            sw: 0,
+                            se: crate::paint::cr8(r),
                         },
                         fill,
                     );
@@ -4141,7 +4715,11 @@ fn render_interactive(
                 if x > min_x && x < screen.max.x {
                     draw_datagrid_line(
                         &painter,
-                        [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                        clip_datagrid_line_to_corners(
+                            screen,
+                            grid_cr,
+                            [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                        ),
                         Stroke::new(1.0, grid_c),
                         grid_line_style,
                     );
@@ -4149,10 +4727,14 @@ fn render_interactive(
             }
             draw_datagrid_line(
                 &painter,
-                [
-                    pos2(screen.min.x, screen.min.y + header_h),
-                    pos2(screen.max.x, screen.min.y + header_h),
-                ],
+                clip_datagrid_line_to_corners(
+                    screen,
+                    grid_cr,
+                    [
+                        pos2(screen.min.x, screen.min.y + header_h),
+                        pos2(screen.max.x, screen.min.y + header_h),
+                    ],
+                ),
                 Stroke::new(1.0, grid_c),
                 grid_line_style,
             );
@@ -4172,11 +4754,11 @@ fn render_interactive(
                     // by half the stroke width so the line sits INSIDE the grid rect
                     // — a centred stroke spills half a pixel past the edge, which
                     // shows as a light rim bleeding outside the rounded corner.
-                    let half = o_stroke.width * 0.5;
                     painter.rect_stroke(
-                        screen.shrink(half),
-                        egui::Rounding::same((grid_cr - half).max(0.0)),
+                        screen,
+                        egui::CornerRadius::same(crate::paint::cr8(grid_cr)),
                         o_stroke,
+                        egui::StrokeKind::Inside,
                     );
                 } else {
                     // Square grid: left + bottom outer lines (obey GridLineStyle).
@@ -4221,9 +4803,15 @@ fn render_interactive(
                 }
             }
             if layout.max_scroll_y > 0.0 && body_rect.height() > 8.0 {
+                // The track hugs the right edge, so its bottom sits inside the grid's
+                // rounded corner band. Pull the bottom up by the arc's vertical inset
+                // at the track's x so the scrollbar never pokes past the rounded
+                // bottom-right corner (a DataGrid-line-style bleed).
+                let track_v_inset = rounded_edge_inset_v(screen, grid_cr, screen.max.x - 3.5);
+                let track_bottom = (body_rect.max.y - 2.0).min(screen.max.y - track_v_inset);
                 let track = Rect::from_min_max(
                     pos2(screen.max.x - 5.0, body_rect.min.y + 2.0),
-                    pos2(screen.max.x - 2.0, body_rect.max.y - 2.0),
+                    pos2(screen.max.x - 2.0, track_bottom),
                 );
                 let thumb_h = (body_rect.height() / layout.total_rows_height * track.height())
                     .clamp(12.0, track.height());
@@ -4241,6 +4829,7 @@ fn render_interactive(
         }
         CT::TabControl => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            let selected = sv(ctrl, "SelectedTab").parse::<usize>().unwrap_or(0);
             for (i, tr) in paint::tabcontrol_tab_rects(screen.min, ctrl)
                 .into_iter()
                 .enumerate()
@@ -4253,6 +4842,14 @@ fn render_interactive(
                     out.prop_updates
                         .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
                     out.events.push(UiEvent::ev(id, "onChange"));
+                    // spec 021 T12: every tab click, plus the change event only
+                    // when the selection actually moved.
+                    out.events
+                        .push(UiEvent::with_value(id, "onTabClick", &i.to_string()));
+                    if i != selected {
+                        out.events
+                            .push(UiEvent::with_value(id, "onTabChanged", &i.to_string()));
+                    }
                 }
             }
         }
@@ -4266,8 +4863,9 @@ fn render_interactive(
                 alpha,
             );
             let fg = Color32::from_rgb(220, 226, 250);
+            let selected = sv(ctrl, "SelectedNode");
             let mut y = screen.min.y + 12.0;
-            for line in sv(ctrl, "Items").lines() {
+            for (line_index, line) in sv(ctrl, "Items").lines().enumerate() {
                 if y > screen.max.y {
                     break;
                 }
@@ -4275,6 +4873,36 @@ fn render_interactive(
                 let text = line.trim();
                 if text.is_empty() {
                     continue;
+                }
+                let row = Rect::from_min_max(
+                    pos2(screen.min.x + 2.0, y - 9.0),
+                    pos2(screen.max.x - 2.0, y + 9.0),
+                );
+                // spec 021 T12: node selection. Rows are click targets; the
+                // picked node lands in SelectedNode and fires the node events.
+                let resp = ui.interact(row, ctrl_id.with(("tv-node", line_index)), Sense::click());
+                let is_selected = !selected.is_empty() && selected == text;
+                if is_selected {
+                    painter.rect_filled(
+                        row,
+                        3.0,
+                        Color32::from_rgba_premultiplied(70, 110, 200, 70),
+                    );
+                }
+                if resp.clicked() && enabled {
+                    out.prop_updates
+                        .push((id.to_owned(), "SelectedNode".to_owned(), text.to_owned()));
+                    out.events.push(UiEvent::with_value(id, "onNodeClick", text));
+                    if !is_selected {
+                        out.events
+                            .push(UiEvent::with_value(id, "onNodeSelect", text));
+                    }
+                }
+                if resp.double_clicked() && enabled {
+                    out.events
+                        .push(UiEvent::with_value(id, "onNodeDblClick", text));
+                    out.events
+                        .push(UiEvent::with_value(id, "onNodeDoubleClick", text));
                 }
                 painter.text(
                     pos2(screen.min.x + 8.0 + depth as f32 * 16.0, y),
@@ -4381,6 +5009,16 @@ fn render_interactive(
 
                     if resp.clicked() {
                         let new_idx = if is_open { None } else { Some(ti) };
+                        // spec 021 T12: menu open/close lifecycle.
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            if new_idx.is_some() {
+                                "onMenuOpen"
+                            } else {
+                                "onMenuClose"
+                            },
+                            &entry.label,
+                        ));
                         ui.data_mut(|d| d.insert_temp(menu_id, new_idx));
                     }
 
@@ -4392,8 +5030,8 @@ fn render_interactive(
                             .order(egui::Order::Foreground)
                             .fixed_pos(dropdown_pos)
                             .show(ui.ctx(), |ui| {
-                                egui::Frame::popup(&ui.ctx().style())
-                                    .inner_margin(egui::Margin::same(4.0))
+                                egui::Frame::popup(&ui.ctx().global_style())
+                                    .inner_margin(egui::Margin::same(4))
                                     .show(ui, |ui| {
                                         for item in &entry.items {
                                             if item.item_type
@@ -4581,8 +5219,25 @@ fn render_interactive(
             // path the designer canvas uses — so the image is tinted/framed
             // identically and is never dimmed or washed-out relative to the canvas
             // (spec 017 parity). `draw_picturebox` used a different tint + frame.
-            let tex =
-                paint::picturebox_texture(ui.ctx(), sv(ctrl, "ImagePath").trim()).map(|t| t.id());
+            let source = sv(ctrl, "ImagePath").trim().to_owned();
+            let tex = paint::picturebox_texture(ui.ctx(), &source).map(|t| t.id());
+            // spec 021 T12: image lifecycle, once per distinct source value.
+            let mem = ctrl_id.with("pic-src-state");
+            let state = (source.clone(), tex.is_some());
+            let prev = ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<(String, bool)>(mem));
+            if prev.as_ref() != Some(&state) {
+                if !source.is_empty() {
+                    let event = if tex.is_some() {
+                        "onImageLoaded"
+                    } else {
+                        "onImageError"
+                    };
+                    out.events.push(UiEvent::with_value(id, event, &source));
+                }
+                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, state));
+            }
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, tex);
         }
         CT::Animator => {
@@ -4601,6 +5256,38 @@ fn render_interactive(
             paint::draw_animator(
                 &painter, screen, ctrl, &key, &source, auto, looping, &size_mode, alpha, false,
             );
+            // spec 021 T12: playback lifecycle read back from the media clock.
+            if let Some((frame, loops, ended)) =
+                cobolt_media::playback_position(ui.ctx(), &key, auto, looping)
+            {
+                let mem = ctrl_id.with("anim-pos");
+                let prev = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<(usize, u32, bool)>(mem));
+                match prev {
+                    None => out.events.push(UiEvent::ev(id, "onStarted")),
+                    Some((prev_frame, prev_loops, prev_ended)) => {
+                        if prev_frame != frame {
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onFrameChanged",
+                                &frame.to_string(),
+                            ));
+                        }
+                        if prev_loops != loops && loops > 0 {
+                            out.events
+                                .push(UiEvent::with_value(id, "onLooped", &loops.to_string()));
+                        }
+                        if ended && !prev_ended {
+                            out.events.push(UiEvent::ev(id, "onEnded"));
+                        }
+                    }
+                }
+                if prev != Some((frame, loops, ended)) {
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(mem, (frame, loops, ended)));
+                }
+            }
         }
         CT::Timer => {
             // Non-visual, but it TICKS: fire `onTick` every Interval ms while on.
@@ -4651,9 +5338,51 @@ fn render_interactive(
             // Charts render through the SAME path as the designer (draw_control →
             // chart painter) so the running chart matches the canvas (spec 017).
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // spec 021: onDataChanged when the chart's data-bearing properties
+            // change (COBOL AddPoint/Clear/DataSource writes land here).
+            if bound.contains(&"onDataChanged") {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                use std::hash::{Hash, Hasher};
+                sv(ctrl, "Data").hash(&mut hasher);
+                sv(ctrl, "DataSource").hash(&mut hasher);
+                sv(ctrl, "Values").hash(&mut hasher);
+                sv(ctrl, "Labels").hash(&mut hasher);
+                let digest = hasher.finish();
+                let mem = ctrl_id.with("chart-data");
+                let prev = ui.ctx().memory(|m| m.data.get_temp::<u64>(mem));
+                if let Some(prev_digest) = prev {
+                    if prev_digest != digest {
+                        out.events.push(UiEvent::ev(id, "onDataChanged"));
+                    }
+                }
+                if prev != Some(digest) {
+                    ui.ctx().memory_mut(|m| m.data.insert_temp(mem, digest));
+                }
+            }
         }
         CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
             // Non-visual — nothing to draw.
+        }
+        CT::ProgressBar => {
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // spec 021 T12: value lifecycle driven by COBOL property writes.
+            let value = sv(ctrl, "Value").parse::<f32>().unwrap_or(0.0);
+            let maximum = sv(ctrl, "Maximum").parse::<f32>().unwrap_or(100.0);
+            let mem = ctrl_id.with("pb-value");
+            let prev = ui.ctx().memory(|m| m.data.get_temp::<f32>(mem));
+            if let Some(prev_value) = prev {
+                if (prev_value - value).abs() > f32::EPSILON {
+                    out.events
+                        .push(UiEvent::with_value(id, "onValueChanged", &value.to_string()));
+                    if value >= maximum && prev_value < maximum {
+                        out.events
+                            .push(UiEvent::with_value(id, "onCompleted", &value.to_string()));
+                    }
+                }
+            }
+            if prev != Some(value) {
+                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, value));
+            }
         }
         // Faces whose designer rendering IS the real face (Label, Panel, Shape, …).
         _ => {
@@ -4696,7 +5425,7 @@ mod tests {
         let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
         assert_eq!(
             r,
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             "no child at any corner ⇒ NOTHING masked (panel keeps its own corners)"
         );
     }
@@ -4717,10 +5446,107 @@ mod tests {
             Rect::from_min_size(pos2(0.0, 140.0), Vec2::new(30.0, 20.0)),
         );
         let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
-        assert_eq!(r.sw, 20.0, "child in bottom-left ⇒ SW masked");
-        assert_eq!(r.nw, 0.0, "NW is clean ⇒ untouched");
-        assert_eq!(r.ne, 0.0, "NE is clean ⇒ untouched");
-        assert_eq!(r.se, 0.0, "SE is clean ⇒ untouched");
+        assert_eq!(r.sw, 20, "child in bottom-left ⇒ SW masked");
+        assert_eq!(r.nw, 0, "NW is clean ⇒ untouched");
+        assert_eq!(r.ne, 0, "NE is clean ⇒ untouched");
+        assert_eq!(r.se, 0, "SE is clean ⇒ untouched");
+    }
+
+    /// Which of the four corner squares of a 200×150 / r=20 panel a restore stroke
+    /// landed in, derived from each stroke shape's clip rect. Restore clips each
+    /// corner's rim to that corner's square, so the clip rect names the corner.
+    fn restored_corners(rect: Rect, r: f32, masked: egui::CornerRadius) -> std::collections::BTreeSet<&'static str> {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Enhanced);
+        let mut panel = Control::new("PNL", ControlType::Panel, rect.min.x as i32, rect.min.y as i32);
+        panel.rect = crate::model::Rect::new(
+            rect.min.x as i32,
+            rect.min.y as i32,
+            rect.width() as i32,
+            rect.height() as i32,
+        );
+        panel.set_prop("BorderStyle", crate::model::PropValue::String("Single".into()));
+        panel.set_prop("BorderWidth", crate::model::PropValue::Int(1));
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            let painter = root_ui.painter_at(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
+            crate::paint::restore_container_outline(&painter, &panel, rect, r, true, masked);
+        });
+        let mut hit = std::collections::BTreeSet::new();
+        let classify = |c: egui::Pos2| -> Option<&'static str> {
+            let left = c.x < rect.min.x + r;
+            let right = c.x > rect.max.x - r;
+            let top = c.y < rect.min.y + r;
+            let bot = c.y > rect.max.y - r;
+            match (left, right, top, bot) {
+                (true, _, true, _) => Some("nw"),
+                (_, true, true, _) => Some("ne"),
+                (_, true, _, true) => Some("se"),
+                (true, _, _, true) => Some("sw"),
+                _ => None,
+            }
+        };
+        for cs in &full.shapes {
+            if let egui::Shape::Rect(rs) = &cs.shape {
+                if rs.stroke.width > 0.0 {
+                    if let Some(corner) = classify(cs.clip_rect.center()) {
+                        hit.insert(corner);
+                    }
+                }
+            }
+        }
+        hit
+    }
+
+    #[test]
+    fn restore_outline_only_touches_masked_corners() {
+        // Regression: `restore_container_outline` used to redraw the rim on ALL four
+        // corners unconditionally, double-stroking the face's own rim on corners the
+        // (now per-corner) notch mask left clean — a light spur at the corner
+        // (visible on databound DataGrids / dropshadowed cards after egui 0.35).
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
+        let r = 20.0;
+        let cr = crate::paint::cr8(r);
+
+        // Only the SW corner masked ⇒ only SW restored.
+        let sw_only = egui::CornerRadius { nw: 0, ne: 0, se: 0, sw: cr };
+        let hit = restored_corners(rect, r, sw_only);
+        assert_eq!(
+            hit.into_iter().collect::<Vec<_>>(),
+            vec!["sw"],
+            "restore must touch ONLY the masked (SW) corner, never the clean ones",
+        );
+
+        // Nothing masked ⇒ nothing restored (no spur on a container with a clean rim).
+        let hit = restored_corners(rect, r, egui::CornerRadius::ZERO);
+        assert!(
+            hit.is_empty(),
+            "no corner masked ⇒ restore must be a no-op, saw {hit:?}",
+        );
+    }
+
+    #[test]
+    fn datagrid_line_clip_keeps_lines_inside_the_arc() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 100.0));
+        let r = 20.0;
+        // A vertical separator hugging the left edge would poke into both left
+        // corner notches; clipping pulls its ends inside the arc.
+        let v = clip_datagrid_line_to_corners(rect, r, [pos2(2.0, 0.0), pos2(2.0, 100.0)]);
+        assert_eq!(v[0].x, 2.0);
+        assert!(
+            v[0].y > 0.5 && v[1].y < 99.5,
+            "near-edge vertical line must clip away from the corners, got {v:?}"
+        );
+        // A separator in the middle clears the corners → untouched.
+        let mid = clip_datagrid_line_to_corners(rect, r, [pos2(100.0, 0.0), pos2(100.0, 100.0)]);
+        assert_eq!(mid, [pos2(100.0, 0.0), pos2(100.0, 100.0)]);
+        // A horizontal line hugging the bottom is pulled in at both ends.
+        let h = clip_datagrid_line_to_corners(rect, r, [pos2(0.0, 98.0), pos2(200.0, 98.0)]);
+        assert!(
+            h[0].x > 0.5 && h[1].x < 199.5,
+            "near-bottom horizontal line must clip away from the corners, got {h:?}"
+        );
     }
 
     fn bound_repeating_group(count: i64) -> Vec<Control> {
@@ -5167,12 +5993,14 @@ mod tests {
         let controls = vec![panel, card, inner];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
-        let _ = ctx.run(Default::default(), |ctx| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             // Seed scroll offset in temp data
             let sid = egui::Id::new(("autoscr", "Pnl"));
             ctx.data_mut(|d| d.insert_temp(sid, egui::vec2(0.0, 30.0)));
 
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 500.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5216,12 +6044,14 @@ mod tests {
 
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
-        let _ = ctx.run(Default::default(), |ctx| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             // Seed scroll offset in temp data
             let sid = egui::Id::new(("autoscr", "Pnl"));
             ctx.data_mut(|d| d.insert_temp(sid, egui::vec2(0.0, 30.0)));
 
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 500.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5256,8 +6086,10 @@ mod tests {
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
         let mut captured = None;
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5317,8 +6149,10 @@ mod tests {
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
         let (mut rects_form, mut rects_faces) = (None, None);
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5468,10 +6302,12 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
-                    .show(ctx, |ui| {
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
                         egui::ScrollArea::both()
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
@@ -5560,6 +6396,7 @@ mod tests {
                     unit: egui::MouseWheelUnit::Point,
                     delta: Vec2::new(0.0, -40.0), // negative y = scroll down
                     modifiers: Modifiers::default(),
+                    phase: egui::TouchPhase::Move,
                 },
             ],
         ];
@@ -5573,10 +6410,12 @@ mod tests {
             input.time = Some(i as f64 * 0.05);
             input.events = evs;
             let st = MapState(&overrides);
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
-                    .show(ctx, |ui| {
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
                         let out =
                             egui::ScrollArea::both()
                                 .auto_shrink([false, false])
@@ -5669,10 +6508,12 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
-                    .show(ctx, |ui| {
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
                         let inp = RenderInput {
                             controls,
@@ -6215,10 +7056,12 @@ mod tests {
             input.focused = true;
             input.time = Some(i as f64); // 1s/frame → clears any interval
             let events = RefCell::new(Vec::<UiEvent>::new());
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
-                    .show(ctx, |ui| {
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
                         let inp = RenderInput {
                             controls,
@@ -6350,5 +7193,451 @@ fn char_to_key(c: char) -> egui::Key {
         '\u{001B}' => egui::Key::Escape,
         ' ' => egui::Key::Space,
         _ => egui::Key::A,
+    }
+}
+// Shape-dump differ (spec 027 corner-bleed hunt) — egui 0.35 branch flavor.
+// Appended to cobolt-forms/src/render.rs tests; renders one neumorphic-panel
+// frame and dumps every non-text paint shape, normalized, to a file given in
+// COBOLT_SHAPE_DUMP.
+#[cfg(test)]
+mod shape_dump {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap as Map;
+
+    fn dump_shape(out: &mut Vec<String>, clip: egui::Rect, shape: &egui::Shape) {
+        use egui::Shape as S;
+        let r2 = |v: f32| (v * 4.0).round() / 4.0;
+        let fr = |r: egui::Rect| {
+            format!(
+                "[{} {} {} {}]",
+                r2(r.min.x),
+                r2(r.min.y),
+                r2(r.max.x),
+                r2(r.max.y)
+            )
+        };
+        match shape {
+            S::Vec(v) => {
+                for s in v {
+                    dump_shape(out, clip, s);
+                }
+            }
+            S::Text(_) => {} // font engines differ across versions — geometry only
+            S::Rect(rs) => out.push(format!(
+                "RECT bbox={} fill=#{:02x}{:02x}{:02x}{:02x} stroke={}@#{:02x}{:02x}{:02x}{:02x} r=[{} {} {} {}] clip={}",
+                fr(rs.rect),
+                rs.fill.r(), rs.fill.g(), rs.fill.b(), rs.fill.a(),
+                r2(rs.stroke.width),
+                rs.stroke.color.r(), rs.stroke.color.g(), rs.stroke.color.b(), rs.stroke.color.a(),
+                rs.corner_radius.nw, rs.corner_radius.ne, rs.corner_radius.sw, rs.corner_radius.se,
+                fr(clip),
+            )),
+            S::Path(ps) => out.push(format!(
+                "PATH n={} bbox={} fill=#{:02x}{:02x}{:02x}{:02x} stroke={} clip={}",
+                ps.points.len(),
+                fr(shape.visual_bounding_rect()),
+                ps.fill.r(), ps.fill.g(), ps.fill.b(), ps.fill.a(),
+                r2(ps.stroke.width),
+                fr(clip),
+            )),
+            S::Mesh(m) => out.push(format!(
+                "MESH v={} i={} bbox={} c0=#{:02x}{:02x}{:02x}{:02x} clip={}",
+                m.vertices.len(),
+                m.indices.len(),
+                fr(shape.visual_bounding_rect()),
+                m.vertices.first().map(|v| v.color.r()).unwrap_or(0),
+                m.vertices.first().map(|v| v.color.g()).unwrap_or(0),
+                m.vertices.first().map(|v| v.color.b()).unwrap_or(0),
+                m.vertices.first().map(|v| v.color.a()).unwrap_or(0),
+                fr(clip),
+            )),
+            S::LineSegment { points, stroke } => out.push(format!(
+                "LINE [{} {}]-[{} {}] w={} c=#{:02x}{:02x}{:02x}{:02x} clip={}",
+                r2(points[0].x), r2(points[0].y), r2(points[1].x), r2(points[1].y),
+                r2(stroke.width),
+                stroke.color.r(), stroke.color.g(), stroke.color.b(), stroke.color.a(),
+                fr(clip),
+            )),
+            S::Circle(cs) => out.push(format!(
+                "CIRCLE c=[{} {}] r={} fill=#{:02x}{:02x}{:02x}{:02x} clip={}",
+                r2(cs.center.x), r2(cs.center.y), r2(cs.radius),
+                cs.fill.r(), cs.fill.g(), cs.fill.b(), cs.fill.a(),
+                fr(clip),
+            )),
+            other => out.push(format!(
+                "OTHER {:?} bbox={}",
+                std::mem::discriminant(other),
+                fr(other.visual_bounding_rect()),
+            )),
+        }
+    }
+
+    #[test]
+    fn dump_neumorphic_panel_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP") else {
+            return; // only runs when explicitly requested
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+
+        let container = {
+            let mut c = Control::new("PNL", ControlType::Panel, 40, 40);
+            c.rect = crate::model::Rect::new(40, 40, 400, 200);
+            c.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+            c
+        };
+        let controls = vec![container];
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        input.focused = true;
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: String::new(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: None,
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("dumped {} shapes", out.len());
+    }
+
+    /// Scene B — Classic glass + backdrop image + corner-reaching child:
+    /// exercises the notch mask / restore-outline path. Dump-only (set
+    /// COBOLT_SHAPE_DUMP_B=<file>).
+    #[test]
+    fn dump_classic_glass_notch_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP_B") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+
+        let mut container = Control::new("PNL", ControlType::Panel, 40, 40);
+        container.rect = crate::model::Rect::new(40, 40, 400, 200);
+        container.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+        let mut child = Control::new("LBL", ControlType::Label, 42, 42);
+        child.rect = crate::model::Rect::new(42, 42, 120, 30);
+        child.parent = Some("PNL".into());
+        let controls = vec![container, child];
+
+        let tex = ctx.load_texture(
+            "dump_bg",
+            egui::ColorImage {
+                size: [4, 4],
+                source_size: egui::vec2(4.0, 4.0),
+                pixels: vec![egui::Color32::from_rgb(160, 120, 60); 16],
+            },
+            egui::TextureOptions::LINEAR,
+        );
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: "8a6a3c".into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: Some((tex.id(), egui::vec2(4.0, 4.0))),
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("scene B dumped {} shapes", out.len());
+    }
+
+    /// Scene C — captioned GroupBox + nested Panel + corner children, Classic
+    /// glass, image backdrop (COBOLT_SHAPE_DUMP_C=<file>).
+    #[test]
+    fn dump_groupbox_nested_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP_C") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+
+        let mut gb = Control::new("GB", ControlType::GroupBox, 40, 40);
+        gb.rect = crate::model::Rect::new(40, 40, 400, 200);
+        gb.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+        gb.set_prop("Caption", crate::model::PropValue::String("Group".into()));
+        let mut inner = Control::new("PNL2", ControlType::Panel, 60, 80);
+        inner.rect = crate::model::Rect::new(60, 80, 150, 100);
+        inner.set_prop("CornerRadius", crate::model::PropValue::Int(16));
+        inner.parent = Some("GB".into());
+        let mut child = Control::new("LBL", ControlType::Label, 42, 42);
+        child.rect = crate::model::Rect::new(42, 42, 120, 30);
+        child.parent = Some("GB".into());
+        let controls = vec![gb, inner, child];
+
+        let tex = ctx.load_texture(
+            "dump_bg_c",
+            egui::ColorImage {
+                size: [4, 4],
+                source_size: egui::vec2(4.0, 4.0),
+                pixels: vec![egui::Color32::from_rgb(160, 120, 60); 16],
+            },
+            egui::TextureOptions::LINEAR,
+        );
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: "8a6a3c".into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: Some((tex.id(), egui::vec2(4.0, 4.0))),
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("scene C dumped {} shapes", out.len());
+    }
+
+    /// Scene D — TRANSPARENT Panel + DataGrid child on image backdrop, Classic
+    /// glass (COBOLT_SHAPE_DUMP_D=<file>). Mirrors the operator's failing form.
+    #[test]
+    fn dump_transparent_panel_datagrid_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP_D") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+
+        let mut pnl = Control::new("PNL", ControlType::Panel, 40, 40);
+        pnl.rect = crate::model::Rect::new(40, 40, 400, 200);
+        pnl.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+        pnl.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String("00000000".into()),
+        );
+        let mut grid = Control::new("GRID", ControlType::DataGrid, 60, 60);
+        grid.rect = crate::model::Rect::new(60, 60, 200, 120);
+        grid.set_prop("CornerRadius", crate::model::PropValue::Int(16));
+        grid.parent = Some("PNL".into());
+        let controls = vec![pnl, grid];
+
+        let tex = ctx.load_texture(
+            "dump_bg_d",
+            egui::ColorImage {
+                size: [4, 4],
+                source_size: egui::vec2(4.0, 4.0),
+                pixels: vec![egui::Color32::from_rgb(160, 120, 60); 16],
+            },
+            egui::TextureOptions::LINEAR,
+        );
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: "8a6a3c".into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: Some((tex.id(), egui::vec2(4.0, 4.0))),
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("scene D dumped {} shapes", out.len());
+    }
+
+    /// Corner-bleed guard (egui 0.35 regression): every stroked rect that is
+    /// concentric with the panel face must keep its corner radius STRICTLY
+    /// inside the face radius. u8 radii can't express `face - 0.5`, and
+    /// rounding UP pushed the dark border arc outside the face — the visible
+    /// black corner arcs. Flooring keeps it inside; this test pins that.
+    #[test]
+    fn concentric_border_arcs_stay_inside_the_face() {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+        let container = {
+            let mut c = Control::new("PNL", ControlType::Panel, 40, 40);
+            c.rect = crate::model::Rect::new(40, 40, 400, 200);
+            c.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+            c
+        };
+        let controls = vec![container];
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: String::new(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: None,
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        fn walk(shape: &egui::Shape, face_r: &mut Option<u8>, checked: &mut usize) {
+            match shape {
+                egui::Shape::Vec(v) => {
+                    for s in v {
+                        walk(s, face_r, checked);
+                    }
+                }
+                egui::Shape::Rect(rs) => {
+                    let panel_area = rs.rect.min.x >= 39.0
+                        && rs.rect.max.x <= 441.0
+                        && rs.rect.min.y >= 39.0
+                        && rs.rect.max.y <= 241.0;
+                    if !panel_area {
+                        return;
+                    }
+                    if rs.fill.a() > 0 && rs.stroke.width == 0.0 {
+                        *face_r = Some(rs.corner_radius.nw);
+                    } else if rs.stroke.width > 0.0 {
+                        if let Some(fr) = *face_r {
+                            // Inside strokes may sit AT the face radius (their
+                            // whole width is inside the rect); anything else
+                            // must be strictly tighter than the face arc.
+                            let inside_ok = rs.stroke_kind == egui::StrokeKind::Inside
+                                && rs.corner_radius.nw <= fr;
+                            let tighter_ok = rs.corner_radius.nw < fr;
+                            assert!(
+                                inside_ok || tighter_ok,
+                                "border arc (r={}, {:?}) may spill outside the face arc (r={fr}) — corner bleed regression",
+                                rs.corner_radius.nw,
+                                rs.stroke_kind,
+                            );
+                            *checked += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut face_r = None;
+        let mut checked = 0usize;
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut face_r, &mut checked);
+        }
+        assert!(
+            checked >= 2,
+            "expected border strokes to check, saw {checked}"
+        );
+        println!("verified {checked} concentric border arcs inside face r={face_r:?}");
+    }
+
+    struct MapState_dump<'a>(&'a RefCell<Map<String, Map<String, String>>>);
+    impl FormState for MapState_dump<'_> {
+        fn live(&self, base: &Control) -> Control {
+            let m = self.0.borrow();
+            match m.get(&base.id) {
+                Some(p) => merge_props(base, p.iter()),
+                None => base.clone(),
+            }
+        }
     }
 }

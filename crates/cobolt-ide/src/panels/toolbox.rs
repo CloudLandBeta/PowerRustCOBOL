@@ -268,6 +268,9 @@ const BTN_PAD_RIGHT: f32 = 10.0;
 pub struct ToolboxAction {
     pub dragged_type: Option<ControlType>,
     pub dragged_user_control: Option<String>,
+    /// The user clicked the collapse/expand chevron this frame. The owning
+    /// designer flips `DesignerPanel::toolbox_collapsed` in response.
+    pub toggle_collapse: bool,
 }
 
 pub struct ToolboxPanel {
@@ -288,14 +291,52 @@ impl ToolboxPanel {
         ui: &mut Ui,
         tr: &Tr,
         user_controls: &[UserControlDef],
+        collapsed: bool,
     ) -> ToolboxAction {
         let mut action = ToolboxAction {
             dragged_type: None,
             dragged_user_control: None,
+            toggle_collapse: false,
+        };
+
+        // Collapsed: render only a narrow, vertically-scrolling ICON rail (plus
+        // the expand chevron). No labels, no search, no forms list — the rail is
+        // a FIXED-width panel (see `TOOLBOX_RAIL_W`) so it can't self-inflate.
+        if collapsed {
+            self.show_rail(ui, tr, &mut action);
+            return action;
+        }
+
+        // Category header colour: the frosty light-blue reads fine on the
+        // dark/glass chrome themes it was tuned for, but washes out ("too
+        // dimmed") against light backgrounds — Neumorphic Light especially.
+        // Light themes use the theme's own accent colour for solid contrast.
+        let theme = crate::theme::active();
+        let heading_color = if theme.dark {
+            Color32::from_rgb(150, 180, 255)
+        } else {
+            theme.accent
         };
 
         ui.vertical(|ui| {
-            ui.heading("Toolbox");
+            ui.horizontal(|ui| {
+                ui.heading("Toolbox");
+                // Right-aligned collapse chevron: shrinks the sidebar to the
+                // icon rail. Points left (◀) — the pane collapses toward its
+                // fixed left edge.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(
+                            RichText::new("◀")
+                                .size(super::designer::COLLAPSE_CHEVRON_SIZE),
+                        )
+                        .on_hover_text(tr.toolbox_collapse)
+                        .clicked()
+                    {
+                        action.toggle_collapse = true;
+                    }
+                });
+            });
             ui.separator();
 
             ui.horizontal(|ui| {
@@ -328,7 +369,7 @@ impl ToolboxPanel {
                                 RichText::new(format!("{arrow}{cat_label}"))
                                     .small()
                                     .strong()
-                                    .color(Color32::from_rgb(150, 180, 255)),
+                                    .color(heading_color),
                             )
                             .frame(false)
                             .min_size(Vec2::new(ui.available_width(), 16.0));
@@ -374,6 +415,33 @@ impl ToolboxPanel {
 
         action
     }
+
+    /// Narrow icon-only rail shown when the toolbox is collapsed. Renders the
+    /// expand chevron then every tool as a single-column stack of draggable
+    /// icons. Reuses `icon_btn` so click-to-place and drag-to-place still work.
+    fn show_rail(&self, ui: &mut Ui, tr: &Tr, action: &mut ToolboxAction) {
+        ui.vertical_centered(|ui| {
+            // Points right (▶) — expanding grows the pane back toward the canvas.
+            if ui
+                .button(RichText::new("▶").size(super::designer::COLLAPSE_CHEVRON_SIZE))
+                .on_hover_text(tr.toolbox_expand)
+                .clicked()
+            {
+                action.toggle_collapse = true;
+            }
+        });
+        ui.separator();
+
+        egui::ScrollArea::vertical()
+            .id_salt("toolbox_rail_scroll")
+            .show(ui, |ui| {
+                // At the rail's fixed width `render_icon_grid` naturally computes
+                // a single column (one 59px cell won't fit twice), giving a clean
+                // vertical icon stack.
+                let all: Vec<&ToolEntry> = TOOLS.iter().collect();
+                render_icon_grid(ui, &all, action);
+            });
+    }
 }
 
 fn render_user_controls(
@@ -391,12 +459,21 @@ fn render_user_controls(
         return;
     }
 
+    // Same theme-aware contrast fix as the category headers above: the frosty
+    // blue washes out on light themes, so use the theme's accent there.
+    let theme = crate::theme::active();
+    let heading_color = if theme.dark {
+        Color32::from_rgb(150, 180, 255)
+    } else {
+        theme.accent
+    };
+
     ui.add_space(4.0);
     ui.label(
         RichText::new(format!("▾ {}", tr.uc_section_title))
             .small()
             .strong()
-            .color(Color32::from_rgb(150, 180, 255)),
+            .color(heading_color),
     );
     ui.add_space(4.0);
 
@@ -496,8 +573,25 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
 
     if ui.is_rect_visible(rect) {
         let visuals = ui.style().interact(&resp);
+        let theme = crate::theme::active();
+        let is_neumorphic = theme.is_neumorphic();
 
-        let bg = if pressed || dragging {
+        let bg = if is_neumorphic {
+            // Flat soft-UI surface: the control's fill stays close to the
+            // background colour (depth comes from the relief halo painted
+            // below, not from a contrasting fill) — matches Form Neumorphic
+            // Light, where the surface colour IS the background colour.
+            // Pressed/dragging uses a graphite badge instead of the theme's
+            // blue accent (paired with a white icon below) — a blue fill
+            // with the icon drawn in theme colours read poorly against it.
+            if pressed || dragging {
+                crate::theme::NEUMORPHIC_ACTIVE_GRAPHITE
+            } else if hovered {
+                theme.bg_hover
+            } else {
+                theme.bg_control
+            }
+        } else if pressed || dragging {
             Color32::from_rgba_premultiplied(80, 120, 220, 100)
         } else if hovered {
             Color32::from_rgba_premultiplied(80, 120, 220, 45)
@@ -505,7 +599,9 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
             Color32::TRANSPARENT
         };
 
-        let border_color = if pressed || dragging {
+        let border_color = if is_neumorphic {
+            Color32::TRANSPARENT // relief halo reads as depth, not a hard edge
+        } else if pressed || dragging {
             Color32::from_rgba_premultiplied(120, 160, 255, 200)
         } else if hovered {
             Color32::from_rgba_premultiplied(120, 160, 255, 100)
@@ -513,14 +609,28 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
             Color32::from_rgba_premultiplied(120, 120, 140, 25)
         };
 
-        let rounding = visuals.rounding;
+        let rounding = visuals.corner_radius;
+
+        // Discrete neumorphic 3D relief (dark shadow SE + light highlight NW),
+        // painted BEFORE the surface fill so only the soft edges peek out.
+        crate::theme::paint_neumorphic_relief(ui.painter(), rect, rounding, &theme);
+
         ui.painter().rect_filled(rect, rounding, bg);
-        ui.painter()
-            .rect_stroke(rect, rounding, Stroke::new(1.0, border_color));
+        if border_color != Color32::TRANSPARENT {
+            ui.painter().rect_stroke(
+                rect,
+                rounding,
+                Stroke::new(1.0, border_color),
+                egui::StrokeKind::Middle,
+            );
+        }
 
         // Theme-aware icon strokes: dark on light themes, light on dark ones.
-        let theme = crate::theme::active();
-        let icon_color = if pressed || dragging || hovered {
+        // Pressed/dragging under Neumorphic Light sits on the graphite badge
+        // above, so the icon is white there instead of the theme's dark text.
+        let icon_color = if is_neumorphic && (pressed || dragging) {
+            Color32::WHITE
+        } else if pressed || dragging || hovered {
             theme.text_bright
         } else {
             theme.text_dim
@@ -564,6 +674,58 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
 
 // ── Vector icon painter ────────────────────────────────────────────────────────
 
+/// Draw a rounded "stacked disks" database cylinder — a curved top rim
+/// ellipse, a curved front-facing seam, a curved front-facing base, and two
+/// side walls closing the body. Modelled on the classic database-service
+/// glyph (full elliptical rim + curved shelf lines rather than flat chords),
+/// shared by the SqlDatabase toolbox icon and the small database glyph
+/// nested inside the IndexedFile document icon.
+fn draw_database_glyph(
+    painter: &egui::Painter,
+    center: Pos2,
+    rx: f32,
+    ry: f32,
+    step: f32,
+    rim: Stroke,
+    seam: Stroke,
+) {
+    use std::f32::consts::{PI, TAU};
+
+    // Sample `n+1` points along the ellipse of radii (rx, ry) centred at
+    // (center.x, cy), from angle `a0` to `a1` (radians). `0..PI` traces the
+    // near/front-facing curve (the visible "shelf" of a disk boundary);
+    // `0..TAU` traces the full rim.
+    let arc = |cy: f32, a0: f32, a1: f32, n: usize| -> Vec<Pos2> {
+        (0..=n)
+            .map(|i| {
+                let t = a0 + (a1 - a0) * (i as f32 / n as f32);
+                Pos2::new(center.x + rx * t.cos(), cy + ry * t.sin())
+            })
+            .collect()
+    };
+
+    let top_y = center.y - step;
+    let mid_y = center.y;
+    let bot_y = center.y + step;
+
+    // Side walls.
+    painter.line_segment(
+        [Pos2::new(center.x - rx, top_y), Pos2::new(center.x - rx, bot_y)],
+        rim,
+    );
+    painter.line_segment(
+        [Pos2::new(center.x + rx, top_y), Pos2::new(center.x + rx, bot_y)],
+        rim,
+    );
+
+    // Top rim: the full ellipse is visible (nothing occludes it).
+    painter.add(egui::Shape::closed_line(arc(top_y, 0.0, TAU, 22), rim));
+    // Middle seam and base: only the near/front-facing curve is visible —
+    // the far half is hidden behind the solid body of the cylinder.
+    painter.add(egui::Shape::line(arc(mid_y, 0.0, PI, 14), seam));
+    painter.add(egui::Shape::line(arc(bot_y, 0.0, PI, 14), rim));
+}
+
 /// Draw a miniature vector icon centred inside `rect`.
 /// `r` is the icon scaling unit = 25 % of the button's logical size, giving ~3.25 px
 /// for a 26 px button — ensures all icons stay comfortably inside the frame.
@@ -583,7 +745,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         // ── Common ─────────────────────────────────────────────────────────────
         ControlType::Button => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.6));
-            painter.rect_stroke(b, r * 0.4, s);
+            painter.rect_stroke(b, r * 0.4, s, egui::StrokeKind::Middle);
             painter.line_segment(
                 [Pos2::new(c.x - r * 0.5, c.y), Pos2::new(c.x + r * 0.5, c.y)],
                 Stroke::new(1.0, dim),
@@ -600,7 +762,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::TextBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let ix = b.min.x + b.width() * 0.20;
             let (iy0, iy1) = (c.y - r * 0.38, c.y + r * 0.38);
             painter.line_segment([Pos2::new(ix, iy0), Pos2::new(ix, iy1)], s);
@@ -617,7 +779,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             let bsz = r * 1.2;
             let bc = Pos2::new(c.x - r * 0.75, c.y);
             let b = egui::Rect::from_center_size(bc, Vec2::splat(bsz));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             painter.line_segment(
                 [
                     Pos2::new(b.min.x + bsz * 0.18, b.center().y),
@@ -654,7 +816,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::ComboBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let divx = b.max.x - r * 0.75;
             painter.line_segment(
                 [
@@ -681,7 +843,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::ListBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let rh = b.height() / 4.0;
             painter.rect_filled(
                 egui::Rect::from_min_size(b.min, Vec2::new(b.width(), rh)),
@@ -695,7 +857,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::NumericUpDown => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 1.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let dvx = b.max.x - r * 0.78;
             let midy = b.center().y;
             painter.line_segment([Pos2::new(dvx, b.min.y), Pos2::new(dvx, b.max.y)], th);
@@ -732,7 +894,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::DateTimePicker => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.4, r * 2.2));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let hry = b.min.y + b.height() * 0.28;
             painter.line_segment([Pos2::new(b.min.x, hry), Pos2::new(b.max.x, hry)], th);
             for bx in [b.min.x + b.width() * 0.28, b.min.x + b.width() * 0.72] {
@@ -771,7 +933,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         ControlType::Panel => {
             let shd =
                 egui::Rect::from_center_size(c + Vec2::new(1.5, 1.5), Vec2::new(r * 2.6, r * 2.2));
-            painter.rect_stroke(shd, 0.0, Stroke::new(0.8, dim));
+            painter.rect_stroke(shd, 0.0, Stroke::new(0.8, dim), egui::StrokeKind::Middle);
             let fr = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.2));
             painter.rect_filled(
                 fr,
@@ -783,14 +945,14 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                     (color.a() as f32 * 0.12) as u8,
                 ),
             );
-            painter.rect_stroke(fr, 0.0, s);
+            painter.rect_stroke(fr, 0.0, s, egui::StrokeKind::Middle);
         }
         ControlType::TabControl => {
             let body = egui::Rect::from_center_size(
                 c + Vec2::new(0.0, r * 0.3),
                 Vec2::new(r * 2.8, r * 1.8),
             );
-            painter.rect_stroke(body, 2.0, s);
+            painter.rect_stroke(body, 2.0, s, egui::StrokeKind::Middle);
             let tab = egui::Rect::from_min_size(
                 Pos2::new(body.min.x, body.min.y - r * 0.7),
                 Vec2::new(r * 1.2, r * 0.7),
@@ -817,7 +979,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::Splitter => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 2.2));
-            painter.rect_stroke(b, 0.0, th);
+            painter.rect_stroke(b, 0.0, th, egui::StrokeKind::Middle);
             painter.line_segment(
                 [Pos2::new(c.x, b.min.y + 2.5), Pos2::new(c.x, b.max.y - 2.5)],
                 s,
@@ -830,7 +992,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         // ── Data ───────────────────────────────────────────────────────────────
         ControlType::DataGrid => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.4));
-            painter.rect_stroke(b, 0.0, s);
+            painter.rect_stroke(b, 0.0, s, egui::StrokeKind::Middle);
             let hh = b.height() * 0.28;
             painter.rect_filled(
                 egui::Rect::from_min_size(b.min, Vec2::new(b.width(), hh)),
@@ -877,7 +1039,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         // ── Graphics ───────────────────────────────────────────────────────────
         ControlType::PictureBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.2));
-            painter.rect_stroke(b, 0.0, s);
+            painter.rect_stroke(b, 0.0, s, egui::StrokeKind::Middle);
             painter.circle_stroke(
                 Pos2::new(b.min.x + b.width() * 0.28, b.min.y + b.height() * 0.28),
                 r * 0.30,
@@ -917,7 +1079,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         ControlType::Animator => {
             // Film/play motif: a frame with sprocket ticks + a centred play triangle.
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 2.0));
-            painter.rect_stroke(b, r * 0.25, s);
+            painter.rect_stroke(b, r * 0.25, s, egui::StrokeKind::Middle);
             for i in 0..3 {
                 let sx = b.min.x + b.width() * (0.25 + i as f32 * 0.25);
                 painter.line_segment(
@@ -948,7 +1110,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::ProgressBar => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 0.95));
-            painter.rect_stroke(b, 2.0, s);
+            painter.rect_stroke(b, 2.0, s, egui::StrokeKind::Middle);
             let fill = egui::Rect::from_min_size(b.min, Vec2::new(b.width() * 0.62, b.height()));
             painter.rect_filled(fill, 2.0, dim);
             for i in 0..3 {
@@ -1017,13 +1179,13 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 let br =
                     egui::Rect::from_min_size(Pos2::new(bx, c.y - bh * 0.5), Vec2::new(bw, bh));
                 painter.rect_filled(br, 1.0, dim);
-                painter.rect_stroke(br, 1.0, th);
+                painter.rect_stroke(br, 1.0, th, egui::StrokeKind::Middle);
             }
         }
         ControlType::StatusBar => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 0.85));
             painter.rect_filled(b, 0.0, dim);
-            painter.rect_stroke(b, 0.0, s);
+            painter.rect_stroke(b, 0.0, s, egui::StrokeKind::Middle);
             for i in 1..3 {
                 let x = b.min.x + b.width() * i as f32 / 3.0;
                 painter.line_segment([Pos2::new(x, b.min.y), Pos2::new(x, b.max.y)], th);
@@ -1057,7 +1219,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         ControlType::AgentObject => {
             let hc = c + Vec2::new(0.0, r * 0.14);
             let head = egui::Rect::from_center_size(hc, Vec2::new(r * 1.75, r * 1.28));
-            painter.rect_stroke(head, r * 0.28, s);
+            painter.rect_stroke(head, r * 0.28, s, egui::StrokeKind::Middle);
             let ey = head.center().y - r * 0.08;
             painter.circle_stroke(Pos2::new(hc.x - r * 0.36, ey), r * 0.20, th);
             painter.circle_stroke(Pos2::new(hc.x + r * 0.36, ey), r * 0.20, th);
@@ -1120,6 +1282,38 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 th,
             );
         }
+        ControlType::SqlDatabase => {
+            // Classic "3 stacked disks" database cylinder, curved rim/seams.
+            draw_database_glyph(painter, c, r * 0.85, r * 0.3, r * 0.72, s, th);
+        }
+        ControlType::IndexedFile => {
+            // Document with a folded top-right corner...
+            let pts = [
+                Pos2::new(c.x - r * 0.75, c.y - r * 1.15),
+                Pos2::new(c.x + r * 0.15, c.y - r * 1.15),
+                Pos2::new(c.x + r * 0.75, c.y - r * 0.55),
+                Pos2::new(c.x + r * 0.75, c.y + r * 1.15),
+                Pos2::new(c.x - r * 0.75, c.y + r * 1.15),
+            ];
+            for i in 0..pts.len() {
+                painter.line_segment([pts[i], pts[(i + 1) % pts.len()]], s);
+            }
+            // Folded-corner crease.
+            painter.line_segment([pts[1], Pos2::new(c.x + r * 0.15, c.y - r * 0.55)], th);
+            painter.line_segment([Pos2::new(c.x + r * 0.15, c.y - r * 0.55), pts[2]], th);
+
+            // ...with a small database glyph nested inside, since this is the
+            // indexed (keyed, database-style) file control.
+            draw_database_glyph(
+                painter,
+                Pos2::new(c.x, c.y + r * 0.35),
+                r * 0.42,
+                r * 0.15,
+                r * 0.28,
+                th,
+                th,
+            );
+        }
 
         // ── Charts ─────────────────────────────────────────────────────────────
         ControlType::BarChart => {
@@ -1132,7 +1326,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             for h in &heights {
                 let br = egui::Rect::from_min_size(Pos2::new(bx, base_y - h), Vec2::new(bar_w, *h));
                 painter.rect_filled(br, 1.0, dim);
-                painter.rect_stroke(br, 1.0, s);
+                painter.rect_stroke(br, 1.0, s, egui::StrokeKind::Middle);
                 bx += bar_w + r * 0.2;
             }
             painter.line_segment(
@@ -1271,6 +1465,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 egui::Rect::from_center_size(c, Vec2::new(r * 2.0, r * 1.6)),
                 2.0,
                 s,
+                egui::StrokeKind::Middle,
             );
         }
     }

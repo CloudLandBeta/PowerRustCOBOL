@@ -6,7 +6,7 @@
 
 //! Top toolbar panel — Run ▶, Stop ■, Build ⚙ buttons + language selector.
 
-use egui::{Button, Color32, Context, RichText, TopBottomPanel};
+use egui::{Button, Color32, Context, Panel, RichText};
 
 use crate::i18n::{Language, Tr};
 use crate::runner::Runner;
@@ -17,6 +17,7 @@ use crate::runner::Runner;
 /// `compilable` gates the Run / Debug / Build actions (a project needs at least
 /// one COBOL program or one form).
 pub fn show(
+    panel_ui: &mut egui::Ui,
     ctx: &Context,
     runner: &Runner,
     tr: &Tr,
@@ -29,7 +30,7 @@ pub fn show(
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
 
-    TopBottomPanel::top("toolbar").show(ctx, |ui| {
+    Panel::top("toolbar").show(panel_ui, |ui| {
         ui.horizontal(|ui| {
             ui.add_space(4.0);
 

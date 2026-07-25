@@ -1837,7 +1837,7 @@ pub const BASE_KEYBOARD: &[&str] = &[
     "onEnterPressed",
     "onEscapePressed",
 ];
-pub const BASE_HOVER: &[&str] = &["onHoverEnter", "onHoverLeave", "onTooltipShow"];
+pub const BASE_HOVER: &[&str] = &["onHoverEnter", "onHoverLeave"];
 pub const BASE_GEOMETRY: &[&str] = &[
     "onResize",
     "onResized",
@@ -1846,16 +1846,7 @@ pub const BASE_GEOMETRY: &[&str] = &[
     "onVisibleChanged",
     "onEnabledChanged",
 ];
-pub const BASE_DRAG: &[&str] = &[
-    "onDragStart",
-    "onDrag",
-    "onDragEnd",
-    "onDragEnter",
-    "onDragLeave",
-    "onDragOver",
-    "onDrop",
-];
-pub const BASE_LIFECYCLE: &[&str] = &["onLoad", "onPropertyChanged"];
+pub const BASE_LIFECYCLE: &[&str] = &["onLoad"];
 
 impl ControlType {
     pub fn chart_binding_kind(&self) -> Option<BindingChartKind> {
@@ -2034,7 +2025,7 @@ impl ControlType {
             ControlType::AgentObject => "onResponse",
             ControlType::RestClient => "onResponseReceived",
             ControlType::SqlDatabase => "onQueryComplete",
-            ControlType::IndexedFile => "onOpen",
+            ControlType::IndexedFile => "onComplete",
             ControlType::Slider => "onChange",
             ControlType::BarChart
             | ControlType::LineChart
@@ -2070,27 +2061,17 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::TextBox => &[
                 "onChange",
                 "onTextChanged",
-                "onSelectionChanged",
                 "onKeyPress",
                 "onKeyDown",
                 "onKeyUp",
@@ -2114,22 +2095,13 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::Label => &[
                 "onClick",
@@ -2146,22 +2118,13 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::CheckBox | ControlType::RadioButton => &[
                 "onClick",
@@ -2185,22 +2148,13 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
                 "onCheckedChanged",
                 "onValueChanged",
             ],
@@ -2226,22 +2180,13 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
                 "onChange",
                 "onSelectedIndexChanged",
                 "onItemDoubleClick",
@@ -2271,22 +2216,13 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
                 "onSelectedIndexChanged",
                 "onDropDown",
                 "onDropDownClosed",
@@ -2315,33 +2251,19 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::TreeView => &[
                 "onNodeClick",
                 "onNodeDblClick",
                 "onNodeDoubleClick",
-                "onNodeExpand",
-                "onNodeCollapse",
-                "onNodeChecked",
                 "onNodeSelect",
-                "onNodeDrag",
-                "onNodeDrop",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -2363,22 +2285,13 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::Timer => &["onTick"],
             ControlType::PictureBox => &[
@@ -2396,22 +2309,13 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
                 "onImageLoaded",
                 "onImageError",
             ],
@@ -2430,22 +2334,13 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
                 "onStarted",
                 "onEnded",
                 "onFrameChanged",
@@ -2454,16 +2349,12 @@ impl ControlType {
             ControlType::DataGrid => &[
                 "onCellClick",
                 "onCellDoubleClick",
-                "onCellChange",
                 "onRowSelect",
                 "onRowDoubleClick",
                 "onColumnClick",
-                "onColumnResize",
-                "onColumnResized",
                 "onSelectionChanged",
                 "onScroll",
                 "onExportCSV",
-                "onSort",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -2485,26 +2376,24 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
-            ControlType::AgentObject => &["onResponse", "onError", "onStreamChunk", "onThinking"],
+            ControlType::AgentObject => &["onResponse", "onError"],
             ControlType::RestClient => {
-                &["onResponseReceived", "onError", "onTimeout", "onProgress"]
+                // The last two are the uniform async lifecycle events (spec 032);
+                // onError/onTimeout already double as the async error/timeout events.
+                &[
+                    "onError",
+                    "onTimeout",
+                    "onComplete",
+                    "onCancelled",
+                ]
             }
             ControlType::SqlDatabase => &[
                 "onQueryComplete",
@@ -2512,17 +2401,18 @@ impl ControlType {
                 "onConnectError",
                 "onQueryError",
                 "onRowFetched",
+                // Uniform async lifecycle events (spec 032).
+                "onComplete",
+                "onError",
+                "onCancelled",
+                "onTimeout",
             ],
             ControlType::IndexedFile => &[
-                "onOpen",
-                "onClose",
-                "onRead",
-                "onInvalidKey",
-                "onEndOfFile",
-                "onWrite",
-                "onRewrite",
-                "onDelete",
                 "onError",
+                // Uniform async lifecycle events (spec 032).
+                "onComplete",
+                "onCancelled",
+                "onTimeout",
             ],
             ControlType::GroupBox | ControlType::Panel => &[
                 "onClick",
@@ -2539,23 +2429,13 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
-                "onScroll",
                 "onChildAdded",
                 "onChildRemoved",
             ],
@@ -2581,25 +2461,15 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
                 "onTabChanged",
                 "onTabClick",
-                "onTabClosing",
             ],
             ControlType::ProgressBar => &[
                 "onClick",
@@ -2616,7 +2486,6 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
@@ -2624,7 +2493,6 @@ impl ControlType {
                 "onVisibleChanged",
                 "onEnabledChanged",
                 "onLoad",
-                "onPropertyChanged",
                 "onValueChanged",
                 "onCompleted",
             ],
@@ -2649,7 +2517,6 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
@@ -2657,9 +2524,6 @@ impl ControlType {
                 "onVisibleChanged",
                 "onEnabledChanged",
                 "onLoad",
-                "onPropertyChanged",
-                "onSeriesClick",
-                "onZoom",
             ],
             ControlType::MenuBar => &[
                 "onMenuClick",
@@ -2687,7 +2551,6 @@ impl ControlType {
                 "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
@@ -2695,7 +2558,6 @@ impl ControlType {
                 "onVisibleChanged",
                 "onEnabledChanged",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::ToolBar
             | ControlType::StatusBar
@@ -2716,22 +2578,13 @@ impl ControlType {
                 "onContextMenu",
                 "onHoverEnter",
                 "onHoverLeave",
-                "onTooltipShow",
                 "onResize",
                 "onResized",
                 "onMove",
                 "onMoved",
                 "onVisibleChanged",
                 "onEnabledChanged",
-                "onDragStart",
-                "onDrag",
-                "onDragEnd",
-                "onDragEnter",
-                "onDragLeave",
-                "onDragOver",
-                "onDrop",
                 "onLoad",
-                "onPropertyChanged",
             ],
             ControlType::Custom { .. } => &["onClick"],
         }
@@ -2914,6 +2767,11 @@ pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 
 pub const NEUMORPHIC_SURFACE_COLOR: &str = "#E1E6F8FF";
 pub const NEUMORPHIC_FORM_BACKGROUND: &str = "E1E6F8FF";
+pub const NEUMORPHIC_DARK_SURFACE_COLOR: &str = "#36383EFF";
+pub const NEUMORPHIC_DARK_FORM_BACKGROUND: &str = "36383EFF";
+pub const NEUMORPHIC_DARK_LIGHT_SHADOW: &str = "#4E4E4EFF";
+pub const NEUMORPHIC_DARK_GRADIENT_START: &str = "#4E4E4EFF";
+pub const NEUMORPHIC_DARK_GRADIENT_END: &str = "#000000FF";
 
 const TAB_CONTROL_MCP_TOOL: &str = r#"{"name":"manage_tab_control_tabs","description":"Creates, updates, reorders, selects, or removes tabs that belong to a TabControl in the form designer. A tab is a child container owned by exactly one TabControl and represents one selectable page within that control. Tabs must not be created as independent top-level form controls. Controls placed on a tab belong to that tab page and are visible only when the tab is active, unless the designer is explicitly displaying inactive pages for editing.","inputSchema":{"type":"object","required":["operation","tab_control_id"],"properties":{"operation":{"type":"string","enum":["create","update","remove","reorder","select"],"description":"The operation to perform on a tab belonging to the specified TabControl."},"tab_control_id":{"type":"string","description":"The unique identifier of the parent TabControl that owns the tab. The referenced control must exist and must be a TabControl."},"tab_id":{"type":"string","description":"The stable unique identifier of the tab page. Required for update, remove, reorder, and select operations. The tab must belong to the specified TabControl."},"caption":{"type":"string","description":"The text displayed in the tab header. Changing the caption does not change the tab identifier or the ownership of controls placed inside the tab."},"index":{"type":"integer","minimum":0,"description":"The zero-based position of the tab within the parent TabControl. Tabs are displayed according to this order. Reordering a tab must preserve its identifier and child controls."},"selected":{"type":"boolean","description":"Determines whether this tab becomes the active page of the TabControl. Only one tab within the same TabControl may be selected at a time."},"enabled":{"type":"boolean","description":"Determines whether the user can activate the tab at runtime. A disabled tab remains part of the TabControl and retains its child controls."},"visible":{"type":"boolean","description":"Determines whether the tab header and its page are available at runtime. Hiding a tab must not delete the tab or its child controls."},"tooltip":{"type":"string","description":"Optional explanatory text displayed when the user points to the tab header."},"icon":{"type":["string","null"],"description":"Optional icon resource associated with the tab header. The value must reference a valid project resource or be null to remove the icon."},"confirm_remove_with_children":{"type":"boolean","default":false,"description":"Confirms removal of a tab that contains child controls. Removing a tab may also remove or orphan its contained controls, depending on the designer policy. The tool must reject destructive removal unless this value is true."}},"allOf":[{"if":{"properties":{"operation":{"const":"create"}}},"then":{"required":["caption"]}},{"if":{"properties":{"operation":{"enum":["update","remove","reorder","select"]}}},"then":{"required":["tab_id"]}},{"if":{"properties":{"operation":{"const":"reorder"}}},"then":{"required":["index"]}}]}}"#;
 
@@ -2940,6 +2798,19 @@ impl Control {
             "BackgroundColor".into(),
             PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
         );
+        props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
+        props.insert(
+            "BackgroundGradientStartColor".into(),
+            PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
+        );
+        props.insert(
+            "BackgroundGradientEndColor".into(),
+            PropValue::String("#C8D0DC".into()),
+        );
+        props.insert(
+            "BackgroundGradientDirection".into(),
+            PropValue::String("South".into()),
+        );
         props.insert(
             "ForegroundColor".into(),
             PropValue::String(DEFAULT_FOREGROUND_COLOR.into()),
@@ -2954,6 +2825,9 @@ impl Control {
         // ── Layout & behaviour ────────────────────────────────────────────────
         props.insert("Tooltip".into(), PropValue::String("".into()));
         props.insert("Cursor".into(), PropValue::String("Default".into()));
+        // How long the pointer must rest on the control before onHoverEnter
+        // fires (was a hardcoded 200 ms).
+        props.insert("HoverDelayMs".into(), PropValue::Int(200));
         // Anchor is a boolean lock: when true, the control's X/Y can't be changed
         // by dragging it with the mouse on the canvas (keyboard/property-pane entry
         // still works). See `Control::is_anchored`.
@@ -2965,6 +2839,10 @@ impl Control {
         props.insert("ShadowEnabled".into(), PropValue::Bool(false));
         props.insert("ShadowOpacity".into(), PropValue::Int(6)); // 0-100 %
         props.insert("ShadowColor".into(), PropValue::String("#000000".into()));
+        props.insert(
+            "ShadowLightColor".into(),
+            PropValue::String("#FFFFFFFF".into()),
+        );
         props.insert(
             "ShadowDirection".into(),
             PropValue::String("SouthEast".into()),
@@ -3082,19 +2960,6 @@ impl Control {
                 props.insert("VScroll".into(), PropValue::Bool(false));
                 // Panel shares the same visual model as GroupBox (minus caption).
                 props.insert("HideBackground".into(), PropValue::Bool(false));
-                props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
-                props.insert(
-                    "BackgroundGradientStartColor".into(),
-                    PropValue::String("#F0F0F0".into()),
-                );
-                props.insert(
-                    "BackgroundGradientEndColor".into(),
-                    PropValue::String("#C8D0DC".into()),
-                );
-                props.insert(
-                    "BackgroundGradientDirection".into(),
-                    PropValue::String("Vertical".into()),
-                );
                 props.insert("mcp_tool".into(), PropValue::String("".into()));
             }
             ControlType::GroupBox => {
@@ -3118,21 +2983,6 @@ impl Control {
                 props.insert("HideCaption".into(), PropValue::Bool(false));
                 props.insert("CaptionEnabled".into(), PropValue::Bool(true));
                 props.insert("HideBackground".into(), PropValue::Bool(false));
-                props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
-                props.insert(
-                    "BackgroundGradientStartColor".into(),
-                    PropValue::String("#F0F0F0".into()),
-                );
-                props.insert(
-                    "BackgroundGradientEndColor".into(),
-                    PropValue::String("#C8D0DC".into()),
-                );
-                // Vertical | Horizontal | DiagonalDown | DiagonalUp | Radial
-                props.insert(
-                    "BackgroundGradientDirection".into(),
-                    PropValue::String("Vertical".into()),
-                );
-
                 // ── Repeating group / array template (spec 015, Phase 2) ───────
                 // Inert until IsRepeatingGroup is turned on (existing forms stay
                 // unchanged). ArrayName empty ⇒ use the control id.
@@ -3316,6 +3166,7 @@ impl Control {
             }
             ControlType::Shape => {
                 props.insert("ShapeType".into(), PropValue::String("Rectangle".into()));
+                props.insert("FormStyle".into(), PropValue::Bool(true));
                 props.insert("FillColor".into(), PropValue::String("#C0C0C0".into()));
                 props.insert("FillStyle".into(), PropValue::String("Solid".into()));
                 props.insert("LineColor".into(), PropValue::String("#000000".into()));
@@ -3390,6 +3241,13 @@ impl Control {
                 props.insert("ResponseDataItem".into(), PropValue::String("".into())); // where response goes
                 props.insert("StatusDataItem".into(), PropValue::String("".into()));
                 // HTTP status code
+                // Async I/O (spec 032): REST is async by default. Mode = Sync
+                // restores blocking same-statement results. Busy is a runtime
+                // flag; TimeoutMs is the async operation timeout (0 falls back to
+                // TimeoutSeconds).
+                props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(30000));
             }
             ControlType::SqlDatabase => {
                 // Connection
@@ -3405,6 +3263,11 @@ impl Control {
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into()));
                 // e.g. resultset1
                 // COBOL paragraphs
+                // Async I/O (spec 032): Sync by default (fast local ops, max
+                // speed); opt into Async per control. Busy/TimeoutMs mirror REST.
+                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(0));
             }
             ControlType::IndexedFile => {
                 props.insert("IndexedFile".into(), PropValue::String("".into()));
@@ -3417,6 +3280,10 @@ impl Control {
                 props.insert("StatusDataItem".into(), PropValue::String("".into()));
                 props.insert("CurrentRecordDataItem".into(), PropValue::String("".into()));
                 props.insert("OperatorName".into(), PropValue::String("".into()));
+                // Async I/O (spec 032): Sync by default; opt into Async per control.
+                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(0));
             }
 
             // ── Charts ────────────────────────────────────────────────────────
@@ -3786,11 +3653,54 @@ impl Control {
         }
         self.set_prop("CornerRadius", PropValue::Int(15));
         self.set_prop("ShadowEnabled", PropValue::Bool(true));
+        self.set_prop("ShadowLightColor", PropValue::String("#FFFFFFFF".into()));
         self.set_prop("ShadowOpacity", PropValue::Int(6));
         self.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
         self.set_prop("ShadowDistance", PropValue::Int(7));
         self.set_prop("ShadowBlur", PropValue::Bool(true));
         self.set_prop("ShadowBlurStrength", PropValue::Int(8));
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
+    }
+
+    pub fn apply_neumorphic_dark_defaults(&mut self) {
+        self.set_prop(
+            "BackgroundColor",
+            PropValue::String(NEUMORPHIC_DARK_SURFACE_COLOR.into()),
+        );
+        self.set_prop("ForegroundColor", PropValue::String("#FFFFFFFF".into()));
+        self.set_prop("CornerRadius", PropValue::Int(15));
+        self.set_prop("ShadowEnabled", PropValue::Bool(true));
+        self.set_prop("ShadowOpacity", PropValue::Int(6));
+        self.set_prop("ShadowColor", PropValue::String("#000000FF".into()));
+        self.set_prop(
+            "ShadowLightColor",
+            PropValue::String(NEUMORPHIC_DARK_LIGHT_SHADOW.into()),
+        );
+        self.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
+        self.set_prop("ShadowDistance", PropValue::Int(7));
+        self.set_prop("ShadowBlur", PropValue::Bool(true));
+        self.set_prop("ShadowBlurStrength", PropValue::Int(8));
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+        self.set_prop(
+            "BackgroundGradientStartColor",
+            PropValue::String(NEUMORPHIC_DARK_GRADIENT_START.into()),
+        );
+        self.set_prop(
+            "BackgroundGradientEndColor",
+            PropValue::String(NEUMORPHIC_DARK_GRADIENT_END.into()),
+        );
+        self.set_prop(
+            "BackgroundGradientDirection",
+            PropValue::String("South".into()),
+        );
+    }
+
+    pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        match style {
+            GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
+            GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
+            GlassStyle::Classic | GlassStyle::Enhanced => {}
+        }
     }
 
     /// Remove an animation by name.
@@ -3814,22 +3724,41 @@ pub enum GlassStyle {
     /// dark bottom-right) on a flat matte surface. Depth from illumination,
     /// not transparency.
     Neumorphic,
+    /// Dark soft-UI variant with charcoal surfaces and non-white highlights.
+    NeumorphicDark,
 }
 
 impl GlassStyle {
+    /// Every selectable style, in the exact spelling `from_str` accepts and
+    /// `as_str` returns. Agents are shown this list so they never invent an
+    /// identifier — `from_str` silently falls back to `Classic`, so a wrong
+    /// spelling is not an error the caller can observe.
+    pub const ALL: &'static [&'static str] = &[
+        "Classic",
+        "Enhanced",
+        "Neumorphic Light",
+        "Neumorphic Dark",
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             GlassStyle::Classic => "Classic",
             GlassStyle::Enhanced => "Enhanced",
-            GlassStyle::Neumorphic => "Neumorphic",
+            GlassStyle::Neumorphic => "Neumorphic Light",
+            GlassStyle::NeumorphicDark => "Neumorphic Dark",
         }
     }
     pub fn from_str(s: &str) -> Self {
         match s {
             "Enhanced" => GlassStyle::Enhanced,
-            "Neumorphic" => GlassStyle::Neumorphic,
+            "Neumorphic" | "Neumorphic Light" => GlassStyle::Neumorphic,
+            "Neumorphic Dark" => GlassStyle::NeumorphicDark,
             _ => GlassStyle::Classic,
         }
+    }
+
+    pub fn is_neumorphic(self) -> bool {
+        matches!(self, GlassStyle::Neumorphic | GlassStyle::NeumorphicDark)
     }
 }
 
@@ -4006,6 +3935,11 @@ pub struct Form {
     pub width: u32,
     pub height: u32,
     pub background_color: String,
+    /// Optional eight-direction linear background gradient.
+    pub background_gradient_enabled: bool,
+    pub background_gradient_start_color: String,
+    pub background_gradient_end_color: String,
+    pub background_gradient_direction: String,
     /// Window-level transparency: 0 = fully opaque, 100 = fully transparent.
     pub transparency: u8,
     /// Optional background image path (empty = none).
@@ -4081,6 +4015,10 @@ impl Form {
             width,
             height,
             background_color: "00000000".to_owned(),
+            background_gradient_enabled: false,
+            background_gradient_start_color: "#F0F0F0FF".to_owned(),
+            background_gradient_end_color: "#C8D0DCFF".to_owned(),
+            background_gradient_direction: "South".to_owned(),
             transparency: 0,
             background_image: String::new(),
             bg_image_mode: BgImageMode::Stretch,
@@ -4106,8 +4044,29 @@ impl Form {
     pub fn apply_neumorphic_defaults(&mut self) {
         self.glass_style = GlassStyle::Neumorphic;
         self.background_color = NEUMORPHIC_FORM_BACKGROUND.into();
+        self.background_gradient_enabled = false;
         for ctrl in &mut self.controls {
             ctrl.apply_neumorphic_defaults();
+        }
+    }
+
+    pub fn apply_neumorphic_dark_defaults(&mut self) {
+        self.glass_style = GlassStyle::NeumorphicDark;
+        self.background_color = NEUMORPHIC_DARK_FORM_BACKGROUND.into();
+        self.background_gradient_enabled = true;
+        self.background_gradient_start_color = NEUMORPHIC_DARK_GRADIENT_START.into();
+        self.background_gradient_end_color = NEUMORPHIC_DARK_GRADIENT_END.into();
+        self.background_gradient_direction = "South".into();
+        for ctrl in &mut self.controls {
+            ctrl.apply_neumorphic_dark_defaults();
+        }
+    }
+
+    pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        match style {
+            GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
+            GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
+            GlassStyle::Classic | GlassStyle::Enhanced => self.glass_style = style,
         }
     }
 
@@ -5549,7 +5508,7 @@ mod tests {
         assert!(g.get_prop("BackgroundGradientEndColor").is_some());
         assert_eq!(
             g.get_prop("BackgroundGradientDirection").unwrap().as_str(),
-            "Vertical"
+            "South"
         );
         // Repeating (Phase 2)
         assert_eq!(g.get_prop("UserControl").unwrap().as_str(), "");
@@ -5634,15 +5593,17 @@ mod tests {
             "onResize",
             "onResized",
             "onVisibleChanged",
-            "onDragStart",
-            "onDrop",
             "onLoad",
-            "onPropertyChanged",
         ] {
             assert!(events.contains(&ev), "missing Button event: {ev}");
         }
+        // Phantom events (drag family, onTooltipShow, onPropertyChanged) are
+        // deliberately NOT advertised — the runtime has no engine for them.
+        for phantom in ["onDragStart", "onDrop", "onTooltipShow", "onPropertyChanged"] {
+            assert!(!events.contains(&phantom), "phantom Button event: {phantom}");
+        }
         assert!(
-            events.len() >= 30,
+            events.len() >= 25,
             "Button Events panel should expose the expanded event list"
         );
     }
@@ -5653,7 +5614,6 @@ mod tests {
         for ev in [
             "onChange",
             "onTextChanged",
-            "onSelectionChanged",
             "onKeyDown",
             "onKeyUp",
             "onKeyPress",
@@ -5668,15 +5628,19 @@ mod tests {
     }
 
     #[test]
-    fn non_visual_supported_events_stay_unchanged() {
+    fn non_visual_supported_events_include_async_lifecycle() {
+        // Timer / AgentObject are unaffected by the async I/O work (spec 032).
         assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
         assert_eq!(
             ControlType::AgentObject.supported_events(),
-            &["onResponse", "onError", "onStreamChunk", "onThinking"]
+            &["onResponse", "onError"]
         );
+        // RestClient / SqlDatabase / IndexedFile gain the uniform async lifecycle
+        // events onComplete/onError/onCancelled/onTimeout (skipping any the
+        // control already declared).
         assert_eq!(
             ControlType::RestClient.supported_events(),
-            &["onResponseReceived", "onError", "onTimeout", "onProgress"]
+            &["onError", "onTimeout", "onComplete", "onCancelled"]
         );
         assert_eq!(
             ControlType::SqlDatabase.supported_events(),
@@ -5685,9 +5649,42 @@ mod tests {
                 "onConnectOk",
                 "onConnectError",
                 "onQueryError",
-                "onRowFetched"
+                "onRowFetched",
+                "onComplete",
+                "onError",
+                "onCancelled",
+                "onTimeout",
             ]
         );
+    }
+
+    #[test]
+    fn async_controls_have_mode_busy_timeout_and_no_duplicate_events() {
+        for (ct, default_mode) in [
+            (ControlType::RestClient, "Async"),
+            (ControlType::SqlDatabase, "Sync"),
+            (ControlType::IndexedFile, "Sync"),
+        ] {
+            // The async lifecycle events must be present and unique.
+            let evs = ct.supported_events();
+            for ev in ["onComplete", "onError", "onCancelled", "onTimeout"] {
+                assert!(evs.contains(&ev), "{ct:?} missing {ev}");
+            }
+            let mut seen = std::collections::HashSet::new();
+            for ev in evs {
+                assert!(seen.insert(*ev), "{ct:?} duplicate event {ev}");
+            }
+
+            // `ct` is consumed here (ControlType is not Copy), so this comes last.
+            let c = Control::new("X", ct, 0, 0);
+            assert_eq!(
+                c.properties.get("Mode"),
+                Some(&PropValue::String(default_mode.into())),
+                "default Mode for {default_mode}"
+            );
+            assert!(matches!(c.properties.get("Busy"), Some(PropValue::Bool(false))));
+            assert!(matches!(c.properties.get("TimeoutMs"), Some(PropValue::Int(_))));
+        }
     }
 
     #[test]

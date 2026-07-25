@@ -26,7 +26,7 @@
 
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::mpsc;
 use std::sync::Arc;
 
@@ -468,6 +468,16 @@ fn map_start_op(op: cobolt_ast::expr::CmpOp) -> crate::indexed::StartOp {
 
 // ── Interpreter ───────────────────────────────────────────────────────────────
 
+/// What `COBOL-WAIT-EVENT` should present next (spec 032).
+enum WaitOutcome {
+    /// A real UI event from the form window.
+    Ui(FormEvent),
+    /// An async lifecycle event to dispatch: `(control-id, event-id)`.
+    AsyncDispatch(String, String),
+    /// The event channel is gone (UI closed) or absent (CLI mode).
+    Disconnected,
+}
+
 /// Tree-walking COBOL interpreter.
 pub struct Interpreter {
     /// The parsed program (retained for metadata access).
@@ -545,6 +555,23 @@ pub struct Interpreter {
     /// property (via a `StateUpdate`) so the GUI chart renderer plots it. Empty ⇒
     /// the designer's representative sample preview is shown instead.
     chart_data: HashMap<String, Vec<(String, f64)>>,
+
+    // ── Async I/O operations (spec 032) ───────────────────────────────────────
+    /// Cloned into each background worker thread; the worker posts its
+    /// `AsyncOpResult` here when the blocking call finishes.
+    async_result_tx: mpsc::Sender<crate::async_op::AsyncOpResult>,
+    /// Drained (non-blocking) by `COBOL-WAIT-EVENT` to apply completed async
+    /// operations and enqueue their lifecycle events.
+    async_result_rx: mpsc::Receiver<crate::async_op::AsyncOpResult>,
+    /// In-flight operation per control id — at most one at a time (a second
+    /// start while `Busy` is rejected).
+    async_pending: HashMap<String, crate::async_op::PendingOp>,
+    /// Live generation per control. A delivered result whose generation no
+    /// longer matches (cancelled / timed-out / superseded) is discarded.
+    async_generations: HashMap<String, Arc<AtomicU64>>,
+    /// Completed async operations awaiting dispatch to COBOL as
+    /// `(control-id, event-id)`, one presented per `COBOL-WAIT-EVENT` return.
+    async_dispatch_queue: std::collections::VecDeque<(String, String)>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
     /// Receives `DebugCmd` from the IDE debugger panel (Continue, StepOver, Pause).
@@ -662,6 +689,10 @@ impl Interpreter {
             })
             .collect();
 
+        // Async I/O result channel (spec 032): workers send AsyncOpResult here;
+        // COBOL-WAIT-EVENT drains it. Created per interpreter, always present.
+        let (async_result_tx, async_result_rx) = mpsc::channel();
+
         Self {
             program,
             env,
@@ -685,6 +716,11 @@ impl Interpreter {
             cancel: None,
             event_pending: None,
             chart_data: HashMap::new(),
+            async_result_tx,
+            async_result_rx,
+            async_pending: HashMap::new(),
+            async_generations: HashMap::new(),
+            async_dispatch_queue: std::collections::VecDeque::new(),
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -795,6 +831,215 @@ impl Interpreter {
             for upd in pending {
                 self.objects
                     .set_property(&upd.ctrl_id, &upd.prop, upd.value);
+            }
+        }
+    }
+
+    // ── Async I/O operations (spec 032) ───────────────────────────────────────
+
+    /// Poll interval used while at least one async operation is in flight, so a
+    /// blocked `COBOL-WAIT-EVENT` still notices completions and timeouts with no
+    /// other UI activity. When nothing is pending the wait blocks normally.
+    const ASYNC_POLL_MS: u64 = 40;
+
+    /// Is this REST control in async mode? REST is **async by default** (spec
+    /// 032 / operator decision) — async unless its `Mode` property is explicitly
+    /// `Sync`, so legacy forms with no `Mode` property also run async.
+    fn rest_is_async(&self, obj: &str) -> bool {
+        !self.obj_get(obj, "Mode").trim().eq_ignore_ascii_case("sync")
+    }
+
+    /// Effective REST timeout in milliseconds: `TimeoutMs` if set, else the
+    /// legacy `TimeoutSeconds × 1000`, else 0 (no interpreter-side timeout).
+    fn rest_timeout_ms(&self, obj: &str) -> u64 {
+        let ms = self.obj_get(obj, "TimeoutMs").trim().parse::<u64>().unwrap_or(0);
+        if ms > 0 {
+            return ms;
+        }
+        let secs = self
+            .obj_get(obj, "TimeoutSeconds")
+            .trim()
+            .parse::<u64>()
+            .unwrap_or(0);
+        secs.saturating_mul(1000)
+    }
+
+    /// Spawn a background REST operation (spec 032). Returns immediately.
+    ///
+    /// Rejects (no-op) if the control is already `Busy`. Otherwise bumps the
+    /// control's generation, sets `Busy = 1`, records the pending op, and spawns
+    /// a detached worker that performs the blocking HTTP call and posts an
+    /// `AsyncOpResult` back over `async_result_tx`.
+    fn spawn_rest_op(&mut self, obj: &str, verb: &str, url: String, body: String) -> CobolValue {
+        if self.async_pending.contains_key(obj) {
+            // One in-flight op per control — ignore the second start (R6).
+            return CobolValue::from_str("", 0);
+        }
+        let timeout_ms = self.rest_timeout_ms(obj);
+        let generation = {
+            let gen = self
+                .async_generations
+                .entry(obj.to_string())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        self.obj_set(obj, "Busy", "1".into());
+        self.async_pending.insert(
+            obj.to_string(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms,
+            },
+        );
+
+        let tx = self.async_result_tx.clone();
+        let http = self.http.clone();
+        let ctrl_id = obj.to_string();
+        let verb = verb.to_ascii_uppercase();
+        // The interpreter-side timeout sweep owns `onTimeout` semantics (R13);
+        // the transport timeout is a longer thread-lifetime backstop so a stalled
+        // worker can't leak, without racing the sweep. `0` = no timeout at all.
+        let transport_timeout = if timeout_ms > 0 {
+            timeout_ms.saturating_add(5_000)
+        } else {
+            0
+        };
+        std::thread::spawn(move || {
+            let (b, st) = match verb.as_str() {
+                "POST" => http.send_with_body_timeout("POST", &url, &body, transport_timeout),
+                "PUT" => http.send_with_body_timeout("PUT", &url, &body, transport_timeout),
+                "DELETE" => http.delete_with_timeout(&url, transport_timeout),
+                _ => http.get_with_timeout(&url, transport_timeout),
+            };
+            // The sync convention: a transport error yields status 0 with the
+            // error text as the body; a real HTTP response (incl. 4xx/5xx) keeps
+            // its status. Map accordingly.
+            let outcome = if st == 0 {
+                crate::async_op::AsyncOutcome::HttpError { message: b }
+            } else {
+                crate::async_op::AsyncOutcome::HttpSuccess { body: b, status: st }
+            };
+            let _ = tx.send(crate::async_op::AsyncOpResult {
+                ctrl_id,
+                generation,
+                outcome,
+            });
+        });
+
+        // Async verbs have no meaningful same-statement return value.
+        CobolValue::from_str("", 0)
+    }
+
+    /// Queue a control lifecycle event for dispatch on the next
+    /// `COBOL-WAIT-EVENT` return (spec 021; rides the spec-032 dispatch
+    /// queue). Events without a bound handler are dropped by the generated
+    /// dispatch code, so queuing is always safe.
+    fn queue_control_event(&mut self, obj: &str, event: &str) {
+        self.async_dispatch_queue
+            .push_back((obj.to_string(), event.to_string()));
+    }
+
+    /// Cancel any in-flight operation on `obj` (spec 032 R10/R11). Runs entirely
+    /// on the interpreter thread — bumps the generation (so the abandoned
+    /// worker's eventual result is discarded), clears `Busy`, and queues
+    /// `onCancelled`. A no-op when nothing is in flight.
+    fn cancel_async_op(&mut self, obj: &str) {
+        if self.async_pending.remove(obj).is_some() {
+            if let Some(g) = self.async_generations.get(obj) {
+                g.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            self.obj_set(obj, "Busy", "0".into());
+            self.async_dispatch_queue
+                .push_back((obj.to_string(), "onCancelled".to_string()));
+        }
+    }
+
+    /// Drain completed async results and sweep for timeouts. Applies each
+    /// current-generation result to its control (writes outputs, clears `Busy`)
+    /// and enqueues the corresponding lifecycle event; discards stale results.
+    fn drain_async_ops(&mut self) {
+        // 1. Apply delivered results.
+        let results: Vec<crate::async_op::AsyncOpResult> =
+            self.async_result_rx.try_iter().collect();
+        for r in results {
+            let live = self
+                .async_generations
+                .get(&r.ctrl_id)
+                .map(|g| g.load(std::sync::atomic::Ordering::Relaxed))
+                .unwrap_or(0);
+            if r.generation != live {
+                continue; // stale — cancelled / timed-out / superseded
+            }
+            self.async_pending.remove(&r.ctrl_id);
+            match r.outcome {
+                crate::async_op::AsyncOutcome::HttpSuccess { body, status } => {
+                    self.obj_set(&r.ctrl_id, "ResponseBody", body);
+                    self.obj_set(&r.ctrl_id, "StatusCode", status.to_string());
+                    self.obj_set(&r.ctrl_id, "Busy", "0".into());
+                    self.async_dispatch_queue
+                        .push_back((r.ctrl_id, "onComplete".to_string()));
+                }
+                crate::async_op::AsyncOutcome::HttpError { message } => {
+                    self.obj_set(&r.ctrl_id, "LastError", message);
+                    self.obj_set(&r.ctrl_id, "StatusCode", "0".into());
+                    self.obj_set(&r.ctrl_id, "Busy", "0".into());
+                    self.async_dispatch_queue
+                        .push_back((r.ctrl_id, "onError".to_string()));
+                }
+            }
+        }
+
+        // 2. Timeout sweep.
+        let now = std::time::Instant::now();
+        let timed_out: Vec<String> = self
+            .async_pending
+            .iter()
+            .filter(|(_, op)| {
+                op.timeout_ms > 0
+                    && now.duration_since(op.started_at).as_millis() as u64 > op.timeout_ms
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in timed_out {
+            self.async_pending.remove(&id);
+            if let Some(g) = self.async_generations.get(&id) {
+                g.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            self.obj_set(&id, "Busy", "0".into());
+            self.async_dispatch_queue
+                .push_back((id, "onTimeout".to_string()));
+        }
+    }
+
+    /// Block for the next thing `COBOL-WAIT-EVENT` should present: either a real
+    /// UI event, an async lifecycle dispatch, or channel disconnect. While async
+    /// ops are pending it polls (`recv_timeout`) so completions/timeouts are
+    /// noticed even with no UI activity; otherwise it blocks on `recv()`.
+    fn next_wait_outcome(&mut self) -> WaitOutcome {
+        loop {
+            self.drain_async_ops();
+            if let Some((ctrl, event_id)) = self.async_dispatch_queue.pop_front() {
+                return WaitOutcome::AsyncDispatch(ctrl, event_id);
+            }
+            let has_pending = !self.async_pending.is_empty();
+            let rx = match self.event_rx.as_ref() {
+                Some(rx) => rx,
+                None => return WaitOutcome::Disconnected,
+            };
+            if has_pending {
+                match rx.recv_timeout(std::time::Duration::from_millis(Self::ASYNC_POLL_MS)) {
+                    Ok(ev) => return WaitOutcome::Ui(ev),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return WaitOutcome::Disconnected
+                    }
+                }
+            } else {
+                match rx.recv() {
+                    Ok(ev) => return WaitOutcome::Ui(ev),
+                    Err(_) => return WaitOutcome::Disconnected,
+                }
             }
         }
     }
@@ -4062,12 +4307,12 @@ impl Interpreter {
             // CLI mode: immediately set COBOL-QUIT = 1 so the event loop exits cleanly.
             "COBOL-WAIT-EVENT" | "COBOLT-WAIT-EVENT" => {
                 if self.event_rx.is_some() {
-                    // Block the interpreter thread until the UI sends an event.
-                    // Take the value out of the borrow first so we can mutate
-                    // `self` (drain_input) afterwards.
-                    let recvd = self.event_rx.as_ref().unwrap().recv();
-                    match recvd {
-                        Ok(ev) => {
+                    // Wait for the next thing to present: a real UI event, an
+                    // async completion (spec 032), or channel disconnect. While
+                    // async ops are pending this polls so completions/timeouts
+                    // surface even with no UI activity in flight.
+                    match self.next_wait_outcome() {
+                        WaitOutcome::Ui(ev) => {
                             // One event left the queue — let the host coalesce
                             // timer ticks against the now-shallower backlog.
                             if let Some(c) = &self.event_pending {
@@ -4099,7 +4344,22 @@ impl Interpreter {
                                 self.env.set_str("COBOL-QUIT", "1");
                             }
                         }
-                        Err(_) => {
+                        WaitOutcome::AsyncDispatch(ctrl_id, event_id) => {
+                            // An async operation finished — present it to COBOL
+                            // exactly like a UI event so the existing EVALUATE
+                            // dispatch runs the bound onComplete/onError/…handler.
+                            self.drain_input();
+                            self.env.set_str("CONTROL-ARRAY-INDEX", "0");
+                            if using.len() >= 1 {
+                                let n = self.expr_to_name(call_arg_expr(&using[0]));
+                                self.env.set_str(&n, &event_id);
+                            }
+                            if using.len() >= 2 {
+                                let n = self.expr_to_name(call_arg_expr(&using[1]));
+                                self.env.set_str(&n, &ctrl_id);
+                            }
+                        }
+                        WaitOutcome::Disconnected => {
                             // Channel disconnected (UI closed) → stop the loop.
                             self.env.set_str("COBOL-QUIT", "1");
                         }
@@ -5899,45 +6159,84 @@ impl Interpreter {
             }
             "ASK" => {
                 self.obj_set(obj, "Prompt", arg(0));
-                val(self.obj_get(obj, "LastReply"))
+                let reply = self.obj_get(obj, "LastReply");
+                // spec 021: a non-empty reply is a delivered response.
+                if !reply.trim().is_empty() {
+                    self.queue_control_event(obj, "onResponse");
+                }
+                val(reply)
             }
             // ── REST / HTTP client ──
+            // Async by default (spec 032): unless `Mode = Sync`, the verb spawns
+            // a background worker, sets `Busy = 1`, and returns immediately; the
+            // response arrives later as an onComplete/onError event. `Mode = Sync`
+            // keeps the original blocking, same-statement-result behaviour.
             "GET" => {
-                let (b, st) = self.http.get(&arg(0));
-                self.obj_set(obj, "ResponseBody", b.clone());
-                self.obj_set(obj, "StatusCode", st.to_string());
-                val(b)
+                if self.rest_is_async(obj) {
+                    self.spawn_rest_op(obj, "GET", arg(0), String::new())
+                } else {
+                    let (b, st) = self.http.get(&arg(0));
+                    self.obj_set(obj, "ResponseBody", b.clone());
+                    self.obj_set(obj, "StatusCode", st.to_string());
+                    val(b)
+                }
             }
             "POST" => {
-                let (b, st) = self.http.post(&arg(0), &arg(1));
-                self.obj_set(obj, "ResponseBody", b.clone());
-                self.obj_set(obj, "StatusCode", st.to_string());
-                val(b)
+                if self.rest_is_async(obj) {
+                    self.spawn_rest_op(obj, "POST", arg(0), arg(1))
+                } else {
+                    let (b, st) = self.http.post(&arg(0), &arg(1));
+                    self.obj_set(obj, "ResponseBody", b.clone());
+                    self.obj_set(obj, "StatusCode", st.to_string());
+                    val(b)
+                }
             }
             "PUT" => {
-                let (b, st) = self.http.put(&arg(0), &arg(1));
-                self.obj_set(obj, "ResponseBody", b.clone());
-                self.obj_set(obj, "StatusCode", st.to_string());
-                val(b)
+                if self.rest_is_async(obj) {
+                    self.spawn_rest_op(obj, "PUT", arg(0), arg(1))
+                } else {
+                    let (b, st) = self.http.put(&arg(0), &arg(1));
+                    self.obj_set(obj, "ResponseBody", b.clone());
+                    self.obj_set(obj, "StatusCode", st.to_string());
+                    val(b)
+                }
             }
             "DELETE" => {
-                let (b, st) = self.http.delete(&arg(0));
-                self.obj_set(obj, "ResponseBody", b.clone());
-                self.obj_set(obj, "StatusCode", st.to_string());
-                val(b)
+                if self.rest_is_async(obj) {
+                    self.spawn_rest_op(obj, "DELETE", arg(0), String::new())
+                } else {
+                    let (b, st) = self.http.delete(&arg(0));
+                    self.obj_set(obj, "ResponseBody", b.clone());
+                    self.obj_set(obj, "StatusCode", st.to_string());
+                    val(b)
+                }
             }
             "CALL" => {
                 let verb = arg(0).to_ascii_uppercase();
-                let (b, st) = match verb.as_str() {
-                    "POST" => self.http.post(&arg(1), &arg(2)),
-                    "PUT" => self.http.put(&arg(1), &arg(2)),
-                    "DELETE" => self.http.delete(&arg(1)),
-                    _ => self.http.get(&arg(1)),
-                };
-                self.obj_set(obj, "ResponseBody", b.clone());
-                self.obj_set(obj, "StatusCode", st.to_string());
-                val(b)
+                if self.rest_is_async(obj) {
+                    let (url, body) = match verb.as_str() {
+                        "POST" | "PUT" => (arg(1), arg(2)),
+                        _ => (arg(1), String::new()),
+                    };
+                    self.spawn_rest_op(obj, &verb, url, body)
+                } else {
+                    let (b, st) = match verb.as_str() {
+                        "POST" => self.http.post(&arg(1), &arg(2)),
+                        "PUT" => self.http.put(&arg(1), &arg(2)),
+                        "DELETE" => self.http.delete(&arg(1)),
+                        _ => self.http.get(&arg(1)),
+                    };
+                    self.obj_set(obj, "ResponseBody", b.clone());
+                    self.obj_set(obj, "StatusCode", st.to_string());
+                    val(b)
+                }
             }
+            // ── Async operation control (spec 032) — all async-capable controls ──
+            "CANCEL" => {
+                self.cancel_async_op(obj);
+                none
+            }
+            "ISBUSY" => val(b01(&self.obj_get(obj, "Busy"))),
             "SETHEADER" => {
                 self.http.set_header(arg(0), arg(1));
                 none
@@ -5955,20 +6254,28 @@ impl Interpreter {
                 Ok(h) => {
                     self.obj_set(obj, "_Handle", h.to_string());
                     self.obj_set(obj, "StatusCode", "0".into());
+                    // spec 021: connection lifecycle events (dispatched by the
+                    // event loop on the next COBOL-WAIT-EVENT).
+                    self.queue_control_event(obj, "onConnectOk");
                     val(h.to_string())
                 }
                 Err(e) => {
                     self.obj_set(obj, "LastError", e);
                     self.obj_set(obj, "StatusCode", "1".into());
+                    self.queue_control_event(obj, "onConnectError");
                     val("0".to_string())
                 }
             },
             "EXECUTE" | "EXEC" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
-                    Ok(n) => val(n.to_string()),
+                    Ok(n) => {
+                        self.queue_control_event(obj, "onQueryComplete");
+                        val(n.to_string())
+                    }
                     Err(e) => {
                         self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onQueryError");
                         val("0".to_string())
                     }
                 }
@@ -5976,16 +6283,24 @@ impl Interpreter {
             "QUERY" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
-                    Ok(_) => val(self.db.row_count(h).to_string()),
+                    Ok(_) => {
+                        self.queue_control_event(obj, "onQueryComplete");
+                        val(self.db.row_count(h).to_string())
+                    }
                     Err(e) => {
                         self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onQueryError");
                         val("0".to_string())
                     }
                 }
             }
             "FETCH" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                val(if self.db.next_row(h) { "1" } else { "0" }.to_string())
+                let fetched = self.db.next_row(h);
+                if fetched {
+                    self.queue_control_event(obj, "onRowFetched");
+                }
+                val(if fetched { "1" } else { "0" }.to_string())
             }
             "FETCHALL" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;

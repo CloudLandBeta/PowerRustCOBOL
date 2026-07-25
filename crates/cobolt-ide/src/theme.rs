@@ -79,6 +79,14 @@ impl Theme {
             Color32::from_rgba_unmultiplied(40, 70, 100, 40)
         }
     }
+
+    /// Whether this is one of the discrete "soft UI" neumorphic themes
+    /// (Light or Dark). Both share the flat-surface-plus-relief-halo chrome
+    /// (`paint_neumorphic_relief`, `glass_panel_frame`'s discrete shadow, the
+    /// graphite toggle badge) — only their colour palettes differ.
+    pub fn is_neumorphic(&self) -> bool {
+        matches!(self.id, "neumorphic-light" | "neumorphic-dark")
+    }
 }
 
 /// A glass "card" frame for a panel surface: rounded corners, a subtle border,
@@ -86,20 +94,98 @@ impl Theme {
 /// over the background. `fill` should be the live `visuals.panel_fill` so it
 /// respects the active theme / transparent-background mode.
 pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
-    use egui::{Margin, Rounding, Shadow, Stroke, Vec2};
-    egui::Frame::none()
+    use egui::{CornerRadius, Margin, Shadow, Stroke, Vec2};
+    egui::Frame::NONE
         .fill(fill)
         .stroke(Stroke::new(1.0, theme.panel_border()))
-        .rounding(Rounding::same(10.0))
-        .inner_margin(Margin::same(10.0))
-        .outer_margin(Margin::same(6.0))
-        .shadow(Shadow {
-            offset: Vec2::new(0.0, 4.0),
-            blur: 16.0,
-            spread: 0.0,
-            color: Color32::from_black_alpha(60),
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::same(10))
+        .outer_margin(Margin::same(6))
+        .shadow(if theme.is_neumorphic() {
+            Shadow {
+                offset: [3, 3],
+                blur: 12,
+                spread: 0,
+                color: if theme.dark {
+                    Color32::from_rgba_unmultiplied(0, 0, 0, 170)
+                } else {
+                    Color32::from_rgba_unmultiplied(165, 175, 205, 135)
+                },
+            }
+        } else {
+            Shadow {
+                offset: [0, 4],
+                blur: 16,
+                spread: 0,
+                color: Color32::from_black_alpha(60),
+            }
         })
 }
+
+/// Paint a discrete neumorphic "3D relief" behind a control: a soft dark
+/// shadow offset south-east plus a soft light highlight offset north-west,
+/// approximating the Form Neumorphic dual-shadow "soft UI" look (spec 007) at
+/// IDE control scale — dialled up 50% over the original discrete relief
+/// (offsets and ring alphas × 1.5, now ~75% of Form's own intensity), with
+/// blur still emulated via a few cheap concentric rings rather than a true
+/// gaussian blur. Neumorphic Dark uses a near-black shadow and a mid-grey
+/// highlight (matching Form Neumorphic Dark's `ShadowLightColor` of `#4E4E4E`
+/// rather than white — a stark white rim would pop too hard against a dark
+/// surface); Neumorphic Light keeps its blue-grey shadow and white highlight.
+///
+/// Call this **before** painting the control's own opaque surface fill so only
+/// the soft edges peek out past the control's rect — the interior gets
+/// covered by the surface fill drawn on top, leaving a clean relief halo.
+/// No-op unless `theme.is_neumorphic()`, so every other theme is completely
+/// unaffected.
+pub fn paint_neumorphic_relief(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: impl Into<egui::CornerRadius>,
+    theme: &Theme,
+) {
+    use egui::Vec2;
+
+    if !theme.is_neumorphic() {
+        return;
+    }
+    let rounding: egui::CornerRadius = rounding.into();
+    let (shadow_rgb, highlight_rgb) = if theme.dark {
+        ((0u8, 0u8, 0u8), (78u8, 78u8, 82u8))
+    } else {
+        ((165u8, 175u8, 205u8), (255u8, 255u8, 255u8))
+    };
+
+    // Dark shadow, south-east — three shrinking/fading offsets fake a soft
+    // blur cheaply without needing a real blurred shadow mesh.
+    for (d, a) in [(4.5_f32, 33u8), (3.0, 48), (1.5, 66)] {
+        painter.rect_filled(
+            rect.translate(Vec2::new(d, d)),
+            rounding,
+            Color32::from_rgba_unmultiplied(shadow_rgb.0, shadow_rgb.1, shadow_rgb.2, a),
+        );
+    }
+    // Light highlight, north-west.
+    for (d, a) in [(3.0_f32, 60u8), (1.5, 90)] {
+        painter.rect_filled(
+            rect.translate(Vec2::new(-d, -d)),
+            rounding,
+            Color32::from_rgba_unmultiplied(highlight_rgb.0, highlight_rgb.1, highlight_rgb.2, a),
+        );
+    }
+}
+
+/// Graphite fill for a hand-painted "selected/pressed" control under either
+/// Neumorphic theme (RAD toolbar, toolbox). The theme's own `accent`/`bg_active`
+/// is blue, which standard egui widgets pair with the theme's own text colour
+/// — readable at that contrast level. But the RAD toolbar and toolbox toggle
+/// states draw the vector icon itself in an accent-family colour too (blue on
+/// Neumorphic Light, gold on Neumorphic Dark's shared dark-theme styling), so
+/// filling the badge with `bg_active` risks the icon disappearing into a
+/// same-hue fill. This dedicated graphite tone is used only for those
+/// hand-painted toggle/pressed fills, without touching the shared `bg_active`
+/// used by ordinary egui buttons elsewhere in the theme.
+pub const NEUMORPHIC_ACTIVE_GRAPHITE: Color32 = rgb(90, 90, 96);
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
     Color32::from_rgb(r, g, b)
@@ -989,6 +1075,78 @@ pub const CLASSIC: Theme = Theme {
     ed_generated: rgb(0, 0, 255),
 };
 
+/// Neumorphic Light — clean soft-UI light mode palette.
+pub const NEUMORPHIC_LIGHT: Theme = Theme {
+    id: "neumorphic-light",
+    name: "Neumorphic Light",
+    dark: false,
+    // Flat neutral off-white canvas (operator-requested: EBECEFFF). Panel,
+    // control, and code surfaces share this base — true neumorphic depth comes
+    // from the relief halo (`paint_neumorphic_relief`), not from a
+    // differently-coloured fill. Hover gets a small lift and the alternating
+    // row tint a small recess so both remain perceptible on top of the flat
+    // base.
+    bg_panel: rgba(235, 236, 239, 255),
+    bg_control: rgba(235, 236, 239, 255),
+    bg_hover: rgba(243, 244, 247, 255),
+    bg_active: rgba(50, 110, 220, 240),
+    bg_extreme: rgba(255, 255, 255, 252),
+    faint_bg: rgba(227, 228, 231, 255),
+    code_bg: rgba(235, 236, 239, 255),
+    accent: rgb(50, 110, 220),
+    border_dim: rgba(165, 175, 205, 120),
+    border_hi: rgba(50, 110, 220, 200),
+    text_dim: rgb(75, 82, 100),
+    text_bright: rgb(20, 24, 35),
+    selection: rgba(180, 205, 255, 160),
+    hyperlink: rgb(30, 100, 220),
+    warn: rgb(200, 140, 0),
+    error: rgb(215, 45, 45),
+    ed_plain: rgb(25, 30, 45),
+    ed_keyword: rgb(40, 95, 220),
+    ed_data: rgb(20, 140, 130),
+    ed_paragraph: rgb(180, 50, 50),
+    ed_string: rgb(170, 110, 20),
+    ed_comment: rgb(130, 140, 160),
+    ed_generated: rgb(30, 100, 220),
+};
+
+/// Neumorphic Dark — the dark counterpart of Neumorphic Light, built the same
+/// way: a flat neutral canvas (Panel/Control/Code share one fill; depth comes
+/// from `paint_neumorphic_relief`, not a differently-coloured surface), with
+/// Hover lifted and the alternating-row tint a shade darker so both stay
+/// perceptible. The base surface colour (`#36383E`) and the relief highlight
+/// (`#4E4E4E`, a mid-grey rather than white) match Form Neumorphic Dark's own
+/// palette (spec 007) so the IDE and Form Designer read as the same material.
+pub const NEUMORPHIC_DARK: Theme = Theme {
+    id: "neumorphic-dark",
+    name: "Neumorphic Dark",
+    dark: true,
+    bg_panel: rgba(54, 56, 62, 255),
+    bg_control: rgba(54, 56, 62, 255),
+    bg_hover: rgba(64, 66, 73, 255),
+    bg_active: rgba(70, 130, 240, 245),
+    bg_extreme: rgba(24, 25, 28, 252),
+    faint_bg: rgba(46, 48, 53, 255),
+    code_bg: rgba(54, 56, 62, 255),
+    accent: rgb(90, 145, 245),
+    border_dim: rgba(90, 92, 100, 130),
+    border_hi: rgba(90, 145, 245, 210),
+    text_dim: rgb(168, 172, 182),
+    text_bright: rgb(235, 237, 242),
+    selection: rgba(70, 105, 170, 170),
+    hyperlink: rgb(125, 175, 250),
+    warn: rgb(230, 175, 70),
+    error: rgb(235, 95, 95),
+    ed_plain: rgb(225, 228, 235),
+    ed_keyword: rgb(125, 175, 250),
+    ed_data: rgb(80, 205, 195),
+    ed_paragraph: rgb(235, 120, 120),
+    ed_string: rgb(225, 175, 95),
+    ed_comment: rgb(145, 150, 160),
+    ed_generated: rgb(125, 175, 250),
+};
+
 /// All selectable themes, in display order. The first is the default.
 pub const THEMES: &[Theme] = &[
     DARK_GLASS,
@@ -1020,6 +1178,8 @@ pub const THEMES: &[Theme] = &[
     ROSE_PINE_DAWN,
     CATPPUCCIN_LATTE,
     CLASSIC,
+    NEUMORPHIC_LIGHT,
+    NEUMORPHIC_DARK,
 ];
 
 /// The default theme (preserves the original look).
@@ -1071,7 +1231,21 @@ mod tests {
 
     #[test]
     fn ships_twenty_eight_themes() {
-        assert_eq!(THEMES.len(), 29, "17 original + 11 light + Classic");
+        assert_eq!(
+            THEMES.len(),
+            31,
+            "17 original + 12 light + Classic + Neumorphic Light + Neumorphic Dark"
+        );
+    }
+
+    #[test]
+    fn neumorphic_dark_is_dark_and_registered() {
+        let t = theme_by_id("neumorphic-dark");
+        assert_eq!(t.id, "neumorphic-dark");
+        assert!(t.dark, "'neumorphic-dark' must be a dark theme");
+        assert!(t.is_neumorphic());
+        assert!(theme_by_id("neumorphic-light").is_neumorphic());
+        assert!(!theme_by_id("classic").is_neumorphic());
     }
 
     #[test]
@@ -1088,6 +1262,7 @@ mod tests {
             "rose-pine-dawn",
             "catppuccin-latte",
             "classic",
+            "neumorphic-light",
         ] {
             let t = theme_by_id(id);
             assert_eq!(t.id, id, "theme '{id}' must be registered");

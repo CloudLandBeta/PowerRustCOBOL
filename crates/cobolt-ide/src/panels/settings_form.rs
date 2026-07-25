@@ -53,7 +53,7 @@ pub struct SettingsDraft {
     // ── Run-Form inspector ──
     pub insp_dump_enabled: bool,
     pub insp_dump_path: String,
-    // ── AI assistant (global) ──
+    // ── AI assistant (project-scoped; credentials remain machine-local) ──
     /// Selected AI provider id (empty ⇒ "Select the AI Provider").
     pub llm_provider: String,
     pub llm_endpoint: String,
@@ -66,6 +66,14 @@ pub struct SettingsDraft {
     pub llm_max_tokens: u32,
     /// Verbose AI activity logging (model info + full context + timings).
     pub llm_verbose: bool,
+    pub llm_inspection_port: u16,
+    /// Per-model API keys (provider::model -> key), edited alongside the
+    /// visible key field and written back on Apply.
+    pub llm_api_keys: std::collections::HashMap<String, String>,
+    pub llm_reviewer_provider: String,
+    pub llm_reviewer_endpoint: String,
+    pub llm_reviewer_model: String,
+    pub llm_reviewer_api_key: String,
 }
 
 impl SettingsDraft {
@@ -102,6 +110,12 @@ impl SettingsDraft {
             llm_timeout: llm.timeout_secs,
             llm_max_tokens: llm.max_tokens,
             llm_verbose: llm.verbose_log,
+            llm_inspection_port: llm.inspection_port,
+            llm_api_keys: llm.api_keys.clone(),
+            llm_reviewer_provider: llm.reviewer_provider.clone(),
+            llm_reviewer_endpoint: llm.reviewer_endpoint.clone(),
+            llm_reviewer_model: llm.reviewer_model.clone(),
+            llm_reviewer_api_key: llm.reviewer_config().api_key,
         }
     }
 
@@ -126,12 +140,61 @@ impl SettingsDraft {
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
         llm.provider = self.llm_provider.clone();
         llm.endpoint = self.llm_endpoint.clone();
-        llm.api_key = self.llm_api_key.clone();
+        if !self.llm_api_key.trim().is_empty() {
+            llm.api_key = self.llm_api_key.clone();
+        }
+        // This draft may have been opened before Models Manager saved another
+        // profile. Merge non-empty credentials instead of replacing the live
+        // map, so saving Project Settings can never erase those newer keys.
+        llm.merge_api_keys(&self.llm_api_keys);
+        if !self.llm_model.trim().is_empty() && !self.llm_api_key.trim().is_empty() {
+            let profile_id = llm.find_or_create_profile(
+                &self.llm_provider,
+                &self.llm_endpoint,
+                &self.llm_model,
+                llm.temperature,
+                self.llm_max_tokens.max(1),
+                self.llm_timeout.max(1),
+            );
+            llm.store_api_key(
+                crate::llm::profile_api_key_slot(&profile_id),
+                &self.llm_api_key,
+            );
+        }
+        llm.reviewer_provider = self.llm_reviewer_provider.clone();
+        llm.reviewer_endpoint = self.llm_reviewer_endpoint.clone();
+        llm.reviewer_model = self.llm_reviewer_model.clone();
+        // Hard rule: the reviewer may not be the same provider+model pair as
+        // the primary. Persist nothing that violates it.
+        if llm.reviewer_provider.trim() == llm.provider.trim()
+            && llm.reviewer_model.trim() == llm.model.trim()
+        {
+            llm.reviewer_model.clear();
+        }
+        if !self.llm_reviewer_model.trim().is_empty() {
+            let profile_id = llm.find_or_create_profile(
+                &self.llm_reviewer_provider,
+                &self.llm_reviewer_endpoint,
+                &self.llm_reviewer_model,
+                llm.temperature,
+                self.llm_max_tokens.max(1),
+                self.llm_timeout.max(1),
+            );
+            llm.store_api_key(
+                crate::llm::profile_api_key_slot(&profile_id),
+                &self.llm_reviewer_api_key,
+            );
+        }
         llm.model = self.llm_model.clone();
         llm.cobol_proficiency_prompt = self.llm_cobol_proficiency_prompt.clone();
         llm.timeout_secs = self.llm_timeout.max(1);
         llm.max_tokens = self.llm_max_tokens.max(1);
         llm.verbose_log = self.llm_verbose;
+        llm.inspection_port = if self.llm_inspection_port >= 1024 {
+            self.llm_inspection_port
+        } else {
+            crate::llm::default_inspection_port()
+        };
     }
 }
 
@@ -150,6 +213,10 @@ pub struct SettingsFormAction {
     /// Fetch the selected provider's model list (provider just changed, or the
     /// user clicked the refresh button).
     pub fetch_models: bool,
+    pub fetch_reviewer_models: bool,
+    pub manage_agents: bool,
+    /// Open the Models Manager (spec 031).
+    pub manage_models: bool,
 }
 
 /// Common license identifiers offered in the dropdown.
@@ -179,6 +246,8 @@ pub struct SettingsForm {
     /// (not part of the dirty check); (re)populated whenever a provider is
     /// chosen or the model list is refreshed. Empty until a provider is picked.
     pub available_models: Vec<String>,
+    pub available_reviewer_models: Vec<String>,
+    reviewer_same_model_error: bool,
 }
 
 impl SettingsForm {
@@ -196,6 +265,8 @@ impl SettingsForm {
             cobol_proficiency_prompt_editor,
             splitter: 200.0,
             available_models: Vec::new(),
+            available_reviewer_models: Vec::new(),
+            reviewer_same_model_error: false,
         }
     }
 
@@ -209,6 +280,10 @@ impl SettingsForm {
     }
 
     /// Replace the offered model list (called after a background fetch resolves).
+    pub fn set_available_reviewer_models(&mut self, models: Vec<String>) {
+        self.available_reviewer_models = models;
+    }
+
     pub fn set_available_models(&mut self, models: Vec<String>) {
         self.available_models = models;
     }
@@ -324,7 +399,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_project, &theme);
@@ -343,7 +418,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -369,7 +444,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -406,7 +481,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -432,7 +507,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -459,7 +534,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -485,7 +560,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -509,7 +584,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_license, &theme);
@@ -528,7 +603,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -566,7 +641,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -596,7 +671,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_appearance, &theme);
@@ -615,7 +690,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -660,7 +735,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -697,7 +772,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -725,7 +800,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -764,7 +839,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.settings_ai_title, &theme);
@@ -783,7 +858,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 // empty left side for the hint row
@@ -801,6 +876,7 @@ impl SettingsForm {
                         });
 
                         // Provider (drives the default endpoint + the model list)
+                        // ── Agents Manager (spec 028): the agent database UI ───
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
                                 .allocate_exact_size(
@@ -808,7 +884,47 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.agents_row_label).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button(tr.agents_manage).clicked() {
+                                        action.manage_agents = true;
+                                    }
+                                    if ui.button(tr.models_manage).clicked() {
+                                        action.manage_models = true;
+                                    }
+                                });
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Legacy per-agent connection fields (provider, endpoint,
+                        // model, API key, reviewer, proficiency prompt, verbose).
+                        // Spec 028/029: this configuration now lives PER AGENT in
+                        // the Agents Manager (seeded from any prior config on first
+                        // open), so the AI section is just the "Agents Manager…"
+                        // button above plus the non-agent inspection port below.
+                        // The draft fields are still loaded/saved so nothing is
+                        // orphaned; only the UI is retired.
+                        const SHOW_LEGACY_AI_FIELDS: bool = false;
+                        if SHOW_LEGACY_AI_FIELDS {
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -852,6 +968,23 @@ impl SettingsForm {
                                         // the caller when empty — never seeded or
                                         // overwritten here, so a developer's edit is
                                         // preserved.
+                                        // Remember the key for the provider/model we
+                                        // are leaving, then clear the visible field —
+                                        // the new provider has no model selected yet,
+                                        // so no stored key applies (and a stale key
+                                        // must not look valid).
+                                        if !self.draft.llm_model.trim().is_empty()
+                                            && !self.draft.llm_api_key.trim().is_empty()
+                                        {
+                                            self.draft.llm_api_keys.insert(
+                                                crate::llm::api_key_slot(
+                                                    &prev,
+                                                    &self.draft.llm_model,
+                                                ),
+                                                self.draft.llm_api_key.clone(),
+                                            );
+                                        }
+                                        self.draft.llm_api_key.clear();
                                         self.draft.llm_model.clear();
                                         self.available_models.clear();
                                         action.fetch_models = true;
@@ -868,7 +1001,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -895,7 +1028,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -922,7 +1055,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -966,6 +1099,34 @@ impl SettingsForm {
                                             }
                                         });
                                     if self.draft.llm_model != prev_model {
+                                        // Remember the key typed for the model we
+                                        // are leaving, then restore the stored key
+                                        // for the newly selected model — or clear
+                                        // the field, so a leftover key never looks
+                                        // like a valid credential for this model.
+                                        let provider = self.draft.llm_provider.clone();
+                                        if !prev_model.trim().is_empty() {
+                                            let prev_slot =
+                                                crate::llm::api_key_slot(&provider, &prev_model);
+                                            if self.draft.llm_api_key.trim().is_empty() {
+                                                self.draft.llm_api_keys.remove(&prev_slot);
+                                            } else {
+                                                self.draft.llm_api_keys.insert(
+                                                    prev_slot,
+                                                    self.draft.llm_api_key.clone(),
+                                                );
+                                            }
+                                        }
+                                        let slot = crate::llm::api_key_slot(
+                                            &provider,
+                                            &self.draft.llm_model,
+                                        );
+                                        self.draft.llm_api_key = self
+                                            .draft
+                                            .llm_api_keys
+                                            .get(&slot)
+                                            .cloned()
+                                            .unwrap_or_default();
                                         action.test_connection = true;
                                         action.test_connection_from_model_selection = true;
                                     }
@@ -993,7 +1154,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                             });
@@ -1048,6 +1209,198 @@ impl SettingsForm {
                             });
                         });
 
+                        // ── Pedantic reviewer model (optional second model) ──
+                        ui.add_space(10.0);
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(tr.settings_ai_reviewer_section).strong(),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(tr.settings_ai_reviewer_hint);
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.vertical(|ui| {
+                                    // Provider + endpoint
+                                    ui.horizontal(|ui| {
+                                        let prev_p = self.draft.llm_reviewer_provider.clone();
+                                        egui::ComboBox::from_id_salt("ai_reviewer_provider")
+                                            .selected_text(if prev_p.trim().is_empty() {
+                                                "—".to_string()
+                                            } else {
+                                                prev_p.clone()
+                                            })
+                                            .width(140.0)
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self.draft.llm_reviewer_provider,
+                                                    String::new(),
+                                                    "—",
+                                                );
+                                                for p in crate::llm::PROVIDERS.iter() {
+                                                    ui.selectable_value(
+                                                        &mut self.draft.llm_reviewer_provider,
+                                                        p.id().to_owned(),
+                                                        p.label(),
+                                                    );
+                                                }
+                                            });
+                                        if self.draft.llm_reviewer_provider != prev_p {
+                                            if let Some(p) = crate::llm::Provider::from_id(
+                                                &self.draft.llm_reviewer_provider,
+                                            ) {
+                                                self.draft.llm_reviewer_endpoint =
+                                                    p.default_endpoint().to_owned();
+                                                action.fetch_reviewer_models = true;
+                                            }
+                                            // Stash the outgoing model's key, then
+                                            // clear model + key (no model chosen yet
+                                            // under the new provider).
+                                            if !self.draft.llm_reviewer_model.trim().is_empty()
+                                                && !self
+                                                    .draft
+                                                    .llm_reviewer_api_key
+                                                    .trim()
+                                                    .is_empty()
+                                            {
+                                                self.draft.llm_api_keys.insert(
+                                                    crate::llm::api_key_slot(
+                                                        &prev_p,
+                                                        &self.draft.llm_reviewer_model,
+                                                    ),
+                                                    self.draft.llm_reviewer_api_key.clone(),
+                                                );
+                                            }
+                                            self.draft.llm_reviewer_api_key.clear();
+                                            self.draft.llm_reviewer_model.clear();
+                                            self.available_reviewer_models.clear();
+                                        }
+                                        ui.add(
+                                            egui::TextEdit::singleline(
+                                                &mut self.draft.llm_reviewer_endpoint,
+                                            )
+                                            .desired_width(ui.available_width().max(60.0))
+                                            .hint_text(tr.settings_ai_endpoint),
+                                        );
+                                    });
+                                    // Model + key
+                                    ui.horizontal(|ui| {
+                                        let models = self.available_reviewer_models.clone();
+                                        let prev_m = self.draft.llm_reviewer_model.clone();
+                                        egui::ComboBox::from_id_salt("ai_reviewer_model")
+                                            .selected_text(if prev_m.trim().is_empty() {
+                                                tr.settings_ai_model_empty.to_string()
+                                            } else {
+                                                prev_m.clone()
+                                            })
+                                            .width(220.0)
+                                            .height(250.0)
+                                            .show_ui(ui, |ui| {
+                                                if models.is_empty() {
+                                                    ui.weak(tr.settings_ai_model_empty);
+                                                } else {
+                                                    for model in models {
+                                                        ui.selectable_value(
+                                                            &mut self.draft.llm_reviewer_model,
+                                                            model.clone(),
+                                                            model,
+                                                        );
+                                                    }
+                                                }
+                                            });
+                                        if self.draft.llm_reviewer_model != prev_m {
+                                            // Hard rule: not the same provider+model
+                                            // pair as the primary — reject and warn.
+                                            if self.draft.llm_reviewer_provider.trim()
+                                                == self.draft.llm_provider.trim()
+                                                && self.draft.llm_reviewer_model.trim()
+                                                    == self.draft.llm_model.trim()
+                                            {
+                                                self.draft.llm_reviewer_model = prev_m.clone();
+                                                self.reviewer_same_model_error = true;
+                                            } else {
+                                                self.reviewer_same_model_error = false;
+                                                // Per-model key stash/restore, same
+                                                // contract as the primary field.
+                                                let provider =
+                                                    self.draft.llm_reviewer_provider.clone();
+                                                if !prev_m.trim().is_empty() {
+                                                    let prev_slot = crate::llm::api_key_slot(
+                                                        &provider, &prev_m,
+                                                    );
+                                                    if self
+                                                        .draft
+                                                        .llm_reviewer_api_key
+                                                        .trim()
+                                                        .is_empty()
+                                                    {
+                                                        self.draft
+                                                            .llm_api_keys
+                                                            .remove(&prev_slot);
+                                                    } else {
+                                                        self.draft.llm_api_keys.insert(
+                                                            prev_slot,
+                                                            self.draft
+                                                                .llm_reviewer_api_key
+                                                                .clone(),
+                                                        );
+                                                    }
+                                                }
+                                                let slot = crate::llm::api_key_slot(
+                                                    &provider,
+                                                    &self.draft.llm_reviewer_model,
+                                                );
+                                                self.draft.llm_reviewer_api_key = self
+                                                    .draft
+                                                    .llm_api_keys
+                                                    .get(&slot)
+                                                    .cloned()
+                                                    .unwrap_or_default();
+                                            }
+                                        }
+                                        if ui
+                                            .button(tr.settings_ai_refresh)
+                                            .on_hover_text(tr.settings_ai_refresh_models)
+                                            .clicked()
+                                        {
+                                            action.fetch_reviewer_models = true;
+                                        }
+                                        ui.add(
+                                            egui::TextEdit::singleline(
+                                                &mut self.draft.llm_reviewer_api_key,
+                                            )
+                                            .password(true)
+                                            .desired_width(ui.available_width().max(60.0))
+                                            .hint_text(tr.settings_ai_api_key),
+                                        );
+                                    });
+                                    if self.reviewer_same_model_error {
+                                        ui.label(
+                                            RichText::new(tr.settings_ai_reviewer_same)
+                                                .small()
+                                                .color(Color32::from_rgb(240, 120, 120)),
+                                        );
+                                    }
+                                });
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
                         // COBOL proficiency prompt (multiline)
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
@@ -1056,7 +1409,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1089,11 +1442,11 @@ impl SettingsForm {
                                 });
                                 let w = ui.available_width();
                                 let h = 120.0;
-                                let frame = egui::Frame::none()
+                                let frame = egui::Frame::NONE
                                     .fill(theme.bg_extreme)
                                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                                    .rounding(egui::Rounding::same(6.0))
-                                    .inner_margin(egui::Margin::same(2.0));
+                                    .corner_radius(egui::CornerRadius::same(6))
+                                    .inner_margin(egui::Margin::same(2));
                                 ui.set_min_height(h);
                                 let ectx = ui.ctx().clone();
                                 frame.show(ui, |ui| {
@@ -1117,7 +1470,32 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_ai_verbose).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.checkbox(&mut self.draft.llm_verbose, "")
+                                    .on_hover_text(tr.settings_ai_verbose_hint);
+                            });
+                        });
+                        } // end SHOW_LEGACY_AI_FIELDS
+
+                        // --- Verbose AI log (project-wide: applies to every
+                        // agent and chat surface; persisted in cobolt.toml)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1132,6 +1510,32 @@ impl SettingsForm {
                             });
                         });
 
+                        // --- Agent access (egui inspection / MCP) port
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.ai_inspection_port).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.add(
+                                    egui::DragValue::new(&mut self.draft.llm_inspection_port)
+                                        .range(1024..=65535),
+                                )
+                                .on_hover_text(tr.ai_inspection_hint);
+                            });
+                        });
+
                         ui.add_space(8.0);
 
                         // --- Runtime section header (left only)
@@ -1142,7 +1546,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_runtime, &theme);
@@ -1161,7 +1565,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1183,7 +1587,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.set_min_width(splitter);
                                 section(ui, "Run-Form inspector", &theme);
                             });
@@ -1200,7 +1604,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1226,7 +1630,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);

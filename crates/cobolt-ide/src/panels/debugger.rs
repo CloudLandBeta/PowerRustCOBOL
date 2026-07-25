@@ -188,7 +188,10 @@ impl DebuggerPanel {
     /// it, so there is no self-inflation path.
     ///
     /// Returns a [`DebugAction`] when the user presses a control or shortcut.
-    pub fn show_viewport_body(&mut self, ctx: &Context, tr: &Tr) -> Option<DebugAction> {
+    pub fn show_viewport_body(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) -> Option<DebugAction> {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let mut action: Option<DebugAction> = None;
 
         // Global keyboard shortcuts — active even when the window is not focused.
@@ -213,7 +216,7 @@ impl DebuggerPanel {
 
         let need_scroll = self.should_center_current_line();
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(panel_ui, |ui| {
             self.status_row(ui);
             if let Some(a) = self.toolbar(ui, tr) {
                 action = Some(a);
@@ -830,7 +833,7 @@ impl DebuggerPanel {
     fn fit_value_preview(ui: &egui::Ui, value: &str, max_px: f32) -> String {
         let font_id = egui::FontId::monospace(11.0);
         let text_width = |text: &str| {
-            ui.fonts(|fonts| {
+            ui.fonts_mut(|fonts| {
                 fonts
                     .layout_no_wrap(text.to_owned(), font_id.clone(), Color32::WHITE)
                     .size()

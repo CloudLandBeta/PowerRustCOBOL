@@ -13,12 +13,10 @@
 //!   • Syntax colouring (keywords, data items, paragraphs, strings, comments)
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use egui::{
-    CentralPanel, Color32, Context, FontId, Key, Pos2, ScrollArea, TextEdit, TopBottomPanel,
-};
+use egui::{CentralPanel, Color32, Context, FontId, Key, Panel, Pos2, ScrollArea, TextEdit};
 
 use crate::runner::DiagMsg;
 
@@ -868,6 +866,15 @@ impl EditorTab {
             name.into()
         }
     }
+
+    fn is_markdown(&self) -> bool {
+        self.path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+            })
+    }
 }
 
 // ── Known control (for IntelliSense) ─────────────────────────────────────────
@@ -1074,20 +1081,146 @@ pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
     chat_bubble_with_font_size(ui, role, content, 14.0);
 }
 
+#[derive(Clone, Default)]
+struct ChatResponseActionState {
+    status: Option<String>,
+    error: Option<String>,
+}
+
+fn changed_documentation_roots() -> &'static Mutex<HashSet<PathBuf>> {
+    static ROOTS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    ROOTS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn mark_chat_documentation_changed(project_root: &Path) {
+    changed_documentation_roots()
+        .lock()
+        .unwrap()
+        .insert(project_root.to_path_buf());
+}
+
+pub(crate) fn take_chat_documentation_changed(project_root: &Path) -> bool {
+    changed_documentation_roots()
+        .lock()
+        .unwrap()
+        .remove(project_root)
+}
+
+fn save_agent_response_as_markdown(
+    project_root: &Path,
+    selected_path: &Path,
+    content: &str,
+) -> Result<PathBuf, String> {
+    let documentation_root =
+        project_root.join(cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT);
+    let mut selected_path = selected_path.to_path_buf();
+    if selected_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("md")
+    {
+        selected_path.set_extension("md");
+    }
+    if !selected_path.starts_with(&documentation_root) {
+        return Err(format!(
+            "Agent responses can only be saved inside {}.",
+            documentation_root.display()
+        ));
+    }
+    let relative = selected_path
+        .strip_prefix(project_root)
+        .map_err(|error| error.to_string())?;
+    let relative_text = relative.to_string_lossy();
+    let markdown = format!("{}\n", content.trim_end());
+    let saved = cobolt_agents::project_knowledge::write_document(
+        project_root,
+        relative_text.as_ref(),
+        &markdown,
+    )?;
+    mark_chat_documentation_changed(project_root);
+    Ok(saved)
+}
+
+fn chat_bubble_fill(is_user: bool) -> Color32 {
+    if is_user {
+        Color32::from_rgba_premultiplied(0x61, 0xC6, 0x54, 0xFF)
+    } else {
+        Color32::from_rgba_premultiplied(0x3D, 0x8B, 0xCD, 0xFF)
+    }
+}
+
 pub(crate) fn chat_bubble_with_font_size(
     ui: &mut egui::Ui,
     role: &str,
     content: &str,
     font_size: f32,
 ) {
-    let is_user = role != "assistant";
-    let fill = if is_user {
-        Color32::from_rgba_premultiplied(0x3D, 0xCD, 0x8B, 0xFF)
+    render_chat_bubble(ui, role, content, font_size);
+    ui.add_space(5.0);
+}
+
+/// Heuristic: does chat content carry HEAVY Markdown structure (headings,
+/// tables, fenced code) that needs the theme-colored document card? Simple
+/// prose and short bullet lists stay in the regular blue dialog bubble —
+/// Grace's concise summaries belong there; the document cards are for the
+/// detailed specialist content shown in verbose mode.
+pub(crate) fn looks_like_markdown(content: &str) -> bool {
+    content.contains("```")
+        || content.lines().any(|line| {
+            let t = line.trim_start();
+            (t.starts_with('#') && t.trim_start_matches('#').starts_with(' '))
+                || t.starts_with("| ")
+        })
+}
+
+fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f32) {
+    // An agent's question to the developer: its own balloon, red background,
+    // white foreground, agent-side alignment. Always plain text — the red
+    // fill and the Markdown card would fight each other.
+    let is_question = role == "question";
+    let is_user = !is_question && role != "assistant";
+    let fill = if is_question {
+        Color32::from_rgb(0xC0, 0x2A, 0x22)
     } else {
-        Color32::from_rgba_premultiplied(0x3D, 0x8B, 0xCD, 0xFF)
+        chat_bubble_fill(is_user)
     };
     let fg = egui::Color32::WHITE;
     let max_w = (ui.available_width() * 0.82).max(120.0);
+
+    // Typographic rule: Markdown content in the history is rendered as
+    // Markdown, not shown as raw text. The card uses the theme background so
+    // the theme-aware renderer stays readable in light and dark modes.
+    if !is_user && !is_question && looks_like_markdown(content) {
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+            egui::Frame::NONE
+                .fill(ui.visuals().extreme_bg_color)
+                .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                .corner_radius(egui::CornerRadius::same(15))
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.set_max_width(max_w);
+                    ui.vertical(|ui| {
+                        let opts = crate::panels::md_render::RenderOpts {
+                            search: "",
+                            base: font_size,
+                            scroll_to_heading: None,
+                            active_match: None,
+                            scroll_to_active: false,
+                            anchors: &[],
+                        };
+                        crate::panels::md_render::render(
+                            ui,
+                            content.trim(),
+                            &opts,
+                            &mut |ui, code| {
+                                ui.label(egui::RichText::new(code).monospace());
+                            },
+                        );
+                    });
+                });
+        });
+        return;
+    }
 
     // Developer bubbles hug the right, assistant bubbles the left; text inside both
     // reads left-to-right.
@@ -1097,10 +1230,10 @@ pub(crate) fn chat_bubble_with_font_size(
         egui::Layout::left_to_right(egui::Align::TOP)
     };
     ui.with_layout(layout, |ui| {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(fill)
-            .rounding(egui::Rounding::same(15.0))
-            .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+            .corner_radius(egui::CornerRadius::same(15))
+            .inner_margin(egui::Margin::symmetric(10, 6))
             .show(ui, |ui| {
                 ui.set_max_width(max_w);
                 ui.add(
@@ -1114,7 +1247,188 @@ pub(crate) fn chat_bubble_with_font_size(
                 );
             });
     });
+}
+
+pub(crate) fn chat_bubble_with_response_actions(
+    ui: &mut egui::Ui,
+    role: &str,
+    content: &str,
+    font_size: f32,
+    project_root: Option<&Path>,
+    action_id: egui::Id,
+) {
+    render_chat_bubble(ui, role, content, font_size);
+    if role != "assistant" {
+        ui.add_space(5.0);
+        return;
+    }
+
+    let state_id = action_id.with("state");
+    let dialog_key = format!("chat-response-markdown-{}", action_id.value());
+    let mut state = ui
+        .ctx()
+        .data(|data| data.get_temp::<ChatResponseActionState>(state_id))
+        .unwrap_or_default();
+
+    if let Some(Some(path)) = crate::file_dialog::take(&dialog_key) {
+        if let Some(root) = project_root {
+            match save_agent_response_as_markdown(root, &path, content) {
+                Ok(relative) => {
+                    state.status = Some(format!("Saved {}", relative.display()));
+                    state.error = None;
+                }
+                Err(error) => {
+                    state.status = None;
+                    state.error = Some(error);
+                }
+            }
+        }
+    }
+
+    ui.horizontal(|ui| {
+        if ui
+            .small_button("📋")
+            .on_hover_text("Copy agent response to the clipboard")
+            .clicked()
+        {
+            ui.ctx().copy_text(content.to_owned());
+            state.status = Some("Copied to clipboard".into());
+        }
+
+        let save_tooltip = if project_root.is_some() {
+            "Save agent response as a Markdown file in this project's Knowledge Base"
+        } else {
+            "Open a project before saving an agent response"
+        };
+        if ui
+            .add_enabled(
+                project_root.is_some() && !crate::file_dialog::is_open(&dialog_key),
+                egui::Button::new("💾").small(),
+            )
+            .on_hover_text(save_tooltip)
+            .clicked()
+        {
+            let root = project_root.expect("save is enabled only with an open project");
+            let documentation_root =
+                root.join(cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT);
+            match std::fs::create_dir_all(&documentation_root) {
+                Ok(()) => crate::file_dialog::begin(
+                    ui.ctx(),
+                    &dialog_key,
+                    crate::file_dialog::DialogSpec::save()
+                        .filter("Markdown", &["md"])
+                        .directory(documentation_root)
+                        .file_name("agent-response.md"),
+                ),
+                Err(error) => {
+                    state.status = None;
+                    state.error = Some(format!(
+                        "Could not prepare the project Knowledge Base: {error}"
+                    ));
+                }
+            }
+        }
+
+        if let Some(status) = &state.status {
+            ui.label(
+                egui::RichText::new(status)
+                    .small()
+                    .color(Color32::from_rgb(125, 214, 160)),
+            );
+        }
+    });
+
+    if let Some(error) = state.error.clone() {
+        let mut open = true;
+        let mut dismiss = false;
+        egui::Window::new("Save agent response error")
+            .id(action_id.with("error"))
+            .collapsible(false)
+            .resizable(true)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.label(&error);
+                ui.horizontal(|ui| {
+                    if ui.small_button("📋").on_hover_text("Copy error").clicked() {
+                        ui.ctx().copy_text(error.clone());
+                    }
+                    if ui.button("OK").clicked() {
+                        dismiss = true;
+                    }
+                });
+            });
+        if dismiss || !open {
+            state.error = None;
+        }
+    }
+
+    ui.ctx().data_mut(|data| data.insert_temp(state_id, state));
     ui.add_space(5.0);
+}
+
+#[cfg(test)]
+mod chat_bubble_tests {
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn user_fill_matches_requested_rgba() {
+        assert_eq!(
+            super::chat_bubble_fill(true).to_array(),
+            [0x61, 0xC6, 0x54, 0xFF]
+        );
+    }
+
+    #[test]
+    fn markdown_detection_targets_heavy_structure_only() {
+        // Headings, tables, and fenced code get the document card.
+        assert!(super::looks_like_markdown("### Clarification\n- file name?"));
+        assert!(super::looks_like_markdown("| Field | Decision |\n| --- | --- |"));
+        assert!(super::looks_like_markdown("```cobol\nMOVE A TO B\n```"));
+        // Concise summaries — plain prose and simple bullet lists — stay in
+        // the blue dialog bubble.
+        assert!(!super::looks_like_markdown("**T1** — done"));
+        assert!(!super::looks_like_markdown(
+            "Executed:\n\n- indexed_file.write — wrote indexed/idx-company.cidx"
+        ));
+        assert!(!super::looks_like_markdown(
+            "The workflow completed. All tasks were approved."
+        ));
+    }
+
+    #[test]
+    fn agent_response_markdown_is_scoped_and_indexed() {
+        let root = std::env::temp_dir().join(format!(
+            "prc-chat-response-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let selected = root.join("Knowledge Base/answer.txt");
+        let saved = super::save_agent_response_as_markdown(
+            &root,
+            &selected,
+            "# Agent answer\n\nIndexed payment guidance.",
+        )
+        .unwrap();
+
+        assert_eq!(saved, PathBuf::from("Knowledge Base/answer.md"));
+        assert!(root.join(&saved).exists());
+        assert_eq!(
+            cobolt_agents::project_knowledge::search(&root, "payment guidance", 2)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(super::take_chat_documentation_changed(&root));
+        assert!(
+            super::save_agent_response_as_markdown(&root, &root.join("outside.md"), "outside")
+                .is_err()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 impl EditorPanel {
@@ -1246,7 +1560,7 @@ impl EditorPanel {
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
-        if tab.read_only {
+        if tab.read_only || tab.is_markdown() {
             return;
         }
         let tidy = beautify_cobol(&tab.content);
@@ -1451,6 +1765,7 @@ impl EditorPanel {
     /// the current `code`, and the developer's request.
     pub fn ai_bar(
         &mut self,
+        panel_ui: &mut egui::Ui,
         ctx: &Context,
         cfg: &crate::llm::LlmConfig,
         tr: &crate::i18n::Tr,
@@ -1461,6 +1776,7 @@ impl EditorPanel {
         project_root: Option<&std::path::Path>,
     ) -> Option<String> {
         self.ai_bar_impl(
+            Some(panel_ui),
             ctx,
             cfg,
             tr,
@@ -1489,6 +1805,7 @@ impl EditorPanel {
     ) -> Option<String> {
         let ctx = ui.ctx().clone();
         self.ai_bar_impl(
+            None,
             &ctx,
             cfg,
             tr,
@@ -1504,6 +1821,7 @@ impl EditorPanel {
     #[allow(clippy::too_many_arguments)]
     fn ai_bar_impl(
         &mut self,
+        panel_ui: Option<&mut egui::Ui>,
         ctx: &Context,
         cfg: &crate::llm::LlmConfig,
         tr: &crate::i18n::Tr,
@@ -1629,8 +1947,15 @@ impl EditorPanel {
                     .auto_shrink([false, true])
                     .id_salt(transcript_salt)
                     .show(ui, |ui| {
-                        for turn in &history_snapshot {
-                            chat_bubble(ui, &turn.role, &turn.content);
+                        for (index, turn) in history_snapshot.iter().enumerate() {
+                            chat_bubble_with_response_actions(
+                                ui,
+                                &turn.role,
+                                &turn.content,
+                                14.0,
+                                project_root,
+                                egui::Id::new((panel_id, &path, index)),
+                            );
                         }
                         if let Some(text) = streaming_text {
                             chat_bubble(ui, "assistant", &text);
@@ -1639,17 +1964,8 @@ impl EditorPanel {
                 ui.separator();
             }
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new("✨").size(15.0));
-
-                let can_send = !busy && !prompt.trim().is_empty();
-                if ui
-                    .add_enabled(can_send, egui::Button::new(tr.ai_send))
-                    .clicked()
-                {
-                    do_send = true;
-                    show_history = true;
-                }
                 if busy || compacting {
                     ui.add(egui::Spinner::new());
                     let msg = if compacting {
@@ -1690,18 +2006,35 @@ impl EditorPanel {
                         do_clear = true;
                     }
                 }
+            });
 
-                // The prompt fills the rest of the row.
-                let resp = ui.add(
+            ui.horizontal(|ui| {
+                let prompt_width =
+                    super::chat_prompt_width(ui.available_width(), ui.spacing().item_spacing.x);
+                let resp = ui.add_sized(
+                    [prompt_width, ui.spacing().interact_size.y],
                     egui::TextEdit::singleline(&mut prompt)
                         .hint_text(tr.ai_prompt_placeholder)
-                        .desired_width(ui.available_width())
                         .interactive(!busy),
                 );
                 let entered = resp.lost_focus()
                     && ui.input(|i| i.key_pressed(Key::Enter))
                     && !prompt.trim().is_empty();
                 if entered && !busy {
+                    do_send = true;
+                    show_history = true;
+                }
+                let can_send = !busy && !prompt.trim().is_empty();
+                if ui
+                    .add_enabled(
+                        can_send,
+                        egui::Button::new(tr.ai_send).min_size(egui::vec2(
+                            super::CHAT_SEND_BUTTON_WIDTH,
+                            ui.spacing().interact_size.y,
+                        )),
+                    )
+                    .clicked()
+                {
                     do_send = true;
                     show_history = true;
                 }
@@ -1725,12 +2058,11 @@ impl EditorPanel {
             Some(ui) => render(ui),
             None => {
                 let frame = crate::theme::glass_panel_frame(
-                    ctx.style().visuals.panel_fill,
+                    ctx.global_style().visuals.panel_fill,
                     &crate::theme::active(),
                 );
-                TopBottomPanel::top(panel)
-                    .frame(frame)
-                    .show(ctx, |ui| render(ui));
+                let host = panel_ui.expect("ai_bar panel variant requires a host Ui");
+                Panel::top(panel).frame(frame).show(host, |ui| render(ui));
             }
         }
 
@@ -1851,7 +2183,18 @@ impl EditorPanel {
         let skills = project_root
             .map(crate::agent::load_skills)
             .unwrap_or_default();
-        let rx = crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename, &skills, None);
+        let rx = match project_root {
+            Some(root) => crate::grace_session::spawn_contextual_request(
+                root,
+                cfg,
+                &prior,
+                &prompt,
+                "COBOL code editor chatbot",
+                None,
+                &format!("Current file `{filename}`:\n```cobol\n{code}\n```"),
+            ),
+            None => crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename, &skills, None),
+        };
 
         // Record the developer's turn (prompt only, to keep the log readable).
         let log = self.ai_history.entry(path.clone()).or_default();
@@ -1950,26 +2293,24 @@ impl EditorPanel {
 
     /// The bottom status bar: caret position, Insert/Overwrite mode, a
     /// trim-on-save toggle, and a Beautify command. Dimmed-green text.
-    fn show_status_bar(&mut self, ctx: &Context) {
+    fn show_status_bar(&mut self, panel_ui: &mut egui::Ui, ctx: &Context) {
         let frame = egui::Frame::default()
-            .fill(ctx.style().visuals.panel_fill)
-            .inner_margin(egui::Margin::symmetric(8.0, 3.0));
-        TopBottomPanel::bottom("editor_status")
+            .fill(ctx.global_style().visuals.panel_fill)
+            .inner_margin(egui::Margin::symmetric(8, 3));
+        Panel::bottom("editor_status")
             .frame(frame)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 self.status_row(ui);
             });
     }
 
-    /// Draw the status row (caret position · Insert/Overwrite · Trim-on-save ·
-    /// Beautify) into an arbitrary `ui`, in dimmed green. Shared by the main
-    /// editor's bottom bar and the embedded RAD editor.
+    /// Draw the status row (caret position · Insert/Overwrite · Trim-on-save,
+    /// plus Beautify for non-Markdown documents) into an arbitrary `ui`, in
+    /// dimmed green. Shared by the main editor and embedded RAD editor.
     pub(crate) fn status_row(&mut self, ui: &mut egui::Ui) {
-        let read_only = self
-            .tabs
-            .get(self.active)
-            .map(|t| t.read_only)
-            .unwrap_or(false);
+        let active_tab = self.tabs.get(self.active);
+        let read_only = active_tab.map(|tab| tab.read_only).unwrap_or(false);
+        let show_beautify = active_tab.is_some_and(|tab| !tab.is_markdown());
         let green = Color32::from_rgb(118, 158, 110); // dimmed green
         let txt = |s: String| egui::RichText::new(s).monospace().size(12.0).color(green);
         let mut do_beautify = false;
@@ -1987,10 +2328,11 @@ impl EditorPanel {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add_enabled(!read_only, egui::Button::new(txt("✨ Beautify".into())))
-                    .on_hover_text("Tidy whitespace (safe for COBOL columns)")
-                    .clicked()
+                if show_beautify
+                    && ui
+                        .add_enabled(!read_only, egui::Button::new(txt("✨ Beautify".into())))
+                        .on_hover_text("Tidy whitespace (safe for COBOL columns)")
+                        .clicked()
                 {
                     do_beautify = true;
                 }
@@ -2008,13 +2350,14 @@ impl EditorPanel {
 
     pub fn show(
         &mut self,
+        panel_ui: &mut egui::Ui,
         ctx: &Context,
         llm: Option<&crate::llm::LlmConfig>,
         tr: &crate::i18n::Tr,
         project_root: Option<&std::path::Path>,
     ) {
         // ─── Tab bar ─────────────────────────────────────────────────────────
-        TopBottomPanel::top("editor_tabs").show(ctx, |ui| {
+        Panel::top("editor_tabs").show(panel_ui, |ui| {
             ui.horizontal(|ui| {
                 let mut close_idx: Option<usize> = None;
                 for (i, tab) in self.tabs.iter().enumerate() {
@@ -2070,6 +2413,7 @@ impl EditorPanel {
                 };
                 if !tro {
                     if let Some(new_code) = self.ai_bar(
+                        panel_ui,
                         ctx,
                         cfg,
                         tr,
@@ -2090,17 +2434,19 @@ impl EditorPanel {
 
         // ─── Status bar (bottom) ──────────────────────────────────────────────
         if !self.tabs.is_empty() {
-            self.show_status_bar(ctx);
+            self.show_status_bar(panel_ui, ctx);
         }
 
         // ─── Editor body ──────────────────────────────────────────────────────
         let body_frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill,
+            ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
-        CentralPanel::default().frame(body_frame).show(ctx, |ui| {
-            self.render_code_area(ctx, ui);
-        });
+        CentralPanel::default()
+            .frame(body_frame)
+            .show(panel_ui, |ui| {
+                self.render_code_area(ctx, ui);
+            });
     }
 
     /// Render the code area (line numbers + editor + IntelliSense + find/replace
@@ -2267,14 +2613,16 @@ impl EditorPanel {
             .get(self.active)
             .map(|t| t.read_only)
             .unwrap_or(false);
-        let mut layouter = move |ui: &egui::Ui, text: &str, _wrap: f32| -> Arc<egui::Galley> {
-            let lj = if read_only {
-                mono_layout_job(text, font_hl.clone(), crate::theme::active().ed_generated)
-            } else {
-                cobol_layout_job(text, font_hl.clone(), &kw_set)
+        let mut layouter =
+            move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap: f32| -> Arc<egui::Galley> {
+                let text = buf.as_str();
+                let lj = if read_only {
+                    mono_layout_job(text, font_hl.clone(), crate::theme::active().ed_generated)
+                } else {
+                    cobol_layout_job(text, font_hl.clone(), &kw_set)
+                };
+                ui.fonts_mut(|f| f.layout_job(lj))
             };
-            ui.fonts(|f| f.layout_job(lj))
-        };
 
         let avail = ui.available_size();
         // Stable editor viewport rect — captured BEFORE the ScrollArea, so it
@@ -2304,7 +2652,7 @@ impl EditorPanel {
                     )> = None;
                     if self.show_line_numbers {
                         let n_lines = self.tabs[self.active].content.lines().count().max(1);
-                        let line_h = ui.fonts(|f| f.row_height(&font));
+                        let line_h = ui.fonts_mut(|f| f.row_height(&font));
                         let gutter_w = 54.0_f32;
                         let (gutter_rect, gutter_resp) = ui.allocate_exact_size(
                             egui::vec2(gutter_w, line_h * n_lines as f32),
@@ -2346,11 +2694,11 @@ impl EditorPanel {
                             if let Some(mut st) = egui::TextEdit::load_state(ctx, editor_id) {
                                 if let Some(range) = st.cursor.char_range() {
                                     if range.primary == range.secondary {
-                                        let idx = range.primary.index;
+                                        let idx = range.primary.index.0;
                                         let next = content.chars().nth(idx);
                                         if matches!(next, Some(c) if c != '\n') {
                                             let mut r = range;
-                                            r.secondary.index = idx + 1;
+                                            r.secondary.index = egui::text::CharIndex(idx + 1);
                                             st.cursor.set_char_range(Some(r));
                                             st.store(ctx, editor_id);
                                         }
@@ -2404,7 +2752,7 @@ impl EditorPanel {
                         .id(editor_id)
                         .font(font.clone())
                         .desired_width(f32::INFINITY)
-                        .frame(false) // no border/inset → gutter aligns
+                        .frame(egui::Frame::NONE) // no border/inset → gutter aligns
                         .margin(egui::Margin::ZERO)
                         .lock_focus(true)
                         .interactive(!tab.read_only)
@@ -2418,8 +2766,8 @@ impl EditorPanel {
                         let num_font = FontId::monospace(self.font_size - 1.0);
                         for (i, row) in te_out.galley.rows.iter().enumerate() {
                             let line_num = (i + 1) as u32;
-                            let yc = te_out.galley_pos.y + row.rect.center().y;
-                            let row_h = row.rect.height();
+                            let yc = te_out.galley_pos.y + row.rect().center().y;
+                            let row_h = row.rect().height();
                             if *debug_line == Some(line_num) {
                                 painter.rect_filled(
                                     egui::Rect::from_min_size(
@@ -2478,7 +2826,7 @@ impl EditorPanel {
                             // Scroll the viewport so the match is visible
                             let content_before = &tab.content[..byte_off.min(tab.content.len())];
                             let line_num = content_before.matches('\n').count();
-                            let line_h = ui.fonts(|f| f.row_height(&font));
+                            let line_h = ui.fonts_mut(|f| f.row_height(&font));
                             let match_y = te_out.galley_pos.y + line_num as f32 * line_h;
                             ui.scroll_to_rect(
                                 egui::Rect::from_min_size(
@@ -2510,7 +2858,7 @@ impl EditorPanel {
 
                     // ── IntelliSense update ───────────────────────────────
                     if let Some(cr) = te_out.cursor_range {
-                        let char_idx = cr.primary.ccursor.index;
+                        let char_idx = cr.primary.index.0;
                         let (l, c) = char_index_to_line_col(&tab.content, char_idx);
                         self.cur_line = l;
                         self.cur_col = c;
@@ -2644,11 +2992,11 @@ impl EditorPanel {
                             if !items.is_empty() {
                                 let ppos = {
                                     // Use galley-based exact cursor position when available
-                                    let cr_rect = te_out.galley.pos_from_cursor(&cr.primary);
+                                    let cr_rect = te_out.galley.pos_from_cursor(cr.primary);
                                     let raw_x = te_out.galley_pos.x + cr_rect.min.x;
                                     let raw_y = te_out.galley_pos.y + cr_rect.max.y + 4.0;
                                     let cursor_top_y = te_out.galley_pos.y + cr_rect.min.y;
-                                    let scr = ctx.screen_rect();
+                                    let scr = ctx.content_rect();
                                     let popup_h = 280.0_f32;
                                     let popup_w = 480.0_f32;
                                     // Clamp horizontally so popup stays on screen
@@ -2710,7 +3058,7 @@ impl EditorPanel {
                 .interactable(true)
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style())
-                        .rounding(egui::Rounding::same(7.0))
+                        .corner_radius(egui::CornerRadius::same(7))
                         .show(ui, |ui| {
                             ui.set_min_width(320.0);
                             ui.set_max_width(480.0);
@@ -2737,7 +3085,7 @@ impl EditorPanel {
                                                 .fill(Color32::from_rgba_unmultiplied(
                                                     65, 115, 225, 170,
                                                 ))
-                                                .rounding(egui::Rounding::same(4.0))
+                                                .corner_radius(egui::CornerRadius::same(4))
                                         } else {
                                             egui::Frame::default()
                                         };
@@ -2873,8 +3221,8 @@ impl EditorPanel {
                 .interactable(true)
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style())
-                        .rounding(egui::Rounding::same(7.0))
-                        .inner_margin(egui::Margin::same(6.0))
+                        .corner_radius(egui::CornerRadius::same(7))
+                        .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
                             ui.set_min_width(bar_w - 12.0);
                             ui.horizontal(|ui| {
@@ -3249,8 +3597,8 @@ fn beautify_cobol(text: &str) -> String {
 }
 
 fn insert_auto_indented_newline(text: &mut String, range: egui::text::CCursorRange) -> usize {
-    let start_char = range.primary.index.min(range.secondary.index);
-    let end_char = range.primary.index.max(range.secondary.index);
+    let start_char = range.primary.index.0.min(range.secondary.index.0);
+    let end_char = range.primary.index.0.max(range.secondary.index.0);
     let start_byte = char_to_byte(text, start_char);
     let end_byte = char_to_byte(text, end_char);
     let indent = first_nonblank_column_indent(text, start_byte);
@@ -4195,6 +4543,29 @@ mod goto_tests {
         let s = "AB  \n  CD\t\nEF\n";
         assert_eq!(trim_trailing_ws(s), "AB\n  CD\nEF\n");
         assert_eq!(trim_trailing_ws("no newline   "), "no newline");
+    }
+
+    #[test]
+    fn markdown_extensions_are_identified_case_insensitively() {
+        for path in ["README.md", "guide.MD", "notes.markdown"] {
+            assert!(EditorTab::new(PathBuf::from(path), String::new()).is_markdown());
+        }
+        assert!(!EditorTab::new(PathBuf::from("main.cbl"), String::new()).is_markdown());
+    }
+
+    #[test]
+    fn beautify_active_leaves_markdown_untouched() {
+        let content = "# Heading\n\n\n-  Preserve markdown spacing\n";
+        let mut editor = EditorPanel::new();
+        editor.tabs.push(EditorTab::new(
+            PathBuf::from("Knowledge Base/README.md"),
+            content.into(),
+        ));
+
+        editor.beautify_active();
+
+        assert_eq!(editor.tabs[0].content, content);
+        assert!(!editor.tabs[0].dirty);
     }
 
     #[test]

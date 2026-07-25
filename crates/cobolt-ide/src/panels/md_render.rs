@@ -538,10 +538,10 @@ impl<'a> Renderer<'a> {
             editor::mono_layout_job(code, FontId::monospace(self.base * 0.95), self.body_color)
         };
         ui.add_space(self.base * 0.3);
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(self.code_bg)
-            .inner_margin(egui::Margin::same(8.0))
-            .rounding(egui::Rounding::same(5.0))
+            .inner_margin(egui::Margin::same(8))
+            .corner_radius(egui::CornerRadius::same(5))
             .stroke(Stroke::new(
                 1.0,
                 ui.visuals().widgets.noninteractive.bg_stroke.color,
@@ -599,12 +599,12 @@ impl<'a> Renderer<'a> {
             return j;
         }
         let col_w = (ui.available_width() / cols as f32 - 8.0).max(60.0);
-        egui::Frame::none()
+        egui::Frame::NONE
             .stroke(Stroke::new(
                 1.0,
                 ui.visuals().widgets.noninteractive.bg_stroke.color,
             ))
-            .inner_margin(egui::Margin::same(2.0))
+            .inner_margin(egui::Margin::same(2))
             .show(ui, |ui| {
                 egui::Grid::new(("md_table", start))
                     .striped(true)

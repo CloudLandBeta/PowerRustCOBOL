@@ -18,13 +18,16 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ── Change-set data model (T1) ───────────────────────────────────────────────
 
 /// One structured operation the agent may propose. `op` is the JSON discriminator
 /// (`deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// Serialize + JsonSchema so a malformed submission can be recovered through
+/// provider-native typed extraction (Rig migration, phase 3) and re-encoded
+/// canonically.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum AgentOp {
     /// Deploy a new control onto the form.
@@ -60,7 +63,7 @@ pub enum AgentOp {
 
 /// A parsed agent reply: an ordered list of operations, plus an optional note used
 /// when the agent cannot express the request as operations.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentChangeSet {
     pub operations: Vec<AgentOp>,
     #[serde(default)]
@@ -167,11 +170,38 @@ pub fn validate(cs: &AgentChangeSet, form: &Form) -> Vec<Option<String>> {
 
     cs.operations
         .iter()
-        .map(|op| validate_op(op, &mut known))
+        .map(|op| validate_op(op, &mut known, &form.name))
         .collect()
 }
 
-fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option<String> {
+fn is_form_id(form_name: &str, id: &str) -> bool {
+    id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(form_name)
+}
+
+fn form_property_valid(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "title"
+            | "backgroundcolor"
+            | "width"
+            | "height"
+            | "transparency"
+            | "gridsize"
+            | "snaptogrid"
+            | "glassstyle"
+            | "backgroundgradientenabled"
+            | "backgroundgradientstartcolor"
+            | "backgroundgradientendcolor"
+            | "backgroundgradientdirection"
+            | "target"
+            | "backgroundimage"
+            | "bgimagemode"
+            | "theme"
+            | "usethemebackground"
+    )
+}
+
+fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name: &str) -> Option<String> {
     match op {
         AgentOp::DeployControl {
             control_type,
@@ -196,13 +226,23 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
         }
         AgentOp::SetProperty {
             control_id, key, ..
-        } => match known.get(&control_id.to_ascii_uppercase()) {
-            None => Some(format!("No control named '{control_id}'.")),
-            Some(ct) if !property_valid(ct, key) => {
-                Some(format!("Control '{control_id}' has no property '{key}'."))
+        } => {
+            if is_form_id(form_name, control_id) {
+                if !form_property_valid(key) {
+                    Some(format!("Form has no property '{key}'."))
+                } else {
+                    None
+                }
+            } else {
+                match known.get(&control_id.to_ascii_uppercase()) {
+                    None => Some(format!("No control named '{control_id}'.")),
+                    Some(ct) if !property_valid(ct, key) => {
+                        Some(format!("Control '{control_id}' has no property '{key}'."))
+                    }
+                    _ => None,
+                }
             }
-            _ => None,
-        },
+        }
         AgentOp::GenerateEventHandler {
             control_id,
             event,
@@ -698,6 +738,28 @@ pub fn build_context(form: &Form) -> String {
         form.name, form.width, form.height
     ));
 
+    // Form-level properties. Without these the agent cannot see the current
+    // style or know which values are legal, and any reviewer demand for
+    // evidence of a form-level change is unanswerable.
+    out.push_str("FORM PROPERTIES (target these with 'set_property' using \"control_id\": \"Form\"):\n");
+    out.push_str(&format!(
+        "  GlassStyle={:?}  Theme={:?}  UseThemeBackground={}\n",
+        form.glass_style.as_str(),
+        form.theme.clone().unwrap_or_default(),
+        form.use_theme_background
+    ));
+    out.push_str(&format!(
+        "  SUPPORTED GlassStyle VALUES (exact spelling, no other value is accepted): {}\n",
+        cobolt_forms::GlassStyle::ALL
+            .iter()
+            .map(|s| format!("{s:?}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    out.push_str(
+        "  GlassStyle is the visual style of the form and its controls (this is what \"neumorphic dark\", \"neumorphic light\", \"classic\", \"enhanced\" refer to).\n  Theme is a SEPARATE named asset-pack slot and is NOT how a GlassStyle is selected.\n\n",
+    );
+
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
 
@@ -979,12 +1041,45 @@ fn resolve_project_path(project_root: &Path, rel: &str) -> PathBuf {
 
 /// Properties whose value differs from a fresh control of the same type — the ones
 /// worth showing the agent (defaults are implied by the type).
+/// The complete drop-shadow property group. When a control casts a shadow we
+/// surface every one of these — see the note in `non_default_props`.
+const SHADOW_KEYS: &[&str] = &[
+    "ShadowEnabled",
+    "ShadowOpacity",
+    "ShadowColor",
+    "ShadowLightColor",
+    "ShadowDirection",
+    "ShadowDistance",
+    "ShadowBlur",
+    "ShadowBlurStrength",
+];
+
 fn non_default_props(c: &Control) -> Vec<String> {
     let defaults = Control::new("_", c.control_type.clone(), 0, 0);
+    let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for (k, v) in &c.properties {
         if defaults.properties.get(k) != Some(v) {
+            seen.insert(k.clone());
             out.push(format!("{k}={}", prop_display(v)));
+        }
+    }
+    // When a control actually casts a drop shadow, surface its COMPLETE shadow
+    // configuration even where individual members are still at the type default.
+    // Otherwise a member left at its default (e.g. ShadowDirection="SouthEast")
+    // is invisible in the CONTEXT, and an instruction to "copy this control's
+    // drop shadow onto the others" structurally cannot copy what it never sees.
+    let casts_shadow = matches!(
+        c.properties.get("ShadowEnabled"),
+        Some(PropValue::Bool(true))
+    );
+    if casts_shadow {
+        for key in SHADOW_KEYS {
+            if !seen.contains(*key) {
+                if let Some(v) = c.properties.get(*key) {
+                    out.push(format!("{key}={}", prop_display(v)));
+                }
+            }
         }
     }
     out.sort();
@@ -1002,6 +1097,26 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The agent cannot pick a style it cannot see. CONTEXT must carry the
+    /// current form-level values and the exact legal GlassStyle spellings.
+    #[test]
+    fn context_exposes_form_properties_and_supported_styles() {
+        let mut form = Form::new("ACTORS-FORM", "Actors", 1016, 808);
+        form.glass_style = cobolt_forms::GlassStyle::NeumorphicDark;
+        let ctx = build_context(&form);
+
+        assert!(ctx.contains("FORM PROPERTIES"));
+        assert!(ctx.contains("GlassStyle=\"Neumorphic Dark\""));
+        for value in cobolt_forms::GlassStyle::ALL {
+            assert!(
+                ctx.contains(value),
+                "CONTEXT must advertise GlassStyle {value:?}"
+            );
+        }
+        // Every advertised value must also be one the applier accepts.
+        assert!(form_property_valid("GlassStyle"));
+    }
 
     #[test]
     fn parse_well_formed_change_set_all_four_ops() {
@@ -1027,6 +1142,35 @@ mod tests {
         assert!(matches!(cs.operations[3], AgentOp::CreateProcedure { .. }));
     }
 
+    /// Phase 3: a change-set recovered by typed extraction is re-encoded
+    /// canonically and appended as a submission — that encoding must parse
+    /// back deterministically, or recovery would loop.
+    #[test]
+    fn canonical_serialization_round_trips_through_parse() {
+        let reply = r#"```json
+{ "operations": [
+  { "op": "deploy_control", "control_type": "Button", "id": "SAVE",
+    "properties": { "Caption": "Save", "X": 10 } },
+  { "op": "set_property", "control_id": "L1", "key": "Bold", "value": true },
+  { "op": "generate_event_handler", "control_id": "SAVE", "event": "onClick", "code": "x" },
+  { "op": "create_procedure", "name": "P", "code": "y" },
+  { "op": "message", "message": "hi" }
+] }
+```"#;
+        let cs = parse_change_set(reply).expect("should parse");
+        let json = serde_json::to_string_pretty(&cs).expect("serializes");
+        let back = parse_change_set(&format!("```json\n{json}\n```")).expect("round-trips");
+        assert_eq!(cs, back);
+    }
+
+    /// The extraction schema generates (guards the schemars derives).
+    #[test]
+    fn change_set_schema_generates() {
+        let schema = schemars::schema_for!(AgentChangeSet);
+        let text = serde_json::to_string(&schema).expect("schema serializes");
+        assert!(text.contains("operations"));
+    }
+
     #[test]
     fn parse_bare_json_object_without_fence() {
         let cs = parse_change_set(r#"{ "operations": [], "note": "nothing to do" }"#)
@@ -1048,6 +1192,42 @@ mod tests {
         f.controls
             .push(Control::new("L1", ControlType::Label, 0, 0));
         f
+    }
+
+    /// A control that casts a drop shadow must expose its COMPLETE shadow group
+    /// in CONTEXT, including members still at the type default. Otherwise Grace
+    /// cannot copy a value like ShadowDirection="SouthEast" that it never sees —
+    /// the exact reason a "copy this control's drop shadow" request dropped the
+    /// direction while every other shadow property was applied.
+    #[test]
+    fn shadowed_control_surfaces_full_shadow_group_even_at_default() {
+        use cobolt_forms::{Control, PropValue};
+        // A chart with a shadow turned on but its direction left at the default.
+        let mut chart = Control::new("BarChart-1", ControlType::BarChart, 0, 0);
+        chart.set_prop("ShadowEnabled", PropValue::Bool(true));
+        chart.set_prop("ShadowDistance", PropValue::Int(11));
+        assert_eq!(
+            chart.get_prop("ShadowDirection").unwrap().as_str(),
+            "SouthEast",
+            "precondition: direction sits at the type default"
+        );
+
+        let props = non_default_props(&chart);
+        assert!(
+            props.iter().any(|p| p == "ShadowDirection=\"SouthEast\""),
+            "default-valued ShadowDirection must be surfaced for a shadowed \
+             control so it can be copied; got {props:?}"
+        );
+
+        // A control WITHOUT a shadow must not have the group forced in — the
+        // context stays compact for the common shadow-off case.
+        let plain = Control::new("L1", ControlType::Label, 0, 0);
+        assert!(
+            !non_default_props(&plain)
+                .iter()
+                .any(|p| p.starts_with("ShadowDirection=")),
+            "no shadow ⇒ default shadow members stay hidden"
+        );
     }
 
     #[test]

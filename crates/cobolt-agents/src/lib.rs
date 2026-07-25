@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod orchestrator;
+pub mod grace;
+pub mod project_knowledge;
+pub mod rig_transport;
 pub mod sandbox;
 pub mod specialist;
 
@@ -9,4 +11,4 @@ pub mod embedding;
 #[cfg(feature = "local-retrieval")]
 pub mod retrieval;
 
-pub use orchestrator::{MeshRequest, Orchestrator};
+pub use specialist::{compose_system_prompt, route_specialist, MeshRequest, Specialist};

@@ -301,6 +301,10 @@ fn build_core(
     };
 
     report(0.05, "Reading project…");
+    // Publish system documentation to project's Knowledge Base
+    if let Err(e) = publish_system_documentation(&project_dir) {
+        eprintln!("Warning: could not publish system documentation to Knowledge Base: {e}");
+    }
     let bin_name = proj.project.name.to_ascii_lowercase().replace(' ', "_");
 
     // ── 2. Collect all source files ───────────────────────────────────────────
@@ -695,9 +699,9 @@ tracing         = "0.1"
         s.push_str(&format!(
             r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
-eframe          = {{ version = "0.29", features = ["default_fonts"] }}
-egui            = "0.29"
-egui_extras     = {{ version = "0.29", features = ["image"] }}
+eframe          = {{ version = "0.35", features = ["default_fonts"] }}
+egui            = "0.35"
+egui_extras     = {{ version = "0.35", features = ["image"] }}
 "#
         ));
     }
@@ -828,6 +832,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         controls: flat,
         state,
         bg_hex: first_form.background_color.clone(),
+        bg_gradient_enabled: first_form.background_gradient_enabled,
+        bg_gradient_start: first_form.background_gradient_start_color.clone(),
+        bg_gradient_end: first_form.background_gradient_end_color.clone(),
+        bg_gradient_direction: first_form.background_gradient_direction.clone(),
         transparency: first_form.transparency.clamp(0, 100) as u8,
         bg_image: first_form.background_image.clone(),
         bg_mode: first_form.bg_image_mode,
@@ -851,6 +859,10 @@ struct FormApp {
     controls:     Vec<cobolt_forms::Control>,
     state:        std::collections::HashMap<String, CtrlState>,
     bg_hex:       String,
+    bg_gradient_enabled: bool,
+    bg_gradient_start: String,
+    bg_gradient_end: String,
+    bg_gradient_direction: String,
     transparency: u8,
     bg_image:     String,
     bg_mode:      cobolt_forms::model::BgImageMode,
@@ -868,7 +880,9 @@ struct FormApp {
 }
 
 impl eframe::App for FormApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = root_ui.ctx().clone();
+        let ctx = &ctx;
         // Light visuals baseline — egui defaults to dark mode, which leaks dark
         // widget fills into the form and breaks parity with the designer.
         if !self.visuals_set {
@@ -929,13 +943,17 @@ impl eframe::App for FormApp {
             let backdrop = cobolt_forms::render::Backdrop {
                 color_hex: self.bg_hex.clone(),
                 transparency: self.transparency,
+                gradient_enabled: self.bg_gradient_enabled,
+                gradient_start_hex: self.bg_gradient_start.clone(),
+                gradient_end_hex: self.bg_gradient_end.clone(),
+                gradient_direction: self.bg_gradient_direction.clone(),
                 image: backdrop_image,
                 image_mode: self.bg_mode,
             };
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
-                .frame(egui::Frame::none().fill(bg_fill))
-                .show(ctx, |ui| {
+                .frame(egui::Frame::NONE.fill(bg_fill))
+                .show(root_ui, |ui| {
                     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                         ui.set_min_size(form_size);
                         let input = cobolt_forms::render::RenderInput {
@@ -1125,6 +1143,168 @@ fn find_rcrun() -> Option<PathBuf> {
     None
 }
 
+/// Publishes RustCOBOL extensions, IDE functionalities, RAD form designer controls/properties/events,
+/// and the Agent Registry into the project's Knowledge Base during compilation.
+pub fn publish_system_documentation(project_dir: &std::path::Path) -> Result<(), std::io::Error> {
+    let kb_dir = project_dir.join("Knowledge Base");
+    std::fs::create_dir_all(&kb_dir)?;
+    
+    // Write File 1: rustcobol_extensions.md
+    let rc_ext = r##"# PowerRustCOBOL Extensions & Syntax
+
+PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access features:
+
+## Property Get & Set Syntax
+- **Retrieve a property**: Use `<control>::<property>`.
+- **Set a property**: Use `SET <control>::<property> TO <value>`.
+  - Example: `SET SAVE-BUTTON::Caption TO "Save".`
+  - Example: `SET MAIN-PANEL::Visible TO 1.`
+  - Example: `SET TOTAL-LABEL::ForegroundColor TO "#FF0000".`
+
+## Method Invocation Syntax
+- **Invoke a method**: Use `<control>::<method>(<parameters>)`.
+  - Example: `LineChart-1::Clear().`
+  - Example: `DataGrid-1::RefreshBinding().`
+  - Example: `LineChart-1::AddPoint("January", 150).`
+  - Example: `IndexedFile-1::Open().`
+  - Example: `RestClient-1::Post("/api/save", request_body).`
+- **DO NOT** use `CALL` or legacy `INVOKE` for UI control properties or methods. Use the inline double-colon (`::`) syntax directly.
+
+## Event Handler Division Structure
+- Every developer-editable event-handler body must start from the program Divisions and contain:
+  ```cobol
+         ENVIRONMENT DIVISION.
+         DATA DIVISION.
+         WORKING-STORAGE SECTION.
+         *> (Data declarations here)
+         PROCEDURE DIVISION.
+             *> (Statements here)
+  ```
+- Do not write `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or `END PROGRAM` in the handler body; these are automatically managed by the IDE scaffold.
+"##;
+    std::fs::write(kb_dir.join("rustcobol_extensions.md"), rc_ext)?;
+
+    // Write File 2: ide_functionalities.md
+    let ide_funcs = r##"# PowerRustCOBOL IDE Functionalities
+
+The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities for COBOL developers:
+
+## RAD desktop Form Designer
+- A WYSIWYG visual layout canvas with grid snapping.
+- Visual positioning (X, Y) and sizing (Width, Height) of controls.
+- Tab-order management for keyboard navigation.
+- Container hierarchies (e.g. Panels, TabControls) establishing parent-child ownership.
+
+## Predefined Form Styles
+- The form's visual style is the form-level `GlassStyle` property. Its only accepted values are the exact strings `"Classic"`, `"Enhanced"`, `"Neumorphic Light"`, and `"Neumorphic Dark"`.
+- Applied with one operation: `{ "op": "set_property", "control_id": "Form", "key": "GlassStyle", "value": "Neumorphic Dark" }`. An unrecognised value is silently discarded and the form stays on `Classic`.
+- Individual controls automatically inherit the style's parameters (colors, padding, borders, shadows). Do not restyle controls one by one to emulate a style.
+- `Theme` and `UseThemeBackground` are a SEPARATE named asset-pack slot, not the mechanism for selecting a `GlassStyle`.
+
+## Code generation & Compilation
+- Multi-agent coordination: Grace (Orchestrator) plans and delegates UI design to Form Designer Agent, event implementations to COBOL Event Handler Script Agent, and schema setups to Data Agent.
+- During IDE build/compilation, the project is parsed, semantic checks are performed, and it is compiled into a single native executable.
+"##;
+    std::fs::write(kb_dir.join("ide_functionalities.md"), ide_funcs)?;
+
+    // Write File 3: form_designer_controls.md
+    let control_types = vec![
+        cobolt_forms::ControlType::Button,
+        cobolt_forms::ControlType::TextBox,
+        cobolt_forms::ControlType::Label,
+        cobolt_forms::ControlType::CheckBox,
+        cobolt_forms::ControlType::RadioButton,
+        cobolt_forms::ControlType::ListBox,
+        cobolt_forms::ControlType::ComboBox,
+        cobolt_forms::ControlType::GroupBox,
+        cobolt_forms::ControlType::Panel,
+        cobolt_forms::ControlType::TabControl,
+        cobolt_forms::ControlType::DataGrid,
+        cobolt_forms::ControlType::PictureBox,
+        cobolt_forms::ControlType::ProgressBar,
+        cobolt_forms::ControlType::MenuBar,
+        cobolt_forms::ControlType::ToolBar,
+        cobolt_forms::ControlType::StatusBar,
+        cobolt_forms::ControlType::Line,
+        cobolt_forms::ControlType::DateTimePicker,
+        cobolt_forms::ControlType::NumericUpDown,
+        cobolt_forms::ControlType::TreeView,
+        cobolt_forms::ControlType::Splitter,
+        cobolt_forms::ControlType::Timer,
+        cobolt_forms::ControlType::Shape,
+        cobolt_forms::ControlType::Animator,
+        cobolt_forms::ControlType::AgentObject,
+        cobolt_forms::ControlType::RestClient,
+        cobolt_forms::ControlType::SqlDatabase,
+        cobolt_forms::ControlType::IndexedFile,
+        cobolt_forms::ControlType::Slider,
+        cobolt_forms::ControlType::BarChart,
+        cobolt_forms::ControlType::LineChart,
+        cobolt_forms::ControlType::PieChart,
+        cobolt_forms::ControlType::AreaChart,
+        cobolt_forms::ControlType::ScatterChart,
+        cobolt_forms::ControlType::DonutChart,
+    ];
+    let mut doc = String::new();
+    doc.push_str("# PowerRustCOBOL Form Controls Reference\n\n");
+    doc.push_str("This document inventories all visual and non-visual controls supported by the PowerRustCOBOL RAD Form Designer, listing their properties and events.\n\n");
+
+    for ct in control_types {
+        let name = ct.as_str();
+        doc.push_str(&format!("## Control: {name}\n\n"));
+        
+        doc.push_str("### Settable Properties\n");
+        let mut props = cobolt_forms::model::property_names_for(name);
+        props.sort();
+        if props.is_empty() {
+            doc.push_str("- None\n");
+        } else {
+            for prop in props {
+                doc.push_str(&format!("- `{prop}`\n"));
+            }
+        }
+        doc.push_str("\n");
+
+        doc.push_str("### Supported Events\n");
+        let mut events: Vec<String> = ct.supported_events().iter().map(|e| (*e).to_string()).collect();
+        events.sort();
+        if events.is_empty() {
+            doc.push_str("- None\n");
+        } else {
+            for event in events {
+                doc.push_str(&format!("- `{event}`\n"));
+            }
+        }
+        doc.push_str("\n---\n\n");
+    }
+    std::fs::write(kb_dir.join("form_designer_controls.md"), doc)?;
+
+    // Write File 4: agents_registry.md
+    let agents_reg = r##"# PowerRustCOBOL Agent Registry
+
+This document lists all built-in specialist and reviewer agents configured in the PowerRustCOBOL agentic AI mesh:
+
+## Orchestrator Agent
+- **Grace**: Plans, delegates, coordinates task sequencing, and integrates specialist outputs.
+  - **Companion Reviewer**: `Grace Pedantic Reviewer`
+
+## Specialist Agents
+- **Form Designer Agent**: Specialist responsible for RAD desktop form structures, layouts, control deployment, and visual styling properties.
+  - **Companion Reviewer**: `Form Designer Agent Pedantic Reviewer`
+- **COBOL Event Handler Script Agent**: Specialist responsible for generating COBOL-85 / RustCOBOL event handler implementations bound to control events.
+  - **Companion Reviewer**: `COBOL Event Handler Script Agent Pedantic Reviewer`
+- **Data (Indexed File) Agent**: Specialist responsible for creating or modifying PowerRustCOBOL indexed-file schemas (.cidx) and structural COBOL definitions.
+  - **Companion Reviewer**: `Data (Indexed File) Agent Pedantic Reviewer`
+- **Documentation Agent**: Specialist responsible for formatting, writing, and indexing markdown files exclusively inside the project `/Knowledge Base/` folder.
+  - **Companion Reviewer**: `Documentation Agent Pedantic Reviewer`
+- **Version Control Agent**: Specialist responsible for executing repository actions (Git status, branch, commit, push, merge, revert, rebase).
+  - **Companion Reviewer**: `Version Control Agent Pedantic Reviewer`
+"##;
+    std::fs::write(kb_dir.join("agents_registry.md"), agents_reg)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod resolve_main_tests {
     use super::*;
@@ -1187,6 +1367,30 @@ mod resolve_main_tests {
         let dir = temp_dir("empty");
         let p = proj("src/main.cbl", vec!["a.cbl"], vec!["b.cbl"]);
         assert_eq!(resolve_main(&p, &dir), None);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn publishes_system_documentation_correctly() {
+        let dir = temp_dir("pubdocs");
+        assert!(publish_system_documentation(&dir).is_ok());
+
+        let kb = dir.join("Knowledge Base");
+        assert!(kb.exists());
+        assert!(kb.join("rustcobol_extensions.md").exists());
+        assert!(kb.join("ide_functionalities.md").exists());
+        assert!(kb.join("form_designer_controls.md").exists());
+        assert!(kb.join("agents_registry.md").exists());
+
+        // Check form designer controls document contents
+        let form_controls_doc = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
+        assert!(form_controls_doc.contains("# PowerRustCOBOL Form Controls Reference"));
+        assert!(form_controls_doc.contains("## Control: Button"));
+        assert!(form_controls_doc.contains("## Control: DataGrid"));
+        assert!(form_controls_doc.contains("### Settable Properties"));
+        assert!(form_controls_doc.contains("### Supported Events"));
+
+        // Clean up
         fs::remove_dir_all(&dir).ok();
     }
 }

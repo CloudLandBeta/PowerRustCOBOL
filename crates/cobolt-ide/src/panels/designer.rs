@@ -34,13 +34,128 @@ use crate::app::{
 use crate::project_model::{CoboltProject, UserControlDef, UserControlEntry};
 use cobolt_forms::render::{card_appear_transform, PlacementEffect};
 
-// The prompt/input block is a fixed 170px slab pinned to the pane bottom (an
-// arbitrary fixed size, not a min or max); the history takes everything above
-// it, so the pane's top-edge resizer is the single resizer for the history
-// (default pane height gives it ~70px to start).
+// The prompt/input block is a slab pinned to the pane bottom: 170px of fixed
+// chrome around a prompt box whose height the user may drag between 1 and 6
+// text rows (default 3 — at the default the slab is exactly 170px). The
+// history takes everything above it, so the pane's top-edge resizer resizes
+// the history (default pane height gives it ~70px to start).
 const GLOBAL_AI_HISTORY_MIN_HEIGHT: f32 = 48.0;
 const GLOBAL_AI_INPUT_HEIGHT: f32 = 170.0;
 const GLOBAL_AI_PANE_MIN_HEIGHT: f32 = GLOBAL_AI_HISTORY_MIN_HEIGHT + GLOBAL_AI_INPUT_HEIGHT + 24.0;
+
+// ── Collapsible designer chrome (spec 033) ──────────────────────────────────
+// Fixed geometry for the toolbox rail and properties drawer. These are CONSTANTS,
+// never derived from available/max space, so the collapsed/hidden states can't
+// self-inflate. The expanded widths live in `DesignerPanel::{toolbox,props}_width`
+// and are only ever written from the panel's own resized rect (a user drag).
+
+/// Default (seed) width of the expanded left sidebar (forms list + toolbox).
+pub const TOOLBOX_DEFAULT_W: f32 = 150.0;
+/// Minimum width the expanded left sidebar may be dragged to.
+pub const TOOLBOX_MIN_W: f32 = 130.0;
+/// Fixed width of the collapsed toolbox icon rail. Wide enough for one 49px icon
+/// button plus the side-panel frame margins (8+8) and a scrollbar.
+pub const TOOLBOX_RAIL_W: f32 = 78.0;
+
+/// Default (seed) width of the properties pane.
+pub const PROPS_DEFAULT_W: f32 = 300.0;
+/// Minimum width the properties pane may be dragged to.
+pub const PROPS_MIN_W: f32 = 220.0;
+/// Fixed width of the thin reopen/hide tab strip beside the properties pane —
+/// wide enough to hold the enlarged collapse chevron without clipping it.
+pub const PROPS_TAB_W: f32 = 30.0;
+/// Glyph size for every collapse/expand chevron (toolbox ◀/▶ and properties
+/// ◀/▶) so they are all the SAME size — ~2× the old `small_button` glyph.
+pub const COLLAPSE_CHEVRON_SIZE: f32 = 20.0;
+
+/// Clamp a captured expanded left-sidebar width into `[min, max]`.
+///
+/// The input is the panel's own resized outer width (user drag / persisted /
+/// default) — never available space — so this is a pure clamp, called once per
+/// frame to keep `toolbox_width` a faithful record of the user's chosen width.
+pub fn clamp_toolbox_width(width: f32, min: f32, max: f32) -> f32 {
+    clamp_pane_width(width, min, max, TOOLBOX_DEFAULT_W)
+}
+
+/// Clamp a captured properties-pane width into `[min, max]`. Same contract as
+/// [`clamp_toolbox_width`]. (The properties drawer now lets egui persist its own
+/// width per panel id, so this is retained only for its tests / future use.)
+#[allow(dead_code)]
+pub fn clamp_props_width(width: f32, min: f32, max: f32) -> f32 {
+    clamp_pane_width(width, min, max, PROPS_DEFAULT_W)
+}
+
+/// Shared width-restore helper: clamp `width` into `[min, max]`, falling back to
+/// `fallback` when the value is non-finite or non-positive (e.g. a transient
+/// zero rect on the first frame). Guarantees the stored width is always a sane,
+/// bounded seed for the next expand — never a runaway value.
+fn clamp_pane_width(width: f32, min: f32, max: f32, fallback: f32) -> f32 {
+    let hi = max.max(min);
+    if !width.is_finite() || width <= 0.0 {
+        return fallback.clamp(min, hi);
+    }
+    width.clamp(min, hi)
+}
+
+#[cfg(test)]
+mod collapsible_chrome_tests {
+    use super::*;
+
+    /// A user-dragged width is recorded verbatim (clamped to the pane's range),
+    /// so re-expanding restores exactly what the user set.
+    #[test]
+    fn dragged_width_is_recorded_within_range() {
+        assert_eq!(clamp_toolbox_width(210.0, TOOLBOX_MIN_W, 600.0), 210.0);
+        assert_eq!(clamp_props_width(420.0, PROPS_MIN_W, 800.0), 420.0);
+    }
+
+    /// Captured widths are clamped to the pane's min/max — never allowed to be a
+    /// runaway value that would let the pane grow past its bounds on re-expand.
+    #[test]
+    fn width_is_clamped_to_bounds() {
+        // Below min → snaps up to min.
+        assert_eq!(clamp_toolbox_width(10.0, TOOLBOX_MIN_W, 600.0), TOOLBOX_MIN_W);
+        // Above max → snaps down to max.
+        assert_eq!(clamp_props_width(5000.0, PROPS_MIN_W, 700.0), 700.0);
+    }
+
+    /// A transient zero / non-finite rect (e.g. first frame) falls back to the
+    /// sane default seed instead of poisoning the stored width with 0.
+    #[test]
+    fn non_positive_or_nan_falls_back_to_default() {
+        assert_eq!(
+            clamp_toolbox_width(0.0, TOOLBOX_MIN_W, 600.0),
+            TOOLBOX_DEFAULT_W
+        );
+        assert_eq!(
+            clamp_props_width(f32::NAN, PROPS_MIN_W, 700.0),
+            PROPS_DEFAULT_W
+        );
+    }
+
+    /// The restore contract: while collapsed we must NOT overwrite the stored
+    /// expanded width, so on expand `default_size` still opens at the user's
+    /// last width. This models the app-side capture guard.
+    #[test]
+    fn collapse_preserves_expanded_width() {
+        let mut stored = 265.0_f32;
+        let rail_rect_width = TOOLBOX_RAIL_W; // what the rail panel reports while collapsed
+
+        // Collapsed: capture is skipped → stored is untouched.
+        let collapsed = true;
+        if !collapsed {
+            stored = clamp_toolbox_width(rail_rect_width, TOOLBOX_MIN_W, 600.0);
+        }
+        assert_eq!(stored, 265.0, "collapse must not clobber the expanded width");
+
+        // Expanded again, user has not dragged: rect == stored → idempotent.
+        let collapsed = false;
+        if !collapsed {
+            stored = clamp_toolbox_width(stored, TOOLBOX_MIN_W, 600.0);
+        }
+        assert_eq!(stored, 265.0, "re-expand restores the user's width");
+    }
+}
 
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
 // designer, preview, run form and compiled binaries all draw identically.
@@ -966,6 +1081,68 @@ fn explain_syntax_error(message: &str) -> &'static str {
     }
 }
 
+// ── Animated agent control moves (spec 035) ────────────────────────────────────
+
+/// One control gliding from its pre-change position to the agent's new one. The
+/// model already holds `to`; only the *drawn* position interpolates (R5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveAnim {
+    pub id: String,
+    pub from: egui::Pos2,
+    pub to: egui::Pos2,
+}
+
+/// Duration of an agent control-move animation, in seconds (spec 035, R3).
+const MOVE_ANIM_SECS: f64 = 1.0;
+
+/// Ease-in-out over `[0,1]` (cubic): smooth acceleration and settle (R3).
+fn eased(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        let f = 2.0 * t - 2.0;
+        1.0 + f * f * f / 2.0
+    }
+}
+
+/// The draw offset for a moving control at progress `t`: `lerp(from,to,eased) - to`.
+/// Zero at `t≥1`, so the control rests exactly at its final (model) position (R5).
+fn move_offset(from: egui::Pos2, to: egui::Pos2, t: f32) -> egui::Vec2 {
+    let e = eased(t);
+    let cur = from + (to - from) * e;
+    cur - to
+}
+
+/// Build move animations by diffing a `before` snapshot of control positions
+/// against the form after an agent change-set. Only a control that existed
+/// before, still exists, kept the **same parent**, and whose `(x,y)` changed is
+/// animated — created / deleted / unmoved / reparented controls are not (R1, R7,
+/// R8, Q3).
+fn diff_moves(
+    before: &std::collections::HashMap<String, (i32, i32, Option<String>)>,
+    form: &Form,
+) -> Vec<MoveAnim> {
+    let mut anims = Vec::new();
+    for c in &form.controls {
+        let Some((ox, oy, oparent)) = before.get(&c.id) else {
+            continue; // newly created → no move animation
+        };
+        if *oparent != c.parent {
+            continue; // reparented → just apply (Q3)
+        }
+        if *ox == c.rect.x && *oy == c.rect.y {
+            continue; // unmoved
+        }
+        anims.push(MoveAnim {
+            id: c.id.clone(),
+            from: egui::pos2(*ox as f32, *oy as f32),
+            to: egui::pos2(c.rect.x as f32, c.rect.y as f32),
+        });
+    }
+    anims
+}
+
 // ── DesignerPanel ─────────────────────────────────────────────────────────────
 
 pub struct DesignerPanel {
@@ -1001,6 +1178,19 @@ pub struct DesignerPanel {
     pub toolbox: ToolboxPanel,
     pub properties: PropertiesPanel,
 
+    // ── Collapsible designer chrome (spec 033) ────────────────────────────────
+    /// When true the left sidebar shrinks to a narrow icon rail (toolbox only,
+    /// no labels / no forms list). Toggled by the toolbox chevron; the rail uses
+    /// a FIXED width so it never self-inflates.
+    pub toolbox_collapsed: bool,
+    /// The user's last expanded left-panel width. Seeds the panel's `default_size`
+    /// and is refreshed only from the panel's own resized rect (user drag), never
+    /// from available space — so re-expanding restores exactly what the user set.
+    pub toolbox_width: f32,
+    /// When true the right properties pane is slid away, leaving only a thin
+    /// reopen tab (fixed width — no self-inflation).
+    pub props_hidden: bool,
+
     // ── UI options ────────────────────────────────────────────────────────────
     pub show_grid: bool,
     pub glass_mode: bool,
@@ -1026,6 +1216,14 @@ pub struct DesignerPanel {
     /// inherit it so a form keeps a consistent typeface.
     last_font_name: Option<String>,
     last_font_size: Option<i64>,
+
+    /// In-flight agent control-move animations and their shared start time
+    /// (spec 035). Purely visual — the model already holds the final positions.
+    move_anims: Vec<MoveAnim>,
+    move_anim_start: Option<f64>,
+    /// The `ctx.input().time` of the last canvas paint, so a retargeting move
+    /// (R6) can compute each control's current on-screen position at apply time.
+    move_anim_last_now: Option<f64>,
 
     // ── Resize handle press capture ───────────────────────────────────────────
     /// Stores which resize handle the pointer was on when the mouse button was
@@ -1067,6 +1265,10 @@ pub struct DesignerPanel {
     pub ai_history_font_size: f32,
     pub ai_error_font_size: f32,
     pub global_ai_prompt: String,
+    /// Prompt-box height, user-authoritative: 0 = "never dragged" (renders at
+    /// the 3-row default); only the box's corner-grip drag writes it, clamped
+    /// between the 1-row and 6-row limits.
+    pub ai_prompt_height: f32,
     pub global_ai_streaming: String,
 
     // ── Form preview ──────────────────────────────────────────────────────────
@@ -1106,6 +1308,9 @@ impl DesignerPanel {
             create_user_control: None,
             toolbox: ToolboxPanel::new(),
             properties: PropertiesPanel::new(),
+            toolbox_collapsed: false,
+            toolbox_width: TOOLBOX_DEFAULT_W,
+            props_hidden: false,
             show_grid: true,
             glass_mode: true,
             anim_states: HashMap::new(),
@@ -1114,6 +1319,9 @@ impl DesignerPanel {
             image_cache: HashMap::new(),
             last_font_name: None,
             last_font_size: None,
+            move_anims: Vec::new(),
+            move_anim_start: None,
+            move_anim_last_now: None,
             press_handle: None,
             press_form_edge: None,
             menu_modal: None,
@@ -1133,6 +1341,7 @@ impl DesignerPanel {
             ai_history_font_size: 14.0,
             ai_error_font_size: 13.0,
             global_ai_prompt: String::new(),
+            ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             global_ai_streaming: String::new(),
             show_preview: false,
             cobol_structure_edit: None,
@@ -1288,11 +1497,8 @@ impl DesignerPanel {
                     let gy = json_prop_i32(properties, "Y")
                         .unwrap_or(20 + 28 * (self.form.controls.len() + added) as i32);
                     let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
-                    if matches!(
-                        self.form.glass_style,
-                        cobolt_forms::model::GlassStyle::Neumorphic
-                    ) {
-                        c.apply_neumorphic_defaults();
+                    if self.form.glass_style.is_neumorphic() {
+                        c.apply_glass_style_defaults(self.form.glass_style);
                     }
                     if let Some(w) = json_prop_i32(properties, "Width") {
                         c.rect.w = w;
@@ -1330,10 +1536,13 @@ impl DesignerPanel {
                     let Some(pv) = json_to_prop(value) else {
                         continue;
                     };
-                    let old = self
-                        .form
-                        .find_control(control_id)
-                        .and_then(|c| c.properties.get(key).cloned());
+                    let old = if self.is_form_id(control_id) {
+                        self.get_form_prop(key).map(PropValue::String)
+                    } else {
+                        self.form
+                            .find_control(control_id)
+                            .and_then(|c| structural_prop_value(c, key))
+                    };
                     cmds.push(Cmd::SetProperty {
                         id: control_id.clone(),
                         key: key.clone(),
@@ -1381,9 +1590,253 @@ impl DesignerPanel {
 
         let n = cmds.len();
         if n > 0 {
+            // Containers move as a WHOLE and moved controls avoid overlaps: fold
+            // the carry + nudge moves into the SAME batch so undo and the move
+            // animation treat each container-and-children motion as one.
+            cmds.extend(self.plan_container_and_overlap_moves(cs, &status));
+
+            // Snapshot positions BEFORE applying so we can animate the moves
+            // (spec 035, R1). If an animation is already running, use each
+            // control's CURRENT on-screen position as the "before" so a new
+            // change-set retargets smoothly (R6).
+            let mut before: std::collections::HashMap<String, (i32, i32, Option<String>)> =
+                std::collections::HashMap::new();
+            for c in &self.form.controls {
+                let (bx, by) = self
+                    .live_move_from(&c.id)
+                    .unwrap_or((c.rect.x, c.rect.y));
+                before.insert(c.id.clone(), (bx, by, c.parent.clone()));
+            }
+
             self.apply(Cmd::AgentBatch { cmds });
+
+            let anims = diff_moves(&before, &self.form);
+            if !anims.is_empty() {
+                self.move_anims = anims;
+                self.move_anim_start = None; // armed — first paint stamps the start
+            }
         }
         n
+    }
+
+    /// Plan the extra position moves that follow an agent change-set:
+    /// 1. **Container carry** — every control keeps its place inside a container
+    ///    the change-set repositions (a container and its children move as one).
+    /// 2. **Overlap avoidance** — a control the change-set moves is nudged off
+    ///    any same-level control it would land on; only the moved control (with
+    ///    its subtree) shifts, obstacles stay put.
+    ///
+    /// Returned as `MoveControl`s that go from each control's *staged* position
+    /// (after the change-set's own X/Y) to its *final* position, so folding them
+    /// into the same batch yields one undo and one animation. Manual drag already
+    /// carries children (`handle_drag`); this brings the agent path in line and
+    /// adds the overlap nudge on top.
+    fn plan_container_and_overlap_moves(
+        &self,
+        cs: &crate::agent::AgentChangeSet,
+        status: &[Option<String>],
+    ) -> Vec<Cmd> {
+        use crate::agent::AgentOp;
+        use std::collections::{HashMap, HashSet};
+        let to_i32 = |v: &serde_json::Value| -> Option<i32> {
+            v.as_i64()
+                .map(|n| n as i32)
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        };
+        // Explicit geometry the change-set sets, per control.
+        let mut explicit: HashSet<String> = HashSet::new();
+        let mut tgt_x: HashMap<String, i32> = HashMap::new();
+        let mut tgt_y: HashMap<String, i32> = HashMap::new();
+        let mut tgt_w: HashMap<String, i32> = HashMap::new();
+        let mut tgt_h: HashMap<String, i32> = HashMap::new();
+        for (op, err) in cs.operations.iter().zip(status.iter()) {
+            if err.is_some() {
+                continue;
+            }
+            if let AgentOp::SetProperty {
+                control_id,
+                key,
+                value,
+            } = op
+            {
+                let Some(v) = to_i32(value) else { continue };
+                match key.as_str() {
+                    "X" => {
+                        tgt_x.insert(control_id.clone(), v);
+                        explicit.insert(control_id.clone());
+                    }
+                    "Y" => {
+                        tgt_y.insert(control_id.clone(), v);
+                        explicit.insert(control_id.clone());
+                    }
+                    "Width" => {
+                        tgt_w.insert(control_id.clone(), v);
+                    }
+                    "Height" => {
+                        tgt_h.insert(control_id.clone(), v);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Staged rect = original rect with the change-set's own X/Y/W/H applied.
+        let staged = |c: &Control| -> (i32, i32, i32, i32) {
+            (
+                tgt_x.get(&c.id).copied().unwrap_or(c.rect.x),
+                tgt_y.get(&c.id).copied().unwrap_or(c.rect.y),
+                tgt_w.get(&c.id).copied().unwrap_or(c.rect.w),
+                tgt_h.get(&c.id).copied().unwrap_or(c.rect.h),
+            )
+        };
+        // Delta of every container the change-set actually moves.
+        let mut cont_delta: HashMap<String, (i32, i32)> = HashMap::new();
+        for c in &self.form.controls {
+            if !c.is_container() {
+                continue;
+            }
+            let d = (
+                tgt_x.get(&c.id).copied().unwrap_or(c.rect.x) - c.rect.x,
+                tgt_y.get(&c.id).copied().unwrap_or(c.rect.y) - c.rect.y,
+            );
+            if d != (0, 0) {
+                cont_delta.insert(c.id.clone(), d);
+            }
+        }
+        // Carry delta = delta of the nearest moved-container ancestor, unless the
+        // control is explicitly placed by the change-set itself.
+        let carry_of = |c: &Control| -> (i32, i32) {
+            if explicit.contains(&c.id) {
+                return (0, 0);
+            }
+            let mut cur = c.parent.clone();
+            while let Some(pid) = cur {
+                if let Some(d) = cont_delta.get(&pid) {
+                    return *d;
+                }
+                cur = self.form.find_control(&pid).and_then(|p| p.parent.clone());
+            }
+            (0, 0)
+        };
+
+        // Positions after staging + carry (before overlap nudging).
+        let mut pos: HashMap<String, (i32, i32, i32, i32)> = HashMap::new();
+        for c in &self.form.controls {
+            let (sx, sy, sw, sh) = staged(c);
+            let (cx, cy) = carry_of(c);
+            pos.insert(c.id.clone(), (sx + cx, sy + cy, sw, sh));
+        }
+
+        // Overlap avoidance: nudge each *moved root* (a control moved by its own
+        // explicit target or as a top-level move, not one merely carried) off any
+        // same-parent control it overlaps. The root drags its subtree along.
+        //
+        // A deliberate agent layout (two or more explicitly placed controls) is
+        // trusted as-is: the Form Designer computes non-overlapping coordinates,
+        // and the nudge would otherwise shove the one control whose slot happens
+        // to sit over a leftover, untouched control out of an otherwise clean grid
+        // ("all but one aligned"). A lone placed control still gets the drag-like
+        // nudge so it slides off a sibling it lands on.
+        let form_w = self.form.width as i32;
+        let form_h = self.form.height as i32;
+        let nudge_overlaps = explicit.len() < 2;
+        for (i, c) in self.form.controls.iter().enumerate() {
+            if !nudge_overlaps {
+                break;
+            }
+            let moved = {
+                let p = pos[&c.id];
+                (p.0, p.1) != (c.rect.x, c.rect.y)
+            };
+            if !moved {
+                continue;
+            }
+            if !explicit.contains(&c.id) && carry_of(c) != (0, 0) {
+                continue; // moves as part of its container's group
+            }
+            // Subtree ids (root + descendants) — they move rigidly together.
+            let mut subtree: HashSet<String> = HashSet::new();
+            subtree.insert(c.id.clone());
+            for d in super::containers::collect_descendants(&self.form.controls, i) {
+                subtree.insert(self.form.controls[d].id.clone());
+            }
+            // Obstacles = same-parent controls outside this subtree, at their
+            // planned positions.
+            let obstacles: Vec<(i32, i32, i32, i32)> = self
+                .form
+                .controls
+                .iter()
+                .filter(|o| o.parent == c.parent && !subtree.contains(&o.id))
+                .map(|o| pos[&o.id])
+                .collect();
+            let rroot = pos[&c.id];
+            // Keep top-level roots inside the form; nested roots are unbounded.
+            let bounds = c.parent.is_none().then_some((form_w, form_h));
+            let (nx, ny) =
+                nearest_free_offset(rroot, &obstacles, bounds, form_w.max(form_h));
+            if (nx, ny) == (0, 0) {
+                continue;
+            }
+            for id in subtree {
+                if let Some(p) = pos.get_mut(&id) {
+                    p.0 += nx;
+                    p.1 += ny;
+                }
+            }
+        }
+
+        // One MoveControl per control whose final pos differs from its staged pos
+        // (carry and/or nudge); the change-set itself already produced staged.
+        let mut moves = Vec::new();
+        for c in &self.form.controls {
+            let (sx, sy, _, _) = staged(c);
+            let (fx, fy, _, _) = pos[&c.id];
+            if (fx, fy) != (sx, sy) {
+                moves.push(Cmd::MoveControl {
+                    id: c.id.clone(),
+                    old_x: sx,
+                    old_y: sy,
+                    new_x: fx,
+                    new_y: fy,
+                });
+            }
+        }
+        moves
+    }
+
+    /// The current on-screen position of a control mid-animation, as integer
+    /// design coordinates — the eased interpolation from `from` to `to` at the
+    /// last painted time. `None` when it is not animating. Retargets a fresh
+    /// move so it continues from where the control visually is (R6).
+    fn live_move_from(&self, id: &str) -> Option<(i32, i32)> {
+        let anim = self.move_anims.iter().find(|a| a.id == id)?;
+        let (start, now) = (self.move_anim_start?, self.move_anim_last_now?);
+        let t = ((now - start) / MOVE_ANIM_SECS).clamp(0.0, 1.0) as f32;
+        let cur = anim.from + (anim.to - anim.from) * eased(t);
+        Some((cur.x.round() as i32, cur.y.round() as i32))
+    }
+
+    /// Advance the agent control-move animation for this paint (spec 035): stamp
+    /// the start on the first frame, drive repaints while running, finish at
+    /// `MOVE_ANIM_SECS`, and return each animating control's current **draw
+    /// offset**. Empty when idle. The offset feeds paint positions ONLY — never
+    /// any layout/container size (egui self-inflation guard, plan §5).
+    fn tick_move_anims(&mut self, now: f64, ctx: &egui::Context) -> HashMap<String, Vec2> {
+        self.move_anim_last_now = Some(now);
+        if self.move_anims.is_empty() {
+            return HashMap::new();
+        }
+        let start = *self.move_anim_start.get_or_insert(now);
+        let t = ((now - start) / MOVE_ANIM_SECS).clamp(0.0, 1.0) as f32;
+        if t >= 1.0 {
+            self.move_anims.clear();
+            self.move_anim_start = None;
+            return HashMap::new();
+        }
+        ctx.request_repaint(); // keep ticking until the motion completes (R4)
+        self.move_anims
+            .iter()
+            .map(|a| (a.id.clone(), move_offset(a.from, a.to, t)))
+            .collect()
     }
 
     pub fn undo(&mut self) {
@@ -1438,7 +1891,14 @@ impl DesignerPanel {
                 }
             }
             Cmd::SetProperty { id, key, new, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) {
+                if self.is_form_id(id) {
+                    let val_str = match new {
+                        PropValue::String(s) => s.clone(),
+                        PropValue::Int(n) => n.to_string(),
+                        PropValue::Bool(b) => b.to_string(),
+                    };
+                    self.set_form_prop(key, val_str);
+                } else if let Some(c) = self.form.find_control_mut(id) {
                     apply_structural_prop(c, key, new);
                 }
             }
@@ -1538,7 +1998,16 @@ impl DesignerPanel {
                 }
             }
             Cmd::SetProperty { id, key, old, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) {
+                if self.is_form_id(id) {
+                    if let Some(v) = old {
+                        let val_str = match v {
+                            PropValue::String(s) => s.clone(),
+                            PropValue::Int(n) => n.to_string(),
+                            PropValue::Bool(b) => b.to_string(),
+                        };
+                        self.set_form_prop(key, val_str);
+                    }
+                } else if let Some(c) = self.form.find_control_mut(id) {
                     if let Some(v) = old {
                         apply_structural_prop(c, key, v);
                     } else {
@@ -1743,11 +2212,8 @@ impl DesignerPanel {
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
-        if matches!(
-            self.form.glass_style,
-            cobolt_forms::model::GlassStyle::Neumorphic
-        ) {
-            ctrl.apply_neumorphic_defaults();
+        if self.form.glass_style.is_neumorphic() {
+            ctrl.apply_glass_style_defaults(self.form.glass_style);
         }
         // Assign z_order = highest existing + 1
         let max_z = self
@@ -2938,13 +3404,24 @@ impl DesignerPanel {
                 self.dirty = true;
             }
             "GlassStyle" => {
-                self.form.glass_style = cobolt_forms::model::GlassStyle::from_str(&value);
-                if matches!(
-                    self.form.glass_style,
-                    cobolt_forms::model::GlassStyle::Neumorphic
-                ) {
-                    self.form.apply_neumorphic_defaults();
-                }
+                let style = cobolt_forms::model::GlassStyle::from_str(&value);
+                self.form.apply_glass_style_defaults(style);
+                self.dirty = true;
+            }
+            "BackgroundGradientEnabled" => {
+                self.form.background_gradient_enabled = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "BackgroundGradientStartColor" => {
+                self.form.background_gradient_start_color = value;
+                self.dirty = true;
+            }
+            "BackgroundGradientEndColor" => {
+                self.form.background_gradient_end_color = value;
+                self.dirty = true;
+            }
+            "BackgroundGradientDirection" => {
+                self.form.background_gradient_direction = value;
                 self.dirty = true;
             }
             "Target" => {
@@ -2983,6 +3460,33 @@ impl DesignerPanel {
             }
 
             _ => {}
+        }
+    }
+
+    pub fn is_form_id(&self, id: &str) -> bool {
+        id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(&self.form.name)
+    }
+
+    pub fn get_form_prop(&self, key: &str) -> Option<String> {
+        match key {
+            "Title" => Some(self.form.title.clone()),
+            "BackgroundColor" => Some(self.form.background_color.clone()),
+            "Width" => Some(self.form.width.to_string()),
+            "Height" => Some(self.form.height.to_string()),
+            "Transparency" => Some(self.form.transparency.to_string()),
+            "GridSize" => Some(self.form.grid_size.to_string()),
+            "SnapToGrid" => Some(if self.form.snap_to_grid { "true".to_string() } else { "false".to_string() }),
+            "GlassStyle" => Some(self.form.glass_style.as_str().to_string()),
+            "BackgroundGradientEnabled" => Some(if self.form.background_gradient_enabled { "true".to_string() } else { "false".to_string() }),
+            "BackgroundGradientStartColor" => Some(self.form.background_gradient_start_color.clone()),
+            "BackgroundGradientEndColor" => Some(self.form.background_gradient_end_color.clone()),
+            "BackgroundGradientDirection" => Some(self.form.background_gradient_direction.clone()),
+            "Target" => Some(self.form.target.clone()),
+            "BackgroundImage" => Some(self.form.background_image.clone()),
+            "BgImageMode" => Some(self.form.bg_image_mode.as_str().to_string()),
+            "Theme" => Some(self.form.theme.clone().unwrap_or_default()),
+            "UseThemeBackground" => Some(if self.form.use_theme_background { "true".to_string() } else { "false".to_string() }),
+            _ => None,
         }
     }
 
@@ -3158,12 +3662,12 @@ impl DesignerPanel {
         let canvas_h = self.form.height as f32;
 
         let tr = crate::i18n::current_tr(ui.ctx());
-        let mut panel = egui::TopBottomPanel::bottom("global_ai_pane").resizable(self.ai_pane_open);
+        let mut panel = egui::Panel::bottom("global_ai_pane").resizable(self.ai_pane_open);
 
         if self.ai_pane_open {
             panel = panel
-                .default_height(self.ai_pane_height.max(GLOBAL_AI_PANE_MIN_HEIGHT))
-                .min_height(GLOBAL_AI_PANE_MIN_HEIGHT);
+                .default_size(self.ai_pane_height.max(GLOBAL_AI_PANE_MIN_HEIGHT))
+                .min_size(GLOBAL_AI_PANE_MIN_HEIGHT);
         }
 
         let original_style = ui.style().clone();
@@ -3177,7 +3681,7 @@ impl DesignerPanel {
         ai_pane_style.interaction.resize_grab_radius_side = 8.0;
         ui.set_style(ai_pane_style);
 
-        let resp = panel.show_inside(ui, |ui| {
+        let resp = panel.show(ui, |ui| {
                 if !self.ai_pane_open {
                     ui.vertical_centered(|ui| {
                         if ui.button("AI Assistant").clicked() {
@@ -3201,11 +3705,30 @@ impl DesignerPanel {
                     // egui hit-tests ±resize_grab_radius_side around the top edge
                     // — a bubble inside that band steals the drag as text select.
                     ui.add_space(10.0);
-                    // The history takes everything above the fixed input slab, so
-                    // the pane's top-edge resizer is the ONLY resizer — dragging
-                    // it effectively resizes the history.
+                    // Prompt-box height: the 3-row default, or the height the
+                    // user dragged the box's corner grip to — clamped between
+                    // 1 and 6 text rows. Derived only from the style's row
+                    // height and the stored drag, never from content, so the
+                    // box cannot grow by itself.
+                    let prompt_row = ui.text_style_height(&egui::TextStyle::Body);
+                    let prompt_height_for = |rows: f32| rows * prompt_row + 4.0;
+                    let prompt_min_height = prompt_height_for(1.0);
+                    let prompt_max_height = prompt_height_for(6.0);
+                    let prompt_default_height = prompt_height_for(3.0);
+                    let prompt_height = if self.ai_prompt_height > 0.0 {
+                        self.ai_prompt_height
+                    } else {
+                        prompt_default_height
+                    }
+                    .clamp(prompt_min_height, prompt_max_height);
+                    // The input slab keeps its fixed chrome (buttons, status
+                    // rows); only the prompt's share of it varies with the drag.
+                    let input_height =
+                        GLOBAL_AI_INPUT_HEIGHT + (prompt_height - prompt_default_height);
+                    // The history takes everything above the input slab, so the
+                    // pane's top-edge resizer keeps resizing the history.
                     let history_h = (ui.available_height()
-                        - GLOBAL_AI_INPUT_HEIGHT
+                        - input_height
                         - ui.spacing().item_spacing.y)
                         .max(0.0);
                     let (history_rect, _) = ui.allocate_exact_size(
@@ -3236,12 +3759,18 @@ impl DesignerPanel {
                             .show(ui, |ui| {
                                 ui.set_min_height(history_rect.height());
                                 ui.vertical(|ui| {
-                                    for turn in &self.ai_history {
-                                        crate::panels::editor::chat_bubble_with_font_size(
+                                    for (index, turn) in self.ai_history.iter().enumerate() {
+                                        crate::panels::editor::chat_bubble_with_response_actions(
                                             ui,
                                             &turn.role,
                                             &turn.content,
                                             history_font_size,
+                                            project_root,
+                                            egui::Id::new((
+                                                "designer_agent_response",
+                                                self.cfrm_dir.as_deref(),
+                                                index,
+                                            )),
                                         );
                                     }
 
@@ -3270,9 +3799,9 @@ impl DesignerPanel {
                     // it: egui persists a resizable panel's height from its CONTENT
                     // rect, so if the content is shorter than the dragged height the
                     // pane snaps back on mouse release.
-                    ui.add_space((ui.available_height() - GLOBAL_AI_INPUT_HEIGHT).max(0.0));
+                    ui.add_space((ui.available_height() - input_height).max(0.0));
                     let (input_rect, _) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width(), GLOBAL_AI_INPUT_HEIGHT),
+                        egui::vec2(ui.available_width(), input_height),
                         egui::Sense::hover(),
                     );
                     // Detached child (see history above): the busy spinner/status
@@ -3291,20 +3820,98 @@ impl DesignerPanel {
                             let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
 
                             ui.horizontal_top(|ui| {
-                                let frame = egui::Frame::none()
+                                let frame = egui::Frame::NONE
                                     .fill(crate::theme::active().bg_extreme)
                                     .stroke(egui::Stroke::new(1.0, crate::theme::active().panel_border()))
-                                    .rounding(egui::Rounding::same(6.0))
-                                    .inner_margin(egui::Margin::same(2.0));
+                                    .corner_radius(egui::CornerRadius::same(6))
+                                    .inner_margin(egui::Margin::same(2));
 
                                 ui.vertical(|ui| {
-                                    let resp = ui.add(
-                                        egui::TextEdit::multiline(&mut self.global_ai_prompt)
-                                            .hint_text("How can I help you today?")
-                                            .desired_width(text_w)
-                                            .desired_rows(3)
-                                            .interactive(!busy),
+                                    // Fixed (text_w × prompt_height) box; text
+                                    // beyond it scrolls INSIDE. desired_rows
+                                    // matches the box so the editor's frame
+                                    // fills it exactly at every dragged size.
+                                    let prompt_rows = (((prompt_height - 4.0) / prompt_row)
+                                        .round()
+                                        .max(1.0)) as usize;
+                                    let box_size = egui::vec2(text_w, prompt_height);
+                                    // Enter sends; Shift+Enter inserts a newline.
+                                    // Plain Enter is consumed BEFORE the TextEdit
+                                    // sees it (only while the box is focused) so no
+                                    // newline is inserted; Shift+Enter is left alone.
+                                    let te_id = egui::Id::new("global_ai_prompt_edit");
+                                    let mut enter_send = false;
+                                    let inner = ui.allocate_ui(box_size, |ui| {
+                                        ui.set_min_size(box_size);
+                                        egui::ScrollArea::vertical()
+                                            .id_salt("global_ai_prompt_scroll")
+                                            .auto_shrink([false, false])
+                                            .show(ui, |ui| {
+                                                if ui.memory(|m| m.has_focus(te_id)) {
+                                                    enter_send = ui.input_mut(|i| {
+                                                        i.consume_key(
+                                                            egui::Modifiers::NONE,
+                                                            egui::Key::Enter,
+                                                        )
+                                                    });
+                                                }
+                                                ui.add(
+                                                    egui::TextEdit::multiline(
+                                                        &mut self.global_ai_prompt,
+                                                    )
+                                                    .id(te_id)
+                                                    .hint_text("How can I help you today?")
+                                                    .desired_width(f32::INFINITY)
+                                                    .desired_rows(prompt_rows)
+                                                    .interactive(!busy),
+                                                )
+                                            })
+                                            .inner
+                                    });
+                                    if enter_send && !busy && !self.global_ai_prompt.trim().is_empty()
+                                    {
+                                        do_send = true;
+                                    }
+                                    let box_rect = inner.response.rect;
+                                    // Bottom-right resize grip, registered AFTER
+                                    // the TextEdit so it wins the hit-test over
+                                    // text selection. The clamp pins the grip
+                                    // inside the 1-row/6-row limits.
+                                    let grip_size = 14.0;
+                                    let grip_rect = egui::Rect::from_min_size(
+                                        box_rect.max - egui::vec2(grip_size, grip_size),
+                                        egui::vec2(grip_size, grip_size),
                                     );
+                                    let grip = ui.interact(
+                                        grip_rect,
+                                        egui::Id::new("global_ai_prompt_grip"),
+                                        egui::Sense::drag(),
+                                    );
+                                    if grip.dragged() {
+                                        self.ai_prompt_height = (prompt_height
+                                            + grip.drag_delta().y)
+                                            .clamp(prompt_min_height, prompt_max_height);
+                                    }
+                                    if grip.hovered() || grip.dragged() {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                                    }
+                                    let stroke = if grip.hovered() || grip.dragged() {
+                                        ui.visuals().widgets.hovered.fg_stroke
+                                    } else {
+                                        ui.visuals().widgets.inactive.fg_stroke
+                                    };
+                                    let corner = box_rect.max - egui::vec2(3.0, 3.0);
+                                    for step in 1..=3 {
+                                        let offset = 3.0 * step as f32;
+                                        ui.painter().line_segment(
+                                            [
+                                                egui::pos2(corner.x - offset, corner.y),
+                                                egui::pos2(corner.x, corner.y - offset),
+                                            ],
+                                            stroke,
+                                        );
+                                    }
                                     let submit = ui.input(|i| {
                                         i.key_pressed(egui::Key::Enter)
                                             && (i.modifiers.command || i.modifiers.ctrl)
@@ -3417,20 +4024,40 @@ impl DesignerPanel {
                                     crate::agent::load_skills(std::path::Path::new("")),
                                 ),
                             };
-                            let context = crate::agent::build_context_with_project(
+                            let mut context = crate::agent::build_context_with_project(
                                 &self.form,
                                 project,
                                 project_root,
                             );
-                            self.ai_rx = Some(crate::llm::spawn_agent_request(
-                                llm_cfg,
-                                &sys_prompt,
-                                &skills,
-                                &self.ai_history,
-                                &prompt,
-                                &context,
-                                None // Let Orchestrator route to FormsDesigner or EventBinder
-                            ));
+                            // Live-UI eyes (spec 027): append the latest
+                            // inspection tree snapshot so the model sees the
+                            // rendered IDE, not just the form model — and
+                            // queue a fresh snapshot for the next turn.
+                            if let Some(tree) = crate::agent_inspection::latest_summary() {
+                                context.push_str("\n\n");
+                                context.push_str(&tree);
+                            }
+                            crate::agent_inspection::request_snapshot(ui.ctx());
+                            self.ai_rx = Some(match project_root {
+                                Some(root) => crate::grace_session::spawn_contextual_request(
+                                    root,
+                                    llm_cfg,
+                                    &self.ai_history,
+                                    &prompt,
+                                    "RAD Form Designer chatbot",
+                                    Some(crate::agents_db::FORM_DESIGNER),
+                                    &context,
+                                ),
+                                None => crate::llm::spawn_agent_request(
+                                    llm_cfg,
+                                    &sys_prompt,
+                                    &skills,
+                                    &self.ai_history,
+                                    &prompt,
+                                    &context,
+                                    None,
+                                ),
+                            });
                         }
                     }
                     if do_clear {
@@ -3500,6 +4127,10 @@ impl DesignerPanel {
                                 // Try to parse it as operations
                                 if let Ok(cs) = crate::agent::parse_change_set(&text) {
                                     let applied = self.apply_agent_change_set(&cs);
+                                    // Snapshot the post-change UI so the next
+                                    // agent turn can verify its own edits
+                                    // rendered as intended (spec 027).
+                                    crate::agent_inspection::request_snapshot(ui.ctx());
 
                                     let mut messages: Vec<String> = Vec::new();
                                     for op in &cs.operations {
@@ -3535,7 +4166,27 @@ impl DesignerPanel {
                                         }
                                     }
                                 } else {
-                                    self.ai_history.push(crate::llm::ChatTurn::assistant(text));
+                                    // Grace answered in prose. A developer-facing
+                                    // clarification gets its OWN red balloon (role
+                                    // "question"), exactly like the project Grace
+                                    // chat surface — the RAD designer chat used a
+                                    // plain assistant balloon, so the same Grace
+                                    // looked different here. Surrounding context
+                                    // stays a normal assistant balloon.
+                                    let (context, questions) =
+                                        crate::grace_host::split_developer_questions(&text);
+                                    if questions.is_empty() {
+                                        self.ai_history.push(crate::llm::ChatTurn::assistant(text));
+                                    } else {
+                                        if !context.trim().is_empty() {
+                                            self.ai_history
+                                                .push(crate::llm::ChatTurn::assistant(context));
+                                        }
+                                        for q in questions {
+                                            self.ai_history
+                                                .push(crate::llm::ChatTurn::question(q));
+                                        }
+                                    }
                                 }
                             }
                             crate::llm::LlmResponse::Chunk(_) => {}
@@ -3614,17 +4265,52 @@ impl DesignerPanel {
                     canvas_bg,
                     ui.visuals().panel_fill,
                 );
+                let canvas_gradient = if self.form.background_gradient_enabled {
+                    let gradient_color = |hex: &str| {
+                        let color = parse_color(hex);
+                        let alpha = color.a() as f32 * form_alpha_mul;
+                        let scale = alpha / 255.0;
+                        Color32::from_rgba_premultiplied(
+                            (color.r() as f32 * scale) as u8,
+                            (color.g() as f32 * scale) as u8,
+                            (color.b() as f32 * scale) as u8,
+                            alpha as u8,
+                        )
+                    };
+                    Some((
+                        gradient_color(&self.form.background_gradient_start_color),
+                        gradient_color(&self.form.background_gradient_end_color),
+                    ))
+                } else {
+                    None
+                };
+                let canvas_rounding = if self.glass_mode {
+                    egui::CornerRadius::same(6)
+                } else {
+                    egui::CornerRadius::ZERO
+                };
                 if self.glass_mode {
-                    let corner = egui::Rounding::same(6.0);
-                    painter.rect_filled(resp.rect, corner, canvas_bg);
+                    painter.rect_filled(resp.rect, canvas_rounding, canvas_bg);
                     // Thin border so the form boundary is always visible
                     painter.rect_stroke(
                         resp.rect,
-                        corner,
+                        canvas_rounding,
                         egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)),
+                        egui::StrokeKind::Middle,
                     );
                 } else {
                     painter.rect_filled(resp.rect, 0.0, canvas_bg);
+                }
+                if let Some((start, end)) = canvas_gradient {
+                    painter.add(egui::Shape::mesh(
+                        cobolt_forms::paint::background_gradient_mesh(
+                            resp.rect,
+                            start,
+                            end,
+                            &self.form.background_gradient_direction,
+                            canvas_rounding,
+                        ),
+                    ));
                 }
 
                 // ── Themed background (007 R8) ─────────────────────────────────
@@ -3878,10 +4564,33 @@ impl DesignerPanel {
                         None
                     };
 
+                // Agent control-move animation (spec 035): interpolate the DRAWN
+                // positions only. The model keeps its final coordinates; we render
+                // a lightweight clone shifted by each control's live offset.
+                let anim_now = ui.ctx().input(|i| i.time);
+                let move_offsets = self.tick_move_anims(anim_now, ui.ctx());
+                let animated_controls: Option<Vec<cobolt_forms::model::Control>> =
+                    (!move_offsets.is_empty()).then(|| {
+                        self.form
+                            .controls
+                            .iter()
+                            .map(|c| {
+                                let mut c = c.clone();
+                                if let Some(off) = move_offsets.get(&c.id) {
+                                    c.rect.x = (c.rect.x as f32 + off.x).round() as i32;
+                                    c.rect.y = (c.rect.y as f32 + off.y).round() as i32;
+                                }
+                                c
+                            })
+                            .collect()
+                    });
+                let controls_for_render: &[cobolt_forms::model::Control] =
+                    animated_controls.as_deref().unwrap_or(&self.form.controls);
+
                 let control_rects = {
                     let st = DesignerState { anim: &anim_tf };
                     let input = cobolt_forms::render::RenderInput {
-                        controls: &self.form.controls,
+                        controls: controls_for_render,
                         state: &st,
                         form_size: Vec2::new(form_w, form_h),
                         glass: self.glass_mode,
@@ -3936,14 +4645,33 @@ impl DesignerPanel {
                                 &control_rects,
                             );
                             cobolt_forms::paint::draw_container_notch_mask(
-                                &painter, *crect, rounding, notch_fill, notch_img, img_alpha,
+                                &painter,
+                                *crect,
+                                rounding,
+                                notch_fill,
+                                canvas_gradient.map(|(start, end)| {
+                                    (
+                                        resp.rect,
+                                        cobolt_forms::paint::composite_premultiplied_over(
+                                            start,
+                                            ui.visuals().panel_fill,
+                                        ),
+                                        cobolt_forms::paint::composite_premultiplied_over(
+                                            end,
+                                            ui.visuals().panel_fill,
+                                        ),
+                                        self.form.background_gradient_direction.as_str(),
+                                    )
+                                }),
+                                notch_img,
+                                img_alpha,
                             );
                             if self.show_grid {
                                 draw_grid_in_rounded_notches(
                                     &painter,
                                     resp.rect,
                                     *crect,
-                                    egui::Rounding::same(rad),
+                                    egui::CornerRadius::same(crate::cr8(rad)),
                                     self.form.grid_size.max(4) as f32,
                                     self.glass_mode,
                                 );
@@ -4031,6 +4759,7 @@ impl DesignerPanel {
                             *crect,
                             corner,
                             Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)),
+                            egui::StrokeKind::Middle,
                         );
                     }
                 }
@@ -4251,6 +4980,7 @@ impl DesignerPanel {
                             rect,
                             2.0,
                             Stroke::new(1.5, Color32::from_rgba_premultiplied(100, 200, 255, 200)),
+                            egui::StrokeKind::Middle,
                         );
                     }
                 }
@@ -4277,6 +5007,7 @@ impl DesignerPanel {
                         band_rect,
                         0.0,
                         Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)),
+                        egui::StrokeKind::Middle,
                     );
                 }
 
@@ -4290,7 +5021,7 @@ impl DesignerPanel {
                                 name: String::new(),
                                 error: None,
                             });
-                            ui.close_menu();
+                            ui.close();
                         }
                         ui.separator();
                     }
@@ -4299,7 +5030,7 @@ impl DesignerPanel {
                             for def in user_controls {
                                 if ui.button(&def.name).clicked() {
                                     result.user_control_delete_requested = Some(def.name.clone());
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         });
@@ -4319,7 +5050,7 @@ impl DesignerPanel {
                     {
                         self.cut_selected(clipboard);
                         selection_changed = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .add_enabled(
@@ -4329,7 +5060,7 @@ impl DesignerPanel {
                         .clicked()
                     {
                         self.copy_selected(clipboard);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .add_enabled(
@@ -4340,7 +5071,7 @@ impl DesignerPanel {
                     {
                         self.paste_from_clipboard(clipboard);
                         selection_changed = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .add_enabled(
@@ -4351,29 +5082,29 @@ impl DesignerPanel {
                     {
                         self.duplicate_selected(clipboard);
                         selection_changed = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("🗑 Delete").clicked() {
                         self.delete_selected();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("⬆ Bring to Front").clicked() {
                         self.bring_to_front();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("⬇ Send to Back").clicked() {
                         self.send_to_back();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("+1 Forward").clicked() {
                         self.bring_forward();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("-1 Backward").clicked() {
                         self.send_backward();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     // Play animations
@@ -4395,7 +5126,7 @@ impl DesignerPanel {
                             for aname in &anim_names {
                                 if ui.button(aname).clicked() {
                                     self.play_animation_preview(&sid, aname);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         });
@@ -4432,7 +5163,7 @@ impl DesignerPanel {
                                     old,
                                     new: PropValue::Bool(false),
                                 });
-                                ui.close_menu();
+                                ui.close();
                             }
                         } else if ui.button("▦ Set as Repeating Group").clicked() {
                             // Seed ArrayName with the control id when still empty.
@@ -4465,13 +5196,13 @@ impl DesignerPanel {
                                 old,
                                 new: PropValue::Bool(true),
                             });
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                     ui.separator();
                     if ui.button("🏷 Auto-arrange Labels").clicked() {
                         self.auto_arrange_labels();
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
 
@@ -4715,14 +5446,14 @@ impl DesignerPanel {
             return;
         }
 
-        let overlay = ui.ctx().screen_rect();
+        let overlay = ui.ctx().content_rect();
         ui.painter()
             .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
         let mut save_clicked = false;
         let mut cancel_clicked = false;
 
-        let screen = ui.ctx().screen_rect();
+        let screen = ui.ctx().content_rect();
         let tr = crate::i18n::current_tr(ui.ctx());
 
         let modal_id = egui::Id::new("menu_editor_modal");
@@ -4736,7 +5467,9 @@ impl DesignerPanel {
                 screen.center().x - 400.0,
                 screen.center().y - 250.0,
             ))
-            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
+            .frame(
+                egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(12)),
+            )
             .show(ui.ctx(), |ui| {
                 let modal = self.menu_modal.as_mut().unwrap();
 
@@ -5251,7 +5984,7 @@ impl DesignerPanel {
             if modal.icon_picker_open {
                 let mut icon_picked: Option<Option<String>> = None;
 
-                let screen = ui.ctx().screen_rect();
+                let screen = ui.ctx().content_rect();
                 let picker_id = egui::Id::new(("icon_picker", modal.icon_picker_gen));
                 egui::Window::new("Select Icon")
                     .id(picker_id)
@@ -5260,8 +5993,8 @@ impl DesignerPanel {
                     .default_size([600.0, 500.0])
                     .default_pos([screen.center().x - 300.0, screen.center().y - 250.0])
                     .frame(
-                        egui::Frame::window(&ui.ctx().style())
-                            .inner_margin(egui::Margin::same(12.0)),
+                        egui::Frame::window(&ui.ctx().global_style())
+                            .inner_margin(egui::Margin::same(12)),
                     )
                     .show(ui.ctx(), |ui| {
                         // Search field
@@ -5842,31 +6575,42 @@ impl DesignerPanel {
     /// Laid out inside the fixed Resize box, so all "available" space here is
     /// user-controlled state, not measured content.
     fn ai_error_modal_body(&mut self, ui: &mut egui::Ui, message: &str, close: &mut bool) {
-        ui.label(
-            egui::RichText::new("The model returned an error or unusable response.")
-                .strong()
-                .color(egui::Color32::from_rgb(240, 160, 130)),
-        );
-        ui.add_space(8.0);
-
-        // Reserve a fixed footer for the button row; the scroll area gets the
-        // rest of the box.
-        let footer_h = 40.0;
-        let scroll_h = (ui.available_height() - footer_h).max(60.0);
-        egui::ScrollArea::both()
-            .id_salt("form_designer_ai_error_scroll")
-            .auto_shrink([false, false])
-            .max_height(scroll_h)
+        // Embedded panels partition the fixed Resize box EXACTLY (no estimated
+        // heights): egui 0.35's Resize ratchets up to the measured content min
+        // every frame, so an overflowing estimate becomes unbounded growth.
+        egui::Panel::bottom(ui.id().with("ai_error_footer"))
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                ui.add_space(6.0);
+                self.ai_error_modal_footer(ui, message, close);
+            });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 ui.label(
-                    egui::RichText::new(message)
-                        .monospace()
-                        .size(self.ai_error_font_size)
-                        .color(egui::Color32::from_gray(220)),
+                    egui::RichText::new("The model returned an error or unusable response.")
+                        .strong()
+                        .color(egui::Color32::from_rgb(240, 160, 130)),
                 );
+                ui.add_space(8.0);
+                egui::ScrollArea::both()
+                    .id_salt("form_designer_ai_error_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(message)
+                                .monospace()
+                                .size(self.ai_error_font_size)
+                                .color(egui::Color32::from_gray(220)),
+                        );
+                    });
             });
+    }
 
-        ui.add_space(8.0);
+    /// Button row of the AI error modal (hosted in its bottom panel).
+    fn ai_error_modal_footer(&mut self, ui: &mut egui::Ui, message: &str, close: &mut bool) {
         ui.horizontal(|ui| {
             if ui.button("OK").clicked() {
                 *close = true;
@@ -6062,15 +6806,30 @@ impl DesignerPanel {
                                         .as_ref()
                                         .map(|m| m.ai_history.clone())
                                         .unwrap_or_default();
-                                    let rx = crate::llm::spawn_request(
-                                        &event_llm_cfg,
-                                        &prior,
-                                        &fix_prompt,
-                                        &code,
-                                        &format!("{program_id}.cob"),
-                                        &skills,
-                                        Some("CodeGenerator".to_string()),
-                                    );
+                                    let rx = match project_root {
+                                        Some(root) => {
+                                            crate::grace_session::spawn_contextual_request(
+                                                root,
+                                                &event_llm_cfg,
+                                                &prior,
+                                                &fix_prompt,
+                                                "RAD event-handler chatbot validation",
+                                                Some(crate::agents_db::EVENT_HANDLER),
+                                                &format!(
+                                                    "Handler `{program_id}` for `{ctrl_id}.{event_name}` failed validation.\n\nCURRENT INVALID HANDLER:\n```cobol\n{code}\n```\n\nVALIDATION ERRORS:\n{error_list}"
+                                                ),
+                                            )
+                                        }
+                                        None => crate::llm::spawn_request(
+                                            &event_llm_cfg,
+                                            &prior,
+                                            &fix_prompt,
+                                            &code,
+                                            &format!("{program_id}.cob"),
+                                            &skills,
+                                            Some("CodeGenerator".to_string()),
+                                        ),
+                                    };
                                     if let Some(m) = self.event_modal.as_mut() {
                                         m.ai_history.push(crate::llm::ChatTurn::user(&fix_prompt));
                                         m.ai_fix_attempts = attempts + 1;
@@ -6228,7 +6987,7 @@ impl DesignerPanel {
         let mut do_clear = false;
 
         // Dim overlay covering the canvas (behind the window).
-        let overlay = ui.ctx().screen_rect();
+        let overlay = ui.ctx().content_rect();
         ui.painter()
             .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
@@ -6237,7 +6996,7 @@ impl DesignerPanel {
 
         // Open at 70 % of the window size; `default_*` only seed the initial
         // size, so the modal does not track the window — the user can resize.
-        let screen = ui.ctx().screen_rect();
+        let screen = ui.ctx().content_rect();
         let default_w = (screen.width() * 0.70).max(360.0);
         let default_h = (screen.height() * 0.70).max(420.0);
         // Seed the initial position centred. We use `default_pos` (a seed) rather
@@ -6257,7 +7016,9 @@ impl DesignerPanel {
             .min_height(420.0)
             .default_pos(default_pos)
             .constrain(true)
-            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)))
+            .frame(
+                egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)),
+            )
             .show(ui.ctx(), |ui| {
                 let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
                 let readonly_color = Color32::from_rgb(160, 170, 190); // subdued blue-gray
@@ -6295,11 +7056,11 @@ impl DesignerPanel {
                 let theme = crate::theme::active();
                 // A snug container (no outer gap) that fills the allocated box;
                 // the editor scrolls *inside* it.
-                let frame = egui::Frame::none()
+                let frame = egui::Frame::NONE
                     .fill(theme.bg_extreme)
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(2.0));
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::same(2));
                 egui::Resize::default()
                     .id_salt("event_editor_code_box")
                     .resizable([false, true])
@@ -6347,8 +7108,15 @@ impl DesignerPanel {
                             .auto_shrink([false, true])
                             .id_salt("event_ai_transcript")
                             .show(ui, |ui| {
-                                for turn in &history_snapshot {
-                                    super::editor::chat_bubble(ui, &turn.role, &turn.content);
+                                for (index, turn) in history_snapshot.iter().enumerate() {
+                                    super::editor::chat_bubble_with_response_actions(
+                                        ui,
+                                        &turn.role,
+                                        &turn.content,
+                                        14.0,
+                                        project_root,
+                                        egui::Id::new(("event_agent_response", &program_id, index)),
+                                    );
                                 }
                                 // Auto-scroll to the newest turn on growth only.
                                 if scroll_transcript {
@@ -6523,15 +7291,28 @@ impl DesignerPanel {
                 .as_ref()
                 .map(|m| m.ai_history.clone())
                 .unwrap_or_default();
-            let rx = crate::llm::spawn_request(
-                &event_llm_cfg,
-                &prior,
-                &guided,
-                &code,
-                &format!("{program_id}.cob"),
-                &skills,
-                Some("CodeGenerator".to_string()),
-            );
+            let rx = match project_root {
+                Some(root) => crate::grace_session::spawn_contextual_request(
+                    root,
+                    &event_llm_cfg,
+                    &prior,
+                    &guided,
+                    "RAD event-handler chatbot",
+                    Some(crate::agents_db::EVENT_HANDLER),
+                    &format!(
+                        "Editing handler `{program_id}` for `{ctrl_id}.{event_name}`.\n\nCURRENT HANDLER:\n```cobol\n{code}\n```"
+                    ),
+                ),
+                None => crate::llm::spawn_request(
+                    &event_llm_cfg,
+                    &prior,
+                    &guided,
+                    &code,
+                    &format!("{program_id}.cob"),
+                    &skills,
+                    Some("CodeGenerator".to_string()),
+                ),
+            };
             if let Some(m) = self.event_modal.as_mut() {
                 // Record the developer's turn (the clean prompt, not the guided
                 // wrapper) so the transcript stays readable.
@@ -6660,7 +7441,7 @@ impl DesignerPanel {
             let mut save_anyway = false;
             let mut keep_editing = false;
 
-            let overlay = ui.ctx().screen_rect();
+            let overlay = ui.ctx().content_rect();
             ui.painter()
                 .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 160));
             egui::Window::new(format!("⚠  {}", tr.syntax_modal_title))
@@ -6671,7 +7452,8 @@ impl DesignerPanel {
                 .default_width(560.0)
                 .default_pos(overlay.center() - egui::vec2(280.0, 180.0))
                 .frame(
-                    egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)),
+                    egui::Frame::window(&ui.ctx().global_style())
+                        .inner_margin(egui::Margin::same(16)),
                 )
                 .show(ui.ctx(), |ui| {
                     ui.label(
@@ -6820,7 +7602,7 @@ impl DesignerPanel {
             other => other.section_keyword().unwrap_or("").to_owned(),
         };
 
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let default_w = (screen.width() * 0.6).max(420.0);
         let default_h = (screen.height() * 0.7).max(360.0);
         let mut close = false;
@@ -6833,7 +7615,7 @@ impl DesignerPanel {
             .default_height(default_h)
             .max_height(screen.height() * 0.7)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(14.0)))
+            .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
                 // Editable procedure name, or the fixed section keyword.
                 if let cs::CsTarget::Procedure(i) = target {
@@ -6869,11 +7651,11 @@ impl DesignerPanel {
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
-                let frame = egui::Frame::none()
+                let frame = egui::Frame::NONE
                     .fill(theme.bg_extreme)
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(2.0));
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::same(2));
                 ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
                     frame.show(ui, |ui| {
                         self.cs_editor.render_code_area(&ectx, ui);
@@ -7203,6 +7985,7 @@ impl DesignerPanel {
                             ghost,
                             2.0,
                             Stroke::new(1.5, Color32::from_rgb(80, 140, 255)),
+                            egui::StrokeKind::Middle,
                         );
                     }
                 }
@@ -7507,6 +8290,7 @@ impl DesignerPanel {
             ghost,
             2.0,
             Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 160, 255, 220)),
+            egui::StrokeKind::Middle,
         );
         painter.text(
             ghost.center(),
@@ -7538,7 +8322,7 @@ fn draw_grid_in_rounded_notches(
     painter: &egui::Painter,
     canvas: egui::Rect,
     rect: egui::Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     step: f32,
     glass: bool,
 ) {
@@ -7548,10 +8332,10 @@ fn draw_grid_in_rounded_notches(
     let cap = 0.5 * rect.width().min(rect.height());
     let clamp_r = |r: f32| r.max(0.0).min(cap);
     let radii = [
-        clamp_r(rounding.nw),
-        clamp_r(rounding.ne),
-        clamp_r(rounding.se),
-        clamp_r(rounding.sw),
+        clamp_r(f32::from(rounding.nw)),
+        clamp_r(f32::from(rounding.ne)),
+        clamp_r(f32::from(rounding.se)),
+        clamp_r(f32::from(rounding.sw)),
     ];
     if radii.iter().all(|r| *r < 0.5) {
         return;
@@ -7812,6 +8596,7 @@ fn draw_form_resize_grips(
         crect,
         1.5,
         Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)),
+        egui::StrokeKind::Middle,
     );
 }
 
@@ -7881,6 +8666,77 @@ fn json_prop_i32(map: &serde_json::Map<String, serde_json::Value>, key: &str) ->
     v.as_i64()
         .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
         .map(|n| n as i32)
+}
+
+/// `true` when two axis-aligned rects `(x, y, w, h)` overlap (share area).
+fn rects_overlap(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
+    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+/// Smallest offset that moves `moving` clear of every `obstacle`, searched in an
+/// expanding ring (grid step `STEP`), preferring down/right for a natural layout
+/// flow. `bounds` — when `Some((w, h))` — keeps the moved rect inside the form.
+/// Returns `(0, 0)` if it is already clear, or if nothing within `max` pixels
+/// clears it (the caller then leaves the control where the agent put it rather
+/// than shoving it somewhere worse).
+fn nearest_free_offset(
+    moving: (i32, i32, i32, i32),
+    obstacles: &[(i32, i32, i32, i32)],
+    bounds: Option<(i32, i32)>,
+    max: i32,
+) -> (i32, i32) {
+    let clear = |dx: i32, dy: i32| -> bool {
+        let m = (moving.0 + dx, moving.1 + dy, moving.2, moving.3);
+        if let Some((bw, bh)) = bounds {
+            if m.0 < 0 || m.1 < 0 || m.0 + m.2 > bw || m.1 + m.3 > bh {
+                return false;
+            }
+        }
+        !obstacles.iter().any(|o| rects_overlap(m, *o))
+    };
+    if clear(0, 0) {
+        return (0, 0);
+    }
+    const STEP: i32 = 4;
+    let mut r = STEP;
+    while r <= max {
+        // Ring candidates ordered down, right, up, left, then the diagonals.
+        for (dx, dy) in [
+            (0, r),
+            (r, 0),
+            (0, -r),
+            (-r, 0),
+            (r, r),
+            (-r, r),
+            (r, -r),
+            (-r, -r),
+        ] {
+            if clear(dx, dy) {
+                return (dx, dy);
+            }
+        }
+        r += STEP;
+    }
+    (0, 0)
+}
+
+/// Current value of a property for undo capture. Structural properties (X, Y,
+/// Width, Height, Visible, …) live on `Control`'s own fields rather than in its
+/// `properties` map, so reading them from `properties` always yields `None` and
+/// leaves the change un-undoable. This mirrors `apply_structural_prop`'s key set
+/// and returns the live field value; everything else falls back to `properties`.
+fn structural_prop_value(ctrl: &Control, key: &str) -> Option<PropValue> {
+    match key.to_ascii_lowercase().as_str() {
+        "x" => Some(PropValue::Int(ctrl.rect.x as i64)),
+        "y" => Some(PropValue::Int(ctrl.rect.y as i64)),
+        "width" => Some(PropValue::Int(ctrl.rect.w as i64)),
+        "height" => Some(PropValue::Int(ctrl.rect.h as i64)),
+        "visible" => Some(PropValue::Bool(ctrl.visible)),
+        "enabled" => Some(PropValue::Bool(ctrl.enabled)),
+        "taborder" => Some(PropValue::Int(ctrl.tab_order as i64)),
+        "zorder" => Some(PropValue::Int(ctrl.z_order as i64)),
+        _ => ctrl.properties.get(key).cloned(),
+    }
 }
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
@@ -8105,11 +8961,39 @@ pub(crate) fn draw_icon_toolbar(
     // Inter-group gap — half of one icon (button) width, with a separator line.
     let group_gap = btn_size * 0.5;
 
-    // Colour palette (frozen white glass)
-    let col_normal = Color32::from_rgba_premultiplied(215, 225, 255, 210);
-    let col_dim = Color32::from_rgba_premultiplied(215, 225, 255, 70);
+    // Colour palette (frozen white glass). This reads correctly against the
+    // dark/glass chrome themes, but near-white icons wash out on light
+    // backgrounds — Neumorphic Light in particular — so light themes fall
+    // back to the theme's own high-contrast bright/dim text colours instead.
+    let theme = crate::theme::active();
+    let is_neumorphic = theme.is_neumorphic();
+    let (col_normal, col_dim) = if theme.dark {
+        (
+            Color32::from_rgba_premultiplied(215, 225, 255, 210),
+            Color32::from_rgba_premultiplied(215, 225, 255, 70),
+        )
+    } else {
+        (
+            theme.text_bright,
+            Color32::from_rgba_unmultiplied(
+                theme.text_dim.r(),
+                theme.text_dim.g(),
+                theme.text_dim.b(),
+                110,
+            ),
+        )
+    };
     let _col_active = Color32::from_rgba_premultiplied(130, 180, 255, 255);
-    let col_accent = Color32::from_rgba_premultiplied(255, 220, 100, 240); // gold for toggles
+    let col_accent = if theme.dark {
+        Color32::from_rgba_premultiplied(255, 220, 100, 240) // gold for toggles
+    } else if is_neumorphic {
+        // The toggled fill below is a graphite badge (see `face`), not the
+        // theme's blue accent — drawing the icon in that same blue would
+        // repeat the blue-on-blue invisibility bug, so use white instead.
+        Color32::WHITE
+    } else {
+        theme.accent
+    };
 
     // Closure: allocate a button rect, draw the icon (collected as shapes and
     // uniformly resized to the reference extent), return whether it was clicked.
@@ -8121,27 +9005,52 @@ pub(crate) fn draw_icon_toolbar(
      -> bool {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(btn_size), egui::Sense::click());
         let icon_rect = Rect::from_center_size(resp.rect.center(), Vec2::splat(icon_size));
-        let col = if !enabled {
-            col_dim
-        } else if toggled {
+        // Toggled wins over disabled: a button that is disabled *because* it is
+        // currently engaged (e.g. Debug Form while a debug session is already
+        // running) must still read clearly as "this is the active state" —
+        // fading it to the dim/disabled colour would hide the one thing the
+        // badge exists to communicate. Applies to every button that reaches
+        // this closure (Toggle Grid, Toggle Glass, Run/Stop, Debug, Inspector,
+        // Live Preview), so the high-contrast fix is uniform, not per-button.
+        let col = if toggled {
             col_accent
+        } else if !enabled {
+            col_dim
         } else {
             col_normal
         };
-        // Hover/active bg ring
-        if resp.hovered() && enabled {
-            painter.rect_filled(
-                resp.rect,
-                6.0,
-                Color32::from_rgba_premultiplied(80, 110, 200, 40),
-            );
-        }
-        if toggled {
-            painter.rect_filled(
-                resp.rect,
-                6.0,
-                Color32::from_rgba_premultiplied(60, 100, 200, 55),
-            );
+        if is_neumorphic {
+            // Discrete neumorphic 3D relief (dark shadow SE + light highlight
+            // NW) painted BEFORE the flat surface fill, so only the soft
+            // edges peek out — same technique as the toolbox buttons.
+            crate::theme::paint_neumorphic_relief(&painter, resp.rect, 6.0, &theme);
+            let face = if toggled {
+                // Graphite, not the theme's blue accent — paired with the
+                // white icon colour set above so the toggled icon stays
+                // legible instead of disappearing into a same-hue fill.
+                crate::theme::NEUMORPHIC_ACTIVE_GRAPHITE
+            } else if resp.hovered() && enabled {
+                theme.bg_hover
+            } else {
+                theme.bg_control
+            };
+            painter.rect_filled(resp.rect, 6.0, face);
+        } else {
+            // Hover/active bg ring
+            if resp.hovered() && enabled {
+                painter.rect_filled(
+                    resp.rect,
+                    6.0,
+                    Color32::from_rgba_premultiplied(80, 110, 200, 40),
+                );
+            }
+            if toggled {
+                painter.rect_filled(
+                    resp.rect,
+                    6.0,
+                    Color32::from_rgba_premultiplied(60, 100, 200, 55),
+                );
+            }
         }
         // Draw the icon into a shape buffer, then scale it to the common size.
         let mut shapes: Vec<Shape> = Vec::new();
@@ -8444,17 +9353,27 @@ fn icon_redo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.6, c);
-    out.push(Shape::rect_stroke(r.shrink(2.0), 1.5, s));
+    out.push(Shape::rect_stroke(
+        r.shrink(2.0),
+        1.5,
+        s,
+        egui::StrokeKind::Middle,
+    ));
     let bot = Rect::from_min_max(
         Pos2::new(r.min.x + 4.0, r.max.y - r.height() * 0.32),
         r.max - egui::vec2(4.0, 2.0),
     );
-    out.push(Shape::rect_stroke(bot, 0.0, s));
+    out.push(Shape::rect_stroke(bot, 0.0, s, egui::StrokeKind::Middle));
     let notch = Rect::from_min_size(
         Pos2::new(r.max.x - r.width() * 0.38, r.min.y + 2.0),
         Vec2::new(r.width() * 0.25, r.height() * 0.30),
     );
-    out.push(Shape::rect_stroke(notch, 0.0, Stroke::new(1.4, c)));
+    out.push(Shape::rect_stroke(
+        notch,
+        0.0,
+        Stroke::new(1.4, c),
+        egui::StrokeKind::Middle,
+    ));
     let mid_x = r.center().x - 1.0;
     out.push(Shape::line_segment(
         [
@@ -8566,7 +9485,7 @@ fn icon_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             out.push(Shape::circle_filled(pt, 1.5, c));
         }
     }
-    out.push(Shape::rect_stroke(sr, 1.0, s));
+    out.push(Shape::rect_stroke(sr, 1.0, s, egui::StrokeKind::Middle));
 }
 
 fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -8671,8 +9590,9 @@ fn icon_copy(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         back,
         1.5,
         Stroke::new(1.2, c.linear_multiply(0.75)),
+        egui::StrokeKind::Middle,
     ));
-    out.push(Shape::rect_stroke(front, 1.5, s));
+    out.push(Shape::rect_stroke(front, 1.5, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [
             Pos2::new(front.min.x + 3.0, front.min.y + 5.0),
@@ -8696,18 +9616,28 @@ fn icon_paste(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(r.center().x, board.min.y),
         Vec2::new(r.width() * 0.34, r.height() * 0.18),
     );
-    out.push(Shape::rect_stroke(board, 2.0, s));
+    out.push(Shape::rect_stroke(board, 2.0, s, egui::StrokeKind::Middle));
     out.push(Shape::rect_filled(
         clip,
         2.0,
         Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 35),
     ));
-    out.push(Shape::rect_stroke(clip, 2.0, Stroke::new(1.4, c)));
+    out.push(Shape::rect_stroke(
+        clip,
+        2.0,
+        Stroke::new(1.4, c),
+        egui::StrokeKind::Middle,
+    ));
     let page = Rect::from_min_max(
         board.min + egui::vec2(5.0, 7.0),
         board.max - egui::vec2(5.0, 4.0),
     );
-    out.push(Shape::rect_stroke(page, 1.0, Stroke::new(1.2, c)));
+    out.push(Shape::rect_stroke(
+        page,
+        1.0,
+        Stroke::new(1.2, c),
+        egui::StrokeKind::Middle,
+    ));
 }
 
 fn icon_duplicate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -8732,7 +9662,7 @@ fn icon_delete(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(sr.min.x + 2.0, sr.min.y + sr.height() * 0.28),
         sr.max,
     );
-    out.push(Shape::rect_stroke(body, 1.0, s));
+    out.push(Shape::rect_stroke(body, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [
             Pos2::new(sr.min.x, sr.min.y + sr.height() * 0.22),
@@ -8779,13 +9709,14 @@ fn icon_bring_front(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
         ),
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::rect_filled(
         r1,
         1.0,
         Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40),
     ));
-    out.push(Shape::rect_stroke(r1, 1.0, s));
+    out.push(Shape::rect_stroke(r1, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [Pos2::new(cx, top - 1.0), Pos2::new(cx, top + 6.0)],
         s,
@@ -8825,8 +9756,9 @@ fn icon_send_back(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
         ),
+        egui::StrokeKind::Middle,
     ));
-    out.push(Shape::rect_stroke(r2, 1.0, s));
+    out.push(Shape::rect_stroke(r2, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [Pos2::new(cx, bot + 4.0), Pos2::new(cx, bot - 3.0)],
         s,
@@ -8852,11 +9784,13 @@ fn icon_fwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
         ),
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::rect_stroke(
         Rect::from_center_size(Pos2::new(cx + 1.0, cy - 1.0), Vec2::new(10.0, 8.0)),
         1.0,
         s,
+        egui::StrokeKind::Middle,
     ));
     // "+" marker (Bring Forward = +1 z-order)
     let mx = cx + 1.0;
@@ -8882,11 +9816,13 @@ fn icon_bwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
         ),
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::rect_stroke(
         Rect::from_center_size(Pos2::new(cx - 1.0, cy + 1.0), Vec2::new(10.0, 8.0)),
         1.0,
         s,
+        egui::StrokeKind::Middle,
     ));
     // "−" marker (Send Backward = -1 z-order)
     let mx = cx - 1.0;
@@ -8913,6 +9849,7 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
                 Rect::from_min_size(Pos2::new(x_rect, y), Vec2::new(w, h)),
                 1.0,
                 s,
+                egui::StrokeKind::Middle,
             ));
         }
     } else {
@@ -8928,6 +9865,7 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
                 Rect::from_min_size(Pos2::new(x, y_rect), Vec2::new(w, h)),
                 1.0,
                 s,
+                egui::StrokeKind::Middle,
             ));
         }
     }
@@ -8959,6 +9897,7 @@ fn icon_center_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             Rect::from_center_size(Pos2::new(cx, y + 2.0), Vec2::new(w, 4.0)),
             1.0,
             s,
+            egui::StrokeKind::Middle,
         ));
     }
 }
@@ -8977,6 +9916,7 @@ fn icon_center_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             Rect::from_center_size(Pos2::new(x + 2.0, cy), Vec2::new(4.0, h)),
             1.0,
             s,
+            egui::StrokeKind::Middle,
         ));
     }
 }
@@ -8993,6 +9933,7 @@ fn icon_space_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             ),
             1.0,
             s,
+            egui::StrokeKind::Middle,
         ));
     }
     let y = sr.max.y - 2.0;
@@ -9022,6 +9963,7 @@ fn icon_space_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             ),
             1.0,
             s,
+            egui::StrokeKind::Middle,
         ));
     }
     let x = sr.max.x - 2.0;
@@ -9055,6 +9997,7 @@ fn icon_format_painter(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Rect::from_min_size(Pos2::new(cx - 6.0, cy - 5.0), Vec2::new(10.0, 5.0)),
         1.0,
         s,
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::line_segment(
         [Pos2::new(cx + 2.0, cy + 4.0), Pos2::new(cx + 2.0, cy + 7.0)],
@@ -9070,6 +10013,7 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Rect::from_min_size(sr.min, Vec2::new(sr.width() * 0.38, 4.5)),
         1.0,
         s,
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::rect_stroke(
         Rect::from_min_size(
@@ -9081,12 +10025,14 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             1.4,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
         ),
+        egui::StrokeKind::Middle,
     ));
     let y2 = sr.min.y + 7.0;
     out.push(Shape::rect_stroke(
         Rect::from_min_size(Pos2::new(sr.min.x, y2), Vec2::new(sr.width() * 0.30, 4.5)),
         1.0,
         s,
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::rect_stroke(
         Rect::from_min_size(
@@ -9098,6 +10044,7 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             1.4,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
         ),
+        egui::StrokeKind::Middle,
     ));
     out.push(Shape::line_segment(
         [
@@ -9258,7 +10205,9 @@ mod animator_tests {
             time: Some(t),
             ..Default::default()
         };
-        let out = ctx.run(raw, |ctx| {
+        let out = ctx.run_ui(raw, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             let painter = ctx.layer_painter(egui::LayerId::background());
             let ctrl = Control::new("anim", ControlType::Animator, 0, 0);
             draw_animator(
@@ -9276,8 +10225,8 @@ mod animator_tests {
         });
         out.shapes.into_iter().find_map(|cs| match cs.shape {
             egui::Shape::Mesh(m) => Some(m.texture_id),
-            egui::Shape::Rect(r) if r.fill_texture_id != egui::TextureId::default() => {
-                Some(r.fill_texture_id)
+            egui::Shape::Rect(r) if r.fill_texture_id() != egui::TextureId::default() => {
+                Some(r.fill_texture_id())
             }
             _ => None,
         })
@@ -9325,12 +10274,14 @@ mod render_behavior_tests {
     fn render_at(ctrl: &Control, origin: Pos2) -> Vec<egui::Shape> {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
+        let out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             // Frame::none → the panel paints no background, so captured shapes are
             // exactly what `draw_control` emitted (no full-panel fill skewing bbox).
             egui::CentralPanel::default()
-                .frame(egui::Frame::none())
-                .show(ctx, |ui| {
+                .frame(egui::Frame::NONE)
+                .show(root_ui, |ui| {
                     let painter = ui.painter().clone();
                     draw_control(&painter, origin, ctrl, false, false, 1.0, 1.0, None);
                 });
@@ -10256,6 +11207,240 @@ mod text_align_tests {
     }
 
     #[test]
+    fn moving_a_container_carries_its_children() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        // A Panel at (10,10) holding a Button child at (20,20) and a Label
+        // grandchild-less sibling outside the panel that must NOT move.
+        let mut panel = Control::new("P1", ControlType::Panel, 10, 10);
+        panel.rect.w = 300;
+        panel.rect.h = 300;
+        let mut child = Control::new("C1", ControlType::Button, 20, 20);
+        child.parent = Some("P1".into());
+        let outside = Control::new("O1", ControlType::Label, 400, 400);
+        d.form.controls.push(panel);
+        d.form.controls.push(child);
+        d.form.controls.push(outside);
+
+        // Agent repositions the panel to (60,40): dx=50, dy=30.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "P1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(60),
+                },
+                AgentOp::SetProperty {
+                    control_id: "P1".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(40),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let pos = |d: &DesignerPanel, id: &str| {
+            d.form.find_control(id).map(|c| (c.rect.x, c.rect.y))
+        };
+        assert_eq!(pos(&d, "P1"), Some((60, 40)), "panel moved to target");
+        assert_eq!(
+            pos(&d, "C1"),
+            Some((70, 50)),
+            "child carried by the same (50,30) delta, keeping its place inside"
+        );
+        assert_eq!(
+            pos(&d, "O1"),
+            Some((400, 400)),
+            "unrelated control outside the container stays put"
+        );
+
+        // The whole motion — container and child — reverts in ONE undo.
+        d.undo();
+        assert_eq!(pos(&d, "P1"), Some((10, 10)), "container restored");
+        assert_eq!(
+            pos(&d, "C1"),
+            Some((20, 20)),
+            "child restored with the container in a single undo"
+        );
+    }
+
+    #[test]
+    fn moving_a_container_leaves_an_explicitly_placed_child_alone() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let mut panel = Control::new("P1", ControlType::Panel, 0, 0);
+        panel.rect.w = 300;
+        panel.rect.h = 300;
+        let mut child = Control::new("C1", ControlType::Button, 10, 10);
+        child.parent = Some("P1".into());
+        d.form.controls.push(panel);
+        d.form.controls.push(child);
+
+        // Panel moves by (100,0); the child is ALSO explicitly placed by the
+        // same change-set, so it must land at its explicit spot, not be shifted.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "P1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(100),
+                },
+                AgentOp::SetProperty {
+                    control_id: "C1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(5),
+                },
+                AgentOp::SetProperty {
+                    control_id: "C1".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(5),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+        let c = d.form.find_control("C1").unwrap();
+        assert_eq!(
+            (c.rect.x, c.rect.y),
+            (5, 5),
+            "explicitly repositioned child is not double-shifted by its container"
+        );
+    }
+
+    #[test]
+    fn nearest_free_offset_nudges_off_an_overlap() {
+        // Moving box overlaps an obstacle directly below-right; the search prefers
+        // "down", finding the smallest clear offset.
+        let moving = (0, 0, 20, 20);
+        let obstacles = [(10, 10, 20, 20)];
+        let (dx, dy) = nearest_free_offset(moving, &obstacles, None, 200);
+        assert!((dx, dy) != (0, 0), "an offset is found");
+        let cleared = (moving.0 + dx, moving.1 + dy, moving.2, moving.3);
+        assert!(
+            !rects_overlap(cleared, obstacles[0]),
+            "the chosen offset clears the overlap"
+        );
+    }
+
+    #[test]
+    fn nearest_free_offset_is_zero_when_already_clear() {
+        assert_eq!(
+            nearest_free_offset((0, 0, 10, 10), &[(100, 100, 10, 10)], None, 200),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn nearest_free_offset_respects_form_bounds() {
+        // An obstacle that blankets the whole form: no in-bounds spot clears it,
+        // so the moved control is left where it is rather than shoved off-canvas.
+        let moving = (0, 0, 40, 40);
+        let obstacles = [(-100, -100, 300, 300)];
+        assert_eq!(
+            nearest_free_offset(moving, &obstacles, Some((100, 100)), 200),
+            (0, 0),
+            "no in-bounds spot clears it → no nudge"
+        );
+    }
+
+    #[test]
+    fn agent_move_onto_a_sibling_is_nudged_off() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        // Two top-level buttons well apart.
+        d.form
+            .controls
+            .push(Control::new("A", ControlType::Button, 10, 10));
+        d.form
+            .controls
+            .push(Control::new("B", ControlType::Button, 300, 300));
+
+        // Agent drops B right on top of A.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "B".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(10),
+                },
+                AgentOp::SetProperty {
+                    control_id: "B".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(10),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let a = d.form.find_control("A").unwrap();
+        let b = d.form.find_control("B").unwrap();
+        let ar = (a.rect.x, a.rect.y, a.rect.w, a.rect.h);
+        let br = (b.rect.x, b.rect.y, b.rect.w, b.rect.h);
+        assert!(
+            !rects_overlap(ar, br),
+            "B was nudged so it no longer overlaps A ({ar:?} vs {br:?})"
+        );
+        assert_eq!(
+            (a.rect.x, a.rect.y),
+            (10, 10),
+            "the obstacle A stayed put — only the moved control shifted"
+        );
+    }
+
+    #[test]
+    fn agent_batch_layout_trusts_coordinates_over_the_nudge() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        // A deliberate grid of two charts; the second slot lands on a leftover,
+        // untouched Label. The batch (≥2 explicitly placed controls) must be
+        // trusted verbatim — no chart is nudged off the label. Regression for the
+        // "all but one aligned" scatter.
+        let mut d = DesignerPanel::new(Form::new("F", "T", 1700, 2000));
+        d.form
+            .controls
+            .push(Control::new("BarChart-1", ControlType::BarChart, 0, 0));
+        d.form
+            .controls
+            .push(Control::new("AreaChart-1", ControlType::AreaChart, 0, 0));
+        // Stray label sitting inside AreaChart-1's target slot (656,868 320x220).
+        d.form
+            .controls
+            .push(Control::new("Label-6", ControlType::Label, 672, 1000));
+
+        let place = |id: &str, x: i32, y: i32| -> Vec<AgentOp> {
+            [("X", x), ("Y", y), ("Width", 320), ("Height", 220)]
+                .into_iter()
+                .map(|(k, v)| AgentOp::SetProperty {
+                    control_id: id.to_string(),
+                    key: k.to_string(),
+                    value: serde_json::json!(v),
+                })
+                .collect()
+        };
+        let mut operations = place("BarChart-1", 656, 624);
+        operations.extend(place("AreaChart-1", 656, 868));
+        let cs = AgentChangeSet {
+            operations,
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let bar = d.form.find_control("BarChart-1").unwrap();
+        let area = d.form.find_control("AreaChart-1").unwrap();
+        assert_eq!(
+            (bar.rect.x, bar.rect.y),
+            (656, 624),
+            "row-1 chart landed on its computed slot"
+        );
+        assert_eq!(
+            (area.rect.x, area.rect.y),
+            (656, 868),
+            "row-2 chart stayed on its computed slot despite the stray label under it"
+        );
+    }
+
+    #[test]
     fn agent_preview_approve_is_one_undo_reject_is_none() {
         use crate::agent::{AgentChangeSet, AgentOp, AgentPreview};
         let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
@@ -10330,5 +11515,155 @@ mod text_align_tests {
         assert_eq!(button.tab, Some(0));
         assert_eq!(button.rect.x, 120);
         assert_eq!(button.rect.y, 150);
+    }
+
+    /// "change the form theme to neumorphic dark" end to end: the change-set an
+    /// agent emits must actually land on the form's GlassStyle.
+    #[test]
+    fn agent_set_property_applies_form_glass_style() {
+        use crate::agent::{parse_change_set, AgentChangeSet, AgentOp};
+        use cobolt_forms::GlassStyle;
+
+        let mut d = DesignerPanel::new(Form::new("ACTORS-FORM", "Actors", 640, 480));
+        assert_eq!(d.form.glass_style, GlassStyle::Classic, "default style");
+
+        // The exact reply shape the Form Designer Agent is instructed to emit.
+        let reply = r#"```json
+{"operations":[{"op":"set_property","control_id":"Form","key":"GlassStyle","value":"Neumorphic Dark"}]}
+```"#;
+        let cs = parse_change_set(reply).expect("agent reply parses as a change-set");
+
+        assert_eq!(d.apply_agent_change_set(&cs), 1);
+        assert_eq!(d.form.glass_style, GlassStyle::NeumorphicDark);
+
+        // Every advertised value must round-trip, so the prompt list and the
+        // parser cannot drift apart.
+        for value in GlassStyle::ALL {
+            let cs = AgentChangeSet {
+                operations: vec![AgentOp::SetProperty {
+                    control_id: "Form".into(),
+                    key: "GlassStyle".into(),
+                    value: serde_json::json!(value),
+                }],
+                note: None,
+            };
+            d.apply_agent_change_set(&cs);
+            assert_eq!(
+                d.form.glass_style.as_str(),
+                *value,
+                "advertised GlassStyle {value:?} must survive a change-set"
+            );
+        }
+    }
+
+    /// The slug the old prompts told agents to use resolves to Classic without
+    /// erroring — which is exactly why it has to stay out of the prompts.
+    #[test]
+    fn invented_glass_style_slug_silently_falls_back() {
+        use cobolt_forms::GlassStyle;
+
+        let mut d = DesignerPanel::new(Form::new("F", "T", 320, 240));
+        d.set_form_prop("GlassStyle", "neumorphic-dark".into());
+        assert_eq!(d.form.glass_style, GlassStyle::Classic);
+        assert!(!GlassStyle::ALL.contains(&"neumorphic-dark"));
+    }
+}
+
+#[cfg(test)]
+mod move_anim_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, Form};
+    use std::collections::HashMap;
+
+    #[test]
+    fn eased_is_symmetric_ease_in_out() {
+        assert!((eased(0.0) - 0.0).abs() < 1e-6);
+        assert!((eased(1.0) - 1.0).abs() < 1e-6);
+        assert!((eased(0.5) - 0.5).abs() < 1e-6);
+        // Ease-in: below the line early, above it late (symmetric about 0.5).
+        assert!(eased(0.25) < 0.25);
+        assert!(eased(0.75) > 0.75);
+        // Monotonic.
+        assert!(eased(0.3) < eased(0.6));
+    }
+
+    #[test]
+    fn move_offset_starts_at_delta_and_ends_at_zero() {
+        let from = egui::pos2(0.0, 0.0);
+        let to = egui::pos2(100.0, 40.0);
+        // t=0 → drawn at `from`, i.e. offset = from - to.
+        assert_eq!(move_offset(from, to, 0.0), from - to);
+        // t≥1 → offset zero (rests at final/model position).
+        assert_eq!(move_offset(from, to, 1.0), egui::Vec2::ZERO);
+        assert_eq!(move_offset(from, to, 1.5), egui::Vec2::ZERO);
+        // t=0.5 → eased midpoint (halfway for a symmetric curve).
+        let mid = move_offset(from, to, 0.5);
+        assert!((mid.x - (-50.0)).abs() < 0.5);
+        assert!((mid.y - (-20.0)).abs() < 0.5);
+    }
+
+    fn ctrl(id: &str, x: i32, y: i32, parent: Option<&str>) -> Control {
+        let mut c = Control::new(id, ControlType::Button, x, y);
+        c.parent = parent.map(str::to_string);
+        c
+    }
+
+    #[test]
+    fn diff_moves_only_animates_moved_same_parent_controls() {
+        // before: A@(10,10), B@(0,0), C@(5,5, parent P), D@(1,1)
+        let mut before: HashMap<String, (i32, i32, Option<String>)> = HashMap::new();
+        before.insert("A".into(), (10, 10, None));
+        before.insert("B".into(), (0, 0, None));
+        before.insert("C".into(), (5, 5, Some("P".into())));
+        before.insert("D".into(), (1, 1, None));
+
+        let mut form = Form::new("F", "F", 640, 480);
+        form.controls.push(ctrl("A", 200, 80, None)); // moved → animate
+        form.controls.push(ctrl("B", 0, 0, None)); // unmoved → no
+        form.controls.push(ctrl("C", 99, 99, None)); // moved BUT reparented → no
+        form.controls.push(ctrl("E", 300, 300, None)); // newly created → no
+        // D was deleted (absent from form) → no
+
+        let anims = diff_moves(&before, &form);
+        assert_eq!(anims.len(), 1, "only A animates");
+        assert_eq!(anims[0].id, "A");
+        assert_eq!(anims[0].from, egui::pos2(10.0, 10.0));
+        assert_eq!(anims[0].to, egui::pos2(200.0, 80.0));
+    }
+
+    #[test]
+    fn apply_moves_model_immediately_and_arms_animation() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_control(ControlType::Button, 10, 10);
+        let id = d.form.controls[0].id.clone();
+
+        // Agent moves the control to (300, 120) via set_property X/Y.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: id.clone(),
+                    key: "X".into(),
+                    value: serde_json::json!(300),
+                },
+                AgentOp::SetProperty {
+                    control_id: id.clone(),
+                    key: "Y".into(),
+                    value: serde_json::json!(120),
+                },
+            ],
+            note: None,
+        };
+        let n = d.apply_agent_change_set(&cs);
+        assert!(n > 0);
+        // R5/AC3: the model holds the FINAL coordinates the instant it applies.
+        let c = &d.form.controls[0];
+        assert_eq!((c.rect.x, c.rect.y), (300, 120));
+        // …and the move is armed for animation.
+        assert_eq!(d.move_anims.len(), 1);
+        assert_eq!(d.move_anims[0].id, id);
+        assert_eq!(d.move_anims[0].to, egui::pos2(300.0, 120.0));
+        assert!(d.move_anim_start.is_none(), "start is stamped on first paint");
     }
 }

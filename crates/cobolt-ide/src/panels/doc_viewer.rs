@@ -211,7 +211,7 @@ impl DocViewer {
         let tex = self
             .fog_tex
             .get_or_insert_with(|| build_fog_texture(ctx, rgb));
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::background());
         painter.image(
             tex.id(),
@@ -284,7 +284,7 @@ impl DocViewer {
         }
         self.ensure_lang(lang);
 
-        let parent_style = parent.style();
+        let parent_style = parent.global_style();
         let vp_id = ViewportId::from_hash_of("powerrustcobol_doc_viewer");
         let title = format!("PowerRustCOBOL — {}  v{VERSION}", tr.doc_win_title);
 
@@ -295,8 +295,10 @@ impl DocViewer {
                 .with_inner_size([1100.0, 760.0])
                 .with_min_inner_size([640.0, 420.0])
                 .with_transparent(true),
-            |ctx, _class| {
-                ctx.set_style((*parent_style).clone());
+            |root_ui, _class| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
+                ctx.set_global_style((*parent_style).clone());
                 if !self.fonts_ready {
                     Self::install_doc_fonts(ctx);
                     self.fonts_ready = true;
@@ -309,24 +311,24 @@ impl DocViewer {
                 let fog_rgb = parent_style.visuals.panel_fill;
                 self.paint_frost(ctx, fog_rgb);
                 {
-                    let mut s = (*ctx.style()).clone();
+                    let mut s = (*ctx.global_style()).clone();
                     s.visuals.panel_fill = egui::Color32::TRANSPARENT;
                     s.visuals.window_fill = fog_rgb.gamma_multiply(0.92);
                     s.visuals.extreme_bg_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, 70);
-                    ctx.set_style(s);
+                    ctx.set_global_style(s);
                 }
 
                 if ctx.input(|i| i.viewport().close_requested()) {
                     self.open = false;
                 }
                 self.handle_shortcuts(ctx);
-                self.menu_bar(ctx, tr);
-                self.toolbar(ctx, tr);
-                self.left_pane(ctx, tr);
+                self.menu_bar(root_ui, tr);
+                self.toolbar(root_ui, tr);
+                self.left_pane(root_ui, tr);
                 if self.show_outline {
-                    self.outline_pane(ctx);
+                    self.outline_pane(root_ui);
                 }
-                self.viewer_pane(ctx, tr);
+                self.viewer_pane(root_ui, tr);
                 self.modals(ctx, tr);
             },
         );
@@ -386,28 +388,31 @@ impl DocViewer {
         }
     }
 
-    fn menu_bar(&mut self, ctx: &Context, tr: &Tr) {
-        egui::TopBottomPanel::top("doc_menubar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+    fn menu_bar(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::top("doc_menubar").show(panel_ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.doc_menu_file, |ui| {
                     if ui.button(tr.doc_print).clicked() {
                         self.print();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button(tr.doc_close).clicked() {
                         self.open = false;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
                 ui.menu_button(tr.doc_menu_view, |ui| {
                     if ui.button(tr.doc_zoom_in).clicked() {
                         self.zoom = (self.zoom * 1.1).min(3.0);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button(tr.doc_zoom_out).clicked() {
                         self.zoom = (self.zoom / 1.1).max(0.5);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui
@@ -421,7 +426,7 @@ impl DocViewer {
                 ui.menu_button(tr.doc_menu_help, |ui| {
                     if ui.button(tr.doc_shortcuts).clicked() {
                         self.show_shortcuts = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             });
@@ -431,8 +436,11 @@ impl DocViewer {
     /// Icon toolbar mirroring the keyboard shortcuts (open / view-source / on-top
     /// / print / close). Icons are drawn as vectors so they are theme-aware and
     /// need no image assets.
-    fn toolbar(&mut self, ctx: &Context, tr: &Tr) {
-        egui::TopBottomPanel::top("doc_toolbar").show(ctx, |ui| {
+    fn toolbar(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::top("doc_toolbar").show(panel_ui, |ui| {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 ui.add_space(2.0);
@@ -478,12 +486,15 @@ impl DocViewer {
         });
     }
 
-    fn left_pane(&mut self, ctx: &Context, tr: &Tr) {
-        egui::SidePanel::left("doc_list_panel")
+    fn left_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::left("doc_list_panel")
             .resizable(true)
-            .default_width(260.0)
-            .min_width(170.0)
-            .show(ctx, |ui| {
+            .default_size(260.0)
+            .min_size(170.0)
+            .show(panel_ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr.doc_search);
                     ui.text_edit_singleline(&mut self.list_filter);
@@ -512,12 +523,15 @@ impl DocViewer {
             });
     }
 
-    fn outline_pane(&mut self, ctx: &Context) {
-        egui::SidePanel::right("doc_outline_panel")
+    fn outline_pane(&mut self, panel_ui: &mut egui::Ui) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::right("doc_outline_panel")
             .resizable(true)
-            .default_width(220.0)
-            .min_width(150.0)
-            .show(ctx, |ui| {
+            .default_size(220.0)
+            .min_size(150.0)
+            .show(panel_ui, |ui| {
                 ui.label(egui::RichText::new("☰").size(self.font_pt + 2.0));
                 ui.separator();
                 egui::ScrollArea::vertical()
@@ -540,9 +554,12 @@ impl DocViewer {
             });
     }
 
-    fn viewer_pane(&mut self, ctx: &Context, tr: &Tr) {
+    fn viewer_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         // Search bar + nav + font-size control (right-aligned).
-        egui::TopBottomPanel::top("doc_viewer_search").show(ctx, |ui| {
+        egui::Panel::top("doc_viewer_search").show(panel_ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(tr.doc_search);
                 let resp = ui.text_edit_singleline(&mut self.find_query);
@@ -599,7 +616,7 @@ impl DocViewer {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(panel_ui, |ui| {
             if self.selected.is_none() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.35);
@@ -845,6 +862,7 @@ fn render_mermaid_image(code: &str) -> Result<(egui::ColorImage, egui::Vec2), St
         .collect();
     let image = egui::ColorImage {
         size: [w as usize, h as usize],
+        source_size: egui::vec2(w as f32, h as f32),
         pixels,
     };
     let logical = egui::vec2(w as f32 / 2.0, h as f32 / 2.0);
@@ -935,9 +953,10 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, tip: &str) -> bool
     if selected || resp.hovered() {
         ui.painter().rect(
             rect.shrink(1.0),
-            egui::Rounding::same(4.0),
+            egui::CornerRadius::same(4),
             v.bg_fill,
             egui::Stroke::NONE,
+            egui::StrokeKind::Middle,
         );
     }
     paint_icon(ui.painter(), rect, v.fg_stroke.color, icon);
@@ -1017,8 +1036,9 @@ fn paint_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, i
             ));
             painter.rect_stroke(
                 egui::Rect::from_min_max(pos2(l, t + h * 0.30), pos2(l + w, t + h * 0.74)),
-                egui::Rounding::same(2.0),
+                egui::CornerRadius::same(2),
                 s,
+                egui::StrokeKind::Middle,
             );
             painter.add(Shape::closed_line(
                 vec![
@@ -1067,6 +1087,7 @@ fn build_fog_texture(ctx: &Context, rgb: egui::Color32) -> egui::TextureHandle {
     }
     let img = egui::ColorImage {
         size: [W, H],
+        source_size: egui::vec2(W as f32, H as f32),
         pixels,
     };
     ctx.load_texture("doc_frost", img, egui::TextureOptions::LINEAR)
