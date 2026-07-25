@@ -2680,6 +2680,70 @@ fn draw_datagrid_component_frames(
     }
 }
 
+/// Decompose an opaque DataGrid fill into the rects that paint it while staying
+/// behind the grid's rounded BOTTOM corners. Pure geometry, so the invariants can
+/// be unit-tested (see `datagrid_fill_rects_*` tests):
+///
+/// 1. **Gapless** — the returned rects tile `r`'s vertical span exactly. Any gap,
+///    even a sub-pixel one, lets the grid's own background show through as a thin
+///    seam. (That was a real bug: a `> min.y + eps` guard skipped the strip above
+///    the arc zone when it was thinner than `eps`, revealing the yellow underlay
+///    as a 1px line that flashed on and off with the fractional scroll offset.)
+/// 2. **Inside the arc** — no rect crosses the corner arc, so nothing bleeds into
+///    the notch. Rows in the arc zone are emitted as 1px bands inset by the arc,
+///    because a rounded rect cannot hold a radius larger than half its height.
+///
+/// `r` must already be clamped to `screen`.
+fn datagrid_confined_fill_rects(screen: Rect, radius: f32, r: Rect) -> Vec<Rect> {
+    let mut out = Vec::new();
+    if r.width() <= 0.0 || r.height() <= 0.0 {
+        return out;
+    }
+    let eps = 0.5;
+    let r_arc = radius;
+    // Gate on OVERLAPPING THE ARC ZONE (the bottom `r_arc` band), NOT on touching
+    // the bottom edge: a fill ending *inside* the zone is still crossed by the arc
+    // (that gap made the bleed intermittent and scroll-dependent).
+    let at_left = (r.min.x - screen.min.x).abs() < eps;
+    let at_right = (r.max.x - screen.max.x).abs() < eps;
+    let in_arc_zone = r.max.y > screen.max.y - r_arc + eps;
+    if !in_arc_zone || (!at_left && !at_right) {
+        out.push(r); // away from the arcs a plain square fill is correct
+        return out;
+    }
+    // Horizontal inset of the arc at vertical position `y` (mirrors `arc_inset` in
+    // `paint::draw_glass`, including the +0.5 under-stroke nudge, so opaque fills
+    // line up with the frost bands beneath them).
+    let arc_inset = |y: f32| -> f32 {
+        let dy = (screen.max.y - y).abs();
+        if dy >= r_arc || r_arc < 0.5 {
+            0.0
+        } else {
+            (r_arc - (r_arc * r_arc - (r_arc - dy) * (r_arc - dy)).max(0.0).sqrt() + 0.5).max(0.0)
+        }
+    };
+    // Part ABOVE the arc zone: one plain full-width rect. No `eps` threshold here —
+    // any positive height must be painted or it becomes a visible seam (see 1.).
+    let zone_top = (screen.max.y - r_arc).max(r.min.y);
+    if zone_top > r.min.y {
+        out.push(Rect::from_min_max(r.min, pos2(r.max.x, zone_top)));
+    }
+    // Corner zone: 1px bands, each inset by the arc at the band BOTTOM (its widest
+    // point → never crosses the arc; over-insets by <1px, which is invisible).
+    let mut y = zone_top.max(r.min.y);
+    while y < r.max.y {
+        let yb = (y + 1.0).min(r.max.y);
+        let inset = arc_inset(yb);
+        let bx0 = if at_left { r.min.x + inset } else { r.min.x };
+        let bx1 = if at_right { r.max.x - inset } else { r.max.x };
+        if bx1 > bx0 {
+            out.push(Rect::from_min_max(pos2(bx0, y), pos2(bx1, yb)));
+        }
+        y = yb;
+    }
+    out
+}
+
 fn draw_datagrid_line(
     painter: &egui::Painter,
     points: [egui::Pos2; 2],
@@ -4197,76 +4261,13 @@ fn render_interactive(
             // off-clip rect is invisible — so we intersect with the grid rect first,
             // then round the now-on-edge bottom corners.
             let grid_cr = paint::corner_radius(ctrl);
-            // Fill `r` (clamped to the grid) with `color`. Where the fill reaches a
-            // BOTTOM corner, follow the grid's arc with 1px horizontally-inset
-            // bands — the SAME technique the glass frost uses (`draw_glass`).
-            //
-            // Why not a rounded `rect_filled`? egui caps a RectShape's corner
-            // radius to HALF the rect's shorter side. A partial last row squeezed
-            // to a few px (e.g. by a tall column-filter header) requests radius
-            // `grid_cr` but egui renders `height/2` — a tiny arc that pokes past
-            // the grid silhouette (the recurring corner bleed). And insetting the
-            // whole rect by `grid_cr` (square) leaves an ugly square notch. Bands
-            // are the only thing that tracks the curve at any fill height.
+            // Fill `r` with `color`, staying behind the grid's rounded bottom
+            // corners. All the geometry (and the reasoning behind it) lives in
+            // `datagrid_confined_fill_rects`, which is unit-tested for the two
+            // invariants that matter: gapless coverage and no bleed past the arc.
             let fill_confined = move |painter: &egui::Painter, r: Rect, color: Color32| {
-                let c = r.intersect(screen);
-                if c.width() <= 0.0 || c.height() <= 0.0 {
-                    return;
-                }
-                let eps = 0.5;
-                let r_arc = grid_cr;
-                // Gate on OVERLAPPING THE ARC ZONE (the bottom `r_arc` band), NOT on
-                // touching the very bottom edge. A row that ends *inside* the zone
-                // without reaching the bottom — the last row when the data ends
-                // short, or any row boundary that lands there while scrolling — is
-                // still crossed by the arc, so a square fill would bleed past it.
-                // (Gating on `at_bottom` was exactly that bug: clean at some scroll
-                // offsets, bleeding at others.)
-                let at_left = (c.min.x - screen.min.x).abs() < eps;
-                let at_right = (c.max.x - screen.max.x).abs() < eps;
-                let in_arc_zone = c.max.y > screen.max.y - r_arc + eps;
-                // Away from the arcs a plain square fill is correct — the grid's
-                // edges are straight between the corner arcs.
-                if !in_arc_zone || (!at_left && !at_right) {
-                    painter.rect_filled(c, 0.0, color);
-                    return;
-                }
-                // Horizontal inset of the arc at vertical position `y` (matches the
-                // `arc_inset` in `draw_glass`, incl. the +0.5 under-stroke nudge).
-                let arc_inset = |y: f32| -> f32 {
-                    let dy = (screen.max.y - y).abs();
-                    if dy >= r_arc || r_arc < 0.5 {
-                        0.0
-                    } else {
-                        (r_arc - (r_arc * r_arc - (r_arc - dy) * (r_arc - dy)).max(0.0).sqrt() + 0.5)
-                            .max(0.0)
-                    }
-                };
-                // Part ABOVE the corner arc zone: one plain full-width rect.
-                let zone_top = (screen.max.y - r_arc).max(c.min.y);
-                if zone_top > c.min.y + eps {
-                    painter.rect_filled(
-                        Rect::from_min_max(c.min, pos2(c.max.x, zone_top)),
-                        0.0,
-                        color,
-                    );
-                }
-                // Corner zone: 1px bands, each inset by the arc at the band BOTTOM
-                // (its widest point → guarantees no bleed, over-insets by <1px).
-                let mut y = zone_top.max(c.min.y);
-                while y < c.max.y {
-                    let yb = (y + 1.0).min(c.max.y);
-                    let inset = arc_inset(yb);
-                    let bx0 = if at_left { c.min.x + inset } else { c.min.x };
-                    let bx1 = if at_right { c.max.x - inset } else { c.max.x };
-                    if bx1 > bx0 {
-                        painter.rect_filled(
-                            Rect::from_min_max(pos2(bx0, y), pos2(bx1, yb)),
-                            0.0,
-                            color,
-                        );
-                    }
-                    y = yb;
+                for sub in datagrid_confined_fill_rects(screen, grid_cr, r.intersect(screen)) {
+                    painter.rect_filled(sub, 0.0, color);
                 }
             };
             for (display_row, y, scroll_clipped) in rows_to_draw {
@@ -7693,6 +7694,130 @@ mod shape_dump {
         }
         std::fs::write(&path, out.join("\n")).unwrap();
         println!("scene D dumped {} shapes", out.len());
+    }
+
+    // ── DataGrid confined-fill geometry (pure, no egui context needed) ───────
+
+    /// A fill's rects must tile its vertical span with NO gap. A sub-pixel gap is
+    /// not harmless: the grid's own background (a solid BackgroundColor — yellow
+    /// in the operator's form) shows through it as a thin line, and because the
+    /// gap depends on the fractional scroll offset it FLASHES on and off while
+    /// scrolling. The original bug: the strip above the arc zone was skipped when
+    /// thinner than `eps`. Swept across fractional offsets so any eps-style
+    /// threshold reintroduced later is caught.
+    #[test]
+    fn datagrid_fill_rects_tile_without_gaps_at_any_subpixel_offset() {
+        let screen = Rect::from_min_max(pos2(40.0, 40.0), pos2(1264.0, 424.0));
+        let radius = 15.0_f32;
+        let zone_top = screen.max.y - radius;
+        let mut failures = Vec::new();
+        // Sweep BOTH edges through the arc-zone boundary in 1/64px steps. The seam
+        // bug needs a fill whose TOP sits a hair above `zone_top` (that strip was
+        // skipped when thinner than `eps`), which is why the flashing line always
+        // appeared at the same y — it is pinned to the zone top, and a row boundary
+        // crosses that sub-pixel window as you scroll.
+        let mut cases: Vec<Rect> = Vec::new();
+        for step in -192i32..192 {
+            let d = step as f32 / 64.0;
+            // fill top walks across zone_top, bottom clipped at the grid edge
+            cases.push(Rect::from_min_max(
+                pos2(screen.min.x, zone_top + d),
+                pos2(screen.max.x, screen.max.y),
+            ));
+            // fill bottom walks up from the grid edge (full 43px row)
+            let bottom = screen.max.y - d.abs();
+            cases.push(Rect::from_min_max(
+                pos2(screen.min.x, bottom - 43.0),
+                pos2(screen.max.x, bottom),
+            ));
+        }
+        for r in cases {
+            let r = r.intersect(screen);
+            if r.height() <= 0.0 || r.width() <= 0.0 {
+                continue;
+            }
+            let rects = datagrid_confined_fill_rects(screen, radius, r);
+            if rects.is_empty() {
+                failures.push(format!("fill top={:.4} h={:.4}: no rects", r.min.y, r.height()));
+                continue;
+            }
+            let mut spans: Vec<(f32, f32)> = rects.iter().map(|x| (x.min.y, x.max.y)).collect();
+            spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            if (spans[0].0 - r.min.y).abs() > 1e-3 {
+                failures.push(format!(
+                    "fill top={:.4}: coverage starts at {:.4} — {:.4}px SEAM at the top",
+                    r.min.y,
+                    spans[0].0,
+                    spans[0].0 - r.min.y
+                ));
+            }
+            let mut cursor = spans[0].1;
+            for (a, b) in spans.iter().skip(1) {
+                if *a - cursor > 1e-3 {
+                    failures.push(format!(
+                        "fill top={:.4}: GAP {:.4}..{:.4} ({:.4}px) — grid background bleeds through",
+                        r.min.y,
+                        cursor,
+                        a,
+                        a - cursor
+                    ));
+                    break;
+                }
+                cursor = cursor.max(*b);
+            }
+            if (cursor - r.max.y).abs() > 1e-3 {
+                failures.push(format!(
+                    "fill top={:.4}: coverage ends at {:.4}, expected {:.4}",
+                    r.min.y, cursor, r.max.y
+                ));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "confined fill rects must tile the fill with no gaps ({} failures):\n{}",
+            failures.len(),
+            failures
+                .iter()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    /// No emitted rect may cross the bottom-corner arcs — that is the bleed.
+    #[test]
+    fn datagrid_fill_rects_stay_inside_the_corner_arcs() {
+        let screen = Rect::from_min_max(pos2(40.0, 40.0), pos2(1264.0, 424.0));
+        let radius = 15.0_f32;
+        let mut failures = Vec::new();
+        for step in 0..160 {
+            let frac = step as f32 / 8.0;
+            let bottom = screen.max.y - frac;
+            let top = bottom - 43.0;
+            let r = Rect::from_min_max(pos2(screen.min.x, top), pos2(screen.max.x, bottom))
+                .intersect(screen);
+            if r.height() <= 0.0 {
+                continue;
+            }
+            for sub in datagrid_confined_fill_rects(screen, radius, r) {
+                // Bottom-left arc centre; a rect's bottom-left corner is the worst case.
+                let c = pos2(screen.min.x + radius, screen.max.y - radius);
+                let p = pos2(sub.min.x, sub.max.y);
+                if p.x < c.x && p.y > c.y && (p - c).length() > radius + 0.01 {
+                    failures.push(format!(
+                        "frac={frac:.3}: rect [{:.2} {:.2} {:.2} {:.2}] corner ({:.2},{:.2}) is {:.2}px from the arc centre (radius {radius})",
+                        sub.min.x, sub.min.y, sub.max.x, sub.max.y, p.x, p.y, (p - c).length()
+                    ));
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "confined fill rects must stay inside the corner arc ({} failures):\n{}",
+            failures.len(),
+            failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n")
+        );
     }
 
     // ── DataGrid rounded-corner silhouette guards ────────────────────────────

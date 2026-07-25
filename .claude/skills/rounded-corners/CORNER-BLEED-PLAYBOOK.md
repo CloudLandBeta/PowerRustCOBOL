@@ -4,7 +4,7 @@
 > this file is the **deep, no-hints-left-behind** treatment of *bleed* — a fill
 > or child painting past a container's rounded arc into the corner notch. Corner
 > bleed has eaten an enormous share of this project's time. The reason is almost
-> always the same two mechanisms below. Learn them once and the class is closed.
+> always one of the four mechanisms below. Learn them once and the class is closed.
 
 ---
 
@@ -15,14 +15,20 @@
 > wide, or it will render a smaller arc than `R` and poke past whatever it was
 > supposed to hide behind. When you can't guarantee that size, you do NOT round
 > the rect — you follow the arc with 1px horizontally-inset bands.**
+>
+> **And once you decompose a fill into pieces, those pieces must tile it
+> EXACTLY — never skip a piece with an `eps` threshold, or the thing underneath
+> shows through the sliver (§1.4).**
 
 Everything else here is a corollary of that plus the u8-radius corollary (§1.2).
 
 ---
 
-## 1. The two root-cause mechanisms
+## 1. The root-cause mechanisms
 
-Corner bleed is never magic. It is always one (or both) of these.
+Corner bleed (and its mirror image, the sub-pixel seam) is never magic. It is
+always one of these four. They are numbered in the order they were discovered;
+read them in file order.
 
 ### 1.1 The radius **height-clamp** (the big one — cost us the most time)
 
@@ -41,6 +47,15 @@ Corner bleed is never magic. It is always one (or both) of these.
 header height, squeezing the last visible row into a **few-pixel sliver**. That
 sliver's row/cell fills request `R=grid_radius` and get a ~2px arc → bleed. Any
 "last partial row / thin band at a rounded edge" is a candidate.
+
+### 1.2 The u8-radius **round-up** (the classic, already documented in SKILL.md)
+
+egui ≥0.31 radii are `u8`; the old stroke idiom `rect.shrink(half) + (r-half) +
+StrokeKind::Middle` needs *fractional* radii that `u8` cannot hold. Rounding UP
+pushes a concentric **stroke** arc *outside* the face (dark corner arcs); rounding
+DOWN leaves a mask sliver (light corner arcs). Fixed permanently by: concentric
+strokes use `StrokeKind::Inside` at the **full** rect + the **integer** face
+radius (commit `f64efa9`). **Never reintroduce `shrink(half)` strokes.**
 
 ### 1.3 The **arc-zone gating** trap (intermittent, scroll-dependent bleed)
 
@@ -71,14 +86,38 @@ inside the arc zone. Guards:
 `datagrid_bottom_left_corner_has_no_opaque_bleed` and
 `datagrid_bottom_left_corner_clean_when_rows_end_inside_arc`.
 
-### 1.2 The u8-radius **round-up** (the classic, already documented in SKILL.md)
+### 1.4 The **sub-pixel seam** (a *gap*, not a bleed — the flashing thin line)
 
-egui ≥0.31 radii are `u8`; the old stroke idiom `rect.shrink(half) + (r-half) +
-StrokeKind::Middle` needs *fractional* radii that `u8` cannot hold. Rounding UP
-pushes a concentric **stroke** arc *outside* the face (dark corner arcs); rounding
-DOWN leaves a mask sliver (light corner arcs). Fixed permanently by: concentric
-strokes use `StrokeKind::Inside` at the **full** rect + the **integer** face
-radius (commit `f64efa9`). **Never reintroduce `shrink(half)` strokes.**
+The mirror image of bleed, and it appears the moment you start decomposing a fill
+into pieces (bands + a plain part). If the pieces do not tile the fill **exactly**,
+whatever is underneath shows through the gap.
+
+> **Never guard a piece with an `eps` threshold.** `if strip_height > eps { paint }`
+> silently drops strips thinner than `eps`, leaving an unpainted sliver.
+
+Real bug: `fill_confined` painted the strip above the arc zone only
+`if zone_top > c.min.y + eps` (`eps = 0.5`). When a row's top edge landed within
+0.5px above `zone_top`, that strip was skipped → a ≤0.5px unpainted seam → the
+grid's own **BackgroundColor** (yellow, drawn under everything) showed through.
+
+Diagnostic signature — learn these, they identify it instantly:
+
+| Observation | What it tells you |
+|---|---|
+| A **thin line always at the SAME y** | The gap is pinned to a fixed geometric boundary (here `zone_top = bottom - radius`), not to content |
+| **Flashes on and off while scrolling** | The gap opens only when a row boundary falls inside a sub-pixel window; scrolling sweeps content through it |
+| Line colour is a **~50% blend** of an underlying colour over the top colour | Partial pixel coverage from a fractional-width gap — a *gap*, not a drawn line. (Measured `(124,117,33)` ≈ half of `#F5FF00` over navy.) |
+| Line spans the **full width** of the element | The gap is horizontal, i.e. a vertical tiling failure |
+
+If you see a *drawn* line instead, its colour would be a real palette colour at
+full strength — that would be a stroke/separator, a different hunt.
+
+**Guard it with a pure geometry test** (no egui context needed): sweep the fill's
+edges across the boundary in ~1/64px steps and assert the emitted rects tile the
+fill's vertical span exactly (`datagrid_fill_rects_tile_without_gaps_at_any_subpixel_offset`).
+⚠ Sweep the edge that actually triggers it — an early version of this test moved
+only the fill's *bottom* and passed happily while the bug was live; the seam needs
+the fill's **top** to cross `zone_top`.
 
 ---
 
@@ -254,6 +293,11 @@ a hole punched through the parent.
   bands (§3). This is the rule that was missing for months.
 - **Gate corner handling on "overlaps the arc zone", never on "touches the edge"**
   (§1.3) — otherwise the bleed is intermittent and scroll-dependent.
+- **Decomposed fills must tile exactly.** No `eps` guard may skip a sub-pixel
+  piece (§1.4) — the gap shows the layer beneath as a flashing thin line.
+- Prefer a **pure geometry function** (rect in → rects out) over inline painting:
+  it makes both invariants unit-testable without an egui context, and sweeping
+  fractional offsets is then trivial.
 - Band insets use the arc value at the band's widest edge, and MUST match
   `draw_glass`'s `arc_inset` formula (incl. `+0.5`) so opaque fills align with the
   frost.
@@ -290,6 +334,12 @@ Current DataGrid corner fix (this playbook's subject), in two steps:
   recording. Guards rewritten to the geometric silhouette form
   (`dg_assert_corner_silhouette`) with both row-count cases, and verified to fail
   on the pre-fix gating.
+- **1.34.5** — sub-pixel seam fix (§1.4): the band/strip decomposition moved into
+  the pure `datagrid_confined_fill_rects(screen, radius, rect) -> Vec<Rect>`, and
+  the `eps` guard that skipped the strip above the arc zone was removed. Pinned by
+  `datagrid_fill_rects_tile_without_gaps_at_any_subpixel_offset` (gapless) and
+  `datagrid_fill_rects_stay_inside_the_corner_arcs` (no bleed), both verified RED
+  against the pre-fix code.
 - `crates/cobolt-forms/src/paint.rs` — `draw_glass`'s `arc_inset` is the reference
   the band helper mirrors (keep the `+0.5` in sync).
 
@@ -302,6 +352,9 @@ Current DataGrid corner fix (this playbook's subject), in two steps:
 3. Is it a fill too short/thin to hold its radius? → **bands** (§3). Is it a
    stroke? → `Inside` at integer face radius (§1.2). Is it translucent/nested? →
    GL clip or accept the parent-reveal (§5).
+   Is it a *thin line at a fixed y that flashes while scrolling*? → not a bleed at
+   all, it's a **sub-pixel tiling gap** (§1.4): find the `eps` guard that skips a
+   piece.
 4. Add/extend a shape-dump guard: no bleed **and** no gap (§4, §6).
 5. `cargo test -p cobolt-forms --features render --lib <guard>` red→green.
 6. Bump `version.rs` fix number; note the commit id back into §7.
