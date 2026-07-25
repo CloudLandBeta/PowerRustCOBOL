@@ -302,6 +302,11 @@ pub struct IdeSettings {
     /// Developer aid, off by default. Mirrors the `COBOLT_AI_PANE_DEBUG` env var.
     #[serde(default)]
     pub ai_pane_debug: bool,
+    /// Suppress the "set up AI" invitation shown when the project is opened with
+    /// no usable model or no configured agent. Set by the modal's
+    /// "don't show again" checkbox.
+    #[serde(default)]
+    pub hide_ai_setup_prompt: bool,
     /// DataGrid component frames: a diagnostic private to the DataGrid that
     /// outlines every internal sub-component (header, body, columns, rows, cells,
     /// frozen panes, scrollbar). Developer aid, off by default. Mirrors the
@@ -339,6 +344,7 @@ impl Default for IdeSettings {
             rounded_clip: false,
             databind_trace: false,
             ai_pane_debug: false,
+            hide_ai_setup_prompt: false,
             datagrid_diagnostics: false,
         }
     }

@@ -346,6 +346,9 @@ pub struct CoboltApp {
 
     /// Whether the Help → About window is open.
     about_open: bool,
+    /// Shown once after opening a project that has no usable AI model or no
+    /// configured agent, inviting the user to set them up.
+    ai_setup_modal: bool,
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
     /// Non-empty while the "Form saved" alert should be displayed.
@@ -933,6 +936,7 @@ impl CoboltApp {
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
             about_open: false,
+            ai_setup_modal: false,
             doc_viewer: Default::default(),
             form_error: None,
             alert_error: None,
@@ -1955,6 +1959,14 @@ impl CoboltApp {
                     let rels = crate::llm::load_raw_preferred_indexed(&data_dir);
                     self.raw_preferred_indexed =
                         rels.into_iter().map(|rel| root.join(rel)).collect();
+                    // Invite the user to configure AI when this project has no
+                    // usable model / agent — unless they asked not to be asked.
+                    let suppressed = self
+                        .cobolt_project
+                        .as_ref()
+                        .map(|p| p.ide.hide_ai_setup_prompt)
+                        .unwrap_or(false);
+                    self.ai_setup_modal = !suppressed && self.ai_setup_needed(root);
                 }
                 if let Some(dir) = dir {
                     // Back-fill any standard sub-folders missing from older projects.
@@ -2794,6 +2806,14 @@ impl CoboltApp {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_owned())
+    }
+
+    /// True when this project has no usable AI model, or Grace has none — the cue
+    /// to invite the user to set them up on open. Call AFTER
+    /// [`Self::ensure_project_agent_system`] so the fixed agents already exist.
+    fn ai_setup_needed(&self, project_root: &Path) -> bool {
+        let db = crate::agents_db::AgentsDb::load(project_root);
+        ai_setup_needed_for(&self.llm, &db.agents)
     }
 
     fn ensure_project_agent_system(&mut self, project_root: &Path) {
@@ -7318,6 +7338,103 @@ impl CoboltApp {
         }
     }
 
+    /// "Set up the AI" invitation, shown once after opening a project that has no
+    /// usable model or no configured agent. The two buttons open the very same
+    /// managers as the Project Settings rows (`manage_models` / `manage_agents`),
+    /// so there is a single way to configure each.
+    fn show_ai_setup_modal(&mut self, ctx: &Context, tr: &Tr) {
+        if !self.ai_setup_modal {
+            return;
+        }
+        let mut open = true;
+        let mut hide_again = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.hide_ai_setup_prompt)
+            .unwrap_or(false);
+        let mut open_models = false;
+        let mut open_agents = false;
+        let mut close = false;
+
+        egui::Window::new(tr.ai_setup_title)
+            .id(egui::Id::new("ai_setup_invite"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_max_width(520.0);
+                ui.horizontal_top(|ui| {
+                    // Grace, sitting — decoration only.
+                    ui.add(
+                        egui::Image::new(egui::include_image!(concat!(
+                            env!("CARGO_MANIFEST_DIR"),
+                            "/../../assets/images/gracesitting.png"
+                        )))
+                        .max_height(190.0),
+                    );
+                    ui.add_space(10.0);
+                    ui.vertical(|ui| {
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new(tr.ai_setup_msg).size(13.0));
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            if ui.button(tr.models_manage).clicked() {
+                                open_models = true;
+                            }
+                            if ui.button(tr.agents_manage).clicked() {
+                                open_agents = true;
+                            }
+                        });
+                        ui.add_space(10.0);
+                        ui.checkbox(&mut hide_again, tr.ai_setup_hide);
+                        ui.add_space(8.0);
+                        if ui.button(tr.ai_setup_later).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+            });
+
+        // Persist the "don't ask again" choice as soon as it changes.
+        let stored = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.hide_ai_setup_prompt)
+            .unwrap_or(false);
+        if hide_again != stored {
+            if let Some(p) = self.cobolt_project.as_mut() {
+                p.ide.hide_ai_setup_prompt = hide_again;
+            }
+            self.do_save_project();
+        }
+
+        if open_models {
+            self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());
+        }
+        if open_agents {
+            if let Some(dir) = self
+                .project_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf())
+            {
+                self.agents_modal = Some(crate::panels::agents_modal::AgentsModal::open_for(
+                    &dir,
+                    &mut self.llm,
+                ));
+                // Opening can migrate legacy agent model settings onto project
+                // profiles — persist that immediately (same as Project Settings).
+                self.persist_active_project_ai();
+            }
+        }
+        // Opening a manager replaces this invite; otherwise close on Later / ✕.
+        if close || open_models || open_agents || !open {
+            self.ai_setup_modal = false;
+        }
+    }
+
     fn show_building_modal(&mut self, ctx: &Context) {
         if self.pending_build_rx.is_none() {
             return;
@@ -8107,6 +8224,7 @@ impl eframe::App for CoboltApp {
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
+        self.show_ai_setup_modal(ctx, &tr);
         // Save alert: render it in the MAIN window only when it doesn't belong
         // to a designer viewport (those render it themselves, on top).
         // "Building…" progress modal (closes right before the result is shown).
@@ -11501,6 +11619,51 @@ fn welcome_bg_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
 /// Spaces are kept (so "Financial Asset Management System.toml" is valid);
 /// filesystem-illegal characters become `-`; leading/trailing dots and spaces
 /// are trimmed. An empty/blank name falls back to `project`.
+/// Does an agent actually resolve a model? It must either name one directly, or
+/// point at a model profile that still exists AND carries a provider + model — a
+/// dangling `model_profile` id (or a profile with no model, as several pedantic
+/// reviewers have) resolves to nothing.
+fn agent_resolves_model(llm: &crate::llm::LlmConfig, agent: &crate::agents_db::AgentDef) -> bool {
+    if !agent.model.trim().is_empty() {
+        return true;
+    }
+    match agent.model_profile.as_deref() {
+        Some(id) => llm.model_profiles.iter().any(|p| {
+            p.id == id && !p.provider.trim().is_empty() && !p.model.trim().is_empty()
+        }),
+        None => false,
+    }
+}
+
+/// Should the "set up the AI" invitation be shown for this project?
+///
+/// Two conditions, either of which makes the AI unusable:
+///   1. there is no usable model anywhere (no default provider+model and no
+///      usable model profile), or
+///   2. **Grace has no model**. Grace is the single coordination authority — with
+///      no model on her there is no AI, no matter how many specialists are
+///      configured. (Checking "any agent has a model" was the original bug: the
+///      specialists kept their profile after the user unset Grace's, so the
+///      invitation never appeared.)
+///
+/// Pure so it can be unit-tested against real project shapes.
+fn ai_setup_needed_for(
+    llm: &crate::llm::LlmConfig,
+    agents: &[crate::agents_db::AgentDef],
+) -> bool {
+    let has_model = (!llm.provider.trim().is_empty() && !llm.model.trim().is_empty())
+        || llm.has_usable_model_profile();
+    if !has_model {
+        return true;
+    }
+    let grace_ready = agents.iter().any(|a| {
+        matches!(a.kind, crate::agents_db::AgentKind::Orchestrator)
+            && a.enabled
+            && agent_resolves_model(llm, a)
+    });
+    !grace_ready
+}
+
 fn sanitize_file_stem(name: &str) -> String {
     let cleaned: String = name
         .trim()
@@ -12875,6 +13038,109 @@ mod manifest_name_tests {
             diags.iter().any(|d| d.severity == DiagSeverity::Error),
             "a syntactically broken handler must report an error: {diags:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod ai_setup_invite_tests {
+    use super::*;
+    use crate::agents_db::AgentDef;
+    use crate::llm::{LlmConfig, ModelProfile};
+
+    // Fixtures are built through serde (every field has a serde default), which
+    // also exercises the real manifest-deserialization path.
+    fn profile(id: &str, provider: &str, model: &str) -> ModelProfile {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": id, "provider": provider, "model": model
+        }))
+        .expect("model profile fixture")
+    }
+
+    fn agent(
+        name: &str,
+        kind: &str,
+        enabled: bool,
+        prof: Option<&str>,
+        model: &str,
+    ) -> AgentDef {
+        serde_json::from_value(serde_json::json!({
+            "id": name, "name": name, "kind": kind, "enabled": enabled,
+            "model_profile": prof, "model": model
+        }))
+        .expect("agent fixture")
+    }
+
+    /// The operator's real shape (PowerDemo2): every specialist keeps a working
+    /// profile, but Grace's model association was removed. "No Grace, no AI" —
+    /// so the invitation MUST appear. Checking "any agent has a model" (the
+    /// original bug) reported everything fine and never showed it.
+    #[test]
+    fn invite_shows_when_only_grace_lost_its_model() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
+        let agents = vec![
+            agent("Grace", "orchestrator", true, None, ""),
+            agent("Form Designer Agent", "specialist", true, Some("d9566a66"), "gemma4:31b"),
+            agent("Documentation Agent", "specialist", true, Some("d9566a66"), "gemma4:31b"),
+            agent("Version Control Agent", "specialist", true, Some("d9566a66"), "gemma4:31b"),
+        ];
+        assert!(
+            ai_setup_needed_for(&llm, &agents),
+            "Grace has no model — the AI setup invitation must be shown"
+        );
+    }
+
+    /// Fully configured project: Grace resolves a model through a profile.
+    #[test]
+    fn invite_hidden_when_grace_resolves_a_model() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
+        let agents = vec![
+            agent("Grace", "orchestrator", true, Some("d9566a66"), ""),
+            agent("Form Designer Agent", "specialist", true, Some("d9566a66"), "gemma4:31b"),
+        ];
+        assert!(!ai_setup_needed_for(&llm, &agents));
+    }
+
+    /// A dangling profile id (or one carrying no model — several pedantic
+    /// reviewers look like that) resolves to nothing, so Grace is NOT configured.
+    #[test]
+    fn dangling_or_empty_profile_does_not_configure_grace() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.model_profiles = vec![
+            profile("d9566a66", "ollama_cloud", "gemma4:31b"),
+            profile("a17ed3fb", "", ""), // profile with no provider/model
+        ];
+        let dangling = vec![agent("Grace", "orchestrator", true, Some("nope"), "")];
+        assert!(ai_setup_needed_for(&llm, &dangling), "dangling profile id");
+        let empty = vec![agent("Grace", "orchestrator", true, Some("a17ed3fb"), "")];
+        assert!(ai_setup_needed_for(&llm, &empty), "profile without a model");
+    }
+
+    /// No usable model anywhere → invite regardless of the agent roster.
+    #[test]
+    fn invite_shows_when_no_model_exists_at_all() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.model_profiles.clear();
+        let agents = vec![agent("Grace", "orchestrator", true, None, "")];
+        assert!(ai_setup_needed_for(&llm, &agents));
+    }
+
+    /// A disabled Grace cannot run, so the project still needs setup.
+    #[test]
+    fn disabled_grace_still_needs_setup() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
+        let agents = vec![agent("Grace", "orchestrator", false, Some("d9566a66"), "")];
+        assert!(ai_setup_needed_for(&llm, &agents));
     }
 }
 
