@@ -42,6 +42,35 @@ header height, squeezing the last visible row into a **few-pixel sliver**. That
 sliver's row/cell fills request `R=grid_radius` and get a ~2px arc → bleed. Any
 "last partial row / thin band at a rounded edge" is a candidate.
 
+### 1.3 The **arc-zone gating** trap (intermittent, scroll-dependent bleed)
+
+Once you're banding corner fills, there is one more way to get it wrong, and it is
+nasty because it is **intermittent** — clean at some scroll offsets, bleeding at
+others, which reads like a heisenbug:
+
+> Gating the arc-inset on *"this fill touches the container's bottom EDGE"* is
+> **wrong**. The correct gate is *"this fill overlaps the bottom ARC ZONE"* — the
+> last `R` pixels — regardless of whether it reaches the edge.
+
+Any fill whose bottom lands **inside** the arc zone is crossed by the arc and must
+be banded. That happens when:
+
+- the data ends part-way through the arc zone (fewer rows than fill the body), or
+- a row boundary lands there at a given **scroll offset** (hence: scroll a little,
+  and the bleed appears/disappears).
+
+Symptom caught on a screen recording: the bottom-left corner was clean in one
+frame and showed a dark tab poking past the arc in another, with nothing changing
+but scroll. The guard named it instantly: a full-height row
+`[40.0 377.5 160.0 420.5] h=43 #f5ff00ff sw=0` — bottom at `420.5`, i.e. `3.5px`
+above the grid bottom `424` with radius `15` ⇒ squarely inside the arc zone, drawn
+square because it did not touch the edge.
+
+**Test both:** overflowing rows (sliver clipped at the bottom) *and* rows that end
+inside the arc zone. Guards:
+`datagrid_bottom_left_corner_has_no_opaque_bleed` and
+`datagrid_bottom_left_corner_clean_when_rows_end_inside_arc`.
+
 ### 1.2 The u8-radius **round-up** (the classic, already documented in SKILL.md)
 
 egui ≥0.31 radii are `u8`; the old stroke idiom `rect.shrink(half) + (r-half) +
@@ -82,14 +111,17 @@ let fill_confined = move |painter: &egui::Painter, r: Rect, color: Color32| {
     let c = r.intersect(screen);
     if c.width() <= 0.0 || c.height() <= 0.0 { return; }
     let eps = 0.5;
-    let at_bottom = (c.max.y - screen.max.y).abs() < eps;
-    let at_left   = at_bottom && (c.min.x - screen.min.x).abs() < eps;
-    let at_right  = at_bottom && (c.max.x - screen.max.x).abs() < eps;
-    if !at_left && !at_right {
-        painter.rect_filled(c, 0.0, color); // straight edge between corners → square is correct
+    let r_arc = grid_cr;
+    // ⚠ Gate on OVERLAPPING THE ARC ZONE (the bottom `r_arc` band) — NOT on
+    // touching the bottom edge. See §1.3: a fill that ends *inside* the zone is
+    // still crossed by the arc.
+    let at_left  = (c.min.x - screen.min.x).abs() < eps;
+    let at_right = (c.max.x - screen.max.x).abs() < eps;
+    let in_arc_zone = c.max.y > screen.max.y - r_arc + eps;
+    if !in_arc_zone || (!at_left && !at_right) {
+        painter.rect_filled(c, 0.0, color); // away from the arcs → square is correct
         return;
     }
-    let r_arc = grid_cr;
     // Horizontal inset of the arc at vertical position y (MATCHES draw_glass, incl. the +0.5).
     let arc_inset = |y: f32| -> f32 {
         let dy = (screen.max.y - y).abs();
@@ -151,13 +183,24 @@ sequence — it is what actually localizes bleed every time.
    a shape-dump scene with those literal values. A scaled-down guess will pass
    while the real form bleeds.
 
-3. **Shape-dump with EFFECTIVE radius.** Render the scene, walk every
-   `egui::Shape::Rect`, and flag fills that **reach the corner** with
-   `min(sw, w/2, h/2) < grid_radius - ε`. This catches the height-clamp (§1.1)
-   that inspecting the *stored* radius misses. The permanent guard is
-   `render.rs::shape_dump::datagrid_bottom_left_corner_has_no_opaque_bleed` —
-   copy it for any new rounded-fill surface. It also asserts a point **inside**
-   the arc IS filled, catching the "square gap / over-inset" regression.
+3. **Assert the SILHOUETTE geometrically** (best guard — decomposition-independent).
+   Walk the arc by angle; for each sample:
+   - a point just **OUTSIDE** the arc (still inside the bbox) must be **unpainted**
+     → catches bleed;
+   - a point just **INSIDE** the arc must be **painted** → catches the square
+     gap/over-inset regression.
+
+   Crucially, the coverage test must honour each shape's **own effective** corner
+   radius (`min(stored, w/2, h/2)`), because the stored radius lies (§1.1). This
+   works no matter how the fill is decomposed (rounded rect, bands, anything) —
+   unlike a scan keyed to "rects that touch the corner", which both misses banded
+   output and false-positives on legitimate bands. Reference implementation:
+   `render.rs::shape_dump::{dg_rect_paints, dg_painters_at,
+   dg_assert_corner_silhouette}`; copy it for any new rounded-fill surface.
+
+   **Prove the guard fails on the broken code** (revert the fix, watch it go red,
+   restore). A guard that passes on the bug is worthless — this is how the §1.3
+   gating trap was confirmed.
 
 4. **`COBOLT_FRAME_DIAGNOSTICS=1`** labels container corner painters
    (`CONTAINER_NOTCH_MASK`, `CONTAINER_RESTORE_OUTLINE`, `ROUNDCLIP_*`) on screen;
@@ -209,6 +252,8 @@ a hole punched through the parent.
   Never derive a fractional radius; `u8` can't hold it (§1.2).
 - **Before rounding a filled rect, check it is ≥ `2*R` on both axes.** If not, use
   bands (§3). This is the rule that was missing for months.
+- **Gate corner handling on "overlaps the arc zone", never on "touches the edge"**
+  (§1.3) — otherwise the bleed is intermittent and scroll-dependent.
 - Band insets use the arc value at the band's widest edge, and MUST match
   `draw_glass`'s `arc_inset` formula (incl. `+0.5`) so opaque fills align with the
   frost.
@@ -233,17 +278,20 @@ Historical fixes (do not re-derive these — they are shipped and pinned by test
 - `5409dc0`, `fa0aa46` — the post-mortem skills (`egui-paint-regressions`, then
   this dedicated `rounded-corners` skill split out).
 
-Current DataGrid short-fill fix (this playbook's subject) — commit `dfb4de2`
-(1.34.3):
+Current DataGrid corner fix (this playbook's subject), in two steps:
 
-- `crates/cobolt-forms/src/render.rs` — `fill_confined` band helper (replaces the
-  old `confine_bottom` rounded-rect) + its three call sites (alt-row, alt-column,
-  cell background) in the `CT::DataGrid` arm.
-- `crates/cobolt-forms/src/render.rs` — guard
-  `shape_dump::datagrid_bottom_left_corner_has_no_opaque_bleed` (effective-radius
-  + no-gap).
+- `dfb4de2` (1.34.3) — `fill_confined` band helper replaces the old
+  `confine_bottom` rounded-rect, at its three call sites (alt-row, alt-column,
+  cell background) in the `CT::DataGrid` arm of
+  `crates/cobolt-forms/src/render.rs`. Kills the height-clamp bleed (§1.1).
+- **1.34.4** — arc-zone gating fix (§1.3): `fill_confined` now bands any fill
+  overlapping the bottom arc zone, not only those touching the bottom edge. This
+  was the remaining *intermittent, scroll-dependent* bleed, found from a screen
+  recording. Guards rewritten to the geometric silhouette form
+  (`dg_assert_corner_silhouette`) with both row-count cases, and verified to fail
+  on the pre-fix gating.
 - `crates/cobolt-forms/src/paint.rs` — `draw_glass`'s `arc_inset` is the reference
-  the band helper mirrors.
+  the band helper mirrors (keep the `+0.5` in sync).
 
 ---
 
