@@ -233,7 +233,7 @@ Historical fixes (do not re-derive these — they are shipped and pinned by test
 - `5409dc0`, `fa0aa46` — the post-mortem skills (`egui-paint-regressions`, then
   this dedicated `rounded-corners` skill split out).
 
-Current DataGrid short-fill fix (this playbook's subject) — commit `8359ef6`
+Current DataGrid short-fill fix (this playbook's subject) — commit `dfb4de2`
 (1.34.3):
 
 - `crates/cobolt-forms/src/render.rs` — `fill_confined` band helper (replaces the
