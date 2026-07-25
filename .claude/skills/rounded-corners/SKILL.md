@@ -11,6 +11,14 @@ pixel**; each historical bug was one layer disagreeing. This file is the
 accumulated knowledge — do not re-derive it, and do not "fix" one layer
 without checking the others.
 
+> ⚑ **For corner BLEED specifically (a fill/child painting past the arc), read
+> [`CORNER-BLEED-PLAYBOOK.md`](CORNER-BLEED-PLAYBOOK.md) — the complete cure.**
+> One rule closes ~90% of it: *egui clamps a rect's corner radius to half its
+> shorter side, so a fill too short/thin to hold its radius (e.g. a partial last
+> row) renders a smaller arc and bleeds. Follow the arc with 1px inset bands, not
+> a rounded rect.* The playbook has the copy-me band code, the effective-radius
+> diagnostic, the 6-step drill, and commit ids.
+
 ## The corner system (paint order, per rounded container)
 
 All in `crates/cobolt-forms/` (`paint.rs`, `render.rs`):
@@ -45,6 +53,7 @@ All in `crates/cobolt-forms/` (`paint.rs`, `render.rs`):
 
 | Symptom | Root cause | Fix (all shipped) |
 |---|---|---|
+| **Opaque FILL bleeds past the arc** (partial last row / thin sliver / 1px band) | egui clamps a rect's `corner_radius` to `min(req, w/2, h/2)`; a short fill asked to round to `R` renders `height/2` — a tiny arc that pokes past the face. Guards that read the *stored* radius miss it (compare *effective* `min(sw,w/2,h/2)`) | Draw the fill as **1px arc-inset bands** (like `draw_glass`), never a rounded rect it's too short to hold, and never a square inset (leaves a notch). Full pattern + code: **`CORNER-BLEED-PLAYBOOK.md` §1.1/§3** |
 | **Thin DARK arcs** hugging corners (borders) | egui ≥0.31 radii are **u8**; the old idiom `rect.shrink(half) + (r−half) + StrokeKind::Middle` needs fractional radii; rounding UP pushes the stroke arc outside the face | Concentric strokes use `StrokeKind::Inside` at the full rect + integer face radius — exact, no fractional radius exists. Never reintroduce `shrink(half)` strokes |
 | **Thin LIGHT arcs** at corners (mask sliver) | Same u8 problem, rounding DOWN: restored rim tighter than the mask boundary exposes masked backdrop | Same fix — Inside stroke outer edge == face edge == mask boundary |
 | **Dark banding on corner diagonals** (neumorphic) | Shadow-fill radii (`r + fractional expand`) floored → every layer squarer | `round_map` uses round-to-nearest for FILLS (strokes don't go through it anymore) |

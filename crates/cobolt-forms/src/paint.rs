@@ -6329,17 +6329,69 @@ fn round_map(r: egui::CornerRadius, f: impl Fn(f32) -> f32) -> egui::CornerRadiu
 /// `COBOLT_FRAME_DIAGNOSTICS=1` (also accepts `true`/`on`) in the environment, so
 /// the corner-bleed overlay can be turned on without a rebuild and never ships on
 /// by default. Read once and cached.
-fn frame_diagnostics_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("COBOLT_FRAME_DIAGNOSTICS")
-            .map(|v| {
-                let v = v.trim();
-                v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
-            })
-            .unwrap_or(false)
-    })
+/// Runtime state of the diagnostics overlay, tri-valued so the IDE's Project
+/// Settings toggle can override the env var without a rebuild:
+/// `0` = uninitialised (fall back to `COBOLT_FRAME_DIAGNOSTICS` on first read),
+/// `1` = forced off, `2` = forced on.
+static FRAME_DIAG: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Turn the frame-diagnostics overlay on/off at runtime. The IDE calls this from
+/// the Project Settings "Frame diagnostics" toggle (and each frame from the live
+/// project setting), so the in-process design canvas responds without a rebuild
+/// or an env var. Run-Form runs in a child process, which still honours
+/// `COBOLT_FRAME_DIAGNOSTICS` — the IDE passes it through when launching.
+///
+/// An explicit call always wins over the env var: once set, the stored value is
+/// authoritative.
+pub fn set_frame_diagnostics(on: bool) {
+    FRAME_DIAG.store(if on { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `true` when the frame-diagnostics overlay is active (project setting or, until
+/// the IDE overrides it, the `COBOLT_FRAME_DIAGNOSTICS` env var). Public so other
+/// crates (e.g. the IDE's rounded-clip labelling) share this one source of truth
+/// instead of re-reading the env.
+pub fn frame_diagnostics_enabled() -> bool {
+    diag_flag(&FRAME_DIAG, "COBOLT_FRAME_DIAGNOSTICS")
+}
+
+/// Runtime state of the DataGrid component-frame overlay (a diagnostic private to
+/// the DataGrid: it outlines every internal sub-component — header, body, each
+/// column, each visible row and cell, frozen panes, scrollbar — independently of
+/// the global frame diagnostics). Tri-valued like [`FRAME_DIAG`].
+static DATAGRID_DIAG: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Turn the DataGrid component-frame overlay on/off at runtime. Mirrors
+/// [`set_frame_diagnostics`]; the IDE drives it from the project setting.
+pub fn set_datagrid_diagnostics(on: bool) {
+    DATAGRID_DIAG.store(if on { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `true` when the DataGrid component-frame overlay is active (project setting or,
+/// until the IDE overrides it, the `COBOLT_DATAGRID_DIAGNOSTICS` env var).
+pub fn datagrid_diagnostics_enabled() -> bool {
+    diag_flag(&DATAGRID_DIAG, "COBOLT_DATAGRID_DIAGNOSTICS")
+}
+
+/// Shared tri-state reader for the diagnostic flags: `1` = off, `2` = on,
+/// `0` = uninitialised → seed once from `env_var` (dev override) so a child
+/// `rcrun run-form` process still lights up when it's exported.
+fn diag_flag(cell: &std::sync::atomic::AtomicU8, env_var: &str) -> bool {
+    use std::sync::atomic::Ordering;
+    match cell.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let on = std::env::var(env_var)
+                .map(|v| {
+                    let v = v.trim();
+                    v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+                })
+                .unwrap_or(false);
+            cell.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
 }
 
 /// One distinct hue per composite layer ("slot"), so frames that overlap the same

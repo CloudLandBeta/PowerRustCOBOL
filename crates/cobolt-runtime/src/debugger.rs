@@ -48,6 +48,14 @@ pub enum RemoteDebugCmd {
     Cmd(DebugCmd),
     /// Replace the debuggee's whole breakpoint set (idempotent).
     SetBreakpoints(Vec<u32>),
+    /// Set the debug **scope**: when `user_only` is true, the interpreter pauses
+    /// only on lines the developer authored (`user_lines`), stepping transparently
+    /// through IDE-generated scaffolding. `user_lines` is the flat set of 1-based
+    /// generated-`.cbl` line numbers that hold handler / user-procedure code.
+    SetUserScope {
+        user_only: bool,
+        user_lines: Vec<u32>,
+    },
 }
 
 // ── Events (interpreter → IDE) ────────────────────────────────────────────────
@@ -92,4 +100,24 @@ pub type Breakpoints = Arc<Mutex<HashSet<u32>>>;
 /// Create an empty, shared breakpoint set.
 pub fn new_breakpoints() -> Breakpoints {
     Arc::new(Mutex::new(HashSet::new()))
+}
+
+// ── Shared debug scope (user-only stepping) ───────────────────────────────────
+
+/// Which lines the debugger is allowed to stop on. When `user_only` is true and
+/// `user_lines` is non-empty, the interpreter pauses only on those lines, running
+/// transparently through IDE-generated scaffolding. Shared `Arc<Mutex<…>>` so the
+/// IDE's "hide generated code" toggle takes effect live, mid-session.
+#[derive(Debug, Default, Clone)]
+pub struct UserScope {
+    pub user_only: bool,
+    pub user_lines: HashSet<u32>,
+}
+
+/// A thread-safe, shareable [`UserScope`].
+pub type DebugUserScope = Arc<Mutex<UserScope>>;
+
+/// Create a shared, empty scope (defaults to `user_only = false` = debug everything).
+pub fn new_user_scope() -> DebugUserScope {
+    Arc::new(Mutex::new(UserScope::default()))
 }

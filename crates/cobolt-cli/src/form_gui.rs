@@ -146,6 +146,63 @@ impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
 
 // ── Entry point ────────────────────────────────────────────────────────────────
 
+/// `true` when the named env var holds a truthy value (`1`/`true`/`on`). Presence
+/// alone is not enough: the IDE always sets these vars (to `0` when the matching
+/// project diagnostic is off), so the value must be inspected.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+fn databind_trace_enabled() -> bool {
+    env_flag("COBOLT_DATABIND_TRACE")
+}
+
+/// Sanitize a project name into a safe file stem (no path separators / oddities).
+fn sanitize_stem(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = s.trim_matches('_');
+    if trimmed.is_empty() {
+        "project".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Write the per-control diagnostics dump to `/tmp/<project>_diagnostics_dump.log`.
+/// Called once at launch when any diagnostic is enabled. Best-effort: a failure to
+/// write is reported on stderr but never blocks the form from running.
+fn write_diagnostics_dump(project: &str, form: &cobolt_forms::Form) {
+    let enabled = [
+        ("frame_diagnostics", env_flag("COBOLT_FRAME_DIAGNOSTICS")),
+        ("datagrid_diagnostics", env_flag("COBOLT_DATAGRID_DIAGNOSTICS")),
+        ("databind_trace", env_flag("COBOLT_DATABIND_TRACE")),
+    ];
+    let body = cobolt_forms::diagnostics::dump_form_diagnostics(form, project, &enabled);
+    // The user-facing contract is exactly /tmp/<project>_diagnostics_dump.log,
+    // so use /tmp literally rather than the platform temp dir (which on macOS is
+    // a per-process /var/folders path).
+    let path =
+        PathBuf::from("/tmp").join(format!("{}_diagnostics_dump.log", sanitize_stem(project)));
+    match std::fs::write(&path, body) {
+        Ok(()) => eprintln!("run-form: wrote diagnostics dump to {}", path.display()),
+        Err(e) => eprintln!("run-form: could not write diagnostics dump to {}: {e}", path.display()),
+    }
+}
+
 pub fn cmd_run_form(args: &[String]) {
     let (cfrm_path, cbl_path) = match (args.first(), args.get(1)) {
         (Some(a), Some(b)) => (PathBuf::from(a), PathBuf::from(b)),
@@ -173,6 +230,13 @@ pub fn cmd_run_form(args: &[String]) {
     // on stdin; DebugEvents leave as `@DBG <json>` lines on stdout. Plain
     // stdout lines remain DISPLAY output. The program starts paused at line 1.
     let debug_mode = args.iter().any(|a| a == "--debug");
+    // When ANY diagnostic is enabled, the IDE forwards `--diagnostics-dump
+    // <project>`; write the detailed per-control dump once, at launch.
+    let diagnostics_dump_project: Option<String> = args
+        .iter()
+        .position(|a| a == "--diagnostics-dump")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
 
     // ── Load the form layout ──────────────────────────────────────────────────
     let form = match cobolt_forms::load_form(&cfrm_path) {
@@ -182,6 +246,10 @@ pub fn cmd_run_form(args: &[String]) {
             process::exit(1);
         }
     };
+
+    if let Some(project) = diagnostics_dump_project.as_deref() {
+        write_diagnostics_dump(project, &form);
+    }
 
     // ── Parse + analyse the COBOL program ─────────────────────────────────────
     let source = match std::fs::read_to_string(&cbl_path) {
@@ -315,6 +383,11 @@ pub fn cmd_run_form(args: &[String]) {
                                 *guard = lines.into_iter().collect();
                             }
                         }
+                        // TODO(debug-user-scope): wire the interpreter's user-only
+                        // stepping once `Interpreter::set_debug_user_scope` lands
+                        // (parked "hide generated code" feature). Accepted here so
+                        // the child never rejects the command; currently a no-op.
+                        Ok(RemoteDebugCmd::SetUserScope { .. }) => {}
                         Err(e) => eprintln!("run-form: bad @DBG command: {e}"),
                     }
                 }
@@ -645,12 +718,14 @@ impl eframe::App for FormApp {
         }
 
         // ── One-shot databind diagnostic (opt-in) ────────────────────────────
-        // Set COBOLT_DATABIND_TRACE=1 to write, once, the mismatch between the
-        // state keys the interpreter populated and the instanced ids the renderer
-        // will look up for each repeating-group member. Decisive for "cards show
-        // designed defaults in run-form but not in preview".
+        // COBOLT_DATABIND_TRACE=1 (also true/on) writes, once, the mismatch
+        // between the state keys the interpreter populated and the instanced ids
+        // the renderer will look up for each repeating-group member. Decisive for
+        // "cards show designed defaults in run-form but not in preview". The IDE
+        // sets this from the project's Data-bind trace setting — always (incl.
+        // "0"), so test the value rather than mere presence.
         if !self.db_dumped
-            && std::env::var("COBOLT_DATABIND_TRACE").is_ok()
+            && databind_trace_enabled()
             && self.state.keys().any(|k| k.contains('.'))
         {
             self.db_dumped = true;

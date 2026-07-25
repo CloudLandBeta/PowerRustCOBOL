@@ -1553,6 +1553,31 @@ impl EditorPanel {
         Ok(())
     }
 
+    /// True when any writable tab has unsaved edits (drives the close prompt).
+    pub fn any_dirty(&self) -> bool {
+        self.tabs.iter().any(|t| t.dirty && !t.read_only)
+    }
+
+    /// Save every dirty, writable tab to disk. Used by the close-confirmation
+    /// flow ("Save before close"). Stops at the first I/O error.
+    pub fn save_all_dirty(&mut self) -> std::io::Result<()> {
+        let trim = self.trim_on_save;
+        for tab in &mut self.tabs {
+            if tab.read_only || !tab.dirty {
+                continue;
+            }
+            if trim {
+                let trimmed = trim_trailing_ws(&tab.content);
+                if trimmed != tab.content {
+                    tab.content = trimmed;
+                }
+            }
+            std::fs::write(&tab.path, &tab.content)?;
+            tab.dirty = false;
+        }
+        Ok(())
+    }
+
     /// "Beautify" the active tab: a conservative whitespace tidy that never
     /// touches COBOL area-A/B alignment — trim trailing spaces, collapse runs of
     /// blank lines, and end with a single newline.

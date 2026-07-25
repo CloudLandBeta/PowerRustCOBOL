@@ -23,6 +23,7 @@
 
 pub mod containers;
 pub mod datagrid;
+pub mod diagnostics;
 pub mod icons;
 pub mod menu;
 pub mod model;

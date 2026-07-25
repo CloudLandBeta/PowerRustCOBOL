@@ -93,113 +93,6 @@ pub(crate) struct DesignerClipboard {
 
 // ── Dialog state ──────────────────────────────────────────────────────────────
 
-/// State for the "Report Bug" dialog available in both the IDE and designer.
-struct ReportBugDialog {
-    open: bool,
-    /// Short one-line title of the problem.
-    title: String,
-    /// Longer description (steps to reproduce, what went wrong, etc.)
-    description: String,
-    /// Which surface the bug was reported from (e.g. "IDE Editor", "Form Designer").
-    component: String,
-    /// Feedback shown after submission ("Saved." or an error).
-    feedback: Option<String>,
-}
-
-impl ReportBugDialog {
-    fn new() -> Self {
-        Self {
-            open: false,
-            title: String::new(),
-            description: String::new(),
-            component: "IDE".into(),
-            feedback: None,
-        }
-    }
-
-    /// Open the dialog pre-filled with the given component name.
-    fn open_for(&mut self, component: impl Into<String>) {
-        self.open = true;
-        self.component = component.into();
-        self.title.clear();
-        self.description.clear();
-        self.feedback = None;
-    }
-
-    /// Write the bug report to BUGS.md and return Ok or an error string.
-    fn submit(&mut self, bugs_path: &std::path::Path) -> Result<(), String> {
-        if self.title.trim().is_empty() {
-            return Err("Please enter a title for the bug.".into());
-        }
-
-        // Read existing file.
-        let existing = std::fs::read_to_string(bugs_path).unwrap_or_default();
-
-        // Find the next BUG-NNN number.
-        let last_id = existing
-            .lines()
-            .filter_map(|l| {
-                let col = l.split('|').nth(1)?.trim();
-                col.strip_prefix("BUG-").and_then(|n| n.parse::<u32>().ok())
-            })
-            .max()
-            .unwrap_or(0);
-        let next_id = last_id + 1;
-
-        let today = {
-            // Use a simple date string; chrono not in scope so derive from SystemTime.
-            let secs = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let days = secs / 86400;
-            // Approximate calendar date (good enough for a bug-tracker timestamp).
-            let y = 1970 + days / 365;
-            let d = days % 365;
-            let m = (d / 30) + 1;
-            let dd = (d % 30) + 1;
-            format!("{y:04}-{m:02}-{dd:02}")
-        };
-
-        let component = self.component.replace('|', "∣");
-        let title = self.title.trim().replace('|', "∣");
-        let desc = self.description.trim().replace('|', "∣");
-        let summary = if desc.is_empty() {
-            title.clone()
-        } else {
-            format!("{title} — {desc}")
-        };
-        let summary = if summary.len() > 100 {
-            format!("{}…", &summary[..97])
-        } else {
-            summary
-        };
-
-        let new_row =
-            format!("| BUG-{next_id:03} | {today} | `{component}` | `MANUAL` | {summary} |\n");
-
-        // Inject into the Open Bugs table.
-        let placeholder = "_No open bugs — all clear! ✅_";
-        let updated = if existing.contains(placeholder) {
-            existing.replace(placeholder, &new_row.trim_end())
-        } else if existing.contains("| ID | Detected |") {
-            // Append after the last existing open-bug row (before the next ---)
-            let sep = "\n---";
-            if let Some(pos) = existing.find(sep) {
-                let (before, after) = existing.split_at(pos);
-                format!("{before}\n{new_row}{after}")
-            } else {
-                format!("{existing}\n{new_row}")
-            }
-        } else {
-            format!("{existing}\n{new_row}")
-        };
-
-        std::fs::write(bugs_path, updated).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-}
-
 struct NewFormDialog {
     open: bool,
     form_name: String,
@@ -391,8 +284,12 @@ pub struct CoboltApp {
     show_grace_chat: bool,
     /// Project-scoped Grace conversation state.
     grace_chat: GraceChatPanel,
-    /// Set while a "save unsaved settings before closing?" dialog is shown.
-    settings_close_confirm: bool,
+    /// Set while the "save unsaved changes before closing?" dialog is shown
+    /// (covers dirty forms, code editor tabs, and project settings).
+    close_confirm: bool,
+    /// Once the user has chosen Save-before-close or Close-without-saving, this
+    /// lets the next close request through without re-prompting.
+    allow_close: bool,
     /// Cached background-image texture, keyed by the resolved absolute path.
     bg_texture: Option<(PathBuf, egui::TextureHandle)>,
 
@@ -447,8 +344,6 @@ pub struct CoboltApp {
     welcome_quote_index: usize,
     welcome_quote_start_time: f64,
 
-    /// Report Bug dialog (shown from both IDE toolbar and designer toolbar).
-    report_bug: ReportBugDialog,
     /// Whether the Help → About window is open.
     about_open: bool,
     /// Documentation viewer window (Help → Documentation).
@@ -461,10 +356,11 @@ pub struct CoboltApp {
     /// Font size for the message text in the error modals (adjusted with the
     /// A− / A+ buttons in the dialog; session-only, like the output-log size).
     error_font_size: f32,
-    save_alert_msg: Option<String>,
-    /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
-    /// `idx` (so the alert is not hidden behind it), `None` = the main IDE window.
-    save_alert_designer: Option<usize>,
+    /// Transient "form saved" cue: while the deadline is in the future, the
+    /// designer Save button paints a checkmark instead of its normal icon
+    /// (replaces the old modal alert). Keyed by the saved form's path so only
+    /// that designer flashes.
+    save_flash: Option<(std::path::PathBuf, std::time::Instant)>,
 
     /// Dev-agent change-set awaiting the developer's Approve/Reject (spec 025 T9).
     /// `Some` while a proposal is on screen; nothing is applied until approved.
@@ -1007,7 +903,8 @@ impl CoboltApp {
             show_project_settings: false,
             show_grace_chat: false,
             grace_chat: GraceChatPanel::new(),
-            settings_close_confirm: false,
+            close_confirm: false,
+            allow_close: false,
             bg_texture: None,
             llm: crate::llm::LlmConfig::load(),
             llm_test_rx: None,
@@ -1035,14 +932,12 @@ impl CoboltApp {
             lang: Language::English,
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
-            report_bug: ReportBugDialog::new(),
             about_open: false,
             doc_viewer: Default::default(),
             form_error: None,
             alert_error: None,
             error_font_size: 13.0,
-            save_alert_msg: None,
-            save_alert_designer: None,
+            save_flash: None,
             agent_preview: None,
             agent_prompt: String::new(),
             agent_pending: None,
@@ -1411,8 +1306,7 @@ impl CoboltApp {
         // Save the form and regenerate COBOL first (silently — Run should not
         // pop a "saved" alert).
         self.do_save_designer(idx);
-        self.save_alert_msg = None;
-        self.save_alert_designer = None;
+        self.save_flash = None;
         self.do_generate_cobol(idx);
 
         let form_path = self.designers[idx].0.clone();
@@ -1477,6 +1371,27 @@ impl CoboltApp {
             .and_then(|p| p.form_theme_default())
             .map(|s| s.to_owned());
         let project_icon = self.project_icon_abs_path();
+        let diagnostics = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| {
+                let ide = &p.ide;
+                // The dump fires when ANY diagnostic is on — including the
+                // IDE-only ones (rounded clip, AI-pane debug) — so a single
+                // toggle is enough to get a full per-control record on the run.
+                let any = ide.frame_diagnostics
+                    || ide.rounded_clip
+                    || ide.databind_trace
+                    || ide.ai_pane_debug
+                    || ide.datagrid_diagnostics;
+                crate::form_runtime::RunDiagnostics {
+                    frame_diagnostics: ide.frame_diagnostics,
+                    databind_trace: ide.databind_trace,
+                    datagrid_diagnostics: ide.datagrid_diagnostics,
+                    dump_project: any.then(|| p.project.name.clone()),
+                }
+            })
+            .unwrap_or_default();
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
@@ -1484,6 +1399,7 @@ impl CoboltApp {
             theme_default.as_deref(),
             project_icon.as_deref(),
             debug,
+            &diagnostics,
         ) {
             Ok(run) => {
                 if debug {
@@ -3382,10 +3298,12 @@ impl CoboltApp {
                 self.forms_list.refresh();
                 // Reflect the change in the tree + regenerate the backend COBOL.
                 self.after_form_saved(&path);
-                // Show the "Form <name> saved" alert in THIS designer's viewport
-                // (so it is not hidden behind the designer window).
-                self.save_alert_msg = Some(form_name);
-                self.save_alert_designer = Some(idx);
+                // Flash a checkmark on the Save button for ~1s instead of a
+                // modal. Keyed by path so this designer's button flashes.
+                self.save_flash = Some((
+                    path.clone(),
+                    std::time::Instant::now() + std::time::Duration::from_millis(1000),
+                ));
             }
             Err(e) => {
                 self.output.push_status(format!("Save form failed: {e}"));
@@ -6572,6 +6490,37 @@ impl CoboltApp {
             .unwrap_or(false)
     }
 
+    /// True when anything is changed and not saved: an open form designer with
+    /// pending edits, a dirty code-editor tab, or unsaved project settings.
+    /// Drives the on-close confirmation dialog.
+    fn has_unsaved_changes(&self) -> bool {
+        self.designers.iter().any(|(_, d)| d.dirty)
+            || self.editor.any_dirty()
+            || self.settings_dirty()
+    }
+
+    /// Persist everything unsaved, used by the close dialog's "Save before close".
+    /// Saves each dirty form (regenerating its COBOL), all dirty editor tabs, and
+    /// the project settings form when dirty.
+    fn save_all_unsaved(&mut self) {
+        let dirty_designers: Vec<usize> = self
+            .designers
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, d))| d.dirty)
+            .map(|(i, _)| i)
+            .collect();
+        for idx in dirty_designers {
+            self.do_save_designer(idx);
+        }
+        if let Err(e) = self.editor.save_all_dirty() {
+            self.output.push_status(format!("Save on close failed: {e}"));
+        }
+        if self.settings_dirty() {
+            self.save_settings_form();
+        }
+    }
+
     /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
     fn open_in_editor(&mut self, path: PathBuf) {
         if self.path_is_asset(&path) {
@@ -7228,45 +7177,6 @@ impl CoboltApp {
         }
     }
 
-    // ── Report Bug ────────────────────────────────────────────────────────────
-
-    /// Path to the BUGS.md file — looks for it relative to the project root,
-    /// falling back to the open project path, then the current working dir.
-    fn bugs_md_path(&self) -> std::path::PathBuf {
-        // If a project is open, use the project directory.
-        if let Some(pp) = &self.project_path {
-            if let Some(dir) = pp.parent() {
-                let p = dir.join("BUGS.md");
-                if p.exists() {
-                    return p;
-                }
-                // Create it alongside the project if it doesn't exist yet.
-                return p;
-            }
-        }
-        // Fall back to the workspace root (look for Cargo.toml with [workspace]).
-        let mut dir = std::env::current_dir().unwrap_or_default();
-        loop {
-            let candidate = dir.join("BUGS.md");
-            if candidate.exists() {
-                return candidate;
-            }
-            let toml = dir.join("Cargo.toml");
-            if toml.exists() {
-                if let Ok(t) = std::fs::read_to_string(&toml) {
-                    if t.contains("[workspace]") {
-                        return candidate;
-                    }
-                }
-            }
-            match dir.parent() {
-                Some(p) => dir = p.to_owned(),
-                None => break,
-            }
-        }
-        std::path::PathBuf::from("BUGS.md")
-    }
-
     /// Modal shown when a form's generated COBOL fails to launch (parse /
     /// semantic error) or the interpreter reports a fatal runtime error. The
     /// message is also in the Output console; this dialog just makes it
@@ -7364,37 +7274,6 @@ impl CoboltApp {
         act.close
     }
 
-    fn show_save_alert(&mut self, ctx: &Context) {
-        let form_name = match &self.save_alert_msg {
-            Some(n) => n.clone(),
-            None => return,
-        };
-        let tr = self.lang.tr();
-        let msg = tr.alert_form_saved.replacen("{}", &form_name, 1);
-        let mut open = true;
-
-        egui::Window::new("✅")
-            .id(egui::Id::new("save_alert"))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(&msg).size(15.0).strong());
-                ui.add_space(8.0);
-                if ui.button("OK").clicked() {
-                    self.save_alert_msg = None;
-                    self.save_alert_designer = None;
-                }
-            });
-
-        if !open {
-            self.save_alert_msg = None;
-            self.save_alert_designer = None;
-        }
-    }
-
     /// A centred modal "Building…" popup with an animated progress bar, shown
     /// while a binary build is in flight. It disappears on the frame the build
     /// finishes (its receiver is drained earlier in `update`), i.e. right before
@@ -7490,87 +7369,6 @@ impl CoboltApp {
                 });
                 ui.add_space(4.0);
             });
-    }
-
-    fn show_report_bug_dialog(&mut self, ctx: &Context) {
-        if !self.report_bug.open {
-            return;
-        }
-
-        let mut open = true;
-        egui::Window::new("🐛 Report a Problem")
-            .collapsible(false)
-            .resizable(true)
-            .min_width(420.0)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label("Describe the problem so it can be tracked and fixed:");
-                ui.add_space(6.0);
-
-                egui::Grid::new("bug_form")
-                    .num_columns(2)
-                    .spacing([8.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label("Component:");
-                        ui.text_edit_singleline(&mut self.report_bug.component);
-                        ui.end_row();
-
-                        ui.label("Title:");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.report_bug.title)
-                                .hint_text("One-line summary of the problem")
-                                .desired_width(f32::INFINITY),
-                        );
-                        ui.end_row();
-
-                        ui.label("Description:");
-                        ui.add(
-                            egui::TextEdit::multiline(&mut self.report_bug.description)
-                                .hint_text(
-                                    "Steps to reproduce, what went wrong, what you expected…",
-                                )
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(4),
-                        );
-                        ui.end_row();
-                    });
-
-                ui.add_space(4.0);
-
-                if let Some(fb) = &self.report_bug.feedback {
-                    let color = if fb.starts_with('✅') {
-                        egui::Color32::from_rgb(80, 220, 120)
-                    } else {
-                        egui::Color32::from_rgb(255, 120, 80)
-                    };
-                    ui.colored_label(color, fb.clone());
-                    ui.add_space(4.0);
-                }
-
-                ui.horizontal(|ui| {
-                    if ui.button("Submit to BUGS.md").clicked() {
-                        let path = self.bugs_md_path();
-                        match self.report_bug.submit(&path) {
-                            Ok(()) => {
-                                self.report_bug.feedback = Some(format!(
-                                    "✅ Saved to {}  — next scan will pick it up.",
-                                    path.display()
-                                ));
-                            }
-                            Err(e) => {
-                                self.report_bug.feedback = Some(format!("❌ {e}"));
-                            }
-                        }
-                    }
-                    if ui.button("Close").clicked() {
-                        self.report_bug.open = false;
-                    }
-                });
-            });
-
-        if !open {
-            self.report_bug.open = false;
-        }
     }
 
     // ── Keyboard shortcuts (main window) ─────────────────────────────────────
@@ -8094,6 +7892,27 @@ impl eframe::App for CoboltApp {
             ctx.request_repaint();
         }
 
+        // Keep the in-process diagnostics (design canvas / IDE) in sync with the
+        // live project settings, so toggling them in Project Settings applies
+        // immediately without a rebuild or an env var. Run Form is a separate
+        // process and picks its flags (frame diagnostics, data-bind trace) up via
+        // env on its next launch.
+        {
+            let ide = self.cobolt_project.as_ref().map(|p| &p.ide);
+            cobolt_forms::paint::set_frame_diagnostics(
+                ide.map(|s| s.frame_diagnostics).unwrap_or(false),
+            );
+            cobolt_forms::paint::set_datagrid_diagnostics(
+                ide.map(|s| s.datagrid_diagnostics).unwrap_or(false),
+            );
+            crate::panels::rounded_clip::set_enabled(
+                ide.map(|s| s.rounded_clip).unwrap_or(false),
+            );
+            crate::panels::designer::set_ai_pane_debug(
+                ide.map(|s| s.ai_pane_debug).unwrap_or(false),
+            );
+        }
+
         // Update window title to reflect the current project's build mode.
         {
             let mode_suffix = self
@@ -8134,12 +7953,16 @@ impl eframe::App for CoboltApp {
         // packs) so the Settings form and the per-form Appearance pane list them.
         self.publish_theme_choices(ctx);
 
-        // Intercept main window close if the project Settings form has unsaved changes.
-        if ctx.input(|i| i.viewport().close_requested()) {
-            if self.settings_dirty() && !self.settings_close_confirm {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.settings_close_confirm = true;
-            }
+        // Intercept main window close if anything is changed and not saved
+        // (dirty forms, code editor tabs, or project settings). Once the user has
+        // decided (Save / Close without saving), `allow_close` lets it through.
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_close
+            && self.has_unsaved_changes()
+            && !self.close_confirm
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.close_confirm = true;
         }
 
         // ── Indexed editor / grid viewports (before main-shell theme) ─────────
@@ -8283,13 +8106,9 @@ impl eframe::App for CoboltApp {
         self.show_new_project_dialog(ctx);
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
-        self.show_report_bug_dialog(ctx);
         self.show_about(ctx);
         // Save alert: render it in the MAIN window only when it doesn't belong
         // to a designer viewport (those render it themselves, on top).
-        if self.save_alert_designer.is_none() {
-            self.show_save_alert(ctx);
-        }
         // "Building…" progress modal (closes right before the result is shown).
         self.show_building_modal(ctx);
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
@@ -8359,14 +8178,6 @@ impl eframe::App for CoboltApp {
                 ui.menu_button("Help", |ui| {
                     if ui.button(tr.doc_menu_label).clicked() {
                         self.doc_viewer.open(self.lang);
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("🐛 Report a Problem…")
-                        .on_hover_text("Report a bug or issue — saved to BUGS.md and picked up by the next scan")
-                        .clicked()
-                    {
-                        self.report_bug.open_for("IDE Editor");
                         ui.close();
                     }
                     ui.separator();
@@ -8640,36 +8451,40 @@ impl eframe::App for CoboltApp {
         }
 
         // ── Unsaved project settings close-confirmation dialog (main window) ────
-        if self.settings_close_confirm {
+        if self.close_confirm {
             let mut open = true;
-            egui::Window::new(tr.settings_close_title)
+            egui::Window::new(tr.app_close_title)
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .open(&mut open)
                 .show(ctx, |ui| {
-                    ui.label(tr.settings_close_msg);
+                    ui.label(tr.app_close_msg);
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
+                        // Save before close.
                         if ui.button(tr.close_save).clicked() {
-                            self.save_settings_form();
-                            self.settings_close_confirm = false;
+                            self.save_all_unsaved();
+                            self.close_confirm = false;
+                            self.allow_close = true;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
+                        // Close without saving.
                         if ui.button(tr.close_discard).clicked() {
-                            if let Some(f) = &mut self.settings_form {
-                                f.cancel();
-                            }
-                            self.settings_close_confirm = false;
+                            self.close_confirm = false;
+                            self.allow_close = true;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
+                        // Cancel — the close was already vetoed above, so just
+                        // dismiss the prompt and keep working.
                         if ui.button(tr.close_cancel).clicked() {
-                            self.settings_close_confirm = false;
+                            self.close_confirm = false;
                         }
                     });
                 });
+            // Window "X" / Esc ⇒ same as Cancel.
             if !open {
-                self.settings_close_confirm = false;
+                self.close_confirm = false;
             }
         }
 
@@ -11232,6 +11047,11 @@ impl CoboltApp {
                 // selector row) make the content ~75px tall, which egui uses as the
                 // panel height — overriding `exact_height(50)`.
                 let mut action = DesignerToolbarAction::None;
+                // Transient checkmark on the Save button after a save of THIS form.
+                let saved_flash = matches!(
+                    &self.save_flash,
+                    Some((p, until)) if *p == form_path && std::time::Instant::now() < *until
+                );
                 ui.horizontal_centered(|ui| {
                     action = draw_icon_toolbar(
                         ui,
@@ -11251,6 +11071,7 @@ impl CoboltApp {
                         fp_active,
                         self.show_inspector,
                         self.debug_active,
+                        saved_flash,
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -11392,9 +11213,6 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::DebugForm => {
                         self.do_debug_form(idx);
-                    }
-                    DesignerToolbarAction::ReportBug => {
-                        self.report_bug.open_for("Form Designer");
                     }
                     DesignerToolbarAction::None => {}
                 }
@@ -11631,9 +11449,6 @@ impl CoboltApp {
 
         // The "Form saved" alert belongs to THIS viewport (so it appears on top
         // of the designer, not hidden behind it in the main window).
-        if self.save_alert_designer == Some(idx) {
-            self.show_save_alert(ctx);
-        }
 
         // Model benchmark dialogs must also be painted in the designer viewport.
         // Otherwise a report produced from the designer assistant can be visible

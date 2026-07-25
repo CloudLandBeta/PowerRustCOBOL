@@ -53,6 +53,16 @@ pub struct SettingsDraft {
     // ── Run-Form inspector ──
     pub insp_dump_enabled: bool,
     pub insp_dump_path: String,
+    /// Frame-diagnostics overlay (rounded-corner bleed hunt); developer aid.
+    pub frame_diagnostics: bool,
+    /// Rounded-corner GL clip (spec 017); experimental rendering fix.
+    pub rounded_clip: bool,
+    /// Data-bind trace in the run-form process; developer aid.
+    pub databind_trace: bool,
+    /// AI-pane layout debug trace on stderr; developer aid.
+    pub ai_pane_debug: bool,
+    /// DataGrid component-frame overlay; developer aid private to the DataGrid.
+    pub datagrid_diagnostics: bool,
     // ── AI assistant (project-scoped; credentials remain machine-local) ──
     /// Selected AI provider id (empty ⇒ "Select the AI Provider").
     pub llm_provider: String,
@@ -98,6 +108,11 @@ impl SettingsDraft {
             fixed_format: p.runtime.fixed_format,
             insp_dump_enabled: p.ide.inspector_dump_enabled,
             insp_dump_path: p.ide.inspector_dump_path.clone(),
+            frame_diagnostics: p.ide.frame_diagnostics,
+            rounded_clip: p.ide.rounded_clip,
+            databind_trace: p.ide.databind_trace,
+            ai_pane_debug: p.ide.ai_pane_debug,
+            datagrid_diagnostics: p.ide.datagrid_diagnostics,
             llm_provider: llm.provider.clone(),
             llm_endpoint: llm.endpoint.clone(),
             llm_api_key: llm.api_key.clone(),
@@ -138,6 +153,11 @@ impl SettingsDraft {
         p.runtime.fixed_format = self.fixed_format;
         p.ide.inspector_dump_enabled = self.insp_dump_enabled;
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
+        p.ide.frame_diagnostics = self.frame_diagnostics;
+        p.ide.rounded_clip = self.rounded_clip;
+        p.ide.databind_trace = self.databind_trace;
+        p.ide.ai_pane_debug = self.ai_pane_debug;
+        p.ide.datagrid_diagnostics = self.datagrid_diagnostics;
         llm.provider = self.llm_provider.clone();
         llm.endpoint = self.llm_endpoint.clone();
         if !self.llm_api_key.trim().is_empty() {
@@ -1647,6 +1667,108 @@ impl SettingsForm {
                                 );
                             });
                         });
+
+                        // ── Diagnostics ───────────────────────────────────────
+                        // Developer aids, all off by default. Each mirrors an
+                        // env var (still honoured until the project setting
+                        // overrides it), so they can be toggled without a rebuild.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.set_min_width(splitter);
+                                section(ui, "Diagnostics", &theme);
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
+                        });
+                        // One labelled checkbox row, laid out on the same split as
+                        // the other property rows.
+                        let mut diag_row = |ui: &mut egui::Ui,
+                                            label: &str,
+                                            hover: &str,
+                                            val: &mut bool| {
+                            ui.horizontal_top(|ui| {
+                                let left_rect = ui
+                                    .allocate_exact_size(
+                                        egui::vec2(splitter, 0.0),
+                                        egui::Sense::hover(),
+                                    )
+                                    .0;
+                                ui.scope_builder(
+                                    egui::UiBuilder::new().max_rect(left_rect),
+                                    |ui| {
+                                        ui.style_mut().wrap_mode =
+                                            Some(egui::TextWrapMode::Truncate);
+                                        ui.set_min_width(splitter);
+                                        ui.add_space(property_indent);
+                                        ui.add(egui::Label::new(label.to_owned()).truncate());
+                                    },
+                                );
+                                ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                                ui.add_space(gap_after_resizer);
+                                let right_w = ui.available_width();
+                                ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                    ui.checkbox(val, "").on_hover_text(hover.to_owned());
+                                });
+                            });
+                        };
+                        diag_row(
+                            ui,
+                            "Frame diagnostics overlay",
+                            "Explode each control's composite layers \
+                             (shadow/face/border/content/outline) into coloured, offset \
+                             frames so rounded-corner bleed and mis-rounded layers are \
+                             visible. Applies live to the design canvas; Run Form picks it \
+                             up on its next launch. Env: COBOLT_FRAME_DIAGNOSTICS.",
+                            &mut self.draft.frame_diagnostics,
+                        );
+                        diag_row(
+                            ui,
+                            "Rounded-corner GL clip",
+                            "Experimental (spec 017): capture the framebuffer behind a \
+                             rounded container and re-blit its corner notches through a \
+                             rounded mask, fixing child-content bleed over translucent \
+                             surfaces. Applies live to the design canvas. \
+                             Env: COBOLT_ROUNDED_CLIP.",
+                            &mut self.draft.rounded_clip,
+                        );
+                        diag_row(
+                            ui,
+                            "Data-bind trace",
+                            "The run-form process writes, once, the mismatch between the \
+                             state keys the interpreter populated and the instanced ids \
+                             the renderer looks up for repeating-group members — decisive \
+                             for \"cards show designed defaults in run-form but not in \
+                             preview\". Applied on the next Run Form. \
+                             Env: COBOLT_DATABIND_TRACE.",
+                            &mut self.draft.databind_trace,
+                        );
+                        diag_row(
+                            ui,
+                            "AI-pane layout debug",
+                            "Emit [ai-pane] sizing lines on stderr each frame (max_rect, \
+                             history height, turn count) while the global AI pane is open. \
+                             Applies live. Env: COBOLT_AI_PANE_DEBUG.",
+                            &mut self.draft.ai_pane_debug,
+                        );
+                        diag_row(
+                            ui,
+                            "DataGrid component frames",
+                            "Private to the DataGrid: outline every internal sub-component \
+                             (whole grid, header, body, each column, each visible row and \
+                             cell, frozen panes, scrollbar) in a distinct colour so a \
+                             mis-sized or mis-placed part is obvious. Applies live to the \
+                             design canvas; Run Form picks it up on its next launch. \
+                             Env: COBOLT_DATAGRID_DIAGNOSTICS.",
+                            &mut self.draft.datagrid_diagnostics,
+                        );
                     });
                 });
 

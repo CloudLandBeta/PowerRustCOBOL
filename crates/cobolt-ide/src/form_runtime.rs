@@ -799,6 +799,19 @@ pub struct ExternalFormRun {
     exit_status: Option<std::process::ExitStatus>,
 }
 
+/// Diagnostic flags forwarded to a `rcrun run-form` child, derived from the
+/// project's IDE settings at launch. Each in-render flag is passed as an env var
+/// (the child seeds its runtime flag from it); `dump_project` is `Some(name)`
+/// whenever ANY diagnostic is enabled, which triggers the per-control diagnostics
+/// dump at `/tmp/<name>_diagnostics_dump.log`.
+#[derive(Clone, Default)]
+pub struct RunDiagnostics {
+    pub frame_diagnostics: bool,
+    pub databind_trace: bool,
+    pub datagrid_diagnostics: bool,
+    pub dump_project: Option<String>,
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -809,6 +822,7 @@ impl ExternalFormRun {
         theme_default: Option<&str>,
         project_icon: Option<&std::path::Path>,
         debug: bool,
+        diagnostics: &RunDiagnostics,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = exe.with_file_name("rcrun");
@@ -824,6 +838,27 @@ impl ExternalFormRun {
             }
             if debug {
                 cmd.arg("--debug");
+            }
+            // Drive the child's diagnostics from the project settings. Set
+            // explicitly (including "0") so the project setting is authoritative
+            // over any value inherited from the IDE's own env.
+            cmd.env(
+                "COBOLT_FRAME_DIAGNOSTICS",
+                if diagnostics.frame_diagnostics { "1" } else { "0" },
+            );
+            cmd.env(
+                "COBOLT_DATABIND_TRACE",
+                if diagnostics.databind_trace { "1" } else { "0" },
+            );
+            cmd.env(
+                "COBOLT_DATAGRID_DIAGNOSTICS",
+                if diagnostics.datagrid_diagnostics { "1" } else { "0" },
+            );
+            // When ANY diagnostic is on, ask the child to write the per-control
+            // diagnostics dump; pass the project name so it lands at
+            // /tmp/<project>_diagnostics_dump.log.
+            if let Some(project) = diagnostics.dump_project.as_deref() {
+                cmd.arg("--diagnostics-dump").arg(project);
             }
             // stdin carries `@DBG` command lines in debug mode only.
             cmd.stdin(if debug { Stdio::piped() } else { Stdio::null() })

@@ -34,6 +34,30 @@ use crate::app::{
 use crate::project_model::{CoboltProject, UserControlDef, UserControlEntry};
 use cobolt_forms::render::{card_appear_transform, PlacementEffect};
 
+/// Runtime state of the AI-pane layout debug trace (`[ai-pane]` lines on stderr).
+/// Driven by the IDE's Project Settings "AI-pane layout debug" toggle each frame;
+/// seeds from the `COBOLT_AI_PANE_DEBUG` env var until the setting overrides it.
+static AI_PANE_DEBUG: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Turn the AI-pane layout debug trace on/off at runtime. An explicit call always
+/// wins over the env var.
+pub fn set_ai_pane_debug(on: bool) {
+    AI_PANE_DEBUG.store(if on { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn ai_pane_debug() -> bool {
+    use std::sync::atomic::Ordering;
+    match AI_PANE_DEBUG.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let on = std::env::var_os("COBOLT_AI_PANE_DEBUG").is_some();
+            AI_PANE_DEBUG.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
 // The prompt/input block is a slab pinned to the pane bottom: 170px of fixed
 // chrome around a prompt box whose height the user may drag between 1 and 6
 // text rows (default 3 — at the default the slab is exactly 170px). The
@@ -3735,7 +3759,7 @@ impl DesignerPanel {
                         egui::vec2(ui.available_width(), history_h),
                         egui::Sense::hover(),
                     );
-                    if std::env::var_os("COBOLT_AI_PANE_DEBUG").is_some() {
+                    if ai_pane_debug() {
                         eprintln!(
                             "[ai-pane] max_rect={:?} h={:.1} hist_rect={:?} turns={}",
                             ui.max_rect(),
@@ -8888,8 +8912,6 @@ pub(crate) enum DesignerToolbarAction {
     // Style
     FormatPainter,
     AutoArrange,
-    // Misc
-    ReportBug,
     // Debug
     DebugForm,
 }
@@ -8920,6 +8942,9 @@ pub(crate) fn draw_icon_toolbar(
     fp_active: bool,
     inspector_on: bool,
     debug_active: bool,
+    // When true, the Save button paints a checkmark (a transient "saved" cue)
+    // instead of its normal icon.
+    saved_flash: bool,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -9080,7 +9105,16 @@ pub(crate) fn draw_icon_toolbar(
         group_separator(ui, group_gap);
 
         // ── Group 2: File ────────────────────────────────────────────────────
-        if icon_btn(ui, true, false, "Save & Generate COBOL  (⌘S)", &icon_save) {
+        // Right after a save, the button flashes a checkmark for ~1s (see
+        // `saved_flash`) in place of its normal icon, then reverts. Request a
+        // repaint while flashing so it reverts even if nothing else is animating.
+        if saved_flash {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(80));
+        }
+        let save_icon: &dyn Fn(&mut Vec<Shape>, Rect, Color32) =
+            if saved_flash { &icon_check } else { &icon_save };
+        if icon_btn(ui, true, false, "Save & Generate COBOL  (⌘S)", save_icon) {
             action = DesignerToolbarAction::SaveAndGenerate;
         }
         if icon_btn(ui, true, false, "Generate COBOL only", &icon_generate) {
@@ -9133,7 +9167,7 @@ pub(crate) fn draw_icon_toolbar(
             !form_running && !debug_active,
             debug_active,
             "Debug Form — step through generated COBOL with breakpoints",
-            &icon_debug,
+            &icon_bug,
         ) {
             action = DesignerToolbarAction::DebugForm;
         }
@@ -9251,18 +9285,6 @@ pub(crate) fn draw_icon_toolbar(
             action = DesignerToolbarAction::AutoArrange;
         }
 
-        group_separator(ui, group_gap);
-
-        // ── Group 8: Misc ────────────────────────────────────────────────────
-        if icon_btn(
-            ui,
-            true,
-            false,
-            "Report a Problem with the Form Designer",
-            &icon_bug,
-        ) {
-            action = DesignerToolbarAction::ReportBug;
-        }
     });
 
     action
@@ -9349,6 +9371,16 @@ fn icon_redo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let tip = pts[0];
     out.push(Shape::line_segment([tip, tip + egui::vec2(4.0, 1.0)], s));
     out.push(Shape::line_segment([tip, tip + egui::vec2(0.0, -4.0)], s));
+}
+
+/// Checkmark — the transient "form saved" cue shown on the Save button for ~1s.
+fn icon_check(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(2.2, c);
+    let p0 = Pos2::new(r.min.x + r.width() * 0.20, r.min.y + r.height() * 0.55);
+    let p1 = Pos2::new(r.min.x + r.width() * 0.42, r.min.y + r.height() * 0.75);
+    let p2 = Pos2::new(r.min.x + r.width() * 0.80, r.min.y + r.height() * 0.28);
+    out.push(Shape::line_segment([p0, p1], s));
+    out.push(Shape::line_segment([p1, p2], s));
 }
 
 fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -9547,24 +9579,6 @@ fn icon_inspector(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         ],
         Stroke::new(1.4, c),
     ));
-}
-
-fn icon_debug(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    // Breakpoint circle (ring) with a play triangle inside.
-    let center = r.center();
-    let radius = r.width().min(r.height()) * 0.38;
-    out.push(Shape::circle_stroke(
-        center,
-        radius,
-        Stroke::new(r.width() * 0.09, c),
-    ));
-    let s = radius * 0.5;
-    let pts = vec![
-        Pos2::new(center.x - s * 0.45, center.y - s * 0.72),
-        Pos2::new(center.x + s * 0.72, center.y),
-        Pos2::new(center.x - s * 0.45, center.y + s * 0.72),
-    ];
-    out.push(Shape::convex_polygon(pts, c, Stroke::NONE));
 }
 
 fn icon_cut(out: &mut Vec<Shape>, r: Rect, c: Color32) {

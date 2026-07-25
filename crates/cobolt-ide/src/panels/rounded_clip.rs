@@ -29,32 +29,44 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use egui_glow::glow::{self, HasContext};
 
-/// `true` when `COBOLT_ROUNDED_CLIP` is set to `1`/`true`/`on`. Read once.
-pub fn enabled() -> bool {
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("COBOLT_ROUNDED_CLIP")
-            .map(|v| {
-                let v = v.trim();
-                v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
-            })
-            .unwrap_or(false)
-    })
+/// Runtime state of the rounded-corner GL clip, tri-valued so the IDE's Project
+/// Settings toggle can override the env var without a rebuild:
+/// `0` = uninitialised (fall back to `COBOLT_ROUNDED_CLIP` on first read),
+/// `1` = forced off, `2` = forced on.
+static ROUNDED_CLIP: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Turn the rounded-corner GL clip on/off at runtime. The IDE calls this each
+/// frame from the live project setting; an explicit call always wins over the env.
+pub fn set_enabled(on: bool) {
+    ROUNDED_CLIP.store(if on { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// `true` when `COBOLT_FRAME_DIAGNOSTICS` is set (matches `cobolt_forms::paint`).
-/// Used to label the re-blit region so this frame stops being the nameless offender
-/// in the exploded frame view.
+/// `true` when the rounded-corner GL clip is active (project setting, or the
+/// `COBOLT_ROUNDED_CLIP` env var until the IDE overrides it).
+pub fn enabled() -> bool {
+    use std::sync::atomic::Ordering;
+    match ROUNDED_CLIP.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => {
+            let on = std::env::var("COBOLT_ROUNDED_CLIP")
+                .map(|v| {
+                    let v = v.trim();
+                    v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+                })
+                .unwrap_or(false);
+            ROUNDED_CLIP.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+/// `true` when the frame-diagnostics overlay is active. Delegates to
+/// `cobolt_forms::paint` so the IDE has a single source of truth — used to label
+/// the re-blit region so this frame stops being the nameless offender in the
+/// exploded frame view.
 fn frame_diagnostics() -> bool {
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("COBOLT_FRAME_DIAGNOSTICS")
-            .map(|v| {
-                let v = v.trim();
-                v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
-            })
-            .unwrap_or(false)
-    })
+    cobolt_forms::paint::frame_diagnostics_enabled()
 }
 
 /// Draw a named outline for a clip frame at its TRUE position (the GL re-blit can't

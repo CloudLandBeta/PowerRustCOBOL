@@ -75,15 +75,34 @@ pub use indexed::{generate_indexed, generate_indexed_fd, generate_indexed_select
 ///
 /// Returns a `String` containing fixed-format COBOL source code.
 pub fn generate(form: &Form) -> String {
+    generate_with_user_lines(form).0
+}
+
+/// Like [`generate`], but also returns the **user-code line map**: the 1-based,
+/// inclusive line ranges of the generated `.cbl` that hold code the developer
+/// authored directly — each event handler's body and each user procedure's body
+/// (the `EventBinding::code` / `UserProcedure::code` verbatim blocks). Everything
+/// outside these ranges is IDE-generated scaffolding.
+///
+/// The debugger uses this to optionally hide/skip generated code and stop only in
+/// the developer's own handlers. Empty (unwritten) handlers contribute no range —
+/// their body is a generated template stub, not user code.
+pub fn generate_with_user_lines(form: &Form) -> (String, Vec<(u32, u32)>) {
     let mut out = String::with_capacity(4096);
+    let mut user_lines: Vec<(u32, u32)> = Vec::new();
 
     write_header(&mut out);
     write_identification(&mut out, form);
     write_environment(&mut out, form);
     write_data_division(&mut out, form);
-    write_procedure_division(&mut out, form);
+    write_procedure_division(&mut out, form, &mut user_lines);
 
-    out
+    (out, user_lines)
+}
+
+/// 1-based number of the line that the NEXT character pushed to `out` will start.
+fn next_line_number(out: &str) -> u32 {
+    out.matches('\n').count() as u32 + 1
 }
 
 /// Regenerate the complete COBOL source from `form`.
@@ -549,7 +568,7 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
     out.push('\n');
 }
 
-fn write_procedure_division(out: &mut String, form: &Form) {
+fn write_procedure_division(out: &mut String, form: &Form, user_lines: &mut Vec<(u32, u32)>) {
     out.push_str("       PROCEDURE DIVISION.\n");
 
     let all_controls = collect_all_controls(&form.controls);
@@ -618,7 +637,7 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     data_binding::write_data_binding_paragraphs(out, form);
 
     // ── Nested COBOL-85 programs — one per event handler ─────────────────
-    write_nested_programs(out, form, &all_controls);
+    write_nested_programs(out, form, &all_controls, user_lines);
 
     // ── Close the outer program ───────────────────────────────────────────
     out.push_str(&format!("       END PROGRAM {}.\n", form.name));
@@ -1544,7 +1563,12 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
 
 /// Emit one nested `PROGRAM-ID ... END PROGRAM` block per event handler.
 /// Form-level OnLoad / OnClose come first, then per-control events.
-fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control]) {
+fn write_nested_programs(
+    out: &mut String,
+    form: &Form,
+    all_controls: &[&Control],
+    user_lines: &mut Vec<(u32, u32)>,
+) {
     let has_any = !form.form_events.is_empty()
         || all_controls.iter().any(|c| !c.events.is_empty())
         || !form.user_procedures.is_empty();
@@ -1567,6 +1591,7 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
             &format!("Form {} handler", ev.event),
             true,
             None,
+            user_lines,
         );
     }
 
@@ -1586,6 +1611,7 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
                 &format!("{} {} handler", ctrl.id, ev.event),
                 true,
                 array_member.as_deref(),
+                user_lines,
             );
         }
     }
@@ -1605,6 +1631,7 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
             &format!("user procedure {}", up.name.trim()),
             true,
             None,
+            user_lines,
         );
     }
 }
@@ -1619,6 +1646,7 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
 ///
 /// `common` emits `IS COMMON PROGRAM` so the nested program can be CALLed by its
 /// siblings (used for user procedures, which handlers call).
+#[allow(clippy::too_many_arguments)]
 fn write_nested_program(
     out: &mut String,
     prog_id: &str,
@@ -1627,6 +1655,7 @@ fn write_nested_program(
     comment: &str,
     common: bool,
     array_member: Option<&str>,
+    user_lines: &mut Vec<(u32, u32)>,
 ) {
     let attr = if common { " IS COMMON PROGRAM" } else { "" };
     out.push_str("       IDENTIFICATION DIVISION.\n");
@@ -1634,6 +1663,7 @@ fn write_nested_program(
     out.push('\n');
 
     let trimmed = source.trim();
+    let is_user_authored = !trimmed.is_empty();
     let body = if trimmed.is_empty() {
         out.push_str(&format!("      *>    TODO: {}\n", comment));
         match array_member {
@@ -1645,9 +1675,19 @@ fn write_nested_program(
     } else {
         source.to_string()
     };
+    // Record the inclusive 1-based line range of the developer-authored body so
+    // the debugger can hide/skip the surrounding generated scaffolding. Only real
+    // user code counts — an empty handler emits a generated template stub.
+    let body_start = next_line_number(out);
     for line in body.trim_end().lines() {
         out.push_str(line);
         out.push('\n');
+    }
+    if is_user_authored {
+        let body_end = out.matches('\n').count() as u32; // last line just written
+        if body_end >= body_start {
+            user_lines.push((body_start, body_end));
+        }
     }
     out.push('\n');
 
@@ -1854,6 +1894,49 @@ mod tests {
     fn generate_contains_program_id() {
         let src = generate(&make_form());
         assert!(src.contains("PROGRAM-ID. MAIN-FORM."), "missing PROGRAM-ID");
+    }
+
+    #[test]
+    fn user_line_map_covers_authored_handler_body_only() {
+        // A handler WITH real user code + one with none.
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
+        let mut ev = EventBinding::for_control("BTN-OK", "onClick");
+        ev.code = "           DISPLAY \"HELLO\".\n           DISPLAY \"WORLD\".".to_string();
+        btn.events.push(ev);
+        form.controls.push(btn);
+        // An empty handler contributes no range (generated stub, not user code).
+        let mut btn2 = Control::new("BTN-NO", ControlType::Button, 10, 40);
+        btn2.events
+            .push(EventBinding::for_control("BTN-NO", "onClick"));
+        form.controls.push(btn2);
+
+        let (src, ranges) = generate_with_user_lines(&form);
+        let lines: Vec<&str> = src.lines().collect();
+
+        assert!(!ranges.is_empty(), "expected at least one user range");
+        // Every line inside a reported range must be one of the authored lines,
+        // and the authored DISPLAY lines must be inside some range.
+        let in_range = |n: u32| ranges.iter().any(|(s, e)| n >= *s && n <= *e);
+        let hello = lines
+            .iter()
+            .position(|l| l.contains("DISPLAY \"HELLO\""))
+            .map(|i| i as u32 + 1)
+            .expect("HELLO line present");
+        let world = lines
+            .iter()
+            .position(|l| l.contains("DISPLAY \"WORLD\""))
+            .map(|i| i as u32 + 1)
+            .expect("WORLD line present");
+        assert!(in_range(hello), "HELLO must be user code");
+        assert!(in_range(world), "WORLD must be user code");
+        // The generated PROGRAM-ID header line is never user code.
+        let pid = lines
+            .iter()
+            .position(|l| l.contains("PROGRAM-ID. MAIN-FORM."))
+            .map(|i| i as u32 + 1)
+            .unwrap();
+        assert!(!in_range(pid), "generated PROGRAM-ID must not be user code");
     }
 
     #[test]

@@ -2574,6 +2574,112 @@ fn decorate_hover_response(resp: egui::Response, ctrl: &Control) -> egui::Respon
     }
 }
 
+/// DataGrid component-frame diagnostic (private to the DataGrid, distinct from the
+/// global frame-diagnostics overlay). When [`paint::datagrid_diagnostics_enabled`]
+/// is on, outline every structural sub-component of the grid — the whole viewport,
+/// the header band, the body band, each column (frozen + scrollable), each visible
+/// row, each visible cell, the frozen-column band, and the vertical scrollbar
+/// track — each in a distinct colour with a small label, so a mis-sized or
+/// mis-placed part is obvious. Purely additive: it paints on a foreground layer
+/// after the grid and changes no grid geometry.
+///
+/// `origin` is the grid's screen-space top-left (`screen.min`); every rect in
+/// `layout` is grid-local and offset by it.
+#[allow(clippy::too_many_arguments)]
+fn draw_datagrid_component_frames(
+    painter: &egui::Painter,
+    origin: egui::Pos2,
+    layout: &DataGridLayout,
+    row_h: f32,
+) {
+    // Foreground, unclipped: above the grid's own fills and outside its content
+    // clip so every frame stays visible right to the grid's edges.
+    let overlay = egui::Painter::new(
+        painter.ctx().clone(),
+        egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("cobolt_datagrid_diagnostics"),
+        ),
+        Rect::EVERYTHING,
+    );
+    let off = origin.to_vec2();
+    let g2s = |x: f32, y: f32, w: f32, h: f32| {
+        Rect::from_min_size(pos2(x, y) + off, egui::vec2(w.max(0.0), h.max(0.0)))
+    };
+    let frame = |rect: Rect, color: Color32, label: &str| {
+        overlay.rect_stroke(
+            rect,
+            egui::CornerRadius::ZERO,
+            Stroke::new(1.0, color),
+            egui::StrokeKind::Inside,
+        );
+        if !label.is_empty() && rect.width() > 8.0 && rect.height() > 6.0 {
+            overlay.text(
+                rect.left_top() + egui::vec2(2.0, 1.0),
+                egui::Align2::LEFT_TOP,
+                label,
+                egui::FontId::monospace(8.0),
+                color,
+            );
+        }
+    };
+    const C_GRID: Color32 = Color32::from_rgb(255, 64, 64); // red    – whole grid
+    const C_HEADER: Color32 = Color32::from_rgb(64, 220, 96); // green  – header
+    const C_BODY: Color32 = Color32::from_rgb(80, 160, 255); // blue   – body
+    const C_COL: Color32 = Color32::from_rgb(255, 200, 32); // amber  – columns
+    const C_ROW: Color32 = Color32::from_rgb(210, 96, 255); // magenta – rows
+    const C_CELL: Color32 = Color32::from_rgb(0, 220, 220); // cyan   – cells
+    const C_FROZEN: Color32 = Color32::from_rgb(255, 140, 0); // orange – frozen band
+
+    let v = layout.viewport;
+    frame(g2s(v.x, v.y, v.w, v.h), C_GRID, "GRID");
+    let hr = layout.header_rect;
+    frame(g2s(hr.x, hr.y, hr.w, hr.h), C_HEADER, "HEADER");
+    let br = layout.body_rect;
+    frame(g2s(br.x, br.y, br.w, br.h), C_BODY, "BODY");
+
+    // Frozen-column band (spreadsheet freeze panes), if any.
+    if layout.frozen_columns_width > 0.0 {
+        frame(
+            g2s(v.x, v.y, layout.frozen_columns_width, v.h),
+            C_FROZEN,
+            "FROZEN",
+        );
+    }
+
+    // Columns (header cell + full-height band) for frozen + scrollable alike.
+    for col in layout
+        .frozen_columns
+        .iter()
+        .chain(layout.scrollable_columns.iter())
+    {
+        frame(g2s(col.x, hr.y, col.width, hr.h), C_COL, &col.index.to_string());
+        frame(g2s(col.x, br.y, col.width, br.h), C_COL, "");
+    }
+
+    // Visible rows and their cells (virtualised range only). Clamp every rect to
+    // the body band so a partially-scrolled first/last row draws only its visible
+    // slice — otherwise the overlay (an unclipped foreground layer, unlike the
+    // grid's own clipped content) bleeds past the grid's rounded bottom corner.
+    for row in layout.first_row..layout.last_row_exclusive {
+        let row_y = br.y + row_h * row as f32 - layout.scroll_y;
+        let top = row_y.max(br.y);
+        let bot = (row_y + row_h).min(br.max_y());
+        if bot - top <= 0.5 {
+            continue; // scrolled out of, or clipped to nothing within, the body
+        }
+        let vis_h = bot - top;
+        frame(g2s(br.x, top, br.w, vis_h), C_ROW, &format!("R{row}"));
+        for col in layout
+            .frozen_columns
+            .iter()
+            .chain(layout.scrollable_columns.iter())
+        {
+            frame(g2s(col.x, top, col.width, vis_h), C_CELL, "");
+        }
+    }
+}
+
 fn draw_datagrid_line(
     painter: &egui::Painter,
     points: [egui::Pos2; 2],
@@ -4091,25 +4197,70 @@ fn render_interactive(
             // off-clip rect is invisible — so we intersect with the grid rect first,
             // then round the now-on-edge bottom corners.
             let grid_cr = paint::corner_radius(ctrl);
-            let confine_bottom = move |r: Rect| -> (Rect, egui::CornerRadius) {
+            // Fill `r` (clamped to the grid) with `color`. Where the fill reaches a
+            // BOTTOM corner, follow the grid's arc with 1px horizontally-inset
+            // bands — the SAME technique the glass frost uses (`draw_glass`).
+            //
+            // Why not a rounded `rect_filled`? egui caps a RectShape's corner
+            // radius to HALF the rect's shorter side. A partial last row squeezed
+            // to a few px (e.g. by a tall column-filter header) requests radius
+            // `grid_cr` but egui renders `height/2` — a tiny arc that pokes past
+            // the grid silhouette (the recurring corner bleed). And insetting the
+            // whole rect by `grid_cr` (square) leaves an ugly square notch. Bands
+            // are the only thing that tracks the curve at any fill height.
+            let fill_confined = move |painter: &egui::Painter, r: Rect, color: Color32| {
                 let c = r.intersect(screen);
+                if c.width() <= 0.0 || c.height() <= 0.0 {
+                    return;
+                }
                 let eps = 0.5;
                 let at_bottom = (c.max.y - screen.max.y).abs() < eps;
-                let rnd = egui::CornerRadius {
-                    nw: 0,
-                    ne: 0,
-                    sw: if at_bottom && (c.min.x - screen.min.x).abs() < eps {
-                        crate::paint::cr8(grid_cr)
+                let at_left = at_bottom && (c.min.x - screen.min.x).abs() < eps;
+                let at_right = at_bottom && (c.max.x - screen.max.x).abs() < eps;
+                // Not touching a bottom corner → a plain square fill is correct
+                // (the grid's straight edges are square between the corner arcs).
+                if !at_left && !at_right {
+                    painter.rect_filled(c, 0.0, color);
+                    return;
+                }
+                let r_arc = grid_cr;
+                // Horizontal inset of the arc at vertical position `y` (matches the
+                // `arc_inset` in `draw_glass`, incl. the +0.5 under-stroke nudge).
+                let arc_inset = |y: f32| -> f32 {
+                    let dy = (screen.max.y - y).abs();
+                    if dy >= r_arc || r_arc < 0.5 {
+                        0.0
                     } else {
-                        0
-                    },
-                    se: if at_bottom && (c.max.x - screen.max.x).abs() < eps {
-                        crate::paint::cr8(grid_cr)
-                    } else {
-                        0
-                    },
+                        (r_arc - (r_arc * r_arc - (r_arc - dy) * (r_arc - dy)).max(0.0).sqrt() + 0.5)
+                            .max(0.0)
+                    }
                 };
-                (c, rnd)
+                // Part ABOVE the corner arc zone: one plain full-width rect.
+                let zone_top = (screen.max.y - r_arc).max(c.min.y);
+                if zone_top > c.min.y + eps {
+                    painter.rect_filled(
+                        Rect::from_min_max(c.min, pos2(c.max.x, zone_top)),
+                        0.0,
+                        color,
+                    );
+                }
+                // Corner zone: 1px bands, each inset by the arc at the band BOTTOM
+                // (its widest point → guarantees no bleed, over-insets by <1px).
+                let mut y = zone_top.max(c.min.y);
+                while y < c.max.y {
+                    let yb = (y + 1.0).min(c.max.y);
+                    let inset = arc_inset(yb);
+                    let bx0 = if at_left { c.min.x + inset } else { c.min.x };
+                    let bx1 = if at_right { c.max.x - inset } else { c.max.x };
+                    if bx1 > bx0 {
+                        painter.rect_filled(
+                            Rect::from_min_max(pos2(bx0, y), pos2(bx1, yb)),
+                            0.0,
+                            color,
+                        );
+                    }
+                    y = yb;
+                }
             };
             for (display_row, y, scroll_clipped) in rows_to_draw {
                 let Some(&row_index) = displayed_row_indices.get(display_row) else {
@@ -4125,8 +4276,7 @@ fn render_interactive(
                 };
                 let rrect = Rect::from_min_size(pos2(screen.min.x, y), vec2(screen.width(), row_h));
                 if alt_rows && display_row % 2 == 1 {
-                    let (ar, arnd) = confine_bottom(rrect);
-                    body_painter.rect_filled(ar, arnd, alt_bg);
+                    fill_confined(&body_painter, rrect, alt_bg);
                 }
                 draw_datagrid_pattern(
                     &body_painter,
@@ -4169,8 +4319,7 @@ fn render_interactive(
                     // Alternating-column highlight: fill every other column's full
                     // width for this row segment, beneath any per-cell/column colour.
                     if alt_cols && col.index % 2 == 1 {
-                        let (acr, acrnd) = confine_bottom(col_rect);
-                        body_painter.rect_filled(acr, acrnd, alt_bg);
+                        fill_confined(&body_painter, col_rect, alt_bg);
                     }
                     let mut cell_selected = false;
                     if prop_bool(ctrl, "SelectableText", true) {
@@ -4248,11 +4397,10 @@ fn render_interactive(
                             // Full column width (not the inset cell) so the gutter
                             // beneath the vertical separators is the appearance
                             // background, not the grid backdrop showing through.
-                            // Clamped + rounded at the grid's bottom corners so the
-                            // last row's fill follows the grid radius instead of
-                            // squaring past it.
-                            let (cr_rect, cr_rnd) = confine_bottom(col_rect);
-                            body_painter.rect_filled(cr_rect, cr_rnd, bg);
+                            // `fill_confined` follows the grid's bottom arc with
+                            // bands, so the last row's fill tracks the corner radius
+                            // instead of squaring (or under-rounding) past it.
+                            fill_confined(&body_painter, col_rect, bg);
                         }
                     }
                     if let Some(column) = column_meta {
@@ -4825,6 +4973,12 @@ fn render_interactive(
                     2.0,
                     Color32::from_rgba_premultiplied(230, 235, 255, 150),
                 );
+            }
+            // DataGrid component-frame diagnostic (private to the grid): outline
+            // every internal sub-component last, on a foreground layer, so the
+            // real fills stay untouched underneath.
+            if paint::datagrid_diagnostics_enabled() {
+                draw_datagrid_component_frames(&painter, screen.min, &layout, row_h);
             }
         }
         CT::TabControl => {
@@ -7532,6 +7686,189 @@ mod shape_dump {
         }
         std::fs::write(&path, out.join("\n")).unwrap();
         println!("scene D dumped {} shapes", out.len());
+    }
+
+    /// DataGrid bottom-corner bleed guard (operator report 2026-07-25): a grid
+    /// with a solid `BackgroundColor`, a corner radius, and MORE rows than fit
+    /// (so the last visible row is a partial slice at the body bottom), rendered
+    /// over a translucent image backdrop. No opaque fill may paint into the
+    /// bottom-left corner *notch* — the region inside the grid's bounding box but
+    /// OUTSIDE its rounded arc — because there the wallpaper must show through.
+    ///
+    /// Sample point `p` sits in that notch, outside the arc AND outside the glass
+    /// frost bands (which inset themselves via `arc_inset`), so any opaque
+    /// RectShape covering `p` with an un-rounded SW corner is the bleeder. When
+    /// this fails it PRINTS the offending shapes (colour / rect / radius / clip),
+    /// naming the exact layer to fix — then stays green as a regression guard.
+    #[test]
+    fn datagrid_bottom_left_corner_has_no_opaque_bleed() {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+
+        // EXACT geometry + params from the operator's failing form (PowerDemo2
+        // main-form, DataGrid-1): standalone over the wallpaper to isolate the
+        // grid's own corner. Yellow BackgroundColor, navy AlternatingRowColor
+        // (the bleeding colour), CornerRadius 15, RowHeight 43, more rows than fit.
+        let mut grid = Control::new("GRID", ControlType::DataGrid, 40, 40);
+        grid.rect = crate::model::Rect::new(40, 40, 1224, 384);
+        grid.set_prop("CornerRadius", crate::model::PropValue::Int(15));
+        grid.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String("F5FF00FF".into()),
+        );
+        grid.set_prop(
+            "AlternatingRowColor",
+            crate::model::PropValue::String("12212FFF".into()),
+        );
+        // Column filters (as in the operator's form) raise the header, squeezing
+        // the last visible row into a short sliver whose corner radius clamps.
+        grid.set_prop("ShowColumnFilters", crate::model::PropValue::Bool(true));
+        grid.set_prop(
+            "Columns",
+            crate::model::PropValue::String("A:string\nB:string".into()),
+        );
+        let rows: String = (0..20)
+            .map(|i| format!("row{i}-a\trow{i}-b"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        grid.set_prop("Rows", crate::model::PropValue::String(rows));
+        grid.set_prop("RowHeight", crate::model::PropValue::String("43".into()));
+        let controls = vec![grid];
+
+        let tex = ctx.load_texture(
+            "dg_corner_bg",
+            egui::ColorImage {
+                size: [4, 4],
+                source_size: egui::vec2(4.0, 4.0),
+                pixels: vec![egui::Color32::from_rgb(160, 120, 60); 16],
+            },
+            egui::TextureOptions::LINEAR,
+        );
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1320.0, 480.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(1320.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: "8a6a3c".into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: Some((tex.id(), egui::vec2(4.0, 4.0))),
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+
+        // Grid screen rect = its control rect; SW arc radius = 15.
+        let sx0 = 40.0_f32;
+        let sy1 = 40.0 + 384.0; // bottom edge
+        let grid_r = 15.0_f32;
+        // Legitimate full-surface fills (the form backdrop, a full-panel wash)
+        // cover the corner on purpose — exclude anything spanning most of the form.
+        let form_area = 1320.0 * 480.0;
+        let is_backdrop = |r: egui::Rect| r.width() * r.height() >= 0.55 * form_area;
+
+        // A fill bleeds past the grid's SW arc when it reaches the bottom-left
+        // corner but its *effective* rounding is smaller than the grid radius.
+        // egui clamps a RectShape's corner radius to half the rect's smaller side,
+        // so a SHORT fill (e.g. a partial last row) requests r=15 yet renders a
+        // tight little arc that escapes the grid silhouette. Compare the effective
+        // radius, not the stored one.
+        let mut offenders: Vec<String> = Vec::new();
+        fn scan(
+            shape: &egui::Shape,
+            sx0: f32,
+            sy1: f32,
+            grid_r: f32,
+            is_backdrop: &dyn Fn(egui::Rect) -> bool,
+            out: &mut Vec<String>,
+        ) {
+            match shape {
+                egui::Shape::Vec(v) => {
+                    v.iter().for_each(|s| scan(s, sx0, sy1, grid_r, is_backdrop, out))
+                }
+                egui::Shape::Rect(rs) => {
+                    let reaches_corner = rs.rect.min.x <= sx0 + 1.0
+                        && rs.rect.max.y >= sy1 - 1.0
+                        && rs.rect.min.y < sy1 - 1.0;
+                    let eff_sw = (rs.corner_radius.sw as f32)
+                        .min(rs.rect.width() * 0.5)
+                        .min(rs.rect.height() * 0.5);
+                    if reaches_corner
+                        && rs.fill.a() > 40
+                        && !is_backdrop(rs.rect)
+                        && eff_sw < grid_r - 1.5
+                    {
+                        out.push(format!(
+                            "RECT bbox=[{:.1} {:.1} {:.1} {:.1}] h={:.1} fill=#{:02x}{:02x}{:02x}{:02x} sw={} eff_sw={:.1}",
+                            rs.rect.min.x, rs.rect.min.y, rs.rect.max.x, rs.rect.max.y,
+                            rs.rect.height(),
+                            rs.fill.r(), rs.fill.g(), rs.fill.b(), rs.fill.a(),
+                            rs.corner_radius.sw, eff_sw,
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            scan(&cs.shape, sx0, sy1, grid_r, &is_backdrop, &mut offenders);
+        }
+        assert!(
+            offenders.is_empty(),
+            "DataGrid bottom-left corner: {} fill(s) reach the corner with an effective SW \
+             radius smaller than the grid radius {grid_r} — they bleed past the arc:\n{}",
+            offenders.len(),
+            offenders.join("\n"),
+        );
+
+        // No BLEED is not enough: the fix must also not leave a square GAP just
+        // INSIDE the arc (the "got worse" regression). `q` sits inside the grid
+        // silhouette on the sliver last row (dist from SW arc centre < radius), so
+        // the row/cell fill MUST cover it — via a plain rect or an arc-inset band.
+        let arc_c = pos2(sx0 + grid_r, sy1 - grid_r);
+        let q = pos2(sx0 + 9.0, sy1 - 2.0); // |q-centre|≈14.3 < 15 ⇒ inside the arc
+        assert!(
+            (q - arc_c).length() < grid_r,
+            "test setup: q must be inside the arc"
+        );
+        fn covers_q(shape: &egui::Shape, q: egui::Pos2, form_area: f32, found: &mut bool) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| covers_q(s, q, form_area, found)),
+                egui::Shape::Rect(rs) => {
+                    let is_backdrop = rs.rect.width() * rs.rect.height() >= 0.55 * form_area;
+                    if rs.rect.contains(q) && rs.fill.a() > 40 && !is_backdrop {
+                        *found = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut filled_inside = false;
+        for cs in &full.shapes {
+            covers_q(&cs.shape, q, form_area, &mut filled_inside);
+        }
+        assert!(
+            filled_inside,
+            "DataGrid bottom-left corner: a point INSIDE the arc on the last row is not filled \
+             — the corner fill left a square gap (over-inset), not tracking the arc.",
+        );
     }
 
     /// Corner-bleed guard (egui 0.35 regression): every stroked rect that is

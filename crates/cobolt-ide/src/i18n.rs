@@ -358,6 +358,11 @@ pub struct Tr {
     pub close_save: &'static str,
     pub close_discard: &'static str,
     pub close_cancel: &'static str,
+    /// Application-level unsaved-changes prompt shown when the IDE window is
+    /// closed with dirty forms, code, or project settings. Reuses
+    /// `close_save`/`close_discard`/`close_cancel` for the three buttons.
+    pub app_close_title: &'static str,
+    pub app_close_msg: &'static str,
 
     // ── New Project dialog ────────────────────────────────────────────────────
     pub dlg_new_project: &'static str,
@@ -1072,6 +1077,8 @@ const EN: Tr = Tr {
     close_save:    "💾 Save & Close",
     close_discard: "🗑 Discard & Close",
     close_cancel:  "Cancel",
+    app_close_title: "Save changes before closing?",
+    app_close_msg:   "You have unsaved changes (forms, code, or project settings). What would you like to do before closing?",
 
     dlg_new_project:  "New Project",
     dlg_proj_name:    "Project name:",
@@ -1744,6 +1751,8 @@ const ES: Tr = Tr {
     close_save:    "💾 Guardar y cerrar",
     close_discard: "🗑 Descartar y cerrar",
     close_cancel:  "Cancelar",
+    app_close_title: "¿Guardar los cambios antes de cerrar?",
+    app_close_msg:   "Tiene cambios sin guardar (formularios, código o configuración del proyecto). ¿Qué desea hacer antes de cerrar?",
 
     dlg_new_project:  "Nuevo proyecto",
     dlg_proj_name:    "Nombre del proyecto:",
@@ -2416,6 +2425,8 @@ const PT: Tr = Tr {
     close_save:    "💾 Salvar e fechar",
     close_discard: "🗑 Descartar e fechar",
     close_cancel:  "Cancelar",
+    app_close_title: "Salvar as alterações antes de fechar?",
+    app_close_msg:   "Há alterações não salvas (formulários, código ou configurações do projeto). O que deseja fazer antes de fechar?",
 
     dlg_new_project:  "Novo projeto",
     dlg_proj_name:    "Nome do projeto:",
@@ -3088,6 +3099,8 @@ const JA: Tr = Tr {
     close_save:    "💾 保存して閉じる",
     close_discard: "🗑 破棄して閉じる",
     close_cancel:  "キャンセル",
+    app_close_title: "閉じる前に変更を保存しますか？",
+    app_close_msg:   "保存されていない変更があります（フォーム、コード、またはプロジェクト設定）。閉じる前にどうしますか？",
 
     dlg_new_project:  "新規プロジェクト",
     dlg_proj_name:    "プロジェクト名:",
@@ -3766,6 +3779,8 @@ const ZH: Tr = Tr {
     close_save: "💾 保存并关闭",
     close_discard: "🗑 放弃并关闭",
     close_cancel: "取消",
+    app_close_title: "关闭前保存更改吗？",
+    app_close_msg:   "您有未保存的更改（表单、代码或项目设置）。关闭前您想怎么做？",
 
     dlg_new_project: "新建项目",
     dlg_proj_name: "项目名称：",
@@ -4439,6 +4454,8 @@ const FR: Tr = Tr {
     close_save:    "💾 Enregistrer et fermer",
     close_discard: "🗑 Abandonner et fermer",
     close_cancel:  "Annuler",
+    app_close_title: "Enregistrer les modifications avant de fermer ?",
+    app_close_msg:   "Vous avez des modifications non enregistrées (formulaires, code ou paramètres du projet). Que souhaitez-vous faire avant de fermer ?",
 
     dlg_new_project:  "Nouveau projet",
     dlg_proj_name:    "Nom du projet :",
