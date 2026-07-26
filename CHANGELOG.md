@@ -8,6 +8,21 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.4] — 2026-07-26
+
+### Changed
+
+- **The language selector has flags again — drawn in the theme's own ink.** They
+  are painted, not emoji (this toolkit never renders an emoji flag as a flag),
+  and monochrome: every tone comes from the active theme, so the flags read as
+  part of the interface in all 31 themes instead of as a pasted-on colour patch.
+  Each flag is identified by its shape — canton and stripes, rhombus and disc,
+  horizontal versus vertical bands, a lone disc, a star — because two theme ink
+  tones can be as close as 1.17:1 and tone alone could not carry the difference.
+  A test holds every theme to the WCAG AA contrast minimums (4.5:1 for the
+  primary charge, 3:1 for the secondary), so a future theme with washed-out text
+  colours fails the build rather than shipping an unreadable flag.
+
 ## [PowerRustCOBOL 1.36.3] — 2026-07-26
 
 ### Changed

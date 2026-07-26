@@ -122,9 +122,15 @@ pub fn show(
                     .width(140.0)
                     .show_ui(ui, |ui| {
                         for &l in Language::ALL {
-                            ui.selectable_value(lang, l, l.native_name());
+                            if crate::flags::language_row(ui, l, *lang == l).clicked() {
+                                *lang = l;
+                            }
                         }
                     });
+                // The flag sits left of the closed combo (this is a right-to-left
+                // layout, so it is added after it).
+                crate::flags::flag_widget(ui, *lang);
+                ui.add_space(4.0);
                 ui.label("🌐").on_hover_text(tr.lang_btn_tooltip);
                 ui.separator();
 
