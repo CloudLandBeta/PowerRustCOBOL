@@ -2765,6 +2765,13 @@ pub const DEFAULT_BACKGROUND_COLOR: &str = "#F0F0F0";
 /// and the DataGrid renderer's gate can never drift apart.
 pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 
+/// Default `FillColor` assigned to every new Shape — the legacy silver face. A
+/// Shape still on this value takes its face from the Appearance **Back colour**
+/// instead, so that section is not dead for Shapes; any other `FillColor` is an
+/// explicit type-specific choice and wins. Named so `Control::new` and the
+/// renderer's gate can never drift apart.
+pub const DEFAULT_SHAPE_FILL_COLOR: &str = "#C0C0C0";
+
 pub const NEUMORPHIC_SURFACE_COLOR: &str = "#E1E6F8FF";
 pub const NEUMORPHIC_FORM_BACKGROUND: &str = "E1E6F8FF";
 pub const NEUMORPHIC_DARK_SURFACE_COLOR: &str = "#36383EFF";
@@ -3167,7 +3174,10 @@ impl Control {
             ControlType::Shape => {
                 props.insert("ShapeType".into(), PropValue::String("Rectangle".into()));
                 props.insert("FormStyle".into(), PropValue::Bool(true));
-                props.insert("FillColor".into(), PropValue::String("#C0C0C0".into()));
+                props.insert(
+                    "FillColor".into(),
+                    PropValue::String(DEFAULT_SHAPE_FILL_COLOR.into()),
+                );
                 props.insert("FillStyle".into(), PropValue::String("Solid".into()));
                 props.insert("LineColor".into(), PropValue::String("#000000".into()));
                 props.insert("LineThickness".into(), PropValue::Int(1));

@@ -8,6 +8,18 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.2] — 2026-07-26
+
+### Fixed
+
+- **Appearance → Back colour now paints a Shape.** The renderer took a Shape's
+  face from its type-specific **Fill colour** whenever that property was present
+  — and every new Shape is created with one, so the Appearance section was dead
+  for Shapes: setting a back colour changed nothing. Each property is now
+  honoured only when it differs from its own default, so a Shape left on the
+  standard silver fill takes the back colour you set, while a fill colour you
+  chose yourself still wins over it.
+
 ## [PowerRustCOBOL 1.36.1] — 2026-07-26
 
 ### Fixed

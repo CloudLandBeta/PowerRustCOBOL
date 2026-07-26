@@ -1817,27 +1817,31 @@ pub fn draw_control(
 
     // ── Shape control ─────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::Shape) {
-        // Face colour: the type-specific FillColor when set; otherwise the
-        // Appearance Back colour — but only when the user changed it from the
-        // universal default, matching the renderer-wide "still on the default
-        // means no explicit background" convention.
-        let appearance_back = ctrl
-            .get_prop("BackgroundColor")
-            .map(|v| v.as_str().to_owned())
-            .filter(|raw| {
-                let t = raw.trim().trim_start_matches('#');
-                !t.is_empty()
-                    && !t.eq_ignore_ascii_case(
-                        crate::model::DEFAULT_BACKGROUND_COLOR.trim_start_matches('#'),
-                    )
-            })
-            .map(|raw| parse_color(&raw))
-            .filter(|c| c.a() > 0);
-        let fill_color = ctrl
-            .get_prop("FillColor")
-            .map(|v| parse_color(v.as_str()))
+        // Face colour: the type-specific FillColor when the user set it;
+        // otherwise the Appearance Back colour — each honoured only when it
+        // differs from its default, the renderer-wide "still on the default
+        // means the user has not chosen" convention.
+        //
+        // Both properties are *seeded* on every new Shape, so neither may be
+        // read with a bare `get_prop`: taking FillColor whenever it is present
+        // made the Appearance Back colour dead for Shapes (it is always
+        // present). Setting a colour equal to its own default is therefore
+        // indistinguishable from leaving it alone — the same trade the rest of
+        // the renderer makes.
+        let non_default = |prop: &str, default_hex: &str| -> Option<Color32> {
+            let raw = ctrl.get_prop(prop).map(|v| v.as_str().to_owned())?;
+            let t = raw.trim().trim_start_matches('#');
+            if t.is_empty() || t.eq_ignore_ascii_case(default_hex.trim_start_matches('#')) {
+                return None;
+            }
+            let c = parse_color(&raw);
+            (c.a() > 0).then_some(c)
+        };
+        let appearance_back =
+            non_default("BackgroundColor", crate::model::DEFAULT_BACKGROUND_COLOR);
+        let fill_color = non_default("FillColor", crate::model::DEFAULT_SHAPE_FILL_COLOR)
             .or(appearance_back)
-            .unwrap_or(Color32::from_rgb(192, 192, 192));
+            .unwrap_or_else(|| parse_color(crate::model::DEFAULT_SHAPE_FILL_COLOR));
         let line_color = ctrl
             .get_prop("LineColor")
             .map(|v| parse_color(v.as_str()))
