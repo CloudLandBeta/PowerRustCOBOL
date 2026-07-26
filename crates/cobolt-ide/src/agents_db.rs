@@ -219,6 +219,41 @@ fn extend_unique(target: &mut Vec<String>, source: &[String]) {
 /// "neumorphic-dark" id via `UPDATE_FORM_PROPERTY`, an operation the change-set
 /// applier discards. Such a prompt is not a project customization worth
 /// preserving; it is broken, so project-open repair replaces it wholesale.
+/// True when `prompt` is a superseded shipped default, still unmodified.
+///
+/// `marker` is a string only the current default contains, so an already-upgraded
+/// prompt is recognised without comparing it; `legacy` is the previous shipped
+/// text, compared **exactly**. The exact comparison is the point: a developer who
+/// edited their copy — even by one line — keeps it, and only an untouched old
+/// default is replaced.
+fn prompt_is_unmodified_legacy(prompt: &str, marker: &str, legacy: &str) -> bool {
+    !prompt.contains(marker) && prompt.trim() == legacy.trim()
+}
+
+/// True when the Event Handler pair's prompts predate the RustCOBOL language
+/// contract. The old prompts told the agent to "emit COBOL-85 conformant code"
+/// and to "format COBOL strictly for the IDE parser" without ever saying which
+/// verbs, intrinsics, levels or source format this toolchain accepts — so the
+/// agent guessed, the reviewer had nothing concrete to check against, and
+/// standard-looking COBOL that this parser rejects was the usual result.
+fn prompt_predates_language_contract(name: &str, prompt: &str) -> bool {
+    if name == EVENT_HANDLER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER,
+            crate::llm::LEGACY_EVENT_HANDLER_PROMPT_V1,
+        );
+    }
+    if name == PEDANTIC_EVENT_HANDLER_REVIEWER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::PEDANTIC_EVENT_LANGUAGE_CONTRACT_MARKER,
+            crate::llm::LEGACY_PEDANTIC_EVENT_PROMPT_V1,
+        );
+    }
+    false
+}
+
 fn prompt_carries_broken_form_style_guidance(prompt: &str) -> bool {
     // A corrected prompt always names the real property. Stale ones never do —
     // they only ever spoke of `Theme`. This keeps the corrected defaults from
@@ -1454,6 +1489,7 @@ impl AgentsDb {
                 || current_prompt.trim() == "You are the PowerRustCOBOL Form Designer Agent.");
         let repaired_prompt = if current_prompt.trim().is_empty()
             || legacy_form_prompt
+            || prompt_predates_language_contract(name, &current_prompt)
             || prompt_carries_broken_form_style_guidance(&current_prompt)
         {
             default_prompt.to_string()
@@ -2535,6 +2571,87 @@ mod tests {
             db.load_prompt(FORM_DESIGNER),
             "Our house style: buttons are 90px wide.",
             "repair must still preserve genuine project prompt edits"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The Event Handler prompt shipped before the RustCOBOL language contract
+    /// told the agent to "emit COBOL-85 conformant code" without naming a
+    /// single verb, intrinsic or level this parser accepts. A project seeded
+    /// with that text must be upgraded on open — but only when it is that exact
+    /// text, so a developer's own prompt is never overwritten.
+    #[test]
+    fn project_open_upgrades_the_pre_language_contract_event_prompt() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        db.save_prompt(
+            EVENT_HANDLER,
+            crate::llm::LEGACY_EVENT_HANDLER_PROMPT_V1,
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "upgrade must fire");
+
+        let upgraded = db.load_prompt(EVENT_HANDLER);
+        assert!(
+            upgraded.contains(crate::llm::EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER),
+            "the stored prompt must carry the language contract"
+        );
+        // The contract is only useful if it actually names what the toolchain
+        // accepts: the verb set, the intrinsic set, and the real source format.
+        assert!(upgraded.contains("EVALUATE") && upgraded.contains("UNSTRING"));
+        assert!(upgraded.contains("NUMVAL-C") && upgraded.contains("STANDARD-DEVIATION"));
+        assert!(
+            upgraded.contains("free-form and has NO line-length limit"),
+            "the margin rule must state the format actually parsed"
+        );
+        // The delegation/output/review contract survives the merge.
+        assert!(upgraded.contains("generate_event_handler"));
+        assert!(upgraded.contains("Pedantic Agent companion"));
+
+        // The reviewer is upgraded on the same open: a reviewer still holding
+        // the pre-contract prompt has nothing concrete to check the agent's new
+        // contract-compliant code against, and would keep rejecting it.
+        db.save_prompt(
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+            crate::llm::LEGACY_PEDANTIC_EVENT_PROMPT_V1,
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "reviewer upgrade must fire");
+        let reviewer = db.load_prompt(PEDANTIC_EVENT_HANDLER_REVIEWER);
+        assert!(
+            reviewer.contains(crate::llm::PEDANTIC_EVENT_LANGUAGE_CONTRACT_MARKER),
+            "the reviewer must carry the contract checklist"
+        );
+        assert!(
+            reviewer.contains("no line-length limit"),
+            "the reviewer must not demand a column-72 margin"
+        );
+
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+        for (name, default) in [
+            (EVENT_HANDLER, crate::llm::DEFAULT_EVENT_HANDLER_PROMPT),
+            (
+                PEDANTIC_EVENT_HANDLER_REVIEWER,
+                crate::llm::DEFAULT_PEDANTIC_EVENT_PROMPT,
+            ),
+        ] {
+            assert!(
+                !prompt_predates_language_contract(name, default),
+                "{name}'s shipped default must not look stale to its own detector"
+            );
+        }
+
+        // A developer's own prompt is theirs, however short.
+        db.save_prompt(EVENT_HANDLER, "House rule: no EXEC RUST in handlers.")
+            .unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(
+            db.load_prompt(EVENT_HANDLER),
+            "House rule: no EXEC RUST in handlers.",
+            "an edited prompt must never be overwritten by the upgrade"
         );
         let _ = std::fs::remove_dir_all(proj);
     }

@@ -8,6 +8,39 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.6] — 2026-07-26
+
+### Changed
+
+- **The Event Handler agent now carries the RustCOBOL language contract.** Its
+  prompt used to say "emit COBOL-85 conformant code" and "format COBOL strictly
+  for the IDE parser" without ever stating which verbs, intrinsic functions,
+  level numbers or source format this toolchain actually accepts — so the agent
+  filled the gap from general COBOL knowledge, and standard-looking code that
+  this parser rejects was the predictable result. The prompt now names all of
+  it: the 51 implemented statements, the 39 resolvable intrinsics, the DATA
+  DIVISION rules, the `::` control syntax, the file and exception extensions,
+  and an eleven-point semantic self-check drawn from what the analyzer actually
+  reports (undeclared identifiers, undefined PERFORM targets, non-numeric
+  receivers, duplicate names). It also corrects the source-format rule: RustCOBOL
+  is parsed free-form with **no line-length limit**, and the punched-card 72-column
+  truncation applies only to a file that carries a real fixed-format indicator in
+  column 7 — which is now stated as a trap to avoid rather than a margin to obey.
+  A project seeded with the previous prompt is upgraded when it is opened; a
+  prompt the developer has edited is never touched.
+- **Its Pedantic reviewer checks that contract clause by clause.** The reviewer
+  was told to treat the agent's prompt as the authoritative specification, which
+  it could not do while that prompt named no rules. It now carries the matching
+  checklist — unlisted verbs, unlisted intrinsics (which fail silently as zero or
+  spaces rather than erroring), undeclared identifiers, undefined PERFORM
+  targets, non-numeric receivers, duplicate names, a `PIC` on a group, level
+  `78`, a wrapper division inside a handler body, `CALL "COBOL-SET-PROPERTY"` in
+  place of `::` — and is told to cite the clause it is rejecting against. It is
+  also barred from two false positives that would reject correct work: demanding
+  a column-72 margin (there is none) and demanding proof that a handler already
+  ran (it is reviewing a proposal, so no such evidence can exist). The reviewer
+  is upgraded on the same terms as the agent.
+
 ## [PowerRustCOBOL 1.36.5] — 2026-07-26
 
 ### Fixed
