@@ -8,6 +8,42 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.7] — 2026-07-26
+
+### Fixed
+
+- **A property whose name the AI spelled in a different case no longer vanishes.**
+  Property names are case-insensitive and the change-set validator accepted any
+  casing, but the apply path matched the canonical spelling exactly: a form
+  property sent as `title` fell through to a do-nothing default arm, and a
+  control property sent as `caption` was inserted as a *second* map entry beside
+  the real `Caption`, where the exact-match lookup kept returning the old value.
+  Either way the operation was counted and reported to you as applied while
+  nothing changed. Both paths now resolve the name case-insensitively and write
+  through the canonical key, and undo captures the true previous value. A test
+  holds the validator's list and the designer's list in step, so a property that
+  can be validated but not applied fails the build.
+
+### Changed
+
+- **Grace's Form Designer is given the property list it is required to obey.**
+  Its prompt forbids any property key not listed under `FORM PROPERTIES` or
+  `PROPERTY KEYS BY TYPE`, and its reviewer treats those lists as authoritative
+  evidence — but a task delegated through Grace had both blocks cut from its
+  context to protect the token budget, so the specialist was obeying a list it
+  could not see. It now receives the form-level block plus the property keys of
+  the control types actually in play: those already on the form, and any named
+  in the task objective (the control a deploy task is about to create is not on
+  the form yet). The other thirty-odd types stay out, so the budget the cut was
+  protecting is still protected.
+- **The project-wide Grace chatbot can see the open form.** It sent only the
+  surface name and the conversation, so a request typed there — including the
+  panel's own suggestion, "Add a data bound datagrid to form xxxxx" — reached the
+  delegated designer with no control ids, no geometry and no property keys. It
+  now carries the same context the designer's own AI panel sends when a form is
+  open, and the project tree inventory when none is, so Grace can name real
+  forms, indexed files and sources instead of inventing them.
+
 ## [PowerRustCOBOL 1.36.6] — 2026-07-26
 
 ### Changed

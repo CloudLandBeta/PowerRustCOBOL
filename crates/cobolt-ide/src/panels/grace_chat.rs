@@ -119,6 +119,26 @@ impl Default for GraceChatPanel {
     }
 }
 
+/// Assemble the surface context Grace receives from the project-wide chatbot.
+///
+/// `surface` is the request CONTEXT for whatever is open — the form's control
+/// inventory, property keys and project tree, or just the project tree when no
+/// form is open. It leads, so the `FORM:` / `CONTROLS:` markers the workflow
+/// host slices on (`inject_task_context`) are found in the context itself and
+/// cannot be shadowed by something the developer typed. Without it a delegated
+/// designer task arrives with no ids, no geometry and no property keys, which is
+/// exactly the state this panel's own example prompts ("Add a data bound
+/// datagrid to form xxxxx") walk the developer into.
+fn project_chat_routing_context(surface: &str, conversation: &str) -> String {
+    let preamble =
+        "The developer opened the project-wide Grace chatbot. No specialist is preselected; route by capability.";
+    let surface = surface.trim();
+    if surface.is_empty() {
+        return format!("{preamble}\n\nCONVERSATION SO FAR:\n{conversation}");
+    }
+    format!("{surface}\n\n{preamble}\n\nCONVERSATION SO FAR:\n{conversation}")
+}
+
 /// While a question balloon awaits its answer, decide whether the developer's
 /// message is that answer or a different task. A task starts with (or pivots
 /// via "instead" to) an action verb; anything else — "UUID", "use PIC 9(9)",
@@ -311,12 +331,16 @@ impl GraceChatPanel {
 
     /// Render the project-wide chat. Returns `true` when the developer asks to
     /// close it and return the main pane to its normal editor content.
+    /// `surface` is the request CONTEXT for what is currently open (see
+    /// [`project_chat_routing_context`]); pass an empty string when there is
+    /// nothing to describe.
     pub fn show(
         &mut self,
         panel_ui: &mut egui::Ui,
         root: &Path,
         llm: &LlmConfig,
         tr: &Tr,
+        surface: &str,
     ) -> GraceChatAction {
         self.load_project(root);
         let ctx = panel_ui.ctx().clone();
@@ -759,9 +783,7 @@ impl GraceChatPanel {
                                 GraceRoutingContext::new(
                                     "Project workspace",
                                     None,
-                                    format!(
-                                        "The developer opened the project-wide Grace chatbot. No specialist is preselected; route by capability.\n\nCONVERSATION SO FAR:\n{conversation}"
-                                    ),
+                                    project_chat_routing_context(surface, &conversation),
                                 ),
                             ));
                         }
@@ -788,9 +810,7 @@ impl GraceChatPanel {
                             GraceRoutingContext::new(
                                 "Project workspace",
                                 None,
-                                format!(
-                                    "The developer opened the project-wide Grace chatbot. No specialist is preselected; route by capability.\n\nCONVERSATION SO FAR:\n{conversation}"
-                                ),
+                                project_chat_routing_context(surface, &conversation),
                             ),
                         ));
                         ctx.request_repaint();
@@ -957,5 +977,69 @@ mod tests {
             2
         );
         assert!(panel.pending_questions.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod surface_context_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, Form};
+
+    /// The whole point of threading the open form into the project-wide chat is
+    /// that the workflow host can slice it: `inject_task_context` keys off the
+    /// `CONTROLS:` marker, so a routing context without it silently delegates a
+    /// form task with nothing to work from.
+    #[test]
+    fn the_open_forms_context_survives_into_a_delegated_designer_task() {
+        let mut form = Form::new("ACTORS-FORM", "Actors", 640, 480);
+        form.controls
+            .push(Control::new("Save-Button", ControlType::Button, 24, 400));
+        let surface = crate::agent::build_context_with_project(&form, None, None);
+
+        let routing = project_chat_routing_context(&surface, "user: add a slider");
+
+        // The developer's conversation is still carried…
+        assert!(routing.contains("CONVERSATION SO FAR:"));
+        assert!(routing.contains("add a slider"));
+        // …and the markers the host slices on are present and lead, so nothing
+        // the developer typed can shadow them.
+        assert!(routing.starts_with("CONTEXT"));
+        assert!(routing.contains("FORM: ACTORS-FORM"));
+        assert!(routing.contains("Save-Button (Button)"));
+        assert!(routing.contains("PROPERTY KEYS BY TYPE"));
+
+        // End to end: a designer task delegated with an empty context now gets
+        // the ids, the form-level keys and the Button property keys.
+        let mut plan = vec![cobolt_agents::grace::TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::FORM_DESIGNER.into(),
+            objective: "add a slider under Save-Button".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+        crate::grace_host::inject_task_context_for_test(&routing, &mut plan);
+        assert!(plan[0].context.contains("Save-Button (Button)"));
+        assert!(plan[0].context.contains("FORM PROPERTIES"));
+        assert!(
+            plan[0].context.contains("Button:"),
+            "the designer must receive the property keys of the types in play"
+        );
+        assert!(
+            plan[0].context.contains("Slider:"),
+            "including the type the objective asks it to deploy"
+        );
+    }
+
+    /// With no form open the panel still sends the project tree, so Grace can
+    /// name real project resources instead of inventing them — and the absence
+    /// of a form is not mistaken for "no context".
+    #[test]
+    fn without_a_surface_the_preamble_still_stands_alone() {
+        let routing = project_chat_routing_context("", "user: hello");
+        assert!(routing.starts_with("The developer opened the project-wide Grace chatbot."));
+        assert!(routing.contains("CONVERSATION SO FAR:\nuser: hello"));
+        assert!(!routing.contains("CONTROLS:"));
     }
 }

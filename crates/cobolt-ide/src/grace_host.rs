@@ -1360,6 +1360,13 @@ fn sanitize_plan_reviewers(
 /// only Grace's objective, so a high-level delegation ("reorganise the six
 /// charts into a 2×3 grid") gives it no ids or geometry to work from and it
 /// produces no operations. Grace's own explicit context, when present, is kept.
+/// Test-only view of [`inject_task_context`], so a surface built by another
+/// module can be checked end to end against the slicing this host performs.
+#[cfg(test)]
+pub(crate) fn inject_task_context_for_test(context: &str, plan: &mut [TaskSpec]) {
+    inject_task_context(context, plan)
+}
+
 fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
     let inventory = control_inventory_excerpt(context);
     let api = control_api_excerpt(context);
@@ -1368,9 +1375,29 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             continue; // Grace's own explicit context wins.
         }
         if task.agent == crate::agents_db::FORM_DESIGNER {
-            // The designer resolves ids + geometry against the layout inventory.
-            if !inventory.is_empty() {
-                task.context = inventory.clone();
+            // The designer resolves ids + geometry against the layout inventory,
+            // and its prompt forbids any property key not listed under FORM
+            // PROPERTIES / PROPERTY KEYS BY TYPE — so it must be given those
+            // lists, or it is obeying a list it cannot see. Sending all 34 types
+            // would blow the delegated budget, so send the form-level block plus
+            // only the types this task can actually touch: those already on the
+            // form, and any named in the objective (a control it is about to
+            // deploy is not on the form yet).
+            let mut ctx = inventory.clone();
+            for block in [
+                form_properties_excerpt(context),
+                property_keys_excerpt(context, &inventory, &task.objective),
+            ] {
+                if block.is_empty() {
+                    continue;
+                }
+                if !ctx.is_empty() {
+                    ctx.push_str("\n\n");
+                }
+                ctx.push_str(&block);
+            }
+            if !ctx.trim().is_empty() {
+                task.context = ctx;
             }
         } else if task.agent == crate::agents_db::EVENT_HANDLER {
             // The event agent must bind to real control ids/events AND call real
@@ -1407,6 +1434,86 @@ fn control_inventory_excerpt(context: &str) -> String {
         .map(|rel| controls_at + rel)
         .unwrap_or(context.len());
     context[start..end].trim_end().to_string()
+}
+
+/// Slice the `FORM PROPERTIES` block: the form's current style values, the
+/// settable form-level keys, and the exact `GlassStyle` spellings. The designer
+/// targets these with `"control_id": "Form"`, and its prompt names this block by
+/// title, so a delegated restyle without it is guesswork. Empty when the marker
+/// is absent.
+fn form_properties_excerpt(context: &str) -> String {
+    let Some(at) = context.find("FORM PROPERTIES") else {
+        return String::new();
+    };
+    let rest = &context[at..];
+    let end = rest
+        .find("AVAILABLE CONTROL TYPES")
+        .or_else(|| rest.find("CONTROLS:"))
+        .unwrap_or(rest.len());
+    rest[..end].trim_end().to_string()
+}
+
+/// Slice `PROPERTY KEYS BY TYPE` down to the control types this task can touch:
+/// the types present in `inventory` plus any type named in `objective` (the
+/// control a deploy task is about to create is not on the form yet).
+///
+/// The full block lists every one of the 34 control types and is the single
+/// largest section of the surface context — sending it whole to every delegated
+/// task is what the budget cut was protecting against. Sending *none* of it left
+/// the designer unable to honour its own prompt. Empty when the marker is absent
+/// or no listed type is in play.
+fn property_keys_excerpt(context: &str, inventory: &str, objective: &str) -> String {
+    const HEADING: &str = "PROPERTY KEYS BY TYPE";
+    let Some(at) = context.find(HEADING) else {
+        return String::new();
+    };
+    let rest = &context[at..];
+    let end = rest.find("EVENTS BY TYPE").unwrap_or(rest.len());
+    let block = &rest[..end];
+
+    let mut kept: Vec<&str> = Vec::new();
+    for line in block.lines().skip(1) {
+        let Some((ty, _)) = line.trim_start().split_once(':') else {
+            continue;
+        };
+        let ty = ty.trim();
+        if ty.is_empty() {
+            continue;
+        }
+        // Present on the form: the inventory renders each control as
+        // `Id (Type) @(x,y) WxH`. Named in the objective: a whole-word match, so
+        // "Panel" does not fire on "PanelHeader" and "Line" not on "LineChart".
+        let on_form = inventory.contains(&format!("({ty})"));
+        if on_form || mentions_type(objective, ty) {
+            kept.push(line);
+        }
+    }
+    if kept.is_empty() {
+        return String::new();
+    }
+    format!(
+        "PROPERTY KEYS BY TYPE (the types in play for this task):\n{}",
+        kept.join("\n")
+    )
+}
+
+/// Whether `text` names control type `ty` as a whole word, case-insensitively.
+fn mentions_type(text: &str, ty: &str) -> bool {
+    let hay = text.to_ascii_lowercase();
+    let needle = ty.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(rel) = hay[from..].find(&needle) {
+        let start = from + rel;
+        let end = start + needle.len();
+        let before_ok = start == 0
+            || !hay.as_bytes()[start - 1].is_ascii_alphanumeric();
+        let after_ok = end == hay.len() || !hay.as_bytes()[end].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
 }
 
 /// Slice the `CONTROL API BY ID` block from the surface context: each control's
@@ -2625,7 +2732,13 @@ mod tests {
              BarChart-1 (BarChart) @(656,624) 320x220\n  \
              PieChart-1 (PieChart) @(656,864) 320x220\n  \
              PictureBox-2 (PictureBox) @(0,0) 800x400\n\
-             PROPERTY KEYS BY TYPE:\n  BarChart: Anchor, X, Y, Width, Height, ...\n\
+             PROPERTY KEYS BY TYPE:\n  \
+             BarChart: Anchor, X, Y, Width, Height\n  \
+             PieChart: Anchor, X, Y, SliceColors\n  \
+             PictureBox: ImagePath, Visible\n  \
+             TreeView: Nodes, ShowLines\n  \
+             Slider: Value, Minimum, Maximum\n\
+             EVENTS BY TYPE:\n  BarChart: onClick\n\
              CONTROL API BY ID:\n  \
              PictureBox-2 (PictureBox): properties [ImagePath, Visible]; methods [PlayAnimation, StopAnimation, SetProperty]\n\
              PROPERTY INTENT MAP: shadow => ShadowEnabled";
@@ -2661,17 +2774,32 @@ mod tests {
         inject_task_context(context, &mut plan);
 
         // The empty-context form task now carries the inventory: form dims,
-        // control types, and the per-control lines — but NOT the verbose dump.
+        // control types, and the per-control lines.
         assert!(plan[0].context.contains("FORM: MAIN-FORM (1352x2000)"));
         assert!(plan[0].context.contains("BarChart-1 (BarChart) @(656,624) 320x220"));
         assert!(plan[0].context.contains("PieChart-1 (PieChart)"));
+        // …the form-level block, because a restyle targets `"control_id": "Form"`
+        // and the designer's prompt forbids keys not listed under FORM PROPERTIES.
+        assert!(plan[0].context.contains("FORM PROPERTIES"));
+        assert!(plan[0].context.contains("GlassStyle=\"Enhanced\""));
+        // …and the property keys for the types actually in play — the types on
+        // the form, and nothing else. Sending all 34 would blow the budget;
+        // sending none left the designer obeying a list it could not see.
+        assert!(plan[0].context.contains("PROPERTY KEYS BY TYPE"));
+        assert!(plan[0].context.contains("BarChart: Anchor, X, Y, Width, Height"));
+        assert!(plan[0].context.contains("PieChart: Anchor, X, Y, SliceColors"));
+        assert!(plan[0].context.contains("PictureBox: ImagePath, Visible"));
         assert!(
-            !plan[0].context.contains("PROPERTY KEYS BY TYPE"),
-            "the verbose per-type dump must be excluded to protect the budget"
+            !plan[0].context.contains("TreeView:") && !plan[0].context.contains("Slider:"),
+            "types absent from the form and the objective must stay out of the budget"
         );
         assert!(
             !plan[0].context.contains("PlayAnimation"),
             "the form designer does not need the method API"
+        );
+        assert!(
+            !plan[0].context.contains("EVENTS BY TYPE"),
+            "the property excerpt must stop before the event dump"
         );
         // The event-handler task gets the inventory AND the per-control method
         // API, so it can call PictureBox-2::PlayAnimation() instead of inventing
@@ -2690,6 +2818,63 @@ mod tests {
         );
         // Grace-filled context is untouched.
         assert_eq!(plan[2].context, "Grace's own exact identifiers");
+    }
+
+    /// A control the task is about to CREATE is not on the form yet, so its
+    /// property keys cannot come from the inventory. Without them the designer
+    /// must invent keys for the very control it is deploying — the failure the
+    /// property block exists to prevent.
+    #[test]
+    fn deploy_task_gets_the_keys_of_the_type_it_is_asked_to_create() {
+        let context = "CONTEXT\nFORM: MAIN-FORM (800x600)\n\
+             FORM PROPERTIES: GlassStyle=\"Classic\"\n\
+             AVAILABLE CONTROL TYPES: Button, Slider, LineChart\n\
+             CONTROLS:\n  Button-1 (Button) @(10,10) 90x28\n\
+             PROPERTY KEYS BY TYPE:\n  \
+             Button: Caption, X, Y\n  \
+             Slider: Value, Minimum, Maximum\n  \
+             LineChart: Series, Legend\n  \
+             Line: Thickness\n\
+             EVENTS BY TYPE:\n  Button: onClick";
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::FORM_DESIGNER.into(),
+            objective: "add a Slider under the button".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+        inject_task_context(context, &mut plan);
+
+        assert!(
+            plan[0].context.contains("Slider: Value, Minimum, Maximum"),
+            "the type being deployed must carry its keys"
+        );
+        assert!(
+            plan[0].context.contains("Button: Caption, X, Y"),
+            "types already on the form are still included"
+        );
+        assert!(
+            !plan[0].context.contains("LineChart:"),
+            "a type neither on the form nor in the objective stays out"
+        );
+        assert!(
+            !plan[0].context.contains("Line: Thickness"),
+            "matching must be whole-word: 'Slider' must not drag in 'Line'"
+        );
+    }
+
+    /// Whole-word matching, in both directions: a type name embedded in a longer
+    /// word is not a mention, and a mention is case-insensitive.
+    #[test]
+    fn type_mentions_are_whole_words() {
+        assert!(mentions_type("add a slider", "Slider"));
+        assert!(mentions_type("add a SLIDER, please", "Slider"));
+        assert!(mentions_type("wrap it in a Panel.", "Panel"));
+        assert!(!mentions_type("rename PanelHeader", "Panel"));
+        assert!(!mentions_type("tidy the LineChart", "Line"));
+        assert!(!mentions_type("no controls here", "Slider"));
     }
 
     /// With no surface context (markers absent), injection is a no-op — the

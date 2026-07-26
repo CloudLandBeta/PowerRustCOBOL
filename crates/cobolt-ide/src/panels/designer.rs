@@ -3389,8 +3389,15 @@ impl DesignerPanel {
         }
     }
 
+    /// Set one form-level property by name.
+    ///
+    /// The name is matched **case-insensitively**: the change-set validator
+    /// accepts any casing (`form_property_valid` lowercases), so an exact match
+    /// here would let `{"key": "title"}` pass validation, fall through to the
+    /// default arm, and change nothing while the operation is reported as
+    /// applied.
     pub fn set_form_prop(&mut self, key: &str, value: String) {
-        match key {
+        match canonical_form_prop_key(key).unwrap_or(key) {
             "Title" => {
                 self.form.title = value;
                 self.dirty = true;
@@ -3491,8 +3498,10 @@ impl DesignerPanel {
         id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(&self.form.name)
     }
 
+    /// Read one form-level property by name, case-insensitively (see
+    /// [`Self::set_form_prop`]).
     pub fn get_form_prop(&self, key: &str) -> Option<String> {
-        match key {
+        match canonical_form_prop_key(key)? {
             "Title" => Some(self.form.title.clone()),
             "BackgroundColor" => Some(self.form.background_color.clone()),
             "Width" => Some(self.form.width.to_string()),
@@ -8759,8 +8768,59 @@ fn structural_prop_value(ctrl: &Control, key: &str) -> Option<PropValue> {
         "enabled" => Some(PropValue::Bool(ctrl.enabled)),
         "taborder" => Some(PropValue::Int(ctrl.tab_order as i64)),
         "zorder" => Some(PropValue::Int(ctrl.z_order as i64)),
-        _ => ctrl.properties.get(key).cloned(),
+        // `get_prop` (not `properties.get`) so an agent-supplied spelling that
+        // differs only in case still captures the real previous value for undo.
+        _ => ctrl.get_prop(key).cloned(),
     }
+}
+
+/// Canonical (CamelCase) spelling of a form-level property name, or `None` when
+/// the form has no such property.
+///
+/// This is the single list of settable form properties, and it must stay in step
+/// with `crate::agent::form_property_valid`, which the change-set validator uses.
+pub(crate) fn canonical_form_prop_key(key: &str) -> Option<&'static str> {
+    FORM_PROP_KEYS
+        .iter()
+        .find(|k| k.eq_ignore_ascii_case(key))
+        .copied()
+}
+
+/// Every settable form-level property, in canonical spelling.
+pub(crate) const FORM_PROP_KEYS: &[&str] = &[
+    "Title",
+    "BackgroundColor",
+    "Width",
+    "Height",
+    "Transparency",
+    "GridSize",
+    "SnapToGrid",
+    "GlassStyle",
+    "BackgroundGradientEnabled",
+    "BackgroundGradientStartColor",
+    "BackgroundGradientEndColor",
+    "BackgroundGradientDirection",
+    "Target",
+    "BackgroundImage",
+    "BgImageMode",
+    "Theme",
+    "UseThemeBackground",
+];
+
+/// The spelling under which `key` is already stored on `ctrl`, or `key` itself
+/// when the control has no such property yet.
+///
+/// RustCOBOL property names are case-insensitive and the change-set validator
+/// accepts any casing, so an agent may legitimately send `caption` for
+/// `Caption`. Inserting that verbatim would leave a second entry beside the real
+/// one, and `get_prop`'s exact-match-first lookup would keep returning the stale
+/// value — the write would be reported as applied and change nothing.
+fn canonical_prop_key(ctrl: &Control, key: &str) -> String {
+    ctrl.properties
+        .keys()
+        .find(|k| k.eq_ignore_ascii_case(key))
+        .cloned()
+        .unwrap_or_else(|| key.to_owned())
 }
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
@@ -8783,7 +8843,8 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
         }
         "tab" => ctrl.tab = Some(value.as_i64() as u32),
         _ => {
-            ctrl.properties.insert(key.to_owned(), value.clone());
+            let canonical = canonical_prop_key(ctrl, key);
+            ctrl.properties.insert(canonical, value.clone());
         }
     }
 }
@@ -11679,5 +11740,121 @@ mod move_anim_tests {
         assert_eq!(d.move_anims[0].id, id);
         assert_eq!(d.move_anims[0].to, egui::pos2(300.0, 120.0));
         assert!(d.move_anim_start.is_none(), "start is stamped on first paint");
+    }
+}
+
+/// A property name whose casing differs from the canonical spelling must still
+/// reach the model. The change-set validator compares property names
+/// case-insensitively (RustCOBOL property names are case-insensitive), so any
+/// casing an agent emits passes validation and is reported to the developer as
+/// applied — if the apply path then matched case-sensitively, the operation
+/// would be counted and do nothing.
+#[cfg(test)]
+mod property_key_case_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, Form, PropValue};
+
+    #[test]
+    fn form_property_applies_whatever_case_the_agent_sent() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+
+        for (key, expected) in [("title", "lower"), ("TITLE", "upper"), ("Title", "exact")] {
+            d.set_form_prop(key, expected.to_string());
+            assert_eq!(
+                d.form.title, expected,
+                "form property '{key}' must be applied whatever its casing"
+            );
+            assert_eq!(
+                d.get_form_prop(key).as_deref(),
+                Some(expected),
+                "reading back '{key}' must find the same value"
+            );
+        }
+
+        // A name that is genuinely not a form property still resolves to nothing.
+        assert!(d.get_form_prop("NotAProperty").is_none());
+    }
+
+    #[test]
+    fn every_settable_form_property_round_trips_case_insensitively() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        // GlassStyle/Target/BgImageMode normalise their input, so assert only
+        // that each key is *recognised* — the silent-no-op bug was a key that
+        // matched nothing at all.
+        for canonical in FORM_PROP_KEYS {
+            let lowered = canonical.to_ascii_lowercase();
+            assert_eq!(
+                canonical_form_prop_key(&lowered),
+                Some(*canonical),
+                "'{lowered}' must resolve to '{canonical}'"
+            );
+            assert!(
+                d.get_form_prop(&lowered).is_some(),
+                "'{lowered}' must be readable"
+            );
+        }
+    }
+
+    /// The validator and the applier must recognise the same set. A key the
+    /// validator accepts but the applier drops is the silent no-op this module
+    /// exists to prevent; a key the applier handles but the validator rejects is
+    /// a change the developer is told is invalid when it is not.
+    #[test]
+    fn form_property_lists_agree() {
+        for canonical in FORM_PROP_KEYS {
+            assert!(
+                crate::agent::form_property_valid(canonical),
+                "'{canonical}' is applied by the designer but rejected by the validator"
+            );
+            assert!(
+                crate::agent::form_property_valid(&canonical.to_ascii_lowercase()),
+                "the validator must accept '{canonical}' in any casing"
+            );
+        }
+        // And nothing the validator accepts is missing from the applier: the
+        // validator's own vocabulary is the lowercase of these names.
+        for word in [
+            "title", "backgroundcolor", "width", "height", "transparency", "gridsize",
+            "snaptogrid", "glassstyle", "backgroundgradientenabled",
+            "backgroundgradientstartcolor", "backgroundgradientendcolor",
+            "backgroundgradientdirection", "target", "backgroundimage", "bgimagemode",
+            "theme", "usethemebackground",
+        ] {
+            assert!(
+                canonical_form_prop_key(word).is_some(),
+                "the validator accepts '{word}' but the designer cannot apply it"
+            );
+        }
+    }
+
+    #[test]
+    fn control_property_write_replaces_the_existing_key_not_shadows_it() {
+        let mut c = Control::new("Button-1", ControlType::Button, 0, 0);
+        c.set_prop("Caption", "before");
+
+        apply_structural_prop(&mut c, "caption", &PropValue::String("after".into()));
+
+        // One entry, not two: a phantom `caption` beside the real `Caption`
+        // would leave `get_prop` returning the stale exact match forever.
+        let matches: Vec<&String> = c
+            .properties
+            .keys()
+            .filter(|k| k.eq_ignore_ascii_case("caption"))
+            .collect();
+        assert_eq!(matches.len(), 1, "exactly one Caption entry must exist");
+        assert_eq!(matches[0], "Caption", "canonical spelling is preserved");
+        assert_eq!(c.get_prop("Caption").map(|v| v.as_str()), Some("after"));
+        assert_eq!(c.get_prop("caption").map(|v| v.as_str()), Some("after"));
+    }
+
+    #[test]
+    fn undo_captures_the_previous_value_for_a_differently_cased_key() {
+        let mut c = Control::new("Button-1", ControlType::Button, 0, 0);
+        c.set_prop("Caption", "before");
+        assert_eq!(
+            structural_prop_value(&c, "caption").map(|v| v.as_str().to_string()),
+            Some("before".to_string()),
+            "undo must capture the real previous value, not None"
+        );
     }
 }

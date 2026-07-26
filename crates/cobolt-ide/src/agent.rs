@@ -178,7 +178,13 @@ fn is_form_id(form_name: &str, id: &str) -> bool {
     id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(form_name)
 }
 
-fn form_property_valid(key: &str) -> bool {
+/// Whether `key` names a settable form-level property.
+///
+/// Case-insensitive, and it must accept exactly the set the designer can apply
+/// (`panels::designer::canonical_form_prop_key`): a key accepted here but not
+/// applied there validates, is reported to the developer as applied, and changes
+/// nothing. `form_property_lists_agree` holds the two in step.
+pub(crate) fn form_property_valid(key: &str) -> bool {
     matches!(
         key.to_ascii_lowercase().as_str(),
         "title"
@@ -895,7 +901,10 @@ pub fn build_context_with_project(
     out
 }
 
-fn build_project_tree_context(
+/// The project-tree half of the request context on its own — used by the
+/// project-wide Grace chatbot when no form is open, so a request can still name
+/// real forms, indexed files and sources instead of inventing them.
+pub(crate) fn build_project_tree_context(
     project: Option<&CoboltProject>,
     project_root: Option<&Path>,
 ) -> String {

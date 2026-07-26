@@ -2812,6 +2812,30 @@ impl CoboltApp {
     /// True when this project has no usable AI model, or Grace has none — the cue
     /// to invite the user to set them up on open. Call AFTER
     /// [`Self::ensure_project_agent_system`] so the fixed agents already exist.
+    /// The request CONTEXT the project-wide Grace chatbot hands to Grace.
+    ///
+    /// With a form open this is the same block the designer's own AI panel
+    /// sends — control inventory, per-type property keys, control API, project
+    /// tree — so a request typed in the project chat ("add a data bound datagrid
+    /// to form X") reaches the delegated specialist with real ids, geometry and
+    /// property names. With no form open it is the project tree alone, which is
+    /// still what lets Grace name real forms, indexed files and sources rather
+    /// than inventing them.
+    fn grace_chat_surface_context(&self) -> String {
+        let dir = self.project_dir();
+        match self.inspect.as_ref() {
+            Some(state) => crate::agent::build_context_with_project(
+                &state.designer.form,
+                self.cobolt_project.as_ref(),
+                dir.as_deref(),
+            ),
+            None => crate::agent::build_project_tree_context(
+                self.cobolt_project.as_ref(),
+                dir.as_deref(),
+            ),
+        }
+    }
+
     fn ai_setup_needed(&self, project_root: &Path) -> bool {
         let db = crate::agents_db::AgentsDb::load(project_root);
         ai_setup_needed_for(&self.llm, &db.agents)
@@ -8553,7 +8577,11 @@ impl eframe::App for CoboltApp {
             self.show_welcome_pane(root_ui, &tr);
         } else if self.show_grace_chat {
             if let Some(root) = self.project_dir() {
-                let action = self.grace_chat.show(root_ui, &root, &self.llm, &tr);
+                // Computed before the panel borrows `self.grace_chat` mutably.
+                let surface = self.grace_chat_surface_context();
+                let action = self
+                    .grace_chat
+                    .show(root_ui, &root, &self.llm, &tr, &surface);
                 if action.rescan_documentation {
                     self.sync_project_documentation_membership(&root);
                 }
