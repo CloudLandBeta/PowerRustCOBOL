@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.9] — 2026-07-26
+
+### Fixed
+
+- **The Models Manager can list the Anthropic models again.** Refreshing the
+  list returned "404 Not Found" with an empty body, which reads as a dead
+  endpoint or a rejected key when it was neither. The request was wrong three
+  times over. It asked the API root, `https://api.anthropic.com/v1`, because
+  only the OpenAI branch ever appended `/models` — every other provider had its
+  configured endpoint used verbatim, and a GET at that root answers nothing.
+  It sent the key as `Authorization: Bearer`, which at Anthropic means an OAuth
+  token rather than an API key. And it omitted `anthropic-version`, which every
+  Anthropic request must carry whether or not it carries a credential. The
+  listing URL is now derived for Anthropic as it already was for OpenAI —
+  from the provider default `…/v1` and from the `…/v1/messages` endpoint a
+  saved profile holds — the key goes out as `x-api-key`, and the version header
+  is always sent.
+- **A Google Gemini key is sent as a Gemini key.** Its `x-goog-api-key` header
+  was attached only in the branch that ran when no key was configured, so a
+  real key was sent as a bearer token and an empty one was sent as the Gemini
+  header. Both are now chosen by provider rather than by whether the key is
+  blank. The OpenAI family keeps the bearer token it has always used.
+
 ## [PowerRustCOBOL 1.36.8] — 2026-07-26
 
 ### Changed

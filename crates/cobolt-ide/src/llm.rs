@@ -678,6 +678,11 @@ pub fn endpoint_is_provider_default(provider_id: &str, endpoint: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// The `anthropic-version` every Anthropic REST request must carry. It pins the
+/// wire format, not the model — it is unrelated to which Claude model is asked
+/// for, and does not change when a new one ships.
+pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+
 pub const PROVIDERS: &[Provider] = &[
     Provider {
         id: "openai",
@@ -3105,11 +3110,8 @@ pub fn spawn_list_models(
                 let url = model_list_url(&pid, &ep);
 
                 let mut req = client.get(&url);
-                if !key.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", key));
-                } else if pid == "gemini" {
-                    // Google Gemini uses x-goog-api-key or key= in query
-                    req = req.header("x-goog-api-key", key.clone());
+                for (name, value) in model_list_headers(&pid, &key) {
+                    req = req.header(name, value);
                 }
                 push_connection_log(&format!(
                     "=== MODEL LIST REQUEST ===\nprovider: {pid}\nurl: {url}\napi_key_present: {}\n",
@@ -3182,6 +3184,29 @@ pub fn spawn_list_models(
     rx
 }
 
+/// The headers a model-list GET must carry for `provider_id`.
+///
+/// Each provider names its own credential header, and a bearer token is the
+/// OpenAI-family convention rather than a universal one: Anthropic reads
+/// `x-api-key` (a bearer there means an OAuth token, which an API key is not)
+/// and Google Gemini reads `x-goog-api-key`. Sending the wrong one spends the
+/// key on a 401 that reads as an account problem rather than a client bug.
+fn model_list_headers(provider_id: &str, api_key: &str) -> Vec<(&'static str, String)> {
+    let mut headers = Vec::new();
+    if !api_key.is_empty() {
+        match provider_id {
+            "anthropic" => headers.push(("x-api-key", api_key.to_string())),
+            "gemini" => headers.push(("x-goog-api-key", api_key.to_string())),
+            _ => headers.push(("Authorization", format!("Bearer {api_key}"))),
+        }
+    }
+    if provider_id == "anthropic" {
+        // Required on every Anthropic request, credential or not.
+        headers.push(("anthropic-version", ANTHROPIC_API_VERSION.to_string()));
+    }
+    headers
+}
+
 fn model_list_url(provider_id: &str, endpoint: &str) -> String {
     let ep = endpoint.trim().trim_end_matches('/').to_string();
     if provider_id == "openai" {
@@ -3194,6 +3219,18 @@ fn model_list_url(provider_id: &str, endpoint: &str) -> String {
             ep
         } else {
             format!("{ep}/models")
+        }
+    } else if provider_id == "anthropic" {
+        // The configured endpoint is either the API root (`…/v1`, the default)
+        // or the messages endpoint a profile stores (`…/v1/messages`). Neither
+        // answers a GET: the listing lives at `…/v1/models`, and asking the
+        // root returns a 404 with an empty body — which reads as a bad key or
+        // a dead endpoint rather than the wrong URL.
+        let root = ep.strip_suffix("/messages").unwrap_or(&ep).trim_end_matches('/');
+        if root.ends_with("/models") {
+            root.to_string()
+        } else {
+            format!("{root}/models")
         }
     } else {
         ep
@@ -3817,6 +3854,80 @@ mod tests {
             model_list_url("xai", "https://api.x.ai/v1/responses"),
             "https://api.x.ai/v1/responses"
         );
+    }
+
+    /// Anthropic's model list lives at `…/v1/models`. Both endpoints a project
+    /// can hold — the provider default (`…/v1`) and the messages endpoint a
+    /// profile stores (`…/v1/messages`) — must resolve to it. Asking either one
+    /// directly is a GET at a path that answers nothing: a 404 with an empty
+    /// body, which the Models Manager could only report as "404 Not Found".
+    #[test]
+    fn anthropic_model_refresh_uses_the_models_endpoint() {
+        for endpoint in [
+            "https://api.anthropic.com/v1",
+            "https://api.anthropic.com/v1/",
+            "https://api.anthropic.com/v1/messages",
+            "https://api.anthropic.com/v1/models",
+        ] {
+            assert_eq!(
+                model_list_url("anthropic", endpoint),
+                "https://api.anthropic.com/v1/models",
+                "endpoint {endpoint} must resolve to the listing URL"
+            );
+        }
+    }
+
+    /// The version header pins the wire format and is unrelated to the model,
+    /// so it must not be edited when a new Claude ships.
+    #[test]
+    fn anthropic_api_version_is_the_wire_format_pin() {
+        assert_eq!(ANTHROPIC_API_VERSION, "2023-06-01");
+    }
+
+    /// Anthropic authenticates with `x-api-key` and requires the version header
+    /// on every request. A bearer token there means an OAuth token, so sending
+    /// the OpenAI-family header spends the key on a 401.
+    #[test]
+    fn anthropic_model_refresh_sends_key_and_version_headers() {
+        let headers = model_list_headers("anthropic", "sk-ant-secret");
+        assert!(
+            headers.contains(&("x-api-key", "sk-ant-secret".to_string())),
+            "{headers:?}"
+        );
+        assert!(
+            headers.contains(&("anthropic-version", "2023-06-01".to_string())),
+            "the version header is required on every request: {headers:?}"
+        );
+        assert!(
+            !headers.iter().any(|(name, _)| *name == "Authorization"),
+            "an API key must not be sent as a bearer token: {headers:?}"
+        );
+        // The version header is a protocol requirement, not a credential one —
+        // it goes out even when no key is configured.
+        assert_eq!(
+            model_list_headers("anthropic", ""),
+            vec![("anthropic-version", "2023-06-01".to_string())]
+        );
+    }
+
+    /// Gemini's key header was previously attached only when the key was empty,
+    /// so a configured Gemini key went out as a bearer token instead.
+    #[test]
+    fn gemini_model_refresh_sends_its_own_key_header() {
+        assert_eq!(
+            model_list_headers("gemini", "goog-secret"),
+            vec![("x-goog-api-key", "goog-secret".to_string())]
+        );
+    }
+
+    /// The OpenAI family keeps the bearer token it has always used.
+    #[test]
+    fn openai_family_model_refresh_keeps_bearer_auth() {
+        assert_eq!(
+            model_list_headers("openai", "sk-secret"),
+            vec![("Authorization", "Bearer sk-secret".to_string())]
+        );
+        assert!(model_list_headers("openai", "").is_empty());
     }
 
     #[test]
