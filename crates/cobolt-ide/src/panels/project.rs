@@ -74,6 +74,10 @@ pub enum ProjectPanelEvent {
     Select(String),
     /// User clicked `[+]` on a category — **create** a new item of this kind.
     Create(FileKind),
+    /// User clicked `[+]` on a *folder row* — create a new item of this kind
+    /// directly inside the project-relative folder `dir_rel`, instead of the
+    /// category root the category-level `[+]` uses.
+    CreateIn { kind: FileKind, dir_rel: PathBuf },
     /// User chose "Import existing…" — add an existing file of this kind.
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
@@ -820,14 +824,15 @@ impl ProjectPanel {
         events: &mut Vec<ProjectPanelEvent>,
         tr: &Tr,
     ) {
-        let (label, kind): (&str, Option<FileKind>) = match cat {
-            Category::Forms => (tr.panel_forms, Some(FileKind::Form)),
-            Category::IndexedFiles => (tr.cat_indexed_files, Some(FileKind::Indexed)),
-            Category::CommonCode => (tr.cat_common_code, Some(FileKind::Source)),
-            Category::Generated => (tr.cat_generated_code, None),
-            Category::Assets => (tr.panel_assets, Some(FileKind::Asset)),
-            Category::Documentation => (tr.cat_documentation, Some(FileKind::Documentation)),
+        let label: &str = match cat {
+            Category::Forms => tr.panel_forms,
+            Category::IndexedFiles => tr.cat_indexed_files,
+            Category::CommonCode => tr.cat_common_code,
+            Category::Generated => tr.cat_generated_code,
+            Category::Assets => tr.panel_assets,
+            Category::Documentation => tr.cat_documentation,
         };
+        let kind = creatable_kind(cat);
         let is_generated = cat == Category::Generated;
         let is_assets = cat == Category::Assets;
         let is_knowledge_base = cat == Category::Documentation;
@@ -960,6 +965,33 @@ impl ProjectPanel {
                 egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), fid, false)
                     .show_header(ui, |ui| {
                         ui.add_space(8.0 + depth as f32 * 14.0);
+                        // Per-folder create: the category [+] always lands in the
+                        // category root, so a folder needs its own, or a form can
+                        // only reach a subfolder by being created and then dragged.
+                        if let Some(kind) = creatable_kind(cat) {
+                            if ui
+                                .small_button("+")
+                                .on_hover_text(format!("{}: {name}", tr.tree_create_hover))
+                                .clicked()
+                            {
+                                events.push(ProjectPanelEvent::CreateIn {
+                                    kind,
+                                    dir_rel: PathBuf::from(folder_rel),
+                                });
+                            }
+                        }
+                        // Delete the folder and everything in it — same confirmed
+                        // path as the context menu's entry, one click closer.
+                        if ui
+                            .small_button("🗑")
+                            .on_hover_text(format!("{}: {name}", tr.tree_delete_folder))
+                            .clicked()
+                        {
+                            events.push(ProjectPanelEvent::DeleteFolder {
+                                folder_rel: PathBuf::from(folder_rel),
+                                category_root: category_root.clone(),
+                            });
+                        }
                         tree_icon(ui, draw_folder_icon);
                         ui.label(RichText::new(name).strong())
                     })
@@ -1611,6 +1643,23 @@ fn collect_dirs_rel(abs: &Path, root: &Path, out: &mut BTreeSet<String>) {
 
 /// Attach the New/Rename/Delete-folder context menu to a folder header
 /// (spec 033, R1, R4, R5).
+/// The file kind a category's `[+]` creates, or `None` when the category is
+/// IDE-owned (Generated Code is written by the form compiler, never by hand).
+///
+/// The category header and every folder row inside that category both read this,
+/// so a folder offers exactly the create affordance its category offers — only
+/// the destination differs.
+fn creatable_kind(cat: Category) -> Option<FileKind> {
+    match cat {
+        Category::Forms => Some(FileKind::Form),
+        Category::IndexedFiles => Some(FileKind::Indexed),
+        Category::CommonCode => Some(FileKind::Source),
+        Category::Generated => None,
+        Category::Assets => Some(FileKind::Asset),
+        Category::Documentation => Some(FileKind::Documentation),
+    }
+}
+
 fn folder_context_menu(
     resp: &egui::Response,
     folder_rel: &str,
@@ -2005,6 +2054,142 @@ mod folder_structure_tests {
     fn empty_category_reports_empty() {
         let s = FolderStructure::build(None, Category::Forms, &[]);
         assert!(s.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod folder_row_action_tests {
+    use super::*;
+
+    /// Render the Forms subtree headlessly and click every x position along the
+    /// first row (the `forms/customers` folder header), collecting the events the
+    /// panel emits. The row holds only the collapse toggle, `[+]`, `[🗑]`, the
+    /// folder icon and the name, so sweeping it exercises both buttons without
+    /// pinning their exact pixel offsets.
+    fn sweep_first_row() -> Vec<ProjectPanelEvent> {
+        let tracked = vec!["forms/customers/order.cfrm".to_string()];
+        let structure = FolderStructure::build(None, Category::Forms, &tracked);
+        let ctx = egui::Context::default();
+        let mut panel = ProjectPanel::new();
+        let mut out = Vec::new();
+        let mut t = 0.0;
+
+        let mut frame = |panel: &mut ProjectPanel,
+                         out: &mut Vec<ProjectPanelEvent>,
+                         t: f64,
+                         events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(0.0, 0.0),
+                    egui::vec2(400.0, 300.0),
+                )),
+                time: Some(t),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(root_ui, |ui| {
+                        let tr = crate::i18n::Language::English.tr();
+                        panel.render_folder_children(
+                            ui,
+                            Category::Forms,
+                            "forms",
+                            &structure,
+                            0,
+                            &None,
+                            &None,
+                            out,
+                            &tr,
+                        );
+                    });
+            });
+        };
+
+        frame(&mut panel, &mut out, t, vec![]);
+        let mut x = 2.0;
+        while x < 160.0 {
+            let pos = egui::pos2(x, 9.0);
+            t += 0.05;
+            frame(
+                &mut panel,
+                &mut out,
+                t,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+            );
+            t += 0.05;
+            frame(
+                &mut panel,
+                &mut out,
+                t,
+                vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                }],
+            );
+            x += 3.0;
+        }
+        out
+    }
+
+    /// A form can only be created in a subfolder if the subfolder itself offers
+    /// the create — the category `[+]` always lands in `forms/`.
+    #[test]
+    fn folder_row_creates_a_form_in_that_folder() {
+        let out = sweep_first_row();
+        let created = out.iter().any(|e| {
+            matches!(
+                e,
+                ProjectPanelEvent::CreateIn { kind, dir_rel }
+                    if *kind == FileKind::Form && dir_rel == Path::new("forms/customers")
+            )
+        });
+        assert!(
+            created,
+            "the folder row's [+] must request a new form inside forms/customers \
+             ({} events emitted)",
+            out.len()
+        );
+    }
+
+    /// The delete icon goes through the same confirmed path as the context menu:
+    /// it asks the app for a `DeleteFolder`, which raises the confirmation window
+    /// rather than deleting anything itself.
+    #[test]
+    fn folder_row_requests_folder_deletion() {
+        let out = sweep_first_row();
+        let deleted = out.iter().any(|e| {
+            matches!(
+                e,
+                ProjectPanelEvent::DeleteFolder { folder_rel, category_root }
+                    if folder_rel == Path::new("forms/customers") && category_root == "forms"
+            )
+        });
+        assert!(
+            deleted,
+            "the folder row's [🗑] must request deletion of forms/customers \
+             ({} events emitted)",
+            out.len()
+        );
+    }
+
+    /// Generated Code is written by the form compiler, so its folders must not
+    /// offer a create — the category header does not either.
+    #[test]
+    fn generated_code_folders_offer_no_create() {
+        assert_eq!(creatable_kind(Category::Forms), Some(FileKind::Form));
+        assert_eq!(creatable_kind(Category::Generated), None);
     }
 }
 

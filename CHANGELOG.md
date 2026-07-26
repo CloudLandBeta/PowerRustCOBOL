@@ -8,6 +8,33 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.8] — 2026-07-26
+
+### Changed
+
+- **A folder in the project tree creates files in itself.** The category `[+]`
+  always creates in the category root, so the only way to get a form into
+  `forms/customers/` was to create it in `forms/` and drag it down. Every folder
+  row now carries its own `[+]`, which opens the same New Form dialog pointed at
+  that folder — and the same for the Indexed Files and Common Code trees, whose
+  headers already offered the matching `[+]`. Generated Code has no `[+]` on its
+  folders, for the reason its header has none: the form compiler writes it.
+- **A folder row carries a delete icon next to its name.** Deleting a folder was
+  reachable only through the right-click menu. The icon is the same one form and
+  indexed rows already show, and it takes the same route: it asks for the
+  confirmation window — which names the folder and warns that everything inside
+  it goes with it — rather than deleting anything itself. Confirming removes the
+  folder from disk, drops every file under it from the project, and closes their
+  open designers and inspectors.
+
+### Fixed
+
+- **The "Delete form" confirmation is translated.** It was the one confirmation
+  window still hard-coded in English, so a developer working in Spanish,
+  Portuguese, Japanese, Chinese or French was asked to confirm a deletion in a
+  language the rest of the IDE was not using. It now reads from the same string
+  table as every other dialog.
+
 ## [PowerRustCOBOL 1.36.7] — 2026-07-26
 
 ### Fixed

@@ -100,6 +100,9 @@ struct NewFormDialog {
     width: String,
     height: String,
     theme: String,
+    /// Project-relative folder the save dialog should open in — set when the
+    /// dialog was raised by a folder row's `[+]`. `None` means `forms/`.
+    target_dir: Option<String>,
 }
 
 impl NewFormDialog {
@@ -111,6 +114,7 @@ impl NewFormDialog {
             width: "640".into(),
             height: "480".into(),
             theme: "Classic".into(),
+            target_dir: None,
         }
     }
 }
@@ -323,6 +327,9 @@ pub struct CoboltApp {
     // Dialog state
     new_form: NewFormDialog,
     new_indexed: NewIndexedDialog,
+    /// Project-relative folder the pending new indexed file goes in — set when
+    /// the dialog was raised by a folder row's `[+]`. `None` means `indexed/`.
+    new_indexed_dir: Option<String>,
     new_project: NewProjectDialog,
 
     // Cross-window pending actions
@@ -935,6 +942,7 @@ impl CoboltApp {
 
             new_form: NewFormDialog::new(),
             new_indexed: NewIndexedDialog::new(),
+            new_indexed_dir: None,
             new_project: NewProjectDialog::new(),
 
             pending_open_in_editor: None,
@@ -3038,14 +3046,39 @@ impl CoboltApp {
         first
     }
 
-    /// `+` on a category — **create** a new item of that kind.
+    /// `+` on a category — **create** a new item of that kind, in the category root.
     fn do_create_in_category(&mut self, kind: FileKind) {
+        self.create_of_kind(kind, None)
+    }
+
+    /// `+` on a folder row — create a new item of that kind directly inside
+    /// `dir_rel` (project-relative). Same dialogs and same templates as the
+    /// category `[+]`; only the destination directory differs.
+    fn do_create_in_folder(&mut self, kind: FileKind, dir_rel: &Path) {
+        let dir = crate::project_fs::rel_string(dir_rel);
+        self.create_of_kind(kind, Some(dir))
+    }
+
+    /// Create a new item of `kind`. `dir_rel` is the project-relative destination
+    /// folder; `None` means the category's root subdir. Carrying the destination
+    /// as state (rather than a parameter on each creator) is what lets the form
+    /// and indexed-file dialogs — which return asynchronously, after the user
+    /// fills them in — still land in the folder whose `[+]` was clicked.
+    fn create_of_kind(&mut self, kind: FileKind, dir_rel: Option<String>) {
         match kind {
             // A form has a real "create" dialog.
-            FileKind::Form => self.new_form.open = true,
-            FileKind::Indexed => self.new_indexed_file_dialog(),
-            FileKind::Source => self.create_new_text_file(FileKind::Source),
-            FileKind::Documentation => self.create_new_text_file(FileKind::Documentation),
+            FileKind::Form => {
+                self.new_form.target_dir = dir_rel;
+                self.new_form.open = true;
+            }
+            FileKind::Indexed => {
+                self.new_indexed_file_dialog();
+                self.new_indexed_dir = dir_rel;
+            }
+            FileKind::Source => self.create_new_text_file(FileKind::Source, dir_rel),
+            FileKind::Documentation => {
+                self.create_new_text_file(FileKind::Documentation, dir_rel)
+            }
             // Assets can't be authored in the IDE — creating one means importing.
             FileKind::Asset => self.do_add_file_to_project(FileKind::Asset),
         }
@@ -3053,13 +3086,16 @@ impl CoboltApp {
 
     /// Create a new editable text file (COBOL source or documentation) in the
     /// project, with a starter template, then track it and open it in the editor.
-    fn create_new_text_file(&mut self, kind: FileKind) {
+    ///
+    /// `dir_rel` is the project-relative destination folder; `None` puts the file
+    /// in the category's root subdir.
+    fn create_new_text_file(&mut self, kind: FileKind, dir_rel: Option<String>) {
         use crate::project_model::Category;
         let Some(dir) = self.project_dir() else {
             self.output.push_status("Save the project first.");
             return;
         };
-        let (sub, base, ext, category) = match kind {
+        let (root_sub, base, ext, category) = match kind {
             FileKind::Source => ("src", "new-program", "cbl", Category::CommonCode),
             _ => (
                 cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
@@ -3068,6 +3104,7 @@ impl CoboltApp {
                 Category::Documentation,
             ),
         };
+        let sub = dir_rel.as_deref().unwrap_or(root_sub);
         let sub_dir = dir.join(sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
             self.output
@@ -4004,10 +4041,15 @@ impl CoboltApp {
             self.output.push_status("Save the project first.");
             return;
         };
-        let sub_dir = dir.join("indexed");
+        // The folder whose [+] raised the dialog, or indexed/ from the category header.
+        let sub = self
+            .new_indexed_dir
+            .clone()
+            .unwrap_or_else(|| "indexed".to_string());
+        let sub_dir = dir.join(&sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
             self.output
-                .push_status(format!("Could not create indexed/: {e}"));
+                .push_status(format!("Could not create {sub}/: {e}"));
             return;
         };
         let stem = def.name.to_ascii_lowercase().replace('-', "_");
@@ -4051,13 +4093,14 @@ impl CoboltApp {
             }
         }
 
-        let rel = format!("indexed/{fname}");
+        let rel = format!("{sub}/{fname}");
         if let Some(proj) = &mut self.cobolt_project {
             use crate::project_model::Category;
             proj.add_file_to(&rel, Category::IndexedFiles);
         }
         self.do_save_project();
         self.new_indexed.open = false;
+        self.new_indexed_dir = None;
 
         let via_raw = self.new_indexed.raw_mode || using_cpy_text.is_some();
         self.open_indexed_inspect(path.clone(), None);
@@ -7685,11 +7728,12 @@ impl CoboltApp {
         let mut spec = crate::file_dialog::DialogSpec::save()
             .filter("RustCOBOL Form", &["cfrm"])
             .file_name(default_name);
-        // Default into the project's forms/ folder when a project is open.
+        // Default into the folder whose [+] was clicked, or the project's forms/
+        // folder when the create came from the category header.
         if let Some(dir) = self.project_dir() {
-            let forms = dir.join("forms");
-            let _ = std::fs::create_dir_all(&forms);
-            spec = spec.directory(forms);
+            let dest = dir.join(self.new_form.target_dir.as_deref().unwrap_or("forms"));
+            let _ = std::fs::create_dir_all(&dest);
+            spec = spec.directory(dest);
         }
         self.begin_file_dialog(FileRequest::NewForm(Box::new(form)), spec);
     }
@@ -8496,6 +8540,9 @@ impl eframe::App for CoboltApp {
                     }
                     ProjectPanelEvent::Select(_) => {} // applied inside the panel
                     ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
+                    ProjectPanelEvent::CreateIn { kind, dir_rel } => {
+                        self.do_create_in_folder(kind, &dir_rel)
+                    }
                     ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
                     ProjectPanelEvent::CreateKnowledgeFolder(parent) => {
@@ -10680,19 +10727,15 @@ impl CoboltApp {
         let Some(path) = self.pending_form_delete.clone() else {
             return;
         };
-        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
         let mut cancel = false;
         let mut confirm = false;
 
-        egui::Window::new("Delete form")
+        egui::Window::new(tr.dlg_delete_form_title)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!(
-                    "Delete form '{}' from the project and remove its .cfrm file from disk?",
-                    name
-                ));
+                ui.label(tr.dlg_delete_form_body);
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new(path.display().to_string()).small());
                 ui.add_space(8.0);
