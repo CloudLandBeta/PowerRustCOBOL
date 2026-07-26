@@ -299,7 +299,7 @@ impl FormRuntime {
 
         // Find the rcrun binary next to the current executable (works in debug + release)
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
-        let rcrun_path = exe.with_file_name("rcrun");
+        let rcrun_path = sibling_rcrun(&exe);
 
         let mut child = Command::new(&rcrun_path)
             .arg("run-form-ipc")
@@ -811,6 +811,17 @@ pub struct RunDiagnostics {
     pub dump_project: Option<String>,
 }
 
+/// The bundled `rcrun` sitting next to the running executable.
+///
+/// `EXE_SUFFIX` is empty on Unix and `".exe"` on Windows, where the sibling is
+/// `rcrun.exe`: spelling the name without it missed the bundled binary entirely,
+/// so Run Form fell back to a bare PATH lookup and only worked if the developer
+/// happened to have rcrun on PATH. The rest of the tree already handles both
+/// names (see `project_model::…` and the compiler's `rcrun_name`).
+fn sibling_rcrun(exe: &std::path::Path) -> PathBuf {
+    exe.with_file_name(format!("rcrun{}", std::env::consts::EXE_SUFFIX))
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -824,7 +835,7 @@ impl ExternalFormRun {
         diagnostics: &RunDiagnostics,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
-        let rcrun_path = exe.with_file_name("rcrun");
+        let rcrun_path = sibling_rcrun(&exe);
 
         let spawn_with = |program: &std::path::Path| {
             let mut cmd = Command::new(program);

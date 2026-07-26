@@ -8,6 +8,32 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.3] — 2026-07-26
+
+### Changed
+
+- **Plain language names in the selector.** The flags are gone — the list now
+  shows only each language's own name (English, Português, Español, Français,
+  日本語, 中文). Flag glyphs render differently on every platform, and the emoji
+  form does not render as a flag at all in this toolkit.
+
+### Fixed
+
+- **Diagnostic files land in the right place on Windows.** Five diagnostics
+  (`databinding.log`, the per-control diagnostics dump, the render-side databind
+  trace, the debugger log and the Run-Form inspector dump) opened `/tmp/…`
+  literally. Windows has no `/tmp`, so every one of those writes silently failed
+  and the diagnostics appeared to do nothing. They now resolve per platform:
+  `/tmp` on Linux and macOS exactly as before, `%TEMP%` on Windows.
+- **Run Form finds its runtime on Windows.** The IDE looked for the bundled
+  `rcrun` next to itself by that exact name; on Windows the sibling is
+  `rcrun.exe`, so the lookup missed it and Run Form worked only if `rcrun` also
+  happened to be on `PATH`. The executable suffix is now applied, matching how
+  the rest of the toolchain already resolved it.
+- **`inspect_actors` takes its paths as arguments.** This developer aid had two
+  absolute macOS paths into one contributor's project folder compiled in, so it
+  could not run anywhere else.
+
 ## [PowerRustCOBOL 1.36.2] — 2026-07-26
 
 ### Fixed

@@ -37,6 +37,7 @@ pub mod channels;
 pub mod compress;
 pub mod db_runtime;
 pub mod debugger;
+pub mod diag_path;
 pub mod environment;
 pub mod error;
 pub mod exec_rust;

@@ -81,14 +81,15 @@ fn databind_trace_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Append one line to `/tmp/databinding.log`. Best-effort: a failed write is
-/// ignored. Call through [`databind_trace!`], which keeps the write (and the
-/// formatting) behind the diagnostic.
+/// Append one line to `databinding.log` in the platform's diagnostics directory
+/// (see [`crate::diag_path`] — `/tmp` on Linux/macOS, `%TEMP%` on Windows).
+/// Best-effort: a failed write is ignored. Call through [`databind_trace!`],
+/// which keeps the write (and the formatting) behind the diagnostic.
 fn databind_trace_write(args: std::fmt::Arguments<'_>) {
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/databinding.log")
+        .open(crate::diag_path::diagnostics_file("databinding.log"))
     {
         use std::io::Write;
         let _ = writeln!(f, "{args}");

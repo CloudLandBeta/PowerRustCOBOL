@@ -47,8 +47,8 @@ pub struct DebugSettings {
     /// Experimental rounded-corner GL clip (spec 017).
     pub rounded_clip: bool,
     // ── Data binding ──────────────────────────────────────────────────────
-    /// Run-form data-binding trace (`/tmp/databinding.log` + the state-key
-    /// mismatch dump).
+    /// Run-form data-binding trace: `databinding.log` in the platform's
+    /// diagnostics directory, plus the state-key mismatch dump.
     pub databind_trace: bool,
     // ── Agentic AI ────────────────────────────────────────────────────────
     /// `[ai-pane]` sizing lines on stderr each frame.
@@ -105,7 +105,7 @@ impl DebugSettings {
     }
 
     /// `true` when any switch is on — the trigger for the per-control
-    /// diagnostics dump at `/tmp/<project>_diagnostics_dump.log`.
+    /// diagnostics dump at `<diagnostics dir>/<project>_diagnostics_dump.log`.
     pub fn any_enabled(&self) -> bool {
         self.frame_diagnostics
             || self.datagrid_diagnostics
@@ -226,10 +226,11 @@ static SECTIONS: &[Section] = &[
         tab: |tr| tr.debug_tab_databind,
         switches: &[Switch::Flag {
             label: "Data-bind trace",
-            hint: "Run Form writes /tmp/databinding.log (repeating-group seeding, per-row \
-                   control-array binding) plus, once, the mismatch between the state keys \
-                   the interpreter populated and the instanced ids the renderer looks up — \
-                   decisive for \"cards show designed defaults in run-form but not in \
+            hint: "Run Form writes databinding.log to the diagnostics folder (/tmp on Linux \
+                   and macOS, %TEMP% on Windows): repeating-group seeding and per-row \
+                   control-array binding, plus — once — the mismatch between the state keys \
+                   the interpreter populated and the instanced ids the renderer looks up. \
+                   Decisive for \"cards show designed defaults in run-form but not in \
                    preview\".",
             env: "COBOLT_DATABIND_TRACE",
             get: |s| &mut s.databind_trace,

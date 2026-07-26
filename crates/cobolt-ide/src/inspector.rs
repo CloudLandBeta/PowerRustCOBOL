@@ -67,7 +67,12 @@ impl Default for InspectorConfig {
     fn default() -> Self {
         Self {
             dump_enabled: true,
-            dump_path: "/tmp/prc_inspector_dump.txt".to_string(),
+            // Per platform, never a POSIX literal: on Windows `/tmp` resolves to
+            // a `\tmp` directory that does not exist, so the dump would silently
+            // never appear.
+            dump_path: cobolt_runtime::diag_path::diagnostics_file("prc_inspector_dump.txt")
+                .display()
+                .to_string(),
             rss_growth_mb: 50.0,
             cpu_idle_pct: 25.0,
             max_children: 8,

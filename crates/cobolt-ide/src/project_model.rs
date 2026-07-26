@@ -300,8 +300,14 @@ fn default_true() -> bool {
     true
 }
 
+/// Default dump location. Resolved per platform (`/tmp` on Linux/macOS,
+/// `%TEMP%` on Windows) rather than hardcoded POSIX — a project created on
+/// Windows would otherwise carry a path nothing can write to. An existing
+/// project keeps whatever path it already has.
 fn default_inspector_dump_path() -> String {
-    "/tmp/prc_inspector_dump.txt".to_string()
+    cobolt_runtime::diag_path::diagnostics_file("prc_inspector_dump.txt")
+        .display()
+        .to_string()
 }
 
 fn default_debug_compilation() -> bool {

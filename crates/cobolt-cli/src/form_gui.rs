@@ -227,11 +227,13 @@ fn write_diagnostics_dump(project: &str, form: &cobolt_forms::Form) {
         ("databind_trace", env_flag("COBOLT_DATABIND_TRACE")),
     ];
     let body = cobolt_forms::diagnostics::dump_form_diagnostics(form, project, &enabled);
-    // The user-facing contract is exactly /tmp/<project>_diagnostics_dump.log,
-    // so use /tmp literally rather than the platform temp dir (which on macOS is
-    // a per-process /var/folders path).
-    let path =
-        PathBuf::from("/tmp").join(format!("{}_diagnostics_dump.log", sanitize_stem(project)));
+    // The user-facing contract is <diagnostics dir>/<project>_diagnostics_dump.log
+    // — `/tmp` on Linux/macOS (deliberately not the per-process /var/folders path
+    // std::env::temp_dir gives on macOS), `%TEMP%` on Windows, which has no /tmp.
+    let path = cobolt_runtime::diag_path::diagnostics_file(&format!(
+        "{}_diagnostics_dump.log",
+        sanitize_stem(project)
+    ));
     match std::fs::write(&path, body) {
         Ok(()) => eprintln!("run-form: wrote diagnostics dump to {}", path.display()),
         Err(e) => eprintln!("run-form: could not write diagnostics dump to {}: {e}", path.display()),
@@ -602,13 +604,15 @@ impl FormApp {
     /// that id is present in `state` byte-exact vs. case-insensitively. A CI-only
     /// hit means the value landed under a differently-cased key than the render
     /// draws with — the classic run-form databind blank. Written once to
-    /// `/tmp/cobolt-databind-render.log`.
+    /// `cobolt-databind-render.log` in the platform's diagnostics directory.
     fn dump_databind_trace(&self) {
         use std::io::Write;
         let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open("/tmp/cobolt-databind-render.log")
+            .open(cobolt_runtime::diag_path::diagnostics_file(
+                "cobolt-databind-render.log",
+            ))
         else {
             return;
         };

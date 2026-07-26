@@ -42,14 +42,16 @@ use cobolt_semantic::analyze;
 
 // ── Debug instrumentation ─────────────────────────────────────────────────────
 
-/// Append a timestamped line to `/tmp/cobolt-debug.log`.
+/// Append a timestamped line to `cobolt-debug.log` in the platform's
+/// diagnostics directory (`/tmp` on Linux/macOS, `%TEMP%` on Windows).
 /// Safe to call from any thread.  Silently no-ops if the file can't be opened.
 pub fn dbg_log(msg: &str) {
     use std::io::Write;
+    let path = cobolt_runtime::diag_path::diagnostics_file("cobolt-debug.log");
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/cobolt-debug.log")
+        .open(path)
     {
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

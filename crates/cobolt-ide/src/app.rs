@@ -11199,13 +11199,9 @@ impl CoboltApp {
                             .width(130.0)
                             .show_ui(ui, |ui| {
                                 for &l in Language::ALL {
-                                    if crate::flags::language_row(ui, l, self.lang == l).clicked() {
-                                        self.lang = l;
-                                    }
+                                    ui.selectable_value(&mut self.lang, l, l.native_name());
                                 }
                             });
-                        crate::flags::flag_widget(ui, self.lang);
-                        ui.add_space(4.0);
                     });
                 });
 
