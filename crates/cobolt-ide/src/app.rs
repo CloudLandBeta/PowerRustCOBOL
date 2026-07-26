@@ -7347,6 +7347,14 @@ impl CoboltApp {
         if !self.ai_setup_modal {
             return;
         }
+        // A manager opened from here takes over the screen: keep the invite alive
+        // but unpainted while it is up (the managers are drawn earlier in the frame,
+        // so painting the invite too would put it on top). Closing the manager
+        // brings the invite back, so the model and the agent can both be set from
+        // one place — only ✕ / "Later" dismisses it.
+        if self.models_modal.is_some() || self.agents_modal.is_some() {
+            return;
+        }
         let mut open = true;
         let mut hide_again = self
             .cobolt_project
@@ -7430,8 +7438,9 @@ impl CoboltApp {
                 self.persist_active_project_ai();
             }
         }
-        // Opening a manager replaces this invite; otherwise close on Later / ✕.
-        if close || open_models || open_agents || !open {
+        // Only the user dismisses the invite: Later / ✕. Opening a manager just
+        // hides it for as long as that manager is up (see the guard above).
+        if close || !open {
             self.ai_setup_modal = false;
         }
     }

@@ -8,6 +8,18 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.5] — 2026-07-26
+
+### Fixed
+
+- **The "Set up this project's AI" invitation no longer disappears behind your
+  back.** Clicking *Models Manager* or *Manage Agents* closed the invitation, so
+  when you finished with the manager you landed in the IDE — after setting the
+  model you had to go find Project Settings yourself to set the agent. The
+  invitation now stays open for as long as you need it: it steps aside while a
+  manager is up and comes back when that manager closes, so both the model and
+  the agent can be set from the one place. Only ✕ or *Later* dismisses it.
+
 ## [PowerRustCOBOL 1.36.4] — 2026-07-26
 
 ### Changed
