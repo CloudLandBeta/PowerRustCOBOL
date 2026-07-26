@@ -746,6 +746,17 @@ pub struct Tr {
     pub doc_placeholder: &'static str,
     pub doc_mermaid_error: &'static str,
 
+    // ── Debug settings (Help menu) ────────────────────────────────────────────
+    pub debug_menu_label: &'static str, // Help-menu item
+    pub debug_title: &'static str,
+    pub debug_scope_hint: &'static str,
+    pub debug_close: &'static str,
+    pub debug_tab_ui: &'static str,
+    pub debug_tab_databind: &'static str,
+    pub debug_tab_ai: &'static str,
+    pub debug_tab_indexed: &'static str,
+    pub debug_tab_logging: &'static str,
+
     // ── COBOL Structure editor (spec 005) ─────────────────────────────────────
     pub cs_open: &'static str,
     pub cs_user_procedures: &'static str,
@@ -1447,6 +1458,16 @@ const EN: Tr = Tr {
     doc_placeholder: "Select a manual from the list of documents on the left to view it.",
     doc_mermaid_error: "Could not render diagram",
 
+    debug_menu_label:   "🐞 Debug Settings…",
+    debug_title:        "Debug Settings",
+    debug_scope_hint:   "IDE-wide, saved on this machine and not in the project. Design-canvas switches apply immediately; Run Form picks the rest up on its next launch.",
+    debug_close:        "Close",
+    debug_tab_ui:       "User Interface",
+    debug_tab_databind: "Data Binding",
+    debug_tab_ai:       "Agentic AI",
+    debug_tab_indexed:  "Indexed Files",
+    debug_tab_logging:  "Logging",
+
     cs_open:            "COBOL Structure",
     cs_user_procedures: "User procedures",
     cs_add_procedure:   "Add procedure",
@@ -2124,6 +2145,16 @@ const ES: Tr = Tr {
     doc_font_size:   "Tamaño de fuente",
     doc_placeholder: "Seleccione un manual de la lista de documentos a la izquierda para verlo.",
     doc_mermaid_error: "No se pudo renderizar el diagrama",
+
+    debug_menu_label:   "🐞 Ajustes de depuración…",
+    debug_title:        "Ajustes de depuración",
+    debug_scope_hint:   "Globales del IDE, guardados en este equipo y no en el proyecto. Los interruptores del lienzo de diseño se aplican de inmediato; Ejecutar formulario toma los demás en su próximo arranque.",
+    debug_close:        "Cerrar",
+    debug_tab_ui:       "Interfaz de usuario",
+    debug_tab_databind: "Enlace de datos",
+    debug_tab_ai:       "IA agéntica",
+    debug_tab_indexed:  "Archivos indexados",
+    debug_tab_logging:  "Registro",
 
     cs_open:            "Estructura COBOL",
     cs_user_procedures: "Procedimientos de usuario",
@@ -2803,6 +2834,16 @@ const PT: Tr = Tr {
     doc_placeholder: "Selecione um manual na lista de documentos à esquerda para visualizá-lo.",
     doc_mermaid_error: "Não foi possível renderizar o diagrama",
 
+    debug_menu_label:   "🐞 Configurações de depuração…",
+    debug_title:        "Configurações de depuração",
+    debug_scope_hint:   "Globais do IDE, salvas nesta máquina e não no projeto. As chaves da tela de design valem imediatamente; Executar formulário assume as demais na próxima execução.",
+    debug_close:        "Fechar",
+    debug_tab_ui:       "Interface do usuário",
+    debug_tab_databind: "Vinculação de dados",
+    debug_tab_ai:       "IA agêntica",
+    debug_tab_indexed:  "Arquivos indexados",
+    debug_tab_logging:  "Registro",
+
     cs_open:            "Estrutura COBOL",
     cs_user_procedures: "Procedimentos do usuário",
     cs_add_procedure:   "Adicionar procedimento",
@@ -3480,6 +3521,16 @@ const JA: Tr = Tr {
     doc_font_size:   "フォントサイズ",
     doc_placeholder: "左側のドキュメント一覧からマニュアルを選択して表示します。",
     doc_mermaid_error: "図を描画できませんでした",
+
+    debug_menu_label:   "🐞 デバッグ設定…",
+    debug_title:        "デバッグ設定",
+    debug_scope_hint:   "IDE 全体の設定で、プロジェクトではなくこのマシンに保存されます。デザインキャンバスのスイッチは即座に反映され、その他は次回のフォーム実行から反映されます。",
+    debug_close:        "閉じる",
+    debug_tab_ui:       "ユーザーインターフェース",
+    debug_tab_databind: "データバインディング",
+    debug_tab_ai:       "エージェント AI",
+    debug_tab_indexed:  "索引ファイル",
+    debug_tab_logging:  "ログ",
 
     cs_open:            "COBOL構造",
     cs_user_procedures: "ユーザー手続き",
@@ -4166,6 +4217,16 @@ const ZH: Tr = Tr {
     doc_placeholder: "从左侧的文档列表中选择一个手册以查看。",
     doc_mermaid_error: "无法渲染图表",
 
+    debug_menu_label:   "🐞 调试设置…",
+    debug_title:        "调试设置",
+    debug_scope_hint:   "IDE 全局设置，保存在本机而非项目中。设计画布开关立即生效，其余在下次运行窗体时生效。",
+    debug_close:        "关闭",
+    debug_tab_ui:       "用户界面",
+    debug_tab_databind: "数据绑定",
+    debug_tab_ai:       "智能体 AI",
+    debug_tab_indexed:  "索引文件",
+    debug_tab_logging:  "日志",
+
     cs_open: "COBOL 结构",
     cs_user_procedures: "用户过程",
     cs_add_procedure: "添加过程",
@@ -4843,6 +4904,16 @@ const FR: Tr = Tr {
     doc_font_size:   "Taille de police",
     doc_placeholder: "Sélectionnez un manuel dans la liste des documents à gauche pour le consulter.",
     doc_mermaid_error: "Impossible de générer le diagramme",
+
+    debug_menu_label:   "🐞 Paramètres de débogage…",
+    debug_title:        "Paramètres de débogage",
+    debug_scope_hint:   "Globaux à l'IDE, enregistrés sur cette machine et non dans le projet. Les commutateurs du canevas s'appliquent immédiatement ; Exécuter le formulaire prend les autres à son prochain lancement.",
+    debug_close:        "Fermer",
+    debug_tab_ui:       "Interface utilisateur",
+    debug_tab_databind: "Liaison de données",
+    debug_tab_ai:       "IA agentique",
+    debug_tab_indexed:  "Fichiers indexés",
+    debug_tab_logging:  "Journalisation",
 
     cs_open:            "Structure COBOL",
     cs_user_procedures: "Procédures utilisateur",

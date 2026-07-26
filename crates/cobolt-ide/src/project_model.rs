@@ -259,6 +259,11 @@ impl CoboltProject {
 
 /// Per-project IDE appearance settings (colour theme + background image),
 /// persisted in `cobolt.toml` so the look travels with the project.
+///
+/// Debug switches used to live here too; they are machine-local developer aids,
+/// not project data, so they moved to
+/// [`DebugSettings`](crate::debug_settings::DebugSettings) (Help → Debug
+/// Settings). Their old keys in an existing `cobolt.toml` are ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdeSettings {
     /// Colour-theme id (see `crate::theme`). Empty / unknown → default theme.
@@ -280,39 +285,11 @@ pub struct IdeSettings {
     /// Where the inspector writes its dump file.
     #[serde(default = "default_inspector_dump_path")]
     pub inspector_dump_path: String,
-    /// Frame-diagnostics overlay: explode each control's composite layers
-    /// (shadow/face/border/content/outline) into coloured, offset frames so
-    /// rounded-corner bleed and mis-rounded layers are visible. Developer aid,
-    /// off by default. Mirrors the `COBOLT_FRAME_DIAGNOSTICS` env var.
-    #[serde(default)]
-    pub frame_diagnostics: bool,
-    /// Rounded-corner GL clip (spec 017): capture the framebuffer behind a
-    /// rounded container and re-blit its corner notches through a rounded mask,
-    /// fixing child-content bleed over translucent surfaces. Experimental,
-    /// off by default. Mirrors the `COBOLT_ROUNDED_CLIP` env var.
-    #[serde(default)]
-    pub rounded_clip: bool,
-    /// Data-bind trace: the run-form process writes, once, the mismatch between
-    /// interpreter-populated state keys and the instanced ids the renderer looks
-    /// up for repeating-group members. Developer aid, off by default. Mirrors the
-    /// `COBOLT_DATABIND_TRACE` env var.
-    #[serde(default)]
-    pub databind_trace: bool,
-    /// AI-pane layout debug: emit `[ai-pane]` sizing lines on stderr each frame.
-    /// Developer aid, off by default. Mirrors the `COBOLT_AI_PANE_DEBUG` env var.
-    #[serde(default)]
-    pub ai_pane_debug: bool,
     /// Suppress the "set up AI" invitation shown when the project is opened with
     /// no usable model or no configured agent. Set by the modal's
     /// "don't show again" checkbox.
     #[serde(default)]
     pub hide_ai_setup_prompt: bool,
-    /// DataGrid component frames: a diagnostic private to the DataGrid that
-    /// outlines every internal sub-component (header, body, columns, rows, cells,
-    /// frozen panes, scrollbar). Developer aid, off by default. Mirrors the
-    /// `COBOLT_DATAGRID_DIAGNOSTICS` env var.
-    #[serde(default)]
-    pub datagrid_diagnostics: bool,
 }
 
 fn default_bg_opacity() -> u8 {
@@ -340,12 +317,7 @@ impl Default for IdeSettings {
             background_opacity: default_bg_opacity(),
             inspector_dump_enabled: default_true(),
             inspector_dump_path: default_inspector_dump_path(),
-            frame_diagnostics: false,
-            rounded_clip: false,
-            databind_trace: false,
-            ai_pane_debug: false,
             hide_ai_setup_prompt: false,
-            datagrid_diagnostics: false,
         }
     }
 }

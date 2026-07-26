@@ -8,6 +8,52 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.0] — 2026-07-26
+
+### Added
+
+- **Debug Settings (Help → 🐞 Debug Settings)** — every debug switch the IDE
+  knows about now has one home, instead of a set of environment variables you
+  had to remember and export. The modal groups them in one tab per area —
+  **User Interface** (frame diagnostics, DataGrid component frames,
+  rounded-corner GL clip), **Data Binding** (data-bind trace), **Agentic AI**
+  (AI-pane layout debug), **Indexed Files** (INDEXED transaction log level and
+  format) and **Logging** (tracing filter) — and each row's tooltip still names
+  the variable it mirrors, so a shell run of `rcrun` remains reproducible. Two
+  of these were never exposed in the UI before: the tracing filter (`COBOLT_LOG`)
+  and the INDEXED transaction log. The switches are **IDE-wide**, saved on the
+  machine rather than in `cobolt.toml`: design-canvas switches apply on the spot,
+  and Run Form receives the rest as environment on its next launch.
+- **License text loads with the license** — picking MIT, Apache-2.0, GPL-3.0 or
+  any other entry in Project Settings now fills the license box with that
+  license's canonical text (SPDX originals, placeholders intact) ready to edit.
+  Terms you wrote yourself are never overwritten — only an empty box or
+  still-untouched stock text is replaced — and a project that names a license but
+  has no text picks it up when its settings open. The box scrolls at a fixed
+  height, so a long license no longer stretches the form.
+
+### Changed
+
+- **Diagnostics moved out of Project Settings.** They were per-project settings
+  in `cobolt.toml`; they are developer-machine aids, not project data, so they
+  now live in the Debug Settings modal above. Old keys in an existing
+  `cobolt.toml` are ignored. The Run-Form inspector dump rows stay in Project
+  Settings.
+
+### Fixed
+
+- **An agent's model can be set back to "(no model selected)".** The choice was
+  written to disk, but the built-in agent repair that runs on every project open
+  could not tell "explicitly no model" from "never configured" and handed the
+  agent a model back — so the setting looked like it never saved. The choice is
+  now recorded explicitly and survives reopening; it also overrides the dormant
+  connection kept on the agent for rollback, so nothing resurrects it.
+- **`/tmp/databinding.log` no longer grows unattended.** The control-array
+  data-binding trace wrote to it on every refresh, once per row per mapping,
+  whether or not anyone had asked for diagnostics (one report reached 1.4 MB).
+  The writes are now behind the data-bind trace switch, and the summary lines
+  also reach the `databinding` tracing target.
+
 ## [PowerRustCOBOL 1.34.0] — 2026-07-24
 
 ### Added

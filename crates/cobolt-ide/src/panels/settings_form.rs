@@ -27,7 +27,7 @@ use crate::project_model::CoboltProject;
 
 /// A flat, comparable snapshot of every editable setting. `PartialEq` powers the
 /// dirty check (draft ≠ baseline → there are unsaved changes).
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default)]
 pub struct SettingsDraft {
     // ── Project ──
     pub name: String,
@@ -53,16 +53,6 @@ pub struct SettingsDraft {
     // ── Run-Form inspector ──
     pub insp_dump_enabled: bool,
     pub insp_dump_path: String,
-    /// Frame-diagnostics overlay (rounded-corner bleed hunt); developer aid.
-    pub frame_diagnostics: bool,
-    /// Rounded-corner GL clip (spec 017); experimental rendering fix.
-    pub rounded_clip: bool,
-    /// Data-bind trace in the run-form process; developer aid.
-    pub databind_trace: bool,
-    /// AI-pane layout debug trace on stderr; developer aid.
-    pub ai_pane_debug: bool,
-    /// DataGrid component-frame overlay; developer aid private to the DataGrid.
-    pub datagrid_diagnostics: bool,
     // ── AI assistant (project-scoped; credentials remain machine-local) ──
     /// Selected AI provider id (empty ⇒ "Select the AI Provider").
     pub llm_provider: String,
@@ -87,6 +77,19 @@ pub struct SettingsDraft {
 }
 
 impl SettingsDraft {
+    /// Switch the license model, loading that license's canonical text for the
+    /// developer to edit. Text they wrote themselves is kept — only stock text
+    /// (or an empty box) is replaced.
+    pub fn set_license_model(&mut self, id: &str) {
+        if self.license_model == id {
+            return;
+        }
+        if is_stock_license_text(&self.license_text) {
+            self.license_text = stock_license_text(id).unwrap_or_default().to_owned();
+        }
+        self.license_model = id.to_owned();
+    }
+
     pub fn from_project(p: &CoboltProject, llm: &LlmConfig) -> Self {
         let (major, minor, fix) = p.project.version_parts();
         Self {
@@ -99,7 +102,16 @@ impl SettingsDraft {
             destination_folder: p.project.destination_folder.clone(),
             debug_compilation: p.project.debug_compilation,
             license_model: p.project.license_model.clone(),
-            license_text: p.project.license_text.clone(),
+            // A project that names a license but carries no text (older projects,
+            // or one whose text was never filled in) gets the canonical text, so
+            // the box shows the licence it claims.
+            license_text: if p.project.license_text.trim().is_empty() {
+                stock_license_text(&p.project.license_model)
+                    .unwrap_or_default()
+                    .to_owned()
+            } else {
+                p.project.license_text.clone()
+            },
             theme_id: p.ide.theme.clone(),
             bg_image: p.ide.background_image.clone(),
             project_icon: p.ide.project_icon.clone(),
@@ -108,11 +120,6 @@ impl SettingsDraft {
             fixed_format: p.runtime.fixed_format,
             insp_dump_enabled: p.ide.inspector_dump_enabled,
             insp_dump_path: p.ide.inspector_dump_path.clone(),
-            frame_diagnostics: p.ide.frame_diagnostics,
-            rounded_clip: p.ide.rounded_clip,
-            databind_trace: p.ide.databind_trace,
-            ai_pane_debug: p.ide.ai_pane_debug,
-            datagrid_diagnostics: p.ide.datagrid_diagnostics,
             llm_provider: llm.provider.clone(),
             llm_endpoint: llm.endpoint.clone(),
             llm_api_key: llm.api_key.clone(),
@@ -153,11 +160,6 @@ impl SettingsDraft {
         p.runtime.fixed_format = self.fixed_format;
         p.ide.inspector_dump_enabled = self.insp_dump_enabled;
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
-        p.ide.frame_diagnostics = self.frame_diagnostics;
-        p.ide.rounded_clip = self.rounded_clip;
-        p.ide.databind_trace = self.databind_trace;
-        p.ide.ai_pane_debug = self.ai_pane_debug;
-        p.ide.datagrid_diagnostics = self.datagrid_diagnostics;
         llm.provider = self.llm_provider.clone();
         llm.endpoint = self.llm_endpoint.clone();
         if !self.llm_api_key.trim().is_empty() {
@@ -251,6 +253,43 @@ const LICENSES: &[&str] = &[
     "Unlicense",
     "CC0-1.0",
 ];
+
+/// Height of the license-text box. Fixed on purpose: the stock texts are long,
+/// and a height taken from the available space makes the settings form grow.
+const LICENSE_BOX_HEIGHT: f32 = 180.0;
+
+/// Canonical text for a dropdown entry, baked in at build time from the SPDX
+/// license list (`assets/licenses/`). The texts are verbatim, placeholders and
+/// all (`<year>`, `<copyright holders>`) — the developer fills those in, which
+/// is exactly why the box is editable.
+///
+/// `Proprietary` has no stock text; neither has an unknown id from an older
+/// `cobolt.toml`.
+fn stock_license_text(id: &str) -> Option<&'static str> {
+    Some(match id.trim() {
+        "MIT" => include_str!("../../../../assets/licenses/MIT.txt"),
+        "Apache-2.0" => include_str!("../../../../assets/licenses/Apache-2.0.txt"),
+        "GPL-3.0" => include_str!("../../../../assets/licenses/GPL-3.0-only.txt"),
+        "LGPL-3.0" => include_str!("../../../../assets/licenses/LGPL-3.0-only.txt"),
+        "BSD-3-Clause" => include_str!("../../../../assets/licenses/BSD-3-Clause.txt"),
+        "MPL-2.0" => include_str!("../../../../assets/licenses/MPL-2.0.txt"),
+        "Unlicense" => include_str!("../../../../assets/licenses/Unlicense.txt"),
+        "CC0-1.0" => include_str!("../../../../assets/licenses/CC0-1.0.txt"),
+        _ => return None,
+    })
+}
+
+/// `true` when the text is untouched stock — empty, or still verbatim equal to
+/// one of the shipped licenses. Text the developer wrote or edited is never
+/// overwritten by a license switch.
+fn is_stock_license_text(text: &str) -> bool {
+    let text = text.trim();
+    text.is_empty()
+        || LICENSES
+            .iter()
+            .filter_map(|id| stock_license_text(id))
+            .any(|stock| stock.trim() == text)
+}
 
 /// Holds the live draft + the last-saved baseline for the dirty check.
 pub struct SettingsForm {
@@ -642,12 +681,22 @@ impl SettingsForm {
                                     })
                                     .width(w)
                                     .show_ui(ui, |ui| {
+                                        // Route the pick through set_license_model
+                                        // so choosing a license also loads its text.
+                                        let mut picked: Option<&str> = None;
                                         for &lic in LICENSES {
-                                            ui.selectable_value(
-                                                &mut self.draft.license_model,
-                                                lic.to_owned(),
-                                                lic,
-                                            );
+                                            if ui
+                                                .selectable_label(
+                                                    self.draft.license_model == lic,
+                                                    lic,
+                                                )
+                                                .clicked()
+                                            {
+                                                picked = Some(lic);
+                                            }
+                                        }
+                                        if let Some(lic) = picked {
+                                            self.draft.set_license_model(lic);
                                         }
                                     });
                             });
@@ -672,12 +721,24 @@ impl SettingsForm {
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 let w = ui.available_width();
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.draft.license_text)
-                                        .desired_rows(5)
-                                        .desired_width(w)
-                                        .font(egui::TextStyle::Monospace),
-                                );
+                                // A stock license runs to tens of thousands of
+                                // lines (GPL-3.0), and a multiline TextEdit grows
+                                // to its content — so it scrolls inside a box of
+                                // fixed height (a constant, never derived from the
+                                // available space, which would inflate the form).
+                                egui::ScrollArea::vertical()
+                                    .id_salt("license_text")
+                                    .max_height(LICENSE_BOX_HEIGHT)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::multiline(
+                                                &mut self.draft.license_text,
+                                            )
+                                            .desired_rows(5)
+                                            .desired_width(w)
+                                            .font(egui::TextStyle::Monospace),
+                                        );
+                                    });
                             });
                         });
 
@@ -1667,108 +1728,6 @@ impl SettingsForm {
                                 );
                             });
                         });
-
-                        // ── Diagnostics ───────────────────────────────────────
-                        // Developer aids, all off by default. Each mirrors an
-                        // env var (still honoured until the project setting
-                        // overrides it), so they can be toggled without a rebuild.
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.set_min_width(splitter);
-                                section(ui, "Diagnostics", &theme);
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
-                        });
-                        // One labelled checkbox row, laid out on the same split as
-                        // the other property rows.
-                        let mut diag_row = |ui: &mut egui::Ui,
-                                            label: &str,
-                                            hover: &str,
-                                            val: &mut bool| {
-                            ui.horizontal_top(|ui| {
-                                let left_rect = ui
-                                    .allocate_exact_size(
-                                        egui::vec2(splitter, 0.0),
-                                        egui::Sense::hover(),
-                                    )
-                                    .0;
-                                ui.scope_builder(
-                                    egui::UiBuilder::new().max_rect(left_rect),
-                                    |ui| {
-                                        ui.style_mut().wrap_mode =
-                                            Some(egui::TextWrapMode::Truncate);
-                                        ui.set_min_width(splitter);
-                                        ui.add_space(property_indent);
-                                        ui.add(egui::Label::new(label.to_owned()).truncate());
-                                    },
-                                );
-                                ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                                ui.add_space(gap_after_resizer);
-                                let right_w = ui.available_width();
-                                ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                    ui.checkbox(val, "").on_hover_text(hover.to_owned());
-                                });
-                            });
-                        };
-                        diag_row(
-                            ui,
-                            "Frame diagnostics overlay",
-                            "Explode each control's composite layers \
-                             (shadow/face/border/content/outline) into coloured, offset \
-                             frames so rounded-corner bleed and mis-rounded layers are \
-                             visible. Applies live to the design canvas; Run Form picks it \
-                             up on its next launch. Env: COBOLT_FRAME_DIAGNOSTICS.",
-                            &mut self.draft.frame_diagnostics,
-                        );
-                        diag_row(
-                            ui,
-                            "Rounded-corner GL clip",
-                            "Experimental (spec 017): capture the framebuffer behind a \
-                             rounded container and re-blit its corner notches through a \
-                             rounded mask, fixing child-content bleed over translucent \
-                             surfaces. Applies live to the design canvas. \
-                             Env: COBOLT_ROUNDED_CLIP.",
-                            &mut self.draft.rounded_clip,
-                        );
-                        diag_row(
-                            ui,
-                            "Data-bind trace",
-                            "The run-form process writes, once, the mismatch between the \
-                             state keys the interpreter populated and the instanced ids \
-                             the renderer looks up for repeating-group members — decisive \
-                             for \"cards show designed defaults in run-form but not in \
-                             preview\". Applied on the next Run Form. \
-                             Env: COBOLT_DATABIND_TRACE.",
-                            &mut self.draft.databind_trace,
-                        );
-                        diag_row(
-                            ui,
-                            "AI-pane layout debug",
-                            "Emit [ai-pane] sizing lines on stderr each frame (max_rect, \
-                             history height, turn count) while the global AI pane is open. \
-                             Applies live. Env: COBOLT_AI_PANE_DEBUG.",
-                            &mut self.draft.ai_pane_debug,
-                        );
-                        diag_row(
-                            ui,
-                            "DataGrid component frames",
-                            "Private to the DataGrid: outline every internal sub-component \
-                             (whole grid, header, body, each column, each visible row and \
-                             cell, frozen panes, scrollbar) in a distinct colour so a \
-                             mis-sized or mis-placed part is obvious. Applies live to the \
-                             design canvas; Run Form picks it up on its next launch. \
-                             Env: COBOLT_DATAGRID_DIAGNOSTICS.",
-                            &mut self.draft.datagrid_diagnostics,
-                        );
                     });
                 });
 
@@ -1862,4 +1821,105 @@ fn section(ui: &mut Ui, title: &str, theme: &crate::theme::Theme) {
     ui.add_space(10.0);
     ui.label(RichText::new(title).size(15.0).strong().color(theme.accent));
     ui.add_space(2.0);
+}
+
+#[cfg(test)]
+mod license_tests {
+    use super::*;
+
+    /// Every id in the dropdown except Proprietary ships a text, and each one is
+    /// the real thing (a wrong `include_str!` path would silently pair a license
+    /// id with another license's body).
+    #[test]
+    fn every_license_ships_its_own_text() {
+        for &id in LICENSES {
+            let text = stock_license_text(id);
+            if id == "Proprietary" {
+                assert!(text.is_none(), "Proprietary has no stock text");
+                continue;
+            }
+            let text = text.unwrap_or_else(|| panic!("{id} has no text"));
+            assert!(text.len() > 400, "{id} text looks truncated");
+        }
+        assert!(stock_license_text("MIT")
+            .unwrap()
+            .starts_with("MIT License"));
+        assert!(stock_license_text("Apache-2.0")
+            .unwrap()
+            .contains("Apache License"));
+        assert!(stock_license_text("GPL-3.0")
+            .unwrap()
+            .contains("GNU GENERAL PUBLIC LICENSE"));
+        assert!(stock_license_text("LGPL-3.0")
+            .unwrap()
+            .contains("GNU LESSER GENERAL PUBLIC LICENSE"));
+        assert!(stock_license_text("MPL-2.0")
+            .unwrap()
+            .contains("Mozilla Public License"));
+        assert!(stock_license_text("CC0-1.0")
+            .unwrap()
+            .contains("CC0 1.0 Universal"));
+        assert!(stock_license_text("Unlicense")
+            .unwrap()
+            .contains("public domain"));
+        assert!(stock_license_text("BSD-3-Clause")
+            .unwrap()
+            .contains("Redistribution and use"));
+    }
+
+    fn draft(model: &str, text: &str) -> SettingsDraft {
+        let mut d = SettingsDraft::default();
+        d.license_model = model.into();
+        d.license_text = text.into();
+        d
+    }
+
+    #[test]
+    fn selecting_a_license_loads_its_text_into_an_empty_box() {
+        let mut d = draft("", "");
+        d.set_license_model("MIT");
+        assert_eq!(d.license_model, "MIT");
+        assert_eq!(d.license_text, stock_license_text("MIT").unwrap());
+    }
+
+    #[test]
+    fn switching_licenses_replaces_the_previous_stock_text() {
+        let mut d = draft("MIT", stock_license_text("MIT").unwrap());
+        d.set_license_model("Apache-2.0");
+        assert_eq!(d.license_text, stock_license_text("Apache-2.0").unwrap());
+    }
+
+    /// The point of "if no custom text exists": hand-written terms survive.
+    #[test]
+    fn custom_text_is_never_overwritten() {
+        let mut d = draft("Proprietary", "All rights reserved. Internal use only.");
+        d.set_license_model("MIT");
+        assert_eq!(d.license_model, "MIT");
+        assert_eq!(d.license_text, "All rights reserved. Internal use only.");
+    }
+
+    /// An edited stock license counts as custom too.
+    #[test]
+    fn edited_stock_text_is_treated_as_custom() {
+        let edited = stock_license_text("MIT").unwrap().replace("<year>", "2026");
+        let mut d = draft("MIT", &edited);
+        d.set_license_model("GPL-3.0");
+        assert_eq!(d.license_text, edited);
+    }
+
+    /// Proprietary has no text to load, and must not wipe a stock body the
+    /// developer is about to replace by hand — it just clears the stock text.
+    #[test]
+    fn proprietary_clears_stock_text() {
+        let mut d = draft("MIT", stock_license_text("MIT").unwrap());
+        d.set_license_model("Proprietary");
+        assert!(d.license_text.is_empty());
+    }
+
+    #[test]
+    fn re_selecting_the_same_license_is_a_no_op() {
+        let mut d = draft("MIT", "my own words");
+        d.set_license_model("MIT");
+        assert_eq!(d.license_text, "my own words");
+    }
 }

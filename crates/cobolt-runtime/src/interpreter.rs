@@ -65,6 +65,47 @@ enum LoopStep {
     Err(RuntimeError),
 }
 
+// ── Databinding diagnostics ───────────────────────────────────────────────────
+
+/// `true` while the project's *databind trace* diagnostic is on, i.e. when
+/// `COBOLT_DATABIND_TRACE` holds a truthy value (`1`/`true`/`on`). Presence
+/// alone is not enough: the IDE always sets the var (to `0` when the diagnostic
+/// is off) and re-syncs it while the form runs, so the value is read on every
+/// call rather than cached.
+fn databind_trace_enabled() -> bool {
+    std::env::var("COBOLT_DATABIND_TRACE")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+/// Append one line to `/tmp/databinding.log`. Best-effort: a failed write is
+/// ignored. Call through [`databind_trace!`], which keeps the write (and the
+/// formatting) behind the diagnostic.
+fn databind_trace_write(args: std::fmt::Arguments<'_>) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/databinding.log")
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{args}");
+    }
+}
+
+/// Append one line to `/tmp/databinding.log`, but only while the databind trace
+/// diagnostic is on — these sites run per row per refresh, and the ungated
+/// writes they replace grew the file without bound.
+macro_rules! databind_trace {
+    ($($arg:tt)*) => {
+        if databind_trace_enabled() {
+            databind_trace_write(format_args!($($arg)*));
+        }
+    };
+}
+
 // ── File I/O ──────────────────────────────────────────────────────────────────
 
 /// Static description of a SELECT … ASSIGN file (from FILE-CONTROL + FD).
@@ -1118,18 +1159,12 @@ impl Interpreter {
                 } else {
                     array_name.to_string()
                 };
-                let log_msg = format!(
-                    "Seeding repeating GroupBox array_id={}, design_id={}\n",
-                    array_id, id
+                tracing::debug!(target: "databinding", "Seeding repeating GroupBox array_id={}, design_id={}", array_id, id);
+                databind_trace!(
+                    "Seeding repeating GroupBox array_id={}, design_id={}",
+                    array_id,
+                    id
                 );
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("/tmp/databinding.log")
-                {
-                    use std::io::Write;
-                    let _ = f.write_all(log_msg.as_bytes());
-                }
                 if !self.objects.contains(&array_id) {
                     self.objects.register(&array_id, class.clone());
                 }
@@ -4916,18 +4951,11 @@ impl Interpreter {
             .map(str::to_owned)
             .collect();
         if fields.is_empty() {
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/databinding.log")
-            {
-                use std::io::Write;
-                let _ = writeln!(
-                    f,
-                    "refresh_control_array_binding: group_id={} fields is empty!",
-                    group_id
-                );
-            }
+            tracing::debug!(target: "databinding", "refresh_control_array_binding: group_id={} fields is empty!", group_id);
+            databind_trace!(
+                "refresh_control_array_binding: group_id={} fields is empty!",
+                group_id
+            );
             return 0;
         }
         let row_count = fields
@@ -4937,14 +4965,14 @@ impl Interpreter {
             .max()
             .unwrap_or(0);
 
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/databinding.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(f, "refresh_control_array_binding: group_id={}, design_id={}, row_count={}, fields={:?}", group_id, design_id, row_count, fields);
-        }
+        tracing::debug!(target: "databinding", "refresh_control_array_binding: group_id={}, design_id={}, row_count={}, fields={:?}", group_id, design_id, row_count, fields);
+        databind_trace!(
+            "refresh_control_array_binding: group_id={}, design_id={}, row_count={}, fields={:?}",
+            group_id,
+            design_id,
+            row_count,
+            fields
+        );
 
         // Set ItemCount directly (bypass the obj_set hook that would re-enter
         // refresh_control_array_binding and cause recursion on the count set).
@@ -5039,18 +5067,14 @@ impl Interpreter {
 
                     let indexed_member = format!("{group_for_id}.{group_for_id}-{r}.{member}");
 
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/databinding.log")
-                    {
-                        use std::io::Write;
-                        let _ = writeln!(
-                            f,
-                            "  r={}, member={}, prop={}, val={:?}, indexed_member={}",
-                            r, member, prop, val, indexed_member
-                        );
-                    }
+                    databind_trace!(
+                        "  r={}, member={}, prop={}, val={:?}, indexed_member={}",
+                        r,
+                        member,
+                        prop,
+                        val,
+                        indexed_member
+                    );
 
                     if let Some(tx) = &self.state_tx {
                         let _ = tx.send(

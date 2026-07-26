@@ -1,0 +1,499 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! IDE-wide **debug switches** — the single home for every diagnostic that used
+//! to be reachable only through an environment variable.
+//!
+//! # Scope
+//!
+//! These are developer-machine settings, not project data: they live in
+//! `<data_dir>/cobolt/debug_settings.toml` (next to `doc_viewer.toml`), so they
+//! survive across projects, never reach `cobolt.toml`, and the Help → Debug
+//! Settings modal works even with no project open.
+//!
+//! # How a switch reaches the thing it controls
+//!
+//! | Consumer                    | Mechanism                                        |
+//! |-----------------------------|--------------------------------------------------|
+//! | Design canvas / IDE process | [`DebugSettings::apply_in_process`], every frame  |
+//! | `rcrun run-form` child      | [`DebugSettings::child_env`], at spawn            |
+//!
+//! The env vars are still read (by `rcrun`, and by `cobolt-forms` as a one-shot
+//! seed) — they are simply no longer the *user interface*. A developer who
+//! exports one by hand still gets it in a standalone `rcrun` run.
+//!
+//! # Adding a switch
+//!
+//! Add the field, then one [`Switch`] entry to the right [`Section`] in
+//! [`SECTIONS`]. The tab strip is generated from that table and skips sections
+//! with no switches, so an empty section can never appear.
+
+use serde::{Deserialize, Serialize};
+
+use crate::i18n::Tr;
+
+/// Every debug switch the IDE exposes, with the env var each one mirrors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DebugSettings {
+    // ── User interface ────────────────────────────────────────────────────
+    /// Explode each control's composite layers into coloured, offset frames.
+    pub frame_diagnostics: bool,
+    /// Outline every internal DataGrid sub-component.
+    pub datagrid_diagnostics: bool,
+    /// Experimental rounded-corner GL clip (spec 017).
+    pub rounded_clip: bool,
+    // ── Data binding ──────────────────────────────────────────────────────
+    /// Run-form data-binding trace (`/tmp/databinding.log` + the state-key
+    /// mismatch dump).
+    pub databind_trace: bool,
+    // ── Agentic AI ────────────────────────────────────────────────────────
+    /// `[ai-pane]` sizing lines on stderr each frame.
+    pub ai_pane_debug: bool,
+    // ── Indexed files ─────────────────────────────────────────────────────
+    /// INDEXED transaction log level: `off` | `basic` | `full` (redb engine).
+    pub indexed_log: String,
+    /// INDEXED log line format: `text` (logfmt) | `json` (NDJSON).
+    pub indexed_log_format: String,
+    // ── Logging ───────────────────────────────────────────────────────────
+    /// `tracing` env-filter, e.g. `debug`, `cobolt-runtime=trace`,
+    /// `databinding=debug`. Empty ⇒ the built-in `warn` default.
+    pub log_filter: String,
+}
+
+impl Default for DebugSettings {
+    fn default() -> Self {
+        Self {
+            frame_diagnostics: false,
+            datagrid_diagnostics: false,
+            rounded_clip: false,
+            databind_trace: false,
+            ai_pane_debug: false,
+            indexed_log: "off".into(),
+            indexed_log_format: "text".into(),
+            log_filter: String::new(),
+        }
+    }
+}
+
+fn settings_path() -> std::path::PathBuf {
+    crate::llm::base_dir().join("debug_settings.toml")
+}
+
+impl DebugSettings {
+    /// Load the persisted switches, falling back to "everything off" on any
+    /// error (a corrupt file must never keep the IDE from starting).
+    pub fn load() -> Self {
+        std::fs::read_to_string(settings_path())
+            .ok()
+            .and_then(|t| toml::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// Write the switches to disk (best-effort).
+    pub fn save(&self) {
+        if let Ok(text) = toml::to_string_pretty(self) {
+            let path = settings_path();
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(path, text);
+        }
+    }
+
+    /// `true` when any switch is on — the trigger for the per-control
+    /// diagnostics dump at `/tmp/<project>_diagnostics_dump.log`.
+    pub fn any_enabled(&self) -> bool {
+        self.frame_diagnostics
+            || self.datagrid_diagnostics
+            || self.rounded_clip
+            || self.databind_trace
+            || self.ai_pane_debug
+            || !self.log_filter.trim().is_empty()
+            || self.indexed_log != "off"
+    }
+
+    /// Push the switches the IDE process itself honours into their runtime
+    /// flags. Called every frame, so a toggle applies to the design canvas
+    /// without a restart.
+    pub fn apply_in_process(&self) {
+        cobolt_forms::paint::set_frame_diagnostics(self.frame_diagnostics);
+        cobolt_forms::paint::set_datagrid_diagnostics(self.datagrid_diagnostics);
+        crate::panels::rounded_clip::set_enabled(self.rounded_clip);
+        crate::panels::designer::set_ai_pane_debug(self.ai_pane_debug);
+    }
+
+    /// Env pairs for a spawned `rcrun` child. The booleans are passed
+    /// explicitly (including `"0"`) so these settings are authoritative over
+    /// anything the IDE inherited from its own environment; `COBOLT_LOG` is
+    /// passed only when set, leaving the child's own default in place.
+    ///
+    /// Rounded clip and AI-pane debug are IDE-only (an egui paint hook and the
+    /// IDE's AI pane) and are deliberately not forwarded.
+    pub fn child_env(&self) -> Vec<(&'static str, String)> {
+        let onoff = |b: bool| if b { "1" } else { "0" }.to_string();
+        let mut env = vec![
+            ("COBOLT_FRAME_DIAGNOSTICS", onoff(self.frame_diagnostics)),
+            (
+                "COBOLT_DATAGRID_DIAGNOSTICS",
+                onoff(self.datagrid_diagnostics),
+            ),
+            ("COBOLT_DATABIND_TRACE", onoff(self.databind_trace)),
+            ("COBOL_INDEXED_LOG", self.indexed_log.clone()),
+            ("COBOL_INDEXED_LOG_FORMAT", self.indexed_log_format.clone()),
+        ];
+        let filter = self.log_filter.trim();
+        if !filter.is_empty() {
+            env.push(("COBOLT_LOG", filter.to_string()));
+        }
+        env
+    }
+}
+
+// ── Switch catalogue ──────────────────────────────────────────────────────────
+
+/// One row in the modal. `env` is the variable the switch mirrors, shown in the
+/// hover so a developer can still reproduce the setting from a shell.
+enum Switch {
+    Flag {
+        label: &'static str,
+        hint: &'static str,
+        env: &'static str,
+        get: fn(&mut DebugSettings) -> &mut bool,
+    },
+    /// A fixed set of values, rendered as a combo box.
+    Choice {
+        label: &'static str,
+        hint: &'static str,
+        env: &'static str,
+        options: &'static [&'static str],
+        get: fn(&mut DebugSettings) -> &mut String,
+    },
+    /// Free text, rendered as a single-line edit.
+    Text {
+        label: &'static str,
+        hint: &'static str,
+        env: &'static str,
+        get: fn(&mut DebugSettings) -> &mut String,
+    },
+}
+
+/// One tab. The caption is localized; the switches decide whether the tab
+/// exists at all.
+struct Section {
+    tab: fn(&Tr) -> &'static str,
+    switches: &'static [Switch],
+}
+
+/// The tab strip, in display order. A section with an empty `switches` slice is
+/// never rendered.
+static SECTIONS: &[Section] = &[
+    Section {
+        tab: |tr| tr.debug_tab_ui,
+        switches: &[
+            Switch::Flag {
+                label: "Frame diagnostics overlay",
+                hint: "Explode each control's composite layers (shadow/face/border/content/\
+                       outline) into coloured, offset frames so rounded-corner bleed and \
+                       mis-rounded layers are visible.",
+                env: "COBOLT_FRAME_DIAGNOSTICS",
+                get: |s| &mut s.frame_diagnostics,
+            },
+            Switch::Flag {
+                label: "DataGrid component frames",
+                hint: "Private to the DataGrid: outline every internal sub-component (whole \
+                       grid, header, body, each column, each visible row and cell, frozen \
+                       panes, scrollbar) in a distinct colour, so a mis-sized or mis-placed \
+                       part is obvious.",
+                env: "COBOLT_DATAGRID_DIAGNOSTICS",
+                get: |s| &mut s.datagrid_diagnostics,
+            },
+            Switch::Flag {
+                label: "Rounded-corner GL clip",
+                hint: "Experimental (spec 017): capture the framebuffer behind a rounded \
+                       container and re-blit its corner notches through a rounded mask, \
+                       fixing child-content bleed over translucent surfaces. Design canvas \
+                       only.",
+                env: "COBOLT_ROUNDED_CLIP",
+                get: |s| &mut s.rounded_clip,
+            },
+        ],
+    },
+    Section {
+        tab: |tr| tr.debug_tab_databind,
+        switches: &[Switch::Flag {
+            label: "Data-bind trace",
+            hint: "Run Form writes /tmp/databinding.log (repeating-group seeding, per-row \
+                   control-array binding) plus, once, the mismatch between the state keys \
+                   the interpreter populated and the instanced ids the renderer looks up — \
+                   decisive for \"cards show designed defaults in run-form but not in \
+                   preview\".",
+            env: "COBOLT_DATABIND_TRACE",
+            get: |s| &mut s.databind_trace,
+        }],
+    },
+    Section {
+        tab: |tr| tr.debug_tab_ai,
+        switches: &[Switch::Flag {
+            label: "AI-pane layout debug",
+            hint: "Emit [ai-pane] sizing lines on stderr each frame (max_rect, history \
+                   height, turn count) while the global AI pane is open.",
+            env: "COBOLT_AI_PANE_DEBUG",
+            get: |s| &mut s.ai_pane_debug,
+        }],
+    },
+    Section {
+        tab: |tr| tr.debug_tab_indexed,
+        switches: &[
+            Switch::Choice {
+                label: "INDEXED transaction log",
+                hint: "Per-file INDEXED transaction log written to <assign-path>.log (redb \
+                       engine only). basic = one line per operation; full = adds key and \
+                       record detail.",
+                env: "COBOL_INDEXED_LOG",
+                options: &["off", "basic", "full"],
+                get: |s| &mut s.indexed_log,
+            },
+            Switch::Choice {
+                label: "INDEXED log format",
+                hint: "Line format for the transaction log: text (logfmt) or json (NDJSON, \
+                       ready for Grafana/Loki).",
+                env: "COBOL_INDEXED_LOG_FORMAT",
+                options: &["text", "json"],
+                get: |s| &mut s.indexed_log_format,
+            },
+        ],
+    },
+    Section {
+        tab: |tr| tr.debug_tab_logging,
+        switches: &[Switch::Text {
+            label: "Tracing filter",
+            hint: "tracing env-filter applied to Run Form. Examples: debug · \
+                   cobolt-runtime=trace · databinding=debug. Empty keeps the built-in warn \
+                   level. The IDE's own log level is fixed at startup, so changing this \
+                   affects the IDE only after a restart.",
+            env: "COBOLT_LOG",
+            get: |s| &mut s.log_filter,
+        }],
+    },
+];
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
+/// Scrollable height of the switch list. A constant on purpose — see the note
+/// at the `ScrollArea` in [`DebugSettingsModal::show`].
+const SWITCH_AREA_HEIGHT: f32 = 260.0;
+
+/// Help → Debug Settings. Edits [`DebugSettings`] live; every change is saved
+/// immediately, so there is no Apply/Cancel to get wrong.
+#[derive(Default)]
+pub struct DebugSettingsModal {
+    pub open: bool,
+    /// Index into the *rendered* (non-empty) sections.
+    tab: usize,
+}
+
+impl DebugSettingsModal {
+    pub fn toggle(&mut self) {
+        self.open = !self.open;
+    }
+
+    /// One frame. Returns `true` when a switch changed this frame (the caller
+    /// re-applies the in-process flags immediately).
+    pub fn show(&mut self, ctx: &egui::Context, settings: &mut DebugSettings, tr: &Tr) -> bool {
+        if !self.open {
+            return false;
+        }
+        let sections: Vec<&Section> = SECTIONS.iter().filter(|s| !s.switches.is_empty()).collect();
+        if sections.is_empty() {
+            return false;
+        }
+        self.tab = self.tab.min(sections.len() - 1);
+
+        let mut changed = false;
+        let mut open = self.open;
+        let mut close = false;
+        egui::Window::new(format!("🐞 {}", tr.debug_title))
+            .id(egui::Id::new("debug_settings_modal"))
+            .collapsible(false)
+            .resizable(true)
+            .default_size([700.0, 420.0])
+            .min_size([560.0, 320.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                // Tab strip — one tab per section that has switches.
+                ui.horizontal_wrapped(|ui| {
+                    for (i, section) in sections.iter().enumerate() {
+                        if ui
+                            .selectable_label(self.tab == i, (section.tab)(tr))
+                            .clicked()
+                        {
+                            self.tab = i;
+                        }
+                    }
+                });
+                ui.separator();
+
+                // Fixed max height, never one derived from the available space:
+                // a child sized from the space it is given inflates the window a
+                // little more every frame.
+                egui::ScrollArea::vertical()
+                    .max_height(SWITCH_AREA_HEIGHT)
+                    .show(ui, |ui| {
+                        egui::Grid::new("debug_switches")
+                            .num_columns(2)
+                            .spacing([16.0, 10.0])
+                            .show(ui, |ui| {
+                                for switch in sections[self.tab].switches {
+                                    changed |= switch_row(ui, switch, settings);
+                                    ui.end_row();
+                                }
+                            });
+                    });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(tr.debug_scope_hint).small().weak())
+                            .wrap(),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(tr.debug_close).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        self.open = open && !close;
+        if changed {
+            settings.save();
+        }
+        changed
+    }
+}
+
+/// One label + editor row. Returns `true` when the value changed.
+fn switch_row(ui: &mut egui::Ui, switch: &Switch, settings: &mut DebugSettings) -> bool {
+    let (label, hint, env) = match switch {
+        Switch::Flag {
+            label, hint, env, ..
+        }
+        | Switch::Choice {
+            label, hint, env, ..
+        }
+        | Switch::Text {
+            label, hint, env, ..
+        } => (*label, *hint, *env),
+    };
+    // The env var stays visible: these switches replace it as the interface, not
+    // as the mechanism, and a developer still needs it for a shell run.
+    let hover = format!("{hint}\n\nEnv: {env}");
+
+    ui.add(egui::Label::new(label).truncate())
+        .on_hover_text(hover.clone());
+
+    let mut changed = false;
+    match switch {
+        Switch::Flag { get, .. } => {
+            let value = get(settings);
+            changed = ui.checkbox(value, "").on_hover_text(hover).changed();
+        }
+        Switch::Choice { get, options, .. } => {
+            let value = get(settings);
+            egui::ComboBox::from_id_salt(label)
+                .selected_text(value.clone())
+                .width(160.0)
+                .show_ui(ui, |ui| {
+                    for opt in *options {
+                        if ui.selectable_label(value == opt, *opt).clicked() {
+                            *value = (*opt).to_string();
+                            changed = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(hover);
+        }
+        Switch::Text { get, .. } => {
+            let value = get(settings);
+            changed = ui
+                .add(
+                    egui::TextEdit::singleline(value)
+                        .hint_text("warn")
+                        .desired_width(280.0),
+                )
+                .on_hover_text(hover)
+                .changed();
+        }
+    }
+    changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_empty_sections_are_declared() {
+        for section in SECTIONS {
+            assert!(
+                !section.switches.is_empty(),
+                "a section with no switches would render an empty tab"
+            );
+        }
+    }
+
+    #[test]
+    fn defaults_are_all_quiet() {
+        let d = DebugSettings::default();
+        assert!(!d.any_enabled());
+    }
+
+    #[test]
+    fn child_env_is_explicit_about_off() {
+        let env = DebugSettings::default().child_env();
+        let get = |k: &str| {
+            env.iter()
+                .find(|(name, _)| *name == k)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(get("COBOLT_DATABIND_TRACE"), Some("0"));
+        assert_eq!(get("COBOL_INDEXED_LOG"), Some("off"));
+        // No filter set ⇒ the child keeps its own default.
+        assert_eq!(get("COBOLT_LOG"), None);
+    }
+
+    #[test]
+    fn log_filter_is_forwarded_when_set() {
+        let mut s = DebugSettings::default();
+        s.log_filter = "  databinding=debug  ".into();
+        assert!(s.any_enabled());
+        let env = s.child_env();
+        assert!(env.contains(&("COBOLT_LOG", "databinding=debug".to_string())));
+    }
+
+    #[test]
+    fn roundtrips_through_toml() {
+        let mut s = DebugSettings::default();
+        s.frame_diagnostics = true;
+        s.indexed_log = "full".into();
+        let text = toml::to_string_pretty(&s).unwrap();
+        let back: DebugSettings = toml::from_str(&text).unwrap();
+        assert_eq!(s, back);
+    }
+
+    /// An older file that predates a field must still load.
+    #[test]
+    fn partial_file_falls_back_to_defaults() {
+        let back: DebugSettings = toml::from_str("frame_diagnostics = true\n").unwrap();
+        assert!(back.frame_diagnostics);
+        assert_eq!(back.indexed_log, "off");
+    }
+}

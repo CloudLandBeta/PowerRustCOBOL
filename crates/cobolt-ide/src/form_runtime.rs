@@ -799,16 +799,15 @@ pub struct ExternalFormRun {
     exit_status: Option<std::process::ExitStatus>,
 }
 
-/// Diagnostic flags forwarded to a `rcrun run-form` child, derived from the
-/// project's IDE settings at launch. Each in-render flag is passed as an env var
-/// (the child seeds its runtime flag from it); `dump_project` is `Some(name)`
-/// whenever ANY diagnostic is enabled, which triggers the per-control diagnostics
-/// dump at `/tmp/<name>_diagnostics_dump.log`.
+/// Diagnostics forwarded to a `rcrun run-form` child, derived from the IDE's
+/// debug settings at launch. `env` comes from
+/// [`DebugSettings::child_env`](crate::debug_settings::DebugSettings::child_env)
+/// — one pair per switch the child understands; `dump_project` is `Some(name)`
+/// whenever ANY switch is on, which triggers the per-control diagnostics dump at
+/// `/tmp/<name>_diagnostics_dump.log`.
 #[derive(Clone, Default)]
 pub struct RunDiagnostics {
-    pub frame_diagnostics: bool,
-    pub databind_trace: bool,
-    pub datagrid_diagnostics: bool,
+    pub env: Vec<(&'static str, String)>,
     pub dump_project: Option<String>,
 }
 
@@ -839,21 +838,12 @@ impl ExternalFormRun {
             if debug {
                 cmd.arg("--debug");
             }
-            // Drive the child's diagnostics from the project settings. Set
-            // explicitly (including "0") so the project setting is authoritative
-            // over any value inherited from the IDE's own env.
-            cmd.env(
-                "COBOLT_FRAME_DIAGNOSTICS",
-                if diagnostics.frame_diagnostics { "1" } else { "0" },
-            );
-            cmd.env(
-                "COBOLT_DATABIND_TRACE",
-                if diagnostics.databind_trace { "1" } else { "0" },
-            );
-            cmd.env(
-                "COBOLT_DATAGRID_DIAGNOSTICS",
-                if diagnostics.datagrid_diagnostics { "1" } else { "0" },
-            );
+            // Drive the child's diagnostics from the IDE's debug settings. The
+            // booleans are set explicitly (including "0") so the setting is
+            // authoritative over any value inherited from the IDE's own env.
+            for (name, value) in &diagnostics.env {
+                cmd.env(name, value);
+            }
             // When ANY diagnostic is on, ask the child to write the per-control
             // diagnostics dump; pass the project name so it lands at
             // /tmp/<project>_diagnostics_dump.log.

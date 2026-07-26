@@ -249,6 +249,19 @@ structured per-file transaction log in §1.
 
 ---
 
+## 3. Debug switches in the IDE
+
+Every debug switch the IDE knows about — the tracing filter above, the INDEXED
+transaction log of §1, the rendering overlays, the data-bind trace and the
+AI-pane layout trace — is editable under **Help → Debug Settings**, grouped in
+one tab per area. The settings are IDE-wide (stored on the machine, not in
+`cobolt.toml`) and are forwarded to each `rcrun run-form` child as the
+environment variables documented here, so nothing has to be exported by hand.
+
+Exporting a variable still works for a standalone `rcrun` run from a shell.
+
+---
+
 ## Roadmap
 
 Planned additions, to keep this document the single observability reference:
