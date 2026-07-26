@@ -60,6 +60,50 @@ fn uses_max_completion_tokens(provider: &str) -> bool {
     provider.trim().eq_ignore_ascii_case("openai")
 }
 
+/// Anthropic model ids whose generation still accepts the sampling parameters.
+/// Matched as a **prefix**, so dated snapshots (`claude-opus-4-5-20251101`) are
+/// covered by their family entry.
+const ANTHROPIC_SAMPLING_MODELS: &[&str] = &[
+    "claude-opus-4-6",
+    "claude-opus-4-5",
+    "claude-opus-4-1",
+    "claude-opus-4-0",
+    "claude-opus-4-2",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-0",
+    "claude-sonnet-4-2",
+    "claude-haiku-4-5",
+    // Every Claude 3.x and the legacy 2.x line.
+    "claude-3",
+    "claude-2",
+];
+
+/// Whether `temperature` may be sent for this provider and model.
+///
+/// Anthropic **removed** the sampling parameters from Claude Opus 4.7 onward —
+/// Opus 4.7/4.8, Opus 5, Sonnet 5, Fable 5 and Mythos 5 answer a request
+/// carrying `temperature` with a 400 (`temperature is deprecated for this
+/// model`), which fails the whole call rather than degrading.
+///
+/// The list above is therefore an **allowlist, not a denylist**: an Anthropic
+/// model this build has never heard of — every model released after it — is
+/// assumed to reject the parameter. That is the fail-safe direction. Omitting
+/// `temperature` costs only the configured value, which those models ignore
+/// anyway; sending it costs the entire request. Every other provider keeps
+/// receiving it exactly as before.
+fn sends_sampling_params(provider: &str, model: &str) -> bool {
+    if !provider.trim().eq_ignore_ascii_case("anthropic") {
+        return true;
+    }
+    let model = model.trim().to_ascii_lowercase();
+    // Gateways that re-expose Anthropic prefix the provider onto the id.
+    let model = model.strip_prefix("anthropic.").unwrap_or(&model);
+    ANTHROPIC_SAMPLING_MODELS
+        .iter()
+        .any(|allowed| model.starts_with(allowed))
+}
+
 /// One agent invocation: everything the transport needs, composed by the host
 /// (per-agent model config from the agents DB + the engine's task prompt).
 #[derive(Clone)]
@@ -323,10 +367,10 @@ async fn chat_with<C>(
 where
     C: CompletionClient,
 {
-    let mut builder = client
-        .agent(&call.model)
-        .preamble(&call.system_prompt)
-        .temperature(call.temperature as f64);
+    let mut builder = client.agent(&call.model).preamble(&call.system_prompt);
+    if sends_sampling_params(&call.provider, &call.model) {
+        builder = builder.temperature(call.temperature as f64);
+    }
     builder = if uses_max_completion_tokens(&call.provider) {
         builder.additional_params(serde_json::json!({
             "max_completion_tokens": call.max_tokens
@@ -463,10 +507,10 @@ async fn complete_with<C>(client: C, call: &AgentCall) -> Result<AgentReply, Str
 where
     C: CompletionClient,
 {
-    let mut builder = client
-        .agent(&call.model)
-        .preamble(&call.system_prompt)
-        .temperature(call.temperature as f64);
+    let mut builder = client.agent(&call.model).preamble(&call.system_prompt);
+    if sends_sampling_params(&call.provider, &call.model) {
+        builder = builder.temperature(call.temperature as f64);
+    }
     builder = if uses_max_completion_tokens(&call.provider) {
         builder.additional_params(serde_json::json!({
             "max_completion_tokens": call.max_tokens
@@ -645,6 +689,69 @@ mod tests {
         assert!(!uses_max_completion_tokens("ollama_cloud"));
         assert!(!uses_max_completion_tokens("anthropic"));
         assert!(!uses_max_completion_tokens("mistral"));
+    }
+
+    /// Anthropic removed the sampling parameters from Claude Opus 4.7 onward:
+    /// sending `temperature` returns a 400 that fails the whole call. These are
+    /// the models that produced the report.
+    #[test]
+    fn temperature_is_withheld_from_models_that_reject_it() {
+        for model in [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-fable-5",
+            "claude-mythos-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+        ] {
+            assert!(
+                !sends_sampling_params("anthropic", model),
+                "{model} rejects temperature"
+            );
+        }
+    }
+
+    /// The list is an allowlist, so a model this build has never heard of — any
+    /// model released after it — is assumed to reject the parameter. Omitting
+    /// costs a setting those models ignore; sending costs the whole request.
+    #[test]
+    fn an_unknown_anthropic_model_is_assumed_to_reject_temperature() {
+        assert!(!sends_sampling_params("anthropic", "claude-opus-9"));
+        assert!(!sends_sampling_params("anthropic", "claude-something-new"));
+        assert!(!sends_sampling_params("anthropic", ""));
+    }
+
+    /// The generations that still accept it keep sending it, dated snapshots
+    /// included.
+    #[test]
+    fn temperature_still_reaches_the_models_that_accept_it() {
+        for model in [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-5",
+            "claude-haiku-4-5",
+            "claude-opus-4-5-20251101",
+            "claude-3-7-sonnet-20250219",
+            "CLAUDE-OPUS-4-6",
+            "  claude-opus-4-6  ",
+            // Gateways that re-expose Anthropic prefix the provider onto the id.
+            "anthropic.claude-opus-4-6",
+        ] {
+            assert!(
+                sends_sampling_params("anthropic", model),
+                "{model} accepts temperature"
+            );
+        }
+    }
+
+    /// Only Anthropic is gated — every other provider is untouched, including
+    /// gateways whose model ids happen to look like Claude's.
+    #[test]
+    fn other_providers_keep_their_temperature() {
+        assert!(sends_sampling_params("openai", "gpt-5"));
+        assert!(sends_sampling_params("ollama", "qwen3-coder-plus"));
+        assert!(sends_sampling_params("openrouter", "claude-opus-5"));
+        assert!(sends_sampling_params("", "claude-opus-5"));
     }
 
     #[test]

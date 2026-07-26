@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.11] — 2026-07-26
+
+### Fixed
+
+- **The current Claude models answer again instead of returning 400.** Every
+  request carried the profile's `temperature`, and Anthropic removed the
+  sampling parameters from Claude Opus 4.7 onward: Opus 4.7 and 4.8, Opus 5,
+  Sonnet 5, Fable 5 and Mythos 5 reject a request carrying one outright —
+  `` `temperature` is deprecated for this model `` — so the whole call failed
+  rather than degrading, and Grace reported a model error for a perfectly valid
+  profile. The parameter is now withheld from the models that reject it, on both
+  paths that build a request: the streamed chat and the tool-calling loop.
+  Fixing one and not the other would have left every agent that uses a tool
+  still failing.
+
+  The models that accept it are held as an **allowlist**, so an Anthropic model
+  this build has never heard of — every model released after it — is assumed to
+  reject the parameter. That is the fail-safe direction: omitting `temperature`
+  costs only a setting those models ignore, while sending it costs the entire
+  request. Every other provider keeps receiving it exactly as before. Note that
+  on those models the profile's temperature now has no effect, because the model
+  has no such control to set.
+
 ## [PowerRustCOBOL 1.36.10] — 2026-07-26
 
 ### Added
