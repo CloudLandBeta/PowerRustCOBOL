@@ -162,6 +162,14 @@ pub struct AgentDef {
     /// dormant (kept only for migration + rollback). `None` on old manifests.
     #[serde(default)]
     pub model_profile: Option<String>,
+    /// The developer explicitly chose **(no model)** for this agent. Without
+    /// this marker an agent with no profile is indistinguishable from one that
+    /// was never configured, and the built-in seeding
+    /// ([`AgentsDb::ensure_fixed_agents`]) hands it a model back on the next
+    /// project open — the choice would look like it never saved. Authoritative:
+    /// it also suppresses the dormant embedded `provider`/`model` fallback.
+    #[serde(default)]
+    pub no_model: bool,
     /// Free-text routing description (who calls it / whom it calls).
     #[serde(default)]
     pub routing: String,
@@ -355,7 +363,10 @@ impl AgentsDb {
             let target_prompt = canonicalize_builtin_names(&self.load_prompt(canonical));
             {
                 let target = &mut self.agents[target_index];
-                let target_unconfigured = target.model_profile.is_none()
+                // An explicit "(no model)" is a choice, not an unconfigured
+                // agent, and is never filled in from the legacy alias.
+                let target_unconfigured = !target.no_model
+                    && target.model_profile.is_none()
                     && target.provider.trim().is_empty()
                     && target.model.trim().is_empty();
                 if target_unconfigured {
@@ -704,6 +715,7 @@ impl AgentsDb {
             max_tokens: default_max_tokens(),
             timeout_secs: default_timeout(),
             model_profile: None,
+            no_model: false,
             routing: String::new(),
             companion: None,
             steering: Vec::new(),
@@ -1666,8 +1678,11 @@ impl AgentsDb {
                 continue;
             };
             // A selected profile, including a dangling one, is an explicit
-            // project choice and is never silently replaced here.
-            if agent.model_profile.is_some()
+            // project choice and is never silently replaced here — and neither
+            // is an explicit "(no model)", which would otherwise be re-seeded on
+            // the next project open and look like it never saved.
+            if agent.no_model
+                || agent.model_profile.is_some()
                 || !agent.provider.trim().is_empty()
                 || !agent.model.trim().is_empty()
             {
@@ -1790,6 +1805,11 @@ pub fn resolve_agent_connection(
     a: &AgentDef,
     llm: &crate::llm::LlmConfig,
 ) -> Option<crate::llm::LlmConfig> {
+    // An explicit "(no model)" wins over everything, including any dormant
+    // embedded config left over from before the choice.
+    if a.no_model {
+        return None;
+    }
     // A set profile reference is authoritative: if it dangles (the profile was
     // deleted), the agent is "no model configured" (R8) — we do NOT silently
     // fall back to stale embedded config in that case.
@@ -1819,7 +1839,7 @@ pub fn resolve_agent_connection(
 /// Whether an agent has a usable model configured (a profile reference or
 /// dormant embedded fields) — used for the "unreviewed" heuristic (spec 031).
 fn agent_has_model(a: &AgentDef) -> bool {
-    a.model_profile.is_some() || !a.model.trim().is_empty()
+    !a.no_model && (a.model_profile.is_some() || !a.model.trim().is_empty())
 }
 
 /// Migrate agents with embedded model config but no profile reference onto
@@ -1831,7 +1851,7 @@ fn agent_has_model(a: &AgentDef) -> bool {
 pub fn migrate_to_profiles(db: &mut AgentsDb, llm: &mut crate::llm::LlmConfig) -> usize {
     let mut migrated = 0;
     for a in &mut db.agents {
-        if a.model_profile.is_some() {
+        if a.no_model || a.model_profile.is_some() {
             continue;
         }
         if a.provider.trim().is_empty() || a.model.trim().is_empty() {
@@ -1937,6 +1957,61 @@ mod tests {
             .collect();
         assert_eq!(before, after);
         // Idempotent.
+        assert_eq!(migrate_to_profiles(&mut db, &mut llm), 0);
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Choosing "(no model)" for a built-in agent must survive the next project
+    /// open: `ensure_fixed_agents` used to re-seed any built-in whose profile was
+    /// unset, so the choice looked like it never saved.
+    #[test]
+    fn explicit_no_model_survives_builtin_seeding() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "anthropic".into();
+        llm.model = "claude-sonnet-5".into();
+        llm.endpoint = "https://api.anthropic.com/v1/messages".into();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        // Seeding gave the built-in a model; the developer now clears it.
+        let grace = db.by_name(GRACE).unwrap().id.clone();
+        {
+            let a = db.agents.iter_mut().find(|x| x.id == grace).unwrap();
+            assert!(a.model_profile.is_some() || !a.model.is_empty());
+            a.model_profile = None;
+            a.no_model = true;
+        }
+        db.save_all().unwrap();
+
+        // Re-open the project: the choice is still there, and nothing resolves.
+        let mut reopened = AgentsDb::load(&proj);
+        reopened.ensure_fixed_agents(&llm);
+        let a = reopened.by_name(GRACE).unwrap();
+        assert!(a.no_model, "explicit (no model) was re-seeded");
+        assert!(a.model_profile.is_none());
+        assert!(resolve_agent_connection(a, &llm).is_none());
+        assert!(!agent_has_model(a));
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The marker also beats the dormant embedded connection kept for rollback.
+    #[test]
+    fn explicit_no_model_beats_embedded_fallback() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        let id = db.create("Solo", "p").unwrap();
+        set_embedded(&mut db, &id, "prov", "https://e", "m1");
+        assert!(resolve_agent_connection(db.by_name("Solo").unwrap(), &llm).is_some());
+
+        db.agents
+            .iter_mut()
+            .find(|x| x.id == id)
+            .unwrap()
+            .no_model = true;
+        assert!(resolve_agent_connection(db.by_name("Solo").unwrap(), &llm).is_none());
+        // …and it is not silently migrated onto a synthesised profile either.
         assert_eq!(migrate_to_profiles(&mut db, &mut llm), 0);
         let _ = std::fs::remove_dir_all(proj);
     }

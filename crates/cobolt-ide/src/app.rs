@@ -351,6 +351,10 @@ pub struct CoboltApp {
     ai_setup_modal: bool,
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
+    /// IDE-wide debug switches (Help → Debug Settings) and their modal. Machine-
+    /// local, not project data, so they are loaded once at startup.
+    debug: crate::debug_settings::DebugSettings,
+    debug_modal: crate::debug_settings::DebugSettingsModal,
     /// Non-empty while the "Form saved" alert should be displayed.
     /// A fatal form-runtime / codegen error to surface in a modal dialog. The
     /// IDE stays open; execution has already stopped on the interpreter thread.
@@ -938,6 +942,8 @@ impl CoboltApp {
             about_open: false,
             ai_setup_modal: false,
             doc_viewer: Default::default(),
+            debug: crate::debug_settings::DebugSettings::load(),
+            debug_modal: Default::default(),
             form_error: None,
             alert_error: None,
             error_font_size: 13.0,
@@ -1375,27 +1381,17 @@ impl CoboltApp {
             .and_then(|p| p.form_theme_default())
             .map(|s| s.to_owned());
         let project_icon = self.project_icon_abs_path();
-        let diagnostics = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| {
-                let ide = &p.ide;
-                // The dump fires when ANY diagnostic is on — including the
-                // IDE-only ones (rounded clip, AI-pane debug) — so a single
-                // toggle is enough to get a full per-control record on the run.
-                let any = ide.frame_diagnostics
-                    || ide.rounded_clip
-                    || ide.databind_trace
-                    || ide.ai_pane_debug
-                    || ide.datagrid_diagnostics;
-                crate::form_runtime::RunDiagnostics {
-                    frame_diagnostics: ide.frame_diagnostics,
-                    databind_trace: ide.databind_trace,
-                    datagrid_diagnostics: ide.datagrid_diagnostics,
-                    dump_project: any.then(|| p.project.name.clone()),
-                }
-            })
-            .unwrap_or_default();
+        // The dump fires when ANY debug switch is on — including the IDE-only
+        // ones (rounded clip, AI-pane debug) — so a single toggle is enough to
+        // get a full per-control record on the run.
+        let diagnostics = crate::form_runtime::RunDiagnostics {
+            env: self.debug.child_env(),
+            dump_project: self
+                .cobolt_project
+                .as_ref()
+                .filter(|_| self.debug.any_enabled())
+                .map(|p| p.project.name.clone()),
+        };
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
@@ -8010,25 +8006,10 @@ impl eframe::App for CoboltApp {
         }
 
         // Keep the in-process diagnostics (design canvas / IDE) in sync with the
-        // live project settings, so toggling them in Project Settings applies
+        // debug settings, so toggling one in Help → Debug Settings applies
         // immediately without a rebuild or an env var. Run Form is a separate
-        // process and picks its flags (frame diagnostics, data-bind trace) up via
-        // env on its next launch.
-        {
-            let ide = self.cobolt_project.as_ref().map(|p| &p.ide);
-            cobolt_forms::paint::set_frame_diagnostics(
-                ide.map(|s| s.frame_diagnostics).unwrap_or(false),
-            );
-            cobolt_forms::paint::set_datagrid_diagnostics(
-                ide.map(|s| s.datagrid_diagnostics).unwrap_or(false),
-            );
-            crate::panels::rounded_clip::set_enabled(
-                ide.map(|s| s.rounded_clip).unwrap_or(false),
-            );
-            crate::panels::designer::set_ai_pane_debug(
-                ide.map(|s| s.ai_pane_debug).unwrap_or(false),
-            );
-        }
+        // process and picks its flags up via env on its next launch.
+        self.debug.apply_in_process();
 
         // Update window title to reflect the current project's build mode.
         {
@@ -8236,6 +8217,11 @@ impl eframe::App for CoboltApp {
         // Model benchmark offer/progress/report is global: the worker can finish
         // after the user leaves Project Settings.
         self.render_llm_benchmark_modals(ctx);
+        // Help → Debug Settings. A change re-applies the in-process flags at
+        // once, so the canvas reacts on this very frame.
+        if self.debug_modal.show(ctx, &mut self.debug, &tr) {
+            self.debug.apply_in_process();
+        }
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
@@ -8296,6 +8282,11 @@ impl eframe::App for CoboltApp {
                 ui.menu_button("Help", |ui| {
                     if ui.button(tr.doc_menu_label).clicked() {
                         self.doc_viewer.open(self.lang);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button(tr.debug_menu_label).clicked() {
+                        self.debug_modal.toggle();
                         ui.close();
                     }
                     ui.separator();

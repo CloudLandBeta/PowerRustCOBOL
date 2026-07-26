@@ -19,6 +19,7 @@ pub mod agent_inspection;
 pub mod agents_db;
 mod app;
 pub mod data_binding_guardian;
+pub mod debug_settings;
 pub mod docs_embed;
 pub mod file_dialog;
 pub mod fonts;

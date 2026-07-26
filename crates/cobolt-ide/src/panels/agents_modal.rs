@@ -454,12 +454,17 @@ impl AgentsModal {
                     .map(|(i, a)| {
                         // Show the resolved model profile (spec 031), falling back
                         // to the dormant embedded fields for un-migrated agents.
-                        let (model, provider) = a
-                            .model_profile
-                            .as_ref()
-                            .and_then(|id| llm.profile(id))
-                            .map(|p| (p.model.clone(), p.provider.clone()))
-                            .unwrap_or_else(|| (a.model.clone(), a.provider.clone()));
+                        // An explicit "(no model)" shows as none, whatever those
+                        // dormant fields still hold.
+                        let (model, provider) = if a.no_model {
+                            (String::new(), String::new())
+                        } else {
+                            a.model_profile
+                                .as_ref()
+                                .and_then(|id| llm.profile(id))
+                                .map(|p| (p.model.clone(), p.provider.clone()))
+                                .unwrap_or_else(|| (a.model.clone(), a.provider.clone()))
+                        };
                         (
                             i,
                             a.name.clone(),
@@ -786,6 +791,11 @@ impl AgentsModal {
                                     });
                             });
                             if let Some(p) = pick {
+                                // Picking "(none)" is an explicit choice, not an
+                                // unconfigured agent: record it so the built-in
+                                // seeding does not hand a model back on the next
+                                // project open.
+                                a.no_model = p.is_none();
                                 a.model_profile = p;
                                 changed = true;
                             }
