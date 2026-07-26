@@ -727,11 +727,19 @@ fn generate_main_rs(app_name: &str, version: &str, has_forms: bool, form_ids: &[
 // ── Form application (spec 017: one renderer for every surface) ───────────────
 
 /// Mutable UI-side state of a single control (mirrors the IDE's CtrlState).
-#[derive(Clone, Default)]
+/// An entry created on the fly starts VISIBLE and ENABLED: a derived Default
+/// would make it `false`, so a control the interpreter writes to before it
+/// exists in the map (a repeating-group card instance) would never be drawn.
+#[derive(Clone)]
 struct CtrlState {
     props:   std::collections::HashMap<String, String>,
     visible: bool,
     enabled: bool,
+}
+impl Default for CtrlState {
+    fn default() -> Self {
+        CtrlState { props: std::collections::HashMap::new(), visible: true, enabled: true }
+    }
 }
 impl CtrlState {
     fn from_control(ctrl: &cobolt_forms::Control) -> Self {

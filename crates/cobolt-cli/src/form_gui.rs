@@ -57,11 +57,27 @@ fn decode_icon(bytes: &[u8]) -> Option<egui::IconData> {
 
 // ── Control state (mirrors the compiled-binary template's CtrlState) ──────────
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct CtrlState {
     props: HashMap<String, String>,
     visible: bool,
     enabled: bool,
+}
+
+/// A state entry created on the fly (a repeating-group card instance that the
+/// interpreter writes to before it exists in `state`) must start VISIBLE and
+/// ENABLED. `#[derive(Default)]` would make it `false`, so the very controls a
+/// data binding populates would be the ones the renderer skips — databound card
+/// members blank in the run form while the DataGrid (whose key is pre-seeded
+/// from the design) paints fine. Same contract as the IDE's `FormRuntime`.
+impl Default for CtrlState {
+    fn default() -> Self {
+        Self {
+            props: HashMap::new(),
+            visible: true,
+            enabled: true,
+        }
+    }
 }
 
 impl CtrlState {
@@ -97,6 +113,25 @@ impl CtrlState {
         }
         self.props.insert(key.to_owned(), value);
     }
+}
+
+/// See [`FormApp::state_entry_mut`] — free function so it can be unit-tested
+/// without standing up a whole `FormApp` (channels, viewport, interpreter).
+fn state_entry_mut<'a>(
+    state: &'a mut HashMap<String, CtrlState>,
+    controls: &[cobolt_forms::Control],
+    key: &str,
+) -> &'a mut CtrlState {
+    if !state.contains_key(key) {
+        let base_id = key.rsplit('.').next().unwrap_or(key);
+        let seeded = controls
+            .iter()
+            .find(|c| c.id.eq_ignore_ascii_case(base_id))
+            .map(CtrlState::from_control)
+            .unwrap_or_default();
+        state.insert(key.to_owned(), seeded);
+    }
+    state.get_mut(key).expect("entry present or just inserted")
 }
 
 fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_forms::Control>) {
@@ -638,6 +673,17 @@ impl FormApp {
         id.to_owned()
     }
 
+    /// The mutable state entry for a DRAWN control id, created when missing.
+    /// Repeating-group instances (`group.group-N.member`) never exist in the
+    /// initial map — it is seeded from the designed controls only — so a card
+    /// member's first databind write would otherwise land in a bare default
+    /// entry. Seed such an entry from the designed template control (last
+    /// dotted segment) so the instance inherits its designed visibility,
+    /// enablement, and properties.
+    fn state_entry_mut(&mut self, key: &str) -> &mut CtrlState {
+        state_entry_mut(&mut self.state, &self.controls, key)
+    }
+
     /// For a repeating-group member id (case-insensitive), return its
     /// original-case id and the id of its repeating-GroupBox ancestor.
     fn array_member_group(&self, ctrl_id: &str) -> Option<(String, String)> {
@@ -713,7 +759,7 @@ impl eframe::App for FormApp {
             } else {
                 self.resolve_ctrl_key(&u.ctrl_id)
             };
-            self.state.entry(key).or_default().set(&u.prop, u.value);
+            self.state_entry_mut(&key).set(&u.prop, u.value);
             drained += 1;
         }
 
@@ -830,10 +876,7 @@ impl eframe::App for FormApp {
         let mut interacted = false;
         if armed {
             for (id, key, val) in &output.prop_updates {
-                self.state
-                    .entry(id.clone())
-                    .or_default()
-                    .set(key, val.clone());
+                self.state_entry_mut(id).set(key, val.clone());
                 let _ = self
                     .input_tx
                     .send(StateUpdate::new(id.clone(), key.clone(), val.clone()));
@@ -889,5 +932,55 @@ impl eframe::App for FormApp {
         let busy = drained > 0 || interacted || self.pending.load(Ordering::Relaxed) > 0;
         let ms = if busy { 16 } else { 200 };
         ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_forms::{Control, ControlType};
+
+    /// A repeating-group card member the interpreter writes to before the id
+    /// exists in `state` must stay VISIBLE. With a derived `Default` the entry
+    /// was born `visible: false`, so the renderer skipped exactly the controls a
+    /// data binding had just populated — databound cards blank in the run form
+    /// while the DataGrid (pre-seeded key) painted fine.
+    #[test]
+    fn new_instance_entry_is_visible_and_keeps_designed_props() {
+        let mut label = Control::new("Label-1", ControlType::Label, 0, 0);
+        label.set_prop("Caption", cobolt_forms::PropValue::from("designed"));
+        label.parent = Some("GroupBox-2".into());
+        let controls = vec![label];
+
+        let mut state: HashMap<String, CtrlState> = HashMap::new();
+        let key = cobolt_forms::render::member_instance_id("GroupBox-2", "Label-1", 1);
+        state_entry_mut(&mut state, &controls, &key).set("Caption", "Leonardo DiCaprio".into());
+
+        let entry = &state[&key];
+        assert!(entry.visible, "card-instance state entry must start visible");
+        assert!(entry.enabled, "card-instance state entry must start enabled");
+        assert_eq!(entry.props.get("Caption").map(String::as_str), Some("Leonardo DiCaprio"));
+    }
+
+    /// An id with no matching designed control (an unknown write) still lands in
+    /// a visible entry rather than a silently hidden one.
+    #[test]
+    fn unknown_id_entry_defaults_to_visible() {
+        let mut state: HashMap<String, CtrlState> = HashMap::new();
+        state_entry_mut(&mut state, &[], "Nope-1").set("Caption", "x".into());
+        assert!(state["Nope-1"].visible);
+        assert!(state["Nope-1"].enabled);
+    }
+
+    /// A member designed hidden stays hidden when its instance entry is created.
+    #[test]
+    fn instance_entry_inherits_designed_visibility() {
+        let mut label = Control::new("Label-9", ControlType::Label, 0, 0);
+        label.visible = false;
+        let controls = vec![label];
+        let mut state: HashMap<String, CtrlState> = HashMap::new();
+        let key = cobolt_forms::render::member_instance_id("GroupBox-2", "Label-9", 3);
+        state_entry_mut(&mut state, &controls, &key).set("Caption", "v".into());
+        assert!(!state[&key].visible);
     }
 }
