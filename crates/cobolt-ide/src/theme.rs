@@ -81,11 +81,16 @@ impl Theme {
     }
 
     /// Whether this is one of the discrete "soft UI" neumorphic themes
-    /// (Light or Dark). Both share the flat-surface-plus-relief-halo chrome
-    /// (`paint_neumorphic_relief`, `glass_panel_frame`'s discrete shadow, the
-    /// graphite toggle badge) — only their colour palettes differ.
+    /// (Light, Dark or Cobalt). All share the flat-surface-plus-relief-halo
+    /// chrome (`paint_neumorphic_relief`, `glass_panel_frame`'s discrete
+    /// shadow, the graphite toggle badge) — only their colour palettes differ.
+    /// Every neumorphic behaviour in the IDE is gated on this one predicate, so
+    /// a palette joins the family by being listed here.
     pub fn is_neumorphic(&self) -> bool {
-        matches!(self.id, "neumorphic-light" | "neumorphic-dark")
+        matches!(
+            self.id,
+            "neumorphic-light" | "neumorphic-dark" | "neumorphic-cobalt"
+        )
     }
 }
 
@@ -150,7 +155,12 @@ pub fn paint_neumorphic_relief(
         return;
     }
     let rounding: egui::CornerRadius = rounding.into();
-    let (shadow_rgb, highlight_rgb) = if theme.dark {
+    // The highlight is a lit rim of the surface itself, so it has to follow the
+    // surface's hue: Neumorphic Dark's mid-grey rim would read as a dirty smear
+    // on Neumorphic Cobalt's navy, so that palette lights its rim in navy.
+    let (shadow_rgb, highlight_rgb) = if theme.id == "neumorphic-cobalt" {
+        ((0u8, 0u8, 0u8), (52u8, 92u8, 122u8))
+    } else if theme.dark {
         ((0u8, 0u8, 0u8), (78u8, 78u8, 82u8))
     } else {
         ((165u8, 175u8, 205u8), (255u8, 255u8, 255u8))
@@ -1147,6 +1157,50 @@ pub const NEUMORPHIC_DARK: Theme = Theme {
     ed_generated: rgb(125, 175, 250),
 };
 
+/// Neumorphic Cobalt — Neumorphic Dark's soft-UI construction wearing Cobalt2's
+/// palette. It is built by the same rule as the other two: Panel, Control and
+/// Code share one flat opaque fill, so depth comes from the relief halo
+/// (`paint_neumorphic_relief`) rather than from differently-coloured surfaces.
+/// The shared surface is Cobalt2's own `#193549`, with Hover lifted and the
+/// alternating-row tint a shade darker by the same steps Neumorphic Dark uses,
+/// so both stay perceptible against a navy rather than a graphite base.
+///
+/// Every hue is Cobalt2's — the gold accent, the cyan hyperlink, and the editor
+/// syntax colours are taken across unchanged, so code reads identically in
+/// either theme. Only the chrome's construction differs.
+pub const NEUMORPHIC_COBALT: Theme = Theme {
+    id: "neumorphic-cobalt",
+    name: "Neumorphic Cobalt",
+    dark: true,
+    // One flat surface for panel / control / code — the neumorphic rule.
+    bg_panel: rgba(25, 53, 73, 255),
+    bg_control: rgba(25, 53, 73, 255),
+    code_bg: rgba(25, 53, 73, 255),
+    // Lifted and recessed by Neumorphic Dark's own steps (+10 / −8), in navy.
+    bg_hover: rgba(35, 65, 88, 255),
+    faint_bg: rgba(21, 45, 63, 255),
+    // The text-edit well sits deeper than the canvas, as on Neumorphic Dark.
+    bg_extreme: rgba(15, 32, 45, 252),
+    bg_active: rgba(0, 122, 204, 245),
+    accent: rgb(255, 198, 0),
+    border_dim: rgba(70, 110, 140, 130),
+    border_hi: rgba(255, 198, 0, 210),
+    text_dim: rgb(204, 217, 230),
+    text_bright: rgb(255, 255, 255),
+    selection: rgba(0, 122, 204, 150),
+    hyperlink: rgb(0, 187, 255),
+    warn: rgb(255, 198, 0),
+    error: rgb(255, 98, 140),
+    // Cobalt2's editor palette, unchanged.
+    ed_plain: rgb(230, 237, 244),
+    ed_keyword: rgb(255, 157, 0),
+    ed_data: rgb(0, 187, 255),
+    ed_paragraph: rgb(255, 198, 0),
+    ed_string: rgb(63, 248, 175),
+    ed_comment: rgb(0, 136, 153),
+    ed_generated: rgb(0, 187, 255),
+};
+
 /// All selectable themes, in display order. The first is the default.
 pub const THEMES: &[Theme] = &[
     DARK_GLASS,
@@ -1180,6 +1234,7 @@ pub const THEMES: &[Theme] = &[
     CLASSIC,
     NEUMORPHIC_LIGHT,
     NEUMORPHIC_DARK,
+    NEUMORPHIC_COBALT,
 ];
 
 /// The default theme (preserves the original look).
@@ -1229,12 +1284,14 @@ mod tests {
         assert_eq!(theme_by_id("nope").id, default_theme().id);
     }
 
+    /// Named for what it does rather than for the count, which has already
+    /// drifted from the name twice.
     #[test]
-    fn ships_twenty_eight_themes() {
+    fn the_theme_registry_size_is_pinned() {
         assert_eq!(
             THEMES.len(),
-            31,
-            "17 original + 12 light + Classic + Neumorphic Light + Neumorphic Dark"
+            32,
+            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt"
         );
     }
 
@@ -1301,5 +1358,79 @@ mod tests {
         assert_eq!(active().id, "monokai");
         set_active(&DARK_GLASS);
         assert_eq!(active().id, "dark-glass");
+    }
+
+    /// Every neumorphic behaviour in the IDE is gated on `is_neumorphic()`, so
+    /// a palette that is not listed there is a flat theme wearing the name.
+    #[test]
+    fn neumorphic_cobalt_is_in_the_neumorphic_family() {
+        assert!(theme_by_id("neumorphic-cobalt").is_neumorphic());
+        assert!(NEUMORPHIC_COBALT.dark);
+        // Selectable, or it exists only in source.
+        assert!(THEMES.iter().any(|t| t.id == "neumorphic-cobalt"));
+    }
+
+    /// The neumorphic construction is one flat surface — depth is the relief
+    /// halo, not a differently-coloured panel. Give Panel, Control and Code
+    /// different fills and the theme stops reading as soft UI.
+    #[test]
+    fn neumorphic_themes_share_one_flat_surface() {
+        for theme in THEMES.iter().filter(|t| t.is_neumorphic()) {
+            assert_eq!(
+                theme.bg_panel, theme.bg_control,
+                "{}: panel and control must share one fill",
+                theme.id
+            );
+            assert_eq!(
+                theme.bg_panel, theme.code_bg,
+                "{}: panel and code must share one fill",
+                theme.id
+            );
+        }
+    }
+
+    /// The palette is Cobalt2's — the accent, hyperlink and the whole editor
+    /// syntax set are taken across unchanged, so code reads identically in
+    /// either theme and only the chrome differs.
+    #[test]
+    fn neumorphic_cobalt_keeps_the_cobalt2_colours() {
+        let n = NEUMORPHIC_COBALT;
+        let c = COBALT2;
+        assert_eq!(n.accent, c.accent, "gold accent");
+        assert_eq!(n.hyperlink, c.hyperlink);
+        assert_eq!(n.warn, c.warn);
+        assert_eq!(n.error, c.error);
+        assert_eq!(n.text_dim, c.text_dim);
+        assert_eq!(n.text_bright, c.text_bright);
+        assert_eq!(n.selection, c.selection);
+        for (name, a, b) in [
+            ("ed_plain", n.ed_plain, c.ed_plain),
+            ("ed_keyword", n.ed_keyword, c.ed_keyword),
+            ("ed_data", n.ed_data, c.ed_data),
+            ("ed_paragraph", n.ed_paragraph, c.ed_paragraph),
+            ("ed_string", n.ed_string, c.ed_string),
+            ("ed_comment", n.ed_comment, c.ed_comment),
+            ("ed_generated", n.ed_generated, c.ed_generated),
+        ] {
+            assert_eq!(a, b, "{name} must match Cobalt2");
+        }
+    }
+
+    /// The relief highlight is a lit rim of the surface, so it must follow the
+    /// surface's hue — a grey rim on navy reads as a smear.
+    #[test]
+    fn the_cobalt_relief_rim_is_navy_not_grey() {
+        // Mirrors the branch in `paint_neumorphic_relief`.
+        let highlight = (52u8, 92u8, 122u8);
+        assert!(
+            highlight.2 > highlight.0 + 40,
+            "the rim must be clearly blue, got {highlight:?}"
+        );
+        // And it must be lighter than the surface it rims, or it is a shadow.
+        let surface = NEUMORPHIC_COBALT.bg_panel;
+        assert!(
+            u32::from(highlight.2) > u32::from(surface.b()),
+            "the rim must be lighter than the surface"
+        );
     }
 }

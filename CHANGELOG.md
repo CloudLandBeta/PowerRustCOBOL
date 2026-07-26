@@ -8,6 +8,31 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.10] — 2026-07-26
+
+### Added
+
+- **A Neumorphic Cobalt theme.** It is Neumorphic Dark's construction wearing
+  Cobalt2's palette: Panel, Control and Code share one flat opaque surface —
+  Cobalt2's own deep navy — so depth comes from the soft relief halo rather than
+  from differently-coloured surfaces, with Hover lifted and the alternating-row
+  tint recessed by the same steps Neumorphic Dark uses. Every hue is Cobalt2's,
+  including the gold accent, the cyan hyperlink and the whole editor syntax set,
+  so code reads identically in either theme and only the chrome differs. The
+  relief's lit rim is navy rather than Neumorphic Dark's mid-grey, which on a
+  blue surface would read as a smear.
+
+### Changed
+
+- **The Models Manager fills its model list on open.** The list was empty every
+  time the manager opened and stayed empty until you pressed Refresh — and
+  selecting a different profile cleared it again, so the same press was needed
+  once per profile. It now fetches when the manager opens and whenever the
+  selection moves to another profile. The fetch is skipped where it could only
+  fail — a profile with no provider yet, or a remote provider with no key — so
+  opening the manager never raises a provider error you did not ask for; a local
+  Ollama, which needs no key, lists freely. Refresh stays where it was.
+
 ## [PowerRustCOBOL 1.36.9] — 2026-07-26
 
 ### Fixed

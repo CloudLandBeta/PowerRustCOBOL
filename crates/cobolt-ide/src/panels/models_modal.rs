@@ -42,6 +42,10 @@ pub struct ModelsModal {
     models_request_profile_id: Option<String>,
     available_models: Vec<String>,
     models_msg: Option<String>,
+    /// A model-list fetch is owed for the profile now selected — armed when the
+    /// manager opens and whenever the selection moves to another profile, so
+    /// the dropdown fills itself instead of sitting empty until Refresh.
+    auto_fetch_pending: bool,
     /// In-flight test-connection request.
     test_rx: Option<Receiver<LlmResponse>>,
     test_msg: Option<String>,
@@ -59,6 +63,22 @@ pub struct ModelsModalAction {
     pub alert_error: Option<String>,
 }
 
+/// Whether opening the manager on `profile` should fetch its model list without
+/// being asked.
+///
+/// The automatic fetch must never produce an error the developer did not ask
+/// for: a profile with no provider yet, or a remote provider with no key, would
+/// answer with a provider error the moment the manager opened. A local Ollama
+/// needs no key, so it lists freely — which is the case where an automatic fetch
+/// helps most. The Refresh button stays available in every case.
+fn profile_can_list_models(profile: &ModelProfile, api_key: &str) -> bool {
+    if crate::llm::Provider::from_id(&profile.provider).is_none() {
+        return false;
+    }
+    let local = matches!(profile.provider.as_str(), "ollama" | "ollama_cloud");
+    local || !api_key.trim().is_empty()
+}
+
 impl ModelsModal {
     pub fn new() -> Self {
         Self {
@@ -74,6 +94,7 @@ impl ModelsModal {
             models_request_profile_id: None,
             available_models: Vec::new(),
             models_msg: None,
+            auto_fetch_pending: true,
             test_rx: None,
             test_msg: None,
         }
@@ -99,6 +120,9 @@ impl ModelsModal {
         self.models_request_profile_id = None;
         self.test_rx = None;
         self.confirm_delete = false;
+        // This clears the list, so the newly selected profile owes a fetch —
+        // otherwise switching profiles lands on an empty dropdown again.
+        self.auto_fetch_pending = true;
         let selected = llm.model_profiles.get(self.sel);
         self.draft_profile = selected.cloned();
         self.draft_sel = selected.map(|_| self.sel);
@@ -248,6 +272,13 @@ impl ModelsModal {
         }
 
         let mut do_fetch = false;
+        if self.auto_fetch_pending && self.models_rx.is_none() {
+            self.auto_fetch_pending = false;
+            do_fetch = self
+                .draft_profile
+                .as_ref()
+                .is_some_and(|p| profile_can_list_models(p, &self.key_buf));
+        }
         let mut do_test = false;
         let mut do_new = false;
         let mut do_duplicate = false;
@@ -720,6 +751,59 @@ mod tests {
                 .map(String::as_str),
             Some("saved-key")
         );
+    }
+
+    fn profile_with(provider: &str) -> ModelProfile {
+        ModelProfile {
+            id: "profile-1".into(),
+            name: "Saved".into(),
+            provider: provider.into(),
+            endpoint: String::new(),
+            endpoint_user_edited: false,
+            model: String::new(),
+            temperature: 0.7,
+            max_tokens: 8192,
+            timeout_secs: 30,
+        }
+    }
+
+    /// Opening the manager owes a fetch, so the dropdown is not empty until the
+    /// developer clicks Refresh.
+    #[test]
+    fn opening_the_manager_owes_a_model_fetch() {
+        assert!(ModelsModal::new().auto_fetch_pending);
+    }
+
+    /// Switching profiles clears the list, so the newly selected profile owes a
+    /// fetch too — otherwise the second profile lands on an empty dropdown.
+    #[test]
+    fn selecting_another_profile_owes_a_model_fetch() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.model_profiles.push(profile_with("openai"));
+        let mut modal = ModelsModal::new();
+        modal.auto_fetch_pending = false;
+        modal.load_key(&llm);
+        assert!(modal.auto_fetch_pending);
+    }
+
+    /// The automatic fetch must not manufacture an error the developer did not
+    /// ask for: no provider, or a remote provider with no key, would answer with
+    /// a provider error the moment the manager opened.
+    #[test]
+    fn the_automatic_fetch_is_skipped_when_it_could_only_fail() {
+        assert!(!profile_can_list_models(&profile_with(""), "sk-key"));
+        assert!(!profile_can_list_models(&profile_with("openai"), ""));
+        assert!(!profile_can_list_models(&profile_with("openai"), "   "));
+        assert!(profile_can_list_models(&profile_with("openai"), "sk-key"));
+        assert!(profile_can_list_models(&profile_with("anthropic"), "sk-ant"));
+    }
+
+    /// A local Ollama lists without a key, and is the case where filling the
+    /// dropdown automatically helps most.
+    #[test]
+    fn a_local_ollama_lists_without_a_key() {
+        assert!(profile_can_list_models(&profile_with("ollama"), ""));
+        assert!(profile_can_list_models(&profile_with("ollama_cloud"), ""));
     }
 
     #[test]
