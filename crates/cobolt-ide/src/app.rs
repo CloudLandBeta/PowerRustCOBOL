@@ -339,6 +339,10 @@ pub struct CoboltApp {
 
     /// Currently selected UI language.
     lang: Language,
+    /// The language last written to the machine-local preferences. The selector
+    /// hands out a `&mut Language`, so the change is noticed by comparison on
+    /// the next frame rather than at the point of the click.
+    lang_persisted: Language,
 
     // State for the cycling welcome quotes on the initial screen (no project)
     welcome_quote_index: usize,
@@ -936,7 +940,8 @@ impl CoboltApp {
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
             glass_visuals_applied: false,
-            lang: Language::English,
+            lang: crate::ui_prefs::load_language(),
+            lang_persisted: crate::ui_prefs::load_language(),
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
             about_open: false,
@@ -8000,6 +8005,12 @@ impl eframe::App for CoboltApp {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
+        // Remember the language across restarts. Written only on a real change,
+        // so this costs nothing on a normal frame.
+        if self.lang != self.lang_persisted {
+            crate::ui_prefs::save_language(self.lang);
+            self.lang_persisted = self.lang;
+        }
         self.poll_llm_benchmark();
         if self.llm_benchmark_rx.is_some() {
             ctx.request_repaint();
@@ -11188,9 +11199,13 @@ impl CoboltApp {
                             .width(130.0)
                             .show_ui(ui, |ui| {
                                 for &l in Language::ALL {
-                                    ui.selectable_value(&mut self.lang, l, l.native_name());
+                                    if crate::flags::language_row(ui, l, self.lang == l).clicked() {
+                                        self.lang = l;
+                                    }
                                 }
                             });
+                        crate::flags::flag_widget(ui, self.lang);
+                        ui.add_space(4.0);
                     });
                 });
 

@@ -8,6 +8,22 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.1] — 2026-07-26
+
+### Fixed
+
+- **The IDE remembers the language you chose.** It was held in memory only, so
+  every start went back to English. The choice is now saved on the machine (not
+  in the project, so the selector still works with no project open and nobody
+  inherits a colleague's language) and restored at startup.
+- **Real flags in the language selector.** The flags were emoji, and emoji flags
+  are pairs of "regional indicator" letters that only become a flag if the text
+  engine ligates them — egui does not, and the emoji font it bundles draws those
+  codepoints as plain boxed letters, so Português showed as `B R`. The flags are
+  now painted directly: the Brazilian green field, yellow rhombus and blue globe,
+  and likewise for the other five. They are crisp at any size and identical on
+  every platform.
+
 ## [PowerRustCOBOL 1.36.0] — 2026-07-26
 
 ### Added

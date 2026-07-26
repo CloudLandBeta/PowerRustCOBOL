@@ -43,15 +43,40 @@ impl Language {
     ];
 
     /// Name shown in the language selector — written in the language itself.
+    /// The flag beside it is *painted* (see [`crate::flags`]), not an emoji:
+    /// egui does not ligate regional-indicator pairs, so "🇧🇷" came out as `B R`.
     pub fn native_name(self) -> &'static str {
         match self {
-            Language::English => "🇺🇸 English",
-            Language::Spanish => "🇪🇸 Español",
-            Language::Portuguese => "🇧🇷 Português",
-            Language::Japanese => "🇯🇵 日本語",
-            Language::Chinese => "🇨🇳 中文",
-            Language::French => "🇫🇷 Français",
+            Language::English => "English",
+            Language::Spanish => "Español",
+            Language::Portuguese => "Português",
+            Language::Japanese => "日本語",
+            Language::Chinese => "中文",
+            Language::French => "Français",
         }
+    }
+
+    /// Stable short code used to persist the choice (see [`crate::ui_prefs`]).
+    /// Independent of the doc-file suffixes in `docs_embed`, which follow the
+    /// guide filenames (`jp`, `cn`) rather than the language tags.
+    pub fn code(self) -> &'static str {
+        match self {
+            Language::English => "en",
+            Language::Spanish => "es",
+            Language::Portuguese => "pt",
+            Language::Japanese => "ja",
+            Language::Chinese => "zh",
+            Language::French => "fr",
+        }
+    }
+
+    /// Inverse of [`Language::code`]; `None` for anything unrecognised, so a
+    /// hand-edited or future preferences file cannot break startup.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Language::ALL
+            .iter()
+            .copied()
+            .find(|l| l.code().eq_ignore_ascii_case(code.trim()))
     }
 
     /// Return the full translation table for this language.
