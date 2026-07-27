@@ -8,6 +8,26 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.37.0] — 2026-07-27
+
+Milestone marker. The work from here to the production version is optimization
+— speed, memory, and binary size under load — and this is the line it starts
+from.
+
+### Added
+
+- **A per-OS build guide** at [`docs/BUILDING.md`](docs/BUILDING.md): Windows,
+  Linux and macOS from a clean machine to a running IDE, with package lists for
+  Debian/Ubuntu, Fedora and Arch, the test commands, where the artifacts land,
+  and the failures worth naming with their fix. It is explicit that a C compiler
+  **is** required — `libsqlite3-sys` (bundled SQLite for the COBOL database
+  runtime) and `onig_sys` (the tokenizer's regex engine) compile C — while no
+  C++ compiler, CMake, NASM, Python, Node or JVM is involved anywhere.
+- **A crate inventory** at [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md): every
+  direct dependency with the version actually linked, which workspace crate uses
+  it and what it is for, plus the ones declared behind an off-by-default feature
+  and therefore absent from a normal build.
+
 ## [PowerRustCOBOL 1.36.29] — 2026-07-27
 
 ### Changed
