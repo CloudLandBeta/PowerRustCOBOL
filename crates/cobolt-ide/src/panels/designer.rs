@@ -286,82 +286,11 @@ impl AnimState {
     }
 }
 
-/// ZoomOut "bounce" scale over progress `t`: a damped oscillation that starts at
-/// 100%, dips toward 25%, then bounces 3–4 times with decreasing amplitude,
-/// settling exactly at 100%.
-fn zoomout_scale(t: f32) -> f32 {
-    // N half-cycles (→ ~3–4 visible bounces); A sets the first dip (≈25%);
-    // D damps each successive bounce. sin(Nπ·t) = 0 at t=0 and t=1, so the curve
-    // begins and ends exactly at 100%.
-    const N: f32 = 5.0;
-    const A: f32 = 1.06;
-    const D: f32 = 3.5;
-    let osc = (N * std::f32::consts::PI * t).sin();
-    (1.0 - A * (-D * t).exp() * osc).max(0.02)
-}
-
-/// Compute offset in canvas-space for an animation at progress t.
-/// Returns (dx, dy, scale, alpha_mul) where alpha_mul is 0..1.
-pub(crate) fn anim_transform(
-    anim: &AnimationDef,
-    form_w: f32,
-    form_h: f32,
-    t: f32,
-) -> (f32, f32, f32, f32) {
-    let te = anim.easing.apply(t); // eased progress
-    let inv = 1.0 - te;
-    match &anim.kind {
-        AnimKind::FlyFromLeft => (-form_w * inv, 0.0, 1.0, 1.0),
-        AnimKind::FlyFromRight => (form_w * inv, 0.0, 1.0, 1.0),
-        AnimKind::FlyFromTop => (0.0, -form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromBottom => (0.0, form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromTopLeft => (-form_w * inv, -form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromTopRight => (form_w * inv, -form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromBottomLeft => (-form_w * inv, form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromBottomRight => (form_w * inv, form_h * inv, 1.0, 1.0),
-        AnimKind::FadeIn => (0.0, 0.0, 1.0, te),
-        AnimKind::FadeOut => (0.0, 0.0, 1.0, 1.0 - te),
-        // ZoomIn grows 0 → 100% (eased; Elastic overshoots past 100% and settles).
-        AnimKind::ZoomIn => (0.0, 0.0, te.max(0.001), te),
-        // ZoomOut dips and returns: 100% → 25% → 100%. With Elastic easing this
-        // becomes a damped multi-bounce (overshoots 3–4 times before settling).
-        AnimKind::ZoomOut => {
-            let scale = if matches!(anim.easing, EasingKind::Elastic) {
-                zoomout_scale(t)
-            } else {
-                // Smooth single dip-and-return (no overshoot), timed by the easing.
-                (1.0 - 0.75 * (std::f32::consts::PI * te).sin()).max(0.02)
-            };
-            (0.0, 0.0, scale, 1.0)
-        }
-        AnimKind::Bounce => {
-            let dy = -50.0 * (std::f32::consts::PI * t * 3.0).sin().abs() * inv;
-            (0.0, dy, 1.0, 1.0)
-        }
-        AnimKind::Shake => {
-            let dx = 6.0 * (t * std::f32::consts::TAU * 5.0).sin() * inv;
-            (dx, 0.0, 1.0, 1.0)
-        }
-        AnimKind::Pulse => {
-            let s = 1.0 + 0.15 * (t * std::f32::consts::TAU * 2.0).sin() * inv;
-            (0.0, 0.0, s, 1.0)
-        }
-        AnimKind::Slide { dx, dy } => ((*dx as f32) * inv, (*dy as f32) * inv, 1.0, 1.0),
-        AnimKind::Spin => {
-            // Simulate spin as a scale pulse that goes through 0 twice (simulates
-            // a 360° rotation in 2D by shrinking to nothing and back twice).
-            let angle = te * std::f32::consts::TAU;
-            let s = angle.cos().abs().max(0.05); // 1 → 0 → 1 twice = perceived spin
-            (0.0, 0.0, s, te)
-        }
-        AnimKind::Flip => {
-            // Horizontal flip: scale goes 1 → 0 → 1 (one half-rotation).
-            let s = (te * std::f32::consts::PI).cos().abs().max(0.05);
-            (0.0, 0.0, s, 1.0)
-        }
-        AnimKind::None | AnimKind::Custom(_) => (0.0, 0.0, 1.0, 1.0),
-    }
-}
+/// The animation transform math lives in `cobolt_forms::anim` so every surface —
+/// designer canvas, preview, the standalone run-form process and compiled
+/// binaries — plays an animation identically (it used to be IDE-only, which is
+/// why Run Form showed no animation at all).
+pub(crate) use cobolt_forms::anim::anim_transform;
 
 // ── Undo / Redo command ───────────────────────────────────────────────────────
 

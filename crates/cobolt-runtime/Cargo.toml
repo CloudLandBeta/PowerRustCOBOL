@@ -33,7 +33,8 @@ mysql           = { version = "28", default-features = false, features = ["minim
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
 redb            = { version = "2.2" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
-ureq            = { version = "2", features = ["json"] }
+ureq            = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"] }  # native-tls, not rustls (ring compiles C)
+native-tls      = "0.2"   # the connector ureq needs handed to it; see http_runtime::tls_connector
 
 [dev-dependencies]
 cobolt-codegen    = { path = "../cobolt-codegen" }

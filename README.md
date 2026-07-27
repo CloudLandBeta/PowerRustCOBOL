@@ -197,12 +197,29 @@ Get from a clean machine to the running IDE in four steps.
 |-------------|-----|---------|
 | **Rust toolchain** (stable, **1.92 or newer**) | builds the whole workspace | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | **Git** | clone the repository | [git-scm.com](https://git-scm.com/downloads) |
-| **A C toolchain + native GUI libraries** | the desktop IDE (egui/eframe) and native file dialogs | see the per-OS notes below |
+| **A C toolchain + native GUI libraries** | the platform linker Rust itself needs, two C dependencies (bundled SQLite and the Oniguruma regex engine), and the native file dialogs | see the per-OS notes below |
+
+There is **no Python, Node, JVM, CMake, NASM or C++ compiler** anywhere in the
+build — a C compiler and a linker are the whole of it, and on every platform they
+arrive with the package Rust already needs in order to link.
 
 Per-OS native dependencies:
 
 - **macOS** — install the Xcode Command Line Tools: `xcode-select --install`. Nothing else is needed.
-- **Windows** — install the **Visual Studio C++ Build Tools** (the "Desktop development with C++" workload). rustup selects the MSVC toolchain automatically.
+
+- **Windows** — install the **Visual Studio Build Tools** with the *"Desktop
+  development with C++"* workload ([download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)),
+  then install Rust from [rustup.rs](https://rustup.rs) — it selects the MSVC
+  toolchain automatically. That single workload provides everything: `link.exe`
+  and the Windows SDK (which rustc requires for *any* Rust binary, C code or not)
+  and `cl.exe` for the two C dependencies. Nothing else to download.
+
+  ```powershell
+  # after both installs, from a normal PowerShell prompt
+  rustc --version
+  cargo build --release -p cobolt-ide -p cobolt-cli
+  ```
+
 - **Linux (Debian/Ubuntu)** — install the build + GUI/dialog libraries:
 
   ```sh
@@ -213,6 +230,11 @@ Per-OS native dependencies:
   ```
 
   (Fedora: `gtk3-devel`, `libxcb-devel`, `libxkbcommon-devel`, `openssl-devel`, `@development-tools`.)
+
+  `libssl-dev` / `openssl-devel` is load-bearing on Linux: HTTPS goes through the
+  operating system's TLS (schannel on Windows, Security.framework on macOS,
+  OpenSSL here) rather than through a bundled crypto library that would have to
+  be compiled from C on every machine.
 
 Verify Rust is ready:
 

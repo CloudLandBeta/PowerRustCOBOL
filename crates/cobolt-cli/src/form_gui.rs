@@ -141,10 +141,32 @@ fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_for
     }
 }
 
+/// What a COBOL animation verb asked for. The interpreter turns `PLAY ANIMATION`,
+/// `STOP-ANIMATION` and `PAUSE` into writes of these pseudo-properties on the
+/// control object, which reach the GUI as ordinary state updates.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum AnimCommand {
+    Play,
+    Stop,
+    Pause,
+}
+
+/// Map a state-update property name to its animation verb, if it is one.
+fn anim_command(prop: &str) -> Option<AnimCommand> {
+    match prop.trim() {
+        p if p.eq_ignore_ascii_case("_PlayAnimation") => Some(AnimCommand::Play),
+        p if p.eq_ignore_ascii_case("_StopAnimation") => Some(AnimCommand::Stop),
+        p if p.eq_ignore_ascii_case("_PauseAnimation") => Some(AnimCommand::Pause),
+        _ => None,
+    }
+}
+
 /// `FormState` over the live control-state map — merges runtime property values
-/// onto each designed control so the unified engine paints the live state.
+/// onto each designed control so the unified engine paints the live state, and
+/// supplies each control's current animation transform.
 struct LiveState<'a> {
     state: &'a HashMap<String, CtrlState>,
+    anim: &'a cobolt_forms::anim::AnimRuntime,
 }
 
 impl<'a> LiveState<'a> {
@@ -176,6 +198,9 @@ impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
         self.entry(base).map(|s| s.enabled).unwrap_or(true)
+    }
+    fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
+        self.anim.transform(base)
     }
 }
 
@@ -513,6 +538,7 @@ pub fn cmd_run_form(args: &[String]) {
         transparency: form.transparency.clamp(0, 100) as u8,
         bg_image: form.background_image.clone(),
         bg_mode: form.bg_image_mode,
+        use_theme_background: form.use_theme_background,
         form_size: egui::vec2(fw, fh),
         ev_tx,
         input_tx,
@@ -524,6 +550,10 @@ pub fn cmd_run_form(args: &[String]) {
         lifecycle_sent: false,
         quit_sent: false,
         db_dumped: false,
+        anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
+        anim_started: false,
+        last_frame: None,
+        hovered: std::collections::HashSet::new(),
     };
 
     let mut viewport = egui::ViewportBuilder::default()
@@ -573,6 +603,9 @@ struct FormApp {
     transparency: u8,
     bg_image: String,
     bg_mode: cobolt_forms::model::BgImageMode,
+    /// The form's `UseThemeBackground` opt-in — the pack's background art
+    /// replaces the form's own image when the active theme provides one.
+    use_theme_background: bool,
     form_size: egui::Vec2,
     ev_tx: mpsc::Sender<FormEvent>,
     input_tx: mpsc::Sender<StateUpdate>,
@@ -590,6 +623,19 @@ struct FormApp {
     quit_sent: bool,
     /// One-shot guard for the `COBOLT_DATABIND_TRACE` render-side dump.
     db_dumped: bool,
+    /// Control animations (fly-in, fade, pulse, …). The run form used to have no
+    /// clock at all, so every animated control simply drew in its final place —
+    /// this runs the same effects the designer preview shows.
+    anim: cobolt_forms::anim::AnimRuntime,
+    /// One-shot guard for the load-time (`OnFormLoad` / `OnShow`) animations.
+    anim_started: bool,
+    /// Previous frame's timestamp — the animation clock's delta.
+    last_frame: Option<std::time::Instant>,
+    /// Controls the pointer was inside last frame, so `OnHover` animations fire
+    /// on entry only. Hover/click triggers are derived from the rendered rects
+    /// rather than from `RenderOutput::events`, which the engine emits only for
+    /// events that have a bound COBOL handler.
+    hovered: std::collections::HashSet<String>,
 }
 
 impl FormApp {
@@ -745,12 +791,42 @@ impl eframe::App for FormApp {
             let _ = self.ev_tx.send(FormEvent::quit());
         }
 
+        // ── Animation clock ──────────────────────────────────────────────────
+        // Load-time animations start with the window; everything after is driven
+        // by triggers below. `tick` returns true while something is moving, which
+        // keeps the frame scheduler awake at the end of this method.
+        if !self.anim_started {
+            self.anim_started = true;
+            self.anim.start_form_load(&self.controls);
+        }
+        let now = std::time::Instant::now();
+        let dt = self
+            .last_frame
+            .map(|t| now.duration_since(t).as_secs_f32())
+            .unwrap_or(0.0);
+        self.last_frame = Some(now);
+        let animating = self.anim.tick(dt);
+
         // Apply property changes coming from the COBOL interpreter. Route each
         // update to the designer-case state key (COBOL upper-cases ids), and
         // repeating-group member writes to the drawn card-instance id — the
         // same resolution the IDE's FormRuntime::drain_state performs.
         let mut drained = 0usize;
         while let Ok(u) = self.state_rx.try_recv() {
+            // COBOL's PLAY ANIMATION / STOP-ANIMATION / PAUSE arrive as writes to
+            // these pseudo-properties; act on the write, don't store it.
+            if let Some(cmd) = anim_command(&u.prop) {
+                match cmd {
+                    AnimCommand::Play => {
+                        self.anim
+                            .play_programmatic(&self.controls, &u.ctrl_id, &u.value)
+                    }
+                    AnimCommand::Stop => self.anim.stop_all(&u.ctrl_id),
+                    AnimCommand::Pause => self.anim.pause_all(&u.ctrl_id),
+                }
+                drained += 1;
+                continue;
+            }
             let key = if u.instance_index > 0 {
                 match self.array_member_group(&u.ctrl_id) {
                     Some((member_id, group_id)) => cobolt_forms::render::member_instance_id(
@@ -835,7 +911,10 @@ impl eframe::App for FormApp {
         // the designer, preview, running form, compiled binary — and this).
         let output = {
             let controls = self.controls.clone();
-            let st = LiveState { state: &self.state };
+            let st = LiveState {
+                state: &self.state,
+                anim: &self.anim,
+            };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = cobolt_forms::render::Backdrop {
                 color_hex: self.bg_hex.clone(),
@@ -846,6 +925,7 @@ impl eframe::App for FormApp {
                 gradient_direction: self.bg_gradient_direction.clone(),
                 image: backdrop_image,
                 image_mode: self.bg_mode,
+                use_theme_background: self.use_theme_background,
             };
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
@@ -874,6 +954,46 @@ impl eframe::App for FormApp {
                 });
             out
         };
+
+        // ── Animation triggers from this frame's interaction ─────────────────
+        // Pointer triggers come from the rendered rects: the engine only emits
+        // onClick/onHoverEnter for controls that have a bound COBOL handler, but
+        // an animation is reason enough on its own. Focus and timer triggers do
+        // come from the event stream (`onTick` always fires; `onGotFocus` fires
+        // when bound).
+        if armed {
+            let (clicked, pointer) =
+                ctx.input(|i| (i.pointer.primary_clicked(), i.pointer.interact_pos()));
+            let mut still_hovered = std::collections::HashSet::new();
+            for (id, rect) in &output.control_rects {
+                // Repeating-group card instances are drawn under a composite id
+                // and carry their own placement effect; leave them alone.
+                if id.contains('.') {
+                    continue;
+                }
+                let over = pointer.map(|p| rect.contains(p)).unwrap_or(false);
+                if over {
+                    still_hovered.insert(id.clone());
+                    if !self.hovered.contains(id) {
+                        self.anim.fire_event(&self.controls, id, "onHoverEnter");
+                    }
+                    if clicked {
+                        self.anim.fire_event(&self.controls, id, "onClick");
+                    }
+                }
+            }
+            self.hovered = still_hovered;
+            for ev in &output.events {
+                // Pointer events are already covered by the rect pass above —
+                // taking them from here too would restart the same animation twice.
+                if ev.event.eq_ignore_ascii_case("onClick")
+                    || ev.event.eq_ignore_ascii_case("onHoverEnter")
+                {
+                    continue;
+                }
+                self.anim.fire_event(&self.controls, &ev.ctrl_id, &ev.event);
+            }
+        }
 
         // Apply value updates locally, sync them to the interpreter (so
         // handlers read the live value), and forward UI events — once armed.
@@ -933,7 +1053,14 @@ impl eframe::App for FormApp {
         // and end-of-program detection timely. Timer controls schedule their
         // own precise wake-ups inside the render engine, and user input wakes
         // egui automatically — between all of those, the process sleeps.
-        let busy = drained > 0 || interacted || self.pending.load(Ordering::Relaxed) > 0;
+        // A running animation needs frames of its own: without this the form
+        // sleeps between interpreter traffic and a fly-in would advance in 200 ms
+        // jumps (or freeze mid-flight on an idle form).
+        let busy = drained > 0
+            || interacted
+            || animating
+            || self.anim.is_animating()
+            || self.pending.load(Ordering::Relaxed) > 0;
         let ms = if busy { 16 } else { 200 };
         ctx.request_repaint_after(std::time::Duration::from_millis(ms));
     }

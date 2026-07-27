@@ -1,16 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
-//! Project-local Knowledge Base retrieval backed by SQLite vectors.
+//! Project-local Knowledge Base retrieval backed by an embedded vector index.
+//!
+//! The store is a single key→record table (path → content + embedding), read by
+//! full scan and scored by dot product — no SQL was ever involved beyond an
+//! upsert, a delete and a `SELECT *`. It runs on `redb`, a pure-Rust embedded
+//! store the workspace already uses, rather than on bundled SQLite, whose C
+//! amalgamation made a C toolchain a prerequisite for building the IDE.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection};
+use redb::{Database, ReadableTable, TableDefinition};
+use serde::{Deserialize, Serialize};
 
 const VECTOR_DIMENSIONS: usize = 384;
-const DATABASE_RELATIVE_PATH: &str = "data/project-knowledge.sqlite";
+const DATABASE_RELATIVE_PATH: &str = "data/project-knowledge.redb";
+/// Path → [`DocumentRecord`]. One table, same shape as the old `project_documents`.
+const DOCUMENTS: TableDefinition<&str, &[u8]> = TableDefinition::new("project_documents");
+
+/// One indexed document. `dimensions` is kept (rather than inferred from
+/// `embedding.len()`) so a record written by a build with a different vector
+/// width is recognised as stale instead of silently mis-scored.
+#[derive(Serialize, Deserialize)]
+struct DocumentRecord {
+    content: String,
+    embedding: Vec<f32>,
+    dimensions: u32,
+    updated_unix: i64,
+}
 pub const KNOWLEDGE_BASE_ROOT: &str = "Knowledge Base";
 const LEGACY_KNOWLEDGE_ROOTS: [&str; 2] = ["Documentation", "docs"];
 
@@ -25,25 +45,12 @@ pub fn database_path(project_root: &Path) -> PathBuf {
     project_root.join(DATABASE_RELATIVE_PATH)
 }
 
-fn open(project_root: &Path) -> Result<Connection, String> {
+fn open(project_root: &Path) -> Result<Database, String> {
     let path = database_path(project_root);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let connection = Connection::open(path).map_err(|e| e.to_string())?;
-    connection
-        .execute_batch(
-            "PRAGMA journal_mode = WAL;
-             CREATE TABLE IF NOT EXISTS project_documents (
-                 path TEXT PRIMARY KEY NOT NULL,
-                 content TEXT NOT NULL,
-                 embedding BLOB NOT NULL,
-                 dimensions INTEGER NOT NULL,
-                 updated_unix INTEGER NOT NULL
-             );",
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(connection)
+    Database::create(path).map_err(|e| e.to_string())
 }
 
 fn fnv1a(text: &str) -> u64 {
@@ -76,24 +83,18 @@ fn vectorize(text: &str) -> Vec<f32> {
     vector
 }
 
-fn encode_vector(vector: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(vector.len() * 4);
-    for value in vector {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-    bytes
+fn encode_record(record: &DocumentRecord) -> Result<Vec<u8>, String> {
+    bincode::serialize(record).map_err(|e| e.to_string())
 }
 
-fn decode_vector(bytes: &[u8]) -> Option<Vec<f32>> {
-    if bytes.len() != VECTOR_DIMENSIONS * 4 {
-        return None;
-    }
-    Some(
-        bytes
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-            .collect(),
-    )
+/// `None` for anything unreadable or written with a different vector width — the
+/// caller skips it, so a stale or corrupt record degrades one document's
+/// searchability instead of failing the whole query.
+fn decode_record(bytes: &[u8]) -> Option<DocumentRecord> {
+    let record: DocumentRecord = bincode::deserialize(bytes).ok()?;
+    (record.dimensions as usize == VECTOR_DIMENSIONS
+        && record.embedding.len() == VECTOR_DIMENSIONS)
+        .then_some(record)
 }
 
 fn is_documentation_root(component: &str) -> bool {
@@ -305,8 +306,11 @@ fn relative_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn index_document_with_connection(
-    connection: &Connection,
+/// Write (or overwrite) one document inside an open table. The insert replaces
+/// any existing row for the same path, which is what the old `ON CONFLICT DO
+/// UPDATE` did.
+fn index_document_into(
+    table: &mut redb::Table<&'static str, &'static [u8]>,
     relative_path: &Path,
     content: &str,
 ) -> Result<(), String> {
@@ -316,23 +320,15 @@ fn index_document_with_connection(
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0);
-    connection
-        .execute(
-            "INSERT INTO project_documents(path, content, embedding, dimensions, updated_unix)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(path) DO UPDATE SET
-               content = excluded.content,
-               embedding = excluded.embedding,
-               dimensions = excluded.dimensions,
-               updated_unix = excluded.updated_unix",
-            params![
-                path,
-                content,
-                encode_vector(&vector),
-                VECTOR_DIMENSIONS as i64,
-                now
-            ],
-        )
+    let record = DocumentRecord {
+        content: content.to_owned(),
+        embedding: vector,
+        dimensions: VECTOR_DIMENSIONS as u32,
+        updated_unix: now,
+    };
+    let encoded = encode_record(&record)?;
+    table
+        .insert(path.as_str(), encoded.as_slice())
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -343,8 +339,13 @@ pub fn index_document(
     content: &str,
 ) -> Result<(), String> {
     let relative_path = normalize_document_path(&relative_string(relative_path))?;
-    let connection = open(project_root)?;
-    index_document_with_connection(&connection, &relative_path, content)
+    let database = open(project_root)?;
+    let write = database.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = write.open_table(DOCUMENTS).map_err(|e| e.to_string())?;
+        index_document_into(&mut table, &relative_path, content)?;
+    }
+    write.commit().map_err(|e| e.to_string())
 }
 
 fn is_text_document(path: &Path) -> bool {
@@ -408,31 +409,29 @@ pub fn sync_documentation(project_root: &Path) -> Result<usize, String> {
         &project_root.join(KNOWLEDGE_BASE_ROOT),
         &mut documents,
     )?;
-    let mut connection = open(project_root)?;
-    let transaction = connection.transaction().map_err(|e| e.to_string())?;
-    let mut current = HashSet::new();
-    for (path, content) in &documents {
-        let path_string = relative_string(path);
-        current.insert(path_string);
-        index_document_with_connection(&transaction, path, content)?;
-    }
-    let stored = {
-        let mut statement = transaction
-            .prepare("SELECT path FROM project_documents")
-            .map_err(|e| e.to_string())?;
-        let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?;
-        rows.filter_map(Result::ok).collect::<Vec<_>>()
-    };
-    for path in stored {
-        if !current.contains(&path) {
-            transaction
-                .execute("DELETE FROM project_documents WHERE path = ?1", [path])
-                .map_err(|e| e.to_string())?;
+    let database = open(project_root)?;
+    let write = database.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = write.open_table(DOCUMENTS).map_err(|e| e.to_string())?;
+        let mut current = HashSet::new();
+        for (path, content) in &documents {
+            current.insert(relative_string(path));
+            index_document_into(&mut table, path, content)?;
+        }
+        // Documents that vanished from disk leave the index with them. Collect
+        // first: removing while iterating would borrow the table twice.
+        let stale: Vec<String> = table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .map(|(key, _)| key.value().to_owned())
+            .filter(|path| !current.contains(path))
+            .collect();
+        for path in stale {
+            table.remove(path.as_str()).map_err(|e| e.to_string())?;
         }
     }
-    transaction.commit().map_err(|e| e.to_string())?;
+    write.commit().map_err(|e| e.to_string())?;
     Ok(documents.len())
 }
 
@@ -503,38 +502,34 @@ pub fn search(project_root: &Path, query: &str, limit: usize) -> Result<Vec<Know
     if query.trim().is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
-    let connection = open(project_root)?;
+    let database = open(project_root)?;
     let query_vector = vectorize(query);
-    let mut statement = connection
-        .prepare("SELECT path, content, embedding FROM project_documents")
-        .map_err(|e| e.to_string())?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?;
+    let read = database.begin_read().map_err(|e| e.to_string())?;
+    // A project that has never been indexed has no table yet — that is an empty
+    // result, not a failure.
+    let table = match read.open_table(DOCUMENTS) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
     let mut hits = Vec::new();
-    for row in rows {
-        let (path, content, bytes) = row.map_err(|e| e.to_string())?;
-        let Some(vector) = decode_vector(&bytes) else {
+    for entry in table.iter().map_err(|e| e.to_string())? {
+        let (key, value) = entry.map_err(|e| e.to_string())?;
+        let Some(record) = decode_record(value.value()) else {
             continue;
         };
         let score = query_vector
             .iter()
-            .zip(vector.iter())
+            .zip(record.embedding.iter())
             .map(|(left, right)| left * right)
             .sum::<f32>();
         if score <= 0.0 {
             continue;
         }
         hits.push(KnowledgeHit {
-            path,
+            path: key.value().to_owned(),
             score,
-            excerpt: content.chars().take(1600).collect(),
+            excerpt: record.content.chars().take(1600).collect(),
         });
     }
     hits.sort_by(|left, right| right.score.total_cmp(&left.score));

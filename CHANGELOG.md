@@ -8,6 +8,118 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.28] — 2026-07-27
+
+### Fixed
+
+- **Themed forms keep their theme in the app you ship.** A form skinned with an
+  asset-pack theme looked right in the designer, the preview and Run Form, and
+  then rendered as plain procedural Liquid Glass the moment it was built into a
+  binary and handed to someone else. The compiled-binary template published only
+  the glass style to the renderer; it never resolved a theme pack, and the packs
+  live in `assets/themes/` next to the IDE — a folder an end user's machine does
+  not have. `rcrun build` now resolves each form's theme exactly as the IDE does
+  (per-form override, else the project's `[forms] theme`, else Liquid Glass) and
+  **embeds the pack into the executable**: the manifest plus the art its
+  manifest actually references, keeping the binary self-contained with nothing
+  to install beside it and none of the packs' authoring imagery along for the
+  ride. The renderer reads that art from the embedded bytes on Windows, macOS
+  and Linux alike, decoding the same PNGs into the same textures the designer
+  drew with, so a themed form is identical in the designer, the preview, Run
+  Form and the shipped app.
+- **`UseThemeBackground` reaches every surface.** A form that opted into its
+  theme's background got it on the designer canvas only — the preview, Run Form
+  and compiled binaries painted the form's own background instead, because the
+  themed backdrop was drawn by the canvas rather than by the shared render
+  engine. It now lives in the engine's backdrop step, in the same order and with
+  the same "themed wins over the form's own image" rule, so all four surfaces
+  agree.
+
+## [PowerRustCOBOL 1.36.27] — 2026-07-27
+
+### Fixed
+
+- **Control animations play in Run Form.** A fly-in, fade or pulse configured on
+  a control ran in the designer preview and then did nothing at all once the
+  form was launched: the animation clock lived inside the IDE, and the
+  standalone `rcrun run-form` process had none, so every animated control simply
+  drew in its final place. The clock, the per-kind transform math and the
+  trigger mapping now live in `cobolt-forms` (`anim::AnimRuntime`), shared by
+  every surface. The run form starts `OnFormLoad` / `OnShow` animations with the
+  window, fires `OnClick`, `OnHover`, `OnFocus` and `OnTimer` ones from real
+  interaction, and honours `Repeat` (Once / Loop / PingPong / Count) and the
+  configured delay. COBOL's `PLAY ANIMATION`, `STOP-ANIMATION` and `PAUSE` also
+  do something for the first time — they were being recorded and never acted on.
+  Compiled binaries (`rcrun build`) had the same empty transform and now animate
+  through the same runtime, so a form animates identically in the designer, in
+  Run Form, and in the app you ship.
+
+### Changed (build toolchain)
+
+- **Building PowerRustCOBOL no longer needs a C or C++ compiler for its network
+  stack.** Four dependency chains were pulling native code in for work that pure
+  Rust already does:
+  - **TLS** — `rustls` brought `aws-lc-rs` + `ring` (C and assembly) and `cmake`.
+    Everything that speaks HTTPS (`reqwest` in cobolt-agents, `rig-core`, and
+    `ureq` in the COBOL HTTP runtime) now uses the operating system's own TLS:
+    schannel on Windows, Security.framework on macOS, OpenSSL on Linux — all
+    reached through pure-Rust bindings, nothing compiled. `ureq`'s native-tls
+    support is an adapter that its crate-level helpers never pick up on their
+    own, so `http_runtime` routes every request through one shared agent that
+    carries the connector; verified against a live HTTPS endpoint.
+  - **`hf-hub`** — used in exactly one place, to fetch three embedding-model
+    files, but it dragged in the whole xet transfer stack (`hf-xet`, `xet-client`,
+    `xet-runtime`, `blake3`'s C SIMD) plus its own rustls. Replaced with three
+    plain HTTPS GETs against Hugging Face's public `resolve` endpoint, written
+    through a `.partial` temporary so an interrupted download cannot leave a
+    truncated file that looks cached.
+  - **`zip`** — we asked for `deflate` (pure Rust) but never turned its defaults
+    off, so bzip2, lzma and zstd were compiled as C for codecs we never call.
+  - **`esaxx-rs`** — see below.
+
+  The project Knowledge Base index moved off bundled SQLite too. It was never a
+  relational store — one table of path → (content, embedding), read by full scan
+  and scored by dot product — so it now runs on `redb`, the pure-Rust embedded
+  store the COBOL runtime already uses. The index is derived from the files in
+  the Knowledge Base folder and every search re-syncs before it reads, so the new
+  index rebuilds itself on the first query; nothing is lost and nothing needs
+  migrating. The old `data/project-knowledge.sqlite` is simply left behind, and
+  can be deleted whenever you like. `rusqlite` is now an optional dependency,
+  reached only by the `local-retrieval` feature (its sqlite-vec extension needs
+  rusqlite's FFI) — enabling that feature brings bundled SQLite, and a C
+  toolchain requirement, back with it.
+
+  Still native, and unchanged: `libsqlite3-sys` behind the COBOL-facing
+  `db_runtime` (programs open real `.db` files, so it waits for a pure-Rust
+  engine with a stable on-disk format and a synchronous API), and `onig_sys`,
+  which `candle-core` hardcodes on its own tokenizers copy — candle 0.11.0 is the
+  newest release and its dependency is neither optional nor feature-gated, so
+  removing it would mean vendoring a patched candle.
+
+### Documentation
+
+- **The install instructions now match what the build actually needs.** They say
+  explicitly that no Python, Node, JVM, CMake, NASM or C++ compiler is involved,
+  that the single Visual Studio "Desktop development with C++" workload covers
+  Windows end to end (the linker and SDK rustc needs for any Rust binary, plus
+  `cl.exe` for the two remaining C dependencies), and why `libssl-dev` is
+  load-bearing on Linux now that TLS is the operating system's.
+
+### Fixed (Windows build)
+
+- **`cargo build` links again on MSVC, and the build no longer compiles any C++.**
+  Linking `cobolt-ide` failed with `unresolved external symbol "void __cdecl
+  std::_Xlength_error(char const *)"`: tokenizers' default `esaxx_fast` feature
+  switches esaxx-rs to a C++ suffix-array built against the STATIC C++ runtime,
+  which the project's `/NODEFAULTLIB:libcpmt` deliberately bans. That code is
+  only ever used to *train* a Unigram tokenizer — the BERT embedder only encodes
+  — so `cobolt-agents` now takes tokenizers without default features and
+  tokenizers falls back to `esaxx_rs::suffix_rs`, the pure-Rust equivalent. No
+  C++ compiler is involved in a build any more, and `progressbar` (CLI progress
+  bars, useless in a GUI) goes with it, dropping indicatif + console + two more
+  crates. The MSVC targets also link `/defaultlib:msvcprt` now, as insurance for
+  any future C++ dependency.
+
 ## [PowerRustCOBOL 1.36.16] — 2026-07-26
 
 ### Changed

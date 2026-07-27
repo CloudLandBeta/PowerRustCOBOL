@@ -62,7 +62,7 @@ rfd = "0.14"
 pollster = "0.3"
 
 # Project packaging
-zip = { version = "2", features = ["deflate"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }  # no defaults: bzip2/lzma/zstd are C libraries we never use
 
 # Serialization (project files)
 serde       = { workspace = true }

@@ -119,6 +119,10 @@ pub struct Backdrop {
     /// (the engine has no texture cache), plus its pixel size.
     pub image: Option<(egui::TextureId, Vec2)>,
     pub image_mode: BgImageMode,
+    /// The form's `UseThemeBackground` opt-in (007 R8). When set and the active
+    /// theme pack provides a background, the pack's art replaces the form's own
+    /// background image — exactly as on the designer canvas.
+    pub use_theme_background: bool,
 }
 
 impl Default for Backdrop {
@@ -132,6 +136,7 @@ impl Default for Backdrop {
             gradient_direction: "South".into(),
             image: None,
             image_mode: BgImageMode::Fit,
+            use_theme_background: false,
         }
     }
 }
@@ -1103,11 +1108,20 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // would leave rectangular child bleed visible. Use the effective one-pass
     // colour over the panel fill instead.
     let notch_bg = crate::paint::composite_premultiplied_over(bg, ui.visuals().panel_fill);
-    let backdrop_img_alpha =
-        ((100 - input.backdrop.transparency.min(100)) as f32 / 100.0 * 255.0) as u8;
+    let backdrop_alpha_mul = (100 - input.backdrop.transparency.min(100)) as f32 / 100.0;
+    let backdrop_img_alpha = (backdrop_alpha_mul * 255.0) as u8;
+    // ── Themed background (007 R8) ────────────────────────────────────────────
+    // When the form opts in and the active pack provides one, the pack's art
+    // replaces the form's own background image. Same call, same order and same
+    // "themed wins" rule as the designer canvas, so the preview, the run form
+    // and a compiled binary all land on the backdrop the developer designed.
+    // The corner-notch mask keeps using `notch_bg` (as the canvas does) rather
+    // than the theme texture — a tiled pack background has no single dest rect.
+    let themed_bg =
+        crate::paint::draw_theme_background(&painter, form_rect, input.backdrop.use_theme_background, backdrop_alpha_mul);
     // Backdrop image, also remembered (texture + screen dest) so the corner-notch
     // mask can repaint it behind a rounded container's children (spec 017).
-    let backdrop_img: Option<(egui::TextureId, Rect)> = input.backdrop.image.map(|(tex, tsize)| {
+    let backdrop_img: Option<(egui::TextureId, Rect)> = input.backdrop.image.filter(|_| !themed_bg).map(|(tex, tsize)| {
         let dest = image_dest(form_rect, tsize, input.backdrop.image_mode);
         let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         painter.with_clip_rect(form_rect).image(
@@ -7477,6 +7491,7 @@ mod shape_dump {
                             gradient_direction: "South".into(),
                             image: None,
                             image_mode: Default::default(),
+                            use_theme_background: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7543,6 +7558,7 @@ mod shape_dump {
                             gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
+                            use_theme_background: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7613,6 +7629,7 @@ mod shape_dump {
                             gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
+                            use_theme_background: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7683,6 +7700,7 @@ mod shape_dump {
                             gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
+                            use_theme_background: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7901,6 +7919,7 @@ mod shape_dump {
                             gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
+                            use_theme_background: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -8078,6 +8097,7 @@ mod shape_dump {
                             gradient_direction: "South".into(),
                             image: None,
                             image_mode: Default::default(),
+                            use_theme_background: false,
                         },
                     };
                     let _ = render_form(ui, &rin);

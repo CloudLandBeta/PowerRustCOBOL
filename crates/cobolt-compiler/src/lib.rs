@@ -143,11 +143,21 @@ struct ProjectFiles {
     generated: Vec<String>,
 }
 
+/// The `[forms]` section of `cobolt.toml` — the project's default form theme
+/// (spec 007). Empty/absent ⇒ Liquid Glass.
+#[derive(Deserialize, Default)]
+struct FormsConfig {
+    #[serde(default)]
+    theme: String,
+}
+
 #[derive(Deserialize)]
 struct CoboltProject {
     project: ProjectMeta,
     #[serde(default)]
     files: ProjectFiles,
+    #[serde(default)]
+    forms: FormsConfig,
 }
 
 /// Resolve the project's entry program as a path relative to the project root.
@@ -272,6 +282,7 @@ pub fn build_single_file(
             debug_compilation: true,
         },
         files: ProjectFiles::default(),
+        forms: FormsConfig::default(),
     };
     build_core(proj, project_dir, opts)
 }
@@ -465,6 +476,35 @@ fn build_core(
         std::fs::write(forms_dir.join(format!("{id}.cfrm")), raw)?;
     }
 
+    // ── 7b. Stage the asset-pack themes the forms actually use ────────────────
+    // A built binary is handed to end users on machines that have no
+    // PowerRustCOBOL install and no `assets/themes` folder, so a themed form
+    // used to fall back to procedural Liquid Glass the moment it left the IDE.
+    // Embed each referenced pack (manifest + the art it draws) into the
+    // executable instead: the binary then paints from exactly the same bytes as
+    // the designer, the preview and Run Form, on every OS, with nothing to
+    // install alongside it (spec 007 R5).
+    report(0.46, "Embedding form themes…");
+    let project_theme_default = proj.forms.theme.trim().to_owned();
+    let staged_themes = if forms.is_empty() {
+        Vec::new()
+    } else {
+        let wanted = wanted_theme_ids(&forms, &project_theme_default);
+        let search_dirs = theme_search_dirs(&project_dir, &workspace_root);
+        stage_theme_packs(&wanted, &search_dirs, &assets_dir.join("themes"), &log)?
+    };
+    if !staged_themes.is_empty() {
+        log(&format!(
+            "   {} theme pack(s) embedded: {}",
+            staged_themes.len(),
+            staged_themes
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
     // ── 8. Generate Cargo.toml for the build project ──────────────────────────
     let crates_path = workspace_root.join("crates");
     let has_forms = !forms.is_empty();
@@ -479,6 +519,8 @@ fn build_core(
         &proj.project.version,
         has_forms,
         &form_ids,
+        &staged_themes,
+        &project_theme_default,
     );
     std::fs::write(src_dir.join("main.rs"), main_rs)?;
 
@@ -670,6 +712,127 @@ fn build_core(
     })
 }
 
+// ── Asset-pack themes (spec 007) ──────────────────────────────────────────────
+
+/// One asset-pack theme staged into the build project, ready to be embedded.
+struct StagedTheme {
+    /// Pack id — also the folder name under `assets/themes/` in the staging dir.
+    id: String,
+    /// Pack-relative image refs staged next to `theme.toml`, in manifest order.
+    assets: Vec<String>,
+}
+
+/// The theme ids the embedded forms resolve to (`form ?? project ?? glass`),
+/// deduplicated and with the procedural Liquid Glass default dropped — it needs
+/// no assets. A form whose XML cannot be parsed here is skipped rather than
+/// failing the build: the compiler already parsed it for the AST, and a theme
+/// is not worth aborting a build over.
+fn wanted_theme_ids(forms: &[(String, Vec<u8>)], project_default: &str) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for (_, raw) in forms {
+        let xml = String::from_utf8_lossy(raw);
+        let form_theme = cobolt_forms::load_form_from_str(&xml)
+            .ok()
+            .and_then(|f| f.theme);
+        let id = cobolt_forms::theme::resolve_theme_id(
+            form_theme.as_deref(),
+            Some(project_default),
+        );
+        if id == cobolt_forms::theme::LIQUID_GLASS || ids.contains(&id) {
+            continue;
+        }
+        ids.push(id);
+    }
+    ids
+}
+
+/// Where to look for `assets/themes/<id>`, most specific first: packs dropped
+/// into the project itself, then the PowerRustCOBOL workspace (running from the
+/// source tree), then the installed IDE next to the running executable — the
+/// same locations the IDE discovers packs from, so the build sees exactly the
+/// pack the designer painted with.
+fn theme_search_dirs(project_dir: &Path, workspace_root: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        project_dir.join("assets").join("themes"),
+        workspace_root.join("assets").join("themes"),
+    ];
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        dirs.push(exe_dir.join("assets").join("themes"));
+    }
+    dirs.retain(|d| d.is_dir());
+    dirs.dedup();
+    dirs
+}
+
+/// Copy each wanted pack's manifest and referenced art into `themes_out`,
+/// preserving the pack-relative layout so the manifest's image refs keep
+/// working verbatim once embedded.
+///
+/// A pack that cannot be found or parsed is reported and skipped: the binary
+/// then falls back to Liquid Glass exactly as it does today, which is a worse
+/// look but never a failed build.
+fn stage_theme_packs(
+    ids: &[String],
+    search_dirs: &[PathBuf],
+    themes_out: &Path,
+    log: &impl Fn(&str),
+) -> Result<Vec<StagedTheme>, CompilerError> {
+    let mut staged = Vec::new();
+    for id in ids {
+        let Some(pack_dir) = search_dirs
+            .iter()
+            .map(|d| d.join(id))
+            .find(|d| d.join("theme.toml").is_file())
+        else {
+            log(&format!(
+                "⚠️  Theme pack '{id}' not found — the built form will fall back \
+                 to Liquid Glass. Looked in: {}",
+                search_dirs
+                    .iter()
+                    .map(|d| d.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            continue;
+        };
+        let manifest_src = std::fs::read_to_string(pack_dir.join("theme.toml"))?;
+        let manifest = match cobolt_forms::theme_pack::parse_manifest(&manifest_src) {
+            Ok(m) => m,
+            Err(e) => {
+                log(&format!("⚠️  Theme pack '{id}' has an unusable theme.toml: {e}"));
+                continue;
+            }
+        };
+
+        let out_dir = themes_out.join(id);
+        std::fs::create_dir_all(&out_dir)?;
+        std::fs::write(out_dir.join("theme.toml"), manifest_src.as_bytes())?;
+
+        let mut assets = Vec::new();
+        for rel in manifest.referenced_assets() {
+            let src = pack_dir.join(&rel);
+            if !src.is_file() {
+                log(&format!("⚠️  Theme pack '{id}': missing art '{rel}', skipped"));
+                continue;
+            }
+            let dst = out_dir.join(&rel);
+            if let Some(parent) = dst.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&src, &dst)?;
+            assets.push(rel);
+        }
+        staged.push(StagedTheme {
+            id: id.clone(),
+            assets,
+        });
+    }
+    Ok(staged)
+}
+
 // ── Code generators ───────────────────────────────────────────────────────────
 
 fn generate_cargo_toml(
@@ -713,7 +876,14 @@ egui_extras     = {{ version = "0.35", features = ["image"] }}
     s
 }
 
-fn generate_main_rs(app_name: &str, version: &str, has_forms: bool, form_ids: &[&str]) -> String {
+fn generate_main_rs(
+    app_name: &str,
+    version: &str,
+    has_forms: bool,
+    form_ids: &[&str],
+    themes: &[StagedTheme],
+    project_theme_default: &str,
+) -> String {
     // Build the FORMS constant entries
     let forms_entries: String = form_ids
         .iter()
@@ -725,6 +895,42 @@ fn generate_main_rs(app_name: &str, version: &str, has_forms: bool, form_ids: &[
     } else {
         format!("static FORMS: &[(&str, &[u8])] = &[\n{forms_entries}];\n")
     };
+
+    // Embedded asset-pack themes: `(id, theme.toml, [(image ref, bytes)])`.
+    let themes_entries: String = themes
+        .iter()
+        .map(|t| {
+            let art: String = t
+                .assets
+                .iter()
+                .map(|rel| {
+                    format!(
+                        "        (\"{rel}\", include_bytes!(\"../assets/themes/{id}/{rel}\")),\n",
+                        id = t.id,
+                        rel = rel
+                    )
+                })
+                .collect();
+            format!(
+                "    (\"{id}\", include_str!(\"../assets/themes/{id}/theme.toml\"), &[\n{art}    ]),\n",
+                id = t.id,
+                art = art
+            )
+        })
+        .collect();
+
+    // `#[allow(dead_code)]`: a console-only project (no forms) never reads these.
+    let themes_const = if themes.is_empty() {
+        "#[allow(dead_code)]\nstatic THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];\n".to_owned()
+    } else {
+        format!(
+            "#[allow(dead_code)]\nstatic THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[\n{themes_entries}];\n"
+        )
+    };
+    let theme_default_const = format!(
+        "/// The project's default form theme (`[forms] theme` in cobolt.toml).\n#[allow(dead_code)]\nconst PROJECT_THEME_DEFAULT: &str = \"{}\";\n",
+        project_theme_default.escape_default()
+    );
 
     let form_runtime_code = if has_forms {
         r#"
@@ -776,6 +982,7 @@ fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_for
 /// styled widgets — spec 017 T7).
 struct CompiledState<'a> {
     state: &'a std::collections::HashMap<String, CtrlState>,
+    anim:  &'a cobolt_forms::anim::AnimRuntime,
 }
 impl<'a> cobolt_forms::render::FormState for CompiledState<'a> {
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
@@ -789,6 +996,48 @@ impl<'a> cobolt_forms::render::FormState for CompiledState<'a> {
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
         self.state.get(&base.id).map(|s| s.enabled).unwrap_or(true)
+    }
+    fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
+        self.anim.transform(base)
+    }
+}
+
+/// What a COBOL animation verb asked for. `PLAY ANIMATION`, `STOP-ANIMATION`
+/// and `PAUSE` reach the UI as writes to these pseudo-properties.
+#[derive(Clone, Copy, PartialEq)]
+enum AnimCommand { Play, Stop, Pause }
+
+fn anim_command(prop: &str) -> Option<AnimCommand> {
+    match prop.trim() {
+        p if p.eq_ignore_ascii_case("_PlayAnimation")  => Some(AnimCommand::Play),
+        p if p.eq_ignore_ascii_case("_StopAnimation")  => Some(AnimCommand::Stop),
+        p if p.eq_ignore_ascii_case("_PauseAnimation") => Some(AnimCommand::Pause),
+        _ => None,
+    }
+}
+
+/// Resolve the form's asset-pack theme (`form ?? project ?? Liquid Glass`) to a
+/// pack built from the art embedded in this executable.
+///
+/// The IDE resolves the same id against `assets/themes/` on disk; here the very
+/// same manifest and PNG bytes were baked in at build time, so the shipped app
+/// paints what the designer, the preview and Run Form painted — with no theme
+/// folder to install next to the binary. `None` means Liquid Glass, whether the
+/// form asked for it or the pack could not be built.
+fn resolve_theme_pack(
+    form: &cobolt_forms::Form,
+) -> Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>> {
+    let id = cobolt_forms::theme::resolve_theme_id(
+        form.theme.as_deref(),
+        Some(PROJECT_THEME_DEFAULT),
+    );
+    let entry = THEMES.iter().find(|t| t.0 == id)?;
+    match cobolt_forms::theme_pack::ThemePack::from_embedded(entry.1, entry.2) {
+        Ok(pack) => Some(std::sync::Arc::new(pack)),
+        Err(e) => {
+            eprintln!("theme pack '{id}' unusable, falling back to Liquid Glass: {e}");
+            None
+        }
     }
 }
 
@@ -851,7 +1100,9 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         transparency: first_form.transparency.clamp(0, 100) as u8,
         bg_image: first_form.background_image.clone(),
         bg_mode: first_form.bg_image_mode,
+        use_theme_background: first_form.use_theme_background,
         glass_style: first_form.glass_style,
+        theme_pack: resolve_theme_pack(&first_form),
         visuals_set: false,
         form_size: egui::vec2(fw, fh),
         ev_tx,
@@ -859,6 +1110,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         state_rx,
         display_rx,
         start: std::time::Instant::now(),
+        anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
+        anim_started: false,
+        last_frame: None,
+        hovered: std::collections::HashSet::new(),
     };
     let _ = eframe::run_native(
         &title,
@@ -878,7 +1133,13 @@ struct FormApp {
     transparency: u8,
     bg_image:     String,
     bg_mode:      cobolt_forms::model::BgImageMode,
+    /// The form's `UseThemeBackground` opt-in — the pack's background art
+    /// replaces the form's own image when the active theme provides one.
+    use_theme_background: bool,
     glass_style:  cobolt_forms::model::GlassStyle,
+    /// The form's asset-pack theme, built from art embedded in this binary.
+    /// `None` = the built-in procedural Liquid Glass.
+    theme_pack:   Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
     visuals_set:  bool,
     form_size:    egui::Vec2,
     ev_tx:        std::sync::mpsc::Sender<cobolt_runtime::FormEvent>,
@@ -889,6 +1150,18 @@ struct FormApp {
     /// that a click already in progress as the window appears cannot be mistaken
     /// for an intentional interaction.
     start:        std::time::Instant,
+    /// Control animations (fly-in, fade, pulse, …), driven by the shared
+    /// `cobolt_forms::anim` runtime so a built binary animates exactly like the
+    /// designer preview and the run form.
+    anim:         cobolt_forms::anim::AnimRuntime,
+    /// One-shot guard for the load-time (`OnFormLoad` / `OnShow`) animations.
+    anim_started: bool,
+    /// Previous frame's timestamp — the animation clock's delta.
+    last_frame:   Option<std::time::Instant>,
+    /// Controls the pointer was inside last frame, so `OnHover` fires on entry
+    /// only. Pointer triggers come from the rendered rects because the engine
+    /// emits onClick/onHoverEnter only for events with a bound COBOL handler.
+    hovered:      std::collections::HashSet<String>,
 }
 
 impl eframe::App for FormApp {
@@ -901,15 +1174,43 @@ impl eframe::App for FormApp {
             self.visuals_set = true;
             ctx.set_visuals(egui::Visuals::light());
         }
-        // Glass style for the unified painter (same contract as the IDE).
+        // Theme pack + glass style for the unified painter (per frame — the same
+        // contract the IDE's canvas, preview and run form follow). Without the
+        // theme pack a form skinned with an asset pack rendered as procedural
+        // Liquid Glass here, so the shipped app looked nothing like the design.
+        cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
 
         // Apply property changes coming from the COBOL interpreter. COBOL
         // upper-cases control ids, so resolve each to the designer-case state
         // key — otherwise handler writes land in an orphan entry the renderer
         // never reads and events appear not to fire.
+        //  Animation clock: load-time animations start with the window, then
+        //  `tick` advances everything and reports whether a frame is still owed.
+        if !self.anim_started {
+            self.anim_started = true;
+            self.anim.start_form_load(&self.controls);
+        }
+        let now = std::time::Instant::now();
+        let dt = self.last_frame
+            .map(|t| now.duration_since(t).as_secs_f32())
+            .unwrap_or(0.0);
+        self.last_frame = Some(now);
+        let animating = self.anim.tick(dt);
+
         let mut drained = 0usize;
         while let Ok(u) = self.state_rx.try_recv() {
+            // COBOL's PLAY ANIMATION / STOP-ANIMATION / PAUSE: act on the write,
+            // don't store it as a property.
+            if let Some(cmd) = anim_command(&u.prop) {
+                match cmd {
+                    AnimCommand::Play  => self.anim.play_programmatic(&self.controls, &u.ctrl_id, &u.value),
+                    AnimCommand::Stop  => self.anim.stop_all(&u.ctrl_id),
+                    AnimCommand::Pause => self.anim.pause_all(&u.ctrl_id),
+                }
+                drained += 1;
+                continue;
+            }
             let key = self.state.keys()
                 .find(|k| k.eq_ignore_ascii_case(&u.ctrl_id))
                 .cloned()
@@ -950,7 +1251,7 @@ impl eframe::App for FormApp {
         // designer, preview, running form, and this compiled binary).
         let output = {
             let controls = self.controls.clone();
-            let st = CompiledState { state: &self.state };
+            let st = CompiledState { state: &self.state, anim: &self.anim };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = cobolt_forms::render::Backdrop {
                 color_hex: self.bg_hex.clone(),
@@ -961,6 +1262,7 @@ impl eframe::App for FormApp {
                 gradient_direction: self.bg_gradient_direction.clone(),
                 image: backdrop_image,
                 image_mode: self.bg_mode,
+                use_theme_background: self.use_theme_background,
             };
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
@@ -982,6 +1284,37 @@ impl eframe::App for FormApp {
                 });
             out
         };
+
+        // Animation triggers: pointer ones from the rendered rects (an animation
+        // is reason enough to react, with or without a COBOL handler), focus and
+        // timer ones from the event stream.
+        if armed {
+            let (clicked, pointer) = ctx.input(|i| (i.pointer.primary_clicked(), i.pointer.interact_pos()));
+            let mut still_hovered = std::collections::HashSet::new();
+            for (id, rect) in &output.control_rects {
+                // Repeating-group card instances carry their own placement effect.
+                if id.contains('.') { continue; }
+                if pointer.map(|p| rect.contains(p)).unwrap_or(false) {
+                    still_hovered.insert(id.clone());
+                    if !self.hovered.contains(id) {
+                        self.anim.fire_event(&self.controls, id, "onHoverEnter");
+                    }
+                    if clicked {
+                        self.anim.fire_event(&self.controls, id, "onClick");
+                    }
+                }
+            }
+            self.hovered = still_hovered;
+            for ev in &output.events {
+                // Already covered by the rect pass — firing again would restart
+                // the same animation twice in one frame.
+                if ev.event.eq_ignore_ascii_case("onClick")
+                    || ev.event.eq_ignore_ascii_case("onHoverEnter") {
+                    continue;
+                }
+                self.anim.fire_event(&self.controls, &ev.ctrl_id, &ev.event);
+            }
+        }
 
         // Apply value updates locally, sync them to the interpreter (so handlers
         // read the live value), and forward UI events — but only once warmed up,
@@ -1007,7 +1340,9 @@ impl eframe::App for FormApp {
         // heartbeat keeps DISPLAY output timely. Timer controls schedule their
         // own precise wake-ups inside the render engine, and user input wakes
         // egui automatically — between all of those, the process sleeps.
-        let busy = drained > 0 || interacted;
+        // A running animation needs frames of its own; without this the binary
+        // sleeps between interpreter traffic and a fly-in advances in 200 ms jumps.
+        let busy = drained > 0 || interacted || animating || self.anim.is_animating();
         let ms = if busy { 16 } else { 200 };
         ctx.request_repaint_after(std::time::Duration::from_millis(ms));
     }
@@ -1036,6 +1371,11 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 
 /// Embedded form files — loaded lazily by form ID.
 {forms_const}
+/// Embedded asset-pack themes: `(id, theme.toml source, [(image ref, bytes)])`.
+/// Only the packs the forms actually resolve to are baked in, and only the art
+/// their manifests reference, so a themed app is self-contained without
+/// carrying the packs' authoring imagery.
+{themes_const}{theme_default_const}
 // ── Entry point ───────────────────────────────────────────────────────────────
 fn main() {{
     tracing_subscriber::fmt()
@@ -1075,6 +1415,8 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         app_name = app_name,
         version = version,
         forms_const = forms_const,
+        themes_const = themes_const,
+        theme_default_const = theme_default_const,
         run_call = run_call,
         form_runtime_code = form_runtime_code,
     )
@@ -1355,7 +1697,138 @@ mod resolve_main_tests {
                 generated: generated.into_iter().map(String::from).collect(),
                 ..Default::default()
             },
+            forms: FormsConfig::default(),
         }
+    }
+
+    // ── Asset-pack themes in the built binary (spec 007) ─────────────────────
+
+    fn form_xml(name: &str, theme: Option<&str>) -> Vec<u8> {
+        let attr = theme
+            .map(|t| format!(" theme=\"{t}\""))
+            .unwrap_or_default();
+        format!(
+            "<Form name=\"{name}\" title=\"{name}\" width=\"400\" height=\"300\"{attr}></Form>"
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn wanted_themes_follow_form_then_project_and_drop_liquid_glass() {
+        let forms = vec![
+            ("A".to_owned(), form_xml("A", Some("cobalt-steel"))),
+            // No per-form theme → the project default applies.
+            ("B".to_owned(), form_xml("B", None)),
+            // Same pack as A → embedded once.
+            ("C".to_owned(), form_xml("C", Some("cobalt-steel"))),
+        ];
+        assert_eq!(
+            wanted_theme_ids(&forms, "neumorphic"),
+            vec!["cobalt-steel".to_owned(), "neumorphic".to_owned()]
+        );
+        // With no project default, the unthemed form resolves to the procedural
+        // Liquid Glass, which needs no embedded art.
+        assert_eq!(
+            wanted_theme_ids(&forms, ""),
+            vec!["cobalt-steel".to_owned()]
+        );
+    }
+
+    #[test]
+    fn generated_binary_publishes_its_theme_pack_every_frame() {
+        let themes = vec![StagedTheme {
+            id: "cobalt-steel".into(),
+            assets: vec!["background.png".into(), "button/b.png".into()],
+        }];
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &themes, "neumorphic");
+
+        // The regression this guards: the template used to set only the glass
+        // style, so an asset-pack form shipped as procedural Liquid Glass.
+        assert!(src.contains("set_active_theme(ctx, self.theme_pack.clone())"));
+        assert!(src.contains("set_glass_style(ctx, self.glass_style)"));
+        assert!(src.contains("theme_pack: resolve_theme_pack(&first_form)"));
+
+        // The pack's manifest and art are embedded, keeping the binary
+        // self-contained on a machine with no PowerRustCOBOL install.
+        assert!(src.contains(r#"include_str!("../assets/themes/cobalt-steel/theme.toml")"#));
+        assert!(src
+            .contains(r#"("background.png", include_bytes!("../assets/themes/cobalt-steel/background.png"))"#));
+        // Nested refs keep their pack-relative path so the manifest still resolves.
+        assert!(src
+            .contains(r#"("button/b.png", include_bytes!("../assets/themes/cobalt-steel/button/b.png"))"#));
+        assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "neumorphic";"#));
+        // The form's themed-background opt-in reaches the render engine.
+        assert!(src.contains("use_theme_background: self.use_theme_background"));
+    }
+
+    #[test]
+    fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], "");
+        assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
+        assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
+        // Resolution still runs — it just finds no pack and yields Liquid Glass.
+        assert!(src.contains("fn resolve_theme_pack("));
+    }
+
+    #[test]
+    fn staging_copies_the_manifest_and_only_the_art_it_references() {
+        let dir = temp_dir("themestage");
+        let pack = dir.join("themes").join("demo-pack");
+        fs::create_dir_all(pack.join("button")).unwrap();
+        fs::write(
+            pack.join("theme.toml"),
+            "id = \"demo-pack\"\ndisplay_name = \"Demo\"\n\n\
+             [background]\nimage = \"background.png\"\n\n\
+             [controls.button]\nimage = \"button/normal.png\"\nslice = [4, 4, 4, 4]\n\
+             hover = \"button/hover.png\"\n",
+        )
+        .unwrap();
+        fs::write(pack.join("background.png"), b"bg").unwrap();
+        fs::write(pack.join("button/normal.png"), b"n").unwrap();
+        fs::write(pack.join("button/hover.png"), b"h").unwrap();
+        // Authoring imagery the manifest never points at must not be embedded.
+        fs::write(pack.join("button/scratch.png"), b"x").unwrap();
+
+        let out = dir.join("staged");
+        let staged = stage_theme_packs(
+            &["demo-pack".to_owned()],
+            &[dir.join("themes")],
+            &out,
+            &|_: &str| {},
+        )
+        .expect("stage");
+
+        assert_eq!(staged.len(), 1);
+        assert_eq!(
+            staged[0].assets,
+            vec![
+                "background.png".to_owned(),
+                "button/normal.png".to_owned(),
+                "button/hover.png".to_owned()
+            ]
+        );
+        assert!(out.join("demo-pack/theme.toml").is_file());
+        assert!(out.join("demo-pack/button/normal.png").is_file());
+        assert!(!out.join("demo-pack/button/scratch.png").exists());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_pack_is_reported_and_never_fails_the_build() {
+        let dir = temp_dir("thememissing");
+        fs::create_dir_all(&dir).unwrap();
+        let warned = std::cell::RefCell::new(Vec::new());
+        let staged = stage_theme_packs(
+            &["no-such-pack".to_owned()],
+            &[dir.clone()],
+            &dir.join("staged"),
+            &|m: &str| warned.borrow_mut().push(m.to_owned()),
+        )
+        .expect("stage");
+        assert!(staged.is_empty());
+        assert!(warned.borrow().iter().any(|m| m.contains("no-such-pack")));
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

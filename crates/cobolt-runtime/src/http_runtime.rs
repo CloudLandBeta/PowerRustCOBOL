@@ -32,9 +32,50 @@
 //!
 //! # Connection strings / URL format
 //!
-//! Any valid HTTP / HTTPS URL.  TLS is handled transparently by `ureq`.
+//! Any valid HTTP / HTTPS URL.  TLS is the operating system's own stack
+//! (schannel on Windows, Security.framework on macOS, OpenSSL on Linux),
+//! reached through `ureq`'s native-tls adapter.
 
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
+// ── TLS ────────────────────────────────────────────────────────────────────
+
+/// One shared OS-TLS connector for every request this runtime makes.
+///
+/// `ureq`'s `native-tls` feature is an **adapter only** — the crate-level helpers
+/// (`ureq::get`, `ureq::post`, …) and a bare `AgentBuilder` never pick it up, so
+/// every HTTPS call must go through an agent carrying this connector or it fails
+/// with "no TLS backend". rustls is deliberately not used: it pulls in `ring`,
+/// which compiles C and would put a C toolchain back on the list of things you
+/// need in order to build PowerRustCOBOL.
+///
+/// `None` means the platform refused to hand over its TLS stack; plain HTTP still
+/// works and HTTPS reports the failure through the usual status-0 path.
+fn tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
+    static CONNECTOR: OnceLock<Option<Arc<native_tls::TlsConnector>>> = OnceLock::new();
+    CONNECTOR
+        .get_or_init(|| match native_tls::TlsConnector::new() {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) => {
+                tracing::warn!(%e, "no platform TLS available; HTTPS calls will fail");
+                None
+            }
+        })
+        .clone()
+}
+
+/// The agent every request runs through. `timeout_ms` of 0 keeps ureq's defaults.
+fn agent(timeout_ms: u64) -> ureq::Agent {
+    let mut builder = ureq::AgentBuilder::new();
+    if timeout_ms > 0 {
+        builder = builder.timeout(std::time::Duration::from_millis(timeout_ms));
+    }
+    if let Some(connector) = tls_connector() {
+        builder = builder.tls_connector(connector);
+    }
+    builder.build()
+}
 
 // ── HttpClient ────────────────────────────────────────────────────────────────
 
@@ -69,7 +110,7 @@ impl HttpClient {
     /// body contains the error description.
     pub fn get(&self, url: &str) -> (String, u16) {
         let url = url.trim();
-        let mut req = ureq::get(url);
+        let mut req = agent(0).get(url);
         for (k, v) in &self.headers {
             req = req.set(k.as_str(), v.as_str());
         }
@@ -103,7 +144,7 @@ impl HttpClient {
     /// Execute an HTTP DELETE.
     pub fn delete(&self, url: &str) -> (String, u16) {
         let url = url.trim();
-        let mut req = ureq::delete(url);
+        let mut req = agent(0).delete(url);
         for (k, v) in &self.headers {
             req = req.set(k.as_str(), v.as_str());
         }
@@ -132,11 +173,7 @@ impl HttpClient {
 
     /// Build a `ureq::Agent` with an optional overall timeout.
     fn agent_with_timeout(timeout_ms: u64) -> ureq::Agent {
-        let mut builder = ureq::AgentBuilder::new();
-        if timeout_ms > 0 {
-            builder = builder.timeout(std::time::Duration::from_millis(timeout_ms));
-        }
-        builder.build()
+        agent(timeout_ms)
     }
 
     /// GET with an overall timeout (see [`get`](Self::get)).
@@ -233,9 +270,9 @@ impl HttpClient {
             .unwrap_or("application/json");
 
         let mut req = match method {
-            "POST" => ureq::post(url),
-            "PUT" => ureq::put(url),
-            _ => ureq::post(url),
+            "POST" => agent(0).post(url),
+            "PUT" => agent(0).put(url),
+            _ => agent(0).post(url),
         };
 
         for (k, v) in &self.headers {

@@ -189,6 +189,10 @@ impl Embedder for BertEmbedder {
 const MODEL_OWNER: &str = "sentence-transformers";
 const MODEL_NAME: &str = "all-MiniLM-L6-v2";
 const MODEL_FILES: [&str; 3] = ["config.json", "tokenizer.json", "model.safetensors"];
+/// Hugging Face's public file endpoint. Three plain GETs replace the `hf-hub`
+/// crate, whose xet transfer stack dragged in a rustls/aws-lc-rs/blake3 subtree
+/// — a C toolchain requirement for downloading three files over HTTPS.
+const HF_RESOLVE_BASE: &str = "https://huggingface.co";
 
 /// Where the three model files live once fetched.
 pub fn model_dir(cache_dir: &Path) -> PathBuf {
@@ -230,17 +234,29 @@ pub fn ensure_downloaded(cache_dir: &Path) -> Result<PathBuf, String> {
         return Ok(dir);
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("model cache {}: {e}", dir.display()))?;
-    let client = hf_hub::HFClientSync::new().map_err(|e| format!("Hugging Face client: {e}"))?;
-    let repo = client.model(MODEL_OWNER, MODEL_NAME);
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(concat!("PowerRustCOBOL/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| format!("HTTP client: {e}"))?;
     for file in MODEL_FILES {
-        if dir.join(file).exists() {
+        let target = dir.join(file);
+        if target.exists() {
             continue;
         }
-        repo.download_file()
-            .filename(file)
-            .local_dir(dir.clone())
+        let url = format!("{HF_RESOLVE_BASE}/{MODEL_OWNER}/{MODEL_NAME}/resolve/main/{file}");
+        let bytes = client
+            .get(&url)
             .send()
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.bytes())
             .map_err(|e| format!("downloading {file} for {MODEL_ID}: {e}"))?;
+        // Write via a temporary sibling: an interrupted download must not leave a
+        // truncated file behind that `model_is_cached` would then call complete.
+        let partial = dir.join(format!("{file}.partial"));
+        std::fs::write(&partial, &bytes)
+            .map_err(|e| format!("writing {}: {e}", partial.display()))?;
+        std::fs::rename(&partial, &target)
+            .map_err(|e| format!("writing {}: {e}", target.display()))?;
     }
     Ok(dir)
 }

@@ -42,6 +42,9 @@ pub use model::{
 pub use xml::{load_form, load_form_from_str, save_form, FormError};
 
 #[cfg(feature = "render")]
+pub mod anim;
+
+#[cfg(feature = "render")]
 pub mod paint;
 
 #[cfg(feature = "render")]

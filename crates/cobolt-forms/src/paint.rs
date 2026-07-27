@@ -2721,8 +2721,7 @@ pub fn draw_control(
         } else {
             ControlState::Normal
         };
-        let img = pack.asset_path(skin.image_for(state));
-        if let Some(tex) = load_theme_texture(painter.ctx(), &img.to_string_lossy()) {
+        if let Some(tex) = load_pack_texture(painter.ctx(), pack, skin.image_for(state)) {
             // Explicit BackgroundColor (R12) tints the skin; otherwise white = as-authored.
             // Nine-slice skins are drawn square — overlay reflects that (ZERO).
             let skin_rect = if is_container {
@@ -7090,26 +7089,30 @@ fn active_theme(ctx: &egui::Context) -> Option<Arc<ThemePack>> {
 #[derive(Clone, Default)]
 struct ThemeTexCache(Arc<Mutex<HashMap<String, egui::TextureHandle>>>);
 
-/// Load (and cache, per egui context) a theme image as an egui texture. Returns
-/// `None` if the file is missing or undecodable so the caller can fall back.
-fn load_theme_texture(ctx: &egui::Context, abs_path: &str) -> Option<egui::TextureHandle> {
+/// Load (and cache, per egui context) one of a theme pack's images as an egui
+/// texture. The bytes come from the pack — a folder on disk under the IDE, or
+/// the store embedded in a compiled binary — so every surface decodes the same
+/// PNG into the same texture and paints it identically. Returns `None` when the
+/// image is missing or undecodable, so the caller can fall back to glass (R11).
+fn load_pack_texture(
+    ctx: &egui::Context,
+    pack: &ThemePack,
+    rel: &str,
+) -> Option<egui::TextureHandle> {
+    let key = pack.asset_key(rel);
     let cache = ctx.data_mut(|d| {
         d.get_temp_mut_or_default::<ThemeTexCache>(egui::Id::new("cobolt-theme-tex"))
             .clone()
     });
-    if let Some(h) = cache.0.lock().unwrap().get(abs_path) {
+    if let Some(h) = cache.0.lock().unwrap().get(&key) {
         return Some(h.clone());
     }
-    let bytes = std::fs::read(abs_path).ok()?;
+    let bytes = pack.asset_bytes(rel)?;
     let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
     let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], img.as_raw());
-    let handle = ctx.load_texture(abs_path, color, egui::TextureOptions::LINEAR);
-    cache
-        .0
-        .lock()
-        .unwrap()
-        .insert(abs_path.to_owned(), handle.clone());
+    let handle = ctx.load_texture(&key, color, egui::TextureOptions::LINEAR);
+    cache.0.lock().unwrap().insert(key, handle.clone());
     Some(handle)
 }
 
@@ -7188,8 +7191,7 @@ pub fn draw_theme_background(
     if bg.image.is_empty() {
         return false;
     }
-    let abs = pack.asset_path(&bg.image);
-    let Some(tex) = load_theme_texture(painter.ctx(), &abs.to_string_lossy()) else {
+    let Some(tex) = load_pack_texture(painter.ctx(), &pack, &bg.image) else {
         return false;
     };
 

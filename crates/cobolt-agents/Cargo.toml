@@ -20,18 +20,38 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tantivy = { version = "0.22.1", optional = true }
 rig-sqlite = { version = "0.40.0", optional = true }
-tokenizers = "0.23"   # non-optional: the Candle BERT embedder needs it
+# Non-optional: the Candle BERT embedder needs it. Default features are OFF on
+# purpose — the default `esaxx_fast` switches esaxx-rs to its C++ suffix-array
+# (compiled with /MT, which the MSVC link flags ban → LNK2019 std::_Xlength_error)
+# and it is only ever used to TRAIN a Unigram model; we just encode. Without the
+# feature tokenizers calls `esaxx_rs::suffix_rs`, the pure-Rust equivalent, and
+# no C++ enters the build. `onig` is kept (it is what candle-core asks for too,
+# so the tokenizer's regex behaviour stays identical); `progressbar` is dropped —
+# it only draws CLI progress bars.
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", optional = true, features = ["http", "http-proto", "internal-logs", "logs", "metrics", "opentelemetry-http", "prost", "reqwest-blocking-client", "trace"] }
 ndarray = { version = "0.15", optional = true }
 num_cpus = "1.16"
 ort = { version = "2.0.0-rc.12", optional = true }
 sqlite-vec = { version = "0.1", optional = true }
-rusqlite = { workspace = true }
+# Pure-Rust embedded store for the project Knowledge Base index (was bundled
+# SQLite, i.e. a C amalgamation compiled on every machine). Same version the
+# runtime already uses.
+redb = "2.2"
+bincode = { workspace = true }
 tokio-rusqlite = { version = "0.6", optional = true }
+# Optional only: the default build indexes through redb (above). This stays
+# for `local-retrieval`, whose sqlite-vec extension is registered through
+# rusqlite's FFI. Enabling that feature brings bundled SQLite — and with it a
+# C toolchain requirement — back into the build.
+rusqlite = { workspace = true, optional = true }
 cobolt-forms = { path = "../cobolt-forms" }
 tempfile = "3.10"
-reqwest = { version = "0.13.3", features = ["json", "stream"] }
+# OS TLS (schannel on Windows, Security.framework on macOS) instead of the
+# default rustls: rustls drags in aws-lc-rs + ring, which compile C and need
+# cmake. The features listed here are reqwest's own defaults minus default-tls.
+reqwest = { version = "0.13.3", default-features = false, features = ["json", "stream", "charset", "http2", "system-proxy", "native-tls", "blocking"] }
 # Vector Knowledge Base. `async` is a default feature, but every call site here
 # is synchronous (`add_internal`/`search_internal`/`delete_internal`), and the
 # sync `build()` exists only under `not(feature = "async")` — so defaults are
@@ -41,12 +61,12 @@ embedvec = { version = "0.8.0", default-features = false, features = ["fjall", "
 candle-core = "0.11"
 candle-nn = "0.11"
 candle-transformers = "0.11"
-hf-hub = { version = "1.0", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [features]
 default = []
 local-retrieval = [
     "dep:tantivy",
+    "dep:rusqlite",
     "dep:rig-sqlite",
     "dep:ndarray",
     "dep:ort",

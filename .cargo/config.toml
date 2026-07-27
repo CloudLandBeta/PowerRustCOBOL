@@ -4,20 +4,36 @@
 # Licensed under the Apache License, Version 2.0.
 # See the LICENSE file in the project root for full license information.
 
+# MSVC: force every object onto the DYNAMIC CRT.
+#
+# The `/NODEFAULTLIB` pair drops the static C (`libcmt`) and static C++
+# (`libcpmt`) runtimes that C dependencies request, so they cannot collide with
+# the dynamic `msvcrt` Rust links. Dropping `libcpmt` leaves nothing providing
+# the C++ standard library, though — `msvcrt` is C only — which is how esaxx-rs
+# (tokenizers' C++ suffix-array, compiled `static_crt(true)`) broke the link with
+# `unresolved external symbol "void __cdecl std::_Xlength_error(char const *)"`.
+# That dependency is gone: `cobolt-agents` turns tokenizers' `esaxx_fast` off, so
+# nothing in the tree compiles C++ any more. `/defaultlib:msvcprt` — the dynamic
+# C++ runtime that pairs with `msvcrt` — stays as insurance, so a future C++
+# dependency links instead of resurrecting that error.
+
 [target.x86_64-pc-windows-msvc]
 rustflags = [
     "-C", "link-arg=/NODEFAULTLIB:libcmt",
     "-C", "link-arg=/NODEFAULTLIB:libcpmt",
+    "-C", "link-arg=/defaultlib:msvcprt",
 ]
 
 [target.i686-pc-windows-msvc]
 rustflags = [
     "-C", "link-arg=/NODEFAULTLIB:libcmt",
     "-C", "link-arg=/NODEFAULTLIB:libcpmt",
+    "-C", "link-arg=/defaultlib:msvcprt",
 ]
 
 [target.aarch64-pc-windows-msvc]
 rustflags = [
     "-C", "link-arg=/NODEFAULTLIB:libcmt",
     "-C", "link-arg=/NODEFAULTLIB:libcpmt",
+    "-C", "link-arg=/defaultlib:msvcprt",
 ]

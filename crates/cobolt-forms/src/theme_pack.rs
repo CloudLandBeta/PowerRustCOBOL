@@ -152,28 +152,132 @@ pub struct ThemeManifest {
     pub controls: BTreeMap<String, ControlSkin>,
 }
 
-/// A loaded asset-pack theme: the manifest plus the absolute pack folder.
+impl ThemeManifest {
+    /// Every pack-relative image ref the manifest points at: the themed
+    /// background, the chart fill texture, and each control skin's per-state
+    /// images. Deduplicated, in a stable order.
+    ///
+    /// This is the pack's *drawable surface area*. The binary compiler embeds
+    /// exactly this set into a built executable, so a themed form ships with
+    /// the art it actually paints — and only that art (the packs also carry
+    /// authoring/reference imagery the renderer never reads).
+    pub fn referenced_assets(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut push = |rel: &str| {
+            let rel = rel.trim();
+            if !rel.is_empty() && !out.iter().any(|e| e == rel) {
+                out.push(rel.to_owned());
+            }
+        };
+        if let Some(bg) = &self.background {
+            push(&bg.image);
+        }
+        if let Some(fill) = &self.chart_style.fill_texture {
+            push(fill);
+        }
+        for skin in self.controls.values() {
+            push(&skin.image);
+            for alt in [
+                &skin.hover,
+                &skin.pressed,
+                &skin.disabled,
+                &skin.focused,
+            ] {
+                if let Some(rel) = alt {
+                    push(rel);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Pack-relative image ref → file bytes, for a pack embedded in an executable.
+pub type EmbeddedAssets = BTreeMap<String, std::sync::Arc<Vec<u8>>>;
+
+/// A loaded asset-pack theme: the manifest plus its art.
+///
+/// The art comes from one of two places. Under the IDE (designer, preview, run
+/// form) the pack is **disk-backed**: `dir` is the pack folder and image refs
+/// resolve against it. A **compiled binary** has no pack folder to point at, so
+/// the compiler embeds the referenced bytes into the executable and the pack
+/// carries them in [`ThemePack::embedded`]. Both paths decode the same PNG
+/// bytes into the same texture, so the two surfaces paint identically.
 #[derive(Debug, Clone, Default)]
 pub struct ThemePack {
     /// Stable id (matches the folder name and the catalog entry).
     pub id: String,
     /// Human-readable display name from the manifest.
     pub display_name: String,
-    /// Absolute path of the pack folder (root for image refs).
+    /// Absolute path of the pack folder (root for image refs). Empty for an
+    /// embedded pack.
     pub dir: String,
     /// The parsed manifest.
     pub manifest: ThemeManifest,
+    /// Art embedded in the executable; `None` for a disk-backed pack.
+    pub embedded: Option<std::sync::Arc<EmbeddedAssets>>,
 }
 
 impl ThemePack {
+    /// Build a pack whose art travels inside the executable (spec 007 R5 for
+    /// compiled binaries). `manifest_toml` is the verbatim `theme.toml`;
+    /// `assets` maps each pack-relative image ref to its file bytes.
+    pub fn from_embedded(
+        manifest_toml: &str,
+        assets: &[(&str, &[u8])],
+    ) -> Result<ThemePack, PackError> {
+        let manifest = parse_manifest(manifest_toml)?;
+        if manifest.id.is_empty() {
+            return Err(PackError::BadId {
+                dir: String::new(),
+                id: manifest.id,
+            });
+        }
+        let embedded: EmbeddedAssets = assets
+            .iter()
+            .map(|(rel, bytes)| ((*rel).to_owned(), std::sync::Arc::new(bytes.to_vec())))
+            .collect();
+        Ok(ThemePack {
+            id: manifest.id.clone(),
+            display_name: manifest.display_name.clone(),
+            dir: String::new(),
+            manifest,
+            embedded: Some(std::sync::Arc::new(embedded)),
+        })
+    }
+
     /// Skin for a control kind (lowercased), if the pack covers it (R11).
     pub fn control(&self, kind: &str) -> Option<&ControlSkin> {
         self.manifest.controls.get(&kind.to_ascii_lowercase())
     }
 
-    /// Absolute path for a pack-relative image ref.
+    /// Absolute path for a pack-relative image ref. Meaningless for an embedded
+    /// pack — use [`ThemePack::asset_bytes`], which handles both kinds.
     pub fn asset_path(&self, rel: &str) -> std::path::PathBuf {
         std::path::Path::new(&self.dir).join(rel)
+    }
+
+    /// Cache key for a pack-relative image ref, unique across packs and stable
+    /// for the process lifetime.
+    pub fn asset_key(&self, rel: &str) -> String {
+        if self.embedded.is_some() {
+            format!("theme-embed:{}/{rel}", self.id)
+        } else {
+            self.asset_path(rel).to_string_lossy().into_owned()
+        }
+    }
+
+    /// Bytes for a pack-relative image ref: the embedded store when the pack
+    /// carries its art, otherwise the file on disk. `None` when the ref is
+    /// absent or unreadable, so callers fall back to Liquid Glass (R11).
+    #[cfg(feature = "render")]
+    pub fn asset_bytes(&self, rel: &str) -> Option<std::borrow::Cow<'_, [u8]>> {
+        if let Some(store) = &self.embedded {
+            return store.get(rel).map(|b| std::borrow::Cow::Borrowed(b.as_slice()));
+        }
+        std::fs::read(self.asset_path(rel))
+            .ok()
+            .map(std::borrow::Cow::Owned)
     }
 }
 
@@ -229,6 +333,7 @@ pub fn load_pack(dir: &std::path::Path) -> Result<ThemePack, PackError> {
         display_name: manifest.display_name.clone(),
         dir: dir.to_string_lossy().into_owned(),
         manifest,
+        embedded: None,
     })
 }
 
@@ -315,6 +420,69 @@ slice = [16, 16, 16, 16]
         assert!(m.chart_style.fill_texture.is_none());
         assert!(m.palette.chart.is_empty());
         assert!(m.controls.is_empty());
+    }
+
+    #[test]
+    fn referenced_assets_covers_background_fill_and_every_skin_state() {
+        let m = parse_manifest(SAMPLE).expect("parse");
+        let refs = m.referenced_assets();
+        for expected in [
+            "background.png",
+            "chart_fill.png",
+            "button.png",
+            "button_hover.png",
+            "button_pressed.png",
+            "panel.png",
+        ] {
+            assert!(refs.iter().any(|r| r == expected), "missing {expected}");
+        }
+        // States without their own art fall back to the normal image, which is
+        // already listed — the set must not repeat it.
+        let mut deduped = refs.clone();
+        deduped.sort();
+        deduped.dedup();
+        assert_eq!(deduped.len(), refs.len(), "refs must be deduplicated");
+    }
+
+    #[test]
+    fn embedded_pack_carries_its_art_and_needs_no_folder() {
+        const ART: &[u8] = b"\x89PNG-not-really";
+        let pack = ThemePack::from_embedded(SAMPLE, &[("button.png", ART)]).expect("embed");
+        assert_eq!(pack.id, "stainless-steel");
+        assert_eq!(pack.display_name, "Stainless Steel");
+        assert!(pack.dir.is_empty(), "an embedded pack has no folder");
+        assert_eq!(pack.control("button").unwrap().slice, [12, 12, 12, 12]);
+        // The cache key is pack-scoped, so two packs' same-named art cannot
+        // collide in the shared texture cache.
+        assert_eq!(pack.asset_key("button.png"), "theme-embed:stainless-steel/button.png");
+    }
+
+    #[cfg(feature = "render")]
+    #[test]
+    fn embedded_bytes_are_served_without_touching_the_filesystem() {
+        const ART: &[u8] = b"\x89PNG-not-really";
+        let pack = ThemePack::from_embedded(SAMPLE, &[("button.png", ART)]).expect("embed");
+        assert_eq!(pack.asset_bytes("button.png").as_deref(), Some(ART));
+        // Art the pack does not carry resolves to nothing rather than falling
+        // through to a stray relative path on the end user's machine.
+        assert!(pack.asset_bytes("panel.png").is_none());
+    }
+
+    #[cfg(feature = "render")]
+    #[test]
+    fn disk_backed_pack_reads_its_art_from_the_pack_folder() {
+        let tmp = std::env::temp_dir().join(format!("cobolt_pack_bytes_{}", std::process::id()));
+        let dir = tmp.join("stainless-steel");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("theme.toml"), SAMPLE).unwrap();
+        std::fs::write(dir.join("button.png"), b"on-disk").unwrap();
+
+        let pack = load_pack(&dir).expect("load");
+        assert!(pack.embedded.is_none());
+        assert_eq!(pack.asset_bytes("button.png").as_deref(), Some(&b"on-disk"[..]));
+        assert_eq!(pack.asset_key("button.png"), dir.join("button.png").to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[cfg(feature = "render")]

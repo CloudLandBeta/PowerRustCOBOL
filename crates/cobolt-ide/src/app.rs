@@ -9326,6 +9326,7 @@ impl CoboltApp {
                 gradient_direction: d.form.background_gradient_direction.clone(),
                 image,
                 image_mode: d.form.bg_image_mode,
+                use_theme_background: d.form.use_theme_background,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls
@@ -9756,7 +9757,7 @@ impl CoboltApp {
         // so charts and themed controls render identically to the canvas. Each
         // run/preview window is a separate egui Context, so the theme set on the
         // designer's context does not carry over (spec 017 parity).
-        {
+        let use_theme_background = {
             let fp = self.form_runtimes[idx].form_path.clone();
             let fname = self.form_runtimes[idx].form_name.clone();
             let pack = self
@@ -9774,7 +9775,15 @@ impl CoboltApp {
                 .unwrap_or_default();
             cobolt_forms::paint::set_active_theme(ctx, pack);
             cobolt_forms::paint::set_glass_style(ctx, glass_style);
-        }
+            // The themed-background opt-in travels with the theme, from the same
+            // owning designer, so this viewport's backdrop matches the canvas.
+            self.designers
+                .iter()
+                .find(|(p, _)| *p == fp)
+                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
+                .map(|(_, d)| d.form.use_theme_background)
+                .unwrap_or(false)
+        };
 
         // ── Form-level lifecycle events ───────────────────────────────────────
         // onShow / onActivate fire once when the running form first appears;
@@ -9973,6 +9982,7 @@ impl CoboltApp {
                                 gradient_direction: bg_gradient_direction.clone(),
                                 image,
                                 image_mode: bg_mode,
+                                use_theme_background,
                             },
                         };
                         output = cobolt_forms::render::render_form(ui, &input);
