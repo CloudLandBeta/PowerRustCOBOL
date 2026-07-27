@@ -681,26 +681,20 @@ fn build_core(
         let _ = copy_dir_all(&assets_src, &assets_dst);
     }
 
-    // Copy rcrun binary to destination folder
-    if let Some(rcrun_src) = find_rcrun() {
-        let rcrun_name = if cfg!(windows) { "rcrun.exe" } else { "rcrun" };
-        let dest_rcrun = dest_path.join(rcrun_name);
-        if let Err(e) = std::fs::copy(&rcrun_src, &dest_rcrun) {
-            log(&format!("⚠️  Failed to copy rcrun to destination: {e}"));
-        } else {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = std::fs::metadata(&dest_rcrun) {
-                    let mut perms = meta.permissions();
-                    perms.set_mode(0o755);
-                    let _ = std::fs::set_permissions(&dest_rcrun, perms);
-                }
-            }
-            log(&format!("rcrun binary copied to {}", dest_rcrun.display()));
-        }
-    } else {
-        log("⚠️  rcrun binary not found, skipped copying rcrun.");
+    // `rcrun` is deliberately NOT shipped here. A built binary embeds its own
+    // compiled AST and links the interpreter and the render engine directly —
+    // it never launches a process, so the runner was pure dead weight in the
+    // delivered package (roughly doubling it: ~99 MB beside a ~94 MB app), and
+    // an unused second executable next to the application is something the end
+    // user has to wonder about. `rcrun` remains the developer's tool inside the
+    // IDE, where Run Form and debugging do spawn it.
+
+    // The destination folder is what the developer actually hands over, so the
+    // Apache-2.0 notices belong here too — `bin/` alone was getting them.
+    if let Err(e) = write_license_notices(&dest_path) {
+        log(&format!(
+            "⚠️  Could not write license notices to the destination folder: {e}"
+        ));
     }
 
     report(1.0, "Done");
@@ -1468,33 +1462,6 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result
         }
     }
     Ok(())
-}
-
-fn find_rcrun() -> Option<PathBuf> {
-    let rcrun_name = if cfg!(windows) { "rcrun.exe" } else { "rcrun" };
-    if let Ok(current_exe) = std::env::current_exe() {
-        let p = current_exe.with_file_name(rcrun_name);
-        if p.exists() {
-            return Some(p);
-        }
-        if let Some(parent) = current_exe.parent() {
-            let p2 = parent.parent().map(|p| p.join(rcrun_name));
-            if let Some(p2) = p2 {
-                if p2.exists() {
-                    return Some(p2);
-                }
-            }
-        }
-    }
-    if let Ok(path_val) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path_val) {
-            let p = dir.join(rcrun_name);
-            if p.exists() {
-                return Some(p);
-            }
-        }
-    }
-    None
 }
 
 /// Writes the platform's reference documentation — RustCOBOL extensions, IDE

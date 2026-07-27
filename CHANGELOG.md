@@ -8,6 +8,23 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.29] — 2026-07-27
+
+### Changed
+
+- **The delivered package no longer carries `rcrun`.** Every build dropped a
+  copy of the runner into the destination folder, roughly doubling what the
+  developer hands over — about 99 MB of runner beside a 94 MB application — for
+  something the application never calls. A built binary embeds its own compiled
+  AST and links the interpreter and the render engine directly; it launches no
+  process, so the runner was dead weight and an unexplained second executable
+  next to the app. `rcrun` is unchanged as the developer's tool inside the IDE,
+  where Run Form and debugging do spawn it.
+- **The Apache-2.0 notices ship with the package, not just with `bin/`.**
+  `LICENSE`, `NOTICE` and the runtime notice were written next to the build
+  output but not into the destination folder the developer actually
+  distributes. They are now written to both.
+
 ## [PowerRustCOBOL 1.36.28] — 2026-07-27
 
 ### Fixed
