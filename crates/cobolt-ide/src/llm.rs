@@ -3308,6 +3308,15 @@ pub fn drain_ai_log() -> Vec<AiLogEntry> {
 pub fn normalize_comments(code: &str) -> String {
     code.to_string()
 }
+/// The handler source an agent reply carries, or `None` when it carries none.
+///
+/// Order matters, and the last step is the one that used to be missing. When a
+/// reply reaches this surface through Grace's workflow it holds a CHANGE-SET,
+/// whose only fenced block is `json` — so the fallback happily returned the
+/// `{"operations": …}` envelope as if it were COBOL. The validator then read
+/// `{` as line 1 and reported "Code must start from the nested-program body",
+/// a defect in code that was in fact correct, and the retry round-trip fed the
+/// agents their own envelope as the handler to fix.
 pub fn extract_code(reply: &str) -> Option<String> {
     let lower = reply.to_lowercase();
     if let Some(start) = lower.find("```cobol") {
@@ -3315,17 +3324,107 @@ pub fn extract_code(reply: &str) -> Option<String> {
             return Some(reply[start + 8..start + 8 + end].trim().to_string());
         }
     }
+    // A change-set carries the handler in `operations[].code`; that is the
+    // authoritative source, not any prose or fence around it.
+    if let Some(code) = change_set_handler_code(reply) {
+        return Some(code);
+    }
     if let Some(start) = reply.find("```") {
         if let Some(nl) = reply[start..].find('\n') {
             let body_start = start + nl + 1;
             if let Some(end) = reply[body_start..].find("```") {
-                return Some(reply[body_start..body_start + end].trim().to_string());
+                let block = reply[body_start..body_start + end].trim();
+                // Never hand JSON to the COBOL parser: an unlabeled fence that
+                // opens with a brace or bracket is data, not a handler body.
+                if !block.starts_with('{') && !block.starts_with('[') {
+                    return Some(block.to_string());
+                }
             }
         }
     }
     None
 }
+
+/// The `code` of the first `generate_event_handler` operation in a change-set.
+fn change_set_handler_code(reply: &str) -> Option<String> {
+    let value = cobolt_agents::grace::last_json_block(reply)?;
+    let code = value
+        .get("operations")?
+        .as_array()?
+        .iter()
+        .find(|op| {
+            op.get("op")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|op| op == "generate_event_handler")
+        })?
+        .get("code")?
+        .as_str()?
+        .trim()
+        .to_string();
+    (!code.is_empty()).then_some(code)
+}
 pub fn ai_question(_reply: &str) {}
+
+#[cfg(test)]
+mod extract_code_tests {
+    use super::extract_code;
+
+    const HANDLER: &str = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           Label-1::SetCaption(\"Button-4 clicked!\").";
+
+    /// What `extract_code` returns: the body with the block's outer whitespace
+    /// trimmed, which drops the first line's leading indentation. Long-standing
+    /// behavior, harmless here because columns 1-6 then hold letters rather
+    /// than the blank/numeric sequence area that would trigger fixed format.
+    fn trimmed() -> &'static str {
+        HANDLER.trim()
+    }
+
+    /// A reply that came through Grace's workflow carries a CHANGE-SET, whose
+    /// only fence is `json`. Returning that envelope as COBOL made the
+    /// validator read `{` as line 1 and reject correct code with "Code must
+    /// start from the nested-program body", then feed the envelope back to the
+    /// agents as the handler to repair.
+    #[test]
+    fn a_change_set_yields_the_handler_body_not_its_json_envelope() {
+        let reply = format!(
+            "Comentários adicionados.\n\n```json\n{}\n```\n",
+            serde_json::json!({
+                "operations": [{
+                    "op": "generate_event_handler",
+                    "control_id": "BUTTON-4--ONCLICK",
+                    "event": "onClick",
+                    "code": HANDLER
+                }]
+            })
+        );
+        let code = extract_code(&reply).expect("the change-set carries a handler");
+        assert_eq!(code, trimmed());
+        assert!(!code.starts_with('{'), "the JSON envelope must never be returned as COBOL");
+    }
+
+    /// An explicit `cobol` fence still wins, and is taken verbatim.
+    #[test]
+    fn a_cobol_fence_is_preferred() {
+        let reply = format!("Aqui está:\n\n```cobol\n{HANDLER}\n```\n");
+        assert_eq!(extract_code(&reply).as_deref(), Some(trimmed()));
+    }
+
+    /// An unlabeled fence holding JSON is data, not a handler: better to
+    /// return nothing than to hand a brace to the COBOL parser.
+    #[test]
+    fn an_unlabeled_json_fence_is_not_mistaken_for_code() {
+        let reply = "```\n{\"note\": \"sem operações\"}\n```\n";
+        assert_eq!(extract_code(reply), None);
+    }
+
+    /// An unlabeled fence holding an actual body is still accepted — models
+    /// that omit the language tag must keep working.
+    #[test]
+    fn an_unlabeled_cobol_fence_is_still_accepted() {
+        let reply = format!("```\n{HANDLER}\n```\n");
+        assert_eq!(extract_code(&reply).as_deref(), Some(trimmed()));
+    }
+}
 
 #[cfg(test)]
 mod tests {

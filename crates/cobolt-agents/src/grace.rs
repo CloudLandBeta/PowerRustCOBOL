@@ -214,21 +214,42 @@ fn no_progress(_: GraceEvent) {}
 /// reply is taken as the block body (observed live: a plan ending in
 /// `…}]}` with no closing ```).
 pub fn last_json_block(reply: &str) -> Option<serde_json::Value> {
+    // Fences are recognised only where Markdown puts them: at the start of a
+    // line, after optional indentation. Scanning for a bare "```" anywhere in
+    // the text used to close the block on the first triple-backtick INSIDE a
+    // JSON string — Grace writing an objective like `…num bloco ```cobol```.`
+    // truncated her own plan mid-string, and the whole reply then read as
+    // "contained no JSON block".
     let mut last = None;
-    let mut rest = reply;
-    while let Some(start) = rest.find("```") {
-        rest = &rest[start + 3..];
-        let (block, next) = match rest.find("```") {
-            Some(end) => (rest[..end].trim(), &rest[end + 3..]),
-            None => (rest.trim(), ""),
+    let mut lines = reply.lines();
+    while let Some(open) = lines.next() {
+        let Some(info) = fence_info(open) else {
+            continue;
         };
-        rest = next;
-        let json = block.strip_prefix("json").map(str::trim).unwrap_or(block);
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json) {
+        let mut block = String::new();
+        for line in lines.by_ref() {
+            if fence_info(line).is_some() {
+                break;
+            }
+            block.push_str(line);
+            block.push('\n');
+        }
+        // An info string of `json` (or none at all) is the contract's shape;
+        // a `cobol` fence is source, never a plan.
+        if !info.is_empty() && !info.eq_ignore_ascii_case("json") {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(block.trim()) {
             last = Some(v);
         }
     }
     last
+}
+
+/// The info string of a Markdown fence line (`"json"`, `"cobol"`, `""`), or
+/// `None` when the line does not open or close a fence.
+fn fence_info(line: &str) -> Option<&str> {
+    line.trim_start().strip_prefix("```").map(str::trim)
 }
 
 /// Parse Grace's plan JSON (`{"workflow_id": ..., "tasks": [...]}`) from her
@@ -576,6 +597,46 @@ impl GraceEngine {
             id: spec.id.clone(),
             reason: rec.failure_reason.clone(),
         });
+    }
+}
+
+#[cfg(test)]
+mod fence_tests {
+    use super::*;
+
+    /// Grace routinely tells a specialist to "return the code in a ```cobol
+    /// block", and that inner fence sits INSIDE a JSON string. Scanning for a
+    /// bare triple-backtick closed the block there, so a perfectly valid plan
+    /// was reported as "contained no JSON block" and the workflow died in the
+    /// extraction fallback with `missing field workflow_id`.
+    #[test]
+    fn a_fence_inside_a_json_string_does_not_truncate_the_plan() {
+        let reply = "Vou encaminhar a correção.\n\n\
+             ```json\n\
+             {\"workflow_id\": \"wf-1\", \"tasks\": [{\"id\": \"T1\", \"agent\": \"COBOL Event Handler Script Agent\", \"objective\": \"Devolver o código num bloco ```cobol```. Nada depois.\", \"depends_on\": [], \"reviewer\": null, \"acceptance\": \"ok\"}]}\n\
+             ```\n";
+        let (workflow, tasks) = parse_plan(reply).expect("the plan must survive the inner fence");
+        assert_eq!(workflow, "wf-1");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "T1");
+    }
+
+    /// The last fenced JSON block still wins when several are present.
+    #[test]
+    fn the_last_json_block_is_the_one_that_counts() {
+        let reply = "```json\n{\"pedantic_verdict\": \"defects\"}\n```\n\
+             later\n\
+             ```json\n{\"pedantic_verdict\": \"acceptable\"}\n```\n";
+        let verdict = parse_verdict(reply).expect("verdict");
+        assert!(!verdict.has_defects());
+    }
+
+    /// A `cobol` fence is source, never a plan — it must not be parsed as one
+    /// even in the unlikely case its body happens to be valid JSON.
+    #[test]
+    fn a_cobol_fence_is_never_read_as_a_plan() {
+        let reply = "```cobol\n{\"workflow_id\": \"nope\"}\n```\n";
+        assert!(last_json_block(reply).is_none());
     }
 }
 

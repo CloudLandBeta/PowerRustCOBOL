@@ -293,6 +293,104 @@ pub struct DbAgentInvoker {
     pub evidence: std::sync::Arc<std::sync::Mutex<Vec<ToolEvidence>>>,
     /// Developer stop request — checked before every model call.
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The developer's request, verbatim and in their own words. Every agent
+    /// answers in the language it is written in — see [`language_directive`].
+    /// Only the workflow entry point knows it; a specialist's task prompt is
+    /// composed by Grace and carries no trace of the original wording.
+    pub request: String,
+}
+
+/// How Grace decides what shape her reply takes: an answer, a question, or a
+/// workflow plan. The host only recognizes the shape she chose, so clause 2 is
+/// the only route by which a question ever reaches the developer.
+///
+/// Clause 2 is deliberately insistent. It used to read "the work cannot proceed
+/// without information", which Grace correctly judged inapplicable whenever she
+/// *could* infer an answer — so an ambiguous "the button's name" was silently
+/// resolved to the control id and the whole workflow ran on a guess. The test
+/// is not "can I infer this?" but "would the readings deliver different work?".
+const RESPONSE_ROUTING_CONTRACT: &str = "RESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n2. DEVELOPER CLARIFICATION — the request admits more than one reasonable reading, and the readings would produce DIFFERENT artifacts: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n   WHEN IN DOUBT, ASK. Do not resolve an ambiguity by picking the reading you find most likely and proceeding: a plausible guess that is wrong costs the developer a whole workflow, while a question costs one message. Being ABLE to infer an answer is NOT a reason to skip the question — the test is whether the competing readings would change the delivered artifact, not whether you can pick a favourite.\n   Words that name a control's text are ambiguous BY CONSTRUCTION and are the most common trap: \"name\", \"nome\", \"nombre\", \"label\", \"text\", \"texto\", \"title\" may mean the control's IDENTIFIER (its id, e.g. Button-3) or its VISIBLE TEXT (its Caption or Text property). The two routinely differ — a form can hold a control whose id is \"Button-3\" while its Caption reads \"Button-2\". Never settle that silently: quote both candidate values for a concrete control and ask which one the developer means.\n   Ask as well when the request and its own example disagree, when a literal's exact spelling or punctuation is uncertain, when the target resource is not uniquely identified, or when a requested change could alter existing behavior in more than one way.\n   Put every question you need in ONE reply, each as a separate short question, and stop — do not plan or mutate anything in the same turn.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.";
+
+/// The platform's own reference documents. They are generated from the
+/// compiled binary, so a missing one means the installed platform predates the
+/// document — the one condition that a rebuild, and nothing else, fixes.
+const ESSENTIAL_SYSTEM_DOCUMENTS: [&str; 4] = [
+    "Knowledge Base/rustcobol_extensions.md",
+    "Knowledge Base/ide_functionalities.md",
+    "Knowledge Base/form_designer_controls.md",
+    "Knowledge Base/agents_registry.md",
+];
+
+/// Root of the System Knowledge Base: `~/PowerRustCOBOL`, holding
+/// `Knowledge Base/` (the documents) and `data/` (their vector index).
+///
+/// Machine-level, not per-project: the platform's reference material describes
+/// the IDE, not whichever project happens to be open, so every project reads
+/// the same copy instead of carrying its own.
+pub fn system_knowledge_root() -> PathBuf {
+    cobolt_agents::knowledge_store::ide_data_dir()
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Republish and reindex the System Knowledge Base, returning how many textual
+/// files are indexed.
+///
+/// Publishing first is what makes "never empty" true: the documents are
+/// rewritten from the running binary on every workflow, so the System KB
+/// cannot drift behind the platform, and a document the binary cannot produce
+/// is reported as a rebuild requirement rather than silently missing.
+fn sync_system_knowledge(system_root: &Path) -> Result<usize, String> {
+    cobolt_compiler::publish_system_documentation(system_root)
+        .map_err(|error| format!("could not be published: {error}"))?;
+    let indexed = cobolt_agents::project_knowledge::sync_documentation(system_root)
+        .map_err(|error| format!("could not be indexed: {error}"))?;
+    let missing: Vec<&str> = ESSENTIAL_SYSTEM_DOCUMENTS
+        .iter()
+        .filter(|path| !system_root.join(path).exists())
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "{indexed} textual file(s) indexed, but the installed platform did not produce {} \
+             ({}). Rebuild and reinstall PowerRustCOBOL — the running binary is older than its \
+             own reference documentation.",
+            missing.len(),
+            missing.join(", ")
+        ));
+    }
+    Ok(indexed)
+}
+
+/// Instructs an agent to answer in the developer's own language while leaving
+/// every machine-read token alone.
+///
+/// The agents are prompted in English, so absent this they answer in English
+/// no matter what the developer wrote. Carrying the request verbatim beats
+/// naming a language: no detection step to get wrong, and the model reads the
+/// developer's actual wording.
+///
+/// The carve-outs are not stylistic. `pedantic_verdict` is compared against
+/// the literal `"acceptable"`, agent names are matched against the registry,
+/// and control ids must survive into the form model — a translated value there
+/// silently breaks the workflow rather than reading oddly.
+fn language_directive(request: &str) -> String {
+    let request = request.trim();
+    if request.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\n--- Developer's language (applies to every reply you produce) ---\n\
+         The developer's request is quoted verbatim below. Write everything a HUMAN reads in that same language — prose, explanations, plans, questions, review findings, correction requests, final summaries. If the request is in Portuguese, answer in Portuguese; if in Spanish, answer in Spanish; and so on. Do not answer in English merely because these instructions are in English, and never translate the request back to the developer.\n\n\
+         This NEVER applies to machine-read text, which stays EXACTLY as specified whatever the language:\n\
+         - JSON field names and their fixed values (\"acceptable\", \"defects\", \"completed\", \"partial\", \"failed\", task states, operation names);\n\
+         - agent and reviewer names, copied verbatim from the registry;\n\
+         - form, control, file, property, method, and event identifiers;\n\
+         - COBOL source: every division header, verb, clause, intrinsic and data name (explanatory `*>` comments may be written in the developer's language);\n\
+         - tool names and their argument values.\n\n\
+         DEVELOPER REQUEST (verbatim):\n{request}"
+    )
 }
 
 impl DbAgentInvoker {
@@ -629,11 +727,16 @@ impl AgentInvoker for DbAgentInvoker {
         if let Some(gap) = crate::llm::credential_gap(&cfg) {
             return Err(format!("{agent}: {gap}"));
         }
-        let final_system = if system.trim().is_empty() {
+        let base_system = if system.trim().is_empty() {
             &core_instructions
         } else {
             system
         };
+        // Appended here, at the single funnel every agent call passes through,
+        // so Grace, the specialists and the Pedantic reviewers all answer the
+        // developer in one language — including the reviewers, whose task
+        // prompts are composed by Grace and never quote the original request.
+        let final_system = format!("{base_system}{}", language_directive(&self.request));
         // Pedantic companions get an explicit verbose-reporting directive when
         // the operator has verbose logging on — see
         // `VERBOSE_PEDANTIC_REPORT_DIRECTIVE`. Every other agent is unaffected.
@@ -666,7 +769,7 @@ impl AgentInvoker for DbAgentInvoker {
             model: cfg.model.clone(),
             api_key: cfg.api_key.clone(),
             endpoint: cfg.endpoint.clone(),
-            system_prompt: final_system.to_string(),
+            system_prompt: final_system.clone(),
             skills: skills.clone(),
             user_prompt: effective_user,
             temperature: cfg.temperature,
@@ -792,6 +895,31 @@ impl AgentInvoker for DbAgentInvoker {
                 reply.text.len()
             ),
         );
+        // A reply that outgrew the model's output budget is retrieved in pages
+        // by the transport. Say so — the page count explains the token total,
+        // and an unfinished reply must never pass as a complete artifact: the
+        // salvage extractor downstream would faithfully transcribe a verdict
+        // or change-set that stops mid-sentence.
+        if reply.continuation_pages > 0 {
+            crate::llm::push_ai_log(
+                if reply.truncated {
+                    crate::llm::AiLogKind::Error
+                } else {
+                    crate::llm::AiLogKind::Info
+                },
+                if reply.truncated {
+                    format!(
+                        "{agent}: reply still INCOMPLETE after {} continuation page(s) — it hit the model's output limit and stops mid-sentence; anything parsed from it may be missing its tail",
+                        reply.continuation_pages
+                    )
+                } else {
+                    format!(
+                        "{agent}: reply exceeded the output limit and was completed over {} continuation page(s)",
+                        reply.continuation_pages
+                    )
+                },
+            );
+        }
         if cfg.verbose_log {
             let block = format!(
                 "=== AGENT RESPONSE · {agent} · {secs:.1}s · {} in / {} out ===\n{}",
@@ -1070,6 +1198,20 @@ pub fn run_grace_workflow_with_control(
             "Prepared {repaired} fixed-agent or project-knowledge capability update(s)."
         ));
     }
+    // TWO Knowledge Bases, reported separately because they answer different
+    // questions. The System KB is the platform's own reference material
+    // (RustCOBOL extensions, IDE functionality, designer controls, the agent
+    // registry); it ships with the binary and is republished here, so it is
+    // never legitimately empty. The Project KB is whatever the developer put
+    // in this project's `Knowledge Base/` folder, and empty is a valid state.
+    let system_root = system_knowledge_root();
+    let system = sync_system_knowledge(&system_root);
+    match &system {
+        Ok(indexed) => on_progress(format!(
+            "System Knowledge Base: {indexed} textual file(s) indexed."
+        )),
+        Err(error) => on_progress(format!("System Knowledge Base: {error}")),
+    }
     let indexed = cobolt_agents::project_knowledge::sync_documentation(project_dir)
         .map_err(|error| format!("Project Knowledge Base could not be indexed: {error}"))?;
     on_progress(format!(
@@ -1079,14 +1221,13 @@ pub fn run_grace_workflow_with_control(
         .map_err(|error| format!("Project knowledge could not be searched: {error}"))?;
 
     let mut essential_knowledge = String::new();
-    let essential_paths = [
-        "Knowledge Base/rustcobol_extensions.md",
-        "Knowledge Base/ide_functionalities.md",
-        "Knowledge Base/form_designer_controls.md",
-        "Knowledge Base/agents_registry.md",
-    ];
-    for path_str in &essential_paths {
-        let p = project_dir.join(path_str);
+    for path_str in &ESSENTIAL_SYSTEM_DOCUMENTS {
+        // Read from the System KB, falling back to the project copy that older
+        // builds published per project.
+        let p = match system_root.join(path_str) {
+            p if p.exists() => p,
+            _ => project_dir.join(path_str),
+        };
         if p.exists() {
             if let Ok(content) = std::fs::read_to_string(&p) {
                 if !essential_knowledge.is_empty() {
@@ -1136,6 +1277,7 @@ pub fn run_grace_workflow_with_control(
         tokens: token_sink.clone(),
         evidence: evidence.clone(),
         cancel: control.cancel.clone(),
+        request: request.to_string(),
     };
     let mut backend = IdeToolBackend::new(project_dir.to_path_buf(), confirm, select_target);
     let dir_for_decl = project_dir.to_path_buf();
@@ -1210,7 +1352,7 @@ pub fn run_grace_workflow_with_control(
     // a direct Markdown answer, developer-facing questions, or a workflow
     // plan. The host only recognizes the shape she chose.
     let plan_user = format!(
-        "{plan_user}\n\nRESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n2. DEVELOPER CLARIFICATION — the work cannot proceed without information or decisions only the developer can supply: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block."
+        "{plan_user}\n\n{RESPONSE_ROUTING_CONTRACT}"
     );
     on_progress("Grace is reading the request…".into());
     let plan_reply = invoker.invoke(GRACE, "", &plan_user)?;
@@ -2782,6 +2924,92 @@ mod tests {
         assert_eq!(simple_greeting_reply("What can you do?"), None);
     }
 
+    /// The System KB is published from the running binary and then indexed, so
+    /// a fresh machine reports a non-zero count rather than the empty state
+    /// that only the Project KB may legitimately be in.
+    #[test]
+    fn system_knowledge_publishes_and_indexes_itself() {
+        let root = std::env::temp_dir().join(format!("prc-syskb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let indexed = sync_system_knowledge(&root).expect("system KB should publish and index");
+        assert!(
+            indexed >= ESSENTIAL_SYSTEM_DOCUMENTS.len(),
+            "expected at least the {} essential documents, indexed {indexed}",
+            ESSENTIAL_SYSTEM_DOCUMENTS.len()
+        );
+        for doc in &ESSENTIAL_SYSTEM_DOCUMENTS {
+            assert!(root.join(doc).exists(), "{doc} must exist after publishing");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A document the installed binary cannot produce is the one failure a
+    /// rebuild fixes, so the message must say exactly that instead of quietly
+    /// reporting a smaller count.
+    #[test]
+    fn a_missing_system_document_asks_for_a_platform_rebuild() {
+        let root = std::env::temp_dir().join(format!("prc-syskb-gap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        sync_system_knowledge(&root).expect("baseline publish");
+        std::fs::remove_file(root.join(ESSENTIAL_SYSTEM_DOCUMENTS[0])).expect("remove one doc");
+        // Publishing rewrites what the binary knows; simulate an older binary
+        // by checking the gap detector against a root missing that document.
+        let missing: Vec<&str> = ESSENTIAL_SYSTEM_DOCUMENTS
+            .iter()
+            .filter(|path| !root.join(path).exists())
+            .copied()
+            .collect();
+        assert_eq!(missing, vec![ESSENTIAL_SYSTEM_DOCUMENTS[0]]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// "name" versus "caption" is the ambiguity that shipped the wrong literal;
+    /// Grace must be told to ask rather than pick the likelier reading.
+    #[test]
+    fn the_routing_contract_tells_grace_to_ask_when_in_doubt() {
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("WHEN IN DOUBT, ASK"));
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("IDENTIFIER"));
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("Caption"));
+        // Inferability must not be the escape hatch it previously was.
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("is NOT a reason to skip the question"));
+    }
+
+    /// The developer's own words reach every agent, so a Portuguese request
+    /// gets a Portuguese plan, review and summary instead of an English one.
+    #[test]
+    fn language_directive_carries_the_request_verbatim() {
+        let request = "faça o evento onClick de cada botão modificar o caption de Label-1";
+        let directive = language_directive(request);
+        assert!(directive.contains(request));
+        assert!(directive.contains("Developer's language"));
+    }
+
+    /// The machine contracts must be named as untranslatable: a reviewer that
+    /// answers "aceitável" fails the literal `"acceptable"` comparison, and a
+    /// translated control id never resolves against the form.
+    #[test]
+    fn language_directive_protects_machine_read_tokens() {
+        let directive = language_directive("crie um formulário de login");
+        for protected in [
+            "\"acceptable\"",
+            "\"defects\"",
+            "agent and reviewer names",
+            "property, method, and event identifiers",
+        ] {
+            assert!(
+                directive.contains(protected),
+                "directive must exempt {protected} from translation"
+            );
+        }
+    }
+
+    /// No request, no directive — an empty tail must not append a stray
+    /// heading to the agent's core instructions.
+    #[test]
+    fn language_directive_is_absent_without_a_request() {
+        assert!(language_directive("   ").is_empty());
+    }
+
     #[test]
     fn workflow_control_stop_gates_every_model_call() {
         let control = WorkflowControl::default();
@@ -2797,6 +3025,7 @@ mod tests {
             tokens: control.tokens.clone(),
             evidence: Arc::new(Mutex::new(Vec::new())),
             cancel: control.cancel.clone(),
+            request: String::new(),
         };
         let err = invoker
             .invoke("Documentation Agent", "sys", "user")

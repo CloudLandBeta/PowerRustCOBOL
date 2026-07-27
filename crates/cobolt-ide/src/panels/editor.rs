@@ -782,6 +782,26 @@ impl AcItem {
 
 // ── AutoComplete state ────────────────────────────────────────────────────────
 
+/// How far the editor may shift before an open completion popup is considered
+/// unanchored. Sub-pixel jitter from layout rounding must not close it, but any
+/// real move or resize must.
+const ANCHOR_EPSILON: f32 = 0.5;
+
+/// Whether the editor has moved out from under an open popup. `popup_pos` is a
+/// screen position fixed when the list opened, so any real shift of the text —
+/// window drag, splitter, panel resize, scroll — leaves the list pointing at
+/// the wrong place.
+fn ac_anchor_moved(current: Pos2, anchor: Pos2) -> bool {
+    (current - anchor).length() > ANCHOR_EPSILON
+}
+
+/// Whether the word being completed has ended. With no prefix left and no
+/// member/property context active there is nothing to complete, so a list still
+/// on screen describes a word the developer already finished typing.
+fn ac_context_ended(prefix: &str, has_member_context: bool) -> bool {
+    prefix.is_empty() && !has_member_context
+}
+
 #[derive(Default)]
 struct AutoComplete {
     visible: bool,
@@ -790,6 +810,13 @@ struct AutoComplete {
     prefix: String,
     trigger_pos: usize,
     popup_pos: Pos2,
+    /// Where the editor's text started when the popup opened. `popup_pos` is a
+    /// SCREEN position pinned to the cursor at that instant, so once the editor
+    /// moves or is resized under it — window drag, splitter, panel resize,
+    /// scroll — the list is left floating away from the text it describes.
+    /// Comparing this each frame lets the popup close instead; typing again
+    /// reopens it at the cursor's new position.
+    anchor: Pos2,
     /// When true the popup is showing members of a specific control (property/method list).
     member_mode: bool,
     /// Set when the selection moved via the keyboard, so the popup scrolls the
@@ -1364,6 +1391,45 @@ pub(crate) fn chat_bubble_with_response_actions(
 
     ui.ctx().data_mut(|data| data.insert_temp(state_id, state));
     ui.add_space(5.0);
+}
+
+#[cfg(test)]
+mod autocomplete_dismissal_tests {
+    use super::{ac_anchor_moved, ac_context_ended};
+    use egui::Pos2;
+
+    /// The popup stays put while the editor does. Sub-pixel layout jitter must
+    /// not make it flicker away between frames.
+    #[test]
+    fn a_still_editor_keeps_the_popup() {
+        let anchor = Pos2::new(120.0, 340.0);
+        assert!(!ac_anchor_moved(anchor, anchor));
+        assert!(!ac_anchor_moved(Pos2::new(120.2, 340.1), anchor));
+    }
+
+    /// Resizing the box or moving the window shifts the text under a popup
+    /// pinned to screen coordinates, so it must close rather than float away.
+    #[test]
+    fn moving_or_resizing_the_editor_unanchors_the_popup() {
+        let anchor = Pos2::new(120.0, 340.0);
+        assert!(ac_anchor_moved(Pos2::new(120.0, 366.0), anchor), "vertical move");
+        assert!(ac_anchor_moved(Pos2::new(48.0, 340.0), anchor), "horizontal move");
+    }
+
+    /// Typing a space or deleting the word ends the completion: nothing is
+    /// being written, so nothing should be offered.
+    #[test]
+    fn an_empty_prefix_ends_the_completion() {
+        assert!(ac_context_ended("", false));
+        assert!(!ac_context_ended("Corner", false));
+    }
+
+    /// A member list (`Ctrl::`, `INVOKE ctrl '`, `"Prop" OF`) is legitimately
+    /// open with no prefix yet — it lists every member until one is typed.
+    #[test]
+    fn a_member_context_survives_an_empty_prefix() {
+        assert!(!ac_context_ended("", true));
+    }
 }
 
 #[cfg(test)]
@@ -2883,6 +2949,16 @@ impl EditorPanel {
 
                     // ── IntelliSense update ───────────────────────────────
                     if let Some(cr) = te_out.cursor_range {
+                        // The popup is anchored to the cursor as it was when it
+                        // opened. If the editor has moved or been resized since,
+                        // that anchor is stale and the list would sit away from
+                        // the text — close it and let the next keystroke reopen
+                        // it in the right place.
+                        if self.ac.visible && ac_anchor_moved(te_out.galley_pos, self.ac.anchor)
+                        {
+                            self.ac.visible = false;
+                            self.ac.member_mode = false;
+                        }
                         let char_idx = cr.primary.index.0;
                         let (l, c) = char_index_to_line_col(&tab.content, char_idx);
                         self.cur_line = l;
@@ -2927,6 +3003,18 @@ impl EditorPanel {
                                 None
                             };
 
+                        // A word boundary ends the completion. Typing a space or
+                        // deleting back to nothing leaves no prefix to complete,
+                        // and whatever is still listed refers to a word the
+                        // developer has already finished. Handled before the
+                        // refresh guard below, which an empty prefix never passes.
+                        let has_member_context =
+                            invoke.is_some() || member_ctrl.is_some() || prop_ref.is_some();
+                        if self.ac.visible && ac_context_ended(&prefix, has_member_context) {
+                            self.ac.visible = false;
+                            self.ac.member_mode = false;
+                        }
+
                         let refresh = trigger_manual
                             || (te_out.response.changed() && prefix.len() >= 2)
                             || (te_out.response.changed() && invoke.is_some())
@@ -2936,6 +3024,11 @@ impl EditorPanel {
                         if refresh
                             || (self.ac.visible && prefix.len() >= 1)
                             || (self.ac.visible && prop_ref.is_some())
+                            // An open popup re-filters on EVERY edit, so a
+                            // keystroke that matches nothing closes it on the
+                            // spot instead of waiting for a prefix long enough
+                            // to satisfy `refresh`.
+                            || (self.ac.visible && te_out.response.changed())
                         {
                             let (items, member_mode) = if let Some(pc) = &prop_ref {
                                 let v = match pc {
@@ -3047,14 +3140,15 @@ impl EditorPanel {
                                 self.ac.prefix = prefix.clone();
                                 self.ac.trigger_pos = word_start;
                                 self.ac.popup_pos = ppos;
-                            } else if !self.ac.member_mode {
-                                // Only auto-dismiss if NOT in member mode (member mode
-                                // dismisses only on non-matching keystrokes or Esc).
-                                if prefix.is_empty() || prefix.len() < 2 {
-                                    self.ac.visible = false;
-                                }
+                                self.ac.anchor = te_out.galley_pos;
                             } else {
-                                // In member mode: dismiss when prefix no longer matches any member
+                                // NOTHING matches what is being typed, so there is
+                                // nothing to suggest. The old rule kept a non-member
+                                // popup on screen for any prefix of two characters or
+                                // more, which is exactly the case that matters: the
+                                // developer types past the suggestion, the list stops
+                                // matching, and stale entries stay up offering to
+                                // insert a word that is no longer being written.
                                 self.ac.visible = false;
                                 self.ac.member_mode = false;
                             }

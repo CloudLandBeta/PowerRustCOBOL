@@ -301,10 +301,14 @@ fn build_core(
     };
 
     report(0.05, "Reading project…");
-    // Publish system documentation to project's Knowledge Base
-    if let Err(e) = publish_system_documentation(&project_dir) {
-        eprintln!("Warning: could not publish system documentation to Knowledge Base: {e}");
-    }
+    // The system documentation is NOT published here. It describes the
+    // platform, not this project, so it belongs to the machine-level System
+    // Knowledge Base that the IDE republishes from the running binary — see
+    // `publish_system_documentation`. Publishing it per project also mixed
+    // platform reference material into the developer's own Knowledge Base,
+    // whose whole purpose is project material (diagrams, requirements, data
+    // models). Existing copies under `<project>/Knowledge Base/` are left
+    // alone: they are the developer's files to remove.
     let bin_name = proj.project.name.to_ascii_lowercase().replace(' ', "_");
 
     // ── 2. Collect all source files ───────────────────────────────────────────
@@ -1151,9 +1155,17 @@ fn find_rcrun() -> Option<PathBuf> {
     None
 }
 
-/// Publishes RustCOBOL extensions, IDE functionalities, RAD form designer controls/properties/events,
-/// and the Agent Registry into the project's Knowledge Base during compilation.
-pub fn publish_system_documentation(project_dir: &std::path::Path) -> Result<(), std::io::Error> {
+/// Writes the platform's reference documentation — RustCOBOL extensions, IDE
+/// functionality, RAD designer controls/properties/events, and the agent
+/// registry — into `<root>/Knowledge Base/`.
+///
+/// The content is generated from this binary, which is what lets the caller
+/// treat a missing document as "the installed platform is older than its own
+/// documentation, rebuild it". The IDE calls this with the machine-level
+/// System Knowledge Base root; compilation does NOT call it, because these
+/// documents describe the platform rather than any one project.
+pub fn publish_system_documentation(root: &std::path::Path) -> Result<(), std::io::Error> {
+    let project_dir = root;
     let kb_dir = project_dir.join("Knowledge Base");
     std::fs::create_dir_all(&kb_dir)?;
     

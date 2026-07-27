@@ -51,6 +51,53 @@ impl AgentTools {
 /// guard against a model that never stops calling tools).
 const MAX_TOOL_ROUNDS: usize = 6;
 
+/// Upper bound on continuation pages per reply. A reply that hits the output
+/// cap is RESUMED rather than abandoned (see `continue_if_capped`); this bounds
+/// the paging the same way MAX_TOOL_ROUNDS bounds tool calls, so a model that
+/// never stops producing cannot spin forever.
+const MAX_CONTINUATION_PAGES: u32 = 6;
+
+/// Prompt that resumes a reply the provider cut off at the output cap. It must
+/// forbid every form of restatement: the pages are concatenated verbatim, so a
+/// model that re-introduces its answer would corrupt the artifact (a fenced
+/// JSON block reopened mid-stream stops parsing).
+const CONTINUE_DIRECTIVE: &str = "Your previous message was cut off because it reached the output token limit. Continue it from exactly where it stopped. Do not repeat any text you already sent, do not summarise it, do not restate the task, and do not add any preamble, apology, or heading — resume mid-sentence, or mid-word, if that is where it ended. If the cut-off point was inside a fenced code or JSON block, continue inside that block and close it properly.";
+
+/// Whether the provider stopped because the OUTPUT CAP was reached rather than
+/// because the answer was finished.
+///
+/// This is read from the raw provider payload instead of a rig abstraction:
+/// rig 0.40 surfaces `choice` and `usage` but no normalised stop reason, while
+/// both raw response types are `Serialize` by the `CompletionModel::Response`
+/// bound. Anthropic reports `stop_reason: "max_tokens"` at the top level;
+/// the OpenAI wire reports `finish_reason: "length"` per choice.
+///
+/// Silence here is what made truncation invisible: a capped reply is a normal
+/// 200 carrying a mid-sentence body, indistinguishable from a complete one.
+fn hit_output_cap<T: serde::Serialize>(raw: &T) -> bool {
+    let Ok(value) = serde_json::to_value(raw) else {
+        return false;
+    };
+    if value
+        .get("stop_reason")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|reason| reason.eq_ignore_ascii_case("max_tokens"))
+    {
+        return true;
+    }
+    value
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|choices| {
+            choices.iter().any(|choice| {
+                choice
+                    .get("finish_reason")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|reason| reason.eq_ignore_ascii_case("length"))
+            })
+        })
+}
+
 /// Real OpenAI rejects the classic `max_tokens` on current chat models
 /// ("Unsupported parameter … use 'max_completion_tokens' instead") while every
 /// other OpenAI-compatible gateway still speaks `max_tokens` — the same
@@ -135,6 +182,14 @@ pub struct AgentReply {
     pub text: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// The reply is STILL incomplete: the output cap was hit and continuation
+    /// paging could not finish it within [`MAX_CONTINUATION_PAGES`]. Callers
+    /// must not treat such text as a complete artifact — a verdict, plan, or
+    /// change-set parsed out of it may be missing its tail.
+    pub truncated: bool,
+    /// How many continuation requests were needed to complete the reply.
+    /// Zero for the overwhelming majority of calls.
+    pub continuation_pages: u32,
 }
 
 /// Normalise a configured endpoint to the base URL a Rig provider client
@@ -433,10 +488,15 @@ where
     if text.trim().is_empty() {
         return Err("the model returned no assistant text".to_string());
     }
+    // Streamed chat feeds the IDE chatbot, where the developer sees the reply
+    // arrive and can simply ask for more; continuation paging is reserved for
+    // the agent path, whose replies are parsed as artifacts.
     Ok(AgentReply {
         text,
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
+        truncated: false,
+        continuation_pages: 0,
     })
 }
 
@@ -500,6 +560,73 @@ host_tool!(
     serde_json::json!({ "type": "object", "properties": {} })
 );
 
+/// A reply assembled from one or more provider responses. The pages are joined
+/// with NO separator: page N+1 resumes page N mid-sentence, so any inserted
+/// character would land inside the artifact.
+struct ContinuedReply {
+    text: String,
+    truncated: bool,
+    pages: u32,
+}
+
+impl ContinuedReply {
+    fn start(text: String, capped: bool) -> Self {
+        Self {
+            text,
+            truncated: capped,
+            pages: 0,
+        }
+    }
+
+    /// Request further pages until the model stops for its own reasons, the
+    /// page budget runs out, or it has nothing left to add. `base_history` is
+    /// the conversation up to and including the user turn being answered; each
+    /// page re-sends it with the text so far as the assistant turn, which is
+    /// what lets the model see exactly where to resume.
+    async fn fill<M>(
+        &mut self,
+        agent: &rig_core::agent::Agent<M>,
+        base_history: Vec<Message>,
+        total_in: &mut u64,
+        total_out: &mut u64,
+    ) -> Result<(), String>
+    where
+        M: rig_core::completion::CompletionModel,
+    {
+        while self.truncated && self.pages < MAX_CONTINUATION_PAGES {
+            self.pages += 1;
+            let mut history = base_history.clone();
+            history.push(Message::assistant(self.text.clone()));
+            let response = agent
+                .completion(CONTINUE_DIRECTIVE, history)
+                .await
+                .map_err(|e| format!("continuation setup failed: {e}"))?
+                .send()
+                .await
+                .map_err(|e| format!("continuation request failed: {e}"))?;
+            *total_in += response.usage.input_tokens;
+            *total_out += response.usage.output_tokens;
+            let capped = hit_output_cap(&response.raw_response);
+            let mut more = String::new();
+            for content in response.choice.into_iter() {
+                if let AssistantContent::Text(t) = content {
+                    more.push_str(&t.text);
+                }
+            }
+            // The model added nothing: it considers the answer finished even
+            // though the provider reported the cap. Stop instead of spending
+            // the remaining pages on empty round-trips.
+            if more.trim().is_empty() {
+                self.truncated = false;
+                break;
+            }
+            self.text.push_str(&more);
+            self.truncated = capped;
+        }
+        Ok(())
+    }
+}
+
 /// Shared completion body: build the Rig agent from the profile, then run a
 /// bounded tool loop — the model's native tool calls are executed through the
 /// host closures and their results fed back, all inside this one call.
@@ -555,6 +682,7 @@ where
             .map_err(|e| format!("model request failed: {e}"))?;
         total_in += response.usage.input_tokens;
         total_out += response.usage.output_tokens;
+        let capped = hit_output_cap(&response.raw_response);
 
         let mut text = String::new();
         let mut tool_calls: Vec<(String, serde_json::Value)> = Vec::new();
@@ -572,10 +700,23 @@ where
             if text.trim().is_empty() {
                 return Err("the model returned no assistant text".to_string());
             }
+            // A long reply (a verbose Pedantic review, a large change-set) can
+            // exhaust the output budget mid-sentence. Resume it page by page
+            // instead of returning the fragment: raising max_tokens is not an
+            // alternative, since a model's real output ceiling is fixed and
+            // asking past it is an HTTP 400.
+            let mut paged = ContinuedReply::start(text, capped);
+            if paged.truncated {
+                let mut base = history.clone();
+                base.push(Message::user(prompt.clone()));
+                paged.fill(&agent, base, &mut total_in, &mut total_out).await?;
+            }
             return Ok(AgentReply {
-                text,
+                text: paged.text,
                 input_tokens: total_in,
                 output_tokens: total_out,
+                truncated: paged.truncated,
+                continuation_pages: paged.pages,
             });
         }
 
@@ -623,6 +764,10 @@ where
                 text: out,
                 input_tokens: total_in,
                 output_tokens: total_out,
+                // The fenced block above was assembled here, not by the model;
+                // appending continuation pages after it would corrupt it.
+                truncated: false,
+                continuation_pages: 0,
             });
         }
         let tool_calls = native;
@@ -677,6 +822,58 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Anthropic reports the output cap as a top-level `stop_reason`. Missing
+    /// this is what let a Pedantic review be cut off mid-JSON and still be
+    /// treated as a finished verdict.
+    #[test]
+    fn anthropic_output_cap_is_detected() {
+        let capped = serde_json::json!({
+            "id": "msg_1",
+            "stop_reason": "max_tokens",
+            "content": [{"type": "text", "text": "…"}]
+        });
+        assert!(hit_output_cap(&capped));
+    }
+
+    /// A reply that ended on its own is NOT a continuation candidate — paging
+    /// a finished answer would append restated text to a complete artifact.
+    #[test]
+    fn natural_stop_is_not_a_cap() {
+        let done = serde_json::json!({"id": "msg_1", "stop_reason": "end_turn"});
+        assert!(!hit_output_cap(&done));
+        let done_openai = serde_json::json!({
+            "choices": [{"finish_reason": "stop", "message": {"content": "done"}}]
+        });
+        assert!(!hit_output_cap(&done_openai));
+    }
+
+    /// The OpenAI wire spells the same condition `finish_reason: "length"`,
+    /// per choice rather than per response.
+    #[test]
+    fn openai_output_cap_is_detected() {
+        let capped = serde_json::json!({
+            "choices": [{"finish_reason": "length", "message": {"content": "…"}}]
+        });
+        assert!(hit_output_cap(&capped));
+    }
+
+    /// A provider that reports no stop reason at all (bare-bones gateways)
+    /// must read as "finished", never as an endless continuation loop.
+    #[test]
+    fn absent_stop_reason_is_not_a_cap() {
+        let quiet = serde_json::json!({"id": "msg_1"});
+        assert!(!hit_output_cap(&quiet));
+    }
+
+    /// Pages are concatenated with no separator: the resumed text continues
+    /// the previous one mid-sentence, so nothing may be inserted between them.
+    #[test]
+    fn continued_reply_joins_pages_verbatim() {
+        let mut reply = ContinuedReply::start("the verdict is accep".into(), true);
+        reply.text.push_str("table");
+        assert_eq!(reply.text, "the verdict is acceptable");
+    }
 
     /// Real OpenAI needs `max_completion_tokens`; every compatible gateway
     /// keeps the classic `max_tokens` (the legacy transport's switch).
