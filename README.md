@@ -189,7 +189,10 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 
 ## Getting started
 
-Get from a clean machine to the running IDE in four steps.
+Get from a clean machine to the running IDE in four steps. For the full per-OS
+walkthrough — package lists for Debian/Ubuntu, Fedora and Arch, where the
+artifacts land, and what to do when the build fails — see
+**[docs/BUILDING.md](docs/BUILDING.md)**.
 
 ### 1. Install the requirements
 
