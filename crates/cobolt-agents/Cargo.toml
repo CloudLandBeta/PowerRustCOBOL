@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tantivy = { version = "0.22.1", optional = true }
 rig-sqlite = { version = "0.40.0", optional = true }
-tokenizers = { version = "0.23.1", optional = true }
+tokenizers = "0.23"   # non-optional: the Candle BERT embedder needs it
 opentelemetry = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", optional = true, features = ["http", "http-proto", "internal-logs", "logs", "metrics", "opentelemetry-http", "prost", "reqwest-blocking-client", "trace"] }
 ndarray = { version = "0.15", optional = true }
@@ -32,13 +32,22 @@ tokio-rusqlite = { version = "0.6", optional = true }
 cobolt-forms = { path = "../cobolt-forms" }
 tempfile = "3.10"
 reqwest = { version = "0.13.3", features = ["json", "stream"] }
+# Vector Knowledge Base. `async` is a default feature, but every call site here
+# is synchronous (`add_internal`/`search_internal`/`delete_internal`), and the
+# sync `build()` exists only under `not(feature = "async")` — so defaults are
+# off deliberately. Turning `async` back on breaks the builder call in
+# `knowledge_store`, it does not merely add an option.
+embedvec = { version = "0.8.0", default-features = false, features = ["fjall", "persistence-fjall"] }
+candle-core = "0.11"
+candle-nn = "0.11"
+candle-transformers = "0.11"
+hf-hub = { version = "1.0", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [features]
 default = []
 local-retrieval = [
     "dep:tantivy",
     "dep:rig-sqlite",
-    "dep:tokenizers",
     "dep:ndarray",
     "dep:ort",
     "dep:sqlite-vec",

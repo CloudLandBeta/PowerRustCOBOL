@@ -82,6 +82,18 @@ pub const FORM_DESIGNER: &str = "Form Designer Agent";
 /// creation or update to this exact agent.
 pub const DOCUMENTATION_AGENT: &str = "Documentation Agent";
 
+/// Whether an agent's approved submission is applied to the open form as a
+/// change-set. Grace routes an event-only request straight to
+/// [`EVENT_HANDLER`] (no form-design task is needed when every control already
+/// exists), so that agent's output reaches the form by the same path the
+/// designer's does. Membership here must stay in lockstep on both sides: an
+/// agent in this set is told the change-set schema (`CHANGE_SET_CONTRACT`) and
+/// is harvested by the apply path. Telling only one side is what silently
+/// discards a reviewed, approved handler.
+pub fn produces_form_change_set(agent: &str) -> bool {
+    agent.eq_ignore_ascii_case(FORM_DESIGNER) || agent.eq_ignore_ascii_case(EVENT_HANDLER)
+}
+
 const LEGACY_PEDANTIC_GRACE_REVIEWER: &str = "Pedantic Grace Reviewer";
 const LEGACY_ORCHESTRATOR_REVIEWER: &str = "Orchestrator Pedantic Reviewer Agent";
 const LEGACY_GRACE_REVIEWER_AGENT: &str = "Grace Pedantic Reviewer Agent";

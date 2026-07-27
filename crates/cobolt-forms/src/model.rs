@@ -2773,7 +2773,14 @@ pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 pub const DEFAULT_SHAPE_FILL_COLOR: &str = "#C0C0C0";
 
 pub const NEUMORPHIC_SURFACE_COLOR: &str = "#E1E6F8FF";
-pub const NEUMORPHIC_FORM_BACKGROUND: &str = "E1E6F8FF";
+/// Form-level colours are stored **without** the leading `#`; control-level
+/// ones keep it. Both spellings below are deliberate.
+pub const NEUMORPHIC_FORM_BACKGROUND: &str = "EAEBEFFF";
+/// Neumorphic Light seeds its controls with a South gradient, mirroring what
+/// Neumorphic Dark already does — the flat `NEUMORPHIC_SURFACE_COLOR` stays as
+/// the surface underneath, visible if the developer turns the gradient off.
+pub const NEUMORPHIC_GRADIENT_START: &str = "#F8F8F8FF";
+pub const NEUMORPHIC_GRADIENT_END: &str = "#DFE0E1FF";
 pub const NEUMORPHIC_DARK_SURFACE_COLOR: &str = "#36383EFF";
 pub const NEUMORPHIC_DARK_FORM_BACKGROUND: &str = "36383EFF";
 pub const NEUMORPHIC_DARK_LIGHT_SHADOW: &str = "#4E4E4EFF";
@@ -3669,7 +3676,19 @@ impl Control {
         self.set_prop("ShadowDistance", PropValue::Int(7));
         self.set_prop("ShadowBlur", PropValue::Bool(true));
         self.set_prop("ShadowBlurStrength", PropValue::Int(8));
-        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+        self.set_prop(
+            "BackgroundGradientStartColor",
+            PropValue::String(NEUMORPHIC_GRADIENT_START.into()),
+        );
+        self.set_prop(
+            "BackgroundGradientEndColor",
+            PropValue::String(NEUMORPHIC_GRADIENT_END.into()),
+        );
+        self.set_prop(
+            "BackgroundGradientDirection",
+            PropValue::String("South".into()),
+        );
     }
 
     pub fn apply_neumorphic_dark_defaults(&mut self) {
@@ -4861,6 +4880,68 @@ mod tests {
             assert!(c.get_prop("ShadowBlur").unwrap().as_bool());
             assert_eq!(c.get_prop("ShadowBlurStrength").unwrap().as_i64(), 8);
         }
+    }
+
+    /// The seeded values are ordinary property values the developer can edit
+    /// afterwards, not painting constants — the form takes a solid background
+    /// and every control takes a South gradient, mirroring Neumorphic Dark.
+    #[test]
+    fn neumorphic_light_seeds_the_form_colour_and_a_south_control_gradient() {
+        let mut form = Form::new("F".to_string(), "F".to_string(), 400, 300);
+        form.controls
+            .push(Control::new("Button-1", ControlType::Button, 10, 10));
+        form.apply_neumorphic_defaults();
+
+        // Form colours are stored without the leading '#'.
+        assert_eq!(form.background_color, "EAEBEFFF");
+        // The form itself takes a solid colour, not a gradient.
+        assert!(!form.background_gradient_enabled);
+
+        for c in &form.controls {
+            assert!(
+                c.get_prop("BackgroundGradientEnabled").unwrap().as_bool(),
+                "a neumorphic-light control is seeded with its gradient on"
+            );
+            assert_eq!(
+                c.get_prop("BackgroundGradientStartColor").unwrap().as_str(),
+                "#F8F8F8FF"
+            );
+            assert_eq!(
+                c.get_prop("BackgroundGradientEndColor").unwrap().as_str(),
+                "#DFE0E1FF"
+            );
+            assert_eq!(
+                c.get_prop("BackgroundGradientDirection").unwrap().as_str(),
+                "South"
+            );
+        }
+    }
+
+    /// Seeding must go through the same per-style entry point the designer
+    /// calls on a toolbox drop, or a dropped control is styled by one path and
+    /// a generated one by another.
+    #[test]
+    fn a_control_seeded_through_the_style_entry_point_gets_the_gradient() {
+        let mut c = Control::new("Button-1", ControlType::Button, 0, 0);
+        c.apply_glass_style_defaults(GlassStyle::Neumorphic);
+        assert!(c.get_prop("BackgroundGradientEnabled").unwrap().as_bool());
+        assert_eq!(
+            c.get_prop("BackgroundGradientStartColor").unwrap().as_str(),
+            NEUMORPHIC_GRADIENT_START
+        );
+
+        // The dark variant keeps its own, different gradient.
+        let mut d = Control::new("Button-2", ControlType::Button, 0, 0);
+        d.apply_glass_style_defaults(GlassStyle::NeumorphicDark);
+        assert_eq!(
+            d.get_prop("BackgroundGradientStartColor").unwrap().as_str(),
+            NEUMORPHIC_DARK_GRADIENT_START
+        );
+
+        // Classic seeds nothing — it is not a neumorphic style.
+        let mut plain = Control::new("Button-3", ControlType::Button, 0, 0);
+        plain.apply_glass_style_defaults(GlassStyle::Classic);
+        assert!(!plain.get_prop("BackgroundGradientEnabled").unwrap().as_bool());
     }
 
     #[test]

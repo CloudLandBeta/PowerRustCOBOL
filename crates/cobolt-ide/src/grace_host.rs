@@ -458,7 +458,7 @@ const PLAN_EXTRACT_PREAMBLE: &str = "The provided text is an agent's workflow-pl
 
 const VERDICT_EXTRACT_PREAMBLE: &str = "The provided text is a Pedantic reviewer's round verdict whose verdict JSON could not be parsed. Extract the verdict EXACTLY as the review states it: pedantic_verdict is \"acceptable\" only when the review approves the submission without requiring corrections, otherwise \"defects\"; correction_request carries the requested corrections verbatim (empty when acceptable). Never soften, add, or drop defects.";
 
-const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a Form Designer submission whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure — with identifiers, property names, values, and code copied verbatim. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
+const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a form specialist's submission (Form Designer or COBOL Event Handler Script Agent) whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure — with identifiers, property names, values, and code copied verbatim. A submission that presents an operation as prose or a bullet list (for example \"Operation: generate_event_handler, control_id: X, event: onClick\" followed by a fenced code block) still specifies that operation: extract it, taking the handler body verbatim from the code block. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
 
 impl DbAgentInvoker {
     /// Provider-native typed extraction over `source` using `agent`'s resolved
@@ -832,12 +832,16 @@ fn is_transient_model_error(message: &str) -> bool {
     .any(|marker| lower.contains(marker))
 }
 
-/// Extract the change-sets an *approved* Form-Designer task produced, so the
+/// Extract the change-sets the *approved* form-touching tasks produced, so the
 /// host can apply them through the reviewable preview/apply path (spec 030
-/// R6/R7). Only tasks that reached [`TaskState::Approved`] and were handled by
-/// `designer_agent` are considered; each yields the parse result of its final
-/// (approved) submission. Parsing/validation and application stay with the
-/// existing change-set path — this only *selects* what to apply.
+/// R6/R7). A task qualifies when it reached [`TaskState::Approved`] and was
+/// handled by `designer_agent` or by any other agent in
+/// [`crate::agents_db::produces_form_change_set`] — an event-only request is
+/// planned as a single event-handler task with no designer task at all, and
+/// filtering on the designer alone dropped its approved handler. Each task
+/// yields the parse result of its final (approved) submission. Parsing/
+/// validation and application stay with the existing change-set path — this
+/// only *selects* what to apply.
 pub fn approved_form_change_sets(
     record: &WorkflowRecord,
     designer_agent: &str,
@@ -846,36 +850,83 @@ pub fn approved_form_change_sets(
     record
         .tasks
         .iter()
-        .filter(|t| t.final_state == TaskState::Approved && t.spec.agent == designer_agent)
+        .filter(|t| {
+            t.final_state == TaskState::Approved
+                && (t.spec.agent.eq_ignore_ascii_case(designer_agent)
+                    || crate::agents_db::produces_form_change_set(&t.spec.agent))
+        })
         .filter_map(|t| t.submissions.last())
         .map(|s| crate::agent::parse_change_set(s))
         .collect()
 }
 
-/// The RAW submission text of the first Approved `designer_agent` task whose
-/// change-set parses with at least one operation. The contextual RAD-designer
-/// chat applies edits by parsing the reply text, so it must receive this raw
-/// block (which carries `{"operations":…}`) rather than the readable summary
-/// (whose ops are stripped to prose) — otherwise the agent's edits never apply.
-pub fn approved_form_change_set_submission(
+/// Ids of the approved form-touching tasks whose final submission carried no
+/// applicable operation — the task passed review but changed nothing. Reporting
+/// such a workflow as a plain success is what let a reviewed, approved event
+/// handler disappear without a word; the caller appends this to the reply.
+pub fn approved_form_tasks_without_operations(
     record: &WorkflowRecord,
     designer_agent: &str,
-) -> Option<String> {
+) -> Vec<String> {
     use cobolt_agents::grace::TaskState;
     record
         .tasks
         .iter()
         .filter(|t| {
             t.final_state == TaskState::Approved
-                && t.spec.agent.eq_ignore_ascii_case(designer_agent)
+                && (t.spec.agent.eq_ignore_ascii_case(designer_agent)
+                    || crate::agents_db::produces_form_change_set(&t.spec.agent))
         })
-        .filter_map(|t| t.submissions.last())
-        .find(|s| {
-            crate::agent::parse_change_set(s)
-                .map(|cs| !cs.operations.is_empty())
-                .unwrap_or(false)
+        .filter(|t| {
+            t.submissions
+                .last()
+                .and_then(|s| crate::agent::parse_change_set(s).ok())
+                .map(|cs| cs.operations.is_empty())
+                .unwrap_or(true)
         })
-        .cloned()
+        .map(|t| t.spec.id.clone())
+        .collect()
+}
+
+/// One fenced `{"operations":…}` block carrying EVERY operation the approved
+/// form-touching tasks produced, in task order. The contextual RAD-designer
+/// chat applies edits by parsing the reply text, so it must receive such a
+/// block rather than the readable summary (whose ops are stripped to prose) —
+/// otherwise the agent's edits never apply.
+///
+/// The operations are merged rather than taken from the first matching task:
+/// a request that both adds a control and wires its event is planned as a
+/// designer task *and* an event-handler task, and returning only the first
+/// would silently drop the other. Notes are concatenated so no message is lost.
+/// Returns `None` when no approved task yielded an operation, leaving the
+/// caller to fall back to the readable summary.
+pub fn approved_form_change_set_submission(
+    record: &WorkflowRecord,
+    designer_agent: &str,
+) -> Option<String> {
+    let mut operations = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    for cs in approved_form_change_sets(record, designer_agent)
+        .into_iter()
+        .flatten()
+    {
+        operations.extend(cs.operations);
+        if let Some(note) = cs.note.filter(|n| !n.trim().is_empty()) {
+            notes.push(note);
+        }
+    }
+    if operations.is_empty() {
+        return None;
+    }
+    let merged = crate::agent::AgentChangeSet {
+        operations,
+        note: (!notes.is_empty()).then(|| notes.join("\n\n")),
+    };
+    // The canonical re-encoding round-trips through the same parser the
+    // designer chat uses (`canonical_serialization_round_trips_through_parse`).
+    serde_json::to_string_pretty(&merged)
+        .ok()
+        .map(|json| format!("```json\n{json}\n```"))
 }
 
 /// Persist a workflow record under `agentic_ai/Grace/runs/<workflow-id>.json`
@@ -1147,8 +1198,12 @@ pub fn run_grace_workflow_with_control(
     } else {
         routing.context.trim()
     };
+    // Grace plans against the trimmed view; `context` stays full for the
+    // per-specialist slicing in `inject_task_context` further down.
+    let planning_context = planning_surface_context(context, request);
+    let planning_context = planning_context.as_str();
     let plan_user = format!(
-        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
+        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
     // The MODEL routes the request — no keyword pre-classification. Grace
     // reads the request and the contracts and chooses one of three shapes:
@@ -1253,9 +1308,13 @@ pub fn run_grace_workflow_with_control(
             .map(|a| a.tools.iter().cloned().collect())
             .unwrap_or_default();
         let appendix = crate::tool_exec::tool_contract_appendix(&declared);
-        // Only the Form Designer's submission is parsed as a change-set
-        // (`approved_form_change_sets`), so only it is told that schema.
-        let change_set = if name == crate::agents_db::FORM_DESIGNER {
+        // Every agent whose submission is parsed as a change-set
+        // (`approved_form_change_sets`) is told that schema. The event-handler
+        // specialist is in that set: its own prompt already ends "return the
+        // handler as a `generate_event_handler` operation inside the operations
+        // array", which names an envelope it could not see — so it wrote the
+        // operation as prose and the handler was never created.
+        let change_set = if crate::agents_db::produces_form_change_set(name) {
             crate::tool_exec::CHANGE_SET_CONTRACT
         } else {
             ""
@@ -1386,7 +1445,7 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             let mut ctx = inventory.clone();
             for block in [
                 form_properties_excerpt(context),
-                property_keys_excerpt(context, &inventory, &task.objective),
+                property_keys_excerpt(context, &inventory, &task.objective, "this task"),
             ] {
                 if block.is_empty() {
                     continue;
@@ -1404,20 +1463,73 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             // methods on them (e.g. `PictureBox-2::PlayAnimation()`). Without the
             // per-control API it invents method names (`Animate`, `StartAnimation`)
             // that its reviewer can never verify, so the correction loop never
-            // terminates. Give it the inventory (ids/types) plus the CONTROL API
-            // BY ID block (each control's real methods and properties).
+            // terminates. Give it the inventory (ids/types), the CONTROL API BY
+            // ID block (each control's real methods and properties), the events
+            // its types actually support, and the procedures it may CALL — its
+            // prompt names all four, so withholding any one leaves it obeying a
+            // list it cannot see.
             let mut ctx = inventory.clone();
-            if !api.is_empty() {
+            for block in [
+                events_excerpt(context, &inventory, &task.objective, "this task"),
+                api.clone(),
+                procedures_excerpt(context),
+            ] {
+                if block.is_empty() {
+                    continue;
+                }
                 if !ctx.is_empty() {
                     ctx.push_str("\n\n");
                 }
-                ctx.push_str(&api);
+                ctx.push_str(&block);
             }
             if !ctx.trim().is_empty() {
                 task.context = ctx;
             }
         }
     }
+}
+
+/// The surface context as Grace should see it for PLANNING: identical to the
+/// full context except that the two per-type legends are cut down to the types
+/// actually in play — those on the form, plus any the developer's request names.
+///
+/// Those two legends dominate everything else. Measured on a one-control form,
+/// `build_context` is 34,843 chars of which `PROPERTY KEYS BY TYPE` is 22,038
+/// and `EVENTS BY TYPE` is 10,720 — 94% describing all 34 control types, the
+/// same bytes on every request of every project, while the form actually being
+/// edited accounts for about a thousand. Grace routes work to specialists; she
+/// does not need TreeView's property keys to decide that a Button click belongs
+/// to the event-handler agent.
+///
+/// The FULL context must still reach [`inject_task_context`], which slices each
+/// specialist's own view from it: a task objective may name a type the request
+/// never mentions (Grace planning "deploy a Timer, then wire its tick" from
+/// "make it refresh"), and trimming before that slice would take the type away
+/// from the one agent that needs it. Trim Grace's copy, keep the original.
+///
+/// Returns the context unchanged when the legend markers are absent.
+fn planning_surface_context(context: &str, request: &str) -> String {
+    const FIRST: &str = "PROPERTY KEYS BY TYPE";
+    const AFTER: &str = "CONTROL API BY ID";
+    let (Some(start), Some(end)) = (context.find(FIRST), context.find(AFTER)) else {
+        return context.to_string();
+    };
+    if end <= start {
+        return context.to_string();
+    }
+    let inventory = control_inventory_excerpt(context);
+    let mut replacement = String::new();
+    for block in [
+        property_keys_excerpt(context, &inventory, request, "this request"),
+        events_excerpt(context, &inventory, request, "this request"),
+    ] {
+        if block.is_empty() {
+            continue;
+        }
+        replacement.push_str(&block);
+        replacement.push('\n');
+    }
+    format!("{}{}{}", &context[..start], replacement, &context[end..])
 }
 
 /// Slice the layout-relevant head of the surface context: from the FORM header
@@ -1462,7 +1574,7 @@ fn form_properties_excerpt(context: &str) -> String {
 /// task is what the budget cut was protecting against. Sending *none* of it left
 /// the designer unable to honour its own prompt. Empty when the marker is absent
 /// or no listed type is in play.
-fn property_keys_excerpt(context: &str, inventory: &str, objective: &str) -> String {
+fn property_keys_excerpt(context: &str, inventory: &str, objective: &str, scope: &str) -> String {
     const HEADING: &str = "PROPERTY KEYS BY TYPE";
     let Some(at) = context.find(HEADING) else {
         return String::new();
@@ -1492,7 +1604,7 @@ fn property_keys_excerpt(context: &str, inventory: &str, objective: &str) -> Str
         return String::new();
     }
     format!(
-        "PROPERTY KEYS BY TYPE (the types in play for this task):\n{}",
+        "PROPERTY KEYS BY TYPE (the types in play for {scope}):\n{}",
         kept.join("\n")
     )
 }
@@ -1514,6 +1626,65 @@ fn mentions_type(text: &str, ty: &str) -> bool {
         from = end;
     }
     false
+}
+
+/// Slice the `EVENTS BY TYPE` block down to the types in play, exactly as
+/// [`property_keys_excerpt`] does for properties.
+///
+/// This block sits BETWEEN the inventory and API windows, so before this it was
+/// delivered to nobody — while the event agent's prompt requires "the EXACT
+/// event name from the delegation context" and self-check 9 requires every
+/// reference to appear in that context. An event name is also hard-validated
+/// (`Control 'X' has no event 'Y'`) and an invalid op is skipped at apply, so a
+/// guessed name does not raise an error: it silently produces no handler. The
+/// full block covers all 34 types, hence the same in-play filter the property
+/// excerpt uses. Empty when the marker is absent or no listed type is in play.
+fn events_excerpt(context: &str, inventory: &str, objective: &str, scope: &str) -> String {
+    const HEADING: &str = "EVENTS BY TYPE";
+    let Some(at) = context.find(HEADING) else {
+        return String::new();
+    };
+    let rest = &context[at..];
+    let end = rest.find("CONTROL API BY ID").unwrap_or(rest.len());
+    let block = &rest[..end];
+
+    let mut kept: Vec<&str> = Vec::new();
+    for line in block.lines().skip(1) {
+        let Some((ty, _)) = line.trim_start().split_once(':') else {
+            continue;
+        };
+        let ty = ty.trim();
+        if ty.is_empty() {
+            continue;
+        }
+        let on_form = inventory.contains(&format!("({ty})"));
+        if on_form || mentions_type(objective, ty) {
+            kept.push(line);
+        }
+    }
+    if kept.is_empty() {
+        return String::new();
+    }
+    format!(
+        "EVENTS BY TYPE (the types in play for {scope}):\n{}",
+        kept.join("\n")
+    )
+}
+
+/// Slice the `PROCEDURES:` line: the common procedures already defined on the
+/// form. The event agent's prompt tells it to factor shared logic into a
+/// procedure and `CALL` it by name, which it cannot do safely while blind to
+/// which ones exist. Unlike an event name, a `CALL` target is NOT validated —
+/// `unknown_property_ref` skips call refs — so a guessed name is written into
+/// the form and fails later at COBOL compile time instead of at apply. Empty
+/// when the marker is absent.
+fn procedures_excerpt(context: &str) -> String {
+    let Some(at) = context.find("PROCEDURES:") else {
+        return String::new();
+    };
+    let rest = &context[at..];
+    let end = rest.find('\n').unwrap_or(rest.len());
+    rest[..end].trim_end().to_string()
 }
 
 /// Slice the `CONTROL API BY ID` block from the surface context: each control's
@@ -1542,10 +1713,11 @@ fn control_api_excerpt(context: &str) -> String {
     rest[..end].trim_end().to_string()
 }
 
-/// Canonicalize approved Form Designer submissions (Rig migration phase 3):
-/// when the final submission's change-set JSON does not parse
-/// deterministically, recover the typed change-set through provider-native
-/// extraction and append its canonical encoding as a new submission — the
+/// Canonicalize the approved submissions of every form-touching agent (Rig
+/// migration phase 3): when the final submission's change-set JSON does not
+/// parse deterministically, recover the typed change-set through
+/// provider-native extraction and append its canonical encoding as a new
+/// submission — the
 /// original stays in the record as evidence, and `approved_form_change_sets`
 /// (which reads the LAST submission) then parses without a model in the loop.
 /// An unrecoverable submission is left as-is; the apply path surfaces its
@@ -1557,7 +1729,7 @@ fn normalize_form_change_sets(
 ) {
     for task in &mut record.tasks {
         if task.final_state != TaskState::Approved
-            || task.spec.agent != crate::agents_db::FORM_DESIGNER
+            || !crate::agents_db::produces_form_change_set(&task.spec.agent)
         {
             continue;
         }
@@ -1573,7 +1745,7 @@ fn normalize_form_change_sets(
                 Ok(json) => {
                     task.submissions.push(format!("```json\n{json}\n```"));
                     on_progress(format!(
-                        "  {}: form change-set recovered via typed extraction.",
+                        "  {}: change-set recovered via typed extraction.",
                         task.spec.id
                     ));
                 }
@@ -1583,7 +1755,7 @@ fn normalize_form_change_sets(
                 )),
             },
             Err(e) => on_progress(format!(
-                "  {}: form change-set could not be recovered ({e}); the raw submission stands.",
+                "  {}: change-set could not be recovered ({e}); the raw submission stands.",
                 task.spec.id
             )),
         }
@@ -2413,6 +2585,81 @@ mod tests {
         assert_eq!(sets[0].as_ref().unwrap().operations.len(), 1);
     }
 
+    /// An event-only request ("wire Button-1's onClick") is planned as a single
+    /// COBOL Event Handler task with no Form Designer task at all. Harvesting
+    /// only the designer discarded that approved handler and the form was never
+    /// touched, with nothing said about it.
+    #[test]
+    fn an_approved_event_handler_task_yields_its_change_set() {
+        let handler = "```json\n{\"operations\":[{\"op\":\"generate_event_handler\",\"control_id\":\"Button-1\",\"event\":\"onClick\",\"code\":\"       ENVIRONMENT DIVISION.\"}]}\n```";
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![task(
+                crate::agents_db::EVENT_HANDLER,
+                TaskState::Approved,
+                handler,
+            )],
+            ..Default::default()
+        };
+        let sets = approved_form_change_sets(&record, "Form Designer Agent");
+        assert_eq!(sets.len(), 1, "the event-handler task is harvested");
+        assert_eq!(sets[0].as_ref().unwrap().operations.len(), 1);
+
+        // …and the contextual designer chat receives it as an applicable block.
+        let raw = approved_form_change_set_submission(&record, "Form Designer Agent")
+            .expect("an applicable change-set");
+        let parsed = crate::agent::parse_change_set(&raw).expect("parses");
+        assert!(matches!(
+            parsed.operations[0],
+            crate::agent::AgentOp::GenerateEventHandler { .. }
+        ));
+    }
+
+    /// A request that both adds a control and wires its event is two tasks;
+    /// returning only the first would silently drop the other.
+    #[test]
+    fn designer_and_event_handler_operations_are_merged_into_one_block() {
+        let deploy = "```json\n{\"operations\":[{\"op\":\"deploy_control\",\"control_type\":\"Button\",\"id\":\"BTN\"}]}\n```";
+        let handler = "```json\n{\"operations\":[{\"op\":\"generate_event_handler\",\"control_id\":\"BTN\",\"event\":\"onClick\",\"code\":\"x\"}]}\n```";
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![
+                task("Form Designer Agent", TaskState::Approved, deploy),
+                task(crate::agents_db::EVENT_HANDLER, TaskState::Approved, handler),
+            ],
+            ..Default::default()
+        };
+        let raw = approved_form_change_set_submission(&record, "Form Designer Agent")
+            .expect("an applicable change-set");
+        let parsed = crate::agent::parse_change_set(&raw).expect("parses");
+        assert_eq!(parsed.operations.len(), 2, "neither task is dropped");
+    }
+
+    /// An approved task whose submission carries no operation changed nothing;
+    /// the caller must be able to say so instead of reporting a bare success.
+    #[test]
+    fn an_approved_task_without_operations_is_reported() {
+        let prose = "**Operation: `generate_event_handler`** — control_id: Button-1. Status: approved.";
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![task(
+                crate::agents_db::EVENT_HANDLER,
+                TaskState::Approved,
+                prose,
+            )],
+            ..Default::default()
+        };
+        assert!(approved_form_change_set_submission(&record, "Form Designer Agent").is_none());
+        assert_eq!(
+            approved_form_tasks_without_operations(&record, "Form Designer Agent"),
+            vec!["T".to_string()],
+            "the barren task is named so the reply can warn about it"
+        );
+    }
+
     #[test]
     fn contextual_reply_carries_the_raw_change_set_for_the_designer() {
         // A Form Designer change-set submission the contextual designer chat must
@@ -2738,10 +2985,14 @@ mod tests {
              PictureBox: ImagePath, Visible\n  \
              TreeView: Nodes, ShowLines\n  \
              Slider: Value, Minimum, Maximum\n\
-             EVENTS BY TYPE:\n  BarChart: onClick\n\
+             EVENTS BY TYPE:\n  \
+             BarChart: onClick\n  \
+             PictureBox: onClick, onImageLoaded\n  \
+             Slider: onChange, onValueChanged\n\
              CONTROL API BY ID:\n  \
              PictureBox-2 (PictureBox): properties [ImagePath, Visible]; methods [PlayAnimation, StopAnimation, SetProperty]\n\
-             PROPERTY INTENT MAP: shadow => ShadowEnabled";
+             PROPERTY INTENT MAP: shadow => ShadowEnabled\n\
+             PROCEDURES: VALIDATE-INPUT, RECALC-TOTAL";
         let mut plan = vec![
             TaskSpec {
                 id: "T1".into(),
@@ -2812,12 +3063,143 @@ mod tests {
             plan[1].context.contains("PlayAnimation"),
             "event task gets each control's real methods"
         );
+        // …and the events its types support. An event name is hard-validated and
+        // an invalid op is skipped at apply, so a guessed name yields no handler
+        // and no error — the same silent nothing a missing change-set produced.
+        assert!(
+            plan[1].context.contains("EVENTS BY TYPE"),
+            "event task gets the event legend it is told to bind against"
+        );
+        assert!(plan[1].context.contains("BarChart: onClick"));
+        assert!(plan[1].context.contains("PictureBox: onClick, onImageLoaded"));
+        assert!(
+            !plan[1].context.contains("Slider:"),
+            "a type absent from the form and the objective stays out of the budget"
+        );
+        // …and the procedures it may CALL. A CALL target is NOT validated, so a
+        // guessed name reaches the form and fails at COBOL compile time.
+        assert!(
+            plan[1].context.contains("PROCEDURES: VALIDATE-INPUT, RECALC-TOTAL"),
+            "event task gets the procedures it is told to CALL by name"
+        );
         assert!(
             !plan[1].context.contains("PROPERTY INTENT MAP"),
             "the API excerpt stops before the next section"
         );
         // Grace-filled context is untouched.
         assert_eq!(plan[2].context, "Grace's own exact identifiers");
+    }
+
+    /// Grace routes work; she does not need all 34 types' property keys and
+    /// events to decide that a Button click belongs to the event-handler agent.
+    /// Her copy is trimmed to the types in play — but the FULL context must
+    /// survive for `inject_task_context`, or a specialist loses the very type
+    /// its objective names.
+    #[test]
+    fn graces_planning_context_is_trimmed_but_the_full_one_survives_for_tasks() {
+        let context = "CONTEXT\nFORM: MAIN-FORM (800x600)\n\
+             CONTROLS:\n  Button-1 (Button) @(10,10) 80x30\n\
+             PROPERTY KEYS BY TYPE (for all available controls):\n  \
+             Button: Caption, X, Y\n  \
+             Timer: Interval, Enabled\n  \
+             TreeView: Items, ShowLines\n\
+             EVENTS BY TYPE (for all available controls):\n  \
+             Button: onClick\n  \
+             Timer: onTick\n  \
+             TreeView: onNodeClick\n\
+             CONTROL API BY ID:\n  Button-1 (Button): properties [Caption]; methods [SetCaption]\n\
+             PROCEDURES: (none)";
+        let request = "add code on the onClick event for Button-1";
+        let planning = planning_surface_context(context, request);
+
+        // The form, the API block and the tail are preserved verbatim.
+        assert!(planning.contains("FORM: MAIN-FORM (800x600)"));
+        assert!(planning.contains("Button-1 (Button) @(10,10) 80x30"));
+        assert!(planning.contains("CONTROL API BY ID:"));
+        assert!(planning.contains("PROCEDURES: (none)"));
+        // The type on the form keeps both legends…
+        assert!(planning.contains("Button: Caption, X, Y"));
+        assert!(planning.contains("Button: onClick"));
+        // …and the 33 types that have nothing to do with this request are gone.
+        assert!(
+            !planning.contains("TreeView") && !planning.contains("Timer"),
+            "unrelated types must not reach Grace: {planning}"
+        );
+        assert!(
+            planning.len() < context.len(),
+            "the trimmed view must be smaller"
+        );
+
+        // The untrimmed context still resolves a type only a task objective
+        // names — the regression that trimming too early would cause.
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::EVENT_HANDLER.into(),
+            objective: "wire the Timer tick".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+        inject_task_context(context, &mut plan);
+        assert!(
+            plan[0].context.contains("Timer: onTick"),
+            "the specialist still gets the type its objective names"
+        );
+    }
+
+    /// A context without the legend markers must pass through untouched rather
+    /// than be silently emptied.
+    #[test]
+    fn planning_context_without_legends_is_unchanged() {
+        let bare = "CONTEXT\nFORM: F (10x10)\nCONTROLS:\n  (none)";
+        assert_eq!(planning_surface_context(bare, "anything"), bare);
+    }
+
+    /// "Deploy a Timer, then wire its tick" is two tasks: at injection time the
+    /// Timer is not on the form yet, so its event list can only come from the
+    /// objective. A Timer supports exactly one event (`onTick`), and a guess
+    /// (`onTimer`, `onElapsed`) is rejected by `validate_op` and then skipped at
+    /// apply — no handler, no error. The events legend must therefore follow the
+    /// same in-play rule the property keys do.
+    #[test]
+    fn event_task_gets_the_events_of_a_type_named_only_in_its_objective() {
+        let context = "CONTEXT\nFORM: MAIN-FORM (800x600)\n\
+             CONTROLS:\n  Label-1 (Label) @(10,10) 100x20\n\
+             PROPERTY KEYS BY TYPE:\n  Timer: Interval, Enabled\n\
+             EVENTS BY TYPE:\n  \
+             Label: onClick\n  \
+             Timer: onTick\n  \
+             TreeView: onNodeClick\n\
+             CONTROL API BY ID:\n  Label-1 (Label): properties [Caption]; methods [SetCaption]\n\
+             PROCEDURES: (none)";
+        let mut plan = vec![TaskSpec {
+            id: "T2".into(),
+            agent: crate::agents_db::EVENT_HANDLER.into(),
+            objective: "wire the Timer to refresh Label-1 every second".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+        inject_task_context(context, &mut plan);
+
+        assert!(
+            plan[0].context.contains("Timer: onTick"),
+            "the type named in the objective brings its events, though it is not on the form yet"
+        );
+        assert!(
+            plan[0].context.contains("Label: onClick"),
+            "the type already on the form keeps its events"
+        );
+        assert!(
+            !plan[0].context.contains("TreeView"),
+            "an unrelated type stays out of the delegated budget"
+        );
+        assert!(
+            plan[0].context.contains("PROCEDURES: (none)"),
+            "an empty procedure list is still an answer — it says none exist to CALL"
+        );
     }
 
     /// A control the task is about to CREATE is not on the form yet, so its

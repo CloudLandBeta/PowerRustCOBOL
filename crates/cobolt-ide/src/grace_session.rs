@@ -364,11 +364,26 @@ pub fn spawn_contextual_request(
                         crate::agents_db::FORM_DESIGNER,
                     );
                     let reply = change_set_reply.unwrap_or_else(|| {
-                        crate::grace_host::workflow_chat_reply(
+                        let mut summary = crate::grace_host::workflow_chat_reply(
                             &record,
                             preferred.as_deref(),
                             llm.verbose_log,
-                        )
+                        );
+                        // An approved task that produced no operation changes
+                        // nothing. Say so: reporting it as a plain success is
+                        // how a reviewed handler vanished silently, leaving the
+                        // developer to discover the form was untouched.
+                        let barren = crate::grace_host::approved_form_tasks_without_operations(
+                            &record,
+                            crate::agents_db::FORM_DESIGNER,
+                        );
+                        if !barren.is_empty() {
+                            summary.push_str(&format!(
+                                "\n\n\u{26a0} {} was approved but returned no change-set operation, so the form is unchanged. Nothing was applied.",
+                                barren.join(", ")
+                            ));
+                        }
+                        summary
                     });
                     let _ = tx.send(LlmResponse::Ok(reply));
                 }

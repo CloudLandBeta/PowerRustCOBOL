@@ -2716,6 +2716,16 @@ impl DesignerPanel {
         }
 
         let same_form = clipboard.source_form == self.form.name;
+        // A control arriving from another form adopts this form's style, the
+        // same way a control dropped from the toolbox does — otherwise pasting
+        // from a Classic form leaves a Classic-looking control sitting on a
+        // neumorphic surface. A same-form paste is a plain duplicate and keeps
+        // whatever the developer customised on the original.
+        if !same_form && self.form.glass_style.is_neumorphic() {
+            for ctrl in &mut pasted {
+                ctrl.apply_glass_style_defaults(self.form.glass_style);
+            }
+        }
         let mut paragraph_map = HashMap::new();
         let mut reserved_paragraphs = self.existing_procedure_names();
         for ctrl in &mut pasted {

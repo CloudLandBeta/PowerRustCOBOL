@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod bert_embedder;
 pub mod grace;
+pub mod knowledge_store;
 pub mod project_knowledge;
 pub mod rig_transport;
 pub mod sandbox;

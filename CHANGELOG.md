@@ -8,6 +8,107 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.36.16] — 2026-07-26
+
+### Changed
+
+- **Groundwork for a Knowledge Base the agents can query instead of being
+  handed everything.** A vector store (embedvec with E8 quantization and cosine
+  similarity, persisted through Fjall) and a semantic embedder (a pure-Rust BERT
+  running on Candle, `all-MiniLM-L6-v2`) now exist as their own layer, with the
+  IDE's own index living outside any project at `~/PowerRustCOBOL/data` and a
+  project's own at `<project>/data`. Re-indexing an edited document replaces its
+  vector rather than adding a second one, and a document deleted on disk leaves
+  the index, so retrieval cannot serve text that no longer exists. Nothing
+  queries this yet and no behaviour changes in this version — the agents are
+  still handed their context directly. When the model is not present the
+  embedder falls back to the previous word-matching behaviour and says so
+  rather than pretending to understand meaning.
+
+## [PowerRustCOBOL 1.36.15] — 2026-07-26
+
+### Changed
+
+- **Grace plans against the controls in play instead of the whole catalogue.**
+  The context handed to her carried the property keys and the events of all 34
+  control types on every request — measured on a one-control form, 32,758 of
+  34,843 characters, the same bytes for every project and every request, while
+  the form actually being edited accounted for about a thousand. She routes work
+  to specialists; deciding that a button click belongs to the event-handler agent
+  never needed a tree view's property list. Her copy now carries only the types
+  on the form plus any the request names, the same trimming her specialists
+  already received. The untrimmed context is still what each specialist's own
+  view is sliced from, so a task whose objective names a type the request never
+  mentioned — "deploy a Timer, then wire its tick" — still reaches the agent
+  with that type intact.
+
+## [PowerRustCOBOL 1.36.14] — 2026-07-26
+
+### Fixed
+
+- **The event agent can now see the events it is told to bind to.** Its prompt
+  requires "the EXACT event name from the delegation context", and its own
+  self-check requires every reference to appear in that context — but the
+  `EVENTS BY TYPE` legend sat between the two slices it was sent, so it reached
+  no one. The name is then checked on the way in, and a control that has no such
+  event makes the operation invalid, and an invalid operation is skipped in
+  silence: guessing `onChange` for a data grid that calls it `onSelectionChanged`
+  produced an approved workflow and no handler, with nothing said. The legend now
+  travels with the task, trimmed to the types the task can actually touch — those
+  on the form plus any named in the objective, so wiring a control the same
+  workflow is about to create still works.
+- **It can also see the procedures it is told to call.** The prompt tells it to
+  factor shared logic into a common procedure and `CALL` it by name while the
+  existing names were sliced away. A call target is not checked on the way in, so
+  a guessed name reached the form and failed later at compile time rather than at
+  the point it was written.
+
+## [PowerRustCOBOL 1.36.13] — 2026-07-26
+
+### Fixed
+
+- **An event handler asked for on its own now reaches the form.** "Add code on
+  the onClick event of Button-1" is planned as a single COBOL Event Handler
+  Script Agent task — no form-design task is needed when every control already
+  exists — and that whole branch was disconnected from the form. The agent was
+  told to return its work "as a `generate_event_handler` operation inside the
+  operations array" but was never shown the fenced-JSON envelope that phrase
+  refers to, because the change-set contract was handed to the Form Designer
+  alone; so it described the operation in prose instead. Even had it emitted a
+  perfect block, the three places that collect, recover, and apply change-sets
+  each matched on the Form Designer's name and would have skipped it. The
+  workflow ran, the pedantic reviewer approved the handler on its merits, and
+  the form was left untouched. All four sites now share one definition of which
+  agents produce form change-sets, so the handler is written to the control.
+- **A request that adds a control *and* wires its event no longer loses one of
+  them.** The contextual designer chat took the first approved change-set it
+  found and dropped the rest; the operations from every approved task are now
+  merged into the single block it applies.
+- **An approved task that changed nothing says so.** When a form or event task
+  passes review but returns no applicable operation, the reply now states that
+  the form is unchanged instead of reporting a bare success — the silence is
+  what left the missing handler to be discovered by hand.
+
+## [PowerRustCOBOL 1.36.12] — 2026-07-26
+
+### Changed
+
+- **Neumorphic Light seeds new forms and controls with its own colours.** A form
+  created in that style now takes `EAEBEF` as its background, and a control
+  arriving on such a form is seeded with a South gradient from `F8F8F8` to
+  `DFE0E1` — the same shape Neumorphic Dark already used, which had the gradient
+  while Light did not. These are default *property values* written once at
+  creation, not painting constants: the painter still reads whatever each
+  control carries, and every one of them stays editable in the properties grid
+  afterwards. The flat surface colour underneath is unchanged, so turning a
+  control's gradient off returns it to the previous look.
+- **A control pasted from another form adopts this form's style.** Paste cloned
+  the source control verbatim, so a control copied from a Classic form kept its
+  Classic styling while sitting on a neumorphic surface — the toolbox drop had
+  seeded the style since it was introduced, but paste had not. A paste *within*
+  the same form is still a plain duplicate and keeps whatever the developer
+  customised on the original.
+
 ## [PowerRustCOBOL 1.36.11] — 2026-07-26
 
 ### Fixed
