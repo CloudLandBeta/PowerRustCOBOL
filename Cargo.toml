@@ -21,6 +21,7 @@ members = [
     # "crates/cobolt-plugin-api",
     # "crates/cobolt-plugin-loader",
     "crates/cobolt-ide", "crates/cobolt-agents",
+    "crates/cobolt-bench",   # performance + allocation baseline harness
 ]
 resolver = "2"
 

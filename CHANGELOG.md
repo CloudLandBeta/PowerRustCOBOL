@@ -23,6 +23,23 @@ from.
   **is** required — `libsqlite3-sys` (bundled SQLite for the COBOL database
   runtime) and `onig_sys` (the tokenizer's regex engine) compile C — while no
   C++ compiler, CMake, NASM, Python, Node or JVM is involved anywhere.
+- **A benchmark harness** (`cobolt-bench`) and the 1.37.0 baseline at
+  [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Every COBOL workload runs the same
+  path a shipped binary takes — tokenize, parse, analyse, `Interpreter::run` —
+  under a counting global allocator, so speed and memory churn are measured on
+  the interpreter that is actually inside the binaries you hand over. Six
+  workloads: interpreter dispatch (inline and paragraph-call), decimal
+  `COMPUTE`, a 1000-row record batch written and read back, object
+  create/destroy churn, and the INDEXED redb engine under bulk insert plus
+  random-key reads. The last of those recovers the `open_table_cost`
+  micro-benchmark that was `#[ignore]`d inside `cobolt-runtime::indexed_redb`
+  and only ran when someone remembered an exact `--ignored` invocation.
+
+  The baseline's finding: **the allocator, not the tree-walk, is the
+  bottleneck**. 5.7 M statements/sec, but 24 M allocations to run 6 M
+  statements — `ADD 1 TO ACC` on two `COMP` fields costs four trips through the
+  allocator. A bytecode VM would make dispatch cheaper and leave that untouched,
+  so the optimization work starts with allocation instead.
 - **A crate inventory** at [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md): every
   direct dependency with the version actually linked, which workspace crate uses
   it and what it is for, plus the ones declared behind an off-by-default feature

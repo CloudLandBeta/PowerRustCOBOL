@@ -1193,6 +1193,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-bench"
+version = "0.2.0"
+dependencies = [
+ "cobolt-ast",
+ "cobolt-lexer",
+ "cobolt-parser",
+ "cobolt-runtime",
+ "cobolt-semantic",
+ "redb",
+]
+
+[[package]]
 name = "cobolt-cli"
 version = "0.2.0"
 dependencies = [
