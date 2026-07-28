@@ -820,16 +820,25 @@ impl AgentInvoker for DbAgentInvoker {
         let mut attempt = 0usize;
         let reply = loop {
             let effective_call = if attempt > 0 {
-                // Retries change two things at once. Native tools are dropped
-                // (the fenced protocol in the system prompt keeps every tool
-                // reachable as text) and the token budget is raised: a hidden-
-                // reasoning model can exhaust `max_tokens` thinking about a
-                // large task and return EMPTY final content — observed live as
-                // ever-longer generations (6s→15s→28s) that all came back
-                // empty, and once as 805 output tokens carrying only 352
-                // visible characters.
+                // The two remedies are applied in order of harm, NOT both at
+                // once. The budget is raised on every retry: a hidden-reasoning
+                // model can exhaust `max_tokens` thinking about a large task and
+                // return EMPTY final content — observed live as ever-longer
+                // generations (6s→15s→28s) that all came back empty, and once as
+                // 805 output tokens carrying only 352 visible characters.
+                //
+                // Native tools are dropped only from the SECOND retry. Detaching
+                // them is the gemma remedy (that model returned empty whenever
+                // tool definitions rode along), but it is actively harmful to an
+                // agent whose system prompt mandates native calls and forbids the
+                // fenced form: observed live, a tool-less Form Designer retry
+                // answered with the prose sentence "knowledge_search {…}" and no
+                // change-set at all. A budget-starved reply gets its budget back
+                // first, with the tools it was told to use.
                 let mut adjusted = call.clone();
-                adjusted.tools = cobolt_agents::rig_transport::AgentTools::default();
+                if attempt >= 2 {
+                    adjusted.tools = cobolt_agents::rig_transport::AgentTools::default();
+                }
                 adjusted.max_tokens = call
                     .max_tokens
                     .saturating_mul(1u32 << attempt.min(3))
@@ -856,7 +865,13 @@ impl AgentInvoker for DbAgentInvoker {
                         // Persistent empty responses are a model/provider
                         // incompatibility the operator can fix in the Models
                         // Manager — say so instead of leaving a bare error.
-                        let hint = if msg.contains("no message or tool call") {
+                        // Only after the full retry ladder actually ran:
+                        // "repeatedly" would be false for a cancel that
+                        // stopped the loop on the first empty reply.
+                        let hint = if attempt >= 2
+                            && (msg.contains("no message or tool call")
+                                || msg.contains("no assistant text"))
+                        {
                             format!(
                                 " — {}/{} returned empty responses repeatedly for this agent's prompts; consider assigning \u{201c}{agent}\u{201d} a different model in the Models Manager",
                                 cfg.provider, cfg.model
@@ -867,14 +882,31 @@ impl AgentInvoker for DbAgentInvoker {
                         return Err(format!("{agent}: {msg}{hint}"));
                     }
                     attempt += 1;
+                    // A budget already at the escalation cap (e.g. the 32k
+                    // reasoning-first floor) cannot rise further — say "kept
+                    // at", not "raised to", so the log states what actually
+                    // changes between attempts.
+                    let budget_for = |a: usize| {
+                        call.max_tokens
+                            .saturating_mul(1u32 << a.min(3))
+                            .min(32_768)
+                            .max(call.max_tokens)
+                    };
+                    let next_budget = budget_for(attempt);
                     crate::llm::push_ai_log(
                         crate::llm::AiLogKind::Info,
                         format!(
-                            "{agent}: transient model error — retry {attempt}/2 (native tools detached; max_tokens raised to {})",
-                            call.max_tokens
-                                .saturating_mul(1u32 << attempt.min(3))
-                                .min(32_768)
-                                .max(call.max_tokens)
+                            "{agent}: transient model error — retry {attempt}/2 ({}; max_tokens {} {next_budget})",
+                            if attempt >= 2 {
+                                "native tools detached"
+                            } else {
+                                "native tools kept"
+                            },
+                            if next_budget > budget_for(attempt - 1) {
+                                "raised to"
+                            } else {
+                                "kept at"
+                            },
                         ),
                     );
                     std::thread::sleep(std::time::Duration::from_millis(750 * attempt as u64));
@@ -942,6 +974,12 @@ fn is_transient_model_error(message: &str) -> bool {
     [
         "no message or tool call",
         "(empty)",
+        // The transport's own spelling of the same condition: the response
+        // parsed fine but carried no assistant text (hidden reasoning only, or
+        // the output cap reached before any text). Observed live as a Form
+        // Designer task that died after 72s with no retry at all, because only
+        // rig's wording was listed here.
+        "no assistant text",
         "timed out",
         "timeout",
         "connection reset",
@@ -3141,6 +3179,16 @@ mod tests {
     fn transient_model_errors_are_classified_for_retry() {
         assert!(is_transient_model_error(
             "model request failed: ResponseError: Response contained no message or tool call (empty)"
+        ));
+        // The transport's own wording for the same condition. Observed live:
+        // anthropic/claude-sonnet-5 answered a 30-control Form Designer task
+        // with no assistant text after 72.7s, and the workflow died on the
+        // first attempt because only rig's phrasing was classified.
+        assert!(is_transient_model_error(
+            "the model returned no assistant text"
+        ));
+        assert!(is_transient_model_error(
+            "the model returned no assistant text — the reply carried only hidden reasoning (1 block(s), 812 rendered character(s)), which cannot be applied as a plan, change-set, or review"
         ));
         assert!(is_transient_model_error("request timed out after 30s"));
         assert!(is_transient_model_error("HTTP 503 Service Unavailable"));

@@ -318,6 +318,14 @@ pub struct CoboltApp {
     agents_modal: Option<crate::panels::agents_modal::AgentsModal>,
     /// Models Manager modal (spec 031), present while open.
     models_modal: Option<crate::panels::models_modal::ModelsModal>,
+    /// One-shot startup probe of the semantic Knowledge Base model (loads the
+    /// model, so it runs on a worker thread).
+    semantic_probe_rx:
+        Option<std::sync::mpsc::Receiver<cobolt_agents::project_knowledge::SemanticModelState>>,
+    /// The probe (or its download) settled — do not probe again this run.
+    semantic_probe_done: bool,
+    /// In-flight semantic-model download, rendered as an IDE-blocking modal.
+    semantic_download: Option<SemanticModelDownload>,
     llm_benchmark_offer: Option<crate::llm::LlmConfig>,
     llm_benchmark_config: Option<crate::llm::LlmConfig>,
     llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
@@ -934,6 +942,9 @@ impl CoboltApp {
             llm_reviewer_models_rx: None,
             agents_modal: None,
             models_modal: None,
+            semantic_probe_rx: None,
+            semantic_probe_done: false,
+            semantic_download: None,
             llm_benchmark_offer: None,
             llm_benchmark_config: None,
             llm_benchmark_rx: None,
@@ -6202,6 +6213,9 @@ impl CoboltApp {
                     self.agent_preview = None;
                 }
             }
+            if act.semantic_download_requested && self.semantic_download.is_none() {
+                self.start_semantic_download();
+            }
             ctx.request_repaint();
         }
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
@@ -8064,6 +8078,191 @@ fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
 
 // ── eframe::App ───────────────────────────────────────────────────────────────
 
+/// An in-flight download of the semantic Knowledge Base model, surfaced as an
+/// IDE-blocking modal (the IDE must not run half-installed: a workflow syncing
+/// the index mid-download would stamp it with the lexical fallback).
+struct SemanticModelDownload {
+    progress: std::sync::Arc<cobolt_agents::bert_embedder::DownloadProgress>,
+    rx: std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>,
+    /// The worker's error once it failed; the modal switches from the progress
+    /// bar to a retry / continue-without choice.
+    failed: Option<String>,
+}
+
+impl CoboltApp {
+    /// Startup gate for the semantic Knowledge Base model.
+    ///
+    /// Probes once per run (worker thread — the probe loads the model): a
+    /// missing model starts the download, an unreadable one is discarded and
+    /// re-downloaded, a healthy one ends the gate silently. While a download
+    /// runs, an [`egui::Modal`] (IDE-themed by construction — it renders with
+    /// the live style) blocks the whole IDE and shows total size, progress and
+    /// the translated explanation; it disappears when the download completes
+    /// and only ever returns when the model must be fetched again.
+    fn semantic_model_gate(&mut self, ctx: &egui::Context) {
+        use cobolt_agents::project_knowledge as pk;
+        use std::sync::atomic::Ordering;
+        use std::sync::mpsc::TryRecvError;
+
+        if !self.semantic_probe_done
+            && self.semantic_probe_rx.is_none()
+            && self.semantic_download.is_none()
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(pk::semantic_model_probe());
+            });
+            self.semantic_probe_rx = Some(rx);
+        }
+        if let Some(rx) = &self.semantic_probe_rx {
+            match rx.try_recv() {
+                Ok(state) => {
+                    self.semantic_probe_rx = None;
+                    match state {
+                        pk::SemanticModelState::Ready => self.semantic_probe_done = true,
+                        pk::SemanticModelState::Missing => self.start_semantic_download(),
+                        pk::SemanticModelState::Corrupt => {
+                            self.output.push_status(
+                                "Knowledge Base semantic model is unreadable; fetching a fresh copy.",
+                            );
+                            match pk::discard_semantic_model() {
+                                Ok(()) => self.start_semantic_download(),
+                                Err(error) => {
+                                    // Nothing left to do without rm rights; the
+                                    // search falls back to lexical instead of
+                                    // looping the gate forever.
+                                    self.output.push_status(format!(
+                                        "Could not remove the corrupt model: {error}"
+                                    ));
+                                    self.semantic_probe_done = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(TryRecvError::Empty) => {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(200));
+                }
+                Err(TryRecvError::Disconnected) => {
+                    self.semantic_probe_rx = None;
+                    self.semantic_probe_done = true;
+                }
+            }
+        }
+
+        // Drain the worker before rendering, outside the borrow of the modal.
+        let mut finished: Option<Result<std::path::PathBuf, String>> = None;
+        if let Some(download) = &mut self.semantic_download {
+            if download.failed.is_none() {
+                match download.rx.try_recv() {
+                    Ok(result) => finished = Some(result),
+                    Err(TryRecvError::Empty) => {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(150));
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        download.failed =
+                            Some("the download thread ended unexpectedly".to_string());
+                    }
+                }
+            }
+        }
+        match finished {
+            Some(Ok(dir)) => {
+                self.output.push_status(format!(
+                    "Semantic search model installed in {} — Knowledge Base search is now multilingual.",
+                    dir.display()
+                ));
+                self.semantic_download = None;
+                self.semantic_probe_done = true;
+                if let Some(manager) = &mut self.models_modal {
+                    manager.invalidate_semantic_probe();
+                }
+            }
+            Some(Err(error)) => {
+                if let Some(download) = &mut self.semantic_download {
+                    download.failed = Some(error);
+                }
+            }
+            None => {}
+        }
+
+        let Some(download) = &self.semantic_download else {
+            return;
+        };
+        let tr = self.lang.tr();
+        let mut retry = false;
+        let mut continue_without = false;
+        egui::Modal::new(egui::Id::new("semantic_model_gate")).show(ctx, |ui| {
+            ui.set_width(440.0);
+            ui.heading(tr.models_semantic_downloading);
+            ui.add_space(6.0);
+            ui.label(tr.models_semantic_progress_why);
+            ui.add_space(10.0);
+            if let Some(error) = &download.failed {
+                ui.label(egui::RichText::new(error).color(ui.visuals().error_fg_color));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.models_semantic_retry).clicked() {
+                        retry = true;
+                    }
+                    if ui.button(tr.models_semantic_continue_without).clicked() {
+                        continue_without = true;
+                    }
+                });
+            } else {
+                let downloaded = download.progress.downloaded.load(Ordering::Relaxed);
+                let total = download.progress.total.load(Ordering::Relaxed);
+                let fraction = if total > 0 {
+                    (downloaded as f32 / total as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                ui.add(egui::ProgressBar::new(fraction).show_percentage().animate(true));
+                ui.add_space(4.0);
+                let mb = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+                if total > 0 {
+                    ui.label(format!("{:.1} MB / {:.1} MB", mb(downloaded), mb(total)));
+                } else {
+                    // The preflight is still sizing the transfer.
+                    ui.label(format!("{:.1} MB", mb(downloaded)));
+                }
+            }
+        });
+        if retry {
+            self.start_semantic_download();
+        }
+        if continue_without {
+            self.output.push_status(
+                "Semantic model not installed — Knowledge Base search stays lexical. \
+                 Download it any time from the Models Manager.",
+            );
+            self.semantic_download = None;
+            self.semantic_probe_done = true;
+        }
+    }
+
+    /// Spawn the download worker and open the blocking modal (replaces a
+    /// failed attempt when called from Retry).
+    fn start_semantic_download(&mut self) {
+        let progress =
+            std::sync::Arc::new(cobolt_agents::bert_embedder::DownloadProgress::default());
+        let worker = progress.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(cobolt_agents::project_knowledge::download_semantic_model(&worker));
+        });
+        self.output.push_status(format!(
+            "Downloading {} …",
+            cobolt_agents::bert_embedder::MODEL_ID
+        ));
+        self.semantic_download = Some(SemanticModelDownload {
+            progress,
+            rx,
+            failed: None,
+        });
+    }
+}
+
 impl eframe::App for CoboltApp {
     /// Clear to fully transparent so the OS compositor blends our semi-transparent
     /// panels directly against the desktop wallpaper.
@@ -8092,6 +8291,10 @@ impl eframe::App for CoboltApp {
         if self.llm_benchmark_rx.is_some() {
             ctx.request_repaint();
         }
+        // Semantic KB model gate: probes on startup and, when a download is
+        // needed (first run, cleaned cache, corrupt files), blocks the IDE
+        // behind a themed progress modal until the model is installed.
+        self.semantic_model_gate(ctx);
 
         // Keep the in-process diagnostics (design canvas / IDE) in sync with the
         // debug settings, so toggling one in Help → Debug Settings applies

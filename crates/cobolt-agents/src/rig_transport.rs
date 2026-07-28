@@ -20,7 +20,7 @@ use futures::StreamExt;
 use rig_core::client::CompletionClient;
 use rig_core::completion::Completion;
 use rig_core::completion::GetTokenUsage;
-use rig_core::message::{AssistantContent, Message};
+use rig_core::message::{AssistantContent, Message, Reasoning};
 use rig_core::providers::{anthropic, openai};
 use rig_core::streaming::{StreamedAssistantContent, StreamingCompletion};
 use rig_core::tool::{Tool, ToolDyn};
@@ -139,7 +139,15 @@ const ANTHROPIC_SAMPLING_MODELS: &[&str] = &[
 /// `temperature` costs only the configured value, which those models ignore
 /// anyway; sending it costs the entire request. Every other provider keeps
 /// receiving it exactly as before.
-fn sends_sampling_params(provider: &str, model: &str) -> bool {
+///
+/// Public because the same split identifies the REASONING-FIRST generation:
+/// exactly the models outside this allowlist think before they answer and can
+/// spend a small `max_tokens` budget entirely on hidden reasoning. The host's
+/// model-policy layer (`cobolt-ide::model_policy`) derives its output-budget
+/// floor from `!sends_sampling_params(..)`, so a new Anthropic model is
+/// covered on release without editing any list — do not narrow this function's
+/// contract without checking that consumer.
+pub fn sends_sampling_params(provider: &str, model: &str) -> bool {
     if !provider.trim().eq_ignore_ascii_case("anthropic") {
         return true;
     }
@@ -560,6 +568,47 @@ host_tool!(
     serde_json::json!({ "type": "object", "properties": {} })
 );
 
+/// Hidden reasoning seen in one response: how many blocks, and how much text
+/// they rendered to (encrypted blocks render to nothing, hence both counters).
+#[derive(Default)]
+struct ReasoningTally {
+    blocks: usize,
+    chars: usize,
+}
+
+impl ReasoningTally {
+    fn add(&mut self, reasoning: &Reasoning) {
+        self.blocks += 1;
+        self.chars += reasoning.display_text().chars().count();
+    }
+}
+
+/// The error for a response that carried no assistant text.
+///
+/// The wording always contains "no assistant text": the host classifies that
+/// phrase as retryable and answers it by dropping native tools and raising the
+/// token budget (`grace_host::is_transient_model_error`). What follows names
+/// the cause, because the two causes need different operator action — a model
+/// that spends the whole budget on hidden reasoning is a model-choice problem,
+/// while a bare cap hit is a budget problem.
+fn empty_reply_error(capped: bool, reasoning: &ReasoningTally) -> String {
+    let mut msg = String::from("the model returned no assistant text");
+    if reasoning.blocks > 0 {
+        msg.push_str(&format!(
+            " — the reply carried only hidden reasoning ({} block(s), {} rendered character(s)), which cannot be applied as a plan, change-set, or review",
+            reasoning.blocks, reasoning.chars
+        ));
+    }
+    if capped {
+        msg.push_str(if reasoning.blocks > 0 {
+            "; the output cap (max_tokens) was reached before any assistant text was produced"
+        } else {
+            " — the output cap (max_tokens) was reached before any assistant text was produced"
+        });
+    }
+    msg
+}
+
 /// A reply assembled from one or more provider responses. The pages are joined
 /// with NO separator: page N+1 resumes page N mid-sentence, so any inserted
 /// character would land inside the artifact.
@@ -686,19 +735,25 @@ where
 
         let mut text = String::new();
         let mut tool_calls: Vec<(String, serde_json::Value)> = Vec::new();
+        // Reasoning blocks carry no artifact — a change-set, a plan, a verdict
+        // are all assistant TEXT — but they are the usual reason a reply comes
+        // back with none, so they are counted for the diagnostic below rather
+        // than silently dropped.
+        let mut reasoning = ReasoningTally::default();
         for content in response.choice.into_iter() {
             match content {
                 AssistantContent::Text(t) => text.push_str(&t.text),
                 AssistantContent::ToolCall(tc) => {
                     tool_calls.push((tc.function.name.clone(), tc.function.arguments.clone()));
                 }
+                AssistantContent::Reasoning(r) => reasoning.add(&r),
                 _ => {}
             }
         }
 
         if tool_calls.is_empty() {
             if text.trim().is_empty() {
-                return Err("the model returned no assistant text".to_string());
+                return Err(empty_reply_error(capped, &reasoning));
             }
             // A long reply (a verbose Pedantic review, a large change-set) can
             // exhaust the output budget mid-sentence. Resume it page by page
@@ -873,6 +928,51 @@ mod tests {
         let mut reply = ContinuedReply::start("the verdict is accep".into(), true);
         reply.text.push_str("table");
         assert_eq!(reply.text, "the verdict is acceptable");
+    }
+
+    /// Every empty-reply error keeps the phrase the host classifies as
+    /// retryable, and names the cause when the response reveals one: hidden
+    /// reasoning, the output cap, or both.
+    #[test]
+    fn empty_reply_error_states_the_cause_and_stays_retryable() {
+        let bare = empty_reply_error(false, &ReasoningTally::default());
+        assert_eq!(bare, "the model returned no assistant text");
+
+        let capped = empty_reply_error(true, &ReasoningTally::default());
+        assert!(capped.contains("no assistant text"));
+        assert!(capped.contains("max_tokens"));
+
+        let thinking = empty_reply_error(
+            false,
+            &ReasoningTally {
+                blocks: 2,
+                chars: 900,
+            },
+        );
+        assert!(thinking.contains("no assistant text"));
+        assert!(thinking.contains("hidden reasoning"));
+        assert!(thinking.contains("2 block(s)"));
+
+        let both = empty_reply_error(
+            true,
+            &ReasoningTally {
+                blocks: 1,
+                chars: 12,
+            },
+        );
+        assert!(both.contains("hidden reasoning"));
+        assert!(both.contains("max_tokens"));
+    }
+
+    /// Reasoning blocks are counted, not dropped: an encrypted block renders to
+    /// no text, so the block count is what proves the model produced something.
+    #[test]
+    fn reasoning_tally_counts_blocks_and_rendered_text() {
+        let mut tally = ReasoningTally::default();
+        tally.add(&Reasoning::new("twelve chars"));
+        tally.add(&Reasoning::encrypted("opaque"));
+        assert_eq!(tally.blocks, 2);
+        assert_eq!(tally.chars, "twelve chars".chars().count());
     }
 
     /// Real OpenAI needs `max_completion_tokens`; every compatible gateway

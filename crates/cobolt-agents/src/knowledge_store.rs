@@ -61,7 +61,18 @@ const EXCERPT_CHARS: usize = 600;
 /// Turns text into a vector. See the module note on embeddings.
 pub trait Embedder: Send + Sync {
     fn dimensions(&self) -> usize;
+    /// Embed a DOCUMENT (a passage being indexed).
     fn embed(&self, text: &str) -> Vec<f32>;
+    /// Embed a QUERY (the text being searched for). Defaults to [`embed`]:
+    /// symmetric embedders make no distinction. Asymmetric retrieval models
+    /// (E5) are trained with distinct query/passage prefixes and override this
+    /// — searching an E5 index with passage-embedded queries quietly costs
+    /// most of the model's retrieval quality.
+    ///
+    /// [`embed`]: Embedder::embed
+    fn embed_query(&self, text: &str) -> Vec<f32> {
+        self.embed(text)
+    }
 }
 
 /// Deterministic hashing bag-of-words — the offline default.

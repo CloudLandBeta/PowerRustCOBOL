@@ -131,6 +131,36 @@ pub fn builtin_rules() -> Vec<ModelPolicyRule> {
     ]
 }
 
+/// Budget floor for the reasoning-first Anthropic generation, DERIVED rather
+/// than enumerated.
+///
+/// Observed live (Form Designer Agent, 30-control task): the first response
+/// carried ONE reasoning block, zero rendered characters, and `stop_reason:
+/// max_tokens` — the model spent the whole 8192-token budget thinking and the
+/// answer never started.
+///
+/// The discriminator is the SAME allowlist that withholds `temperature`
+/// (`rig_transport::sends_sampling_params`): Anthropic removed the sampling
+/// parameters and turned extended thinking on in the same generation, so the
+/// models outside that allowlist are exactly the ones that think before they
+/// answer. Deriving from it keeps both mechanisms aging in the same fail-safe
+/// direction — an Anthropic model this build has never heard of gets the floor
+/// on release day, while Claude 3.x/2.x (whose output ceiling is BELOW the
+/// floor, where asking for it is an HTTP 400) stay inside the allowlist and
+/// are never floored.
+fn reasoning_first_floor(provider: &str, model: &str) -> Option<ModelPolicy> {
+    if cobolt_agents::rig_transport::sends_sampling_params(provider, model) {
+        return None;
+    }
+    Some(ModelPolicy {
+        min_max_tokens: 32_768,
+        note: "extended thinking is on by default; a small budget is spent reasoning and the \
+               reply arrives empty"
+            .into(),
+        ..Default::default()
+    })
+}
+
 /// Operator-extensible rules: `model_policies.json` in the Cobolt data dir.
 /// A missing or unparseable file contributes nothing (and parse errors land
 /// in the connection log once per load rather than failing calls).
@@ -150,12 +180,23 @@ fn operator_rules_at(path: &Path) -> Vec<ModelPolicyRule> {
 }
 
 /// Resolve the effective policy for a provider/model: every matching rule —
-/// built-in first, then operator rules — merged field-wise.
+/// built-in first, then operator rules — merged field-wise, then the derived
+/// reasoning-first floor absorbed on top.
 pub fn policy_for(provider: &str, model: &str) -> ModelPolicy {
     let path = crate::llm::base_dir().join("model_policies.json");
     let mut rules = builtin_rules();
     rules.extend(operator_rules_at(&path));
-    policy_from_rules(&rules, provider, model)
+    effective_policy(&rules, provider, model)
+}
+
+/// The pure composition `policy_for` applies: matching rules merged, plus the
+/// derived floor. Separate so tests can exercise it without the operator file.
+fn effective_policy(rules: &[ModelPolicyRule], provider: &str, model: &str) -> ModelPolicy {
+    let mut merged = policy_from_rules(rules, provider, model);
+    if let Some(floor) = reasoning_first_floor(provider, model) {
+        merged.absorb(&floor);
+    }
+    merged
 }
 
 pub fn policy_from_rules(
@@ -189,8 +230,56 @@ mod tests {
         assert!(!gemma.avoid_typed_extraction);
 
         // Unmapped models get a no-op policy.
-        let clean = policy_from_rules(&builtin_rules(), "anthropic", "claude-sonnet-5");
+        let clean = policy_from_rules(&builtin_rules(), "mistral", "mistral-large");
         assert!(clean.is_noop());
+    }
+
+    /// The reasoning-first floor is DERIVED from the sampling allowlist, not
+    /// enumerated: it must cover today's thinking generation, every future
+    /// Anthropic model by default (fail-safe direction), and never the older
+    /// line whose output ceiling sits below the floor (32k there is an HTTP
+    /// 400, not a bigger budget).
+    #[test]
+    fn reasoning_first_floor_is_derived_from_the_sampling_allowlist() {
+        // Today's thinking generation: floored, tools and extraction intact.
+        for model in ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-opus-4-7"] {
+            let policy = effective_policy(&builtin_rules(), "anthropic", model);
+            assert_eq!(policy.min_max_tokens, 32_768, "{model} gets the floor");
+            assert!(!policy.avoid_native_tools);
+            assert!(!policy.avoid_typed_extraction);
+        }
+
+        // The point of deriving: a model this build has never heard of is
+        // covered on release day, with no list to edit.
+        let future = effective_policy(&builtin_rules(), "anthropic", "claude-haiku-5");
+        assert_eq!(future.min_max_tokens, 32_768, "unknown Anthropic models are assumed new");
+
+        // The allowlisted line (still accepts temperature, no default
+        // thinking) is never floored — including via gateway-prefixed ids.
+        for model in ["claude-3-5-sonnet-latest", "claude-sonnet-4-5", "claude-haiku-4-5", "anthropic.claude-3-haiku"] {
+            assert!(
+                effective_policy(&builtin_rules(), "anthropic", model).is_noop(),
+                "{model} must not be floored"
+            );
+        }
+
+        // Non-Anthropic providers are untouched by the floor.
+        assert!(effective_policy(&builtin_rules(), "mistral", "mistral-large").is_noop());
+        assert!(reasoning_first_floor("openai", "gpt-5.6-terra").is_none());
+
+        // The floor merges with rules like any other policy: operator rules
+        // still accumulate on top and the largest floor wins.
+        let rules = vec![ModelPolicyRule {
+            provider: "anthropic".into(),
+            model: "claude-sonnet-5".into(),
+            policy: ModelPolicy {
+                avoid_typed_extraction: true,
+                ..Default::default()
+            },
+        }];
+        let merged = effective_policy(&rules, "anthropic", "claude-sonnet-5");
+        assert_eq!(merged.min_max_tokens, 32_768);
+        assert!(merged.avoid_typed_extraction);
     }
 
     #[test]

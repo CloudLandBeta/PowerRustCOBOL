@@ -49,6 +49,9 @@ pub struct ModelsModal {
     /// In-flight test-connection request.
     test_rx: Option<Receiver<LlmResponse>>,
     test_msg: Option<String>,
+    /// Cached "model on disk" probe — `None` re-probes on the next frame.
+    /// Cached so an open modal does not stat the model files every frame.
+    semantic_ready: Option<bool>,
 }
 
 #[derive(Default)]
@@ -61,6 +64,9 @@ pub struct ModelsModalAction {
     pub log_lines: Vec<String>,
     /// Complete error payload to show in the alert/debug modal.
     pub alert_error: Option<String>,
+    /// User asked for the semantic search model — the app opens its blocking
+    /// download modal.
+    pub semantic_download_requested: bool,
 }
 
 /// Whether opening the manager on `profile` should fetch its model list without
@@ -97,7 +103,15 @@ impl ModelsModal {
             auto_fetch_pending: true,
             test_rx: None,
             test_msg: None,
+            semantic_ready: None,
         }
+    }
+
+    /// Forget the cached "semantic model on disk" probe — the app calls this
+    /// after its download modal finishes, so the status row updates without
+    /// waiting for the manager to be reopened.
+    pub fn invalidate_semantic_probe(&mut self) {
+        self.semantic_ready = None;
     }
 
     fn clear_transient_results(&mut self) {
@@ -270,6 +284,9 @@ impl ModelsModal {
                 self.test_rx = None;
             }
         }
+        let semantic_ready = *self
+            .semantic_ready
+            .get_or_insert_with(cobolt_agents::project_knowledge::semantic_model_is_ready);
 
         let mut do_fetch = false;
         if self.auto_fetch_pending && self.models_rx.is_none() {
@@ -285,6 +302,7 @@ impl ModelsModal {
         let mut do_delete = false;
         let mut do_save = false;
         let mut do_clear = false;
+        let mut do_semantic_download = false;
 
         // Seeded size only: after opening, egui window state owns user resizing.
         // Keep bounded inner lists so long model/profile names do not self-inflate
@@ -360,6 +378,29 @@ impl ModelsModal {
                                 .changed()
                             {
                                 action.applied = true;
+                            }
+                        });
+                        ui.add_space(4.0);
+                        // Semantic Knowledge Base search model. Machine-wide
+                        // (the model cache is per-user, not per-project), but
+                        // surfaced here because this is where models live.
+                        ui.horizontal(|ui| {
+                            ui.label(tr.models_semantic_label);
+                            if semantic_ready {
+                                ui.label(
+                                    egui::RichText::new(tr.models_semantic_ready).small(),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new(tr.models_semantic_missing).small(),
+                                );
+                                if ui
+                                    .button(tr.models_semantic_download)
+                                    .on_hover_text(tr.models_semantic_download_hint)
+                                    .clicked()
+                                {
+                                    do_semantic_download = true;
+                                }
                             }
                         });
                         ui.add_space(6.0);
@@ -716,6 +757,11 @@ impl ModelsModal {
                 cfg.api_key = self.key_buf.clone();
                 self.test_rx = Some(crate::llm::spawn_test(&cfg));
             }
+        }
+        if do_semantic_download {
+            // The download itself is owned by the app: it runs under the
+            // IDE-blocking progress modal, not inside this manager.
+            action.semantic_download_requested = true;
         }
 
         if !open {

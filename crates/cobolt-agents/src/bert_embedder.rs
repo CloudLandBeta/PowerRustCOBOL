@@ -4,9 +4,9 @@
 //! Semantic embeddings from a pure-Rust BERT, via Candle.
 //!
 //! Fills the one seam `embedvec` leaves open: it stores vectors, it does not
-//! create them. The model is `sentence-transformers/all-MiniLM-L6-v2` —
-//! 384-dimensional, which is exactly [`VECTOR_DIMENSIONS`], so the vector
-//! store, the persisted index and the manifest are unaffected by the switch.
+//! create them. The model is `intfloat/multilingual-e5-small` — 384-dimensional,
+//! which is exactly [`VECTOR_DIMENSIONS`], so the vector store, the persisted
+//! index and the manifest are unaffected by the switch.
 //!
 //! ## Why this matters more than it looks
 //!
@@ -18,6 +18,25 @@
 //! index cannot connect them however it is tuned. Retrieval that silently
 //! returns nothing is the same failure mode as a context that silently omits
 //! something — the agent proceeds, confidently, on less than it needed.
+//!
+//! ## Multilingual, because the developers are
+//!
+//! The IDE speaks six languages (en, pt, es, fr, ja, zh) and the developer
+//! requests arrive in all of them, while the Knowledge Base reference material
+//! is written in English. `multilingual-e5-small` (~100 languages, MIT) was
+//! trained for exactly that asymmetry: a Portuguese query lands next to the
+//! English passage that answers it. Its predecessor here, `all-MiniLM-L6-v2`,
+//! was English-only — a Portuguese request usually retrieved nothing unless it
+//! happened to contain English identifiers.
+//!
+//! ## E5 prefixes are part of the contract
+//!
+//! E5 models are trained with a role marker in the text itself: passages are
+//! embedded as `"passage: …"` and queries as `"query: …"`. Dropping the
+//! prefixes (or using one for both roles) silently costs most of the model's
+//! retrieval quality, so the prefixing lives INSIDE this embedder — callers
+//! choose `embed` (documents) or `embed_query` (searches) and never see the
+//! markers. The hashing fallback ignores the distinction entirely.
 //!
 //! ## Availability
 //!
@@ -44,11 +63,16 @@ use tokenizers::Tokenizer;
 use crate::knowledge_store::{Embedder, HashingEmbedder, VECTOR_DIMENSIONS};
 
 /// The sentence-transformer this embedder speaks. 384-dim output.
-pub const MODEL_ID: &str = "sentence-transformers/all-MiniLM-L6-v2";
+pub const MODEL_ID: &str = "intfloat/multilingual-e5-small";
 
-/// Longest token sequence fed to the model. MiniLM is trained at 256; longer
-/// input is truncated, which is why documents are kept to one subject each.
+/// Longest token sequence fed to the model. E5's window is 512; 256 keeps the
+/// CPU cost of a full reindex bounded, and documents are kept to one subject
+/// each so the head of a document is representative.
 const MAX_TOKENS: usize = 256;
+
+/// E5 role markers. Trained into the model — see the module note.
+const PASSAGE_PREFIX: &str = "passage: ";
+const QUERY_PREFIX: &str = "query: ";
 
 /// Which embedder produced an index. Stored with the index so a switch forces a
 /// rebuild rather than silently comparing incomparable vectors.
@@ -56,7 +80,7 @@ const MAX_TOKENS: usize = 256;
 pub enum EmbedderKind {
     /// Deterministic hashing bag-of-words — lexical only.
     Hashing,
-    /// Candle BERT (`all-MiniLM-L6-v2`) — semantic.
+    /// Candle BERT (`multilingual-e5-small`) — semantic, cross-lingual.
     Bert,
 }
 
@@ -64,7 +88,7 @@ impl EmbedderKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hashing => "hashing",
-            Self::Bert => "bert-minilm-l6-v2",
+            Self::Bert => "bert-multilingual-e5-small",
         }
     }
 }
@@ -179,15 +203,26 @@ impl Embedder for BertEmbedder {
         // A single document failing to embed must not abort a whole reindex;
         // a zero vector simply never matches, and the failure is visible as a
         // document that cannot be retrieved rather than as a crash.
-        self.embed_inner(text).unwrap_or_else(|error| {
-            tracing::warn!(%error, "embedding failed; document indexed as unmatchable");
-            vec![0.0; VECTOR_DIMENSIONS]
-        })
+        self.embed_inner(&format!("{PASSAGE_PREFIX}{text}"))
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "embedding failed; document indexed as unmatchable");
+                vec![0.0; VECTOR_DIMENSIONS]
+            })
+    }
+
+    fn embed_query(&self, text: &str) -> Vec<f32> {
+        // A query that fails to embed returns the zero vector: it matches
+        // nothing, and the empty result is the visible symptom.
+        self.embed_inner(&format!("{QUERY_PREFIX}{text}"))
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "query embedding failed; search returns nothing");
+                vec![0.0; VECTOR_DIMENSIONS]
+            })
     }
 }
 
-const MODEL_OWNER: &str = "sentence-transformers";
-const MODEL_NAME: &str = "all-MiniLM-L6-v2";
+const MODEL_OWNER: &str = "intfloat";
+const MODEL_NAME: &str = "multilingual-e5-small";
 const MODEL_FILES: [&str; 3] = ["config.json", "tokenizer.json", "model.safetensors"];
 /// Hugging Face's public file endpoint. Three plain GETs replace the `hf-hub`
 /// crate, whose xet transfer stack dragged in a rustls/aws-lc-rs/blake3 subtree
@@ -207,8 +242,8 @@ pub fn model_is_cached(cache_dir: &Path) -> bool {
 
 /// Locate the three model files **without touching the network**.
 ///
-/// Loading never downloads: pulling ~90 MB because someone opened a project is
-/// not a decision this layer gets to make. [`ensure_downloaded`] is the
+/// Loading never downloads: pulling ~470 MB because someone opened a project
+/// is not a decision this layer gets to make. [`ensure_downloaded`] is the
 /// explicit, callable counterpart.
 fn resolve_model_files(cache_dir: &Path) -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let dir = model_dir(cache_dir);
@@ -226,9 +261,38 @@ fn resolve_model_files(cache_dir: &Path) -> Result<(PathBuf, PathBuf, PathBuf), 
     ))
 }
 
-/// Fetch the model into `cache_dir`. Explicit, blocking, and the only path that
-/// uses the network. Returns the directory the files landed in.
+/// Live progress of a model download, shared between the download thread and
+/// whatever surface is rendering a progress bar. All counters are in bytes;
+/// `total` is 0 while the preflight is still sizing the transfer.
+#[derive(Debug, Default)]
+pub struct DownloadProgress {
+    pub downloaded: std::sync::atomic::AtomicU64,
+    pub total: std::sync::atomic::AtomicU64,
+    /// Set by the UI to abort; the download loop notices between chunks,
+    /// removes its partial file and returns an error containing "cancelled".
+    pub cancel: std::sync::atomic::AtomicBool,
+}
+
+/// Fetch the model into `cache_dir` without progress reporting. Blocking, and
+/// (with [`ensure_downloaded_with_progress`]) the only path that uses the
+/// network. Returns the directory the files landed in.
 pub fn ensure_downloaded(cache_dir: &Path) -> Result<PathBuf, String> {
+    ensure_downloaded_with_progress(cache_dir, &DownloadProgress::default())
+}
+
+/// Fetch the model into `cache_dir`, streaming byte counts into `progress`.
+///
+/// The client keeps NO whole-request timeout: reqwest's 30-second default is
+/// measured to the END OF THE BODY, which silently caps the transfer at
+/// ~16 MB/s — on a slower link the 470 MB weights file would abort mid-body
+/// every time. Connecting still times out, and the UI holds the cancel switch.
+pub fn ensure_downloaded_with_progress(
+    cache_dir: &Path,
+    progress: &DownloadProgress,
+) -> Result<PathBuf, String> {
+    use std::io::{Read, Write};
+    use std::sync::atomic::Ordering;
+
     let dir = model_dir(cache_dir);
     if model_is_cached(cache_dir) {
         return Ok(dir);
@@ -236,29 +300,88 @@ pub fn ensure_downloaded(cache_dir: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("model cache {}: {e}", dir.display()))?;
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("PowerRustCOBOL/", env!("CARGO_PKG_VERSION")))
+        .timeout(None)
+        .connect_timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
-    for file in MODEL_FILES {
-        let target = dir.join(file);
-        if target.exists() {
-            continue;
+
+    let missing: Vec<&str> = MODEL_FILES
+        .iter()
+        .filter(|file| !dir.join(file).exists())
+        .copied()
+        .collect();
+    let url_for =
+        |file: &str| format!("{HF_RESOLVE_BASE}/{MODEL_OWNER}/{MODEL_NAME}/resolve/main/{file}");
+
+    // Preflight: size the whole transfer so the progress bar has a real total
+    // from the first byte. A HEAD that fails or lacks a length is not fatal —
+    // that file's length joins the total when its GET answers instead.
+    let mut sized: Vec<&str> = Vec::new();
+    let mut total = 0u64;
+    for file in &missing {
+        if let Ok(response) = client.head(url_for(file)).send() {
+            if let Some(length) = response.content_length() {
+                total += length;
+                sized.push(file);
+            }
         }
-        let url = format!("{HF_RESOLVE_BASE}/{MODEL_OWNER}/{MODEL_NAME}/resolve/main/{file}");
-        let bytes = client
-            .get(&url)
+    }
+    progress.total.store(total, Ordering::Relaxed);
+
+    for file in missing {
+        let target = dir.join(file);
+        let mut response = client
+            .get(url_for(file))
             .send()
             .and_then(|r| r.error_for_status())
-            .and_then(|r| r.bytes())
             .map_err(|e| format!("downloading {file} for {MODEL_ID}: {e}"))?;
+        if !sized.contains(&file) {
+            if let Some(length) = response.content_length() {
+                progress.total.fetch_add(length, Ordering::Relaxed);
+            }
+        }
         // Write via a temporary sibling: an interrupted download must not leave a
         // truncated file behind that `model_is_cached` would then call complete.
         let partial = dir.join(format!("{file}.partial"));
-        std::fs::write(&partial, &bytes)
-            .map_err(|e| format!("writing {}: {e}", partial.display()))?;
+        let result = (|| -> Result<(), String> {
+            let mut out = std::fs::File::create(&partial)
+                .map_err(|e| format!("writing {}: {e}", partial.display()))?;
+            let mut buffer = vec![0u8; 256 * 1024];
+            loop {
+                if progress.cancel.load(Ordering::Relaxed) {
+                    return Err(format!("download cancelled while fetching {file}"));
+                }
+                let n = response
+                    .read(&mut buffer)
+                    .map_err(|e| format!("downloading {file} for {MODEL_ID}: {e}"))?;
+                if n == 0 {
+                    break;
+                }
+                out.write_all(&buffer[..n])
+                    .map_err(|e| format!("writing {}: {e}", partial.display()))?;
+                progress.downloaded.fetch_add(n as u64, Ordering::Relaxed);
+            }
+            out.flush()
+                .map_err(|e| format!("writing {}: {e}", partial.display()))
+        })();
+        if let Err(error) = result {
+            let _ = std::fs::remove_file(&partial);
+            return Err(error);
+        }
         std::fs::rename(&partial, &target)
             .map_err(|e| format!("writing {}: {e}", target.display()))?;
     }
     Ok(dir)
+}
+
+/// Delete the cached model files so the next download starts clean. Used when
+/// the files exist but cannot be loaded (truncation, corruption).
+pub fn discard_cached_model(cache_dir: &Path) -> Result<(), String> {
+    let dir = model_dir(cache_dir);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| format!("removing {}: {e}", dir.display()))?;
+    }
+    Ok(())
 }
 
 /// The best embedder available right now, with the kind it settled on.
@@ -315,11 +438,29 @@ mod tests {
     #[test]
     fn both_embedders_produce_the_same_width() {
         assert_eq!(HashingEmbedder.dimensions(), VECTOR_DIMENSIONS);
-        assert_eq!(EmbedderKind::Bert.as_str(), "bert-minilm-l6-v2");
+        assert_eq!(EmbedderKind::Bert.as_str(), "bert-multilingual-e5-small");
         assert_ne!(
             EmbedderKind::Bert.as_str(),
             EmbedderKind::Hashing.as_str(),
             "the two kinds must be distinguishable in the stored stamp"
         );
+    }
+
+    /// The E5 role markers are the exact strings the model was trained with —
+    /// a typo here (extra space, missing colon) degrades retrieval silently.
+    #[test]
+    fn e5_prefixes_are_the_trained_literals() {
+        assert_eq!(PASSAGE_PREFIX, "passage: ");
+        assert_eq!(QUERY_PREFIX, "query: ");
+    }
+
+    /// The hashing fallback must treat queries and passages identically:
+    /// prefixes are an E5 contract, and leaking them into the lexical path
+    /// would make "query" and "passage" spurious match tokens.
+    #[test]
+    fn hashing_embedder_is_symmetric() {
+        let doc = HashingEmbedder.embed("DataGrid onCellClick");
+        let query = HashingEmbedder.embed_query("DataGrid onCellClick");
+        assert_eq!(doc, query);
     }
 }

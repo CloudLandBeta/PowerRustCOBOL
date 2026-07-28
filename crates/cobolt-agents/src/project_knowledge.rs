@@ -8,13 +8,27 @@
 //! upsert, a delete and a `SELECT *`. It runs on `redb`, a pure-Rust embedded
 //! store the workspace already uses, rather than on bundled SQLite, whose C
 //! amalgamation made a C toolchain a prerequisite for building the IDE.
+//!
+//! ## Which vectors
+//!
+//! Embeddings come from [`crate::bert_embedder::best_available`]: the
+//! multilingual E5 model when its weights are cached, the deterministic
+//! hashing embedder otherwise. Every record carries the stamp of the embedder
+//! that wrote it; [`sync_documentation`] re-embeds a document only when its
+//! content or that stamp changed, so the per-workflow sync stays cheap with a
+//! neural model, and downloading the model upgrades the whole index on the
+//! next sync instead of silently mixing incomparable vector spaces.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use redb::{Database, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
+
+use crate::bert_embedder::{self, EmbedderKind};
+use crate::knowledge_store::Embedder;
 
 const VECTOR_DIMENSIONS: usize = 384;
 const DATABASE_RELATIVE_PATH: &str = "data/project-knowledge.redb";
@@ -23,13 +37,110 @@ const DOCUMENTS: TableDefinition<&str, &[u8]> = TableDefinition::new("project_do
 
 /// One indexed document. `dimensions` is kept (rather than inferred from
 /// `embedding.len()`) so a record written by a build with a different vector
-/// width is recognised as stale instead of silently mis-scored.
+/// width is recognised as stale instead of silently mis-scored. `embedder` and
+/// `content_hash` extend the same idea: a record embedded by another model, or
+/// for other text, is stale — and one embedded for the SAME text by the SAME
+/// model need not be re-embedded at all.
+///
+/// Adding fields breaks bincode decoding of pre-1.38 records on purpose:
+/// [`decode_record`] returns `None` for them, and the sync that precedes every
+/// search rewrites them with the current embedder.
 #[derive(Serialize, Deserialize)]
 struct DocumentRecord {
     content: String,
     embedding: Vec<f32>,
     dimensions: u32,
     updated_unix: i64,
+    /// [`EmbedderKind::as_str`] of the embedder that produced `embedding`.
+    embedder: String,
+    /// FNV-1a of the exact text that was embedded.
+    content_hash: u64,
+}
+
+/// The process-wide embedder, upgraded in place when the model lands.
+///
+/// Cached because loading the E5 weights (~470 MB mmap + graph build) per call
+/// would dominate every sync. NOT a `OnceLock`: when the cached kind is the
+/// hashing fallback, every access re-checks whether the model has been
+/// downloaded meanwhile ([`bert_embedder::model_is_cached`] is three `stat`s)
+/// and upgrades without an IDE restart.
+static ACTIVE_EMBEDDER: Mutex<Option<(Arc<dyn Embedder>, EmbedderKind)>> = Mutex::new(None);
+
+fn active_embedder() -> (Arc<dyn Embedder>, EmbedderKind) {
+    let cache_dir = semantic_model_cache_dir();
+    let mut slot = ACTIVE_EMBEDDER.lock().expect("embedder cache poisoned");
+    match slot.as_ref() {
+        Some((_, EmbedderKind::Hashing)) if bert_embedder::model_is_cached(&cache_dir) => {}
+        Some(cached) => return cached.clone(),
+        None => {}
+    }
+    let (embedder, kind, downgrade) = bert_embedder::best_available(&cache_dir);
+    if let Some(note) = downgrade {
+        tracing::info!(%note, "Knowledge Base search is lexical");
+    }
+    *slot = Some((embedder.clone(), kind));
+    (embedder, kind)
+}
+
+/// Where the semantic model lives: `<ide data>/models/<model name>/`.
+pub fn semantic_model_cache_dir() -> PathBuf {
+    crate::knowledge_store::ide_data_dir().join("models")
+}
+
+/// Whether the semantic model is on disk (searches are cross-lingual).
+pub fn semantic_model_is_ready() -> bool {
+    bert_embedder::model_is_cached(&semantic_model_cache_dir())
+}
+
+/// Fetch the semantic model (blocking, network), streaming byte counts into
+/// `progress`. Called from the IDE's blocking download modal — never from
+/// project-open or sync paths, which fall back to lexical search instead. On
+/// success the next [`active_embedder`] access upgrades in place.
+pub fn download_semantic_model(
+    progress: &bert_embedder::DownloadProgress,
+) -> Result<PathBuf, String> {
+    bert_embedder::ensure_downloaded_with_progress(&semantic_model_cache_dir(), progress)
+}
+
+/// Which embedder searches use right now, for status surfaces.
+pub fn active_embedder_kind() -> EmbedderKind {
+    active_embedder().1
+}
+
+/// The state the IDE's startup probe acts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticModelState {
+    /// Files on disk and loadable — searches are semantic, nothing to do.
+    Ready,
+    /// Files absent (first run, cleaned cache): a download is needed.
+    Missing,
+    /// Files present but unloadable (truncation, corruption): discard, then
+    /// download again.
+    Corrupt,
+}
+
+/// Probe the semantic model. Loads the model on first success (via the shared
+/// [`active_embedder`] cache, so the work is not repeated by the first search),
+/// which costs seconds — call from a worker thread, not the UI thread.
+pub fn semantic_model_probe() -> SemanticModelState {
+    if !semantic_model_is_ready() {
+        return SemanticModelState::Missing;
+    }
+    match active_embedder().1 {
+        EmbedderKind::Bert => SemanticModelState::Ready,
+        // Files are on disk, yet the load fell back: they cannot be read as a
+        // model. `active_embedder` retries the load on every access while the
+        // fallback is active, so this is a fresh verdict, not a stale cache.
+        EmbedderKind::Hashing => SemanticModelState::Corrupt,
+    }
+}
+
+/// Remove unloadable model files so the next download starts clean, and drop
+/// the cached fallback so the re-downloaded model is picked up immediately.
+pub fn discard_semantic_model() -> Result<(), String> {
+    bert_embedder::discard_cached_model(&semantic_model_cache_dir())?;
+    *ACTIVE_EMBEDDER.lock().expect("embedder cache poisoned") = None;
+    Ok(())
 }
 pub const KNOWLEDGE_BASE_ROOT: &str = "Knowledge Base";
 const LEGACY_KNOWLEDGE_ROOTS: [&str; 2] = ["Documentation", "docs"];
@@ -60,27 +171,6 @@ fn fnv1a(text: &str) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
-}
-
-fn vectorize(text: &str) -> Vec<f32> {
-    let mut vector = vec![0.0_f32; VECTOR_DIMENSIONS];
-    for token in text
-        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
-        .filter(|token| token.len() > 1)
-    {
-        let token = token.to_lowercase();
-        let hash = fnv1a(&token);
-        let index = (hash as usize) % VECTOR_DIMENSIONS;
-        let sign = if hash & (1_u64 << 63) == 0 { 1.0 } else { -1.0 };
-        vector[index] += sign;
-    }
-    let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
-    if norm > f32::EPSILON {
-        for value in &mut vector {
-            *value /= norm;
-        }
-    }
-    vector
 }
 
 fn encode_record(record: &DocumentRecord) -> Result<Vec<u8>, String> {
@@ -309,13 +399,28 @@ fn relative_string(path: &Path) -> String {
 /// Write (or overwrite) one document inside an open table. The insert replaces
 /// any existing row for the same path, which is what the old `ON CONFLICT DO
 /// UPDATE` did.
+///
+/// Embedding is the expensive step with a neural model, and this runs for
+/// every document on every per-workflow sync — so a record whose text AND
+/// embedder both match the existing row is left untouched instead of being
+/// re-embedded to the same vector.
 fn index_document_into(
     table: &mut redb::Table<&'static str, &'static [u8]>,
     relative_path: &Path,
     content: &str,
 ) -> Result<(), String> {
     let path = relative_string(relative_path);
-    let vector = vectorize(&format!("{path}\n{content}"));
+    let embedded_text = format!("{path}\n{content}");
+    let content_hash = fnv1a(&embedded_text);
+    let (embedder, kind) = active_embedder();
+    if let Ok(Some(existing)) = table.get(path.as_str()) {
+        if let Some(record) = decode_record(existing.value()) {
+            if record.embedder == kind.as_str() && record.content_hash == content_hash {
+                return Ok(());
+            }
+        }
+    }
+    let vector = embedder.embed(&embedded_text);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
@@ -325,6 +430,8 @@ fn index_document_into(
         embedding: vector,
         dimensions: VECTOR_DIMENSIONS as u32,
         updated_unix: now,
+        embedder: kind.as_str().to_owned(),
+        content_hash,
     };
     let encoded = encode_record(&record)?;
     table
@@ -503,7 +610,8 @@ pub fn search(project_root: &Path, query: &str, limit: usize) -> Result<Vec<Know
         return Ok(Vec::new());
     }
     let database = open(project_root)?;
-    let query_vector = vectorize(query);
+    let (embedder, kind) = active_embedder();
+    let query_vector = embedder.embed_query(query);
     let read = database.begin_read().map_err(|e| e.to_string())?;
     // A project that has never been indexed has no table yet — that is an empty
     // result, not a failure.
@@ -518,6 +626,13 @@ pub fn search(project_root: &Path, query: &str, limit: usize) -> Result<Vec<Know
         let Some(record) = decode_record(value.value()) else {
             continue;
         };
+        // A record embedded by another model lives in an incomparable vector
+        // space; scoring it against this query would return confident
+        // nonsense. Skipping is transient: every search path syncs first, and
+        // the sync restamps such records with the active embedder.
+        if record.embedder != kind.as_str() {
+            continue;
+        }
         let score = query_vector
             .iter()
             .zip(record.embedding.iter())
@@ -614,6 +729,72 @@ mod tests {
         assert!(delete_knowledge_subfolder(&root, Path::new(KNOWLEDGE_BASE_ROOT)).is_err());
         assert_eq!(delete_knowledge_subfolder(&root, &erp).unwrap(), erp);
         assert!(search(&root, "ERP plan", 2).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The per-workflow sync must not re-embed unchanged documents (with a
+    /// neural embedder that cost would land on every workflow), and it must
+    /// re-embed a record stamped by a different embedder (its vectors live in
+    /// an incomparable space). `updated_unix` is forced to a sentinel value so
+    /// "untouched" and "rewritten within the same second" are distinguishable.
+    #[test]
+    fn sync_skips_unchanged_records_and_restamps_foreign_ones() {
+        let root = project("stamp");
+        let docs = root.join(KNOWLEDGE_BASE_ROOT);
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(docs.join("guide.md"), "warehouse replenishment guide").unwrap();
+        assert_eq!(sync_documentation(&root).unwrap(), 1);
+
+        const SENTINEL: i64 = 12_345;
+        let key = "Knowledge Base/guide.md";
+        let tamper = |mutate: &dyn Fn(&mut DocumentRecord)| {
+            let database = open(&root).unwrap();
+            let write = database.begin_write().unwrap();
+            {
+                let mut table = write.open_table(DOCUMENTS).unwrap();
+                let mut record = {
+                    let value = table.get(key).unwrap().expect("record exists");
+                    decode_record(value.value()).expect("record decodes")
+                };
+                mutate(&mut record);
+                let encoded = encode_record(&record).unwrap();
+                table.insert(key, encoded.as_slice()).unwrap();
+            }
+            write.commit().unwrap();
+        };
+        let read_back = || {
+            let database = open(&root).unwrap();
+            let read = database.begin_read().unwrap();
+            let table = read.open_table(DOCUMENTS).unwrap();
+            let value = table.get(key).unwrap().expect("record exists");
+            decode_record(value.value()).expect("record decodes")
+        };
+
+        // Same text, same embedder: the sync must leave the record untouched.
+        tamper(&|record| record.updated_unix = SENTINEL);
+        assert_eq!(sync_documentation(&root).unwrap(), 1);
+        assert_eq!(
+            read_back().updated_unix,
+            SENTINEL,
+            "an unchanged record was re-embedded"
+        );
+
+        // A foreign embedder stamp: the sync must rewrite the record.
+        tamper(&|record| {
+            record.updated_unix = SENTINEL;
+            record.embedder = "some-retired-embedder".into();
+        });
+        assert_eq!(sync_documentation(&root).unwrap(), 1);
+        let restamped = read_back();
+        assert_ne!(
+            restamped.updated_unix, SENTINEL,
+            "a foreign-stamped record was left in place"
+        );
+        assert_eq!(restamped.embedder, active_embedder_kind().as_str());
+
+        // And while the foreign stamp is present, search must never score it.
+        tamper(&|record| record.embedder = "some-retired-embedder".into());
+        assert!(search(&root, "warehouse replenishment", 2).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
