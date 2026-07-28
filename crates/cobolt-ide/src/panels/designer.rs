@@ -64,7 +64,17 @@ fn ai_pane_debug() -> bool {
 // history takes everything above it, so the pane's top-edge resizer resizes
 // the history (default pane height gives it ~70px to start).
 const GLOBAL_AI_HISTORY_MIN_HEIGHT: f32 = 48.0;
-const GLOBAL_AI_INPUT_HEIGHT: f32 = 170.0;
+/// Vertical chrome INSIDE the prompt box (frame border + the TextEdit's own
+/// margins). The old 4.0 under-counted it, so the last text row's descenders
+/// were clipped at the box's bottom edge.
+const GLOBAL_AI_PROMPT_CHROME: f32 = 12.0;
+/// Breathing room UNDER the prompt box, before the status/history-controls
+/// rows, so the box never sits flush against the pane below it.
+const GLOBAL_AI_PROMPT_BOTTOM_PAD: f32 = 6.0;
+/// Fixed input-slab chrome at the DEFAULT prompt height. Includes the prompt
+/// box chrome and its bottom pad above — grow those and this must grow with
+/// them, or the slab clips its own controls.
+const GLOBAL_AI_INPUT_HEIGHT: f32 = 184.0;
 const GLOBAL_AI_PANE_MIN_HEIGHT: f32 = GLOBAL_AI_HISTORY_MIN_HEIGHT + GLOBAL_AI_INPUT_HEIGHT + 24.0;
 
 // ── Collapsible designer chrome (spec 033) ──────────────────────────────────
@@ -3683,7 +3693,7 @@ impl DesignerPanel {
                     // height and the stored drag, never from content, so the
                     // box cannot grow by itself.
                     let prompt_row = ui.text_style_height(&egui::TextStyle::Body);
-                    let prompt_height_for = |rows: f32| rows * prompt_row + 4.0;
+                    let prompt_height_for = |rows: f32| rows * prompt_row + GLOBAL_AI_PROMPT_CHROME;
                     let prompt_min_height = prompt_height_for(1.0);
                     let prompt_max_height = prompt_height_for(6.0);
                     let prompt_default_height = prompt_height_for(3.0);
@@ -3820,7 +3830,9 @@ impl DesignerPanel {
                                     // beyond it scrolls INSIDE. desired_rows
                                     // matches the box so the editor's frame
                                     // fills it exactly at every dragged size.
-                                    let prompt_rows = (((prompt_height - 4.0) / prompt_row)
+                                    let prompt_rows = (((prompt_height
+                                        - GLOBAL_AI_PROMPT_CHROME)
+                                        / prompt_row)
                                         .round()
                                         .max(1.0)) as usize;
                                     let box_size = egui::vec2(text_w, prompt_height);
@@ -3922,6 +3934,10 @@ impl DesignerPanel {
                                     // here — see chat_thinking_indicator.
                                 });
                             });
+                            // Bottom padding for the prompt editor: without it
+                            // the box sat flush against the rows below and its
+                            // last text line read as clipped by the pane.
+                            ui.add_space(GLOBAL_AI_PROMPT_BOTTOM_PAD);
 
                             if let Some(err) = &self.ai_status {
                                 if err != "Thinking..." {

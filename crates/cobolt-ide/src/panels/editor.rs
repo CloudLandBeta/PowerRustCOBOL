@@ -1205,15 +1205,18 @@ pub(crate) fn looks_like_markdown(content: &str) -> bool {
 /// itself shows who is typing, instead of a spinner orphaned in the input
 /// column.
 ///
-/// High-contrast by requirement: the strong text color over the theme's
-/// extreme background, with a matching stroke and spinner, stays readable in
-/// every theme — the old dim-gray caption washed out on light fills.
+/// High-contrast by requirement, borrowed from the assistant balloons (blue
+/// fill, white foreground) which hardcode their contrast: deriving colors
+/// from `ui.visuals()` proved unreliable here — the IDE's glass themes can
+/// leave the visuals' "strong" text DARK while the chat backdrop is dark too,
+/// which rendered the indicator as an empty dark pill with an invisible
+/// spinner. What the balloons do to stay readable, the indicator does.
 pub(crate) fn chat_thinking_indicator(ui: &mut egui::Ui, label: &str, font_size: f32) {
-    let fg = ui.visuals().strong_text_color();
+    let fill = chat_bubble_fill(false);
+    let fg = Color32::WHITE;
     ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
         egui::Frame::NONE
-            .fill(ui.visuals().extreme_bg_color)
-            .stroke(egui::Stroke::new(1.0, fg))
+            .fill(fill)
             .corner_radius(egui::CornerRadius::same(15))
             .inner_margin(egui::Margin::symmetric(10, 6))
             .show(ui, |ui| {
