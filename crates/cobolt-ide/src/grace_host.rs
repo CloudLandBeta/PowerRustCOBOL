@@ -718,10 +718,64 @@ impl AgentInvoker for DbAgentInvoker {
     }
 
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
+        self.invoke_with_temperature(agent, system, user, None)
+    }
+
+    fn invoke_task(
+        &mut self,
+        agent: &str,
+        system: &str,
+        user: &str,
+        reviewed: bool,
+    ) -> Result<String, String> {
+        // No Pedantic gate behind this result: run colder (when configured
+        // and when the model still accepts sampling parameters) — there is no
+        // correction loop to catch a hallucination, so determinism outranks
+        // variance. Reviewed tasks keep the agent's own temperature.
+        let temperature_override = if reviewed {
+            None
+        } else {
+            self.llm.unreviewed_temperature
+        };
+        self.invoke_with_temperature(agent, system, user, temperature_override)
+    }
+}
+
+impl DbAgentInvoker {
+    fn invoke_with_temperature(
+        &mut self,
+        agent: &str,
+        system: &str,
+        user: &str,
+        temperature_override: Option<f32>,
+    ) -> Result<String, String> {
         if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(format!("{agent}: stopped by the developer"));
         }
-        let (cfg, core_instructions, skills, kind) = self.config_for(agent)?;
+        // A configuration failure (missing agent, disabled, no model) aborts
+        // the invoke BEFORE any request logging — leaving the verbose AI log
+        // with an unexplained hole exactly where the failed agent should
+        // appear. Observed live: an unconfigured Pedantic reviewer sank a
+        // workflow and the log simply stopped after the specialist's reply.
+        let (mut cfg, core_instructions, skills, kind) =
+            self.config_for(agent).inspect_err(|error| {
+                crate::llm::push_ai_log(
+                    crate::llm::AiLogKind::Error,
+                    format!("{agent}: not invoked — {error}"),
+                );
+            })?;
+        if let Some(temperature) = temperature_override {
+            if cfg.verbose_log && (cfg.temperature - temperature).abs() > f32::EPSILON {
+                crate::llm::push_ai_log(
+                    crate::llm::AiLogKind::Info,
+                    format!(
+                        "{agent}: unreviewed task — temperature lowered {} → {temperature}",
+                        cfg.temperature
+                    ),
+                );
+            }
+            cfg.temperature = temperature;
+        }
         // Report a blank credential as itself rather than letting the provider
         // answer 401, which reads like an account problem.
         if let Some(gap) = crate::llm::credential_gap(&cfg) {
@@ -1446,7 +1500,16 @@ pub fn run_grace_workflow_with_control(
         let responsible = plan_db.by_name(agent_name)?;
         let companion_id = responsible.companion.as_ref()?;
         let companion = plan_db.by_id(companion_id)?;
-        companion.enabled.then(|| companion.name.clone())
+        // Available = enabled AND a resolvable model connection. Observed
+        // live: an ENABLED companion with no model failed T1 at review time
+        // ("reviewer unavailable: … has no model configured") six minutes
+        // after the specialist had delivered a complete, correct change-set —
+        // the exact waste the disabled-companion rule below already prevents.
+        // An unavailable reviewer clears the gate HERE, at plan time, with a
+        // visible note, instead of sinking finished work at review time.
+        (companion.enabled
+            && crate::agents_db::resolve_agent_connection(companion, llm).is_some())
+        .then(|| companion.name.clone())
     };
     sanitize_plan_reviewers(&companion_of, &mut plan, on_progress);
     // Grace's plan carries no per-task control inventory (the plan schema has no
@@ -1559,11 +1622,12 @@ pub fn run_grace_workflow_with_control(
 
 /// Enforce the Pedantic-companion contract mechanically (governance by
 /// construction): each task's reviewer is exactly its responsible agent's
-/// ENABLED companion. A fabricated reviewer name ("COBOL Pedantic Agent" was
-/// observed live) is replaced with the real companion; a missing or disabled
-/// companion clears the review gate instead of failing the task at review
-/// time with "agent is disabled". Grace's plan expresses intent — the host
-/// owns the mapping.
+/// AVAILABLE companion (enabled, with a model configured). A fabricated
+/// reviewer name ("COBOL Pedantic Agent" was observed live) is replaced with
+/// the real companion; a missing, disabled, or model-less companion clears the
+/// review gate instead of failing the task at review time with "agent is
+/// disabled" / "has no model configured". Grace's plan expresses intent — the
+/// host owns the mapping.
 fn sanitize_plan_reviewers(
     companion_of: &dyn Fn(&str) -> Option<String>,
     plan: &mut [TaskSpec],
@@ -1580,7 +1644,7 @@ fn sanitize_plan_reviewers(
                 task.id
             ),
             (Some(was), None) => format!(
-                "  {}: reviewer \u{201c}{was}\u{201d} cleared — \u{201c}{}\u{201d} has no enabled Pedantic companion.",
+                "  {}: reviewer \u{201c}{was}\u{201d} cleared — \u{201c}{}\u{201d} has no available Pedantic companion (it is disabled or has no model configured), so this task will NOT be reviewed.",
                 task.id, task.agent
             ),
             (None, Some(now)) => format!(
@@ -2456,6 +2520,14 @@ fn grace_final_summary(record: &WorkflowRecord, evidence: &[ToolEvidence]) -> St
                 format!("{}: {objective}", t.spec.agent)
             };
             match t.final_state {
+                // An approved task can carry a note — today that is "approved
+                // WITHOUT review" when its reviewer could not run. Show it:
+                // the developer must know this result skipped its gate.
+                TaskState::Approved if !t.failure_reason.trim().is_empty() => format!(
+                    "- {} — {label} — \u{26a0} {}",
+                    t.spec.id,
+                    first_nonempty_line(&t.failure_reason)
+                ),
                 TaskState::Approved => format!("- {} — {label}", t.spec.id),
                 TaskState::Failed => format!(
                     "- {} — {label} — FAILED: {}",

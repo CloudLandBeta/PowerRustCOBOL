@@ -143,6 +143,24 @@ pub struct WorkflowRecord {
 pub trait AgentInvoker {
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String>;
 
+    /// Invoke `agent` to EXECUTE a task, saying whether a Pedantic review gate
+    /// stands behind the result. Defaults to [`invoke`]: the distinction only
+    /// matters to hosts that adjust the call for unreviewed work (the IDE runs
+    /// unreviewed tasks at a lower temperature — no correction loop will catch
+    /// a hallucination, so determinism outranks variance there).
+    ///
+    /// [`invoke`]: AgentInvoker::invoke
+    fn invoke_task(
+        &mut self,
+        agent: &str,
+        system: &str,
+        user: &str,
+        reviewed: bool,
+    ) -> Result<String, String> {
+        let _ = reviewed;
+        self.invoke(agent, system, user)
+    }
+
     /// Obtain the typed workflow plan from `agent`'s planning reply.
     fn extract_plan(&mut self, agent: &str, plan_reply: &str) -> Result<WorkflowPlan, String> {
         let _ = agent;
@@ -447,7 +465,13 @@ impl GraceEngine {
             ctx = spec.context,
             acc = spec.acceptance,
         );
-        let mut submission = match invoker.invoke(&spec.agent, &system_for(&spec.agent), &user) {
+        let reviewed = spec.reviewer.is_some();
+        let mut submission = match invoker.invoke_task(
+            &spec.agent,
+            &system_for(&spec.agent),
+            &user,
+            reviewed,
+        ) {
             Ok(s) if !s.trim().is_empty() => s,
             Ok(_) => {
                 rec.states.push(TaskState::Failed);
@@ -503,12 +527,19 @@ impl GraceEngine {
             let review = match invoker.invoke(&reviewer, &system_for(&reviewer), &review_user) {
                 Ok(r) => r,
                 Err(e) => {
-                    rec.states.push(TaskState::Failed);
-                    rec.final_state = TaskState::Failed;
-                    rec.failure_reason = format!("reviewer unavailable: {e}");
-                    on_event(GraceEvent::Failed {
+                    // The reviewer cannot RUN (not configured, disabled,
+                    // unreachable). That is the reviewer's absence, not a
+                    // defect in the specialist's finished work — discarding
+                    // the submission here threw away a complete, possibly
+                    // correct result the developer never got to see. Approve
+                    // it UNREVIEWED, with the reason on the record, and let
+                    // the developer judge the outcome. A review that actually
+                    // RAN and rejected still fails the task below.
+                    rec.states.push(TaskState::Approved);
+                    rec.final_state = TaskState::Approved;
+                    rec.failure_reason = format!("approved WITHOUT review — reviewer unavailable: {e}");
+                    on_event(GraceEvent::Approved {
                         id: spec.id.clone(),
-                        reason: rec.failure_reason.clone(),
                     });
                     return;
                 }
@@ -567,7 +598,12 @@ impl GraceEngine {
                 obj = spec.objective,
                 req = if correction.trim().is_empty() { review.as_str() } else { correction.as_str() },
             );
-            submission = match invoker.invoke(&spec.agent, &system_for(&spec.agent), &fix_user) {
+            submission = match invoker.invoke_task(
+                &spec.agent,
+                &system_for(&spec.agent),
+                &fix_user,
+                reviewed,
+            ) {
                 Ok(s) if !s.trim().is_empty() => s,
                 Ok(_) | Err(_) => {
                     rec.states.push(TaskState::Failed);

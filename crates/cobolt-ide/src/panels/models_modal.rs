@@ -381,6 +381,42 @@ impl ModelsModal {
                             }
                         });
                         ui.add_space(4.0);
+                        // Unreviewed-task temperature: skipping Pedantic
+                        // reviewers is a legitimate economy, but without a
+                        // correction loop determinism matters more — so those
+                        // calls run colder, and the knob is right here where
+                        // the review budget lives.
+                        ui.horizontal(|ui| {
+                            let mut lowered = llm.unreviewed_temperature.is_some();
+                            if ui
+                                .checkbox(&mut lowered, tr.models_unreviewed_temp)
+                                .on_hover_text(tr.models_unreviewed_temp_hint)
+                                .changed()
+                            {
+                                llm.unreviewed_temperature = if lowered {
+                                    crate::llm::default_unreviewed_temperature()
+                                } else {
+                                    None
+                                };
+                                action.applied = true;
+                            }
+                            if let Some(mut temperature) = llm.unreviewed_temperature {
+                                if ui
+                                    .add(
+                                        egui::DragValue::new(&mut temperature)
+                                            .range(0.0..=1.0)
+                                            .speed(0.01)
+                                            .fixed_decimals(2),
+                                    )
+                                    .on_hover_text(tr.models_unreviewed_temp_hint)
+                                    .changed()
+                                {
+                                    llm.unreviewed_temperature = Some(temperature);
+                                    action.applied = true;
+                                }
+                            }
+                        });
+                        ui.add_space(4.0);
                         // Semantic Knowledge Base search model. Machine-wide
                         // (the model cache is per-user, not per-project), but
                         // surfaced here because this is where models live.

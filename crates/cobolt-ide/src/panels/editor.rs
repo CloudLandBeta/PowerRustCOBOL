@@ -1200,6 +1200,36 @@ pub(crate) fn looks_like_markdown(content: &str) -> bool {
         })
 }
 
+/// The "agents are still working" indicator, rendered as its own
+/// assistant-side balloon at the TAIL of a chat history — the transcript
+/// itself shows who is typing, instead of a spinner orphaned in the input
+/// column.
+///
+/// High-contrast by requirement: the strong text color over the theme's
+/// extreme background, with a matching stroke and spinner, stays readable in
+/// every theme — the old dim-gray caption washed out on light fills.
+pub(crate) fn chat_thinking_indicator(ui: &mut egui::Ui, label: &str, font_size: f32) {
+    let fg = ui.visuals().strong_text_color();
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+        egui::Frame::NONE
+            .fill(ui.visuals().extreme_bg_color)
+            .stroke(egui::Stroke::new(1.0, fg))
+            .corner_radius(egui::CornerRadius::same(15))
+            .inner_margin(egui::Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.add(egui::Spinner::new().size(font_size + 4.0).color(fg));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(label)
+                        .size(font_size)
+                        .strong()
+                        .color(fg),
+                );
+            });
+    });
+    ui.add_space(5.0);
+}
+
 fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f32) {
     // An agent's question to the developer: its own balloon, red background,
     // white foreground, agent-side alignment. Always plain text — the red

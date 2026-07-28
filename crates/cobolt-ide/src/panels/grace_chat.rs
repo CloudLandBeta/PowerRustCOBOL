@@ -490,6 +490,16 @@ impl GraceChatPanel {
                             self.history_font_size,
                         );
                     }
+                    // The reasoning indicator closes the transcript while
+                    // Grace and the specialists are still working — high
+                    // contrast against the theme, after the last balloon.
+                    if busy {
+                        crate::panels::editor::chat_thinking_indicator(
+                            ui,
+                            tr.ai_thinking,
+                            self.history_font_size,
+                        );
+                    }
                 });
 
             if let Some(command) = &pending_command {

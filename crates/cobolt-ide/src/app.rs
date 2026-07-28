@@ -318,12 +318,11 @@ pub struct CoboltApp {
     agents_modal: Option<crate::panels::agents_modal::AgentsModal>,
     /// Models Manager modal (spec 031), present while open.
     models_modal: Option<crate::panels::models_modal::ModelsModal>,
-    /// One-shot startup probe of the semantic Knowledge Base model (loads the
-    /// model, so it runs on a worker thread).
-    semantic_probe_rx:
-        Option<std::sync::mpsc::Receiver<cobolt_agents::project_knowledge::SemanticModelState>>,
-    /// The probe (or its download) settled — do not probe again this run.
-    semantic_probe_done: bool,
+    /// A KB document add found the semantic model absent — the confirmation
+    /// dialog is showing.
+    semantic_offer_open: bool,
+    /// The developer answered "Later" this session — do not nag on every add.
+    semantic_offer_declined: bool,
     /// In-flight semantic-model download, rendered as an IDE-blocking modal.
     semantic_download: Option<SemanticModelDownload>,
     llm_benchmark_offer: Option<crate::llm::LlmConfig>,
@@ -942,8 +941,8 @@ impl CoboltApp {
             llm_reviewer_models_rx: None,
             agents_modal: None,
             models_modal: None,
-            semantic_probe_rx: None,
-            semantic_probe_done: false,
+            semantic_offer_open: false,
+            semantic_offer_declined: false,
             semantic_download: None,
             llm_benchmark_offer: None,
             llm_benchmark_config: None,
@@ -3115,6 +3114,11 @@ impl CoboltApp {
                 Category::Documentation,
             ),
         };
+        // New Knowledge Base document: offer the semantic model download
+        // (confirmation dialog) when it is not installed.
+        if category == Category::Documentation {
+            self.offer_semantic_model_for_kb();
+        }
         let sub = dir_rel.as_deref().unwrap_or(root_sub);
         let sub_dir = dir.join(sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
@@ -3184,6 +3188,12 @@ impl CoboltApp {
         if kind == FileKind::Indexed {
             self.import_indexed_data_file(path);
             return;
+        }
+        // A document entering the Knowledge Base is the moment semantic search
+        // starts mattering: offer the model download (confirmation dialog) when
+        // it is not installed. The add itself proceeds either way.
+        if kind == FileKind::Documentation {
+            self.offer_semantic_model_for_kb();
         }
         use crate::project_model::Category;
         let proj_dir = match &self.project_path {
@@ -8090,63 +8100,55 @@ struct SemanticModelDownload {
 }
 
 impl CoboltApp {
-    /// Startup gate for the semantic Knowledge Base model.
-    ///
-    /// Probes once per run (worker thread — the probe loads the model): a
-    /// missing model starts the download, an unreadable one is discarded and
-    /// re-downloaded, a healthy one ends the gate silently. While a download
-    /// runs, an [`egui::Modal`] (IDE-themed by construction — it renders with
-    /// the live style) blocks the whole IDE and shows total size, progress and
-    /// the translated explanation; it disappears when the download completes
-    /// and only ever returns when the model must be fetched again.
+    /// Gate for the semantic Knowledge Base model. A
+    /// missing model is OFFERED (confirmation dialog) when a document is added
+    /// to the project Knowledge Base, and downloadable from the Models Manager
+    /// at any time; unreadable files are discarded by the accepted download's
+    /// worker. While a download runs, an [`egui::Modal`] (IDE-themed by
+    /// construction — it renders with the live style) blocks the whole IDE and
+    /// shows total size, progress and the translated explanation; it
+    /// disappears when the download completes and only ever returns when the
+    /// model must be fetched again.
     fn semantic_model_gate(&mut self, ctx: &egui::Context) {
-        use cobolt_agents::project_knowledge as pk;
         use std::sync::atomic::Ordering;
         use std::sync::mpsc::TryRecvError;
 
-        if !self.semantic_probe_done
-            && self.semantic_probe_rx.is_none()
-            && self.semantic_download.is_none()
-        {
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let _ = tx.send(pk::semantic_model_probe());
-            });
-            self.semantic_probe_rx = Some(rx);
-        }
-        if let Some(rx) = &self.semantic_probe_rx {
-            match rx.try_recv() {
-                Ok(state) => {
-                    self.semantic_probe_rx = None;
-                    match state {
-                        pk::SemanticModelState::Ready => self.semantic_probe_done = true,
-                        pk::SemanticModelState::Missing => self.start_semantic_download(),
-                        pk::SemanticModelState::Corrupt => {
-                            self.output.push_status(
-                                "Knowledge Base semantic model is unreadable; fetching a fresh copy.",
-                            );
-                            match pk::discard_semantic_model() {
-                                Ok(()) => self.start_semantic_download(),
-                                Err(error) => {
-                                    // Nothing left to do without rm rights; the
-                                    // search falls back to lexical instead of
-                                    // looping the gate forever.
-                                    self.output.push_status(format!(
-                                        "Could not remove the corrupt model: {error}"
-                                    ));
-                                    self.semantic_probe_done = true;
-                                }
-                            }
-                        }
+        // The download is OFFERED, never imposed: adding a document to the
+        // project Knowledge Base while the model is absent opens a
+        // confirmation dialog (see `offer_semantic_model_for_kb`); only an
+        // accepted offer — or the Models Manager button — starts the blocking
+        // download below. Declining leaves the search lexical and quiet.
+        if self.semantic_offer_open && self.semantic_download.is_none() {
+            let tr = self.lang.tr();
+            let mut accept = false;
+            let mut later = false;
+            egui::Modal::new(egui::Id::new("semantic_model_offer")).show(ctx, |ui| {
+                ui.set_width(440.0);
+                ui.heading(tr.models_semantic_label);
+                ui.add_space(6.0);
+                ui.label(tr.models_semantic_offer);
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.models_semantic_download).clicked() {
+                        accept = true;
                     }
-                }
-                Err(TryRecvError::Empty) => {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(200));
-                }
-                Err(TryRecvError::Disconnected) => {
-                    self.semantic_probe_rx = None;
-                    self.semantic_probe_done = true;
-                }
+                    if ui.button(tr.ai_setup_later).clicked() {
+                        later = true;
+                    }
+                });
+            });
+            if accept {
+                self.semantic_offer_open = false;
+                self.start_semantic_download();
+            }
+            if later {
+                self.semantic_offer_open = false;
+                // Once per session: the next document add must not nag again.
+                self.semantic_offer_declined = true;
+                self.output.push_status(
+                    "Semantic model not downloaded — Knowledge Base search stays lexical. \
+                     Download it any time from the Models Manager.",
+                );
             }
         }
 
@@ -8173,7 +8175,6 @@ impl CoboltApp {
                     dir.display()
                 ));
                 self.semantic_download = None;
-                self.semantic_probe_done = true;
                 if let Some(manager) = &mut self.models_modal {
                     manager.invalidate_semantic_probe();
                 }
@@ -8237,7 +8238,22 @@ impl CoboltApp {
                  Download it any time from the Models Manager.",
             );
             self.semantic_download = None;
-            self.semantic_probe_done = true;
+            self.semantic_offer_declined = true;
+        }
+    }
+
+    /// Offer the semantic model when a document is being added to the project
+    /// Knowledge Base and the model is not available. Confirmation first —
+    /// the 470 MB download never starts itself. The document add itself
+    /// proceeds regardless of the answer: the per-workflow sync restamps the
+    /// index with whichever embedder is active, so a document added before
+    /// the download becomes semantic on the next sync.
+    fn offer_semantic_model_for_kb(&mut self) {
+        if !self.semantic_offer_declined
+            && self.semantic_download.is_none()
+            && !cobolt_agents::project_knowledge::semantic_model_is_ready()
+        {
+            self.semantic_offer_open = true;
         }
     }
 
@@ -8249,7 +8265,17 @@ impl CoboltApp {
         let worker = progress.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(cobolt_agents::project_knowledge::download_semantic_model(&worker));
+            use cobolt_agents::project_knowledge as pk;
+            // Present-but-unreadable files (truncation, corruption) would make
+            // the download a no-op that "succeeds" into the same broken state;
+            // probe and discard them first, on this worker — the probe loads
+            // the model and is too heavy for the UI thread.
+            if pk::semantic_model_is_ready()
+                && pk::semantic_model_probe() == pk::SemanticModelState::Corrupt
+            {
+                let _ = pk::discard_semantic_model();
+            }
+            let _ = tx.send(pk::download_semantic_model(&worker));
         });
         self.output.push_status(format!(
             "Downloading {} …",

@@ -3754,6 +3754,23 @@ impl DesignerPanel {
                                             history_font_size,
                                         );
                                     }
+                                    // While Grace and the specialists are still
+                                    // working, the transcript itself shows the
+                                    // reasoning indicator right after the last
+                                    // balloon — ALWAYS while busy. (An earlier
+                                    // "yield while text is streaming" condition
+                                    // read the progress bubble as a streaming
+                                    // reply: on the Grace path the buffer holds
+                                    // static progress lines for minutes, and
+                                    // the indicator vanished exactly when the
+                                    // wait was longest.)
+                                    if busy {
+                                        crate::panels::editor::chat_thinking_indicator(
+                                            ui,
+                                            tr.ai_thinking,
+                                            history_font_size,
+                                        );
+                                    }
                                 });
                             });
                     }
@@ -3900,10 +3917,9 @@ impl DesignerPanel {
                                     if ui.add_enabled(can_send, egui::Button::new(tr.ai_send)).clicked() {
                                         do_send = true;
                                     }
-                                    if busy {
-                                        ui.add(egui::Spinner::new());
-                                        ui.label(egui::RichText::new(tr.ai_thinking).small().color(egui::Color32::from_gray(170)));
-                                    }
+                                    // The reasoning indicator lives in the
+                                    // history (after the last balloon), not
+                                    // here — see chat_thinking_indicator.
                                 });
                             });
 
@@ -4443,10 +4459,12 @@ impl DesignerPanel {
                     } // if img_alpha > 0
                 }
 
-                // Grid
+                // Grid — dots derive their color from the composited backdrop
+                // so a form background near the classic dot color still shows
+                // a visible grid.
                 if self.show_grid {
                     let gstep = self.form.grid_size.max(4) as f32;
-                    draw_grid(&painter, resp.rect, gstep, self.glass_mode);
+                    draw_grid(&painter, resp.rect, gstep, self.glass_mode, notch_fill);
                 }
 
                 // Pointer position in canvas space
@@ -4646,6 +4664,7 @@ impl DesignerPanel {
                                     egui::CornerRadius::same(crate::cr8(rad)),
                                     self.form.grid_size.max(4) as f32,
                                     self.glass_mode,
+                                    notch_fill,
                                 );
                             }
                         }
@@ -8276,9 +8295,38 @@ impl DesignerPanel {
 
 // ── Drawing helpers ───────────────────────────────────────────────────────────
 
-fn draw_grid(painter: &egui::Painter, canvas: egui::Rect, step: f32, glass: bool) {
-    let alpha = if glass { 35 } else { 60 };
-    let dot_color = Color32::from_rgba_premultiplied(140, 160, 220, alpha);
+/// Grid dot color with guaranteed contrast against the canvas backdrop.
+///
+/// The classic bluish dot (140,160,220) disappears when the form background
+/// sits near it — a periwinkle or light-blue form hides its own grid. When the
+/// luminance gap to the backdrop is too small, switch to dark dots on light
+/// backgrounds and light dots on dark ones, at a stronger alpha: the fallback
+/// exists precisely because visibility was the problem.
+fn grid_dot_color(backdrop: Color32, glass: bool) -> Color32 {
+    let luminance = |color: Color32| {
+        (0.299 * color.r() as f32 + 0.587 * color.g() as f32 + 0.114 * color.b() as f32) / 255.0
+    };
+    let default_dot = Color32::from_rgb(140, 160, 220);
+    if (luminance(backdrop) - luminance(default_dot)).abs() >= 0.18 {
+        let alpha = if glass { 35 } else { 60 };
+        return Color32::from_rgba_premultiplied(140, 160, 220, alpha);
+    }
+    let alpha = if glass { 90 } else { 120 };
+    if luminance(backdrop) > 0.5 {
+        Color32::from_rgba_unmultiplied(30, 40, 70, alpha)
+    } else {
+        Color32::from_rgba_unmultiplied(225, 232, 255, alpha)
+    }
+}
+
+fn draw_grid(
+    painter: &egui::Painter,
+    canvas: egui::Rect,
+    step: f32,
+    glass: bool,
+    backdrop: Color32,
+) {
+    let dot_color = grid_dot_color(backdrop, glass);
     let mut x = canvas.min.x;
     while x <= canvas.max.x {
         let mut y = canvas.min.y;
@@ -8297,6 +8345,7 @@ fn draw_grid_in_rounded_notches(
     rounding: egui::CornerRadius,
     step: f32,
     glass: bool,
+    backdrop: Color32,
 ) {
     if step <= 0.5 {
         return;
@@ -8313,8 +8362,7 @@ fn draw_grid_in_rounded_notches(
         return;
     }
 
-    let alpha = if glass { 35 } else { 60 };
-    let dot_color = Color32::from_rgba_premultiplied(140, 160, 220, alpha);
+    let dot_color = grid_dot_color(backdrop, glass);
     let first_grid = |lo: f32, base: f32| base + ((lo - base) / step).ceil().max(0.0) * step;
     let painter = painter.with_clip_rect(canvas.intersect(rect));
 

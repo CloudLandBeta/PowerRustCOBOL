@@ -41,6 +41,14 @@ pub struct LlmConfig {
     /// project-wide, was a hardcoded 2.
     #[serde(default = "default_max_review_revisions")]
     pub max_review_revisions: u32,
+    /// Temperature override for specialist calls whose task has NO Pedantic
+    /// review gate. Skipping reviewers is a legitimate economy (each review
+    /// costs a full model call), but it removes the safety net — so unreviewed
+    /// work runs colder to cut hallucination risk. `None` disables the
+    /// override; models that no longer accept sampling parameters (Anthropic
+    /// 4.7+) never receive a temperature either way.
+    #[serde(default = "default_unreviewed_temperature")]
+    pub unreviewed_temperature: Option<f32>,
     /// Master switch for the agentic assistant surfaces. Defaults on for
     /// existing configurations; turning it off restores a traditional editor
     /// feel while preserving saved model profiles and keys.
@@ -153,6 +161,11 @@ pub fn default_inspection_port() -> u16 {
 pub fn default_max_review_revisions() -> u32 {
     2
 }
+/// On by default at a low value: an unreviewed task has no correction loop
+/// behind it, so determinism is worth more than creative variance there.
+pub fn default_unreviewed_temperature() -> Option<f32> {
+    Some(0.1)
+}
 
 pub fn default_agentic_ai_enabled() -> bool {
     true
@@ -173,6 +186,7 @@ impl LlmConfig {
             provider: String::new(),
             verbose_log: false,
             max_review_revisions: default_max_review_revisions(),
+            unreviewed_temperature: default_unreviewed_temperature(),
             agentic_ai_enabled: true,
             inspection_port: default_inspection_port(),
             api_keys: std::collections::HashMap::new(),
