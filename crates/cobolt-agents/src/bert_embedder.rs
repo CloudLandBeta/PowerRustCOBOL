@@ -3,10 +3,11 @@
 
 //! Semantic embeddings from a pure-Rust BERT, via Candle.
 //!
-//! Fills the one seam `embedvec` leaves open: it stores vectors, it does not
-//! create them. The model is `intfloat/multilingual-e5-small` — 384-dimensional,
-//! which is exactly [`VECTOR_DIMENSIONS`], so the vector store, the persisted
-//! index and the manifest are unaffected by the switch.
+//! Implements the [`Embedder`] seam of [`crate::knowledge_store`]: the index
+//! ([`crate::project_knowledge`]) stores vectors, this module creates them.
+//! The model is `intfloat/multilingual-e5-small` — 384-dimensional, which is
+//! exactly [`VECTOR_DIMENSIONS`], so the persisted index format is unaffected
+//! by a model switch.
 //!
 //! ## Why this matters more than it looks
 //!

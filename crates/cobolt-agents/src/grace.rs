@@ -109,6 +109,24 @@ pub struct TaskRecord {
     pub failure_reason: String,
 }
 
+/// One live-action status entry (spec 036): the *action* an agent performed,
+/// never the content the action produced or consumed. `kind` is a stable
+/// snake_case identifier (e.g. `retrieving_context`) so saved records stay
+/// language-neutral — the IDE localizes it at render time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionLogEntry {
+    /// The agent performing the action ("Grace", a specialist, a reviewer).
+    pub agent: String,
+    /// Stable snake_case action kind.
+    pub kind: String,
+    /// Short dynamic fragment (task id, tool name…), verbatim; may be empty.
+    #[serde(default)]
+    pub detail: String,
+    /// Milliseconds since the Unix epoch when the action started.
+    #[serde(default)]
+    pub at: u64,
+}
+
 /// The workflow record (spec 029 observability): saved by the host under
 /// `agentic_ai/Grace/runs/<workflow_id>.json`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -129,7 +147,33 @@ pub struct WorkflowRecord {
     /// Grace's concise, user-facing one-line summary of the completed work.
     #[serde(default)]
     pub final_summary: String,
+    /// The ordered live-action history of the run (spec 036 R11). Absent in
+    /// records written before 1.38.0 — `serde(default)` keeps them readable.
+    #[serde(default)]
+    pub action_log: Vec<ActionLogEntry>,
+    /// Estimated tokens of the ENTIRE indexed Knowledge Base corpus (system +
+    /// project) — what a push-everything approach would have injected. 0 when
+    /// unknown (older records).
+    #[serde(default)]
+    pub kb_available_tokens: u64,
+    /// Estimated tokens of the Knowledge Base material actually injected into
+    /// the planning context (essential documents + retrieved excerpts).
+    #[serde(default)]
+    pub kb_injected_tokens: u64,
+    /// Grace's private 0–10 rating of the developer's request clarity and
+    /// conciseness, evaluated BEFORE any Knowledge Base retrieval. Telemetry
+    /// for the record only: it must never be injected into any agent task
+    /// prompt. `None` on older records and when the pre-check was skipped or
+    /// unparseable.
+    #[serde(default)]
+    pub request_clarity: Option<u8>,
 }
+
+/// The reviewer name recorded for a machine-validation rejection (the lint
+/// gate below): the IDE's deterministic change-set validator, not a Pedantic
+/// model. Kept distinct so audit records and progress lines never read as if
+/// an LLM reviewer produced the verdict.
+pub const MACHINE_VALIDATOR: &str = "change-set validator";
 
 /// Host-supplied transport: invoke one named agent with a system+user prompt
 /// and return its full reply. The host resolves models, keys, endpoints.
@@ -142,6 +186,19 @@ pub struct WorkflowRecord {
 /// "malformed plan, resend everything" correction roundtrips.
 pub trait AgentInvoker {
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String>;
+
+    /// Deterministic machine validation of a specialist submission, run by the
+    /// engine BEFORE the Pedantic review gate. `Some(errors)` means the
+    /// submission carries defects a validator can *prove* — e.g. change-set
+    /// operations the IDE would reject and silently skip at apply time — and
+    /// the engine charges the specialist a bounded correction round carrying
+    /// those exact errors, like a Pedantic rejection but without spending a
+    /// review call. `None` means nothing machine-checkable is wrong (including
+    /// "this agent's output is not machine-checkable at all").
+    fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
+        let _ = (agent, submission);
+        None
+    }
 
     /// Invoke `agent` to EXECUTE a task, saying whether a Pedantic review gate
     /// stands behind the result. Defaults to [`invoke`]: the distinction only
@@ -500,6 +557,27 @@ impl GraceEngine {
             agent: spec.agent.clone(),
         });
 
+        // Machine-validation gate (deterministic, no model call): a submission
+        // whose change-set the IDE would reject gets a bounded correction round
+        // with the exact validator errors — BEFORE any Pedantic round is spent
+        // on it. Observed live: a "wire the events" task returned 60 placeholder
+        // handlers without the three division headers; every operation was
+        // silently skipped at apply time and nothing was created, with no one
+        // told why. The gate shares one bounded budget across the whole task.
+        let mut lint_rounds = 0usize;
+        submission = match self.lint_gate(
+            rec,
+            dependency_outputs,
+            submission,
+            invoker,
+            system_for,
+            on_event,
+            &mut lint_rounds,
+        ) {
+            Some(clean) => clean,
+            None => return, // failed in the gate; already recorded
+        };
+
         let Some(reviewer) = spec.reviewer.clone() else {
             // No mandated review gate for this task.
             rec.states.push(TaskState::Approved);
@@ -622,6 +700,22 @@ impl GraceEngine {
                 id: spec.id.clone(),
                 agent: spec.agent.clone(),
             });
+            // A Pedantic correction can reintroduce a machine-provable defect
+            // (e.g. a resubmitted change-set whose handler bodies lost their
+            // division headers) — re-run the gate before burning the next
+            // review round on it. The lint budget carries over from above.
+            submission = match self.lint_gate(
+                rec,
+                dependency_outputs,
+                submission,
+                invoker,
+                system_for,
+                on_event,
+                &mut lint_rounds,
+            ) {
+                Some(clean) => clean,
+                None => return, // failed in the gate; already recorded
+            };
         }
         rec.states.push(TaskState::Failed);
         rec.final_state = TaskState::Failed;
@@ -633,6 +727,99 @@ impl GraceEngine {
             id: spec.id.clone(),
             reason: rec.failure_reason.clone(),
         });
+    }
+
+    /// The machine-validation gate: loop while [`AgentInvoker::lint_submission`]
+    /// proves defects in `submission`, charging the specialist one correction
+    /// round per iteration with the validator's errors verbatim. Rejections are
+    /// recorded as [`ReviewRound`]s under the [`MACHINE_VALIDATOR`] name so the
+    /// audit trail shows exactly why a submission was sent back.
+    ///
+    /// `rounds_used` is the gate's shared budget for the WHOLE task (bounded by
+    /// `max_revisions`, like the Pedantic loop): the gate runs again after every
+    /// Pedantic correction, and without a shared budget a specialist that keeps
+    /// resubmitting invalid operations would loop forever.
+    ///
+    /// Returns the first submission the validator accepts, or `None` when the
+    /// task failed here — already recorded on `rec` and streamed to `on_event`.
+    #[allow(clippy::too_many_arguments)]
+    fn lint_gate(
+        &self,
+        rec: &mut TaskRecord,
+        dependency_outputs: &str,
+        mut submission: String,
+        invoker: &mut dyn AgentInvoker,
+        system_for: &dyn Fn(&str) -> String,
+        on_event: &mut dyn FnMut(GraceEvent),
+        rounds_used: &mut usize,
+    ) -> Option<String> {
+        let spec = rec.spec.clone();
+        let reviewed = spec.reviewer.is_some();
+        loop {
+            let Some(errors) = invoker.lint_submission(&spec.agent, &submission) else {
+                return Some(submission);
+            };
+            rec.reviews.push(ReviewRound {
+                reviewer: MACHINE_VALIDATOR.to_string(),
+                defects: true,
+                correction_request: errors.clone(),
+                raw: errors.clone(),
+            });
+            on_event(GraceEvent::Verdict {
+                id: spec.id.clone(),
+                reviewer: MACHINE_VALIDATOR.to_string(),
+                approved: false,
+            });
+            if *rounds_used >= self.max_revisions {
+                rec.states.push(TaskState::Failed);
+                rec.final_state = TaskState::Failed;
+                rec.failure_reason = format!(
+                    "change-set still fails machine validation after {} correction round(s): {errors}",
+                    *rounds_used
+                );
+                on_event(GraceEvent::Failed {
+                    id: spec.id.clone(),
+                    reason: rec.failure_reason.clone(),
+                });
+                return None;
+            }
+            *rounds_used += 1;
+            rec.states.push(TaskState::CorrectionRequired);
+            on_event(GraceEvent::CorrectionRequested {
+                id: spec.id.clone(),
+                round: *rounds_used,
+            });
+            let fix_user = format!(
+                "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== MACHINE VALIDATION — THE IDE REJECTED OPERATIONS IN YOUR CHANGE-SET ===\nThe IDE's change-set validator proved the following defects. These operations would be discarded at apply time, creating NOTHING:\n{errors}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
+                id = spec.id,
+                obj = spec.objective,
+            );
+            submission = match invoker.invoke_task(
+                &spec.agent,
+                &system_for(&spec.agent),
+                &fix_user,
+                reviewed,
+            ) {
+                Ok(s) if !s.trim().is_empty() => s,
+                Ok(_) | Err(_) => {
+                    rec.states.push(TaskState::Failed);
+                    rec.final_state = TaskState::Failed;
+                    rec.failure_reason =
+                        "machine-validation correction round returned no result".into();
+                    on_event(GraceEvent::Failed {
+                        id: spec.id.clone(),
+                        reason: rec.failure_reason.clone(),
+                    });
+                    return None;
+                }
+            };
+            rec.submissions.push(submission.clone());
+            rec.states.push(TaskState::Revalidating);
+            on_event(GraceEvent::Submitted {
+                id: spec.id.clone(),
+                agent: spec.agent.clone(),
+            });
+        }
     }
 }
 
@@ -679,6 +866,62 @@ mod fence_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 036 T1: a pre-1.38.0 record JSON (no `action_log`) still
+    /// deserializes — the log defaults empty — and re-serializes cleanly.
+    #[test]
+    fn old_record_without_action_log_round_trips() {
+        let old = r#"{
+            "workflow_id": "wf-legacy",
+            "tasks": [],
+            "status": "completed",
+            "input_tokens": 10,
+            "output_tokens": 5
+        }"#;
+        let record: WorkflowRecord = serde_json::from_str(old).expect("old JSON must parse");
+        assert_eq!(record.action_log.len(), 0, "absent field defaults empty");
+        let json = serde_json::to_string(&record).expect("re-serialize");
+        let again: WorkflowRecord = serde_json::from_str(&json).expect("round-trip");
+        assert_eq!(again.workflow_id, "wf-legacy");
+        assert_eq!(again.action_log.len(), 0);
+        println!(
+            "action_log round-trip (legacy): read {} entries, wrote {} entries",
+            record.action_log.len(),
+            again.action_log.len()
+        );
+    }
+
+    /// Spec 036 T1: a populated action log survives a lossless round-trip.
+    #[test]
+    fn populated_action_log_round_trips_losslessly() {
+        let mut record = WorkflowRecord {
+            workflow_id: "wf-036".into(),
+            status: "completed".into(),
+            ..Default::default()
+        };
+        record.action_log = vec![
+            ActionLogEntry {
+                agent: "Grace".into(),
+                kind: "planning".into(),
+                detail: String::new(),
+                at: 1_722_000_000_000,
+            },
+            ActionLogEntry {
+                agent: "Form Designer Agent".into(),
+                kind: "drafting".into(),
+                detail: "T1".into(),
+                at: 1_722_000_001_000,
+            },
+        ];
+        let json = serde_json::to_string_pretty(&record).expect("serialize");
+        let again: WorkflowRecord = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(again.action_log, record.action_log, "lossless round-trip");
+        println!(
+            "action_log round-trip (populated): wrote {} entries, read {} entries",
+            record.action_log.len(),
+            again.action_log.len()
+        );
+    }
 
     /// Scripted mock: per-agent queued replies.
     struct Mock {
@@ -759,6 +1002,128 @@ mod tests {
         assert!(mock.calls[2].1.contains("align BTN-OK to the button row"));
         let t2 = &rec.tasks[1];
         assert_eq!(t2.final_state, TaskState::Approved);
+    }
+
+    /// Scripted mock whose lint gate rejects any submission containing
+    /// "PLACEHOLDER" — the machine-validation analogue of the IDE's
+    /// change-set validator.
+    struct LintMock {
+        calls: Vec<(String, String)>,
+        script: Vec<(&'static str, &'static str)>,
+    }
+    impl AgentInvoker for LintMock {
+        fn invoke(&mut self, agent: &str, _s: &str, user: &str) -> Result<String, String> {
+            self.calls.push((agent.to_string(), user.to_string()));
+            let i = self.calls.len() - 1;
+            let (expect, reply) = self.script[i];
+            assert_eq!(agent, expect, "call #{i} routed to the wrong agent");
+            Ok(reply.to_string())
+        }
+        fn lint_submission(&mut self, _agent: &str, submission: &str) -> Option<String> {
+            submission.contains("PLACEHOLDER").then(|| {
+                "1. generate_event_handler LBL-01.onHoverEnter: Code must start from the \
+                 nested-program body and include ENVIRONMENT DIVISION."
+                    .to_string()
+            })
+        }
+    }
+
+    fn lint_plan(reviewer: Option<&str>) -> Vec<TaskSpec> {
+        vec![TaskSpec {
+            id: "T1".into(),
+            agent: "Form Designer Agent".into(),
+            objective: "Wire hover events".into(),
+            context: "form LABELS-FORM".into(),
+            reviewer: reviewer.map(str::to_owned),
+            depends_on: vec![],
+            acceptance: "handlers exist".into(),
+        }]
+    }
+
+    /// A submission the IDE's validator would reject at apply time is sent
+    /// back to the specialist with the exact errors — BEFORE any Pedantic
+    /// round — and the corrected resubmission proceeds through review.
+    /// (Observed live: 60 placeholder handlers were silently skipped at apply
+    /// time and the workflow reported success with nothing created.)
+    #[test]
+    fn machine_validation_returns_the_errors_and_recovers() {
+        let mut mock = LintMock {
+            calls: Vec::new(),
+            script: vec![
+                ("Form Designer Agent", "ops v1 PLACEHOLDER"),
+                ("Form Designer Agent", "ops v2 full bodies"),
+                (
+                    "Form Designer Agent Pedantic Reviewer",
+                    "clean.\n```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
+                ),
+            ],
+        };
+        let rec = GraceEngine::default().run(
+            "wf-lint",
+            &lint_plan(Some("Form Designer Agent Pedantic Reviewer")),
+            &mut mock,
+            &|_| "sys".into(),
+        );
+        assert_eq!(rec.status, "completed");
+        let t1 = &rec.tasks[0];
+        assert_eq!(t1.final_state, TaskState::Approved);
+        assert!(t1.states.contains(&TaskState::CorrectionRequired));
+        assert_eq!(t1.submissions.len(), 2, "both submissions preserved");
+        // The rejection is on the audit record under the validator's name,
+        // never attributed to the Pedantic reviewer.
+        assert_eq!(t1.reviews[0].reviewer, MACHINE_VALIDATOR);
+        assert!(t1.reviews[0].defects);
+        // The correction round carried the validator's errors verbatim.
+        assert!(mock.calls[1].1.contains("MACHINE VALIDATION"));
+        assert!(mock.calls[1].1.contains("ENVIRONMENT DIVISION"));
+        // The Pedantic reviewer saw only the corrected submission.
+        assert!(mock.calls[2].1.contains("ops v2 full bodies"));
+    }
+
+    /// The gate also guards UNREVIEWED tasks (no Pedantic companion): they
+    /// used to be auto-approved with whatever they returned.
+    #[test]
+    fn machine_validation_guards_unreviewed_tasks_too() {
+        let mut mock = LintMock {
+            calls: Vec::new(),
+            script: vec![
+                ("Form Designer Agent", "ops v1 PLACEHOLDER"),
+                ("Form Designer Agent", "ops v2 full bodies"),
+            ],
+        };
+        let rec =
+            GraceEngine::default().run("wf-lint2", &lint_plan(None), &mut mock, &|_| "sys".into());
+        assert_eq!(rec.status, "completed");
+        assert_eq!(rec.tasks[0].final_state, TaskState::Approved);
+        assert_eq!(mock.calls.len(), 2, "no reviewer call for an unreviewed task");
+    }
+
+    /// The gate's budget is bounded: a specialist that keeps resubmitting
+    /// invalid operations fails honestly instead of looping or being approved.
+    #[test]
+    fn machine_validation_budget_is_bounded() {
+        let mut mock = LintMock {
+            calls: Vec::new(),
+            script: vec![
+                ("Form Designer Agent", "ops v1 PLACEHOLDER"),
+                ("Form Designer Agent", "ops v2 PLACEHOLDER"),
+            ],
+        };
+        let rec = GraceEngine { max_revisions: 1 }.run(
+            "wf-lint3",
+            &lint_plan(Some("Form Designer Agent Pedantic Reviewer")),
+            &mut mock,
+            &|_| "sys".into(),
+        );
+        assert_eq!(rec.status, "failed");
+        let t1 = &rec.tasks[0];
+        assert_eq!(t1.final_state, TaskState::Failed);
+        assert!(
+            t1.failure_reason.contains("machine validation"),
+            "failure names the gate: {}",
+            t1.failure_reason
+        );
+        assert_eq!(mock.calls.len(), 2, "budget spent, no further rounds");
     }
 
     /// Phase C: the live event stream mirrors the workflow — task start,

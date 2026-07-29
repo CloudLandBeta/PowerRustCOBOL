@@ -207,11 +207,14 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
     )
 }
 
-fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name: &str) -> Option<String> {
+/// The Form-independent half of [`validate_op`]: defects provable from the
+/// operation alone, with no control inventory. Shared with the workflow lint
+/// gate ([`lint_change_set_submission`]) so the two can never disagree — an
+/// operation this rejects is exactly one the apply path would silently skip.
+pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
     match op {
         AgentOp::DeployControl {
             control_type,
-            id,
             properties,
             ..
         } => {
@@ -220,13 +223,75 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
                 return Some(format!("Unknown control type '{control_type}'."));
             }
             // Property keys, if any, must be valid for the new control's type.
-            for key in properties.keys() {
-                if !deploy_property_valid(&ct, key) {
-                    return Some(format!("'{control_type}' has no property '{key}'."));
-                }
+            properties.keys().find_map(|key| {
+                (!deploy_property_valid(&ct, key))
+                    .then(|| format!("'{control_type}' has no property '{key}'."))
+            })
+        }
+        AgentOp::GenerateEventHandler { code, .. } => handler_body_shape_error(code),
+        AgentOp::CreateProcedure { name, code } => {
+            if name.trim().is_empty() {
+                return Some("Procedure name is empty.".to_string());
+            }
+            handler_body_shape_error(code)
+        }
+        AgentOp::SetProperty { .. } | AgentOp::Message { .. } => None,
+    }
+}
+
+/// One-line label naming an operation in a validation message.
+fn op_ref(op: &AgentOp) -> String {
+    match op {
+        AgentOp::DeployControl {
+            control_type, id, ..
+        } => format!(
+            "deploy_control {control_type} {}",
+            id.as_deref().unwrap_or("(auto id)")
+        ),
+        AgentOp::SetProperty {
+            control_id, key, ..
+        } => format!("set_property {control_id}.{key}"),
+        AgentOp::GenerateEventHandler {
+            control_id, event, ..
+        } => format!("generate_event_handler {control_id}.{event}"),
+        AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
+        AgentOp::Message { .. } => "message".into(),
+    }
+}
+
+/// Machine validation of a specialist's change-set submission for the Grace
+/// workflow lint gate. Runs only the **Form-independent** checks (see
+/// [`op_form_free_error`]): those can never false-positive against a designer
+/// holding unsaved changes, and every defect they prove is an operation the
+/// apply-time validator would silently discard. Returns the numbered defect
+/// list, or `None` when the agent's output is not a change-set, the change-set
+/// does not parse deterministically (parse recovery is a separate, later
+/// concern — see `normalize_form_change_sets`), or nothing is wrong.
+pub fn lint_change_set_submission(agent: &str, submission: &str) -> Option<String> {
+    if !crate::agents_db::produces_form_change_set(agent) {
+        return None;
+    }
+    let cs = parse_change_set(submission).ok()?;
+    let errors: Vec<String> = cs
+        .operations
+        .iter()
+        .filter_map(|op| op_form_free_error(op).map(|e| format!("{}: {e}", op_ref(op))))
+        .enumerate()
+        .map(|(i, line)| format!("{}. {line}", i + 1))
+        .collect();
+    (!errors.is_empty()).then(|| errors.join("\n"))
+}
+
+fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name: &str) -> Option<String> {
+    match op {
+        AgentOp::DeployControl {
+            control_type, id, ..
+        } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
             }
             if let Some(id) = id {
-                known.insert(id.to_ascii_uppercase(), ct);
+                known.insert(id.to_ascii_uppercase(), ControlType::from_str(control_type));
             }
             None
         }
@@ -266,17 +331,11 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
                 }
                 _ => None,
             };
-            base.or_else(|| handler_body_shape_error(code))
+            base.or_else(|| op_form_free_error(op))
                 .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
         }
-        AgentOp::CreateProcedure { name, code } => {
-            if name.trim().is_empty() {
-                Some("Procedure name is empty.".to_string())
-            } else {
-                handler_body_shape_error(code)
-                    .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
-            }
-        }
+        AgentOp::CreateProcedure { name: _, code } => op_form_free_error(op)
+            .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg)),
         AgentOp::Message { .. } => None,
     }
 }
@@ -1390,6 +1449,66 @@ mod tests {
             "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.\n"
         )
         .is_some_and(|m| m.contains("DATA DIVISION")));
+    }
+
+    /// The workflow lint gate (spec: Grace correction loop) must catch exactly
+    /// the operations the apply path would silently skip — observed live as 60
+    /// placeholder hover handlers (`*> comment` + `CONTINUE.`, no division
+    /// headers) that validated invalid, applied nothing, and told no one.
+    #[test]
+    fn lint_flags_placeholder_handlers_for_change_set_agents() {
+        let placeholder = "Analysis prose here.\n```json\n{\"operations\":[\
+            {\"op\":\"generate_event_handler\",\"control_id\":\"LBL-01\",\"event\":\"onHoverEnter\",\
+             \"code\":\"*> Placeholder - implementação pendente\\n           CONTINUE.\"},\
+            {\"op\":\"generate_event_handler\",\"control_id\":\"LBL-02\",\"event\":\"onHoverLeave\",\
+             \"code\":\"*> Placeholder\\n           CONTINUE.\"}]}\n```";
+        let errors = lint_change_set_submission("Form Designer Agent", placeholder)
+            .expect("placeholder bodies must be flagged");
+        assert!(errors.contains("1. generate_event_handler LBL-01.onHoverEnter"), "{errors}");
+        assert!(errors.contains("2. generate_event_handler LBL-02.onHoverLeave"), "{errors}");
+        assert!(errors.contains("ENVIRONMENT DIVISION"), "{errors}");
+
+        // The event specialist's submissions are linted through the same gate.
+        assert!(
+            lint_change_set_submission("COBOL Event Handler Script Agent", placeholder).is_some()
+        );
+
+        // A complete nested-program body passes.
+        let full = "```json\n{\"operations\":[\
+            {\"op\":\"generate_event_handler\",\"control_id\":\"LBL-01\",\"event\":\"onHoverEnter\",\
+             \"code\":\"       ENVIRONMENT DIVISION.\\n       DATA DIVISION.\\n       PROCEDURE DIVISION.\\n           CONTINUE.\"}]}\n```";
+        assert!(lint_change_set_submission("Form Designer Agent", full).is_none());
+
+        // Unknown deploy types and invalid deploy properties are Form-free too.
+        let bad_deploy = "```json\n{\"operations\":[\
+            {\"op\":\"deploy_control\",\"control_type\":\"HoloPanel\",\"id\":\"H1\",\"properties\":{}}]}\n```";
+        let errors = lint_change_set_submission("Form Designer Agent", bad_deploy)
+            .expect("unknown control type must be flagged");
+        assert!(errors.contains("HoloPanel"), "{errors}");
+    }
+
+    /// The gate never speaks for agents whose output is not a change-set, for
+    /// submissions without a parseable change-set (recovery is a later,
+    /// separate concern), or for Form-dependent doubts (unsaved designer state
+    /// would make those false positives).
+    #[test]
+    fn lint_stays_silent_outside_its_proof() {
+        let placeholder = "```json\n{\"operations\":[\
+            {\"op\":\"generate_event_handler\",\"control_id\":\"L1\",\"event\":\"onClick\",\
+             \"code\":\"CONTINUE.\"}]}\n```";
+        assert!(
+            lint_change_set_submission("Documentation Agent", placeholder).is_none(),
+            "not a change-set producer"
+        );
+        assert!(
+            lint_change_set_submission("Form Designer Agent", "prose only, no JSON").is_none(),
+            "no parseable change-set"
+        );
+        // A set_property on a control the lint cannot see is a Form-dependent
+        // question — never flagged here.
+        let set_prop = "```json\n{\"operations\":[\
+            {\"op\":\"set_property\",\"control_id\":\"GHOST-1\",\"key\":\"Width\",\"value\":150}]}\n```";
+        assert!(lint_change_set_submission("Form Designer Agent", set_prop).is_none());
     }
 
     #[test]

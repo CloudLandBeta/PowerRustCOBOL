@@ -109,6 +109,26 @@ pub fn builtin_rules() -> Vec<ModelPolicyRule> {
                 ..Default::default()
             },
         },
+        // Observed live (Models Manager test via the HuggingFace router,
+        // moonshotai/Kimi-K3): "56 reasoning character(s) but no assistant
+        // message content" — the Kimi generation thinks by default, and the
+        // connection test's deliberately tiny token budget was spent entirely
+        // on hidden reasoning before the answer could start. The floor is
+        // fail-safe for the non-thinking Kimi variants too: a higher ceiling
+        // never forces a longer reply. Provider left empty on purpose — the
+        // same weights serve through HuggingFace, OpenRouter, and Moonshot's
+        // own API.
+        ModelPolicyRule {
+            provider: String::new(),
+            model: "kimi".into(),
+            policy: ModelPolicy {
+                min_max_tokens: 32_768,
+                note: "thinking model: hidden reasoning exhausts small token budgets and the \
+                       reply arrives empty"
+                    .into(),
+                ..Default::default()
+            },
+        },
         // Observed live: ever-longer generations (6s→28s) returning empty
         // final content on large task prompts — the signature of a hidden-
         // reasoning model exhausting its output budget. Also observed live
@@ -228,6 +248,24 @@ mod tests {
         assert!(gemma.min_max_tokens >= 16_384);
         assert!(gemma.avoid_native_tools);
         assert!(!gemma.avoid_typed_extraction);
+
+        // Kimi thinks by default and serves through several providers under
+        // the same weights: the budget floor must match the model name
+        // wherever it runs (observed live via the HuggingFace router — 56
+        // reasoning characters, no content, on the 16-token connection test).
+        for (provider, model) in [
+            ("huggingface", "moonshotai/Kimi-K3"),
+            ("openrouter", "moonshotai/kimi-k2-thinking"),
+            ("openai", "kimi-k3"), // Moonshot's own OpenAI-compatible API
+        ] {
+            let kimi = policy_from_rules(&builtin_rules(), provider, model);
+            assert!(
+                kimi.min_max_tokens >= 32_768,
+                "{provider}/{model} must get the thinking floor"
+            );
+            assert!(!kimi.avoid_native_tools);
+            assert!(!kimi.avoid_typed_extraction);
+        }
 
         // Unmapped models get a no-op policy.
         let clean = policy_from_rules(&builtin_rules(), "mistral", "mistral-large");

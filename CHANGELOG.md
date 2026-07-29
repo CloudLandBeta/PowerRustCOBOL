@@ -8,6 +8,256 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.41.4] — 2026-07-28
+
+### Added
+
+- **Groq as a model provider.** New entry in the provider list (Settings →
+  AI and the Models Manager), default endpoint
+  `https://api.groq.com/openai/v1`. Groq speaks the OpenAI wire under the
+  `/openai/v1` root: model listing at `/models` with Bearer auth (a stored
+  chat-completions endpoint is stripped back to the root before the
+  listing request), chat through the same OpenAI-compatible transport every
+  non-Anthropic provider already uses. Note Groq's listing includes
+  non-chat models (whisper, TTS, guard) — pick a chat model for agents.
+
+## [PowerRustCOBOL 1.41.3] — 2026-07-28
+
+### Fixed
+
+- **A dead provider no longer holds a request open forever.** Observed
+  live: the COBOL proficiency check hung endlessly on its Pedantic review
+  round when the HuggingFace router stopped answering — the transport had
+  no timeout and the spinner no cancel, so only restarting the IDE got out.
+  Every rig provider client (workflow agents, typed extraction,
+  chatbot/benchmark — Anthropic and OpenAI-compatible branches alike) now
+  carries a **15-second connect timeout**: an unreachable or black-holed
+  host fails the round fast, and the existing error path surfaces the
+  failure instead of spinning. Streaming reads stay unlimited — a long
+  generation is legitimate; only establishing the connection is bounded.
+
+## [PowerRustCOBOL 1.41.2] — 2026-07-28
+
+### Fixed
+
+- **Thinking models no longer fail the connection test with an empty
+  reply.** Observed live with `moonshotai/Kimi-K3` via the HuggingFace
+  router: the Models Manager test clamps its budget to 16 tokens, which a
+  hidden-reasoning model spends entirely on thinking ("56 reasoning
+  character(s) but no assistant message content"). Two policy-first fixes:
+  a built-in `model_policy` rule floors the token budget for the Kimi
+  family (provider-agnostic — the same weights serve through HuggingFace,
+  OpenRouter, and Moonshot's own API), and the mesh request funnel (which
+  serves the connection test, the direct editor chat, and compaction) now
+  applies `model_policy` budget floors exactly like the agent path already
+  did.
+
+## [PowerRustCOBOL 1.41.1] — 2026-07-28
+
+### Fixed
+
+- **HuggingFace moved to the Inference Providers router.** The legacy
+  `api-inference.huggingface.co` host was shut down upstream — its DNS no
+  longer resolves, so the Models Manager's model refresh died with "error
+  sending request". The provider default is now
+  `https://router.huggingface.co/v1` (OpenAI wire): model listing at
+  `/v1/models`, chat at `/v1/chat/completions`. Stored configurations are
+  migrated everywhere the dead host can hide: model profiles and the legacy
+  top-level endpoint are rewritten on load (a dead host is never preserved
+  as a "user-edited" choice), and both the model-list fetch and the Rig
+  transport heal the endpoint at request time as a safety net — path
+  included, since the old `/models/{id}` scheme died with the host.
+
+## [PowerRustCOBOL 1.41.0] — 2026-07-28
+
+### Added
+
+- **Agent performance ratings, kept by Grace.** Every finished workflow is
+  scored mechanically from its own record: approved with no correction
+  round **+3★**, after one correction **+1★**, after two or more **0★**,
+  task failed **−5** (totals can go negative; blocked agents are not scored
+  — their dependency already took the −5). After the workflow, the Grace
+  chat shows a per-agent star row: clicking fills stars cumulatively in
+  gold — **4–5★ records the developer's praise (+5)**, **1–2★ a rejection
+  (−10)**, 3★ neutral; clicking the same star again clears, re-rating
+  replaces. Totals run over a rolling window of the last 20 rated tasks per
+  agent, persisted in `agentic_ai/Grace/ratings.json`; the progress log
+  reports each task's stars and the running total. Localized ×6.
+- **Agents receive lessons, never scores.** A specialist's next task prompt
+  carries a factual "RECENT REVIEW LESSONS" digest — its own recent
+  correction reasons, deduplicated, capped at three. Deliberately NOT the
+  star count or any praise/displeasure framing: a score is non-actionable,
+  and pressure framing is the same gradient that once fabricated an
+  approval claim. The correction reasons are what actually change the next
+  completion.
+- **Request-clarity pre-check, before any retrieval.** Grace privately
+  rates every request's clarity and conciseness (0–10) BEFORE the Knowledge
+  Bases are synced, embedded, or searched — on a tool-less call that cannot
+  reach `knowledge_search`. Below 7, she returns her interpretation of the
+  request plus targeted questions for confirmation instead of spending the
+  full RAG + planning cost on a guess. The score is stored on the workflow
+  record as private telemetry: agents never see it. The check fails open —
+  an unparseable verdict lets the workflow proceed normally.
+
+### Fixed
+
+- **Fabricated review approvals are now a named critical defect.** The
+  runtime Pedantic-relationship contract used to tell every specialist to
+  "submit your complete work for that review" — an action a specialist
+  cannot perform (the engine routes the review AFTER the reply), so models
+  narrated having done it, up to "Aprovação obtida" with no review call
+  anywhere in the run. The contract now states the real mechanics (the
+  review runs only after the reply; the specialist never talks to the
+  reviewer) and declares FABRICATED APPROVAL = CRITICAL DEFECT: any
+  "submitted to the reviewer / review passed / approval obtained" sentence
+  is false by construction, treated like a fabricated tool result, and
+  voids the submission. The Form Designer's default prompt carries the same
+  severe rule; being composed at runtime, the contract reaches every
+  existing project immediately.
+
+- **Rejected change-set operations now feed the correction loop instead of
+  vanishing.** The Grace engine gained a machine-validation gate: every
+  change-set-producing submission (Form Designer, COBOL Event Handler) is
+  checked by the Form-independent half of the IDE's change-set validator —
+  handler/procedure bodies missing the three division headers, unknown
+  deploy control types, invalid deploy property keys — BEFORE any Pedantic
+  round is spent on it. Proven defects go back to the specialist as a
+  bounded correction round carrying the validator's errors verbatim,
+  recorded on the audit trail under the "change-set validator" name; the
+  gate also guards unreviewed tasks. Previously such operations validated
+  invalid at apply time and were silently skipped — observed live as 60
+  placeholder hover handlers that created nothing while the workflow
+  reported success.
+- **Grace no longer plans placeholder event-wiring tasks.** An event handler
+  exists exactly when its approved COBOL implementation is applied — there is
+  no dormant event slot to reserve first. Grace's prompt now forbids planning
+  "connect/wire the events now with placeholder code, implement later" tasks
+  (the pattern that produced the 60 rejected placeholders), and the Form
+  Designer prompt states that it never emits `generate_event_handler`
+  operations — placeholder or otherwise — returning delegation material for
+  the COBOL Event Handler Script Agent instead. Both prompts upgrade on
+  project open when the stored copy is the unmodified old default; edited
+  prompts are never touched.
+
+## [PowerRustCOBOL 1.40.0] — 2026-07-28
+
+### Added
+
+- **Chunked Knowledge Base — one record per subject.** Documents are
+  converted into many small records — one per control, property, method,
+  event, or prose section — each with a COBOL-style `PIC X(512)` content
+  field; content that does not fit continues in records **linked to the
+  previous one** (parent-record chains that search reassembles). Every
+  record's content is embedded individually, the vector stored on the record
+  it describes. Two stores: the IDE's `~/PowerRustCOBOL/data/chunked.data`
+  (System KB) and each project's `data/<name-no-spaces>-chunked.data`.
+  Syncing preserves the source files: a new or updated document has its old
+  records and embeddings removed and is chunked and embedded again; a
+  document deleted on disk loses its records.
+- **The IDE ships its chunked store pre-embedded.** The System KB index
+  (`assets/knowledge/chunked.data`, regenerated with
+  `cargo run -p cobolt-ide --example build_chunked_kb` and embedded in the
+  binary) installs itself to `~/PowerRustCOBOL/data/chunked.data` on first
+  run — a cloned IDE reindexes nothing unless a Knowledge Base document is
+  removed, changed, or replaced. A freshness test fails the build when the
+  shipped store drifts behind the published documentation. Machines without
+  the semantic model keep the shipped embeddings intact and search them
+  lexically until the model arrives.
+- **Indexing progress bar.** While chunk records are being embedded, the
+  Grace chat and the form-inspector chatbot show a live progress bar
+  ("Indexing Knowledge Base (n of m records)", translated ×6), streamed
+  per record from the indexer.
+- **The product is now "PowerRustCOBOL AI".** Everywhere the IDE shows the
+  product name — window titles, the welcome screen, the About dialog — it
+  reads PowerRustCOBOL AI, with the "AI" always in the brand cyan
+  `#70f3fc` where text can be colored (`theme::brand_layout_job`). Folder
+  names on disk keep the original spelling.
+
+### Changed
+
+- **Grace and the specialists now retrieve only what the task needs.** The
+  planning context receives the top-scoring subject records from both
+  chunked stores instead of the four essential documents injected wholesale
+  — asking about `DataGrid` events now injects the DataGrid records, not
+  the whole 34-control catalogue. The `knowledge_search` tool answers from
+  the chunked stores (project + system) with complete subject records. The
+  essential documents remain published, indexed, and rebuild-checked; their
+  content simply arrives through retrieval. The verbose "Token savings"
+  line now measures against the chunked corpus, so the effect is visible
+  per run.
+
+## [PowerRustCOBOL 1.39.0] — 2026-07-28
+
+### Added
+
+- **Verbose "Token savings" report.** With the verbose AI setting on, the
+  Grace conversation ends each run with a measured retrieval-economy line —
+  `Token savings: 92.50% — Knowledge Base retrieval injected ≈750 of ≈10000
+  available tokens into the context.` — comparing what the RAG actually
+  injected against the full indexed corpus a push-everything approach would
+  have sent (≈4 chars/token estimate; translated in all six IDE languages).
+  The measured counts persist on the run record (`kb_available_tokens`,
+  `kb_injected_tokens`; older records still load).
+
+## [PowerRustCOBOL 1.38.1] — 2026-07-28
+
+One retrieval system, not three. The redb + Candle RAG (the
+`multilingual-e5-small` model and pure-Rust tokenizer) is the only Knowledge
+Base implementation; the superseded experiments are gone.
+
+### Removed
+
+- **The `local-retrieval` feature and its stack** — `embedding.rs` (ONNX
+  Runtime), `retrieval/` (rig-sqlite + sqlite-vec + tantivy lexical index) —
+  the pre-1.36.28, C/C++-dependent path. Off by default and unused; its
+  dependencies (`ort`, `rig-sqlite`, `sqlite-vec`, `tantivy`, `ndarray`,
+  `tokio-rusqlite`, optional `rusqlite`) leave the crate. SQLite remains in
+  the COBOL runtime, untouched.
+- **The dormant embedvec/Fjall vector store** in `knowledge_store.rs`
+  (HNSW, E8 quantization) and the `embedvec` dependency. The module keeps
+  what the live system uses: the `Embedder` seam, the hashing fallback, the
+  shared vector width, and the data-directory location.
+- **Unused `opentelemetry`, `opentelemetry-otlp`, `num_cpus`, and
+  `cobolt-forms` dependencies** of the agents crate (verified unreferenced;
+  full clean workspace rebuild passes without them).
+
+### Fixed
+
+- The `knowledge_search`/`documentation.write` tool contracts and the guide
+  no longer call the index "SQLite" — it has been the pure-Rust redb store
+  since 1.36.28.
+
+## [PowerRustCOBOL 1.38.0] — 2026-07-28
+
+Agent progress transparency (spec 036): the conversation always shows what the
+agents are doing.
+
+### Added
+
+- **Live action status in the agent chats.** While Grace and the specialists
+  work, the project Grace chat and the Form Designer's inspector chatbot show
+  a per-agent status line naming the current step (`Form Designer Agent:
+  Drafting response — T1`), throttled to at most one change per second, in
+  place of the generic "Thinking…" indicator. Every step is kept in a
+  collapsed **Agent actions (N)** history — attributed, ordered, lossless —
+  that persists with the chat history and re-localizes when the IDE language
+  changes. The canonical action vocabulary is translated in all six IDE
+  languages.
+- **Action log on the workflow record.** Each run's typed action history is
+  saved as `action_log` in `agentic_ai/Grace/runs/<id>.json` (stable,
+  language-neutral kinds; older records without the field still load), so a
+  past run's steps stay reviewable in later sessions.
+
+### Changed
+
+- **The chat panes no longer show the raw progress log.** Status lines name
+  actions only; retrieved context, tool payloads, and verbose payload lines
+  (e.g. "Verbose: Loaded Skills…") no longer appear in the conversation in
+  any mode. The full trace now flows to the Output panel's AI log, the
+  diagnostics dump, and the saved run record. The finished run's
+  "Coordination log" markdown balloon is superseded by the collapsed action
+  history.
+
 ## [PowerRustCOBOL 1.37.0] — 2026-07-27
 
 Milestone marker. The work from here to the production version is optimization

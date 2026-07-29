@@ -10,9 +10,12 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## What it is
 
-**PowerRustCOBOL** is a modern, Rust-powered **RAD** (Rapid Application
+**PowerRustCOBOL AI** is a modern, Rust-powered **RAD** (Rapid Application
 Development) environment for **COBOL-85**: design forms visually, run them on a
 fast tree-walking runtime, and compile to a single self-contained binary.
+Branding: in the IDE the "AI" of the product name is always rendered in the
+brand cyan `#70f3fcff` (`theme::BRAND_AI_COLOR`); on-disk folder names keep
+the original `PowerRustCOBOL` spelling.
 
 Three pieces:
 

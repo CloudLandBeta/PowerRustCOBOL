@@ -2329,12 +2329,21 @@ impl CoboltApp {
         let busy = self.agent_pending.is_some() || grace_running;
         let mut prompt = std::mem::take(&mut self.agent_prompt);
         let mut use_grace = self.use_grace;
-        // Live progress lines from a running/finished Grace workflow.
-        let grace_log: Vec<String> = self
+        // Spec 036 R4/R10: this surface renders the typed live-action stream,
+        // never the raw progress log (which may carry payloads under verbose).
+        let grace_actions: Vec<crate::agent_actions::AgentAction> = self
             .grace_session
             .as_ref()
-            .map(|s| s.log.clone())
+            .map(|s| s.actions.clone())
             .unwrap_or_default();
+        let grace_current_action = self
+            .grace_session
+            .as_mut()
+            .and_then(|s| s.current_action().cloned());
+        let grace_indexing = self
+            .grace_session
+            .as_ref()
+            .and_then(|s| s.indexing_progress());
         let grace_done = self.grace_session.as_ref().and_then(|s| {
             s.finished().map(|r| match r {
                 Ok((rec, path)) => {
@@ -2475,8 +2484,11 @@ impl CoboltApp {
                     });
                 }
 
-                // 👑 Grace workflow progress (spec 029 Phase C).
-                if !grace_log.is_empty() {
+                // 👑 Grace workflow progress (spec 029 Phase C, spec 036):
+                // the collapsed action history plus the throttled
+                // current-action line — same helpers as the project Grace
+                // chat, so both surfaces behave identically (R10).
+                if !grace_actions.is_empty() {
                     ui.separator();
                     ui.label(egui::RichText::new(tr.agent_grace_progress).strong());
                     egui::ScrollArea::vertical()
@@ -2485,8 +2497,29 @@ impl CoboltApp {
                         .id_salt("grace_progress_log")
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
-                            for line in &grace_log {
-                                ui.label(egui::RichText::new(line).small().monospace());
+                            crate::panels::editor::chat_action_history(
+                                ui,
+                                egui::Id::new("form_inspector_grace_actions"),
+                                &grace_actions,
+                                tr,
+                                13.0,
+                            );
+                            if grace_running {
+                                match &grace_current_action {
+                                    Some(action) => crate::panels::editor::chat_current_action(
+                                        ui, action, tr, 13.0,
+                                    ),
+                                    None => crate::panels::editor::chat_thinking_indicator(
+                                        ui,
+                                        tr.ai_thinking,
+                                        13.0,
+                                    ),
+                                }
+                                if let Some((done, total, _)) = &grace_indexing {
+                                    crate::panels::editor::chat_indexing_bar(
+                                        ui, *done, *total, tr, 13.0,
+                                    );
+                                }
                             }
                         });
                     if let Some(summary) = &grace_done {
@@ -6513,9 +6546,15 @@ impl CoboltApp {
                 0.0
             };
 
-            let title = tr
-                .welcome_title
-                .replace("{}", &format!("PowerRustCOBOL {}", crate::version::VERSION));
+            // Plain form for MEASUREMENT (same glyphs as the rich layout);
+            // the rendered label is the two-color brand job below.
+            let brand_with_version =
+                format!("{} {}", crate::theme::brand_name(), crate::version::VERSION);
+            let title = tr.welcome_title.replace("{}", &brand_with_version);
+            // Split the localized template around its {} so the brand keeps
+            // its colored "AI" in every language.
+            let (welcome_prefix, welcome_suffix) =
+                tr.welcome_title.split_once("{}").unwrap_or(("", ""));
             let license = tr.welcome_license;
             let author_line = format!("— {}", author);
 
@@ -6565,12 +6604,12 @@ impl CoboltApp {
                 let top = ((ui.available_height() - block_h) * 0.5).max(0.0);
                 ui.add_space(top);
 
-                ui.label(
-                    egui::RichText::new(&title)
-                        .size(TITLE_SIZE)
-                        .strong()
-                        .color(egui::Color32::WHITE),
-                );
+                ui.label(crate::theme::brand_layout_job(
+                    welcome_prefix,
+                    &format!(" {}{welcome_suffix}", crate::version::VERSION),
+                    TITLE_SIZE,
+                    egui::Color32::WHITE,
+                ));
                 ui.add_space(GAP_LICENSE);
                 ui.label(
                     egui::RichText::new(license)
@@ -7395,7 +7434,7 @@ impl CoboltApp {
             return;
         }
         let mut open = self.about_open;
-        egui::Window::new("About PowerRustCOBOL")
+        egui::Window::new(format!("About {}", crate::theme::brand_name()))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -7411,7 +7450,13 @@ impl CoboltApp {
                         .max_height(180.0),
                     );
                     ui.add_space(8.0);
-                    ui.heading("PowerRustCOBOL");
+                    // The brand rule: "AI" is always #70f3fc.
+                    ui.label(crate::theme::brand_layout_job(
+                        "",
+                        "",
+                        22.0,
+                        ui.visuals().strong_text_color(),
+                    ));
                     ui.label(format!("Version {VERSION}"));
                     ui.add_space(4.0);
                     ui.label("A modern, Rust-powered RAD environment for COBOL.");
@@ -8342,9 +8387,9 @@ impl eframe::App for CoboltApp {
                 })
                 .unwrap_or("");
             let title = if mode_suffix.is_empty() {
-                format!("PowerRustCOBOL {VERSION}")
+                format!("{} {VERSION}", crate::theme::brand_name())
             } else {
-                format!("PowerRustCOBOL {VERSION} — {mode_suffix}")
+                format!("{} {VERSION} — {mode_suffix}", crate::theme::brand_name())
             };
             // Only touch the OS window when the title actually changes.
             if title != self.last_window_title {
@@ -8607,7 +8652,10 @@ impl eframe::App for CoboltApp {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("ℹ About PowerRustCOBOL").clicked() {
+                    if ui
+                        .button(format!("ℹ About {}", crate::theme::brand_name()))
+                        .clicked()
+                    {
                         self.about_open = true;
                         ui.close();
                     }
@@ -8957,7 +9005,10 @@ impl eframe::App for CoboltApp {
                 let (path, d) = &self.designers[idx];
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
                 let dirty = if d.dirty { " ●" } else { "" };
-                format!("PowerRustCOBOL Form Designer  v{VERSION} — {stem}{dirty}")
+                format!(
+                    "{} Form Designer  v{VERSION} — {stem}{dirty}",
+                    crate::theme::brand_name()
+                )
             };
 
             ctx.show_viewport_immediate(

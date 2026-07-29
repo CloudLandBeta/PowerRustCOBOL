@@ -266,6 +266,23 @@ fn prompt_predates_language_contract(name: &str, prompt: &str) -> bool {
     false
 }
 
+/// True when the Form Designer prompt predates the event-ownership rule
+/// (1.40.1). The old default said the agent does not implement handler code
+/// but left room to emit placeholder `generate_event_handler` operations "to
+/// wire events for later" — bodies the change-set validator rejects and the
+/// apply path silently skips (observed live: 60 placeholder hover handlers,
+/// nothing created, no one told). Only an UNMODIFIED old default is replaced.
+fn prompt_predates_event_ownership_rule(name: &str, prompt: &str) -> bool {
+    if name == FORM_DESIGNER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::FORM_DESIGNER_EVENT_OWNERSHIP_MARKER,
+            crate::llm::LEGACY_FORM_DESIGNER_PROMPT_V1,
+        );
+    }
+    false
+}
+
 fn prompt_carries_broken_form_style_guidance(prompt: &str) -> bool {
     // A corrected prompt always names the real property. Stale ones never do —
     // they only ever spoke of `Theme`. This keeps the corrected defaults from
@@ -999,6 +1016,25 @@ impl AgentsDb {
         changed
     }
 
+    /// Upgrade Grace's stored prompt when it is the unmodified
+    /// pre-event-ownership shipped default. Grace's prompt file is written once
+    /// at creation and is not covered by `repair_builtin_definition`, so
+    /// without this the planning rule ("never plan placeholder event-wiring
+    /// tasks") would reach only NEW projects. An edited prompt is the
+    /// developer's and is never replaced.
+    fn ensure_grace_prompt_current(&mut self) -> bool {
+        let current = self.load_prompt(GRACE);
+        if !prompt_is_unmodified_legacy(
+            &current,
+            crate::llm::GRACE_EVENT_OWNERSHIP_MARKER,
+            crate::llm::LEGACY_GRACE_PROMPT_V1,
+        ) {
+            return false;
+        }
+        self.save_prompt(GRACE, &crate::llm::default_grace_prompt())
+            .is_ok()
+    }
+
     pub fn ensure_grace_reviewer(&mut self, _llm: &crate::llm::LlmConfig) -> bool {
         self.ensure_tandem_reviewer(
             GRACE,
@@ -1502,6 +1538,7 @@ impl AgentsDb {
         let repaired_prompt = if current_prompt.trim().is_empty()
             || legacy_form_prompt
             || prompt_predates_language_contract(name, &current_prompt)
+            || prompt_predates_event_ownership_rule(name, &current_prompt)
             || prompt_carries_broken_form_style_guidance(&current_prompt)
         {
             default_prompt.to_string()
@@ -1761,6 +1798,9 @@ impl AgentsDb {
         let mut changed = self.migrate_builtin_aliases();
         changed += self.seed_from_legacy(llm);
         if self.ensure_grace() {
+            changed += 1;
+        }
+        if self.ensure_grace_prompt_current() {
             changed += 1;
         }
         if self.ensure_form_designer(llm) {
@@ -2664,6 +2704,64 @@ mod tests {
             db.load_prompt(EVENT_HANDLER),
             "House rule: no EXEC RUST in handlers.",
             "an edited prompt must never be overwritten by the upgrade"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The Grace and Form Designer prompts shipped before the event-ownership
+    /// rule let a workflow "wire events now with placeholder code, implement
+    /// later" — placeholder operations the change-set validator rejects and
+    /// the apply path silently skips (observed live: 60 placeholder hover
+    /// handlers, nothing created). A project still holding those exact
+    /// defaults must be upgraded on open — and only those, so a developer's
+    /// own prompt edits survive.
+    #[test]
+    fn project_open_upgrades_the_pre_event_ownership_prompts() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        // Seed both prompts with the exact pre-rule defaults.
+        db.save_prompt(GRACE, crate::llm::LEGACY_GRACE_PROMPT_V1)
+            .unwrap();
+        db.save_prompt(FORM_DESIGNER, crate::llm::LEGACY_FORM_DESIGNER_PROMPT_V1)
+            .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+
+        let grace = db.load_prompt(GRACE);
+        assert!(
+            grace.contains(crate::llm::GRACE_EVENT_OWNERSHIP_MARKER),
+            "Grace's stored prompt must carry the planning rule"
+        );
+        assert!(
+            grace.contains("placeholder"),
+            "the rule must name the placeholder trap it closes"
+        );
+        let designer = db.load_prompt(FORM_DESIGNER);
+        assert!(
+            designer.contains(crate::llm::FORM_DESIGNER_EVENT_OWNERSHIP_MARKER),
+            "the Form Designer's stored prompt must carry the ownership rule"
+        );
+
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+        assert!(
+            !prompt_predates_event_ownership_rule(
+                FORM_DESIGNER,
+                crate::llm::DEFAULT_FORM_DESIGNER_AGENT_PROMPT
+            ),
+            "the shipped default must not look stale to its own detector"
+        );
+
+        // A developer's own prompt is theirs, however short.
+        db.save_prompt(GRACE, "House rule: plan in Portuguese.").unwrap();
+        db.save_prompt(FORM_DESIGNER, "House rule: buttons are 90px wide.")
+            .unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(db.load_prompt(GRACE), "House rule: plan in Portuguese.");
+        assert_eq!(
+            db.load_prompt(FORM_DESIGNER),
+            "House rule: buttons are 90px wide."
         );
         let _ = std::fs::remove_dir_all(proj);
     }

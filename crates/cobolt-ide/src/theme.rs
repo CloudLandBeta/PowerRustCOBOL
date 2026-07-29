@@ -98,6 +98,58 @@ impl Theme {
 /// inner padding and an outer gap so panels read as separated floating cards
 /// over the background. `fill` should be the live `visuals.panel_fill` so it
 /// respects the active theme / transparent-background mode.
+// ── Product brand ─────────────────────────────────────────────────────────────
+//
+// The product is **PowerRustCOBOL AI**, and the "AI" is ALWAYS rendered in
+// the brand cyan `#70f3fcff` wherever the IDE can color text. OS-drawn
+// surfaces (window title bars, the app name) use the plain string. Folder
+// names on disk (`~/PowerRustCOBOL`, …) intentionally keep the old name.
+
+/// The base part of the product name (uncolored).
+pub const BRAND_BASE: &str = "PowerRustCOBOL";
+/// The suffix rendered in [`BRAND_AI_COLOR`].
+pub const BRAND_AI: &str = "AI";
+/// `#70f3fcff` — the mandatory color of the "AI" in the product name.
+pub const BRAND_AI_COLOR: Color32 = Color32::from_rgb(0x70, 0xF3, 0xFC);
+
+/// The plain-text product name ("PowerRustCOBOL AI") for surfaces that
+/// cannot color text: OS window titles, the app id, log lines.
+pub fn brand_name() -> String {
+    format!("{BRAND_BASE} {BRAND_AI}")
+}
+
+/// The two-color brand as a rich-text layout: `prefix`, then
+/// "PowerRustCOBOL " in `color`, then "AI" in [`BRAND_AI_COLOR`], then
+/// `suffix` in `color` again — all at `size`. Feed the result to any
+/// `ui.label(...)` / heading site that shows the product name.
+pub fn brand_layout_job(
+    prefix: &str,
+    suffix: &str,
+    size: f32,
+    color: Color32,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let base = egui::TextFormat {
+        font_id: egui::FontId::proportional(size),
+        color,
+        ..Default::default()
+    };
+    let ai = egui::TextFormat {
+        font_id: egui::FontId::proportional(size),
+        color: BRAND_AI_COLOR,
+        ..Default::default()
+    };
+    if !prefix.is_empty() {
+        job.append(prefix, 0.0, base.clone());
+    }
+    job.append(&format!("{BRAND_BASE} "), 0.0, base.clone());
+    job.append(BRAND_AI, 0.0, ai);
+    if !suffix.is_empty() {
+        job.append(suffix, 0.0, base);
+    }
+    job
+}
+
 pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
     use egui::{CornerRadius, Margin, Shadow, Stroke, Vec2};
     egui::Frame::NONE

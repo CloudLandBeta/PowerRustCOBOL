@@ -135,6 +135,117 @@ fn direct_grace_record(reply: String, objective: &str) -> WorkflowRecord {
     }
 }
 
+/// Grace's private verdict on one developer request, produced BEFORE any
+/// Knowledge Base retrieval. The score is telemetry (stored on the record,
+/// shown only in the AI log); the interpretation and questions are what the
+/// developer sees when the gate holds a request back.
+struct ClarityCheck {
+    clarity: u8,
+    interpretation: String,
+    questions: Vec<String>,
+}
+
+/// Below this score the request goes back to the developer with Grace's
+/// interpretation instead of spending the full RAG + planning cost on a
+/// guess. 7 is the contract's own boundary: 0–6 means competing readings
+/// would produce different artifacts.
+const CLARITY_GATE_THRESHOLD: u8 = 7;
+
+/// The compact surface slice the clarity pre-check judges against: the
+/// identity of what is open on the surface (the `FORM:` line and its
+/// properties), WITHOUT the control inventory or the project tree. Cheap on
+/// tokens, but enough that the gate never asks "which form?" while the
+/// surface plainly names one — observed live: the pre-check received only
+/// the surface NAME, and Grace asked which form the layout change targeted
+/// with LABELS-FORM open right there in the designer.
+fn clarity_surface_slice(context: &str) -> String {
+    let mut lines = Vec::new();
+    for line in context.lines() {
+        let trimmed = line.trim_start();
+        // The inventory sections are irrelevant to clarity and dwarf the
+        // budget; the identity header is everything before them.
+        if trimmed.starts_with("CONTROLS:")
+            || trimmed.starts_with("AVAILABLE CONTROL TYPES")
+            || trimmed.starts_with("PROJECT TREE INVENTORY")
+        {
+            break;
+        }
+        lines.push(line);
+        if lines.len() >= 12 {
+            break;
+        }
+    }
+    let slice = lines.join("\n").trim().to_string();
+    if slice.is_empty() {
+        "(none)".to_string()
+    } else {
+        slice
+    }
+}
+
+/// Ask Grace to rate the request's clarity and conciseness — one cheap,
+/// tool-less call on the raw request text. Fail-open: a transport error or an
+/// unparseable reply returns `None` and the workflow proceeds normally (the
+/// gate saves cost; it must never add a new way to fail).
+fn evaluate_request_clarity(
+    invoker: &mut DbAgentInvoker,
+    request: &str,
+    routing: &GraceRoutingContext,
+) -> Option<ClarityCheck> {
+    let surface = if routing.surface.trim().is_empty() {
+        "Project workspace"
+    } else {
+        routing.surface.trim()
+    };
+    let surface_slice = clarity_surface_slice(&routing.context);
+    let user = format!(
+        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface below.\n\nJudge ONLY the request text against the surface described below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"interpretation\": \"<one short paragraph restating what you understand the developer wants, in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
+    );
+    let reply = match invoker.invoke(GRACE, "", &user) {
+        Ok(reply) => reply,
+        Err(error) => {
+            crate::llm::push_ai_log(
+                crate::llm::AiLogKind::Info,
+                format!("clarity pre-check skipped (fail-open): {error}"),
+            );
+            return None;
+        }
+    };
+    parse_clarity_reply(&reply)
+}
+
+/// Deterministic parse of the clarity pre-check reply. `None` (fail-open)
+/// when the reply carries no parseable verdict.
+fn parse_clarity_reply(reply: &str) -> Option<ClarityCheck> {
+    let value = cobolt_agents::grace::last_json_block(reply)?;
+    let clarity = value
+        .get("clarity")
+        .and_then(|c| c.as_u64().or_else(|| c.as_f64().map(|f| f.round() as u64)))?
+        .min(10) as u8;
+    let interpretation = value
+        .get("interpretation")
+        .and_then(|i| i.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let questions = value
+        .get("questions")
+        .and_then(|q| q.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|q| q.as_str())
+                .map(|q| q.trim().to_string())
+                .filter(|q| !q.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(ClarityCheck {
+        clarity,
+        interpretation,
+        questions,
+    })
+}
+
 fn pedantic_relationship_contract(db: &AgentsDb, name: &str) -> String {
     db.by_name(name)
         .map(|agent| match agent.kind {
@@ -149,18 +260,25 @@ fn pedantic_relationship_contract(db: &AgentsDb, name: &str) -> String {
                 .unwrap_or_else(|| {
                     "\n\nPEDANTIC COMPANION RELATIONSHIP (1:1)\nYou are not assigned to an orchestrator or specialist. Do not review or approve another agent's work until the project assigns you as its Pedantic companion.\n".to_string()
                 }),
+            // The old wording told the specialist to "submit your complete
+            // work for that review" — an action it CANNOT perform (the engine
+            // routes the review after the reply), so models narrated having
+            // done it, up to and including "approval obtained" with no review
+            // call anywhere in the run (observed live). The contract now
+            // states the real mechanics and makes a fabricated approval a
+            // named critical defect.
             AgentKind::Orchestrator | AgentKind::Specialist => agent
                 .companion
                 .as_deref()
                 .and_then(|id| db.by_id(id))
                 .map(|reviewer| {
                     format!(
-                        "\n\nPEDANTIC COMPANION RELATIONSHIP (1:1)\nYour sole Pedantic companion is {}. Submit your complete work for that review and do not self-approve or use another agent's reviewer.\n",
-                        reviewer.name
+                        "\n\nPEDANTIC COMPANION RELATIONSHIP (1:1)\nYour work is reviewed by {reviewer}, and ONLY AFTER you return it: the workflow engine routes your complete submission to that reviewer. You never talk to the reviewer yourself, and while you are writing your reply NO review has happened yet.\n\nFABRICATED APPROVAL = CRITICAL DEFECT. Never state or imply that your work was submitted to, reviewed by, or approved by {reviewer} or anyone else. Sentences such as \"submitted to the reviewer\", \"review passed\", \"approval obtained\" are false by construction — the review has not run yet — and they poison the audit trail; they are treated like a fabricated tool result and void the submission. Report only what you actually did and verified yourself; the verdict is decided after your reply, never narrated inside it. Do not self-approve and do not invoke another agent's reviewer.\n",
+                        reviewer = reviewer.name
                     )
                 })
                 .unwrap_or_else(|| {
-                    "\n\nPEDANTIC COMPANION RELATIONSHIP (1:1)\nNo Pedantic companion is assigned to you. Do not claim that your work received Pedantic approval.\n".to_string()
+                    "\n\nPEDANTIC COMPANION RELATIONSHIP (1:1)\nNo Pedantic companion is assigned to you. Your work is applied without review — NEVER state or imply that it received any review or approval.\n".to_string()
                 }),
         })
         .unwrap_or_default()
@@ -268,6 +386,10 @@ pub fn load_run_file(path: &Path) -> Result<RunFile, String> {
 pub struct WorkflowControl {
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
     pub tokens: Arc<Mutex<(u64, u64)>>,
+    /// Live Knowledge Base indexing progress — `(records_done, records_total,
+    /// current_subject)` while chunk-embedding runs, `None` otherwise. The UI
+    /// polls this each frame and renders a progress bar.
+    pub indexing: Arc<Mutex<Option<(u64, u64, String)>>>,
 }
 
 impl WorkflowControl {
@@ -279,6 +401,15 @@ impl WorkflowControl {
     }
     pub fn token_totals(&self) -> (u64, u64) {
         *self.tokens.lock().unwrap()
+    }
+    pub fn set_indexing(&self, done: usize, total: usize, subject: &str) {
+        *self.indexing.lock().unwrap() = Some((done as u64, total as u64, subject.to_string()));
+    }
+    pub fn clear_indexing(&self) {
+        *self.indexing.lock().unwrap() = None;
+    }
+    pub fn indexing_progress(&self) -> Option<(u64, u64, String)> {
+        self.indexing.lock().unwrap().clone()
     }
 }
 
@@ -298,6 +429,12 @@ pub struct DbAgentInvoker {
     /// Only the workflow entry point knows it; a specialist's task prompt is
     /// composed by Grace and carries no trace of the original wording.
     pub request: String,
+    /// Detach native tools from every call this invoker makes. The clarity
+    /// pre-check runs on an invoker with this set: it must judge the request
+    /// text alone, BEFORE any Knowledge Base retrieval — with tools attached,
+    /// Grace could (and did, for planning calls) reach `knowledge_search`
+    /// first, defeating the gate's whole point.
+    pub suppress_native_tools: bool,
 }
 
 /// How Grace decides what shape her reply takes: an answer, a question, or a
@@ -335,17 +472,46 @@ pub fn system_knowledge_root() -> PathBuf {
 }
 
 /// Republish and reindex the System Knowledge Base, returning how many textual
-/// files are indexed.
+/// files are indexed and how many chunked subject records are live in
+/// `~/PowerRustCOBOL/data/chunked.data`.
 ///
 /// Publishing first is what makes "never empty" true: the documents are
 /// rewritten from the running binary on every workflow, so the System KB
 /// cannot drift behind the platform, and a document the binary cannot produce
 /// is reported as a rebuild requirement rather than silently missing.
-fn sync_system_knowledge(system_root: &Path) -> Result<usize, String> {
+/// The chunked System KB store shipped INSIDE the IDE binary: regenerated by
+/// `cargo run -p cobolt-ide --example build_chunked_kb` whenever the reference
+/// documentation changes, committed to the repository, and installed to
+/// `~/PowerRustCOBOL/data/chunked.data` on first run — a cloned IDE starts
+/// with its embeddings ready and reindexes only documents that actually
+/// change.
+const PREBUILT_CHUNKED_KB: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/knowledge/chunked.data"
+));
+
+fn sync_system_knowledge(
+    system_root: &Path,
+    progress: &mut dyn FnMut(usize, usize, &str),
+) -> Result<(usize, usize), String> {
     cobolt_compiler::publish_system_documentation(system_root)
         .map_err(|error| format!("could not be published: {error}"))?;
     let indexed = cobolt_agents::project_knowledge::sync_documentation(system_root)
         .map_err(|error| format!("could not be indexed: {error}"))?;
+    // `<system root>/data/chunked.data` — for the real system root this IS
+    // `~/PowerRustCOBOL/data/chunked.data`; deriving it keeps tests (which
+    // sync a temp root) out of the machine-level store.
+    let store = system_root.join("data").join("chunked.data");
+    // Seed from the store shipped with this IDE build (once per build): the
+    // sync below then finds every unchanged document already indexed and
+    // embeds nothing.
+    let _ = cobolt_agents::chunked_knowledge::install_prebuilt(&store, PREBUILT_CHUNKED_KB);
+    let records = cobolt_agents::chunked_knowledge::sync_tree_with_progress(
+        system_root,
+        &store,
+        progress,
+    )
+    .map_err(|error| format!("could not be chunked: {error}"))?;
     let missing: Vec<&str> = ESSENTIAL_SYSTEM_DOCUMENTS
         .iter()
         .filter(|path| !system_root.join(path).exists())
@@ -360,7 +526,7 @@ fn sync_system_knowledge(system_root: &Path) -> Result<usize, String> {
             missing.join(", ")
         ));
     }
-    Ok(indexed)
+    Ok((indexed, records))
 }
 
 /// Instructs an agent to answer in the developer's own language while leaving
@@ -717,6 +883,19 @@ impl AgentInvoker for DbAgentInvoker {
         )
     }
 
+    /// The Grace engine's machine-validation gate: the Form-independent half
+    /// of the IDE's change-set validator, run over every change-set-producing
+    /// submission BEFORE its Pedantic review. Whatever this flags is exactly
+    /// what `apply_agent_change_set` would silently skip at apply time.
+    fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
+        let errors = crate::agent::lint_change_set_submission(agent, submission)?;
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Info,
+            format!("{agent}: change-set failed machine validation —\n{errors}"),
+        );
+        Some(errors)
+    }
+
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
         self.invoke_with_temperature(agent, system, user, None)
     }
@@ -811,7 +990,7 @@ impl DbAgentInvoker {
                 ),
             );
         }
-        let tools = if policy.avoid_native_tools {
+        let tools = if policy.avoid_native_tools || self.suppress_native_tools {
             cobolt_agents::rig_transport::AgentTools::default()
         } else {
             self.native_tools(agent)
@@ -1172,6 +1351,79 @@ pub fn save_workflow_record(
 
 /// A one-line, human-readable rendering of a workflow transition, for the
 /// activity log / progress pane.
+/// The verbose-mode "Token savings" line: how much of the indexed Knowledge
+/// Base corpus the retrieval kept OUT of the context, as a percentage of the
+/// corpus a push-everything approach would have injected. Token counts are
+/// ≈4-chars/token estimates of measured character counts. `None` when the
+/// record predates the measurement or nothing is indexed.
+pub fn rag_savings_line(record: &WorkflowRecord, tr: &crate::i18n::Tr) -> Option<String> {
+    if record.kb_available_tokens == 0 {
+        return None;
+    }
+    let injected = record.kb_injected_tokens.min(record.kb_available_tokens);
+    let savings =
+        100.0 * (record.kb_available_tokens - injected) as f64 / record.kb_available_tokens as f64;
+    Some(
+        tr.rag_token_savings
+            .replacen("{}", &format!("{savings:.2}"), 1)
+            .replacen("{}", &record.kb_injected_tokens.to_string(), 1)
+            .replacen("{}", &record.kb_available_tokens.to_string(), 1),
+    )
+}
+
+/// Spec 036: the typed live action for an engine transition, attributed to
+/// the agent performing it (R7). `agent_of` resolves a task id to its
+/// responsible specialist for events that carry only the id. Default mode
+/// reports one action per meaningful step; `verbose` adds the finer
+/// per-submission and per-round granularity (R5). Returns `None` for
+/// transitions the current mode coalesces into the surrounding step.
+pub fn action_for_event(
+    e: &GraceEvent,
+    agent_of: &dyn Fn(&str) -> String,
+    verbose: bool,
+) -> Option<crate::agent_actions::AgentAction> {
+    use crate::agent_actions::{ActionKind, AgentAction};
+    Some(match e {
+        GraceEvent::TaskStarted { id, agent, .. } => {
+            AgentAction::now(agent.clone(), ActionKind::Drafting, id.clone())
+        }
+        GraceEvent::Submitted { id, agent } => {
+            if !verbose {
+                return None;
+            }
+            AgentAction::now(agent.clone(), ActionKind::Finishing, id.clone())
+        }
+        GraceEvent::ReviewStarted {
+            id,
+            reviewer,
+            round,
+        } => {
+            let detail = if verbose {
+                format!("{id}, round {}", round + 1)
+            } else {
+                id.clone()
+            };
+            AgentAction::now(reviewer.clone(), ActionKind::Reviewing, detail)
+        }
+        // The verdict is the review's outcome, not a new action: the string
+        // log carries it; the live line stays on Reviewing until the next
+        // step (approval, correction, or failure) lands.
+        GraceEvent::Verdict { .. } => return None,
+        GraceEvent::CorrectionRequested { id, .. } => {
+            AgentAction::now(agent_of(id), ActionKind::ApplyingCorrections, id.clone())
+        }
+        GraceEvent::Approved { id } => {
+            AgentAction::now(agent_of(id), ActionKind::Finishing, id.clone())
+        }
+        GraceEvent::Failed { id, .. } => {
+            AgentAction::now(agent_of(id), ActionKind::Failed, id.clone())
+        }
+        GraceEvent::Blocked { id } => {
+            AgentAction::now(agent_of(id), ActionKind::Blocked, id.clone())
+        }
+    })
+}
+
 pub fn describe_event(e: &GraceEvent) -> String {
     match e {
         GraceEvent::TaskStarted {
@@ -1240,6 +1492,10 @@ pub fn run_grace_workflow(
     )
 }
 
+/// Convenience: a no-op live-action observer (spec 036) for callers that only
+/// consume the string log.
+pub fn no_action(_: crate::agent_actions::AgentAction) {}
+
 /// Context-aware variant used by IDE chatbot surfaces. Surface preference is
 /// deliberately advisory so Grace can combine form, event, code, data, and
 /// other specialists whenever the requested outcome crosses responsibilities.
@@ -1259,6 +1515,7 @@ pub fn run_grace_workflow_with_context(
         routing,
         &WorkflowControl::default(),
         on_progress,
+        &mut no_action,
         confirm,
         select_target,
     )
@@ -1266,6 +1523,9 @@ pub fn run_grace_workflow_with_context(
 
 /// Like [`run_grace_workflow_with_context`], with a live [`WorkflowControl`]
 /// so the UI can stop the run and watch token usage as each model returns.
+/// `on_action` receives the typed live-action stream (spec 036): the *action*
+/// each agent is on, never the content it produced or consumed. The collected
+/// actions are also attached to the persisted record (`action_log`, R11).
 #[allow(clippy::too_many_arguments)]
 pub fn run_grace_workflow_with_control(
     project_dir: &Path,
@@ -1274,9 +1534,17 @@ pub fn run_grace_workflow_with_control(
     routing: &GraceRoutingContext,
     control: &WorkflowControl,
     on_progress: &mut dyn FnMut(String),
+    on_action: &mut dyn FnMut(crate::agent_actions::AgentAction),
     confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
     select_target: &mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
+    use crate::agent_actions::{ActionKind, AgentAction};
+    let mut actions: Vec<AgentAction> = Vec::new();
+    let mut emit_action = |a: AgentAction| {
+        actions.push(a.clone());
+        on_action(a);
+    };
+    emit_action(AgentAction::now(GRACE, ActionKind::ReceivingRequest, ""));
     if llm.verbose_log {
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Detail,
@@ -1290,79 +1558,142 @@ pub fn run_grace_workflow_with_control(
             "Prepared {repaired} fixed-agent or project-knowledge capability update(s)."
         ));
     }
+    // ── Request-clarity pre-check — BEFORE any retrieval ───────────────────
+    // Grace privately rates the request's clarity and conciseness first: an
+    // unclear request would otherwise spend the full Knowledge Base sync +
+    // embedding + search + planning cost on a guess. The gate call carries no
+    // tools (it must not reach knowledge_search); a low score returns Grace's
+    // interpretation and questions to the developer instead of a workflow.
+    // The score lands on the record for telemetry and NEVER enters any agent
+    // task prompt.
+    let token_sink: Arc<Mutex<(u64, u64)>> = control.tokens.clone();
+    let evidence: Arc<Mutex<Vec<ToolEvidence>>> = Arc::new(Mutex::new(Vec::new()));
+    emit_action(AgentAction::now(GRACE, ActionKind::Planning, "clarity"));
+    on_progress("Grace is checking the request for clarity…".into());
+    let mut gate_invoker = DbAgentInvoker {
+        project_dir: project_dir.to_path_buf(),
+        llm: llm.clone(),
+        tokens: token_sink.clone(),
+        evidence: evidence.clone(),
+        cancel: control.cancel.clone(),
+        request: request.to_string(),
+        suppress_native_tools: true,
+    };
+    let clarity_check = evaluate_request_clarity(&mut gate_invoker, request, routing);
+    drop(gate_invoker);
+    let request_clarity = clarity_check.as_ref().map(|check| check.clarity);
+    if let Some(score) = request_clarity {
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Info,
+            format!("Grace rated the request clarity {score}/10 (private telemetry; agents never see it)."),
+        );
+    }
+    if let Some(check) = clarity_check
+        .filter(|check| check.clarity < CLARITY_GATE_THRESHOLD && !check.interpretation.is_empty())
+    {
+        on_progress(format!(
+            "The request scored {}/10 for clarity — Grace is returning her interpretation for confirmation instead of planning.",
+            check.clarity
+        ));
+        emit_action(AgentAction::now(GRACE, ActionKind::Finishing, ""));
+        let mut reply = check.interpretation.clone();
+        if !check.questions.is_empty() {
+            reply.push_str("\n\n");
+            reply.push_str(&check.questions.join("\n"));
+        }
+        let mut record = direct_grace_record(
+            reply,
+            "Confirm Grace's interpretation of an unclear request before any retrieval or planning",
+        );
+        record.request_clarity = Some(check.clarity);
+        record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
+        let path = save_workflow_record(project_dir, &record, &[])?;
+        return Ok((record, path));
+    }
+
     // TWO Knowledge Bases, reported separately because they answer different
     // questions. The System KB is the platform's own reference material
     // (RustCOBOL extensions, IDE functionality, designer controls, the agent
     // registry); it ships with the binary and is republished here, so it is
     // never legitimately empty. The Project KB is whatever the developer put
     // in this project's `Knowledge Base/` folder, and empty is a valid state.
+    emit_action(AgentAction::now(GRACE, ActionKind::RetrievingContext, ""));
+    // Chunk-embedding progress: streamed through the shared control so the
+    // chat panes can draw a live progress bar while records are embedded.
+    let index_progress = control.clone();
+    let mut on_index = move |done: usize, total: usize, subject: &str| {
+        index_progress.set_indexing(done, total, subject);
+    };
     let system_root = system_knowledge_root();
-    let system = sync_system_knowledge(&system_root);
+    let system = sync_system_knowledge(&system_root, &mut on_index);
     match &system {
-        Ok(indexed) => on_progress(format!(
-            "System Knowledge Base: {indexed} textual file(s) indexed."
+        Ok((indexed, records)) => on_progress(format!(
+            "System Knowledge Base: {indexed} textual file(s) indexed, {records} subject record(s) chunked."
         )),
         Err(error) => on_progress(format!("System Knowledge Base: {error}")),
     }
     let indexed = cobolt_agents::project_knowledge::sync_documentation(project_dir)
         .map_err(|error| format!("Project Knowledge Base could not be indexed: {error}"))?;
+    let project_store = cobolt_agents::chunked_knowledge::project_chunked_path(project_dir);
+    let project_records = cobolt_agents::chunked_knowledge::sync_tree_with_progress(
+        project_dir,
+        &project_store,
+        &mut on_index,
+    )
+    .map_err(|error| format!("Project Knowledge Base could not be chunked: {error}"))?;
+    control.clear_indexing();
     on_progress(format!(
-        "Project Knowledge Base: {indexed} textual file(s) indexed."
+        "Project Knowledge Base: {indexed} textual file(s) indexed, {project_records} subject record(s) chunked."
     ));
-    let knowledge = cobolt_agents::project_knowledge::search(project_dir, request, 5)
-        .map_err(|error| format!("Project knowledge could not be searched: {error}"))?;
-
-    let mut essential_knowledge = String::new();
-    for path_str in &ESSENTIAL_SYSTEM_DOCUMENTS {
-        // Read from the System KB, falling back to the project copy that older
-        // builds published per project.
-        let p = match system_root.join(path_str) {
-            p if p.exists() => p,
-            _ => project_dir.join(path_str),
-        };
-        if p.exists() {
-            if let Ok(content) = std::fs::read_to_string(&p) {
-                if !essential_knowledge.is_empty() {
-                    essential_knowledge.push_str("\n\n---\n\n");
-                }
-                essential_knowledge.push_str(&format!(
-                    "PATH: /{path_str}\nEXCERPT:\n{}",
-                    content.trim()
-                ));
-            }
-        }
-    }
+    // Retrieval is CHUNKED (one record per control/property/event/section):
+    // the context receives exactly the subject records that match the
+    // request — from both stores — never a whole catalogue document. The
+    // essential documents remain published and indexed; their content now
+    // arrives through retrieval instead of being injected wholesale.
+    let system_store = system_root.join("data").join("chunked.data");
+    let mut knowledge = cobolt_agents::chunked_knowledge::search(&system_store, request, 6)
+        .map_err(|error| format!("System knowledge could not be searched: {error}"))?;
+    knowledge.extend(
+        cobolt_agents::chunked_knowledge::search(&project_store, request, 6)
+            .map_err(|error| format!("Project knowledge could not be searched: {error}"))?,
+    );
+    knowledge.sort_by(|left, right| right.score.total_cmp(&left.score));
+    knowledge.truncate(8);
 
     let search_results = if knowledge.is_empty() {
-        "(no relevant project Knowledge Base evidence found)".to_string()
+        "(no relevant Knowledge Base evidence found)".to_string()
     } else {
         knowledge
             .iter()
             .map(|hit| {
                 format!(
-                    "PATH: {}\nRELEVANCE: {:.4}\nEXCERPT:\n{}",
-                    hit.path, hit.score, hit.excerpt
+                    "PATH: {}\nSUBJECT: {} ({})\nRELEVANCE: {:.4}\nCONTENT:\n{}",
+                    hit.source_path, hit.subject, hit.kind, hit.score, hit.content
                 )
             })
             .collect::<Vec<_>>()
             .join("\n\n---\n\n")
     };
 
-    let knowledge_context = if essential_knowledge.is_empty() {
-        search_results
-    } else {
-        format!(
-            "--- ESSENTIAL SYSTEM DOCUMENTATION ---\n\n{essential_knowledge}\n\n--- SEARCH RESULTS FOR DEVELOPER REQUEST ---\n\n{search_results}"
-        )
-    };
+    // Retrieval observability: what the RAG actually injected vs. the whole
+    // chunked corpus a push-everything approach would have sent. Characters
+    // are measured; tokens are the standard ≈4-chars/token estimate. Stored on
+    // the record; the chat reports the savings percentage in verbose mode.
+    let kb_injected_tokens = (search_results.chars().count() as u64) / 4;
+    let kb_available_tokens =
+        (cobolt_agents::chunked_knowledge::corpus_chars(&system_store).unwrap_or(0)
+            + cobolt_agents::chunked_knowledge::corpus_chars(&project_store).unwrap_or(0))
+            / 4;
+
+    let knowledge_context = search_results;
 
     let knowledge_context = format!(
         "{knowledge_context}\n\nPROJECT KNOWLEDGE PRECEDENCE CONTRACT:\n- Treat relevant Knowledge Base excerpts as authoritative project evidence and prefer them over general model training.\n- Cite the project-relative PATH for project-specific claims.\n- Never replace, contradict, or embellish project evidence with generic assumptions.\n- If there is no relevant evidence, say so clearly. Use general knowledge only when appropriate and label it as general guidance; ask the developer for missing project facts instead of inventing them."
     );
     // Base transport (resolves model/key/prompt per agent), decorated with the
     // tool-execution layer: declared-tools governance + git/egui backends.
-    let token_sink: Arc<Mutex<(u64, u64)>> = control.tokens.clone();
-    let evidence: Arc<Mutex<Vec<ToolEvidence>>> = Arc::new(Mutex::new(Vec::new()));
+    // `token_sink` and `evidence` were created for the clarity gate above and
+    // carry its token usage into the workflow totals.
     let mut inner = DbAgentInvoker {
         project_dir: project_dir.to_path_buf(),
         llm: llm.clone(),
@@ -1370,6 +1701,7 @@ pub fn run_grace_workflow_with_control(
         evidence: evidence.clone(),
         cancel: control.cancel.clone(),
         request: request.to_string(),
+        suppress_native_tools: false,
     };
     let mut backend = IdeToolBackend::new(project_dir.to_path_buf(), confirm, select_target);
     let dir_for_decl = project_dir.to_path_buf();
@@ -1447,6 +1779,7 @@ pub fn run_grace_workflow_with_control(
         "{plan_user}\n\n{RESPONSE_ROUTING_CONTRACT}"
     );
     on_progress("Grace is reading the request…".into());
+    emit_action(AgentAction::now(GRACE, ActionKind::Planning, ""));
     let plan_reply = invoker.invoke(GRACE, "", &plan_user)?;
     // Typed plan (Rig migration phase 3): deterministic parse first, then
     // provider-native typed extraction over the SAME reply. A reply with NO
@@ -1460,10 +1793,15 @@ pub fn run_grace_workflow_with_control(
                 "=== GRACE DIRECT RESPONSE (no plan: {cause}) ===\n{plan_reply}\n"
             ));
             on_progress("Grace routed the request back to the developer.".into());
-            let record = direct_grace_record(
+            emit_action(AgentAction::now(GRACE, ActionKind::Finishing, ""));
+            let mut record = direct_grace_record(
                 plan_reply,
                 "Answer or ask the developer directly (no workflow required)",
             );
+            record.request_clarity = request_clarity;
+            record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
+            record.kb_available_tokens = kb_available_tokens;
+            record.kb_injected_tokens = kb_injected_tokens;
             let path = save_workflow_record(project_dir, &record, &[])?;
             return Ok((record, path));
         }
@@ -1485,6 +1823,11 @@ pub fn run_grace_workflow_with_control(
         correction_rounds += 1;
         on_progress(format!(
             "Grace's plan violated a coordination contract: {defect}. Requesting a corrected plan (round {correction_rounds}/3)."
+        ));
+        emit_action(AgentAction::now(
+            GRACE,
+            ActionKind::ApplyingCorrections,
+            format!("plan, round {correction_rounds}/3"),
         ));
         let correction = format!(
             "Your previous workflow plan was rejected because: {defect}\n\nReturn a COMPLETE corrected workflow plan that fixes THIS defect without introducing another. All coordination rules apply simultaneously:\n- A Pedantic reviewer is NEVER a task agent; reviews happen through each task's `reviewer` field only.\n- Preserve the Documentation coordination contract. For indexed-file work, use {DOCUMENTATION_AGENT} first for file name, purpose, project knowledge, 1NF/2NF/3NF, helper-file analysis, and the developer's UUID-or-PIC decision; only then assign dependent mutation tasks to {DATA_INDEXED_FILE_AGENT}.\n- If required information is absent, return only a Documentation clarification task and do not mutate.\nEND with the corrected plan JSON and nothing after it.\n\nORIGINAL REQUEST:\n{request}\n\nREJECTED PLAN:\n{last_reply}"
@@ -1533,6 +1876,7 @@ pub fn run_grace_workflow_with_control(
     on_progress(planned);
 
     let db2 = AgentsDb::load(project_dir);
+    let ratings_dir = project_dir.to_path_buf();
     let system_for = move |name: &str| {
         let base = db2.load_agent_core_instructions(name);
         let relationship = pedantic_relationship_contract(&db2, name);
@@ -1543,7 +1887,18 @@ pub fn run_grace_workflow_with_control(
         } else {
             ""
         };
-        let base = format!("{base}{relationship}{concise}");
+        // Specialists receive their own recent correction reasons as factual
+        // lessons — actionable feedback derived from the ratings book. Never
+        // a star count, never praise/displeasure: scores are non-actionable
+        // and pressure framing is the gradient that fabricates approvals.
+        let lessons = db2
+            .by_name(name)
+            .filter(|agent| agent.kind == crate::agents_db::AgentKind::Specialist)
+            .and_then(|_| {
+                crate::agent_ratings::RatingsBook::load(&ratings_dir).lessons_digest(name)
+            })
+            .unwrap_or_default();
+        let base = format!("{base}{relationship}{concise}{lessons}");
         // Append the tool-calling contract for whatever tools this agent
         // declares (spec 030 R2) — always consistent with its actual grant.
         let declared: std::collections::HashSet<String> = db2
@@ -1571,14 +1926,32 @@ pub fn run_grace_workflow_with_control(
     };
     let ev_for_progress = evidence.clone();
     let mut emitted = 0usize;
-    let mut flush_tools = move |on_progress: &mut dyn FnMut(String)| {
+    // Streams both surfaces per tool call: the full evidence line into the
+    // string log, and the payload-free action (agent + tool name, spec 036
+    // R4) into the live-action stream.
+    let mut flush_tools = move |on_progress: &mut dyn FnMut(String),
+                                emit_action: &mut dyn FnMut(AgentAction)| {
         let ev = ev_for_progress.lock().unwrap();
         while emitted < ev.len() {
             let e = &ev[emitted];
             on_progress(format!("  \u{1f527} {} — {}", e.tool, e.summary));
+            emit_action(AgentAction::now(
+                e.agent.clone(),
+                ActionKind::RunningTool,
+                e.tool.clone(),
+            ));
             emitted += 1;
         }
     };
+    // Spec 036 R7: terminal/correction events name only the task id — resolve
+    // the responsible specialist from the plan for attribution.
+    let agent_of = |id: &str| {
+        plan.iter()
+            .find(|t| t.id == id)
+            .map(|t| t.agent.clone())
+            .unwrap_or_else(|| GRACE.to_string())
+    };
+    let verbose = llm.verbose_log;
     // The correction-loop bound is the project's AI setting (was hardcoded 2).
     let mut record = GraceEngine {
         max_revisions: llm.max_review_revisions.min(10) as usize,
@@ -1589,11 +1962,14 @@ pub fn run_grace_workflow_with_control(
         &mut invoker,
         &system_for,
         &mut |e| {
-            flush_tools(on_progress); // stream tool calls as they land (R11)
+            flush_tools(on_progress, &mut emit_action); // stream tool calls as they land (R11)
+            if let Some(action) = action_for_event(&e, &agent_of, verbose) {
+                emit_action(action);
+            }
             on_progress(describe_event(&e));
         },
     );
-    flush_tools(on_progress); // any evidence recorded after the last transition
+    flush_tools(on_progress, &mut emit_action); // any evidence recorded after the last transition
     drop(invoker); // release the borrows on evidence before draining it
 
     // Phase 3: canonicalize approved Form Designer submissions whose fenced
@@ -1606,11 +1982,39 @@ pub fn run_grace_workflow_with_control(
     let tool_calls = evidence.lock().unwrap().clone();
     record.knowledge_summary = summarize_knowledge_context(&knowledge_context);
     record.final_summary = grace_final_summary(&record, &tool_calls);
+    record.request_clarity = request_clarity;
+
+    // ── Agent ratings (telemetry, spec: performance stars) ─────────────────
+    // Scored mechanically from the record — rounds-to-approval and failures —
+    // and persisted in the project's rolling ratings book. The lines below go
+    // to the developer's progress log; the agents themselves receive only the
+    // factual lessons digest on their NEXT task (see `system_for`), never a
+    // star count.
+    {
+        let mut ratings = crate::agent_ratings::RatingsBook::load(project_dir);
+        let scored = ratings.record_workflow(&record);
+        if !scored.is_empty() {
+            if let Err(error) = ratings.save(project_dir) {
+                on_progress(format!("Agent ratings could not be saved: {error}"));
+            }
+            for (agent, stars, total) in scored {
+                on_progress(format!(
+                    "★ {agent}: {} this task — running total {total} over the last {} rated tasks.",
+                    crate::agent_ratings::RatingsBook::stars_label(stars),
+                    crate::agent_ratings::WINDOW,
+                ));
+            }
+        }
+    }
     {
         let (inp, out) = *token_sink.lock().unwrap();
         record.input_tokens = inp;
         record.output_tokens = out;
     }
+    emit_action(AgentAction::now(GRACE, ActionKind::Finishing, workflow_id.clone()));
+    record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
+    record.kb_available_tokens = kb_available_tokens;
+    record.kb_injected_tokens = kb_injected_tokens;
 
     let path = save_workflow_record(project_dir, &record, &tool_calls)?;
     on_progress(format!(
@@ -3041,16 +3445,59 @@ mod tests {
     fn system_knowledge_publishes_and_indexes_itself() {
         let root = std::env::temp_dir().join(format!("prc-syskb-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let indexed = sync_system_knowledge(&root).expect("system KB should publish and index");
+        let (indexed, records) = sync_system_knowledge(&root, &mut |_, _, _| {})
+            .expect("system KB should publish and index");
         assert!(
             indexed >= ESSENTIAL_SYSTEM_DOCUMENTS.len(),
             "expected at least the {} essential documents, indexed {indexed}",
             ESSENTIAL_SYSTEM_DOCUMENTS.len()
         );
+        assert!(
+            records > indexed,
+            "chunking must yield MORE subject records ({records}) than documents ({indexed})"
+        );
         for doc in &ESSENTIAL_SYSTEM_DOCUMENTS {
             assert!(root.join(doc).exists(), "{doc} must exist after publishing");
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The PREBUILT chunked store shipped in the binary must stay current
+    /// with the documentation this build publishes — a cloned IDE must not
+    /// re-embed anything. Regenerate with
+    /// `cargo run -p cobolt-ide --example build_chunked_kb` when this fails.
+    #[test]
+    fn prebuilt_chunked_kb_matches_the_published_documentation() {
+        assert!(
+            !PREBUILT_CHUNKED_KB.is_empty(),
+            "assets/knowledge/chunked.data is empty — run \
+             `cargo run -p cobolt-ide --example build_chunked_kb` and rebuild"
+        );
+        let root = std::env::temp_dir().join(format!("prc-prebuilt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("scratch root");
+        cobolt_compiler::publish_system_documentation(&root).expect("publish");
+        let store = root.join("chunked.data");
+        std::fs::write(&store, PREBUILT_CHUNKED_KB).expect("materialize shipped store");
+        let documents =
+            cobolt_agents::chunked_knowledge::tree_documents(&root).expect("documents");
+        let stale = cobolt_agents::chunked_knowledge::stale_documents(
+            &store,
+            &documents,
+            "bert-multilingual-e5-small",
+        )
+        .expect("staleness probe");
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            stale.is_empty(),
+            "the shipped chunked store is stale for {stale:?} — run \
+             `cargo run -p cobolt-ide --example build_chunked_kb` and commit the result"
+        );
+        println!(
+            "prebuilt store: current for all {} published documents ({} bytes embedded)",
+            documents.len(),
+            PREBUILT_CHUNKED_KB.len()
+        );
     }
 
     /// A document the installed binary cannot produce is the one failure a
@@ -3060,7 +3507,7 @@ mod tests {
     fn a_missing_system_document_asks_for_a_platform_rebuild() {
         let root = std::env::temp_dir().join(format!("prc-syskb-gap-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        sync_system_knowledge(&root).expect("baseline publish");
+        sync_system_knowledge(&root, &mut |_, _, _| {}).expect("baseline publish");
         std::fs::remove_file(root.join(ESSENTIAL_SYSTEM_DOCUMENTS[0])).expect("remove one doc");
         // Publishing rewrites what the binary knows; simulate an older binary
         // by checking the gap detector against a root missing that document.
@@ -3120,6 +3567,35 @@ mod tests {
         assert!(language_directive("   ").is_empty());
     }
 
+    /// The clarity pre-check parses Grace's verdict deterministically and
+    /// fails OPEN: an unparseable reply must let the workflow proceed, never
+    /// add a new failure mode in front of every request.
+    #[test]
+    fn clarity_reply_parses_and_fails_open() {
+        let low = parse_clarity_reply(
+            "Avaliação interna.\n```json\n{\"clarity\": 4, \"interpretation\": \"Você quer alinhar os labels.\", \"questions\": [\"Qual espaçamento horizontal devo usar?\", \"\"]}\n```",
+        )
+        .expect("verdict parses");
+        assert_eq!(low.clarity, 4);
+        assert!(low.clarity < CLARITY_GATE_THRESHOLD, "4 gates the request");
+        assert_eq!(low.interpretation, "Você quer alinhar os labels.");
+        assert_eq!(low.questions, vec!["Qual espaçamento horizontal devo usar?"]);
+
+        // A float score rounds; out-of-range clamps to the 0-10 scale.
+        assert_eq!(
+            parse_clarity_reply("```json\n{\"clarity\": 8.6}\n```").unwrap().clarity,
+            9
+        );
+        assert_eq!(
+            parse_clarity_reply("```json\n{\"clarity\": 99}\n```").unwrap().clarity,
+            10
+        );
+
+        // Fail-open: prose, missing score, or no JSON at all → None.
+        assert!(parse_clarity_reply("clear enough, proceeding").is_none());
+        assert!(parse_clarity_reply("```json\n{\"interpretation\": \"x\"}\n```").is_none());
+    }
+
     #[test]
     fn workflow_control_stop_gates_every_model_call() {
         let control = WorkflowControl::default();
@@ -3136,6 +3612,7 @@ mod tests {
             evidence: Arc::new(Mutex::new(Vec::new())),
             cancel: control.cancel.clone(),
             request: String::new(),
+            suppress_native_tools: false,
         };
         let err = invoker
             .invoke("Documentation Agent", "sys", "user")
@@ -3193,6 +3670,168 @@ mod tests {
         let (all, none) = split_developer_questions("All tasks completed.\n\n- **T1** — done");
         assert!(none.is_empty());
         assert!(all.contains("**T1**"));
+    }
+
+    /// Spec 036 T4 (AC1/AC6/AC9): a two-task mock run with one correction
+    /// round emits the typed live-action stream in order, attributed to the
+    /// agent performing each step, and the persisted-record form matches the
+    /// emitted stream 1:1.
+    #[test]
+    fn live_action_stream_is_ordered_attributed_and_persistable() {
+        use crate::agent_actions::{ActionKind, AgentAction};
+        use cobolt_agents::grace::{AgentInvoker, GraceEngine};
+
+        struct Mock {
+            calls: usize,
+            script: Vec<(&'static str, &'static str)>,
+        }
+        impl AgentInvoker for Mock {
+            fn invoke(&mut self, agent: &str, _s: &str, _u: &str) -> Result<String, String> {
+                let (expect, reply) = self.script[self.calls];
+                assert_eq!(agent, expect, "call #{} routed to the wrong agent", self.calls);
+                self.calls += 1;
+                Ok(reply.to_string())
+            }
+        }
+        let plan = vec![
+            TaskSpec {
+                id: "T1".into(),
+                agent: "Form Designer Agent".into(),
+                objective: "Add BTN-OK".into(),
+                context: String::new(),
+                reviewer: Some("Form Designer Agent Pedantic Reviewer".into()),
+                depends_on: vec![],
+                acceptance: String::new(),
+            },
+            TaskSpec {
+                id: "T2".into(),
+                agent: "COBOL Event Handler Script Agent".into(),
+                objective: "Implement onClick".into(),
+                context: String::new(),
+                reviewer: None,
+                depends_on: vec!["T1".into()],
+                acceptance: String::new(),
+            },
+        ];
+        let mut mock = Mock {
+            calls: 0,
+            script: vec![
+                ("Form Designer Agent", "deployed BTN-OK v1"),
+                (
+                    "Form Designer Agent Pedantic Reviewer",
+                    "misaligned.\n```json\n{\"pedantic_verdict\": \"defects\", \"correction_request\": \"1. align\"}\n```",
+                ),
+                ("Form Designer Agent", "deployed BTN-OK v2"),
+                (
+                    "Form Designer Agent Pedantic Reviewer",
+                    "clean.\n```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
+                ),
+                ("COBOL Event Handler Script Agent", "MOVE 1 TO WS-OK."),
+            ],
+        };
+        // The same wiring run_grace_workflow_with_control uses: map every
+        // engine event through action_for_event, attributing id-only events
+        // via the plan.
+        let agent_of = |id: &str| {
+            plan.iter()
+                .find(|t| t.id == id)
+                .map(|t| t.agent.clone())
+                .unwrap_or_else(|| GRACE.to_string())
+        };
+        let mut actions: Vec<AgentAction> = Vec::new();
+        let record = GraceEngine { max_revisions: 2 }.run_with_progress(
+            "wf-036",
+            &plan,
+            &mut mock,
+            &|_| String::new(),
+            &mut |e| {
+                if let Some(a) = action_for_event(&e, &agent_of, false) {
+                    actions.push(a);
+                }
+            },
+        );
+        assert_eq!(record.status, "completed");
+        let seq: Vec<(&str, ActionKind, &str)> = actions
+            .iter()
+            .map(|a| (a.agent.as_str(), a.kind, a.detail.as_str()))
+            .collect();
+        assert_eq!(
+            seq,
+            vec![
+                ("Form Designer Agent", ActionKind::Drafting, "T1"),
+                ("Form Designer Agent Pedantic Reviewer", ActionKind::Reviewing, "T1"),
+                ("Form Designer Agent", ActionKind::ApplyingCorrections, "T1"),
+                ("Form Designer Agent Pedantic Reviewer", ActionKind::Reviewing, "T1"),
+                ("Form Designer Agent", ActionKind::Finishing, "T1"),
+                ("COBOL Event Handler Script Agent", ActionKind::Drafting, "T2"),
+                ("COBOL Event Handler Script Agent", ActionKind::Finishing, "T2"),
+            ],
+            "default-mode action sequence, in order and attributed"
+        );
+        // The persisted form (record.action_log entries) is lossless against
+        // the emitted stream.
+        let log: Vec<_> = actions.iter().map(AgentAction::to_log_entry).collect();
+        assert_eq!(log.len(), actions.len());
+        for (entry, action) in log.iter().zip(&actions) {
+            assert_eq!(entry.agent, action.agent);
+            assert_eq!(ActionKind::from_stable(&entry.kind), Some(action.kind));
+            assert_eq!(entry.detail, action.detail);
+        }
+        println!(
+            "live-action stream: {} events emitted, {} persisted entries, sequence: {:?}",
+            actions.len(),
+            log.len(),
+            seq
+        );
+    }
+
+    /// The verbose "Token savings" line reports measured retrieval economy:
+    /// percent saved vs. the full corpus, with the estimated token counts —
+    /// and stays silent on records that predate the measurement.
+    #[test]
+    fn rag_savings_line_reports_percentage_from_measured_counts() {
+        let tr = crate::i18n::Language::English.tr();
+        let mut record = sample_record();
+        record.kb_available_tokens = 10_000;
+        record.kb_injected_tokens = 750;
+        let line = rag_savings_line(&record, &tr).expect("measured record yields a line");
+        assert!(line.contains("Token savings: 92.50%"), "{line}");
+        assert!(line.contains("≈750"), "{line}");
+        assert!(line.contains("≈10000"), "{line}");
+        // Pre-measurement records (0 available) stay silent instead of
+        // claiming a 100% saving that was never measured.
+        record.kb_available_tokens = 0;
+        assert!(rag_savings_line(&record, &tr).is_none());
+        // An injection larger than the corpus clamps to 0% rather than going
+        // negative.
+        record.kb_available_tokens = 100;
+        record.kb_injected_tokens = 500;
+        let clamped = rag_savings_line(&record, &tr).expect("line");
+        assert!(clamped.contains("0.00%"), "{clamped}");
+        println!("savings line: {line}");
+    }
+
+    /// Spec 036 T4 (AC4): verbose mode adds the finer per-submission
+    /// granularity; the verdict itself never becomes an action in any mode.
+    #[test]
+    fn verbose_mode_adds_submission_actions_only() {
+        use crate::agent_actions::ActionKind;
+        let agent_of = |_: &str| "Form Designer Agent".to_string();
+        let submitted = cobolt_agents::grace::GraceEvent::Submitted {
+            id: "T1".into(),
+            agent: "Form Designer Agent".into(),
+        };
+        assert!(action_for_event(&submitted, &agent_of, false).is_none());
+        let verbose = action_for_event(&submitted, &agent_of, true).expect("verbose emits");
+        assert_eq!(verbose.kind, ActionKind::Finishing);
+        let verdict = cobolt_agents::grace::GraceEvent::Verdict {
+            id: "T1".into(),
+            reviewer: "R".into(),
+            approved: true,
+        };
+        assert!(action_for_event(&verdict, &agent_of, false).is_none());
+        assert!(action_for_event(&verdict, &agent_of, true).is_none());
+        println!("verbose adds Submitted; Verdict emits no action in either mode");
     }
 
     /// Typographic rules: agents report "<name>: starting/finishing task X" in
@@ -3685,6 +4324,26 @@ mod tests {
         let version_control =
             pedantic_relationship_contract(&db, crate::agents_db::VERSION_CONTROL);
         assert!(version_control.contains(crate::agents_db::PEDANTIC_VERSION_CONTROL_REVIEWER));
+
+        // Every reviewed specialist/orchestrator is told the real mechanics —
+        // the review runs AFTER the reply — and that a fabricated approval is
+        // a named critical defect. Observed live: a Form Designer submission
+        // ended "Aprovação obtida" with no review call anywhere in the run.
+        for name in [GRACE, crate::agents_db::FORM_DESIGNER, crate::agents_db::VERSION_CONTROL] {
+            let contract = pedantic_relationship_contract(&db, name);
+            assert!(
+                contract.contains("FABRICATED APPROVAL = CRITICAL DEFECT"),
+                "{name}'s contract must forbid fabricated approvals"
+            );
+            assert!(
+                contract.contains("NO review has happened yet"),
+                "{name}'s contract must state the review runs after the reply"
+            );
+            assert!(
+                !contract.contains("Submit your complete work"),
+                "{name}'s contract must not instruct an impossible submission"
+            );
+        }
         let _ = std::fs::remove_dir_all(project);
     }
 }

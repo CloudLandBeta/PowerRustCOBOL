@@ -15,6 +15,8 @@
 //! ```
 
 pub mod agent;
+pub mod agent_actions;
+pub mod agent_ratings;
 pub mod agent_inspection;
 pub mod agents_db;
 mod app;
@@ -69,7 +71,7 @@ fn main() -> eframe::Result<()> {
         .with_target(false)
         .init();
 
-    let ide_title = format!("PowerRustCOBOL {VERSION}");
+    let ide_title = format!("{} {VERSION}", theme::brand_name());
     set_os_app_name(&ide_title);
 
     let native_options = eframe::NativeOptions {

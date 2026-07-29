@@ -64,6 +64,21 @@ Plan the creation of an ERP called PowerRustERP. Put the plan in the /Knowledge 
 Create tasks to implement the plan for the ERP called PowerRustERP (after having created and approved the plan)
 Implement tasks for the ERP called PowerRustERP (after having created and approved the tasks)"#;
 
+/// The post-workflow star row (agent performance ratings): which agents of
+/// the finished workflow can be rated and what the developer selected so far.
+/// Clicks are applied to the ratings book immediately; the row is a toggle —
+/// re-rating replaces, clicking the same star clears.
+struct PendingRating {
+    workflow_id: String,
+    agents: Vec<String>,
+    given: std::collections::HashMap<String, u8>,
+}
+
+/// Rating block chrome heights for the input-slab math (fixed, never from
+/// content, per this panel's no-self-inflation rule).
+const RATING_HEADER_HEIGHT: f32 = 30.0;
+const RATING_ROW_HEIGHT: f32 = 26.0;
+
 pub struct GraceChatPanel {
     project_root: Option<PathBuf>,
     prompt: String,
@@ -89,6 +104,8 @@ pub struct GraceChatPanel {
     prompt_height: f32,
     /// The target-disambiguation modal for this surface (spec 034).
     target_picker: TargetPicker,
+    /// The finished workflow awaiting the developer's star row, if any.
+    pending_rating: Option<PendingRating>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +132,7 @@ impl Default for GraceChatPanel {
             last_tokens: None,
             prompt_height: 0.0, // 0 = never dragged → 3-row default
             target_picker: TargetPicker::default(),
+            pending_rating: None,
         }
     }
 }
@@ -183,6 +201,7 @@ impl GraceChatPanel {
         self.current_question = None;
         self.collected_answers.clear();
         self.last_tokens = None;
+        self.pending_rating = None;
         self.history = std::fs::read_to_string(Self::history_path(root))
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
@@ -213,7 +232,7 @@ impl GraceChatPanel {
         std::fs::write(path, json).map_err(|e| e.to_string())
     }
 
-    fn poll(&mut self, ctx: &egui::Context, verbose: bool) {
+    fn poll(&mut self, ctx: &egui::Context, verbose: bool, tr: &Tr) {
         if let Some(session) = self.session.as_mut() {
             if session.poll() || session.is_running() {
                 ctx.request_repaint();
@@ -229,35 +248,55 @@ impl GraceChatPanel {
             if let Some(session) = self.session.as_ref() {
                 self.last_tokens = Some(session.token_totals());
             }
-            // Typographic rule: agents report in the history when they start
-            // and finish a task. The live progress log carries those lines;
-            // persist them as a Markdown list before the reply.
-            let coordination = self
+            // Spec 036 R3/R11: the run's typed action history persists as its
+            // own "actions" turn (rendered as the collapsed history), stored
+            // in the language-neutral record form so it re-localizes when the
+            // IDE language changes. Supersedes the old "Coordination log"
+            // markdown balloon distilled from the string log.
+            let action_turn = self
                 .session
                 .as_ref()
-                .map(|session| {
-                    session
-                        .log
+                .filter(|session| !session.actions.is_empty())
+                .and_then(|session| {
+                    let entries: Vec<_> = session
+                        .actions
                         .iter()
-                        .map(|line| line.trim_start_matches('▸').trim())
-                        .filter(|line| {
-                            line.contains(": starting ") || line.contains(": finishing ")
-                        })
-                        .map(|line| format!("- {line}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
+                        .map(crate::agent_actions::AgentAction::to_log_entry)
+                        .collect();
+                    serde_json::to_string(&entries).ok()
                 })
-                .unwrap_or_default();
+                .map(|json| ChatTurn {
+                    role: crate::agent_actions::ACTIONS_ROLE.into(),
+                    content: json,
+                });
             self.session = None;
             // A workflow may have created documentation before either completing
             // or failing a later task. Reconcile the project tree in both cases.
             self.rescan_documentation = true;
             match result {
                 Ok((record, _)) => {
-                    if !coordination.is_empty() {
-                        self.history.push(ChatTurn::assistant(format!(
-                            "Coordination log:\n\n{coordination}"
-                        )));
+                    // Offer the developer's star row for every specialist
+                    // that actually RAN in this workflow: blocked agents
+                    // never ran, and Grace's own direct answers are not
+                    // rateable specialist work.
+                    let mut rating_agents: Vec<String> = Vec::new();
+                    for task in &record.tasks {
+                        let agent = &task.spec.agent;
+                        if agent.eq_ignore_ascii_case(crate::agents_db::GRACE)
+                            || task.final_state == cobolt_agents::grace::TaskState::Blocked
+                            || rating_agents.iter().any(|known| known == agent)
+                        {
+                            continue;
+                        }
+                        rating_agents.push(agent.clone());
+                    }
+                    self.pending_rating = (!rating_agents.is_empty()).then(|| PendingRating {
+                        workflow_id: record.workflow_id.clone(),
+                        agents: rating_agents,
+                        given: std::collections::HashMap::new(),
+                    });
+                    if let Some(turn) = action_turn {
+                        self.history.push(turn);
                     }
                     // Verbose mode yields two balloons: the coordination
                     // transcript, then Grace's OWN final balloon — her summary
@@ -283,6 +322,13 @@ impl GraceChatPanel {
                         self.collected_answers.clear();
                         self.ask_next_question();
                     }
+                    // Verbose observability: what the retrieval kept OUT of
+                    // the context, as its own history line after the reply.
+                    if verbose {
+                        if let Some(line) = crate::grace_host::rag_savings_line(&record, tr) {
+                            self.history.push(ChatTurn::assistant(line));
+                        }
+                    }
                     self.status = Some(format!("Workflow {} completed.", record.workflow_id));
                     let _ = self.persist();
                 }
@@ -290,6 +336,11 @@ impl GraceChatPanel {
                     self.status = None;
                     // A developer-initiated stop is an outcome, not an error.
                     if error.contains("stopped by the developer") {
+                        // The steps taken before the stop are still part of
+                        // the run's reviewable history (spec 036 R3).
+                        if let Some(turn) = action_turn {
+                            self.history.push(turn);
+                        }
                         self.history.push(ChatTurn::assistant(
                             "Stopped at your request. Nothing further was executed.",
                         ));
@@ -344,7 +395,7 @@ impl GraceChatPanel {
     ) -> GraceChatAction {
         self.load_project(root);
         let ctx = panel_ui.ctx().clone();
-        self.poll(&ctx, llm.verbose_log);
+        self.poll(&ctx, llm.verbose_log, tr);
 
         // A create/edit paused awaiting the developer's target pick (spec 034).
         if let Some(req) = self.session.as_ref().and_then(|s| s.pending_select()).cloned() {
@@ -359,21 +410,23 @@ impl GraceChatPanel {
         let busy = self.session.as_ref().is_some_and(GraceSession::is_running)
             || self.compact_rx.is_some();
         let history = self.history.clone();
-        let progress = self
+        // Spec 036 R4: the raw progress log (which may carry payloads under
+        // verbose) never reaches this pane — full traces live in the AI/LLM
+        // log surfaces and the saved run record. The typed action stream is
+        // the only live signal rendered here.
+        let live_actions: Vec<crate::agent_actions::AgentAction> = self
             .session
             .as_ref()
-            .map(|session| {
-                session
-                    .log
-                    .iter()
-                    .rev()
-                    .take(8)
-                    .rev()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .filter(|text| !text.is_empty());
+            .map(|session| session.actions.clone())
+            .unwrap_or_default();
+        let current_action = self
+            .session
+            .as_mut()
+            .and_then(|session| session.current_action().cloned());
+        let indexing = self
+            .session
+            .as_ref()
+            .and_then(GraceSession::indexing_progress);
         let pending_command = self
             .session
             .as_ref()
@@ -387,6 +440,10 @@ impl GraceChatPanel {
         let mut close = false;
         let mut confirm: Option<bool> = None;
         let mut stop = false;
+        // Star-row interactions, applied after the panel closure releases its
+        // borrows: `(agent, selected)` where selected 0 clears the rating.
+        let mut rating_click: Option<(String, u8)> = None;
+        let mut rating_done = false;
         let stop_requested = self
             .session
             .as_ref()
@@ -436,11 +493,18 @@ impl GraceChatPanel {
             // the corner-grip drag writes `self.prompt_height`) plus fixed
             // chrome — never from content or remaining space, so the input can
             // neither inflate on its own nor slide under the Output panel.
+            let rating_extra = self
+                .pending_rating
+                .as_ref()
+                .map(|pending| {
+                    RATING_HEADER_HEIGHT + RATING_ROW_HEIGHT * pending.agents.len() as f32
+                })
+                .unwrap_or(0.0);
             let approval_extra = if pending_command.is_some() {
                 APPROVAL_BLOCK_HEIGHT
             } else {
                 0.0
-            };
+            } + rating_extra;
             // Row-based limits (1..=6 rows, default 3), from the style's row
             // height — never from content. The panel height (fixed by the
             // window layout) additionally caps growth on tiny windows.
@@ -473,6 +537,23 @@ impl GraceChatPanel {
                         );
                     }
                     for (index, turn) in history.iter().enumerate() {
+                        // A persisted action-history turn renders as the
+                        // collapsed widget, re-localized from its
+                        // language-neutral entries (spec 036 R3/R9/R11).
+                        if turn.role == crate::agent_actions::ACTIONS_ROLE {
+                            if let Some(actions) =
+                                crate::agent_actions::parse_actions_turn(&turn.content)
+                            {
+                                crate::panels::editor::chat_action_history(
+                                    ui,
+                                    egui::Id::new(("project_grace_actions", root, index)),
+                                    &actions,
+                                    tr,
+                                    self.history_font_size,
+                                );
+                                continue;
+                            }
+                        }
                         crate::panels::editor::chat_bubble_with_response_actions(
                             ui,
                             &turn.role,
@@ -482,23 +563,44 @@ impl GraceChatPanel {
                             egui::Id::new(("project_grace_response", root, index)),
                         );
                     }
-                    if let Some(text) = &progress {
-                        crate::panels::editor::chat_bubble_with_font_size(
-                            ui,
-                            "assistant",
-                            text,
-                            self.history_font_size,
-                        );
-                    }
-                    // The reasoning indicator closes the transcript while
-                    // Grace and the specialists are still working — high
-                    // contrast against the theme, after the last balloon.
+                    // The live run closes the transcript: the collapsed
+                    // action history so far, then the throttled
+                    // current-action line — what the agents are DOING, never
+                    // what they produced (spec 036 R1–R4). Falls back to the
+                    // generic indicator before the first action lands.
                     if busy {
-                        crate::panels::editor::chat_thinking_indicator(
+                        crate::panels::editor::chat_action_history(
                             ui,
-                            tr.ai_thinking,
+                            egui::Id::new(("project_grace_actions_live", root)),
+                            &live_actions,
+                            tr,
                             self.history_font_size,
                         );
+                        match &current_action {
+                            Some(action) => crate::panels::editor::chat_current_action(
+                                ui,
+                                action,
+                                tr,
+                                self.history_font_size,
+                            ),
+                            None => crate::panels::editor::chat_thinking_indicator(
+                                ui,
+                                tr.ai_thinking,
+                                self.history_font_size,
+                            ),
+                        }
+                        // Chunk-embedding progress: a live bar while records
+                        // are indexed, so a first-time index never looks
+                        // stuck behind a spinner.
+                        if let Some((done, total, _)) = &indexing {
+                            crate::panels::editor::chat_indexing_bar(
+                                ui,
+                                *done,
+                                *total,
+                                tr,
+                                self.history_font_size,
+                            );
+                        }
                     }
                 });
 
@@ -514,6 +616,47 @@ impl GraceChatPanel {
                         confirm = Some(false);
                     }
                 });
+            }
+
+            // Post-workflow star row (agent performance ratings): cumulative
+            // gold stars per agent, applied on click — 4–5 record praise
+            // (+5), 1–2 a rejection (−10), 3 neutral; clicking the selected
+            // star again clears. The block stays until dismissed.
+            if let Some(pending) = &self.pending_rating {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tr.grace_rate_title).strong())
+                        .on_hover_text(tr.grace_rate_hint);
+                    if ui.small_button(tr.grace_rate_done).clicked() {
+                        rating_done = true;
+                    }
+                });
+                for agent in &pending.agents {
+                    ui.horizontal(|ui| {
+                        let current = pending.given.get(agent).copied().unwrap_or(0);
+                        for star in 1..=5u8 {
+                            let filled = star <= current;
+                            let glyph = RichText::new(if filled { "★" } else { "☆" })
+                                .size(16.0)
+                                .color(if filled {
+                                    Color32::from_rgb(255, 196, 0) // gold
+                                } else {
+                                    ui.visuals().weak_text_color()
+                                });
+                            if ui
+                                .add(egui::Button::new(glyph).frame(false))
+                                .on_hover_text(tr.grace_rate_hint)
+                                .clicked()
+                            {
+                                rating_click = Some((
+                                    agent.clone(),
+                                    if current == star { 0 } else { star },
+                                ));
+                            }
+                        }
+                        ui.label(agent);
+                    });
+                }
             }
 
             ui.separator();
@@ -704,6 +847,31 @@ impl GraceChatPanel {
                 session.respond_confirm(approved);
             }
             ctx.request_repaint();
+        }
+        if let Some((agent, selected)) = rating_click {
+            if let Some(pending) = self.pending_rating.as_mut() {
+                if selected == 0 {
+                    pending.given.remove(&agent);
+                } else {
+                    pending.given.insert(agent.clone(), selected);
+                }
+                let mut book = crate::agent_ratings::RatingsBook::load(root);
+                let delta =
+                    book.record_developer_feedback(&pending.workflow_id, &agent, selected);
+                match book.save(root) {
+                    Ok(()) => {
+                        self.status = Some(if selected == 0 {
+                            format!("Rating cleared: {agent}.")
+                        } else {
+                            format!("Rating saved: {agent} {delta:+}.")
+                        });
+                    }
+                    Err(error) => self.error_modal = Some(error),
+                }
+            }
+        }
+        if rating_done {
+            self.pending_rating = None;
         }
         if clear {
             self.history.clear();

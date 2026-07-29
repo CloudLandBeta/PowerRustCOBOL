@@ -6,7 +6,11 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# PowerRustCOBOL Developer's Guide
+# PowerRustCOBOL AI Developer's Guide
+
+> The product name is **PowerRustCOBOL AI** — in the IDE the "AI" is always
+> shown in the brand cyan (`#70f3fc`). On-disk folder names
+> (`~/PowerRustCOBOL`, project files) keep the original spelling.
 
 <p align="center">
   <img src="../assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot" width="300">
@@ -453,6 +457,50 @@ and wire its `onClick` behavior can coordinate both form-design and event-handle
 tasks. Each workflow runs its configured pedantic reviews, streams progress,
 and saves an auditable record under `agentic_ai/Grace/runs/`.
 
+**Live action status.** While Grace and the specialists work, the conversation
+shows what each agent is *doing* right now as a short status line — for
+example `Form Designer Agent: Drafting response — T1` or
+`Grace: Retrieving context` — updated at most once per second so long runs
+never look stuck. Every step also lands in an **Agent actions (N)** entry that
+stays collapsed in the conversation; expand it to review the ordered,
+per-agent sequence of steps the run took, and it is saved with the chat
+history and the workflow record, so it remains reviewable after you reopen the
+project. Status lines name **actions only** and are shown in your interface
+language. The content an action produced or consumed — retrieved knowledge,
+tool output, model reasoning — never appears in the conversation: the full
+trace lives in the Output panel's AI log, the diagnostics dump (when a debug
+switch is on), and the saved run record under `agentic_ai/Grace/runs/`. With
+the project's **verbose** AI setting enabled, the action stream gains finer
+steps (per tool call, per review round) — more granularity, still never
+content. Verbose mode also appends a **Token savings** line to the
+conversation after each run — the percentage of the indexed Knowledge Base
+corpus that retrieval kept *out* of the context (retrieved records vs. the
+whole corpus, estimated at ≈4 characters per token) — so you can see what the
+retrieval layer is buying you.
+
+**Chunked retrieval.** Knowledge Base documents are indexed twice: whole
+documents (for document management) and as a **chunked store** where every
+control, property, method, event, and prose section is its own record with a
+`PIC X(512)` content field — longer content continues in records linked to
+the previous one, and search reassembles the chain. Each record's text is
+embedded individually, so when you ask Grace about, say, DataGrid events, the
+context receives the DataGrid records — not the whole controls catalogue.
+The IDE's own reference material lives in `~/PowerRustCOBOL/data/chunked.data`;
+each project keeps its documentation in `data/<project-name>-chunked.data`.
+Saving, editing, or deleting a Knowledge Base document keeps the file itself
+untouched and re-chunks and re-embeds only that document's records on the
+next run.
+
+The IDE's chunked store **ships inside the IDE itself**, pre-embedded with
+the semantic model: a fresh clone or install starts with its index ready and
+never re-embeds the reference material unless a Knowledge Base document is
+removed, changed, or replaced. On a machine that has not downloaded the
+semantic model yet, the shipped records are preserved and searched lexically
+until the model arrives — nothing is thrown away. Whenever records do need
+(re)embedding — a changed document, or your own project documentation — the
+conversation shows a **progress bar** (`Indexing Knowledge Base (n of m
+records)`) so a long index never looks stuck.
+
 When the agent **repositions controls** on a form, the affected controls
 **glide** from their old places to the new ones — all at once, over about a
 second — so you can see the layout change take shape instead of the controls
@@ -465,7 +513,7 @@ chat pane is resized; multiline composers do not move Send to a row below.
 Completed agent-response balloons include icon-only **Copy** and **Save as
 Markdown** commands with hover tooltips. Save opens in the current project's
 `Knowledge Base/` folder, requires the destination to remain inside that folder,
-writes a `.md` file, indexes it in the project SQLite knowledge database, and
+writes a `.md` file, indexes it in the project's vector Knowledge Base index, and
 refreshes the Knowledge Base branch of the project tree. Developer messages,
 static welcome text, and in-progress streaming balloons do not show these
 response actions.
@@ -502,8 +550,8 @@ Documentation Agent must not invent missing domain facts.
 
 The Documentation Agent can create, read, and list text documents only under the
 project's `Knowledge Base/` folder. Successful writes are
-immediately tracked by the project and indexed in the project-local SQLite
-vector database at `data/project-knowledge.sqlite`. Grace validates this
+immediately tracked by the project and indexed in the project-local vector
+index at `data/project-knowledge.redb` (pure Rust, embedded). Grace validates this
 coordination structure before execution and requests one corrected plan when a
 documentation workflow assigns writing to another specialist or omits a
 required source dependency.
@@ -705,7 +753,7 @@ Use the folder-plus command beside **Knowledge Base** to create a top-level
 subfolder. Right-click any Knowledge Base subfolder to create a child folder or
 delete that folder. Folder deletion requires confirmation and recursively
 removes its documents, nested folders, project-manifest entries, and stale
-SQLite index entries. The `Knowledge Base/` root itself cannot be deleted.
+vector-index entries. The `Knowledge Base/` root itself cannot be deleted.
 
 To **import an existing file** into a category, **right-click the ➕** and choose
 *Import existing…*. For **Indexed Files**, this picks an on-disk `.idx` (or similar)

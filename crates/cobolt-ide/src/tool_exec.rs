@@ -222,9 +222,9 @@ const GIT_TOOL_CONTRACT: &str = "\n\n--- Tool execution (git) — how you actual
 
 const EGUI_TOOL_CONTRACT: &str = "\n\n--- Live UI inspection (observe only) ---\nYou may inspect the rendered form to verify your work by calling the native function tools `egui_tree` (widget tree) or `egui_rects` (geometry). They are READ-ONLY: they let you SEE the rendered UI; they do NOT change it. Every form edit must be expressed as change-set operations, never by driving the live UI. Call the tool directly — do not describe the call in prose or emit any fenced tool_calls JSON block.";
 
-const DOCUMENTATION_TOOL_CONTRACT: &str = "\n\n--- Tool execution (project Knowledge Base) ---\nYou create and inspect project Knowledge Base documents through these tools. To write a Markdown document, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/Projects/example.md\",\"content\":\"# Example\\n\"}}]}\n```\nUse documentation.list with empty args and documentation.read with {\"path\":\"/Knowledge Base/...\"}. Writes are restricted to the open project's Knowledge Base/ folder and are automatically indexed in the project's SQLite vector database. A document exists only after a successful TOOL RESULTS response. When finished, reply with your final result and DO NOT emit a tool_calls block.";
+const DOCUMENTATION_TOOL_CONTRACT: &str = "\n\n--- Tool execution (project Knowledge Base) ---\nYou create and inspect project Knowledge Base documents through these tools. To write a Markdown document, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/Projects/example.md\",\"content\":\"# Example\\n\"}}]}\n```\nUse documentation.list with empty args and documentation.read with {\"path\":\"/Knowledge Base/...\"}. Writes are restricted to the open project's Knowledge Base/ folder and are automatically indexed in the project's vector Knowledge Base index. A document exists only after a successful TOOL RESULTS response. When finished, reply with your final result and DO NOT emit a tool_calls block.";
 
-const KNOWLEDGE_TOOL_CONTRACT: &str = "\n\n--- Project knowledge retrieval ---\nUse the native function tool `knowledge_search` (arguments: query, optional limit 1-10) to consult the project-local SQLite vector index before relying on prior plans, requirements, task lists, or other documentation. Use only returned project paths and excerpts as evidence. Call the tool directly — do not describe the call in prose or emit any fenced tool_calls JSON block.";
+const KNOWLEDGE_TOOL_CONTRACT: &str = "\n\n--- Project knowledge retrieval ---\nUse the native function tool `knowledge_search` (arguments: query, optional limit 1-10) to consult the vector Knowledge Base index — chunked subject records from the project's documentation AND the platform reference (controls, properties, events, extensions) — before relying on prior plans, requirements, task lists, or other documentation. Use only returned project paths and excerpts as evidence. Call the tool directly — do not describe the call in prose or emit any fenced tool_calls JSON block.";
 
 const INDEXED_FILE_TOOL_CONTRACT: &str = r#"
 
@@ -387,6 +387,13 @@ impl AgentInvoker for ToolExecutingInvoker<'_> {
         review_reply: &str,
     ) -> Result<ReviewVerdict, String> {
         self.inner.extract_verdict(reviewer, review_reply)
+    }
+
+    // Machine validation is a transport concern like typed extraction:
+    // delegate so the engine's lint gate reaches the wrapped invoker's
+    // change-set validator through this decorator.
+    fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
+        self.inner.lint_submission(agent, submission)
     }
 
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
@@ -741,25 +748,38 @@ impl<'a> IdeToolBackend<'a> {
         {
             return ToolResult::err("project knowledge synchronization failed", error);
         }
-        match cobolt_agents::project_knowledge::search(&self.project_dir, query, limit) {
-            Ok(hits) => {
-                let detail = hits
-                    .iter()
-                    .map(|hit| {
-                        format!(
-                            "PATH: {}\nSCORE: {:.4}\nEXCERPT:\n{}",
-                            hit.path, hit.score, hit.excerpt
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n\n---\n\n");
-                ToolResult::ok(
-                    format!("retrieved {} project document(s)", hits.len()),
-                    detail,
-                )
-            }
-            Err(error) => ToolResult::err("project knowledge search failed", error),
+        // Chunked retrieval (one record per subject): sync the project store,
+        // then search the project AND the shared IDE store, so an agent gets
+        // exactly the subject records it asked about — never the catalogue.
+        use cobolt_agents::chunked_knowledge as chunked;
+        let project_store = chunked::project_chunked_path(&self.project_dir);
+        if let Err(error) = chunked::sync_tree(&self.project_dir, &project_store) {
+            return ToolResult::err("project knowledge chunking failed", error);
         }
+        let mut hits = match chunked::search(&project_store, query, limit) {
+            Ok(hits) => hits,
+            Err(error) => return ToolResult::err("project knowledge search failed", error),
+        };
+        match chunked::search(&chunked::ide_chunked_path(), query, limit) {
+            Ok(system) => hits.extend(system),
+            Err(error) => return ToolResult::err("system knowledge search failed", error),
+        }
+        hits.sort_by(|left, right| right.score.total_cmp(&left.score));
+        hits.truncate(limit);
+        let detail = hits
+            .iter()
+            .map(|hit| {
+                format!(
+                    "PATH: {}\nSUBJECT: {} ({})\nSCORE: {:.4}\nCONTENT:\n{}",
+                    hit.source_path, hit.subject, hit.kind, hit.score, hit.content
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n");
+        ToolResult::ok(
+            format!("retrieved {} knowledge record(s)", hits.len()),
+            detail,
+        )
     }
 
     fn indexed_path(&self, raw: &str) -> Result<(PathBuf, PathBuf), ToolResult> {
@@ -1944,7 +1964,7 @@ mod tests {
         let docs = tool_contract_appendix(&declared(&["documentation.write", "knowledge.search"]));
         assert!(docs.contains("documentation.write"));
         assert!(docs.contains("knowledge_search"));
-        assert!(docs.contains("SQLite vector"));
+        assert!(docs.contains("vector Knowledge Base index"));
 
         let indexed = tool_contract_appendix(&declared(&["indexed_file.write"]));
         assert!(indexed.contains("indexed_file.write"));

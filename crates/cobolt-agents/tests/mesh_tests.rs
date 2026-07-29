@@ -4,8 +4,6 @@
 //! specialist routing and prompt composition (the HTTP wire is owned by Rig
 //! now — the hand-rolled orchestrator and its wire tests are deleted).
 
-#[cfg(feature = "local-retrieval")]
-use cobolt_agents::retrieval::index::LexicalIndex;
 use cobolt_agents::{compose_system_prompt, route_specialist, Specialist};
 
 #[test]
@@ -72,26 +70,4 @@ fn composition_contract_for_builtins_and_project_agents() {
     assert!(Specialist::builtin("Grace").is_none());
     let host_only = compose_system_prompt("Grace plans workflows.", None);
     assert_eq!(host_only, "Grace plans workflows.");
-}
-
-#[test]
-#[cfg(feature = "local-retrieval")]
-fn test_lexical_index_synonyms() {
-    let index = LexicalIndex::new().expect("Failed to create index");
-
-    index
-        .add_document("doc1", "INDEXED file operations")
-        .unwrap();
-    index.add_document("doc2", "DataGrid UI component").unwrap();
-    index.add_document("doc3", "Unrelated text").unwrap();
-
-    // Search for "keyed" which should expand to "INDEXED"
-    let results = index.search("keyed file", 10).unwrap();
-    assert!(!results.is_empty(), "Should find doc1 via synonym");
-    assert_eq!(results[0].1, "doc1");
-
-    // Search for "grid" which should expand to "DataGrid"
-    let results2 = index.search("grid", 10).unwrap();
-    assert!(!results2.is_empty(), "Should find doc2 via synonym");
-    assert_eq!(results2[0].1, "doc2");
 }

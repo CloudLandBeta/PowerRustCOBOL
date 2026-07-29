@@ -1233,6 +1233,109 @@ pub(crate) fn chat_thinking_indicator(ui: &mut egui::Ui, label: &str, font_size:
     ui.add_space(5.0);
 }
 
+/// Spec 036 R1: the live current-action line — the same high-contrast
+/// indicator balloon as [`chat_thinking_indicator`], but naming the agent's
+/// actual step ("Form Designer Agent: Drafting response — T1") instead of a
+/// generic "Thinking…". The caller passes the THROTTLED action
+/// (`GraceSession::current_action`), never the raw stream.
+pub(crate) fn chat_current_action(
+    ui: &mut egui::Ui,
+    action: &crate::agent_actions::AgentAction,
+    tr: &crate::i18n::Tr,
+    font_size: f32,
+) {
+    chat_thinking_indicator(ui, &action.display_line(tr), font_size);
+}
+
+/// Live Knowledge Base indexing progress bar: shown while chunk records are
+/// being embedded so a long first index never looks stuck. Contrast is
+/// hardcoded from the balloon palette (blue track fill, white text) — never
+/// `ui.visuals()`, which glass themes make unreliable in the chat panes.
+pub(crate) fn chat_indexing_bar(
+    ui: &mut egui::Ui,
+    done: u64,
+    total: u64,
+    tr: &crate::i18n::Tr,
+    font_size: f32,
+) {
+    if total == 0 || done >= total {
+        return;
+    }
+    let label = tr
+        .kb_indexing
+        .replacen("{}", &done.to_string(), 1)
+        .replacen("{}", &total.to_string(), 1);
+    let fraction = (done as f32 / total as f32).clamp(0.0, 1.0);
+    let max_w = (ui.available_width() * 0.82).max(120.0);
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+        ui.set_max_width(max_w);
+        ui.add(
+            egui::ProgressBar::new(fraction)
+                .fill(chat_bubble_fill(false))
+                .text(
+                    egui::RichText::new(label)
+                        .size(font_size)
+                        .strong()
+                        .color(Color32::WHITE),
+                ),
+        );
+    });
+    ui.add_space(5.0);
+}
+
+/// Spec 036 R3: the collapsed action history — an assistant-side balloon
+/// holding a `CollapsingHeader` ("Agent actions (N)", collapsed by default)
+/// with one attributed line per action. Contrast is hardcoded from the
+/// balloon palette like every chat widget (glass themes make
+/// `ui.visuals()`-derived colors unreliable here). `id` must be stable for
+/// the widget's lifetime (the title text changes as actions accumulate, so
+/// the open-state id cannot derive from it).
+pub(crate) fn chat_action_history(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    actions: &[crate::agent_actions::AgentAction],
+    tr: &crate::i18n::Tr,
+    font_size: f32,
+) {
+    if actions.is_empty() {
+        return;
+    }
+    let fill = chat_bubble_fill(false);
+    let fg = Color32::WHITE;
+    let max_w = (ui.available_width() * 0.82).max(120.0);
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+        egui::Frame::NONE
+            .fill(fill)
+            .corner_radius(egui::CornerRadius::same(15))
+            .inner_margin(egui::Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.set_max_width(max_w);
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(format!(
+                        "{} ({})",
+                        tr.agent_actions_header,
+                        actions.len()
+                    ))
+                    .size(font_size)
+                    .strong()
+                    .color(fg),
+                )
+                .id_salt(id)
+                .default_open(false)
+                .show(ui, |ui| {
+                    for action in actions {
+                        ui.label(
+                            egui::RichText::new(action.display_line(tr))
+                                .size((font_size - 1.0).max(10.0))
+                                .color(fg),
+                        );
+                    }
+                });
+            });
+    });
+    ui.add_space(5.0);
+}
+
 fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f32) {
     // An agent's question to the developer: its own balloon, red background,
     // white foreground, agent-side alignment. Always plain text — the red

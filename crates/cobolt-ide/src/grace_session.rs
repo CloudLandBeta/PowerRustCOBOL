@@ -24,6 +24,9 @@ use crate::target_select::{TargetChoice, TargetRequest};
 
 enum GraceMsg {
     Progress(String),
+    /// A typed live-action status entry (spec 036): what an agent is doing,
+    /// never the content it produced or consumed.
+    Action(crate::agent_actions::AgentAction),
     /// A gated git op is waiting for the operator (spec 030 R12). The worker
     /// blocks on `reply` until the UI answers (or drops it → deny).
     Confirm(GitConfirmRequest, Sender<bool>),
@@ -38,6 +41,12 @@ enum GraceMsg {
 pub struct GraceSession {
     pub request: String,
     pub log: Vec<String>,
+    /// Complete, unthrottled live-action history (spec 036 R3/R6): the
+    /// collapsed-history source. Display throttling happens in
+    /// [`Self::current_action`], never here — no action is ever dropped.
+    pub actions: Vec<crate::agent_actions::AgentAction>,
+    /// Display-side throttle for the single live line (≤1 change/second).
+    throttle: crate::agent_actions::ActionThrottle,
     rx: Option<Receiver<GraceMsg>>,
     finished: Option<Result<(WorkflowRecord, PathBuf), String>>,
     /// A gated git op awaiting the operator's Approve/Deny (spec 030 R12).
@@ -78,7 +87,15 @@ impl GraceSession {
             .spawn(move || {
                 let tx2 = tx.clone();
                 let mut on_progress = move |line: String| {
+                    // Spec 036 R4: the chat panes render only the typed
+                    // action stream, so the full progress trace keeps its
+                    // home in the IDE's AI log (Output panel) instead.
+                    crate::llm::push_ai_log(crate::llm::AiLogKind::Detail, line.clone());
                     let _ = tx2.send(GraceMsg::Progress(line));
+                };
+                let action_tx = tx.clone();
+                let mut on_action = move |action: crate::agent_actions::AgentAction| {
+                    let _ = action_tx.send(GraceMsg::Action(action));
                 };
                 // Gated git ops block here until the UI answers; a dropped reply
                 // channel (session dismissed) counts as a deny (spec 030 R12).
@@ -108,6 +125,7 @@ impl GraceSession {
                     &routing,
                     &worker_control,
                     &mut on_progress,
+                    &mut on_action,
                     &mut confirm,
                     &mut select_target,
                 );
@@ -117,6 +135,8 @@ impl GraceSession {
         Self {
             request: request.to_string(),
             log: vec!["Grace received the request.".into()],
+            actions: Vec::new(),
+            throttle: crate::agent_actions::ActionThrottle::default(),
             rx: Some(rx),
             finished: None,
             pending_confirm: None,
@@ -143,6 +163,12 @@ impl GraceSession {
         self.control.token_totals()
     }
 
+    /// Live Knowledge Base chunk-embedding progress — `(done, total,
+    /// current_subject)` while records are being embedded, `None` otherwise.
+    pub fn indexing_progress(&self) -> Option<(u64, u64, String)> {
+        self.control.indexing_progress()
+    }
+
     /// Drain progress + completion. Returns `true` if anything changed this
     /// frame (so the caller can request a repaint).
     pub fn poll(&mut self) -> bool {
@@ -154,6 +180,10 @@ impl GraceSession {
             match rx.try_recv() {
                 Ok(GraceMsg::Progress(line)) => {
                     self.log.push(line);
+                    changed = true;
+                }
+                Ok(GraceMsg::Action(action)) => {
+                    self.actions.push(action);
                     changed = true;
                 }
                 Ok(GraceMsg::Confirm(req, reply)) => {
@@ -190,6 +220,18 @@ impl GraceSession {
 
     pub fn is_running(&self) -> bool {
         self.finished.is_none()
+    }
+
+    /// The throttled current-action line (spec 036 R1/R6): the visible line
+    /// changes at most once per second, coalescing to the latest action; the
+    /// full [`Self::actions`] history keeps every entry.
+    pub fn current_action(&mut self) -> Option<&crate::agent_actions::AgentAction> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let idx = self.throttle.visible_index(self.actions.len(), now_ms)?;
+        self.actions.get(idx)
     }
 
     /// The gated git op awaiting the operator's decision, if any (spec 030 R12).

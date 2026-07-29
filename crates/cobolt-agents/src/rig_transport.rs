@@ -214,6 +214,13 @@ pub fn normalize_base(provider: &str, endpoint: &str) -> String {
     if let Some(host) = base.strip_suffix("/api/chat").or_else(|| base.strip_suffix("/api")) {
         base = format!("{}/v1", host.trim_end_matches('/'));
     }
+    // HuggingFace's legacy Inference API host was shut down (its DNS no
+    // longer resolves); its path scheme died with it. Any stored endpoint
+    // pointing there maps wholesale onto the Inference Providers router,
+    // which speaks the OpenAI wire at /v1.
+    if base.contains("api-inference.huggingface.co") {
+        base = "https://router.huggingface.co/v1".to_string();
+    }
     if base.is_empty() {
         base = match provider {
             "anthropic" => "https://api.anthropic.com/v1".to_string(),
@@ -222,6 +229,22 @@ pub fn normalize_base(provider: &str, endpoint: &str) -> String {
         };
     }
     base
+}
+
+/// How long establishing the TCP/TLS connection to a provider may take.
+/// Only the connect phase is bounded — streaming reads stay unlimited,
+/// because a long generation is legitimate while an unreachable or
+/// black-holed host is not (observed live: a dead provider held the COBOL
+/// proficiency spinner open forever, with no way out but restarting the IDE).
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The HTTP client injected into every rig provider client (same reqwest
+/// version rig-core itself resolves to, so the type satisfies HttpClientExt).
+fn transport_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()
+        .map_err(|e| format!("transport client build failed: {e}"))
 }
 
 /// Invoke one agent synchronously. Creates a runtime per call — cheap next to
@@ -240,6 +263,7 @@ pub async fn run_agent(call: &AgentCall) -> Result<AgentReply, String> {
         let client = anthropic::Client::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
+            .http_client(transport_client()?)
             .build()
             .map_err(|e| format!("anthropic client build failed: {e}"))?;
         complete_with(client, call).await
@@ -256,6 +280,7 @@ pub async fn run_agent(call: &AgentCall) -> Result<AgentReply, String> {
         let client = openai::CompletionsClient::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
+            .http_client(transport_client()?)
             .build()
             .map_err(|e| format!("openai-compatible client build failed: {e}"))?;
         complete_with(client, call).await
@@ -311,6 +336,7 @@ where
         let client = anthropic::Client::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
+            .http_client(transport_client()?)
             .build()
             .map_err(|e| format!("anthropic client build failed: {e}"))?;
         extract_with::<_, T>(client, call, source_text).await
@@ -325,6 +351,7 @@ where
         let client = openai::CompletionsClient::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
+            .http_client(transport_client()?)
             .build()
             .map_err(|e| format!("openai-compatible client build failed: {e}"))?;
         extract_with::<_, T>(client, call, source_text).await
@@ -402,6 +429,7 @@ pub async fn run_chat(
         let client = anthropic::Client::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
+            .http_client(transport_client()?)
             .build()
             .map_err(|e| format!("anthropic client build failed: {e}"))?;
         chat_with(client, call, on_chunk).await
@@ -416,6 +444,7 @@ pub async fn run_chat(
         let client = openai::CompletionsClient::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
+            .http_client(transport_client()?)
             .build()
             .map_err(|e| format!("openai-compatible client build failed: {e}"))?;
         chat_with(client, call, on_chunk).await
@@ -1067,5 +1096,19 @@ mod tests {
         );
         assert_eq!(normalize_base("openai", ""), "https://api.openai.com/v1");
         assert_eq!(normalize_base("ollama", ""), "http://localhost:11434/v1");
+        // The shut-down HuggingFace host maps wholesale onto the router —
+        // whatever path the stored endpoint carried (the old scheme died
+        // with the host).
+        assert_eq!(
+            normalize_base("huggingface", "https://api-inference.huggingface.co/models"),
+            "https://router.huggingface.co/v1"
+        );
+        assert_eq!(
+            normalize_base(
+                "huggingface",
+                "https://api-inference.huggingface.co/models/meta-llama/Llama-3.3-70B-Instruct"
+            ),
+            "https://router.huggingface.co/v1"
+        );
     }
 }

@@ -66,7 +66,7 @@ struct DocumentRecord {
 /// and upgrades without an IDE restart.
 static ACTIVE_EMBEDDER: Mutex<Option<(Arc<dyn Embedder>, EmbedderKind)>> = Mutex::new(None);
 
-fn active_embedder() -> (Arc<dyn Embedder>, EmbedderKind) {
+pub(crate) fn active_embedder() -> (Arc<dyn Embedder>, EmbedderKind) {
     let cache_dir = semantic_model_cache_dir();
     let mut slot = ACTIVE_EMBEDDER.lock().expect("embedder cache poisoned");
     match slot.as_ref() {
@@ -650,6 +650,28 @@ pub fn search(project_root: &Path, query: &str, limit: usize) -> Result<Vec<Know
     hits.sort_by(|left, right| right.score.total_cmp(&left.score));
     hits.truncate(limit);
     Ok(hits)
+}
+
+/// Total characters of every indexed document — the corpus a push-everything
+/// approach would inject wholesale. Feeds the verbose "token savings" report:
+/// retrieved excerpts vs. this total. A never-indexed root is an empty corpus,
+/// not a failure.
+pub fn indexed_corpus_chars(project_root: &Path) -> Result<u64, String> {
+    let database = open(project_root)?;
+    let read = database.begin_read().map_err(|e| e.to_string())?;
+    let table = match read.open_table(DOCUMENTS) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut total = 0_u64;
+    for entry in table.iter().map_err(|e| e.to_string())? {
+        let (_key, value) = entry.map_err(|e| e.to_string())?;
+        if let Some(record) = decode_record(value.value()) {
+            total += record.content.chars().count() as u64;
+        }
+    }
+    Ok(total)
 }
 
 #[cfg(test)]
