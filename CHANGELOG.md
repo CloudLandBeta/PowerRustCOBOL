@@ -8,6 +8,31 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.41.6] — 2026-07-29
+
+### Fixed
+
+- **The last undo gaps are closed — with redo.** Four designer actions still
+  bypassed the history stack; all ride it now, both directions:
+  *data-binding application* (snapshots the pre-apply bindings and target
+  controls — binding rewrites DataGrid columns, sources, and preview
+  values); *MenuBar definition saves* (the menu lives in a YAML next to the
+  `.cfrm`; undo restores the previous file or removes one that did not
+  exist, and the paint cache reloads on the next frame); *adding and
+  deleting user procedures* in the COBOL Structure panel (the deleted
+  procedure's code rides the stack and is restored verbatim); and
+  *animations* — add, remove, and every field edit
+  (`_AddAnimation` / `_RemoveAnimN` / `AnimN_*` returned before the stack).
+
+### Added
+
+- **Procedure history asks first.** Undoing or redoing any step that changes
+  COBOL procedure code — a procedure add/delete, a procedure body edit, or
+  an agent batch containing one — now waits for the developer's explicit
+  confirmation (operator, 2026-07-29). Declining leaves the history
+  untouched; further Ctrl+Z presses while the question is up do nothing.
+  Translated in all six IDE languages.
+
 ## [PowerRustCOBOL 1.41.5] — 2026-07-28
 
 ### Added

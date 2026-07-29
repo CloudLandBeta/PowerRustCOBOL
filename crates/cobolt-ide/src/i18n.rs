@@ -188,6 +188,12 @@ pub struct Tr {
     pub style_break_title: &'static str,
     pub style_break_body: &'static str,
     pub style_break_continue: &'static str,
+    /// Procedure-history confirmation (operator, 2026-07-29): undoing or
+    /// redoing a step that changes COBOL procedure code asks first.
+    pub proc_history_title: &'static str,
+    pub proc_undo_body: &'static str,
+    pub proc_redo_body: &'static str,
+    pub proc_history_confirm: &'static str,
 
     /// Close confirmation for unsaved project settings form.
     pub settings_close_title: &'static str,
@@ -978,6 +984,10 @@ const EN: Tr = Tr {
     style_break_title:   "Form style",
     style_break_body:    "This form uses a themed style (Enhanced / Neumorphic). Setting a custom background color on a control breaks the unit of that style. Do you want to continue?",
     style_break_continue: "Continue and apply",
+    proc_history_title:  "COBOL procedures",
+    proc_undo_body:      "This undo step reverts COBOL procedure code of the form. Do you want to proceed?",
+    proc_redo_body:      "This redo step re-applies a change to COBOL procedure code of the form. Do you want to proceed?",
+    proc_history_confirm: "Proceed",
 
     settings_close_title: "Save changes to project settings?",
     settings_close_msg:   "You have unsaved changes to the project settings (theme, background, project info, AI assistant, etc.). Save or discard before closing?",
@@ -1699,6 +1709,10 @@ const ES: Tr = Tr {
     style_break_title:   "Estilo del formulario",
     style_break_body:    "Este formulario usa un estilo temático (Enhanced / Neumorphic). Establecer un color de fondo propio en un control rompe la unidad de ese estilo. ¿Desea continuar?",
     style_break_continue: "Continuar y aplicar",
+    proc_history_title:  "Procedimientos COBOL",
+    proc_undo_body:      "Este paso de deshacer revierte código de procedimientos COBOL del formulario. ¿Desea continuar?",
+    proc_redo_body:      "Este paso de rehacer vuelve a aplicar un cambio en código de procedimientos COBOL del formulario. ¿Desea continuar?",
+    proc_history_confirm: "Continuar",
 
     settings_close_title: "¿Guardar cambios en la configuración del proyecto?",
     settings_close_msg:   "Tienes cambios sin guardar en la configuración del proyecto (tema, fondo, información del proyecto, asistente IA, etc.). ¿Guardar o descartar antes de cerrar?",
@@ -2420,6 +2434,10 @@ const PT: Tr = Tr {
     style_break_title:   "Estilo do formulário",
     style_break_body:    "Este formulário usa um estilo temático (Enhanced / Neumorphic). Definir uma cor de fundo própria em um controle quebra a unidade desse estilo. Deseja continuar?",
     style_break_continue: "Continuar e aplicar",
+    proc_history_title:  "Procedures COBOL",
+    proc_undo_body:      "Este passo de desfazer reverte código de procedures COBOL do formulário. Deseja prosseguir?",
+    proc_redo_body:      "Este passo de refazer reaplica uma alteração em código de procedures COBOL do formulário. Deseja prosseguir?",
+    proc_history_confirm: "Prosseguir",
 
     settings_close_title: "Salvar alterações nas configurações do projeto?",
     settings_close_msg:   "Você tem alterações não salvas nas configurações do projeto (tema, plano de fundo, informações do projeto, assistente de IA etc.). Salvar ou descartar antes de fechar?",
@@ -3141,6 +3159,10 @@ const JA: Tr = Tr {
     style_break_title:   "フォームスタイル",
     style_break_body:    "このフォームはテーマスタイル（Enhanced / Neumorphic）を使用しています。コントロールに独自の背景色を設定すると、スタイルの統一感が失われます。続行しますか？",
     style_break_continue: "続行して適用",
+    proc_history_title:  "COBOLプロシージャ",
+    proc_undo_body:      "この元に戻す操作は、フォームのCOBOLプロシージャのコードを巻き戻します。続行しますか？",
+    proc_redo_body:      "このやり直し操作は、フォームのCOBOLプロシージャのコードへの変更を再適用します。続行しますか？",
+    proc_history_confirm: "続行",
 
     settings_close_title: "プロジェクト設定の変更を保存しますか?",
     settings_close_msg:   "プロジェクト設定（テーマ、背景、プロジェクト情報、AIアシスタントなど）に未保存の変更があります。閉じる前に保存するか破棄しますか?",
@@ -3862,6 +3884,10 @@ const ZH: Tr = Tr {
     style_break_title: "窗体样式",
     style_break_body: "此窗体使用主题样式（Enhanced / Neumorphic）。为控件设置自定义背景色会破坏该样式的统一性。是否继续？",
     style_break_continue: "继续并应用",
+    proc_history_title: "COBOL 过程",
+    proc_undo_body: "此撤销步骤将还原窗体的 COBOL 过程代码。是否继续？",
+    proc_redo_body: "此重做步骤将重新应用对窗体 COBOL 过程代码的更改。是否继续？",
+    proc_history_confirm: "继续",
 
     settings_close_title: "保存项目设置更改？",
     settings_close_msg:
@@ -4590,6 +4616,10 @@ const FR: Tr = Tr {
     style_break_title:   "Style du formulaire",
     style_break_body:    "Ce formulaire utilise un style thématique (Enhanced / Neumorphic). Définir une couleur de fond personnalisée sur un contrôle rompt l'unité de ce style. Voulez-vous continuer ?",
     style_break_continue: "Continuer et appliquer",
+    proc_history_title:  "Procédures COBOL",
+    proc_undo_body:      "Cette étape d'annulation rétablit du code de procédures COBOL du formulaire. Voulez-vous continuer ?",
+    proc_redo_body:      "Cette étape de rétablissement réapplique une modification du code de procédures COBOL du formulaire. Voulez-vous continuer ?",
+    proc_history_confirm: "Continuer",
 
     settings_close_title: "Enregistrer les modifications des paramètres du projet ?",
     settings_close_msg:   "Vous avez des modifications non enregistrées des paramètres du projet (thème, arrière-plan, informations du projet, assistant IA, etc.). Enregistrer ou abandonner avant de fermer ?",

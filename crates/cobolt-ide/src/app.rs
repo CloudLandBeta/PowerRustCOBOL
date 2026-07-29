@@ -11862,12 +11862,39 @@ impl CoboltApp {
                 d.style_break_pending.clear();
             }
         }
+        // An undo/redo that changes COBOL procedure code waits here for the
+        // developer's explicit confirmation (operator, 2026-07-29).
+        if let Some(dir) = self.designers[idx].1.pending_history_confirm {
+            let mut confirm = false;
+            let mut cancel = false;
+            egui::Window::new(tr.proc_history_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.set_max_width(460.0);
+                    ui.label(match dir {
+                        crate::panels::designer::HistoryDir::Undo => tr.proc_undo_body,
+                        crate::panels::designer::HistoryDir::Redo => tr.proc_redo_body,
+                    });
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.proc_history_confirm).clicked() {
+                            confirm = true;
+                        }
+                        if ui.button(tr.btn_cancel).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            if confirm || cancel {
+                self.designers[idx].1.confirm_pending_history(confirm);
+            }
+        }
         if let Some(binding) = inspector_action.create_data_binding {
-            let d = &mut self.designers[idx].1;
-            let b = binding.clone();
-            apply_data_binding_to_form(&mut d.form, binding);
-            seed_control_array_binding_preview_values(d, &b);
-            d.dirty = true;
+            // Undoable: the command snapshots the pre-apply bindings and
+            // controls (binding application rewrites target properties).
+            self.designers[idx].1.apply_data_binding(binding);
         }
         if let Some((old, new)) = inspector_action.rename_control {
             self.designers[idx].1.rename_control(&old, &new);
@@ -11902,23 +11929,14 @@ impl CoboltApp {
         }
         if inspector_action.cs_add_proc {
             let d = &mut self.designers[idx].1;
-            let n = d.form.user_procedures.len() + 1;
-            d.form
-                .user_procedures
-                .push(cobolt_forms::model::UserProcedure {
-                    name: format!("USER-PROC-{n}"),
-                    code: String::new(),
-                });
-            d.dirty = true;
-            let new_idx = d.form.user_procedures.len() - 1;
+            let new_idx = d.add_user_procedure();
             d.cobol_structure_edit =
                 Some(crate::panels::cobol_structure::CsTarget::Procedure(new_idx));
         }
         if let Some(i) = inspector_action.cs_del_proc {
             let d = &mut self.designers[idx].1;
             if i < d.form.user_procedures.len() {
-                d.form.user_procedures.remove(i);
-                d.dirty = true;
+                d.remove_user_procedure(i);
                 // The popup may have been editing a procedure whose index shifted.
                 if matches!(
                     d.cobol_structure_edit,
@@ -12108,7 +12126,7 @@ fn sanitize_file_stem(name: &str) -> String {
     }
 }
 
-fn apply_data_binding_to_form(form: &mut Form, binding: DataBindingDef) {
+pub(crate) fn apply_data_binding_to_form(form: &mut Form, binding: DataBindingDef) {
     apply_data_binding_target_properties(form, &binding);
     form.data_bindings
         .retain(|existing| !same_binding_target(&existing.target, &binding.target));

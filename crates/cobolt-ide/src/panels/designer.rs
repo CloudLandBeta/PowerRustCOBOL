@@ -395,6 +395,60 @@ enum Cmd {
         before: Box<StyleSnapshot>,
         style: String,
     },
+    /// A control's full animation list (add / remove / field edit — the
+    /// `_AddAnimation` / `_RemoveAnimN` / `AnimN_*` meta-keys returned before
+    /// the stack until the 2026-07-29 audit). Whole-list snapshots keep the
+    /// three operation kinds on one variant.
+    SetAnimations {
+        id: String,
+        old: Vec<AnimationDef>,
+        new: Vec<AnimationDef>,
+    },
+    /// A user procedure added through the COBOL Structure panel.
+    AddProcedure {
+        index: usize,
+        proc: cobolt_forms::model::UserProcedure,
+    },
+    /// A user procedure deleted through the COBOL Structure panel — the whole
+    /// procedure (name + code) rides along so undo restores it verbatim.
+    RemoveProcedure {
+        index: usize,
+        proc: cobolt_forms::model::UserProcedure,
+    },
+    /// A data binding applied from the binding editor. Binding application
+    /// rewrites target-control properties (DataGrid columns, sources, preview
+    /// values), so the pre-apply bindings AND controls are snapshotted.
+    ApplyDataBinding {
+        binding: cobolt_forms::DataBindingDef,
+        before_bindings: Vec<cobolt_forms::DataBindingDef>,
+        before_controls: Vec<Control>,
+    },
+    /// A MenuBar definition save. The menu lives in a YAML next to the .cfrm,
+    /// so execute/reverse rewrite the file (`old: None` means the menu did not
+    /// exist — undo removes the file) and queue a paint-cache refresh.
+    SetMenuDefinition {
+        control_id: String,
+        old: Option<cobolt_forms::menu::MenuDefinition>,
+        new: cobolt_forms::menu::MenuDefinition,
+    },
+}
+
+/// Which direction of history navigation is waiting on the developer's
+/// confirmation (procedure-touching steps only — operator, 2026-07-29).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HistoryDir {
+    Undo,
+    Redo,
+}
+
+/// Whether reverting/re-applying this command changes COBOL procedure code —
+/// those history steps require explicit developer confirmation.
+fn touches_procedures(cmd: &Cmd) -> bool {
+    match cmd {
+        Cmd::SetProcedure { .. } | Cmd::AddProcedure { .. } | Cmd::RemoveProcedure { .. } => true,
+        Cmd::AgentBatch { cmds } => cmds.iter().any(touches_procedures),
+        _ => false,
+    }
 }
 
 /// Everything `Form::apply_glass_style_defaults` can touch — captured before a
@@ -1166,6 +1220,13 @@ pub struct DesignerPanel {
     /// Set once the developer confirmed breaking the style unit on this form —
     /// the question is asked once per designer session, not per colour tick.
     pub style_break_ack: bool,
+    /// An undo/redo held for confirmation because the step changes COBOL
+    /// procedure code (operator, 2026-07-29). Resolved by
+    /// [`Self::confirm_pending_history`].
+    pub pending_history_confirm: Option<HistoryDir>,
+    /// MenuBar ids whose YAML changed via undo/redo — the per-frame cache
+    /// loader force-reloads these (execute/reverse have no egui context).
+    menu_cache_dirty: Vec<String>,
 
     pub dirty: bool,
     pub close_requested: bool,
@@ -1305,6 +1366,8 @@ impl DesignerPanel {
             redo_stack: Vec::new(),
             style_break_pending: Vec::new(),
             style_break_ack: false,
+            pending_history_confirm: None,
+            menu_cache_dirty: Vec::new(),
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -1844,6 +1907,25 @@ impl DesignerPanel {
     }
 
     pub fn undo(&mut self) {
+        // A step that changes COBOL procedure code waits for the developer's
+        // explicit confirmation (operator, 2026-07-29); further Ctrl+Z presses
+        // while the question is up do nothing.
+        if self.pending_history_confirm.is_some() {
+            return;
+        }
+        if self
+            .undo_stack
+            .last()
+            .map(touches_procedures)
+            .unwrap_or(false)
+        {
+            self.pending_history_confirm = Some(HistoryDir::Undo);
+            return;
+        }
+        self.undo_unchecked();
+    }
+
+    fn undo_unchecked(&mut self) {
         if let Some(cmd) = self.undo_stack.pop() {
             self.reverse(&cmd);
             self.redo_stack.push(cmd);
@@ -1851,7 +1933,33 @@ impl DesignerPanel {
         }
     }
 
+    /// Resolve the pending procedure-history confirmation: `accept` performs
+    /// the held undo/redo, `false` drops the request (nothing moves).
+    pub fn confirm_pending_history(&mut self, accept: bool) {
+        match self.pending_history_confirm.take() {
+            Some(HistoryDir::Undo) if accept => self.undo_unchecked(),
+            Some(HistoryDir::Redo) if accept => self.redo_unchecked(),
+            _ => {}
+        }
+    }
+
     pub fn redo(&mut self) {
+        if self.pending_history_confirm.is_some() {
+            return;
+        }
+        if self
+            .redo_stack
+            .last()
+            .map(touches_procedures)
+            .unwrap_or(false)
+        {
+            self.pending_history_confirm = Some(HistoryDir::Redo);
+            return;
+        }
+        self.redo_unchecked();
+    }
+
+    fn redo_unchecked(&mut self) {
         if let Some(cmd) = self.redo_stack.pop() {
             self.execute(&cmd);
             self.undo_stack.push(cmd);
@@ -1957,6 +2065,29 @@ impl DesignerPanel {
             }
             Cmd::SetGlassStyle { style, .. } => {
                 self.set_form_prop_direct("GlassStyle", style.clone());
+            }
+            Cmd::SetAnimations { id, new, .. } => {
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.animations = new.clone();
+                }
+            }
+            Cmd::AddProcedure { index, proc } => {
+                let idx = (*index).min(self.form.user_procedures.len());
+                self.form.user_procedures.insert(idx, proc.clone());
+            }
+            Cmd::RemoveProcedure { index, .. } => {
+                if *index < self.form.user_procedures.len() {
+                    self.form.user_procedures.remove(*index);
+                }
+            }
+            Cmd::ApplyDataBinding { binding, .. } => {
+                crate::app::apply_data_binding_to_form(&mut self.form, binding.clone());
+                crate::app::seed_control_array_binding_preview_values(self, binding);
+            }
+            Cmd::SetMenuDefinition {
+                control_id, new, ..
+            } => {
+                self.write_menu_yaml(control_id, Some(new));
             }
         }
     }
@@ -2070,6 +2201,33 @@ impl DesignerPanel {
                 for c in cmds.iter().rev() {
                     self.reverse(c);
                 }
+            }
+            Cmd::SetAnimations { id, old, .. } => {
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.animations = old.clone();
+                }
+            }
+            Cmd::AddProcedure { index, .. } => {
+                if *index < self.form.user_procedures.len() {
+                    self.form.user_procedures.remove(*index);
+                }
+            }
+            Cmd::RemoveProcedure { index, proc } => {
+                let idx = (*index).min(self.form.user_procedures.len());
+                self.form.user_procedures.insert(idx, proc.clone());
+            }
+            Cmd::ApplyDataBinding {
+                before_bindings,
+                before_controls,
+                ..
+            } => {
+                self.form.data_bindings = before_bindings.clone();
+                self.form.controls = before_controls.clone();
+            }
+            Cmd::SetMenuDefinition {
+                control_id, old, ..
+            } => {
+                self.write_menu_yaml(control_id, old.as_ref());
             }
             Cmd::SetFormProp { key, old, .. } => {
                 self.set_form_prop_direct(key, old.clone());
@@ -3251,19 +3409,33 @@ impl DesignerPanel {
 
     pub fn set_property(&mut self, ctrl_id: &str, key: &str, value: PropValue) {
         // ── Animation management meta-keys ────────────────────────────────────
+        // Add / remove / field edits all become one undoable SetAnimations
+        // command carrying the full before/after list (audit, 2026-07-29 —
+        // these returned before the stack and were invisible to undo).
         if key == "_AddAnimation" {
-            if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
-                ctrl.add_animation(AnimationDef::new(value.as_str()));
-                self.dirty = true;
+            if let Some(old) = self.form.find_control(ctrl_id).map(|c| c.animations.clone()) {
+                let mut new = old.clone();
+                new.retain(|a| a.name != value.as_str());
+                new.push(AnimationDef::new(value.as_str()));
+                self.apply(Cmd::SetAnimations {
+                    id: ctrl_id.to_owned(),
+                    old,
+                    new,
+                });
             }
             return;
         }
         if let Some(idx_str) = key.strip_prefix("_RemoveAnim") {
             if let Ok(idx) = idx_str.parse::<usize>() {
-                if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
-                    if idx < ctrl.animations.len() {
-                        ctrl.animations.remove(idx);
-                        self.dirty = true;
+                if let Some(old) = self.form.find_control(ctrl_id).map(|c| c.animations.clone()) {
+                    if idx < old.len() {
+                        let mut new = old.clone();
+                        new.remove(idx);
+                        self.apply(Cmd::SetAnimations {
+                            id: ctrl_id.to_owned(),
+                            old,
+                            new,
+                        });
                     }
                 }
             }
@@ -3286,8 +3458,12 @@ impl DesignerPanel {
                 let idx_str = &rest[..us];
                 let field = &rest[us + 1..];
                 if let Ok(idx) = idx_str.parse::<usize>() {
-                    if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
-                        if let Some(anim) = ctrl.animations.get_mut(idx) {
+                    if let Some(old) =
+                        self.form.find_control(ctrl_id).map(|c| c.animations.clone())
+                    {
+                        if idx < old.len() {
+                            let mut new = old.clone();
+                            let anim = &mut new[idx];
                             match field {
                                 "Name" => anim.name = value.as_str().to_owned(),
                                 "Trigger" => anim.trigger = AnimTrigger::from_str(value.as_str()),
@@ -3307,7 +3483,11 @@ impl DesignerPanel {
                                 "SlideDY" => anim.slide_dy = value.as_i64() as i32,
                                 _ => {}
                             }
-                            self.dirty = true;
+                            self.apply(Cmd::SetAnimations {
+                                id: ctrl_id.to_owned(),
+                                old,
+                                new,
+                            });
                         }
                     }
                 }
@@ -3450,6 +3630,91 @@ impl DesignerPanel {
             old,
             new: value,
         });
+    }
+
+    /// Add an empty user procedure (COBOL Structure panel) as an undoable
+    /// command. Returns the new procedure's index.
+    pub fn add_user_procedure(&mut self) -> usize {
+        let index = self.form.user_procedures.len();
+        let proc = cobolt_forms::model::UserProcedure {
+            name: format!("USER-PROC-{}", index + 1),
+            code: String::new(),
+        };
+        self.apply(Cmd::AddProcedure { index, proc });
+        index
+    }
+
+    /// Delete a user procedure (COBOL Structure panel) as an undoable command
+    /// — the full procedure rides the stack so undo restores its code.
+    pub fn remove_user_procedure(&mut self, index: usize) {
+        if let Some(proc) = self.form.user_procedures.get(index).cloned() {
+            self.apply(Cmd::RemoveProcedure { index, proc });
+        }
+    }
+
+    /// Apply a data binding from the binding editor as an undoable command.
+    /// Binding application rewrites target-control properties (columns,
+    /// sources, preview values), so the pre-apply bindings and controls are
+    /// snapshotted for undo.
+    pub fn apply_data_binding(&mut self, binding: cobolt_forms::DataBindingDef) {
+        let before_bindings = self.form.data_bindings.clone();
+        let before_controls = self.form.controls.clone();
+        self.apply(Cmd::ApplyDataBinding {
+            binding,
+            before_bindings,
+            before_controls,
+        });
+    }
+
+    /// Save a MenuBar's menu definition as an undoable command. The previous
+    /// definition (or its absence) is captured from the YAML so undo restores
+    /// — or removes — the file.
+    pub fn set_menu_definition(
+        &mut self,
+        control_id: String,
+        def: cobolt_forms::menu::MenuDefinition,
+    ) {
+        let Some(dir) = &self.cfrm_dir else {
+            eprintln!("Menu save skipped: the form has no directory yet");
+            return;
+        };
+        let path = cobolt_forms::menu::menu_yaml_path(dir, &control_id);
+        let old = if path.exists() {
+            cobolt_forms::menu::load_menu(&path).ok()
+        } else {
+            None
+        };
+        self.apply(Cmd::SetMenuDefinition {
+            control_id,
+            old,
+            new: def,
+        });
+    }
+
+    /// Write (or, with `None`, remove) a MenuBar's YAML and queue the paint
+    /// cache for a forced reload on the next frame — the [`Cmd`] execution
+    /// primitive; undo/redo have no egui context of their own.
+    fn write_menu_yaml(
+        &mut self,
+        control_id: &str,
+        def: Option<&cobolt_forms::menu::MenuDefinition>,
+    ) {
+        let Some(dir) = &self.cfrm_dir else {
+            return;
+        };
+        let path = cobolt_forms::menu::menu_yaml_path(dir, control_id);
+        match def {
+            Some(d) => {
+                if let Err(e) = cobolt_forms::menu::save_menu(&path, d) {
+                    eprintln!("Failed to save menu: {e}");
+                    return;
+                }
+            }
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        self.menu_cache_dirty.push(control_id.to_owned());
     }
 
     /// Apply one form-level property directly, with **no** undo record — the
@@ -3676,6 +3941,18 @@ impl DesignerPanel {
 
         // Load menu YAML files for any MenuBar controls and cache them
         if let Some(dir) = &self.cfrm_dir {
+            // Ids whose YAML an undoable menu command just rewrote (or removed)
+            // — force-reload those; a removed file becomes the empty menu.
+            let dirty: Vec<String> = std::mem::take(&mut self.menu_cache_dirty);
+            for id in &dirty {
+                let yaml_path = cobolt_forms::menu::menu_yaml_path(dir, id);
+                let def = if yaml_path.exists() {
+                    cobolt_forms::menu::load_menu(&yaml_path).unwrap_or_default()
+                } else {
+                    cobolt_forms::menu::MenuDefinition::default()
+                };
+                cobolt_forms::paint::set_menu_cache(ui.ctx(), id, std::sync::Arc::new(def));
+            }
             for ctrl in &self.form.controls {
                 if ctrl.control_type == ControlType::MenuBar {
                     let yaml_path = cobolt_forms::menu::menu_yaml_path(dir, &ctrl.id);
@@ -6623,21 +6900,9 @@ impl DesignerPanel {
 
         if save_clicked {
             if let Some(modal) = self.menu_modal.take() {
-                if let Some(dir) = &self.cfrm_dir {
-                    let path = cobolt_forms::menu::menu_yaml_path(dir, &modal.ctrl_id);
-                    if let Err(e) = cobolt_forms::menu::save_menu(&path, &modal.def) {
-                        eprintln!("Failed to save menu: {e}");
-                    } else {
-                        cobolt_forms::paint::set_menu_cache(
-                            ui.ctx(),
-                            &modal.ctrl_id,
-                            std::sync::Arc::new(
-                                cobolt_forms::menu::load_menu(&path).unwrap_or_default(),
-                            ),
-                        );
-                        self.dirty = true;
-                    }
-                }
+                // Undoable save: the command writes the YAML and queues the
+                // paint-cache refresh (drained at the top of the next frame).
+                self.set_menu_definition(modal.ctrl_id, modal.def);
             }
         }
         if cancel_clicked {
@@ -11381,16 +11646,24 @@ mod text_align_tests {
             "procedure created"
         );
 
-        // One undo reverts the entire change-set (R6).
+        // One undo reverts the entire change-set (R6). This batch touches
+        // procedure code, so the step is held for the developer's
+        // confirmation first (operator, 2026-07-29).
         d.undo();
+        assert!(
+            d.pending_history_confirm.is_some(),
+            "a procedure-touching batch asks before undoing"
+        );
+        d.confirm_pending_history(true);
         assert_eq!(
             format!("{:?}", d.form),
             before,
             "single undo restores the pre-change form byte-for-byte"
         );
 
-        // Redo re-applies it.
+        // Redo re-applies it (after the same confirmation).
         d.redo();
+        d.confirm_pending_history(true);
         assert!(d.form.find_control("SAVE").is_some(), "redo re-applies");
     }
 
@@ -11746,6 +12019,143 @@ mod text_align_tests {
         assert!(c.visible, "Visible undoes");
         assert!(c.enabled, "Enabled undoes");
         assert_eq!(c.tab_order, 0, "TabOrder undoes");
+    }
+
+    /// Audit 2026-07-29: animation add/remove/field edits and data-binding
+    /// application returned before the undo stack — they ride it now, with
+    /// redo.
+    #[test]
+    fn animations_and_data_bindings_are_undoable() {
+        use cobolt_forms::{BindingSourceDescriptor, BindingTargetDescriptor, DataBindingDef};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("B1", ControlType::Button, 0, 0));
+
+        // Add an animation, edit a field, then walk the history back and forth.
+        d.set_property("B1", "_AddAnimation", PropValue::String("fly".into()));
+        assert_eq!(d.form.find_control("B1").unwrap().animations.len(), 1);
+        let default_ms = d.form.find_control("B1").unwrap().animations[0].duration_ms;
+        d.set_property("B1", "Anim0_Duration", PropValue::Int(900));
+        assert_eq!(
+            d.form.find_control("B1").unwrap().animations[0].duration_ms,
+            900
+        );
+        d.undo();
+        assert_eq!(
+            d.form.find_control("B1").unwrap().animations[0].duration_ms,
+            default_ms,
+            "field edit undoes"
+        );
+        d.undo();
+        assert!(
+            d.form.find_control("B1").unwrap().animations.is_empty(),
+            "add undoes"
+        );
+        d.redo();
+        d.redo();
+        assert_eq!(
+            d.form.find_control("B1").unwrap().animations[0].duration_ms,
+            900,
+            "redo replays add + edit"
+        );
+        d.set_property("B1", "_RemoveAnim0", PropValue::Bool(true));
+        assert!(d.form.find_control("B1").unwrap().animations.is_empty());
+        d.undo();
+        assert_eq!(
+            d.form.find_control("B1").unwrap().animations.len(),
+            1,
+            "remove undoes"
+        );
+
+        // Data binding: one undoable step, snapshot-based.
+        d.form
+            .controls
+            .push(Control::new("LB", ControlType::ListBox, 0, 100));
+        let binding = DataBindingDef::new(
+            "b1",
+            "B",
+            BindingSourceDescriptor::IndexedFile {
+                definition_path: "x.cidx".into(),
+                record_name: "R".into(),
+                fields: Vec::new(),
+                key_field: None,
+                writable: false,
+            },
+            BindingTargetDescriptor::ListBox {
+                control_id: "LB".into(),
+            },
+        );
+        d.apply_data_binding(binding);
+        assert_eq!(d.form.data_bindings.len(), 1);
+        d.undo();
+        assert!(d.form.data_bindings.is_empty(), "binding undoes");
+        d.redo();
+        assert_eq!(d.form.data_bindings.len(), 1, "binding redoes");
+    }
+
+    /// Operator, 2026-07-29: undo/redo of a step that changes COBOL procedure
+    /// code must be confirmed by the developer first.
+    #[test]
+    fn procedure_history_requires_confirmation() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_user_procedure();
+        assert_eq!(d.form.user_procedures.len(), 1);
+
+        // Ctrl+Z holds the step for confirmation — nothing moves yet, and
+        // further presses do nothing.
+        d.undo();
+        assert!(d.pending_history_confirm.is_some());
+        assert_eq!(d.form.user_procedures.len(), 1);
+        d.undo();
+        assert_eq!(d.form.user_procedures.len(), 1);
+
+        // Declining drops the request.
+        d.confirm_pending_history(false);
+        assert!(d.pending_history_confirm.is_none());
+        assert_eq!(d.form.user_procedures.len(), 1);
+
+        // Accepting performs the held undo.
+        d.undo();
+        d.confirm_pending_history(true);
+        assert!(d.form.user_procedures.is_empty());
+
+        // Redo asks the same question.
+        d.redo();
+        assert!(d.pending_history_confirm.is_some());
+        d.confirm_pending_history(true);
+        assert_eq!(d.form.user_procedures.len(), 1);
+
+        // Deleting a procedure with code and undoing restores it verbatim.
+        d.form.user_procedures[0].code = "       PROCEDURE DIVISION.".into();
+        d.remove_user_procedure(0);
+        assert!(d.form.user_procedures.is_empty());
+        d.undo();
+        d.confirm_pending_history(true);
+        assert_eq!(
+            d.form.user_procedures[0].code,
+            "       PROCEDURE DIVISION."
+        );
+    }
+
+    /// Audit 2026-07-29: a MenuBar definition save rewrites a YAML next to
+    /// the .cfrm — undo restores the previous file (or removes one that did
+    /// not exist), redo rewrites it.
+    #[test]
+    fn menu_definition_save_is_undoable() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let dir = std::env::temp_dir().join(format!("prc-menu-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        d.cfrm_dir = Some(dir.clone());
+        let path = cobolt_forms::menu::menu_yaml_path(&dir, "MENU-1");
+
+        d.set_menu_definition("MENU-1".into(), cobolt_forms::menu::MenuDefinition::default());
+        assert!(path.exists(), "menu YAML written");
+        d.undo();
+        assert!(!path.exists(), "undo removes a menu that did not exist before");
+        d.redo();
+        assert!(path.exists(), "redo rewrites it");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
