@@ -1283,6 +1283,81 @@ pub(crate) fn chat_indexing_bar(
     ui.add_space(5.0);
 }
 
+/// Chat-footer "model + context" indicator: the name of the model that served
+/// the most recent agent call, plus a small ring gauge showing how much of
+/// that model's context window the call's input consumed. Before any call has
+/// run, the caller's fallback label (the surface's configured model) shows
+/// with an empty ring. Gauge colors are hardcoded from the balloon palette
+/// (blue arc on a dim track, red past 90%) — never `ui.visuals()`, which
+/// glass themes make unreliable in the chat panes.
+pub(crate) fn chat_model_context_indicator(
+    ui: &mut egui::Ui,
+    tr: &crate::i18n::Tr,
+    fallback_model: Option<&str>,
+) {
+    let last = crate::llm::last_model_call();
+    let label = last
+        .as_ref()
+        .map(|call| {
+            if call.provider.trim().is_empty() {
+                call.model.clone()
+            } else {
+                format!("{}/{}", call.provider, call.model)
+            }
+        })
+        .or_else(|| fallback_model.map(str::to_owned));
+    let Some(label) = label else {
+        return;
+    };
+    ui.label(
+        egui::RichText::new(label)
+            .small()
+            .color(crate::theme::active().text_dim),
+    )
+    .on_hover_text(tr.chat_model_hover);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(13.0, 13.0), egui::Sense::hover());
+    let center = rect.center();
+    let radius = rect.height() / 2.0 - 1.0;
+    ui.painter()
+        .circle_stroke(center, radius, egui::Stroke::new(1.6, Color32::from_gray(110)));
+    let Some(call) = last else {
+        response.on_hover_text(tr.chat_model_hover);
+        return;
+    };
+    let window = crate::llm::context_window_hint(&call.model).max(1);
+    let fraction = (call.input_tokens as f32 / window as f32).clamp(0.0, 1.0);
+    if fraction > 0.0 {
+        let color = if fraction >= 0.9 {
+            Color32::from_rgb(0xE0, 0x5A, 0x4A)
+        } else {
+            chat_bubble_fill(false)
+        };
+        // Clockwise from 12 o'clock, like a clock filling up.
+        let start = -std::f32::consts::FRAC_PI_2;
+        let sweep = fraction * std::f32::consts::TAU;
+        let segments = (fraction * 40.0).ceil().max(2.0) as usize;
+        let points: Vec<egui::Pos2> = (0..=segments)
+            .map(|i| {
+                let angle = start + sweep * i as f32 / segments as f32;
+                egui::pos2(
+                    center.x + radius * angle.cos(),
+                    center.y + radius * angle.sin(),
+                )
+            })
+            .collect();
+        ui.painter()
+            .add(egui::Shape::line(points, egui::Stroke::new(2.2, color)));
+    }
+    let pct = (fraction * 100.0).round() as u32;
+    response.on_hover_text(
+        tr.chat_context_gauge_hover
+            .replace("{used}", &call.input_tokens.to_string())
+            .replace("{window}", &window.to_string())
+            .replace("{pct}", &pct.to_string()),
+    );
+}
+
 /// Spec 036 R3: the collapsed action history — an assistant-side balloon
 /// holding a `CollapsingHeader` ("Agent actions (N)", collapsed by default)
 /// with one attributed line per action. Contrast is hardcoded from the

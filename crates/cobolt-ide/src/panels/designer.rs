@@ -4348,6 +4348,17 @@ impl DesignerPanel {
                             // 2. Controls
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
+                                // Model-in-use + context gauge (operator,
+                                // 2026-07-29), same indicator as the Grace chat.
+                                let fallback_model = project_root.and_then(|root| {
+                                    crate::grace_host::grace_model_display_cached(root, llm_cfg)
+                                });
+                                crate::panels::editor::chat_model_context_indicator(
+                                    ui,
+                                    &tr,
+                                    fallback_model.as_deref(),
+                                );
+                                ui.separator();
                                 ui.label(egui::RichText::new(format!("💬 {}", history_len)).small().color(egui::Color32::from_gray(150)));
                                 if ui.add_enabled(history_len > 0, egui::Button::new(format!("💾 {}", tr.ai_save_history))).clicked() {
                                     do_save = true;

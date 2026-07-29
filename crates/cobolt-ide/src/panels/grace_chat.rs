@@ -455,6 +455,9 @@ impl GraceChatPanel {
             .as_ref()
             .map(GraceSession::token_totals)
             .or(self.last_tokens);
+        // Footer model indicator: the cached configured-Grace fallback, used
+        // until the first agent call of the session records a live model.
+        let fallback_model = crate::grace_host::grace_model_display_cached(root, llm);
 
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
@@ -786,16 +789,24 @@ impl GraceChatPanel {
             if submit_shortcut {
                 send = true;
             }
-            // Up-to-date token usage, refreshed the moment each model returns.
-            if let Some((input_tokens, output_tokens)) = token_totals {
-                ui.label(
-                    RichText::new(format!(
-                        "Tokens: {input_tokens} in / {output_tokens} out"
-                    ))
-                    .small()
-                    .color(crate::theme::active().text_dim),
+            // Model-in-use + context gauge (operator, 2026-07-29), then the
+            // up-to-date token usage, refreshed the moment each model returns.
+            ui.horizontal(|ui| {
+                crate::panels::editor::chat_model_context_indicator(
+                    ui,
+                    tr,
+                    fallback_model.as_deref(),
                 );
-            }
+                if let Some((input_tokens, output_tokens)) = token_totals {
+                    ui.label(
+                        RichText::new(format!(
+                            "Tokens: {input_tokens} in / {output_tokens} out"
+                        ))
+                        .small()
+                        .color(crate::theme::active().text_dim),
+                    );
+                }
+            });
             ui.horizontal_wrapped(|ui| {
                 if ui
                     .add_enabled(!self.history.is_empty(), egui::Button::new("Save history"))

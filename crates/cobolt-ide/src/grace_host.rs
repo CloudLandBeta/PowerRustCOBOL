@@ -183,6 +183,55 @@ fn clarity_surface_slice(context: &str) -> String {
     }
 }
 
+/// Upper bound on the conversation tail the clarity pre-check may carry. The
+/// gate exists to be cheap; the tail only needs Grace's own last question and
+/// the request it was about, never the whole transcript.
+const CLARITY_CONVERSATION_BUDGET: usize = 2_400;
+
+/// The recent-conversation tail for the clarity pre-check. Every chat surface
+/// appends its transcript to the routing context under a `CONVERSATION SO
+/// FAR:` header (turns formatted `role: content`, oldest first); the identity
+/// slice above stops long before it, so without this the gate judged every
+/// message in isolation — observed live: Grace asked "which controls?", the
+/// developer answered "todos os labels", and the answer scored 3/10 because
+/// the gate had no idea Grace had just asked anything. Returns the last few
+/// turns, oldest first, bounded by [`CLARITY_CONVERSATION_BUDGET`].
+fn clarity_conversation_slice(context: &str) -> String {
+    let Some(at) = context.find("CONVERSATION SO FAR:") else {
+        return "(none)".to_string();
+    };
+    let transcript = context[at + "CONVERSATION SO FAR:".len()..].trim();
+    if transcript.is_empty() {
+        return "(none)".to_string();
+    }
+    // Turn starts: the transcript head, plus every `role:` line that follows
+    // the `\n\n` joiner. Content may itself contain blank lines, so only
+    // lines that begin with a known role open a turn.
+    let mut starts = vec![0usize];
+    for (offset, _) in transcript.match_indices("\n\n") {
+        let rest = &transcript[offset + 2..];
+        if rest.starts_with("user: ") || rest.starts_with("assistant: ") {
+            starts.push(offset + 2);
+        }
+    }
+    // Newest turns win the budget; at least the final turn always survives
+    // (hard-truncated to the budget's tail when it alone exceeds it).
+    let mut begin = starts.len() - 1;
+    while begin > 0 && transcript.len() - starts[begin - 1] <= CLARITY_CONVERSATION_BUDGET {
+        begin -= 1;
+    }
+    let tail = transcript[starts[begin]..].trim();
+    if tail.len() > CLARITY_CONVERSATION_BUDGET {
+        let cut = tail.len() - CLARITY_CONVERSATION_BUDGET;
+        let cut = (cut..tail.len())
+            .find(|i| tail.is_char_boundary(*i))
+            .unwrap_or(tail.len());
+        format!("…{}", &tail[cut..])
+    } else {
+        tail.to_string()
+    }
+}
+
 /// Ask Grace to rate the request's clarity and conciseness — one cheap,
 /// tool-less call on the raw request text. Fail-open: a transport error or an
 /// unparseable reply returns `None` and the workflow proceeds normally (the
@@ -198,8 +247,9 @@ fn evaluate_request_clarity(
         routing.surface.trim()
     };
     let surface_slice = clarity_surface_slice(&routing.context);
+    let conversation_slice = clarity_conversation_slice(&routing.context);
     let user = format!(
-        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface below.\n\nJudge ONLY the request text against the surface described below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"interpretation\": \"<one short paragraph restating what you understand the developer wants, in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
+        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface or the recent conversation below.\n\nJudge ONLY the request text against the surface and the recent conversation shown below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nTHE CONVERSATION IS PART OF THE REQUEST. When the last assistant turn in the recent conversation asked a clarifying question and this request reads as its answer, the true request is the COMBINED one — the developer's earlier request merged with this answer — and that combined request is what you rate and restate in the interpretation. Likewise, when the request refers back to the conversation (\"the initial request\", \"as I said before\"), resolve the reference from the conversation. A fact stated anywhere in the recent conversation is NOT missing — NEVER ask for it again.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nRECENT CONVERSATION ON THIS SURFACE (oldest first; \"(none)\" when this is the first message):\n{conversation_slice}\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"interpretation\": \"<one short paragraph restating what you understand the developer wants — the combined request when this message answers the assistant's question — in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
     );
     let reply = match invoker.invoke(GRACE, "", &user) {
         Ok(reply) => reply,
@@ -323,6 +373,50 @@ fn validate_workflow_coordination(
     plan: &[TaskSpec],
 ) -> Result<(), String> {
     validate_no_pedantic_task_agent(db, plan)
+}
+
+/// Grace's configured `provider/model` for the chat footers' model label —
+/// the idle-state fallback before any call has run (afterwards the live
+/// [`crate::llm::last_model_call`] record wins). `None` when Grace is absent
+/// or has no model configured.
+pub fn grace_model_display(project_dir: &Path, llm: &LlmConfig) -> Option<String> {
+    let db = AgentsDb::load(project_dir);
+    let agent = db.by_name(GRACE)?;
+    let cfg = crate::agents_db::resolve_agent_connection(agent, llm)?;
+    if cfg.model.trim().is_empty() {
+        return None;
+    }
+    if cfg.provider.trim().is_empty() {
+        Some(cfg.model)
+    } else {
+        Some(format!("{}/{}", cfg.provider, cfg.model))
+    }
+}
+
+/// [`grace_model_display`] behind a short-lived cache: chat footers call this
+/// every frame, and resolving the label loads the agents DB from disk.
+/// Refreshes every few seconds (or on project switch) so a Models Manager
+/// change still shows up promptly.
+pub fn grace_model_display_cached(project_dir: &Path, llm: &LlmConfig) -> Option<String> {
+    type Cache = Option<(PathBuf, std::time::Instant, Option<String>)>;
+    static CACHE: std::sync::LazyLock<Mutex<Cache>> =
+        std::sync::LazyLock::new(|| Mutex::new(None));
+    let mut cache = match CACHE.lock() {
+        Ok(cache) => cache,
+        Err(_) => return grace_model_display(project_dir, llm),
+    };
+    if let Some((dir, at, label)) = cache.as_ref() {
+        if dir == project_dir && at.elapsed().as_secs() < 5 {
+            return label.clone();
+        }
+    }
+    let label = grace_model_display(project_dir, llm);
+    *cache = Some((
+        project_dir.to_path_buf(),
+        std::time::Instant::now(),
+        label.clone(),
+    ));
+    label
 }
 
 /// Advisory routing information supplied by the chatbot surface that opened
@@ -1151,6 +1245,13 @@ impl DbAgentInvoker {
             totals.0 += reply.input_tokens;
             totals.1 += reply.output_tokens;
         }
+        // Feed the chat footers' model + context-usage indicator.
+        crate::llm::record_last_model_call(
+            &cfg.provider,
+            &cfg.model,
+            reply.input_tokens,
+            reply.output_tokens,
+        );
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Detail,
             format!(
@@ -1769,7 +1870,7 @@ pub fn run_grace_workflow_with_control(
     let planning_context = planning_surface_context(context, request);
     let planning_context = planning_context.as_str();
     let plan_user = format!(
-        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
+        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers the assistant's most recent question means the real objective is the earlier request combined with this answer; likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
     // The MODEL routes the request — no keyword pre-classification. Grace
     // reads the request and the contracts and chooses one of three shapes:
@@ -3594,6 +3695,46 @@ mod tests {
         // Fail-open: prose, missing score, or no JSON at all → None.
         assert!(parse_clarity_reply("clear enough, proceeding").is_none());
         assert!(parse_clarity_reply("```json\n{\"interpretation\": \"x\"}\n```").is_none());
+    }
+
+    /// The pre-check must see the recent conversation — observed live: with
+    /// the gate blind to it, the developer's answer "todos os labels" to
+    /// Grace's own "which controls?" scored 3/10 and Grace asked what to do
+    /// with the labels she had just been told about.
+    #[test]
+    fn clarity_conversation_slice_extracts_recent_turns() {
+        // No conversation section, or an empty one → "(none)".
+        assert_eq!(clarity_conversation_slice("FORM: X (100x100)"), "(none)");
+        assert_eq!(
+            clarity_conversation_slice("FORM: X\n\nCONVERSATION SO FAR:\n  "),
+            "(none)"
+        );
+
+        // The full recent exchange survives, oldest first, without the
+        // surface header that precedes the marker.
+        let context = "FORM: LABELS-FORM (1200x760)\nCONTROLS:\n- LBL-1\n\nCONVERSATION SO FAR:\nuser: modifique os eventos mouseenter/mouseleave\n\nassistant: Quais controles devem ter esse comportamento?";
+        let slice = clarity_conversation_slice(context);
+        assert!(slice.starts_with("user: modifique"), "{slice}");
+        assert!(slice.ends_with("comportamento?"), "{slice}");
+        assert!(!slice.contains("LABELS-FORM"), "{slice}");
+
+        // Old turns fall off the bounded tail; the newest always survives. A
+        // blank line INSIDE a turn's content is not a turn boundary.
+        let old_turn = format!("user: {}", "x".repeat(CLARITY_CONVERSATION_BUDGET));
+        let context = format!(
+            "CONVERSATION SO FAR:\n{old_turn}\n\nassistant: Qual arquivo?\n\ncom um parágrafo\n\nsolto no meio\n\nuser: o inicial"
+        );
+        let slice = clarity_conversation_slice(&context);
+        assert!(slice.starts_with("assistant: Qual arquivo?"), "{slice}");
+        assert!(slice.contains("solto no meio"), "{slice}");
+        assert!(slice.ends_with("user: o inicial"), "{slice}");
+
+        // A single oversized turn is hard-truncated to the budget's tail.
+        let huge = format!("CONVERSATION SO FAR:\nuser: {}fim", "y".repeat(9_000));
+        let slice = clarity_conversation_slice(&huge);
+        assert!(slice.len() <= CLARITY_CONVERSATION_BUDGET + '…'.len_utf8());
+        assert!(slice.starts_with('…'), "{slice}");
+        assert!(slice.ends_with("fim"), "{slice}");
     }
 
     #[test]

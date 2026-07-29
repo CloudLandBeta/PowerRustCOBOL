@@ -823,6 +823,58 @@ use std::sync::{LazyLock, Mutex};
 static AI_LOG_QUEUE: LazyLock<Mutex<Vec<AiLogEntry>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static CONNECTION_LOG: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 
+/// The most recent completed model call in this process — which model spoke
+/// and how full its context was. One record app-wide, updated at the single
+/// funnel every agent call passes through, so any chat surface can show a
+/// live "model + context" indicator without new plumbing per surface.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LastModelCall {
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+static LAST_MODEL_CALL: LazyLock<Mutex<Option<LastModelCall>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Record a completed model call for the chat-footer indicator.
+pub fn record_last_model_call(provider: &str, model: &str, input_tokens: u64, output_tokens: u64) {
+    if let Ok(mut slot) = LAST_MODEL_CALL.lock() {
+        *slot = Some(LastModelCall {
+            provider: provider.to_string(),
+            model: model.to_string(),
+            input_tokens,
+            output_tokens,
+        });
+    }
+}
+
+/// The most recent completed model call, if any happened this session.
+pub fn last_model_call() -> Option<LastModelCall> {
+    LAST_MODEL_CALL.lock().ok().and_then(|slot| slot.clone())
+}
+
+/// Advertised context-window size for a model id, in tokens — a display
+/// heuristic for the chat footer's usage gauge, NOT a request limit. Matched
+/// on well-known model-name substrings; unknown models get the 128k that is
+/// the de-facto floor for current hosted and local models.
+pub fn context_window_hint(model: &str) -> u64 {
+    let m = model.to_ascii_lowercase();
+    if m.contains("claude") {
+        200_000
+    } else if m.contains("gemini") {
+        1_000_000
+    } else if m.contains("gpt-3.5") {
+        16_384
+    } else if m.contains("gemma3") && (m.contains(":1b") || m.contains("-1b")) {
+        // The 1b gemma3 variant ships with a 32k window; larger ones 128k.
+        32_768
+    } else {
+        128_000
+    }
+}
+
 pub fn load_history(_dir: &Path, key: &str) -> Vec<ChatTurn> {
     let path = base_dir().join(format!("{}.json", key));
     if let Ok(data) = std::fs::read_to_string(&path) {
