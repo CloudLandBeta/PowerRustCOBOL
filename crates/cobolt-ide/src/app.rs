@@ -11812,7 +11812,55 @@ impl CoboltApp {
             if key.starts_with("_PreviewAnim") {
                 preview_triggered = true;
             }
-            self.designers[idx].1.set_property(&ctrl_id, &key, value);
+            let d = &mut self.designers[idx].1;
+            // A control background on a styled form (any GlassStyle other than
+            // Classic) breaks the style unit — hold the edit and ask the
+            // developer once per form before applying (operator, 2026-07-28).
+            // The colour picker streams a change per tick, so only the newest
+            // value per control is kept while the confirmation is up.
+            if key == "BackgroundColor"
+                && !d.style_break_ack
+                && d.form.glass_style != cobolt_forms::GlassStyle::Classic
+                && !d.is_form_id(&ctrl_id)
+            {
+                d.style_break_pending
+                    .retain(|(c, k, _)| !(c == &ctrl_id && k == &key));
+                d.style_break_pending.push((ctrl_id, key, value));
+                continue;
+            }
+            d.set_property(&ctrl_id, &key, value);
+        }
+        // The style-unit confirmation for the held background edits.
+        if !self.designers[idx].1.style_break_pending.is_empty() {
+            let mut confirm = false;
+            let mut cancel = false;
+            egui::Window::new(tr.style_break_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.set_max_width(460.0);
+                    ui.label(tr.style_break_body);
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.style_break_continue).clicked() {
+                            confirm = true;
+                        }
+                        if ui.button(tr.btn_cancel).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            let d = &mut self.designers[idx].1;
+            if confirm {
+                d.style_break_ack = true;
+                let pending = std::mem::take(&mut d.style_break_pending);
+                for (ctrl_id, key, value) in pending {
+                    d.set_property(&ctrl_id, &key, value);
+                }
+            } else if cancel {
+                d.style_break_pending.clear();
+            }
         }
         if let Some(binding) = inspector_action.create_data_binding {
             let d = &mut self.designers[idx].1;

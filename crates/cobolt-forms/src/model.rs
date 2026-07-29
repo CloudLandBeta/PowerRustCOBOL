@@ -3667,6 +3667,19 @@ impl Control {
         );
         if self.control_type.uses_neumorphic_black_foreground() {
             self.set_prop("ForegroundColor", PropValue::String("#000000".into()));
+        } else if self
+            .get_prop("ForegroundColor")
+            .map(|v| {
+                let t = v.as_str().trim().trim_start_matches('#');
+                t.eq_ignore_ascii_case("FFFFFF") || t.eq_ignore_ascii_case("FFFFFFFF")
+            })
+            .unwrap_or(false)
+        {
+            // Coming from Neumorphic Dark (which forces every foreground to
+            // white): white text on the light surface has no contrast. Only the
+            // dark style's own default is remapped — a user-chosen colour
+            // (red, blue, …) is left alone.
+            self.set_prop("ForegroundColor", PropValue::String("#000000".into()));
         }
         self.set_prop("CornerRadius", PropValue::Int(15));
         self.set_prop("ShadowEnabled", PropValue::Bool(true));
@@ -4444,6 +4457,54 @@ fn find_in_mut<'a>(ctrl: &'a mut Control, id: &str) -> Option<&'a mut Control> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Operator, 2026-07-28: switching a form from Neumorphic Dark to Light
+    /// left labels with the dark style's white foreground on the light surface
+    /// — no contrast. The light applier remaps the dark default to black but
+    /// leaves a developer-chosen colour alone.
+    #[test]
+    fn dark_to_light_style_switch_keeps_label_contrast() {
+        let mut form = Form::new("F", "T", 400, 300);
+        form.controls
+            .push(Control::new("L1", ControlType::Label, 0, 0));
+        form.controls
+            .push(Control::new("L2", ControlType::Label, 0, 40));
+
+        form.apply_glass_style_defaults(GlassStyle::NeumorphicDark);
+        assert_eq!(
+            form.find_control("L1")
+                .unwrap()
+                .get_prop("ForegroundColor")
+                .unwrap()
+                .as_str(),
+            "#FFFFFFFF",
+            "dark forces white on every control"
+        );
+        // The developer picks their own colour on L2 after the dark switch.
+        form.find_control_mut("L2")
+            .unwrap()
+            .set_prop("ForegroundColor", PropValue::String("#7A1F1F".into()));
+
+        form.apply_glass_style_defaults(GlassStyle::Neumorphic);
+        assert_eq!(
+            form.find_control("L1")
+                .unwrap()
+                .get_prop("ForegroundColor")
+                .unwrap()
+                .as_str(),
+            "#000000",
+            "the dark default remaps to black on the light surface"
+        );
+        assert_eq!(
+            form.find_control("L2")
+                .unwrap()
+                .get_prop("ForegroundColor")
+                .unwrap()
+                .as_str(),
+            "#7A1F1F",
+            "a developer-chosen foreground survives the switch"
+        );
+    }
 
     #[test]
     fn rename_control_updates_all_references() {

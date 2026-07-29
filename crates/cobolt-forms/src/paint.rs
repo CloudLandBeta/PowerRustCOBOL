@@ -2593,6 +2593,30 @@ pub fn draw_control(
 
     let is_label = matches!(ctrl.control_type, CT::Label);
 
+    // The BackgroundColor the developer explicitly chose, if any. The universal
+    // seeded default and the values the Neumorphic style appliers stamp on
+    // every control all mean "not chosen" (the renderer-wide "still on the
+    // default means the user has not picked" convention) — the styled face
+    // keeps its unit unless the developer deliberately broke it. When Some,
+    // the colour is painted as a solid, opacity-aware layer under the styled
+    // face (spec 019's DataGrid underlay, generalised), and a Label gains a
+    // face at all instead of staying frameless.
+    let user_bg: Option<Color32> = ctrl
+        .get_prop("BackgroundColor")
+        .map(|v| v.as_str().to_owned())
+        .filter(|raw| !raw.trim().is_empty())
+        .map(|raw| parse_color(&raw))
+        .filter(|c| c.a() > 0)
+        .filter(|c| {
+            [
+                crate::model::DEFAULT_BACKGROUND_COLOR,
+                crate::model::NEUMORPHIC_SURFACE_COLOR,
+                crate::model::NEUMORPHIC_DARK_SURFACE_COLOR,
+            ]
+            .iter()
+            .all(|default_hex| parse_color(default_hex) != *c)
+        });
+
     // A PictureBox with ShowFrame = false draws no card/background/border —
     // only the image (so transparent PNG areas reveal what's behind).
     let pic_frameless = matches!(ctrl.control_type, CT::PictureBox)
@@ -2639,7 +2663,10 @@ pub fn draw_control(
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
-    if (is_label && !background_gradient) || pic_frameless || chart_frameless || container_frameless
+    if (is_label && !background_gradient && user_bg.is_none())
+        || pic_frameless
+        || chart_frameless
+        || container_frameless
     {
         // No visible frame. When selected, show a lightweight selection outline.
         if is_container {
@@ -2794,7 +2821,18 @@ pub fn draw_control(
         } else {
             frame_rect
         };
-        draw_glass_auto(painter, glass_rect, fill, frame_round, selected, alpha_mul);
+        // An explicit user background rides under the styled face (solid in
+        // Classic/Enhanced, the surface itself in Neumorphic) so "the
+        // background selected" is actually visible on styled forms.
+        draw_glass_auto_bg(
+            painter,
+            glass_rect,
+            fill,
+            user_bg,
+            frame_round,
+            selected,
+            alpha_mul,
+        );
         // When the control has an explicit BorderStyle + BorderWidth, draw the
         // user border on top of the glass frame so containers (Panel, GroupBox)
         // honour the same border properties as non-glass controls. Neumorphic

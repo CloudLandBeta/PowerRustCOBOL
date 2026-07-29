@@ -8,6 +8,39 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.41.5] — 2026-07-28
+
+### Added
+
+- **Custom control backgrounds on styled forms — with a consent gate.** On a
+  form whose GlassStyle is anything other than Classic, setting a control's
+  BackgroundColor in the properties pane now asks once per form: the change
+  breaks the unit of the themed style — continue? On confirm the colour is
+  actually painted: an explicit background rides as a solid, opacity-aware
+  layer under the styled face (Classic/Enhanced frost, Neumorphic surface —
+  the DataGrid's spec-019 underlay, generalised to every rect control), and a
+  Label with an explicit background finally gains a face at all instead of
+  staying frameless. Style-seeded values (the universal `#F0F0F0` default and
+  the Neumorphic surface colours) still mean "not chosen", so themed forms
+  keep their unit untouched.
+
+### Fixed
+
+- **Dark → Light style switch kept white foregrounds — no contrast.**
+  Neumorphic Dark forces every control's foreground to white; switching to
+  Neumorphic Light only re-coloured data-input controls, leaving labels (and
+  friends) white-on-light. The light applier now remaps the dark style's own
+  white default to black on every control — a developer-chosen colour is left
+  alone.
+- **Form-level changes are undoable.** Changing the form's GlassStyle, Theme,
+  Title, size, gradients, or any other form property bypassed the undo stack
+  entirely. All form properties now ride it; a GlassStyle switch — which
+  rewrites appearance defaults across every control — snapshots the full
+  pre-switch appearance, so one Undo restores the exact previous look,
+  user-chosen control colours included. Also swept in by the same audit:
+  Visible, Enabled, and TabOrder mutated struct fields directly and were
+  invisible to undo — they are undoable now.
+
 ## [PowerRustCOBOL 1.41.4] — 2026-07-28
 
 ### Added

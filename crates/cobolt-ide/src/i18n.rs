@@ -183,6 +183,11 @@ pub struct Tr {
     pub lbl_runtime_fixed: &'static str,
     pub btn_save: &'static str,
     pub btn_cancel: &'static str,
+    /// Styled-form background confirmation (operator, 2026-07-28): title,
+    /// body, and the continue button of the "breaks the style unit" dialog.
+    pub style_break_title: &'static str,
+    pub style_break_body: &'static str,
+    pub style_break_continue: &'static str,
 
     /// Close confirmation for unsaved project settings form.
     pub settings_close_title: &'static str,
@@ -970,6 +975,9 @@ const EN: Tr = Tr {
     lbl_runtime_fixed:   "Fixed-format source",
     btn_save:            "Save",
     btn_cancel:          "Cancel",
+    style_break_title:   "Form style",
+    style_break_body:    "This form uses a themed style (Enhanced / Neumorphic). Setting a custom background color on a control breaks the unit of that style. Do you want to continue?",
+    style_break_continue: "Continue and apply",
 
     settings_close_title: "Save changes to project settings?",
     settings_close_msg:   "You have unsaved changes to the project settings (theme, background, project info, AI assistant, etc.). Save or discard before closing?",
@@ -1688,6 +1696,9 @@ const ES: Tr = Tr {
     lbl_runtime_fixed:   "Formato fijo",
     btn_save:            "Guardar",
     btn_cancel:          "Cancelar",
+    style_break_title:   "Estilo del formulario",
+    style_break_body:    "Este formulario usa un estilo temático (Enhanced / Neumorphic). Establecer un color de fondo propio en un control rompe la unidad de ese estilo. ¿Desea continuar?",
+    style_break_continue: "Continuar y aplicar",
 
     settings_close_title: "¿Guardar cambios en la configuración del proyecto?",
     settings_close_msg:   "Tienes cambios sin guardar en la configuración del proyecto (tema, fondo, información del proyecto, asistente IA, etc.). ¿Guardar o descartar antes de cerrar?",
@@ -2406,6 +2417,9 @@ const PT: Tr = Tr {
     lbl_runtime_fixed:   "Formato fixo",
     btn_save:            "Salvar",
     btn_cancel:          "Cancelar",
+    style_break_title:   "Estilo do formulário",
+    style_break_body:    "Este formulário usa um estilo temático (Enhanced / Neumorphic). Definir uma cor de fundo própria em um controle quebra a unidade desse estilo. Deseja continuar?",
+    style_break_continue: "Continuar e aplicar",
 
     settings_close_title: "Salvar alterações nas configurações do projeto?",
     settings_close_msg:   "Você tem alterações não salvas nas configurações do projeto (tema, plano de fundo, informações do projeto, assistente de IA etc.). Salvar ou descartar antes de fechar?",
@@ -3124,6 +3138,9 @@ const JA: Tr = Tr {
     lbl_runtime_fixed:   "固定形式ソース",
     btn_save:            "保存",
     btn_cancel:          "キャンセル",
+    style_break_title:   "フォームスタイル",
+    style_break_body:    "このフォームはテーマスタイル（Enhanced / Neumorphic）を使用しています。コントロールに独自の背景色を設定すると、スタイルの統一感が失われます。続行しますか？",
+    style_break_continue: "続行して適用",
 
     settings_close_title: "プロジェクト設定の変更を保存しますか?",
     settings_close_msg:   "プロジェクト設定（テーマ、背景、プロジェクト情報、AIアシスタントなど）に未保存の変更があります。閉じる前に保存するか破棄しますか?",
@@ -3842,6 +3859,9 @@ const ZH: Tr = Tr {
     lbl_runtime_fixed: "固定格式源码",
     btn_save: "保存",
     btn_cancel: "取消",
+    style_break_title: "窗体样式",
+    style_break_body: "此窗体使用主题样式（Enhanced / Neumorphic）。为控件设置自定义背景色会破坏该样式的统一性。是否继续？",
+    style_break_continue: "继续并应用",
 
     settings_close_title: "保存项目设置更改？",
     settings_close_msg:
@@ -4567,6 +4587,9 @@ const FR: Tr = Tr {
     lbl_runtime_fixed:   "Source en format fixe",
     btn_save:            "Enregistrer",
     btn_cancel:          "Annuler",
+    style_break_title:   "Style du formulaire",
+    style_break_body:    "Ce formulaire utilise un style thématique (Enhanced / Neumorphic). Définir une couleur de fond personnalisée sur un contrôle rompt l'unité de ce style. Voulez-vous continuer ?",
+    style_break_continue: "Continuer et appliquer",
 
     settings_close_title: "Enregistrer les modifications des paramètres du projet ?",
     settings_close_msg:   "Vous avez des modifications non enregistrées des paramètres du projet (thème, arrière-plan, informations du projet, assistant IA, etc.). Enregistrer ou abandonner avant de fermer ?",

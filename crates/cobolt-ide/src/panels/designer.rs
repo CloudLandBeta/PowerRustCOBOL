@@ -378,6 +378,37 @@ enum Cmd {
     AgentBatch {
         cmds: Vec<Cmd>,
     },
+    /// One form-level property change (Title, Width, Theme, gradients, …) —
+    /// undoable like any control property (operator, 2026-07-28: "any change
+    /// in the form should be possible to undo").
+    SetFormProp {
+        key: String,
+        old: String,
+        new: String,
+    },
+    /// A GlassStyle switch. Applying a Neumorphic style bulldozes appearance
+    /// defaults across EVERY control, so reverting the style enum alone would
+    /// leave the bulldozed colours behind — undo restores the full pre-switch
+    /// snapshot of the controls and the form appearance fields the style
+    /// appliers touch.
+    SetGlassStyle {
+        before: Box<StyleSnapshot>,
+        style: String,
+    },
+}
+
+/// Everything `Form::apply_glass_style_defaults` can touch — captured before a
+/// GlassStyle switch so [`Cmd::SetGlassStyle`] restores the exact pre-switch
+/// appearance on undo.
+#[derive(Clone)]
+struct StyleSnapshot {
+    glass_style: cobolt_forms::GlassStyle,
+    background_color: String,
+    background_gradient_enabled: bool,
+    background_gradient_start_color: String,
+    background_gradient_end_color: String,
+    background_gradient_direction: String,
+    controls: Vec<Control>,
 }
 
 // ── Resize handle ─────────────────────────────────────────────────────────────
@@ -1128,6 +1159,14 @@ pub struct DesignerPanel {
     undo_stack: Vec<Cmd>,
     redo_stack: Vec<Cmd>,
 
+    /// BackgroundColor edits held back while the "this breaks the style unit —
+    /// continue?" confirmation is up (styled forms only). Newest value per
+    /// control; applied on confirm, dropped on cancel.
+    pub style_break_pending: Vec<(String, String, PropValue)>,
+    /// Set once the developer confirmed breaking the style unit on this form —
+    /// the question is asked once per designer session, not per colour tick.
+    pub style_break_ack: bool,
+
     pub dirty: bool,
     pub close_requested: bool,
     /// Set when the user tries to close a dirty designer — shows the Save/Discard/Cancel dialog.
@@ -1264,6 +1303,8 @@ impl DesignerPanel {
             drag: DragState::None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            style_break_pending: Vec::new(),
+            style_break_ack: false,
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -1860,7 +1901,10 @@ impl DesignerPanel {
                         PropValue::Int(n) => n.to_string(),
                         PropValue::Bool(b) => b.to_string(),
                     };
-                    self.set_form_prop(key, val_str);
+                    // The direct setter: this IS a command being executed —
+                    // going through the undoable wrapper would push a second
+                    // command mid-execute and corrupt the stacks.
+                    self.set_form_prop_direct(key, val_str);
                 } else if let Some(c) = self.form.find_control_mut(id) {
                     apply_structural_prop(c, key, new);
                 }
@@ -1907,6 +1951,12 @@ impl DesignerPanel {
                 for c in cmds {
                     self.execute(c);
                 }
+            }
+            Cmd::SetFormProp { key, new, .. } => {
+                self.set_form_prop_direct(key, new.clone());
+            }
+            Cmd::SetGlassStyle { style, .. } => {
+                self.set_form_prop_direct("GlassStyle", style.clone());
             }
         }
     }
@@ -1968,7 +2018,7 @@ impl DesignerPanel {
                             PropValue::Int(n) => n.to_string(),
                             PropValue::Bool(b) => b.to_string(),
                         };
-                        self.set_form_prop(key, val_str);
+                        self.set_form_prop_direct(key, val_str);
                     }
                 } else if let Some(c) = self.form.find_control_mut(id) {
                     if let Some(v) = old {
@@ -2020,6 +2070,21 @@ impl DesignerPanel {
                 for c in cmds.iter().rev() {
                     self.reverse(c);
                 }
+            }
+            Cmd::SetFormProp { key, old, .. } => {
+                self.set_form_prop_direct(key, old.clone());
+            }
+            Cmd::SetGlassStyle { before, .. } => {
+                self.form.glass_style = before.glass_style;
+                self.form.background_color = before.background_color.clone();
+                self.form.background_gradient_enabled = before.background_gradient_enabled;
+                self.form.background_gradient_start_color =
+                    before.background_gradient_start_color.clone();
+                self.form.background_gradient_end_color =
+                    before.background_gradient_end_color.clone();
+                self.form.background_gradient_direction =
+                    before.background_gradient_direction.clone();
+                self.form.controls = before.controls.clone();
             }
         }
     }
@@ -3292,22 +3357,24 @@ impl DesignerPanel {
                     }
                 }
             }
-            "Visible" => {
-                if let Some(c) = self.form.find_control_mut(ctrl_id) {
-                    c.visible = value.as_bool();
-                    self.dirty = true;
-                }
-            }
-            "Enabled" => {
-                if let Some(c) = self.form.find_control_mut(ctrl_id) {
-                    c.enabled = value.as_bool();
-                    self.dirty = true;
-                }
-            }
-            "TabOrder" => {
-                if let Some(c) = self.form.find_control_mut(ctrl_id) {
-                    c.tab_order = value.as_i64() as u32;
-                    self.dirty = true;
+            // Struct-backed flags, routed through the undo stack like any other
+            // property (they mutated directly before — audit, 2026-07-28).
+            // `apply_structural_prop` maps them onto the struct fields on
+            // execute; `structural_prop_value` captures the old value.
+            "Visible" | "Enabled" | "TabOrder" => {
+                if let Some(old) = self
+                    .form
+                    .find_control(ctrl_id)
+                    .and_then(|c| structural_prop_value(c, key))
+                {
+                    if old != value {
+                        self.apply(Cmd::SetProperty {
+                            id: ctrl_id.to_owned(),
+                            key: key.to_owned(),
+                            old: Some(old),
+                            new: value,
+                        });
+                    }
                 }
             }
             _ => {
@@ -3338,14 +3405,57 @@ impl DesignerPanel {
         }
     }
 
-    /// Set one form-level property by name.
+    /// Set one form-level property by name, as an **undoable** command.
     ///
-    /// The name is matched **case-insensitively**: the change-set validator
-    /// accepts any casing (`form_property_valid` lowercases), so an exact match
-    /// here would let `{"key": "title"}` pass validation, fall through to the
-    /// default arm, and change nothing while the operation is reported as
-    /// applied.
+    /// A plain property becomes a [`Cmd::SetFormProp`] carrying the previous
+    /// value; a GlassStyle switch becomes a [`Cmd::SetGlassStyle`] carrying a
+    /// full pre-switch snapshot (the Neumorphic appliers rewrite appearance
+    /// defaults on every control, so the style enum alone cannot restore it).
+    /// Unknown keys are ignored, exactly like the direct setter.
     pub fn set_form_prop(&mut self, key: &str, value: String) {
+        let Some(canonical) = canonical_form_prop_key(key) else {
+            return;
+        };
+        if canonical == "GlassStyle" {
+            let style = cobolt_forms::model::GlassStyle::from_str(&value);
+            if style == self.form.glass_style {
+                return;
+            }
+            let before = Box::new(StyleSnapshot {
+                glass_style: self.form.glass_style,
+                background_color: self.form.background_color.clone(),
+                background_gradient_enabled: self.form.background_gradient_enabled,
+                background_gradient_start_color: self
+                    .form
+                    .background_gradient_start_color
+                    .clone(),
+                background_gradient_end_color: self.form.background_gradient_end_color.clone(),
+                background_gradient_direction: self.form.background_gradient_direction.clone(),
+                controls: self.form.controls.clone(),
+            });
+            self.apply(Cmd::SetGlassStyle {
+                before,
+                style: value,
+            });
+            return;
+        }
+        let Some(old) = self.get_form_prop(canonical) else {
+            return;
+        };
+        if old == value {
+            return;
+        }
+        self.apply(Cmd::SetFormProp {
+            key: canonical.to_string(),
+            old,
+            new: value,
+        });
+    }
+
+    /// Apply one form-level property directly, with **no** undo record — the
+    /// execution primitive [`Cmd::SetFormProp`] / [`Cmd::SetGlassStyle`] and
+    /// the undo machinery drive. Case-insensitive like the public setter.
+    fn set_form_prop_direct(&mut self, key: &str, value: String) {
         match canonical_form_prop_key(key).unwrap_or(key) {
             "Title" => {
                 self.form.title = value;
@@ -11557,6 +11667,85 @@ mod text_align_tests {
             "approve is one AgentBatch = one Undo"
         );
         assert!(d.form.find_control("B").is_some());
+    }
+
+    /// Operator, 2026-07-28: "any change in the form should be possible to
+    /// undo. If I change the theme I cannot undo it." A plain form property
+    /// undoes to its previous value, and a GlassStyle switch — which bulldozes
+    /// appearance defaults across every control — undoes to the exact
+    /// pre-switch appearance, user-chosen control colours included.
+    #[test]
+    fn form_prop_and_glass_style_changes_are_undoable() {
+        use cobolt_forms::GlassStyle;
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("L1", ControlType::Label, 10, 10));
+
+        // Plain form property.
+        d.set_form_prop("Title", "New title".into());
+        assert_eq!(d.form.title, "New title");
+        d.undo();
+        assert_eq!(d.form.title, "T", "form Title undoes");
+
+        // Style switch: Neumorphic Dark forces every foreground to white…
+        d.set_property("L1", "ForegroundColor", PropValue::String("#FF0000".into()));
+        d.set_form_prop("GlassStyle", "Neumorphic Dark".into());
+        assert_eq!(d.form.glass_style, GlassStyle::NeumorphicDark);
+        assert_eq!(
+            d.form
+                .find_control("L1")
+                .unwrap()
+                .get_prop("ForegroundColor")
+                .unwrap()
+                .as_str(),
+            "#FFFFFFFF",
+            "dark style bulldozed the label foreground"
+        );
+        // …and ONE undo restores both the style and the user's red.
+        d.undo();
+        assert_eq!(d.form.glass_style, GlassStyle::Classic, "style undoes");
+        assert_eq!(
+            d.form
+                .find_control("L1")
+                .unwrap()
+                .get_prop("ForegroundColor")
+                .unwrap()
+                .as_str(),
+            "#FF0000",
+            "the user-chosen foreground survives the style-switch undo"
+        );
+        // Redo re-applies the full switch.
+        d.redo();
+        assert_eq!(d.form.glass_style, GlassStyle::NeumorphicDark);
+
+        // A no-op set (same value) pushes nothing.
+        let depth = d.undo_stack.len();
+        d.set_form_prop("GlassStyle", "Neumorphic Dark".into());
+        assert_eq!(d.undo_stack.len(), depth, "same-style set is a no-op");
+    }
+
+    /// Visible / Enabled / TabOrder mutated struct fields directly and were
+    /// invisible to undo (audit, 2026-07-28) — they ride the stack now.
+    #[test]
+    fn visible_enabled_taborder_are_undoable() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("B1", ControlType::Button, 0, 0));
+        d.set_property("B1", "Visible", PropValue::Bool(false));
+        d.set_property("B1", "Enabled", PropValue::Bool(false));
+        d.set_property("B1", "TabOrder", PropValue::Int(7));
+        let c = d.form.find_control("B1").unwrap();
+        assert!(!c.visible && !c.enabled);
+        assert_eq!(c.tab_order, 7);
+        d.undo();
+        d.undo();
+        d.undo();
+        let c = d.form.find_control("B1").unwrap();
+        assert!(c.visible, "Visible undoes");
+        assert!(c.enabled, "Enabled undoes");
+        assert_eq!(c.tab_order, 0, "TabOrder undoes");
     }
 
     #[test]
