@@ -476,14 +476,34 @@ pub fn cmd_run_form(args: &[String]) {
         None
     };
 
+    // ── 037 window supervisor (single-window host) ────────────────────────────
+    // The interpreter's OpenForm*/handle/window methods talk to a real
+    // FormSupervisor owned by the GUI loop. FormState close vetoes, window
+    // commands and onCloseRejected/onFullScreenChanged all work here; the
+    // SpawnWindow execution (real child viewports) lands with the T1
+    // multi-viewport spike's findings — until then a child spawn is released
+    // immediately (logged), so callers never deadlock.
+    let (form_req_tx, form_req_rx) =
+        mpsc::channel::<cobolt_runtime::form_host::FormRequest>();
+    let (closed_tx, closed_rx) = mpsc::channel::<String>();
+    let form_object = form.name.trim().to_ascii_uppercase();
+
     {
         let finished = Arc::clone(&finished);
         let error_slot = Arc::clone(&error_slot);
         let pending = Arc::clone(&pending);
+        let form_req_tx = form_req_tx.clone();
+        let form_object = form_object.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
             interp.set_input_channel(input_rx);
             interp.set_event_counter(pending);
+            interp.set_form_host(
+                form_req_tx,
+                cobolt_runtime::form_host::ROOT_HANDLE,
+                &form_object,
+                closed_rx,
+            );
             interp.seed_objects(seed);
             if let Some((cmd_rx, ev_tx, bps)) = debug_wiring {
                 interp.attach_debug_channels(cmd_rx, ev_tx, bps);
@@ -554,6 +574,12 @@ pub fn cmd_run_form(args: &[String]) {
         anim_started: false,
         last_frame: None,
         hovered: std::collections::HashSet::new(),
+        start_minimized: form.window_state == cobolt_forms::model::WindowState::Minimized,
+        supervisor: cobolt_runtime::form_host::FormSupervisor::new(&form.name, &form.name),
+        form_req_rx,
+        closed_tx,
+        form_object,
+        fullscreen_actual: form.full_screen,
     };
 
     let mut viewport = egui::ViewportBuilder::default()
@@ -561,8 +587,31 @@ pub fn cmd_run_form(args: &[String]) {
         // Size the window exactly to the form. The previous +4 slack left a
         // strip of panel/scrollbar-gutter visible on the right and bottom edges.
         .with_inner_size([fw, fh])
-        .with_resizable(true);
-    if let Some(icon) = load_run_form_icon(icon_path.as_deref()) {
+        .with_resizable(true)
+        // ── 037 window chrome from the designed form ──────────────────────
+        // Title-bar buttons (R12), chromeless (R15), fullscreen (R14) and the
+        // opening WindowState (R13; Maximized here, Minimized via a first-
+        // frame viewport command — winit has no pre-minimized builder).
+        .with_minimize_button(form.can_minimize)
+        .with_maximize_button(form.can_maximize)
+        .with_decorations(form.title_visible)
+        .with_fullscreen(form.full_screen)
+        .with_maximized(
+            form.window_state == cobolt_forms::model::WindowState::Maximized,
+        );
+    // R9 — the MAIN form's TaskbarIcon outranks the project icon; other forms
+    // keep the project icon (their windows are taskbar-less once opened via
+    // OpenForm*, spec 037 R8).
+    let taskbar_icon_path: Option<PathBuf> = if form.main_form
+        && !form.taskbar_icon.trim().is_empty()
+    {
+        Some(PathBuf::from(form.taskbar_icon.trim()))
+    } else {
+        None
+    };
+    if let Some(icon) =
+        load_run_form_icon(taskbar_icon_path.as_deref().or(icon_path.as_deref()))
+    {
         viewport = viewport.with_icon(icon);
     }
     let native_options = eframe::NativeOptions {
@@ -636,12 +685,114 @@ struct FormApp {
     /// rather than from `RenderOutput::events`, which the engine emits only for
     /// events that have a bound COBOL handler.
     hovered: std::collections::HashSet<String>,
+    /// 037 R13 — the form was designed to OPEN minimized; winit has no
+    /// pre-minimized builder, so the first frame sends the command once.
+    start_minimized: bool,
+    /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
+    supervisor: cobolt_runtime::form_host::FormSupervisor,
+    /// Requests from the interpreter thread (OpenForm*, handle methods, …).
+    form_req_rx: mpsc::Receiver<cobolt_runtime::form_host::FormRequest>,
+    /// Broadcasts closed handles back to the interpreter (R24 NULLing).
+    closed_tx: mpsc::Sender<String>,
+    /// The form's object name (UPPER) — receiver of form-level events.
+    form_object: String,
+    /// Last ACTUAL fullscreen state from ViewportInfo — onFullScreenChanged
+    /// fires only on real transitions (R14/AC8). Seeded with the designed
+    /// value so opening fullscreen-by-design is not a "change".
+    fullscreen_actual: bool,
 }
 
 impl FormApp {
     fn send_event(&mut self, ev: FormEvent) {
         if self.ev_tx.send(ev).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// 037 — execute the supervisor's decisions against the real window.
+    /// Runs a worklist so follow-up actions (e.g. releasing a pending child
+    /// spawn) are applied in the same frame.
+    fn apply_host_actions(
+        &mut self,
+        ctx: &egui::Context,
+        actions: Vec<cobolt_runtime::form_host::HostAction>,
+    ) {
+        use cobolt_runtime::form_host::{HostAction, ROOT_HANDLE};
+        let mut work = actions;
+        while !work.is_empty() {
+            let mut next = Vec::new();
+            for act in work {
+                match act {
+                    HostAction::SpawnWindow {
+                        handle, form_id, ..
+                    } => {
+                        // Real child viewports land with the multi-viewport
+                        // host (T1 spike gating). Until then the spawn is
+                        // released immediately so callers never deadlock:
+                        // the handle NULLs, a held modal reply resolves.
+                        eprintln!(
+                            "run-form: OpenForm(\"{form_id}\") accepted, but child windows \
+                             are not hosted yet — releasing {handle} (multi-window host \
+                             pending)"
+                        );
+                        next.extend(self.supervisor.form_finished(&handle));
+                    }
+                    HostAction::CloseWindow { handle } => {
+                        if handle == ROOT_HANDLE {
+                            if !self.quit_sent {
+                                self.quit_sent = true;
+                                let _ = self.ev_tx.send(FormEvent::quit());
+                            }
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    }
+                    HostAction::FocusWindow { handle } => {
+                        if handle == ROOT_HANDLE {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        }
+                    }
+                    HostAction::SetWindowState { handle, state } => {
+                        if handle == ROOT_HANDLE {
+                            let s = state.trim();
+                            if s.eq_ignore_ascii_case("Minimized") {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                            } else if s.eq_ignore_ascii_case("Maximized") {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+                            } else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                            }
+                        }
+                    }
+                    HostAction::SetFullScreen { handle, on } => {
+                        if handle == ROOT_HANDLE {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));
+                        }
+                    }
+                    HostAction::SetTitleVisible { handle, on } => {
+                        if handle == ROOT_HANDLE {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(on));
+                        }
+                    }
+                    HostAction::NotifyCloseRejected { handle } => {
+                        if handle == ROOT_HANDLE {
+                            let form = self.form_object.clone();
+                            self.send_event(FormEvent::new(form, "onCloseRejected"));
+                        }
+                    }
+                    HostAction::NotifyClosed { handle } => {
+                        let _ = self.closed_tx.send(handle);
+                    }
+                    HostAction::Exit => {
+                        if !self.quit_sent {
+                            self.quit_sent = true;
+                            let _ = self.ev_tx.send(FormEvent::quit());
+                        }
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+            work = next;
         }
     }
 
@@ -775,6 +926,12 @@ impl eframe::App for FormApp {
             self.visuals_set = true;
             ctx.set_visuals(egui::Visuals::light());
         }
+        // 037 R13 — a form designed to open Minimized minimizes on its first
+        // frame (one-shot; the builder cannot pre-minimize).
+        if self.start_minimized {
+            self.start_minimized = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
         // Theme pack + glass style for the unified painter (per frame — same
         // contract as the IDE's running-form viewport).
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
@@ -785,10 +942,52 @@ impl eframe::App for FormApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
-        // Window close button → tell the COBOL event loop to quit, then close.
+        // Window close button → ONE close path through the supervisor (037
+        // R17): a Waiting form vetoes the close (CancelClose + the
+        // onCloseRejected event); a Ready form quits as before.
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_sent {
-            self.quit_sent = true;
-            let _ = self.ev_tx.send(FormEvent::quit());
+            let acts = self
+                .supervisor
+                .try_close(cobolt_runtime::form_host::ROOT_HANDLE);
+            let closing = acts.iter().any(|a| {
+                matches!(
+                    a,
+                    cobolt_runtime::form_host::HostAction::CloseWindow { handle }
+                        if handle == cobolt_runtime::form_host::ROOT_HANDLE
+                )
+            });
+            if !closing {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
+            self.apply_host_actions(ctx, acts);
+        }
+
+        // 037 — interpreter → supervisor requests (OpenForm*, me:: window
+        // methods, handle methods). Drained every frame.
+        let mut reqs = Vec::new();
+        while let Ok(r) = self.form_req_rx.try_recv() {
+            reqs.push(r);
+        }
+        for req in reqs {
+            let acts = self.supervisor.handle_request(req);
+            self.apply_host_actions(ctx, acts);
+        }
+
+        // 037 R14 — onFullScreenChanged fires on ACTUAL transitions only,
+        // read back from the viewport (the OS may refuse a request). The
+        // live value is mirrored onto the form object first so the handler
+        // reads the new state.
+        let fs = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+        if fs != self.fullscreen_actual {
+            self.fullscreen_actual = fs;
+            let _ = self.input_tx.send(StateUpdate {
+                ctrl_id: self.form_object.clone(),
+                prop: "FullScreen".into(),
+                value: if fs { "1".into() } else { "0".into() },
+                instance_index: 0,
+            });
+            let form = self.form_object.clone();
+            self.send_event(FormEvent::new(form, "onFullScreenChanged"));
         }
 
         // ── Animation clock ──────────────────────────────────────────────────
@@ -813,6 +1012,16 @@ impl eframe::App for FormApp {
         // same resolution the IDE's FormRuntime::drain_state performs.
         let mut drained = 0usize;
         while let Ok(u) = self.state_rx.try_recv() {
+            // 037 R16 — mirror the form object's FormState into the
+            // supervisor so close vetoes see the live value.
+            if u.prop.eq_ignore_ascii_case("FormState")
+                && u.ctrl_id.eq_ignore_ascii_case(&self.form_object)
+            {
+                self.supervisor.note_form_state(
+                    cobolt_runtime::form_host::ROOT_HANDLE,
+                    u.value.trim().eq_ignore_ascii_case("Waiting"),
+                );
+            }
             // COBOL's PLAY ANIMATION / STOP-ANIMATION / PAUSE arrive as writes to
             // these pseudo-properties; act on the write, don't store it.
             if let Some(cmd) = anim_command(&u.prop) {

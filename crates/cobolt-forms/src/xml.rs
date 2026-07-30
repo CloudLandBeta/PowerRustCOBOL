@@ -159,6 +159,14 @@ enum OwnedEvent {
         theme: Option<String>,
         use_theme_background: bool,
         glass_style: crate::model::GlassStyle,
+        // 037 Main form & window lifecycle
+        main_form: bool,
+        taskbar_icon: String,
+        can_minimize: bool,
+        can_maximize: bool,
+        window_state: crate::model::WindowState,
+        full_screen: bool,
+        title_visible: bool,
     },
     ControlStart(AttrPairs),
     PropertyStart(String), // property name
@@ -236,6 +244,27 @@ fn next_owned<R: std::io::BufRead>(
                     let glass_style = get_attr(e, b"glass-style")?
                         .map(|v| crate::model::GlassStyle::from_str(&v))
                         .unwrap_or_default();
+                    // 037 window-lifecycle attributes — every one optional so
+                    // pre-037 files load with the exact historical behaviour.
+                    let main_form = get_attr(e, b"main-form")?
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
+                    let taskbar_icon = get_attr(e, b"taskbar-icon")?.unwrap_or_default();
+                    let can_minimize = get_attr(e, b"can-minimize")?
+                        .map(|v| v != "false" && v != "0")
+                        .unwrap_or(true);
+                    let can_maximize = get_attr(e, b"can-maximize")?
+                        .map(|v| v != "false" && v != "0")
+                        .unwrap_or(true);
+                    let window_state = get_attr(e, b"window-state")?
+                        .map(|v| crate::model::WindowState::from_str(&v))
+                        .unwrap_or_default();
+                    let full_screen = get_attr(e, b"full-screen")?
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
+                    let title_visible = get_attr(e, b"title-visible")?
+                        .map(|v| v != "false" && v != "0")
+                        .unwrap_or(true);
 
                     Ok(OwnedEvent::FormStart {
                         name,
@@ -256,6 +285,13 @@ fn next_owned<R: std::io::BufRead>(
                         theme,
                         use_theme_background,
                         glass_style,
+                        main_form,
+                        taskbar_icon,
+                        can_minimize,
+                        can_maximize,
+                        window_state,
+                        full_screen,
+                        title_visible,
                     })
                 }
                 b"Control" => {
@@ -379,6 +415,13 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 theme,
                 use_theme_background,
                 glass_style,
+                main_form,
+                taskbar_icon,
+                can_minimize,
+                can_maximize,
+                window_state,
+                full_screen,
+                title_visible,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -396,6 +439,13 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.theme = theme;
                 f.use_theme_background = use_theme_background;
                 f.glass_style = glass_style;
+                f.main_form = main_form;
+                f.taskbar_icon = taskbar_icon;
+                f.can_minimize = can_minimize;
+                f.can_maximize = can_maximize;
+                f.window_state = window_state;
+                f.full_screen = full_screen;
+                f.title_visible = title_visible;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -1018,6 +1068,29 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
             elem.push_attribute(("background-image", form.background_image.as_str()));
             elem.push_attribute(("bg-image-mode", form.bg_image_mode.as_str()));
         }
+        // 037 window lifecycle — additive, only written when non-default so
+        // pre-037 forms round-trip byte-identical.
+        if form.main_form {
+            elem.push_attribute(("main-form", "true"));
+        }
+        if !form.taskbar_icon.is_empty() {
+            elem.push_attribute(("taskbar-icon", form.taskbar_icon.as_str()));
+        }
+        if !form.can_minimize {
+            elem.push_attribute(("can-minimize", "false"));
+        }
+        if !form.can_maximize {
+            elem.push_attribute(("can-maximize", "false"));
+        }
+        if form.window_state != crate::model::WindowState::Normal {
+            elem.push_attribute(("window-state", form.window_state.as_str()));
+        }
+        if form.full_screen {
+            elem.push_attribute(("full-screen", "true"));
+        }
+        if !form.title_visible {
+            elem.push_attribute(("title-visible", "false"));
+        }
         w.write_event(Event::Start(elem))?;
 
         // ── <working-storage> ─────────────────────────────────────────────────
@@ -1510,6 +1583,93 @@ Actor Caption:string</Property>
         let loaded = load_form(&path).expect("load");
         assert_eq!(loaded.theme.as_deref(), Some("stainless-steel"));
         assert!(loaded.use_theme_background);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn roundtrip_window_lifecycle_037() {
+        // Every 037 field set to its NON-default value survives save → load.
+        let mut form = sample_form();
+        form.main_form = true;
+        form.taskbar_icon = "assets/app-icon.png".into();
+        form.can_minimize = false;
+        form.can_maximize = false;
+        form.window_state = crate::model::WindowState::Maximized;
+        form.full_screen = true;
+        form.title_visible = false;
+        let path = std::env::temp_dir().join("cobolt_test_window_lifecycle_037.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        assert!(loaded.main_form, "main_form");
+        assert_eq!(loaded.taskbar_icon, "assets/app-icon.png", "taskbar_icon");
+        assert!(!loaded.can_minimize, "can_minimize");
+        assert!(!loaded.can_maximize, "can_maximize");
+        assert_eq!(
+            loaded.window_state,
+            crate::model::WindowState::Maximized,
+            "window_state"
+        );
+        assert!(loaded.full_screen, "full_screen");
+        assert!(!loaded.title_visible, "title_visible");
+        println!(
+            "037 round-trip: main_form={} taskbar_icon={:?} can_minimize={} can_maximize={} \
+             window_state={} full_screen={} title_visible={}",
+            loaded.main_form,
+            loaded.taskbar_icon,
+            loaded.can_minimize,
+            loaded.can_maximize,
+            loaded.window_state.as_str(),
+            loaded.full_screen,
+            loaded.title_visible
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pre_037_cfrm_loads_with_window_defaults_and_saves_unchanged() {
+        // A pre-037 file has none of the new attributes: it must load with the
+        // historical behaviour (not main, min/max on, Normal, windowed,
+        // title shown) and, still at defaults, write NONE of the new
+        // attributes back — old projects stay byte-stable over this feature.
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="OLD-FORM" title="Old" width="640" height="480" background="#FFFFFF">
+</Form>"##;
+        let loaded = load_form_from_str(xml).expect("load pre-037 form");
+        assert!(!loaded.main_form);
+        assert!(loaded.taskbar_icon.is_empty());
+        assert!(loaded.can_minimize);
+        assert!(loaded.can_maximize);
+        assert_eq!(loaded.window_state, crate::model::WindowState::Normal);
+        assert!(!loaded.full_screen);
+        assert!(loaded.title_visible);
+        println!(
+            "pre-037 defaults: main_form={} taskbar_icon={:?} can_minimize={} \
+             can_maximize={} window_state={} full_screen={} title_visible={}",
+            loaded.main_form,
+            loaded.taskbar_icon,
+            loaded.can_minimize,
+            loaded.can_maximize,
+            loaded.window_state.as_str(),
+            loaded.full_screen,
+            loaded.title_visible
+        );
+        let path = std::env::temp_dir().join("cobolt_test_pre037_defaults.cfrm");
+        save_form(&loaded, &path).expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read back");
+        for attr in [
+            "main-form",
+            "taskbar-icon",
+            "can-minimize",
+            "can-maximize",
+            "window-state",
+            "full-screen",
+            "title-visible",
+        ] {
+            assert!(
+                !saved.contains(attr),
+                "default-valued 037 attribute {attr:?} must not be written"
+            );
+        }
         let _ = std::fs::remove_file(&path);
     }
 

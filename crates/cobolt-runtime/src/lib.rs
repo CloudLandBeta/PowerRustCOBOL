@@ -42,6 +42,7 @@ pub mod environment;
 pub mod error;
 pub mod exec_rust;
 pub mod files;
+pub mod form_host;
 pub mod http_runtime;
 pub mod indexed;
 pub mod indexed_disk;

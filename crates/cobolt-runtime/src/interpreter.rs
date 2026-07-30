@@ -582,6 +582,21 @@ pub struct Interpreter {
     state_tx: Option<mpsc::Sender<StateUpdate>>,
     /// Sends DISPLAY output to the IDE output panel (instead of stdout).
     display_tx: Option<mpsc::Sender<String>>,
+
+    // ── 037 Multi-form window supervisor seam ─────────────────────────────────
+    /// Requests to the window supervisor (OpenFormSync/Async, handle methods,
+    /// self close). `None` ⇒ single-form runtime (calls become runtime errors).
+    form_host_tx: Option<mpsc::Sender<crate::form_host::FormRequest>>,
+    /// The supervisor's handle for THIS interpreter's window.
+    self_window_handle: String,
+    /// The form's own object name — `me::` resolves to it (spec 037 D4).
+    self_form_object: Option<String>,
+    /// Handles of forms that CLOSED, broadcast by the host; drained lazily so
+    /// windowHandler data-items become NULL (R24).
+    form_closed_rx: Option<mpsc::Receiver<String>>,
+    /// windowHandler variables: UPPER var name → live handle id (`None` =
+    /// NULL — the form closed or was never opened).
+    window_handle_vars: HashMap<String, Option<String>>,
     /// Cooperative cancellation flag shared with the host (`FormRuntime`). When
     /// set, execution aborts between statements with `RuntimeError::Cancelled`
     /// so a looping / long-running handler can never hang the UI thread on
@@ -755,6 +770,11 @@ impl Interpreter {
             input_rx: None,
             state_tx: None,
             display_tx: None,
+            form_host_tx: None,
+            self_window_handle: crate::form_host::ROOT_HANDLE.to_string(),
+            self_form_object: None,
+            form_closed_rx: None,
+            window_handle_vars: HashMap::new(),
             cancel: None,
             event_pending: None,
             chart_data: HashMap::new(),
@@ -792,6 +812,253 @@ impl Interpreter {
     /// COMMAND-LINE` / `ARGUMENT-NUMBER` / `ARGUMENT-VALUE`).
     pub fn set_program_args(&mut self, args: Vec<String>) {
         self.program_args = args;
+    }
+
+    /// 037 — connect this interpreter to the multi-form window supervisor:
+    /// `host_tx` carries OpenForm/handle requests, `self_handle` is the
+    /// supervisor's id for THIS window, `form_object` is the form's own
+    /// object name (the `me::` receiver), and `closed_rx` broadcasts closed
+    /// handles so windowHandler data-items become NULL (R24).
+    pub fn set_form_host(
+        &mut self,
+        host_tx: mpsc::Sender<crate::form_host::FormRequest>,
+        self_handle: &str,
+        form_object: &str,
+        closed_rx: mpsc::Receiver<String>,
+    ) {
+        self.form_host_tx = Some(host_tx);
+        self.self_window_handle = self_handle.to_string();
+        self.self_form_object = Some(form_object.trim().to_ascii_uppercase());
+        self.form_closed_rx = Some(closed_rx);
+    }
+
+    /// Drain the closed-handle broadcast: any windowHandler variable holding
+    /// a closed handle becomes NULL (R24). Cheap; called lazily at every
+    /// handle touch.
+    fn drain_closed_handles(&mut self) {
+        let Some(rx) = &self.form_closed_rx else {
+            return;
+        };
+        let closed: Vec<String> = rx.try_iter().collect();
+        if closed.is_empty() {
+            return;
+        }
+        for slot in self.window_handle_vars.values_mut() {
+            if slot.as_deref().map(|h| closed.iter().any(|c| c == h)) == Some(true) {
+                *slot = None;
+            }
+        }
+        // Mirror NULL into the data items so `IF H = NULL` style checks and
+        // DISPLAY show the emptied value.
+        let vars: Vec<String> = self
+            .window_handle_vars
+            .iter()
+            .filter(|(_, v)| v.is_none())
+            .map(|(k, _)| k.clone())
+            .collect();
+        for var in vars {
+            self.env.set_str(&var, "");
+        }
+    }
+
+    /// True when `name` (any case) is the `me` receiver or the form's own
+    /// object name (spec 037 D4).
+    fn is_me(&self, name: &str) -> bool {
+        let upper = name.trim().to_ascii_uppercase();
+        upper == "ME"
+            || self
+                .self_form_object
+                .as_deref()
+                .map(|f| f == upper)
+                .unwrap_or(false)
+    }
+
+    /// 037 — dispatch `object::method(args)` when it is a window-supervisor
+    /// call: `me::"OpenFormSync"/"OpenFormAsync"` (R20), window methods on
+    /// `me`, or any method on a windowHandler variable (R23). `Ok(None)` ⇒
+    /// not window-related — the caller falls through to the regular
+    /// object-method dispatch. Invoking through a NULL handle raises the
+    /// standard runtime error (AC13).
+    fn try_exec_window_call(
+        &mut self,
+        object: &str,
+        method: &str,
+        args: &[CobolValue],
+    ) -> Result<Option<CobolValue>, RuntimeError> {
+        use crate::form_host::FormRequest;
+        let m = method.trim().to_ascii_uppercase();
+        let strings: Vec<String> = args
+            .iter()
+            .map(|v| v.as_display_string().trim().to_string())
+            .collect();
+        let none = CobolValue::from_str("", 0);
+        self.drain_closed_handles();
+        let obj_upper = object.trim().to_ascii_uppercase();
+
+        // ── A windowHandler variable as the receiver ──────────────────────
+        if let Some(slot) = self.window_handle_vars.get(&obj_upper).cloned() {
+            let Some(handle) = slot else {
+                return Err(RuntimeError::General {
+                    message: format!(
+                        "windowHandler {} is NULL — the form it referred to is closed",
+                        object.trim()
+                    ),
+                });
+            };
+            let Some(tx) = self.form_host_tx.clone() else {
+                return Err(RuntimeError::General {
+                    message: "no window supervisor in this runtime".into(),
+                });
+            };
+            let (rtx, rrx) = mpsc::channel();
+            tx.send(FormRequest::HandleMethod {
+                handle,
+                method: m,
+                args: strings,
+                reply: rtx,
+            })
+            .map_err(|_| RuntimeError::General {
+                message: "window supervisor is gone".into(),
+            })?;
+            return match rrx.recv() {
+                Ok(Ok(value)) => {
+                    let n = value.len();
+                    Ok(Some(CobolValue::from_str(&value, n.max(1))))
+                }
+                Ok(Err(msg)) => Err(RuntimeError::General { message: msg }),
+                Err(_) => Err(RuntimeError::General {
+                    message: "window supervisor dropped the reply".into(),
+                }),
+            };
+        }
+
+        // ── `me::` receivers ──────────────────────────────────────────────
+        if !self.is_me(object) {
+            return Ok(None);
+        }
+        match m.as_str() {
+            "OPENFORMSYNC" | "OPENFORMASYNC" => {
+                let sync = m == "OPENFORMSYNC";
+                let Some(tx) = self.form_host_tx.clone() else {
+                    return Err(RuntimeError::General {
+                        message: format!(
+                            "{} needs the multi-form runtime (run the form, not check)",
+                            method.trim()
+                        ),
+                    });
+                };
+                let form_id = strings.first().cloned().unwrap_or_default();
+                if form_id.is_empty() {
+                    return Err(RuntimeError::General {
+                        message: format!("{}: the form id argument is required", method.trim()),
+                    });
+                }
+                // Optional trailing parameters (R21): empty/absent ⇒ the
+                // target form's RAD-designed value (resolved by the host).
+                let opt_s = |i: usize| strings.get(i).filter(|s| !s.is_empty()).cloned();
+                let opt_i = |i: usize| {
+                    strings
+                        .get(i)
+                        .and_then(|s| s.parse::<i64>().ok())
+                };
+                let modal = if sync {
+                    strings
+                        .get(6)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| {
+                            s == "1"
+                                || s.eq_ignore_ascii_case("true")
+                                || s.eq_ignore_ascii_case("yes")
+                        })
+                        .unwrap_or(true) // comma-form default (R21)
+                } else {
+                    false // Async is never modal (R20)
+                };
+                let (rtx, rrx) = mpsc::channel();
+                tx.send(FormRequest::OpenForm {
+                    caller: self.self_window_handle.clone(),
+                    form_id,
+                    sync,
+                    window_state: opt_s(1),
+                    x: opt_i(2),
+                    y: opt_i(3),
+                    width: opt_i(4),
+                    height: opt_i(5),
+                    modal,
+                    reply: rtx,
+                })
+                .map_err(|_| RuntimeError::General {
+                    message: "window supervisor is gone".into(),
+                })?;
+                // Modal Sync blocks HERE until the child closes (R28); the
+                // deferred reply then carries None ⇒ NULL handle (R24).
+                match rrx.recv() {
+                    Ok(Some(handle)) => {
+                        let n = handle.len();
+                        Ok(Some(CobolValue::from_str(&handle, n)))
+                    }
+                    Ok(None) => Ok(Some(none)),
+                    Err(_) => Err(RuntimeError::General {
+                        message: "window supervisor dropped the reply".into(),
+                    }),
+                }
+            }
+            // Window methods on the form's own window.
+            "SETFULLSCREEN" | "SETTITLEVISIBLE" | "SETWINDOWSTATE" | "FOCUS" | "SETFOCUS" => {
+                let Some(tx) = self.form_host_tx.clone() else {
+                    // Single-form runtime: harmless no-op so generated code
+                    // stays runnable under Check.
+                    return Ok(Some(none));
+                };
+                let (rtx, rrx) = mpsc::channel();
+                tx.send(FormRequest::HandleMethod {
+                    handle: self.self_window_handle.clone(),
+                    method: m,
+                    args: strings,
+                    reply: rtx,
+                })
+                .map_err(|_| RuntimeError::General {
+                    message: "window supervisor is gone".into(),
+                })?;
+                match rrx.recv() {
+                    Ok(Ok(_)) => Ok(Some(none)),
+                    Ok(Err(msg)) => Err(RuntimeError::General { message: msg }),
+                    Err(_) => Err(RuntimeError::General {
+                        message: "window supervisor dropped the reply".into(),
+                    }),
+                }
+            }
+            "CLOSE" => {
+                if let Some(tx) = self.form_host_tx.clone() {
+                    let _ = tx.send(FormRequest::CloseSelf {
+                        caller: self.self_window_handle.clone(),
+                    });
+                }
+                Ok(Some(none))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// 037 — `H::FormState` property READ through a windowHandler (R23).
+    /// `Ok(None)` ⇒ not a handle property, fall through.
+    fn try_window_handle_prop(
+        &mut self,
+        root: &str,
+        path: &[crate::objects::PathSeg],
+    ) -> Result<Option<CobolValue>, RuntimeError> {
+        use crate::objects::PathSeg;
+        let [PathSeg::Prop(prop)] = path else {
+            return Ok(None);
+        };
+        if !prop.eq_ignore_ascii_case("FormState") {
+            return Ok(None);
+        }
+        let upper = root.trim().to_ascii_uppercase();
+        if !self.window_handle_vars.contains_key(&upper) {
+            return Ok(None);
+        }
+        self.try_exec_window_call(root, "GetFormState", &[])
     }
 
     /// Select the indexed (ISAM) file engine for this run. All engines present
@@ -1869,11 +2136,30 @@ impl Interpreter {
                 method,
                 args,
                 returning,
+                comma_form: _,
                 span,
             } => {
                 let mut vals = Vec::with_capacity(args.len());
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
+                }
+                // 037 — window-supervisor calls (OpenForm*, handle methods,
+                // me:: window methods) dispatch first: they can raise runtime
+                // errors and OpenForm* must BIND the returning data-item as a
+                // windowHandler variable (R20/R23/R24).
+                if let Some(result) = self.try_exec_window_call(object, method, &vals)? {
+                    if let Some(dest) = returning {
+                        let s = result.as_display_string().trim().to_string();
+                        let name = self.expr_to_name(dest);
+                        if method.trim().to_ascii_uppercase().starts_with("OPENFORM") {
+                            self.window_handle_vars.insert(
+                                name.to_ascii_uppercase(),
+                                if s.is_empty() { None } else { Some(s.clone()) },
+                            );
+                        }
+                        self.env.set_str(&name, &s);
+                    }
+                    return Ok(());
                 }
                 let result = self.exec_method(object, method, &vals);
                 if let Some(dest) = returning {
@@ -4491,7 +4777,7 @@ impl Interpreter {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let raw = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let count = self.eval_call_arg(&using[2], span)?.as_f64() as usize;
-                let id = id.trim().to_owned();
+                let id = id.trim().to_ascii_uppercase();
                 self.chart_data
                     .insert(id.clone(), parse_chart_table(&raw, count));
                 self.push_chart_data(&id);
@@ -4501,7 +4787,7 @@ impl Interpreter {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let label = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let value = self.eval_call_arg(&using[2], span)?.as_f64();
-                let id = id.trim().to_owned();
+                let id = id.trim().to_ascii_uppercase();
                 self.chart_data
                     .entry(id.clone())
                     .or_default()
@@ -4511,14 +4797,14 @@ impl Interpreter {
             // COBOL-CHART-CLEAR chart-id
             "COBOL-CHART-CLEAR" if !using.is_empty() => {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
-                let id = id.trim().to_owned();
+                let id = id.trim().to_ascii_uppercase();
                 self.chart_data.remove(&id);
                 self.push_chart_data(&id);
             }
             // COBOL-CHART-REFRESH chart-id  (re-send current data → repaint)
             "COBOL-CHART-REFRESH" if !using.is_empty() => {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
-                self.push_chart_data(id.trim());
+                self.push_chart_data(&id.trim().to_ascii_uppercase());
             }
             // ── Database Runtime Engine (Phase 8) — SQL built-ins ─────────────
             //
@@ -5370,6 +5656,15 @@ impl Interpreter {
         self.eval_expr(call_arg_expr(arg), span)
     }
 
+    /// `true` when the object was seeded as one of the six chart control types,
+    /// so chart-specific method arms only fire on actual charts.
+    fn is_chart_object(&self, obj: &str) -> bool {
+        matches!(
+            self.objects.get(obj).map(|o| o.class.as_str()),
+            Some("BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart")
+        )
+    }
+
     /// Serialise a chart's current points and push them to the GUI as the
     /// control's `__ChartData` property — one `label<TAB>value` per line. Sent
     /// empty when the chart has no data, so the renderer falls back to the sample
@@ -5612,8 +5907,23 @@ impl Interpreter {
 
         let (root, res) = self.resolve_member(expr)?;
         match res {
-            Resolved::Path(path) => Ok(prop_to_value(self.objects.get_path(&root, &path))),
+            Resolved::Path(path) => {
+                // 037 — `H::FormState` reads through a windowHandler (R23).
+                if let Some(v) = self.try_window_handle_prop(&root, &path)? {
+                    return Ok(v);
+                }
+                Ok(prop_to_value(self.objects.get_path(&root, &path)))
+            }
             Resolved::Method { path, method, args } => {
+                // 037 — inline window calls (`me::"OpenFormSync"(…)`,
+                // `H::"Close"()`) raise real runtime errors and block on
+                // modal opens, so they cannot go through the infallible
+                // widget dispatcher.
+                if path.is_empty() {
+                    if let Some(v) = self.try_exec_window_call(&root, &method, &args)? {
+                        return Ok(v);
+                    }
+                }
                 Ok(self.exec_member_method(&root, &path, &method, &args))
             }
         }
@@ -5877,7 +6187,14 @@ impl Interpreter {
                 self.obj_set(obj, "ZOrder", "-10000".into());
                 none
             }
-            "REFRESH" | "VALIDATE" => none,
+            "REFRESH" | "VALIDATE" => {
+                // On a chart, Refresh re-sends the current data (same contract
+                // as CALL "COBOL-CHART-REFRESH"); elsewhere it stays a no-op.
+                if self.is_chart_object(obj) {
+                    self.push_chart_data(&obj.to_ascii_uppercase());
+                }
+                none
+            }
             // ── Geometry ──
             "MOVETO" => {
                 self.obj_set(obj, "X", arg(0));
@@ -5923,8 +6240,28 @@ impl Interpreter {
             }
             "SELECTALL" => none,
             "CLEAR" => {
+                // On a chart, Clear drops the pushed data series (same contract
+                // as CALL "COBOL-CHART-CLEAR") — the renderer falls back to its
+                // sample preview until new points arrive.
+                if self.is_chart_object(obj) {
+                    let key = obj.to_ascii_uppercase();
+                    self.chart_data.remove(&key);
+                    self.push_chart_data(&key);
+                }
                 self.obj_set(obj, "Text", String::new());
                 self.obj_set(obj, "Items", String::new());
+                none
+            }
+            // ── Charts (inline methods — same data path as COBOL-CHART-*) ──
+            "ADDPOINT" | "ADD-POINT" => {
+                let key = obj.to_ascii_uppercase();
+                let label = arg(0);
+                let value = args.get(1).map(|v| v.as_f64()).unwrap_or(0.0);
+                self.chart_data
+                    .entry(key.clone())
+                    .or_default()
+                    .push((label, value));
+                self.push_chart_data(&key);
                 none
             }
             // ── Checkbox / radio ──
@@ -7545,6 +7882,8 @@ fn is_known_method(name: &str) -> bool {
             | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV"
         // Databound controls (DataGrid + repeating GroupBox/ControlArray)
             | "REFRESHBINDING"
+        // Charts (AddPoint appends one label/value point; Clear/Refresh above)
+            | "ADDPOINT" | "ADD-POINT"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"

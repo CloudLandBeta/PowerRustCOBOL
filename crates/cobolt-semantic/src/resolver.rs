@@ -18,7 +18,7 @@
 //! runtime libraries that are not present in the source being analysed.
 
 use cobolt_ast::{
-    expr::{Condition, Expr},
+    expr::{Condition, Expr, Literal},
     program::{ProcedureBody, Program},
     stmt::{CallArg, PerformTarget, Stmt, WhenValue},
 };
@@ -67,6 +67,14 @@ impl<'a> ResolveCtx<'a> {
     fn warn(&mut self, msg: impl Into<String>, span: cobolt_lexer::Span) {
         self.diagnostics.push(SemanticDiagnostic {
             severity: Severity::Warning,
+            message: msg.into(),
+            span,
+        });
+    }
+
+    fn error(&mut self, msg: impl Into<String>, span: cobolt_lexer::Span) {
+        self.diagnostics.push(SemanticDiagnostic {
+            severity: Severity::Error,
             message: msg.into(),
             span,
         });
@@ -313,8 +321,21 @@ impl<'a> ResolveCtx<'a> {
             // Visual-object method invocation: object is a control; resolve the
             // argument expressions and the optional RETURNING receiver.
             Stmt::Invoke {
-                args, returning, ..
+                method,
+                args,
+                returning,
+                comma_form,
+                span,
+                ..
             } => {
+                // 037 R22 — the SPACE (COBOL-standard) form of the checked
+                // window methods requires every parameter; a mismatch is a
+                // compile-time error naming the method and its signature.
+                // The comma form defaults omitted trailing parameters (R21)
+                // and is exempt.
+                if !comma_form {
+                    self.check_open_form_signature(method, args, *span);
+                }
                 for a in args {
                     self.resolve_expr(a);
                 }
@@ -323,6 +344,84 @@ impl<'a> ResolveCtx<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// 037 R22 — compile-time signature check for the window-invocation
+    /// methods when written in the SPACE (COBOL-standard) form: every
+    /// parameter is required and literal argument types must match. The
+    /// comma form (`obj::"OpenFormSync"(…)`) is exempt — its trailing
+    /// parameters default from the RAD design (R21).
+    fn check_open_form_signature(&mut self, method: &str, args: &[Expr], span: cobolt_lexer::Span) {
+        #[derive(Clone, Copy, PartialEq)]
+        enum P {
+            Text,
+            Number,
+            Bool,
+        }
+        let m = method.trim().to_ascii_uppercase();
+        let (params, signature): (&[(&str, P)], &str) = match m.as_str() {
+            "OPENFORMSYNC" => (
+                &[
+                    ("form id", P::Text),
+                    ("formWindowState", P::Text),
+                    ("x", P::Number),
+                    ("y", P::Number),
+                    ("width", P::Number),
+                    ("height", P::Number),
+                    ("modal", P::Bool),
+                ],
+                "\"OpenFormSync\" USING form-id windowState x y width height modal",
+            ),
+            "OPENFORMASYNC" => (
+                &[
+                    ("form id", P::Text),
+                    ("formWindowState", P::Text),
+                    ("x", P::Number),
+                    ("y", P::Number),
+                    ("width", P::Number),
+                    ("height", P::Number),
+                ],
+                "\"OpenFormAsync\" USING form-id windowState x y width height",
+            ),
+            _ => return,
+        };
+        if args.len() != params.len() {
+            self.error(
+                format!(
+                    "INVOKE {m}: the COBOL-standard (space-separated) form requires all {} \
+                     parameters — got {}. Expected: INVOKE me {signature}. \
+                     (Use the comma form me::\"{}\"(…) for optional parameters.)",
+                    params.len(),
+                    args.len(),
+                    method.trim(),
+                ),
+                span,
+            );
+            return;
+        }
+        for (i, (name, kind)) in params.iter().enumerate() {
+            let bad = match (&args[i], kind) {
+                (Expr::Literal(Literal::String(_), _), P::Number) => true,
+                (
+                    Expr::Literal(
+                        Literal::Integer(_) | Literal::Float(_) | Literal::Decimal(_, _),
+                        _,
+                    ),
+                    P::Text,
+                ) => true,
+                _ => false,
+            };
+            if bad {
+                self.error(
+                    format!(
+                        "INVOKE {m}: parameter {} ({name}) has the wrong type. \
+                         Expected: INVOKE me {signature}.",
+                        i + 1,
+                    ),
+                    args[i].span(),
+                );
+            }
         }
     }
 

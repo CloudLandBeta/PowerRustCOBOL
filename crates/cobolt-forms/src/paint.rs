@@ -99,7 +99,8 @@ pub fn live_control<'a>(
     c
 }
 
-/// Map alignment string (used by labels).
+/// Map alignment string (used by labels). "Justified" lays out left-anchored;
+/// justification itself is a layout-job flag (see `justified_halign`).
 pub fn text_halign(value: &str) -> egui::Align {
     let v = value.trim();
     if v.eq_ignore_ascii_case("Center") || v.ends_with("Center") {
@@ -108,6 +109,26 @@ pub fn text_halign(value: &str) -> egui::Align {
         egui::Align::RIGHT
     } else {
         egui::Align::LEFT
+    }
+}
+
+/// True when the alignment string asks for justified text (wrapped lines
+/// stretched to the full width; the last line stays natural).
+pub fn text_justified(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case("Justified")
+}
+
+/// Map a VerticalAlignment string (Top / Middle / Bottom). Anything else —
+/// including the empty string on forms that predate the property — is Middle,
+/// preserving the historical centred single line.
+pub fn text_valign(value: &str) -> egui::Align {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("Top") {
+        egui::Align::TOP
+    } else if v.eq_ignore_ascii_case("Bottom") {
+        egui::Align::BOTTOM
+    } else {
+        egui::Align::Center
     }
 }
 
@@ -3195,10 +3216,25 @@ pub fn draw_control(
         // (and the text-bearing widgets above) carry one.
         _ => String::new(),
     };
+    // An empty TextBox previews its HintText (faded) so the designer face
+    // matches what the run form shows for an empty box.
+    let textbox_hint = matches!(ctrl.control_type, CT::TextBox) && label.is_empty();
+    let label = if textbox_hint {
+        ctrl.get_prop("HintText")
+            .map(|v| v.to_string())
+            .unwrap_or_default()
+    } else {
+        label
+    };
 
     if !label.is_empty() {
         let txt_color =
             Color32::from_rgba_premultiplied(label_color.r(), label_color.g(), label_color.b(), a);
+        let txt_color = if textbox_hint {
+            txt_color.gamma_multiply(0.55)
+        } else {
+            txt_color
+        };
         let fsize = ctrl_font_size(ctrl);
         let font_name = ctrl
             .get_prop("FontName")
@@ -3272,14 +3308,15 @@ pub fn draw_control(
             }
             paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
         } else if matches!(ctrl.control_type, CT::Label) {
-            // Honour the Label's TextAlignment (Left / Center / Right).
-            let halign = text_halign(
-                ctrl.get_prop("TextAlignment")
-                    .map(|v| v.as_str())
-                    .unwrap_or(""),
-            );
+            // Honour the Label's TextAlignment (Left / Center / Right /
+            // Justified) and VerticalAlignment (Top / Middle / Bottom).
+            let align_raw = ctrl
+                .get_prop("TextAlignment")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
+            let halign = text_halign(&align_raw);
 
-            let galley = painter.layout_job(styled_text_job(
+            let mut job = styled_text_job(
                 painter,
                 ctrl,
                 &label,
@@ -3288,18 +3325,30 @@ pub fn draw_control(
                 txt_color,
                 rect.width(),
                 halign,
-            ));
+            );
+            job.justify = text_justified(&align_raw);
+            let galley = painter.layout_job(job);
             // The galley's draw origin follows `halign`: top-left for LEFT,
             // top-centre for CENTER, top-right for RIGHT. Anchor x to the
             // matching edge of the rect (with a small inset off the border);
-            // y centres the wrapped block vertically.
+            // y follows VerticalAlignment (Middle on forms without it).
             let pad = 3.0_f32.min(rect.width() * 0.25);
             let anchor_x = match halign {
                 egui::Align::Center => rect.center().x,
                 egui::Align::RIGHT => rect.right() - pad,
                 _ => rect.left() + pad,
             };
-            let text_pos = egui::pos2(anchor_x, rect.center().y - galley.size().y / 2.0);
+            let vpad = 2.0_f32.min(rect.height() * 0.25);
+            let anchor_y = match text_valign(
+                ctrl.get_prop("VerticalAlignment")
+                    .map(|v| v.as_str())
+                    .unwrap_or(""),
+            ) {
+                egui::Align::TOP => rect.top() + vpad,
+                egui::Align::BOTTOM => rect.bottom() - vpad - galley.size().y,
+                _ => rect.center().y - galley.size().y / 2.0,
+            };
+            let text_pos = egui::pos2(anchor_x, anchor_y);
             paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
         } else if matches!(ctrl.control_type, CT::TextBox) {
             // Inset by at least the corner radius so text stays inside the rounded
@@ -3311,10 +3360,30 @@ pub fn draw_control(
                 .get_prop("Multiline")
                 .map(|v| v.as_bool())
                 .unwrap_or(false);
+            // TextAlignment (Left / Center / Right / Justified) and
+            // VerticalAlignment (Top / Middle / Bottom) — defaults preserve
+            // the historical left / centred single line.
+            let align_raw = ctrl
+                .get_prop("TextAlignment")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
+            let halign = text_halign(&align_raw);
+            let valign = text_valign(
+                ctrl.get_prop("VerticalAlignment")
+                    .map(|v| v.as_str())
+                    .unwrap_or(""),
+            );
+            let anchor_x = |inset: f32| match halign {
+                egui::Align::Center => rect.center().x,
+                egui::Align::RIGHT => rect.right() - inset,
+                _ => rect.left() + inset,
+            };
             if multiline {
-                // Multiline preview: lay the value out top-left, wrapping to the
-                // field width when WordWrap is on (matching the run-time editor),
-                // clipped to the control so long text doesn't spill past the border.
+                // Multiline preview: lay the value out from the top, wrapping to
+                // the field width when WordWrap is on (matching the run-time
+                // editor), clipped to the control so long text doesn't spill past
+                // the border. Vertical alignment stays top-anchored — the runtime
+                // editor scrolls, so Middle/Bottom have no stable meaning there.
                 let word_wrap = ctrl
                     .get_prop("WordWrap")
                     .map(|v| v.as_bool())
@@ -3324,7 +3393,7 @@ pub fn draw_control(
                 } else {
                     f32::INFINITY
                 };
-                let galley = painter.layout_job(styled_text_job(
+                let mut job = styled_text_job(
                     painter,
                     ctrl,
                     &label,
@@ -3332,24 +3401,27 @@ pub fn draw_control(
                     fsize,
                     txt_color,
                     max_width,
-                    egui::Align::LEFT,
-                ));
+                    halign,
+                );
+                // Justification needs a finite wrap width to stretch lines to.
+                job.justify = text_justified(&align_raw) && word_wrap;
+                let galley = painter.layout_job(job);
                 // Clip to the padded inner rect so wrapped lines stay clear of the
                 // rounded corners (top/bottom) instead of spilling past the arc.
                 let clipped = painter.with_clip_rect(rect.shrink(pad));
                 paint_styled_galley(
                     &clipped,
                     ctrl,
-                    egui::pos2(rect.left() + pad, rect.top() + pad),
+                    egui::pos2(anchor_x(pad), rect.top() + pad),
                     galley,
                     txt_color,
                 );
             } else {
                 // Single line: the box has NO fixed top/bottom padding — the line
-                // is vertically centred in the FULL height, so a larger font uses
-                // all of it before anything else. If the line is still taller than
-                // the box, SHRINK the font until it fits so the text is never
-                // clipped by the top/bottom border (never truncated instead).
+                // sits in the FULL height, so a larger font uses all of it before
+                // anything else. If the line is still taller than the box, SHRINK
+                // the font until it fits so the text is never clipped by the
+                // top/bottom border (never truncated instead).
                 let inner_w = (rect.width() - 2.0 * pad).max(1.0);
                 let min_font = 6.0_f32;
                 let mut fit = fsize.max(min_font);
@@ -3362,7 +3434,7 @@ pub fn draw_control(
                         size,
                         txt_color,
                         inner_w,
-                        egui::Align::LEFT,
+                        halign,
                     ))
                 };
                 let mut galley = layout(fit);
@@ -3370,8 +3442,15 @@ pub fn draw_control(
                     fit = (fit - 1.0).max(min_font);
                     galley = layout(fit);
                 }
-                let text_pos =
-                    egui::pos2(rect.left() + pad, rect.center().y - galley.size().y / 2.0);
+                // Mirror the runtime editor's vertical padding for Top/Bottom.
+                let vpad = textbox_inner_padding(ctrl)
+                    .min((rect.height() * 0.5 - 1.0).max(0.0));
+                let text_y = match valign {
+                    egui::Align::TOP => rect.top() + vpad,
+                    egui::Align::BOTTOM => rect.bottom() - vpad - galley.size().y,
+                    _ => rect.center().y - galley.size().y / 2.0,
+                };
+                let text_pos = egui::pos2(anchor_x(pad), text_y);
                 // Clip as a final guard (e.g. at the `min_font` floor in a tiny box).
                 let clipped = painter.with_clip_rect(rect);
                 paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
@@ -7293,6 +7372,27 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
 #[cfg(test)]
 mod theme_render_tests {
     use super::*;
+
+    /// Alignment strings map to egui aligns; unknown/empty values keep the
+    /// historical defaults (Left horizontally, Middle vertically) so forms
+    /// that predate the properties are unchanged. "Justified" is left-anchored
+    /// with the justify flag reported separately.
+    #[test]
+    fn alignment_strings_map_with_backward_compatible_defaults() {
+        assert_eq!(text_halign("Left"), egui::Align::LEFT);
+        assert_eq!(text_halign("Center"), egui::Align::Center);
+        assert_eq!(text_halign("Right"), egui::Align::RIGHT);
+        assert_eq!(text_halign("Justified"), egui::Align::LEFT);
+        assert_eq!(text_halign(""), egui::Align::LEFT);
+        assert!(text_justified("Justified"));
+        assert!(text_justified(" justified "));
+        assert!(!text_justified("Left"));
+        assert_eq!(text_valign("Top"), egui::Align::TOP);
+        assert_eq!(text_valign("Middle"), egui::Align::Center);
+        assert_eq!(text_valign("Bottom"), egui::Align::BOTTOM);
+        assert_eq!(text_valign(""), egui::Align::Center);
+        assert_eq!(text_valign("nonsense"), egui::Align::Center);
+    }
 
     #[test]
     fn nine_slice_produces_nine_cells_covering_dest() {

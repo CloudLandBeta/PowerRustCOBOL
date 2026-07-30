@@ -1495,9 +1495,22 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
   - Example: `LineChart-1::Clear().`
   - Example: `DataGrid-1::RefreshBinding().`
   - Example: `LineChart-1::AddPoint("January", 150).`
-  - Example: `IndexedFile-1::Open().`
-  - Example: `RestClient-1::Post("/api/save", request_body).`
+  - Example: `SqlDatabase-1::Open("sqlite::memory:").`
+  - Example: `RestClient-1::Post("https://api.example.com/api/save", request_body).`
 - **DO NOT** use `CALL` or legacy `INVOKE` for UI control properties or methods. Use the inline double-colon (`::`) syntax directly.
+- The method vocabulary is **closed** — only the methods listed in the Control Methods Reference exist. A `::name(arg)` with an unrecognised name is treated as a PROPERTY WRITE of `name`, not a method call, so inventing a method silently does nothing useful.
+- **IndexedFile controls have no `::` methods** — drive them with the generated paragraphs (`PERFORM <id>-OPEN`, `<id>-READ-NEXT`, …) and the COBOL verbs `WRITE`/`REWRITE`/`DELETE`.
+- A method that returns a value can be used inline (`MOVE C::GetText() TO WS-X`) or with `RETURNING`.
+
+## Value Conventions (types and domains)
+- **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.
+- **Colors** are hex strings: `"#RRGGBB"` or `"#RRGGBBAA"` (e.g. `"#FF0000"`, `"#00000000"` = transparent).
+- **Coordinates and sizes** (`X`, `Y`, `Width`, `Height`, paddings, radii) are integer pixels.
+- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level. Indexes (`SelectedIndex`, grid rows/columns) are 0-based; -1 = no selection.
+- **DataGrid data**: `Columns` is one `Name:Type` per line (`Type` ∈ `string`|`number`|`datetime`); `Rows` separates rows with newlines and cells with TAB.
+- **Enumerated properties** accept only their listed values EXACTLY as spelled (e.g. `Orientation` is `Horizontal` or `Vertical`); an unrecognised value falls back to the default without an error.
+- **Property names**: setting a misspelled property silently creates a new, unused property — never guess names; use the ones in the Form Controls Reference.
+- **Charts**: feed data with `Chart::AddPoint(label, value)` / `Chart::Clear()` / `Chart::Refresh()`, with `PERFORM <id>-ADD-POINT` / `<id>-SET-TABLE` paragraphs, or with `CALL "COBOL-CHART-ADD-POINT" USING "<id>" label value` — or bind a COBOL table via the `DataSource`/`DataCount` properties. Do NOT invent working-storage tables for charts.
 
 ## Event Handler Division Structure
 - Every developer-editable event-handler body must start from the program Divisions and contain:
@@ -1536,8 +1549,706 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 "##;
     std::fs::write(kb_dir.join("ide_functionalities.md"), ide_funcs)?;
 
-    // Write File 3: form_designer_controls.md
-    let control_types = vec![
+    // Write File 3: form_designer_controls.md — generated from the same model
+    // the designer and runtime execute (`Control::new` seeds the defaults, so
+    // each property's type and default can never drift from the code), and
+    // enriched with curated value domains, ranges and per-control methods so
+    // agents can generate valid code on the first attempt.
+    std::fs::write(
+        kb_dir.join("form_designer_controls.md"),
+        controls_reference_doc(),
+    )?;
+
+    // Write File 5: control_methods_reference.md — the complete closed method
+    // vocabulary with parameter types and return values.
+    std::fs::write(
+        kb_dir.join("control_methods_reference.md"),
+        methods_reference_doc(),
+    )?;
+
+    // Write File 4: agents_registry.md
+    let agents_reg = r##"# PowerRustCOBOL Agent Registry
+
+This document lists all built-in specialist and reviewer agents configured in the PowerRustCOBOL agentic AI mesh:
+
+## Orchestrator Agent
+- **Grace**: Plans, delegates, coordinates task sequencing, and integrates specialist outputs.
+  - **Companion Reviewer**: `Grace Pedantic Reviewer`
+
+## Specialist Agents
+- **Form Designer Agent**: Specialist responsible for RAD desktop form structures, layouts, control deployment, and visual styling properties.
+  - **Companion Reviewer**: `Form Designer Agent Pedantic Reviewer`
+- **COBOL Event Handler Script Agent**: Specialist responsible for generating COBOL-85 / RustCOBOL event handler implementations bound to control events.
+  - **Companion Reviewer**: `COBOL Event Handler Script Agent Pedantic Reviewer`
+- **Data (Indexed File) Agent**: Specialist responsible for creating or modifying PowerRustCOBOL indexed-file schemas (.cidx) and structural COBOL definitions.
+  - **Companion Reviewer**: `Data (Indexed File) Agent Pedantic Reviewer`
+- **Documentation Agent**: Specialist responsible for formatting, writing, and indexing markdown files exclusively inside the project `/Knowledge Base/` folder.
+  - **Companion Reviewer**: `Documentation Agent Pedantic Reviewer`
+- **Version Control Agent**: Specialist responsible for executing repository actions (Git status, branch, commit, push, merge, revert, rebase).
+  - **Companion Reviewer**: `Version Control Agent Pedantic Reviewer`
+"##;
+    std::fs::write(kb_dir.join("agents_registry.md"), agents_reg)?;
+
+    Ok(())
+}
+
+// ── System Knowledge Base generation (controls + methods reference) ──────────
+//
+// The controls document derives every property's TYPE and DEFAULT from the
+// live `Control::new` seed (the exact map the designer saves and the runtime
+// executes), so names, types and defaults cannot drift from the code. Only the
+// value DOMAINS (enums, ranges) and the prose descriptions are curated below —
+// keep them in step when a control gains a property or an enum gains a value.
+
+/// The properties every control shares (seeded before the type-specific match
+/// in `Control::new`). Documented once in the "Universal properties" section
+/// and skipped in the per-control listings.
+const UNIVERSAL_PROPS: &[&str] = &[
+    "BackgroundColor",
+    "BackgroundGradientEnabled",
+    "BackgroundGradientStartColor",
+    "BackgroundGradientEndColor",
+    "BackgroundGradientDirection",
+    "ForegroundColor",
+    "FontName",
+    "FontSize",
+    "Bold",
+    "Italic",
+    "Underline",
+    "Strikethrough",
+    "Tooltip",
+    "Cursor",
+    "HoverDelayMs",
+    "Anchor",
+    "Padding",
+    "Opacity",
+    "ShadowEnabled",
+    "ShadowOpacity",
+    "ShadowColor",
+    "ShadowLightColor",
+    "ShadowDirection",
+    "ShadowDistance",
+    "ShadowBlur",
+    "ShadowBlurStrength",
+    "ZOrder",
+    "DataItem",
+    "DataFormat",
+];
+
+/// The input/lifecycle events shared by most visual controls. Documented once;
+/// per-control sections list which of these apply plus the control-specific
+/// events in full.
+const UNIVERSAL_EVENTS: &[&str] = &[
+    "onClick",
+    "onDblClick",
+    "onDoubleClick",
+    "onRightClick",
+    "onMiddleClick",
+    "onMouseEnter",
+    "onMouseLeave",
+    "onMouseDown",
+    "onMouseUp",
+    "onMouseMove",
+    "onMouseWheel",
+    "onContextMenu",
+    "onGotFocus",
+    "onLostFocus",
+    "onKeyDown",
+    "onKeyUp",
+    "onKeyPress",
+    "onEnterPressed",
+    "onEscapePressed",
+    "onHoverEnter",
+    "onHoverLeave",
+    "onResize",
+    "onResized",
+    "onMove",
+    "onMoved",
+    "onVisibleChanged",
+    "onEnabledChanged",
+    "onLoad",
+];
+
+const EIGHT_DIRECTIONS: &str =
+    "one of: `North` | `NorthEast` | `East` | `SouthEast` | `South` | `SouthWest` | `West` | `NorthWest`";
+const COLOR_DOMAIN: &str = "hex color string `\"#RRGGBB\"` or `\"#RRGGBBAA\"`";
+const BOOL_DOMAIN: &str = "`1` (true) or `0` (false)";
+
+/// Curated `(value domain, description)` for a property name. Applies to every
+/// control that seeds the name; the type and default are derived mechanically.
+fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
+    Some(match name {
+        // ── Universal appearance ──
+        "BackgroundColor" => (COLOR_DOMAIN, "Fill color behind the control's content."),
+        "BackgroundGradientEnabled" => (BOOL_DOMAIN, "Enables the two-color background gradient."),
+        "BackgroundGradientStartColor" => (COLOR_DOMAIN, "Gradient start color."),
+        "BackgroundGradientEndColor" => (COLOR_DOMAIN, "Gradient end color."),
+        "BackgroundGradientDirection" => (EIGHT_DIRECTIONS, "Direction the gradient flows toward."),
+        "ForegroundColor" => (COLOR_DOMAIN, "Text / foreground drawing color."),
+        "FontName" => ("installed font family name, e.g. `\"Arial\"`", "Font family for the control's text."),
+        "FontSize" => ("points, > 0 (typical 8-72)", "Font size in points."),
+        "Bold" => (BOOL_DOMAIN, "Bold text."),
+        "Italic" => (BOOL_DOMAIN, "Italic text."),
+        "Underline" => (BOOL_DOMAIN, "Underlined text."),
+        "Strikethrough" => (BOOL_DOMAIN, "Struck-through text."),
+        "Tooltip" => ("free text", "Hover tooltip text (empty = no tooltip)."),
+        "Cursor" => (
+            "one of: `Default` | `Hand` | `Text` | `Wait` | `Crosshair` | `No` | `SizeAll` | `SizeNS` | `SizeWE`",
+            "Mouse cursor shown while hovering the control.",
+        ),
+        "HoverDelayMs" => ("milliseconds ≥ 0", "How long the pointer must rest before `onHoverEnter` fires."),
+        "Anchor" => (BOOL_DOMAIN, "Locks the control against mouse dragging on the design canvas."),
+        "Padding" => ("pixels ≥ 0", "Inner padding around the control content."),
+        "Opacity" => ("0-100 (percent)", "Overall control opacity; 100 = fully opaque."),
+        "ShadowEnabled" => (BOOL_DOMAIN, "Enables the drop shadow."),
+        "ShadowOpacity" => ("0-100 (percent)", "Drop-shadow opacity."),
+        "ShadowColor" => (COLOR_DOMAIN, "Dark shadow color."),
+        "ShadowLightColor" => (COLOR_DOMAIN, "Light (highlight) shadow color for neumorphic styles."),
+        "ShadowDirection" => (EIGHT_DIRECTIONS, "Direction the shadow is cast toward."),
+        "ShadowDistance" => ("pixels ≥ 0", "Shadow offset distance."),
+        "ShadowBlur" => (BOOL_DOMAIN, "Enables soft blur falloff on the shadow."),
+        "ShadowBlurStrength" => ("0-20", "Blur radius in layers."),
+        "ZOrder" => ("any integer; higher paints in front", "Stacking order among siblings."),
+        "DataItem" => ("COBOL WORKING-STORAGE data-item name", "Data-binding source item for this control (empty = unbound)."),
+        "DataFormat" => ("format string (empty = raw)", "Display format applied to the bound value."),
+        "CornerRadius" => ("pixels ≥ 0", "Rounded-corner radius (default 3 on Button, 8 on charts, 0 elsewhere)."),
+
+        // ── Text input / captions ──
+        "Caption" => ("free text", "Visible label text (Button/Label/CheckBox/RadioButton/GroupBox)."),
+        "Text" => ("free text", "Current text content."),
+        "HintText" => ("free text", "Placeholder shown while the box is empty."),
+        "InnerPadding" => ("pixels ≥ 0", "Padding between the border and the text."),
+        "MaximumLength" => ("characters ≥ 0; 0 = unlimited", "Maximum text length accepted."),
+        "Multiline" => (BOOL_DOMAIN, "Multi-line editing."),
+        "PasswordCharacter" => ("single character or empty", "Masks input with this character when set."),
+        "ReadOnly" => (BOOL_DOMAIN, "Blocks user editing (value still settable from COBOL)."),
+        "ScrollBars" => ("one of: `None` | `Horizontal` | `Vertical` | `Both`", "Which scrollbars a multiline box shows."),
+        "WordWrap" => (BOOL_DOMAIN, "Wraps long lines."),
+        "TextAlignment" => (
+            "`Left` | `Center` | `Right` | `Justified` on Label/TextBox (Button also accepts anchored forms like `MiddleCenter`)",
+            "Horizontal alignment of the text. `Justified` stretches wrapped lines to the full width (static text; a TextBox being edited shows it left-aligned).",
+        ),
+        "VerticalAlignment" => (
+            "`Top` | `Middle` | `Bottom`",
+            "Vertical alignment of the text (Label and single-line TextBox; a multiline TextBox stays top-anchored).",
+        ),
+        "AutoSize" => (BOOL_DOMAIN, "Grows the control to fit its text."),
+
+        // ── Borders ──
+        "BorderStyle" => (
+            "one of: `None` | `Single` | `Fixed3D` | `Raised` | `Sunken`",
+            "Border drawing style.",
+        ),
+        "BorderColor" => (COLOR_DOMAIN, "Border line color."),
+        "BorderWidth" => ("pixels ≥ 0", "Border line thickness."),
+
+        // ── Check / radio ──
+        "Checked" => (BOOL_DOMAIN, "Checked state."),
+        "GroupName" => ("free text", "RadioButtons sharing a GroupName are mutually exclusive."),
+        "CheckAlignment" => ("`Left` | `Right`", "Side of the caption the check/radio glyph sits on."),
+        "CheckColor" => (COLOR_DOMAIN, "Color of the check/radio mark."),
+
+        // ── Images / animation ──
+        "ImagePath" => ("project-relative or absolute image path", "Image file to display."),
+        "SizeMode" => (
+            "PictureBox: `Normal` | `Stretch` | `Zoom` | `CenterImage` | `AutoSize`; Animator: `Fit` | `Fill` | `Stretch` | `Center`",
+            "How the image is scaled inside the control.",
+        ),
+        "ImageAlignment" => ("anchor name, e.g. `MiddleCenter`, `TopLeft`", "Where the unscaled image is anchored."),
+        "ShowFrame" => (BOOL_DOMAIN, "Draws the frame/background behind the image."),
+        "Source" => ("path to GIF / WebP / APNG / still image", "Animated image the Animator plays."),
+        "AutoPlay" => (BOOL_DOMAIN, "Starts playing when the form loads."),
+        "Loop" => (BOOL_DOMAIN, "Restarts the animation when it ends."),
+
+        // ── Ranges / values ──
+        "Minimum" => ("integer ≤ Maximum", "Lower bound of the value range."),
+        "Maximum" => ("integer ≥ Minimum", "Upper bound of the value range."),
+        "Value" => (
+            "ProgressBar/Slider/NumericUpDown: integer within Minimum..Maximum; DateTimePicker: date string",
+            "Current value.",
+        ),
+        "Step" => ("integer > 0", "Increment applied by arrows / Increment()/Decrement()."),
+        "LargeChange" => ("integer > 0", "Page Up/Down increment."),
+        "DecimalPlaces" => ("0-6", "Fractional digits displayed."),
+        "ThousandsSeparator" => (BOOL_DOMAIN, "Shows a thousands separator."),
+        "BarColor" => (COLOR_DOMAIN, "Filled-portion color of the progress bar."),
+        "Orientation" => ("`Horizontal` | `Vertical`", "Layout axis."),
+        "Style" => ("`Continuous` | `Blocks`", "Progress bar fill style."),
+        "ShowValue" => (BOOL_DOMAIN, "Draws the numeric value on the control."),
+        "TickFrequency" => ("integer > 0 (value units)", "Draw a tick every N units."),
+        "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn."),
+        "TrackColor" => (COLOR_DOMAIN, "Slider track color."),
+        "ThumbColor" => (COLOR_DOMAIN, "Slider knob color."),
+
+        // ── Date/time ──
+        "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Date display format preset."),
+        "CustomFormat" => ("format pattern, e.g. `dd/MM/yyyy`", "Pattern used when Format = `Custom`."),
+        "ShowUpDown" => (BOOL_DOMAIN, "Spinner arrows instead of a drop-down calendar."),
+        "MinimumDate" => ("date string or empty", "Earliest selectable date."),
+        "MaximumDate" => ("date string or empty", "Latest selectable date."),
+
+        // ── Lists ──
+        "Items" => (
+            "newline-separated entries (TreeView: two-space indentation nests children)",
+            "The list content, one item per line.",
+        ),
+        "SelectedIndex" => ("0-based index; -1 = no selection", "Currently selected item."),
+        "MultiSelect" => (BOOL_DOMAIN, "Allows selecting several items."),
+        "Sorted" => (BOOL_DOMAIN, "Keeps items alphabetically sorted."),
+        "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
+        "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list."),
+        "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo."),
+
+        // ── TreeView ──
+        "AllowEdit" => (BOOL_DOMAIN, "In-place node label editing."),
+        "CheckBoxes" => (BOOL_DOMAIN, "Shows a checkbox on every node."),
+        "ShowLines" => (BOOL_DOMAIN, "Draws connector lines between nodes."),
+        "ShowRootLines" => (BOOL_DOMAIN, "Draws connector lines at the root level."),
+        "HotTracking" => (BOOL_DOMAIN, "Highlights the node under the pointer."),
+        "LineColor" => (COLOR_DOMAIN, "Connector/line color (TreeView, Line, Shape)."),
+
+        // ── Containers ──
+        "HScroll" => (BOOL_DOMAIN, "Horizontal auto-scroll when children overflow."),
+        "VScroll" => (BOOL_DOMAIN, "Vertical auto-scroll when children overflow."),
+        "HideBackground" => (BOOL_DOMAIN, "Hides the fill/border while keeping the content visible."),
+        "HideCaption" => (BOOL_DOMAIN, "Hides the GroupBox caption text."),
+        "CaptionEnabled" => (BOOL_DOMAIN, "Reserves the caption band (off = children use the full box)."),
+        "UserControl" => ("User Control definition name or empty", "Marks a deployed project User Control instance."),
+        "mcp_tool" => ("tool name or empty", "MCP tool this container is exposed as (advanced; leave empty)."),
+
+        // ── Repeating group (ControlArray) ──
+        "IsRepeatingGroup" => (BOOL_DOMAIN, "Turns the GroupBox into a repeating card template (control array)."),
+        "ArrayName" => ("COBOL identifier or empty (empty = control id)", "Name used to address instances: `Name(index)::Member`."),
+        "ItemCount" => ("integer ≥ 0", "Number of live card instances at runtime."),
+        "LayoutDirection" => ("one of: `Vertical` | `Horizontal` | `Grid`", "How cards flow inside the group."),
+        "ItemSpacing" => ("pixels ≥ 0", "Gap between cards."),
+        "ItemsPerRow" => ("integer ≥ 1", "Cards per row when LayoutDirection = `Grid`."),
+        "PlacementEffect" => ("one of: `None` | `Deal` | `FadeIn` | `ZoomIn` | `ZoomOut`", "Card entrance animation when data binds."),
+        "CardAppearDuration" => ("milliseconds ≥ 0", "Duration of the card entrance animation."),
+        "CloneEvents" => (BOOL_DOMAIN, "Cloned cards fire the template's event handlers (with `CONTROL-ARRAY-INDEX`)."),
+        "PreviewItemCount" => ("integer ≥ 1", "Cards shown on the design canvas."),
+
+        // ── DataGrid ──
+        "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` (default `string`)", "Column definitions."),
+        "Rows" => ("rows separated by newline, cells within a row by TAB", "Cell data (usually populated at runtime)."),
+        "AlternatingRowColor" => (COLOR_DOMAIN, "Tint applied to alternating rows/columns."),
+        "AlternatingRowOpacity" => ("0-100 (percent)", "Strength of the alternating tint."),
+        "AlternatingMode" => ("one of: `Rows` | `Columns` | `None`", "Axis the alternating highlight applies to."),
+        "HeaderBackgroundColor" => (COLOR_DOMAIN, "Header row fill."),
+        "HeaderForegroundColor" => (COLOR_DOMAIN, "Header row text color."),
+        "GridLineColor" => (COLOR_DOMAIN, "Grid line color."),
+        "GridLineStyle" => ("one of: `None` | `Solid` | `Dash` | `Dot` | `DashDot`", "Grid line dash style."),
+        "GridBackgroundImage" => ("image path or empty", "Watermark image behind the cells."),
+        "GridBackgroundImageMode" => ("one of: `Fill` | `Fit` | `Stretch` | `Tile` | `Center`", "How the background image scales."),
+        "GridBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Procedural background pattern."),
+        "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
+        "SelectionMode" => ("one of: `Row` | `Cell` | `Column`", "What a click selects."),
+        "RowHeight" => ("pixels > 0", "Uniform row height."),
+        "RowHeightOverrides" => ("`row:height` pairs, one per line", "Per-row height overrides."),
+        "AllowSorting" => (BOOL_DOMAIN, "Click a header to sort."),
+        "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize."),
+        "AllowColumnReorder" => (BOOL_DOMAIN, "Drag headers to reorder columns."),
+        "AllowRowResize" => (BOOL_DOMAIN, "Drag row edges to resize."),
+        "AdvancedGrid" => ("internal serialized settings; leave empty", "Advanced designer-managed grid settings."),
+        "ShowRowNumbers" => (BOOL_DOMAIN, "Shows a row-number gutter."),
+        "ShowColumnFilters" => (BOOL_DOMAIN, "Shows the per-column filter row."),
+        "ColumnFilters" => ("`column=value` pairs, one per line", "Active column filters (runtime)."),
+        "ExportCSV" => (BOOL_DOMAIN, "Enables CSV export."),
+        "ShowCSVExportButton" => (BOOL_DOMAIN, "Shows the built-in export button."),
+        "CSVDelimiter" => ("single character, default `,`", "CSV field delimiter."),
+        "CSVExportMode" => ("`Filtered` | `AllRows`", "Whether export honours active filters."),
+        "FrozenColumns" => ("integer ≥ 0", "Leading columns that do not scroll."),
+        "FrozenRows" => ("integer ≥ 0", "Leading rows that do not scroll."),
+        "FrozenShadow" => (BOOL_DOMAIN, "Soft shadow cast by frozen rows/columns."),
+        "SelectableText" => (BOOL_DOMAIN, "Cell text can be selected/copied."),
+
+        // ── TabControl ──
+        "Tabs" => ("one tab title per line", "The tab pages."),
+        "TabPosition" => ("one of: `Top` | `Bottom` | `Left` | `Right`", "Edge the tab strip sits on."),
+        "SelectedTab" => ("0-based tab index", "Currently active tab."),
+        "ActiveTabColor" => (COLOR_DOMAIN, "Highlight color of the active tab."),
+        "TabPadding" => ("pixels ≥ 0", "Padding inside each tab header."),
+
+        // ── MenuBar ──
+        "HighlightBgColor" => (COLOR_DOMAIN, "Hovered menu item background."),
+        "HighlightFgColor" => (COLOR_DOMAIN, "Hovered menu item text."),
+        "SelectedBgColor" => (COLOR_DOMAIN, "Open/selected menu background."),
+        "SelectedFgColor" => (COLOR_DOMAIN, "Open/selected menu text."),
+
+        // ── Line / Shape ──
+        "LineThickness" => ("pixels > 0", "Stroke thickness."),
+        "LineDirection" => ("`Horizontal` | `Vertical` | `Diagonal`", "Axis the Line control draws along."),
+        "DashStyle" => ("one of: `Solid` | `Dash` | `Dot` | `DashDot`", "Line dash pattern."),
+        "RoundedEnds" => (BOOL_DOMAIN, "Rounds the line end caps."),
+        "ShapeType" => ("one of: `Rectangle` | `Circle` | `Triangle`", "Geometric shape drawn."),
+        "FormStyle" => (BOOL_DOMAIN, "Shape follows the form's glass style."),
+        "FillColor" => (COLOR_DOMAIN, "Shape interior fill (also Slider filled-track color)."),
+        "FillStyle" => ("one of: `Solid` | `None` | `Hatched`", "How the shape interior is filled."),
+        "LineStyle" => ("one of: `Solid` | `Dash` | `Dot` | `DashDot`", "Shape outline dash pattern."),
+
+        // ── Splitter ──
+        "MinimumSize" => ("pixels ≥ 0", "Smallest size either side may shrink to."),
+        "SplitPosition" => ("pixels ≥ 0", "Current divider position."),
+
+        // ── Timer ──
+        "Interval" => ("milliseconds ≥ 10", "Delay between `onTick` events."),
+        "Enabled" => (BOOL_DOMAIN, "Timer running state (this is the timer's own property, distinct from control chrome)."),
+
+        // ── AgentObject (LLM) ──
+        "AgentURL" => ("HTTP(S) URL", "Base URL of the LLM provider."),
+        "AgentModel" => ("model id string", "Model requested from the provider."),
+        "AgentAPI" => ("one of: `Ollama` | `LMStudio` | `OpenAI` | `Anthropic` | `Custom`", "Provider protocol."),
+        "AgentAPIKey" => ("secret string or empty", "API key when the provider needs one."),
+        "AgentEndpoint" => ("URL path or empty", "Overrides the provider's default endpoint."),
+        "SystemPrompt" => ("free text", "System prompt sent with every request."),
+        "Temperature" => ("0-100 (maps to 0.0-1.0)", "Sampling temperature."),
+        "MaximumTokens" => ("integer > 0", "Response token limit."),
+        "Stream" => (BOOL_DOMAIN, "Streams the response as it generates."),
+        "TimeoutSeconds" => ("seconds > 0", "Request timeout."),
+        "TargetControls" => ("comma-separated control ids", "Controls this agent is allowed to modify."),
+        "ResponseDataItem" => ("COBOL data-item name", "WORKING-STORAGE item that receives the response."),
+
+        // ── RestClient ──
+        "BaseURL" => ("HTTP(S) URL", "Documented base address (note: inline verbs take a FULL URL argument; BaseURL is not auto-prepended)."),
+        "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "Designer default verb."),
+        "AuthType" => ("one of: `None` | `Bearer` | `Basic` | `APIKey`", "Authentication scheme."),
+        "AuthToken" => ("secret string or empty", "Token/credentials for AuthType."),
+        "DefaultHeaders" => ("`key:value` pairs, newline-separated", "Headers sent with every request."),
+        "FollowRedirects" => (BOOL_DOMAIN, "Follows HTTP redirects."),
+        "VerifyTLS" => (BOOL_DOMAIN, "Verifies TLS certificates."),
+        "RequestDataItem" => ("COBOL data-item name", "Item whose content is sent as the request body."),
+        "StatusDataItem" => ("COBOL data-item name", "Item that receives the HTTP status / file status."),
+        "Mode" => ("`Async` | `Sync`", "Async fires onComplete/onError later; Sync blocks and returns in-statement."),
+        "Busy" => (BOOL_DOMAIN, "Read-only runtime flag: an async operation is in flight."),
+        "TimeoutMs" => ("milliseconds ≥ 0; 0 = fall back to TimeoutSeconds", "Async operation timeout."),
+
+        // ── SqlDatabase ──
+        "Driver" => ("one of: `sqlite` | `postgres` | `mysql` | `mssql`", "Database backend."),
+        "ConnectionString" => ("e.g. `sqlite::memory:`, `postgres://user:pw@host/db`", "Connection string; the scheme selects the engine."),
+        "AutoConnect" => (BOOL_DOMAIN, "Connects automatically when the form loads."),
+        "MaximumConnections" => ("integer ≥ 1", "Connection pool cap."),
+        "ConnectionDataItem" => ("COBOL data-item name", "Item that receives the connection handle."),
+        "ResultSetDataItem" => ("COBOL data-item name", "Item that receives the result-set handle."),
+
+        // ── IndexedFile ──
+        "IndexedFile" => ("`.cidx` schema name from the project", "Which indexed-file schema this control operates on."),
+        "OpenMode" => ("`INPUT` (read-only) | `I-O` (read-write)", "COBOL open mode used by the generated paragraphs."),
+        "LoadStrategy" => ("`Disk` | `Memory`", "Whether records stream from disk or load into memory."),
+        "AutoOpen" => (BOOL_DOMAIN, "Opens the file automatically when the form loads."),
+        "RecordName" => ("COBOL record name or empty", "Overrides the schema's record item."),
+        "KeyName" => ("COBOL key item or empty", "Overrides the schema's primary-key item."),
+        "CurrentKeyDataItem" => ("COBOL data-item name or empty", "Item holding the key for START/READ positioning."),
+        "CurrentRecordDataItem" => ("COBOL data-item name or empty", "Item that receives the current record."),
+        "OperatorName" => ("registered user name or empty", "`OPEN ... REGISTERED USER` operator identity."),
+
+        // ── Charts ──
+        "Title" => ("free text", "Chart title (also the window title on Form methods)."),
+        "ShowLegend" => (BOOL_DOMAIN, "Shows the series legend."),
+        "ShowGridLines" => (BOOL_DOMAIN, "Shows the plot grid."),
+        "ShowXAxis" => (BOOL_DOMAIN, "Shows the X axis line."),
+        "ShowYAxis" => (BOOL_DOMAIN, "Shows the Y axis line."),
+        "ShowTooltips" => (BOOL_DOMAIN, "Hover tooltips on data points."),
+        "AnimateOnLoad" => (BOOL_DOMAIN, "Animates the first draw."),
+        "Monochrome" => (BOOL_DOMAIN, "Tonal single-color rendering instead of the palette."),
+        "MonochromeColor" => (COLOR_DOMAIN, "Base color for monochrome mode."),
+        "MonochromeGradient" => (BOOL_DOMAIN, "Diagonal light-to-dark shading in monochrome mode."),
+        "XAxisLabel" => ("free text", "X axis caption."),
+        "YAxisLabel" => ("free text", "Y axis caption."),
+        "SeriesColors" => ("comma-separated hex colors", "Palette used for the data series."),
+        "DataSource" => (
+            "COBOL table data-item name (charts / repeating GroupBox / DataGrid binding)",
+            "Table the control binds to; rows use the standard `PIC X(64)` label + `PIC 9(18)V9(6)` value layout for charts.",
+        ),
+        "DataCount" => ("COBOL data-item name", "Item holding the number of occupied table rows."),
+        "LabelField" => ("sub-field name", "Table sub-field used for X labels."),
+        "ValueFields" => ("comma-separated sub-field names", "Table sub-fields used as Y series."),
+        "SeriesLabels" => ("comma-separated display names", "Legend names for the series."),
+        "Horizontal" => (BOOL_DOMAIN, "Horizontal bars instead of vertical."),
+        "Stacked" => (BOOL_DOMAIN, "Stacks the series instead of grouping."),
+        "BarCornerRadius" => ("pixels ≥ 0", "Rounding on bar tops."),
+        "Smooth" => (BOOL_DOMAIN, "Catmull-Rom smoothing of the polyline."),
+        "ShowPoints" => (BOOL_DOMAIN, "Draws point markers."),
+        "PointRadius" => ("pixels > 0", "Point marker radius."),
+        "FillAlpha" => ("0-100 (percent)", "Area fill opacity."),
+        "ShowLabels" => (BOOL_DOMAIN, "Draws slice labels."),
+        "LabelFormat" => ("one of: `percent` | `value` | `label`", "What pie/donut slice labels show."),
+        "InnerRadius" => ("0-100 (% of outer radius)", "Donut hole size."),
+        "BubbleField" => ("sub-field name or empty", "Table sub-field controlling bubble size."),
+        "BubbleScale" => ("pixels > 0", "Maximum bubble radius."),
+
+        // ── Icons (Button) ──
+        "IsDefault" => (BOOL_DOMAIN, "Form's default button (activated by Enter)."),
+        "IconPath" => ("image path or empty", "Icon drawn next to the caption."),
+        "IconAlignment" => ("`Left` | `Right` | `Top` | `Bottom`", "Side of the caption the icon sits on."),
+        "IconPadding" => ("pixels ≥ 0", "Gap between icon and caption."),
+        "IconSize" => ("pixels, one of: `16` `32` `48` `64` `80` `96` `128`", "Icon edge length."),
+
+        _ => return None,
+    })
+}
+
+/// Short description for a control-specific event (universal input/lifecycle
+/// events are documented once in the shared section).
+fn event_reference(name: &str) -> &'static str {
+    match name {
+        "onChange" => "value or text changed",
+        "onTextChanged" => "text content changed",
+        "onEnter" => "focus entered the box (alias of onGotFocus)",
+        "onLeave" => "focus left the box (alias of onLostFocus)",
+        "onCheckedChanged" => "checked state flipped",
+        "onValueChanged" => "value changed (the new value is delivered)",
+        "onSelectedIndexChanged" => "selection moved to another index",
+        "onItemDoubleClick" => "a list item was double-clicked",
+        "onSelectionChanged" => "the selected item/cell set changed",
+        "onScroll" => "content scrolled",
+        "onDropDown" => "drop-down list opened",
+        "onDropDownClosed" => "drop-down list closed",
+        "onNodeClick" => "a tree node was clicked",
+        "onNodeDblClick" | "onNodeDoubleClick" => "a tree node was double-clicked",
+        "onNodeSelect" => "a tree node became selected",
+        "onTick" => "fires every `Interval` ms while `Enabled` = 1",
+        "onImageLoaded" => "the image finished loading",
+        "onImageError" => "the image failed to load",
+        "onStarted" => "animation started",
+        "onEnded" => "animation reached its end",
+        "onFrameChanged" => "animation advanced a frame",
+        "onLooped" => "animation restarted a loop",
+        "onCellClick" => "a cell was clicked",
+        "onCellDoubleClick" => "a cell was double-clicked",
+        "onRowSelect" => "a row became selected",
+        "onRowDoubleClick" => "a row was double-clicked",
+        "onColumnClick" => "a column header was clicked",
+        "onExportCSV" => "the built-in CSV export ran",
+        "onChildAdded" => "a child control was added to the container",
+        "onChildRemoved" => "a child control was removed from the container",
+        "onTabChanged" => "the active tab changed",
+        "onTabClick" => "a tab header was clicked",
+        "onCompleted" => "Value reached Maximum",
+        "onDataChanged" => "the chart's data-bearing properties changed",
+        "onMenuClick" => "a top-level menu was clicked",
+        "onMenuItemClick" => "a menu item was activated",
+        "onMenuOpen" => "a menu opened",
+        "onMenuClose" => "a menu closed",
+        "onResponse" => "the LLM reply arrived",
+        "onError" => "the operation failed (message in `LastError`)",
+        "onTimeout" => "the async operation exceeded its timeout",
+        "onComplete" => "the async operation finished successfully",
+        "onCancelled" => "the async operation was cancelled",
+        "onQueryComplete" => "the SQL statement finished",
+        "onConnectOk" => "the database connection opened",
+        "onConnectError" => "the database connection failed",
+        "onQueryError" => "the SQL statement failed",
+        "onRowFetched" => "Fetch() advanced to a row",
+        _ => "",
+    }
+}
+
+/// One-line purpose for each control type, leading its reference section.
+fn control_purpose(name: &str) -> &'static str {
+    match name {
+        "Button" => "Clickable push button.",
+        "TextBox" => "Single- or multi-line text input.",
+        "Label" => "Static text display.",
+        "CheckBox" => "Boolean on/off box with caption.",
+        "RadioButton" => "Mutually-exclusive choice within a GroupName.",
+        "ListBox" => "Scrollable list of selectable items.",
+        "ComboBox" => "Drop-down list, optionally editable.",
+        "GroupBox" => "Captioned container; can become a repeating card template (control array).",
+        "Panel" => "Plain container for grouping child controls.",
+        "TabControl" => "Multi-page container with a tab strip.",
+        "DataGrid" => "Tabular rows/columns grid with sorting, filtering, freezing and CSV export.",
+        "PictureBox" => "Displays a still image.",
+        "ProgressBar" => "Shows progress within Minimum..Maximum.",
+        "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property).",
+        "ToolBar" => "Horizontal strip of action items.",
+        "StatusBar" => "Bottom status strip.",
+        "Line" => "Decorative straight line.",
+        "DateTimePicker" => "Date/time input with calendar or spinner.",
+        "NumericUpDown" => "Integer input with spinner arrows.",
+        "TreeView" => "Hierarchical node list.",
+        "Splitter" => "Draggable divider between two areas.",
+        "Timer" => "Non-visual: fires `onTick` every Interval ms.",
+        "Shape" => "Decorative rectangle / circle / triangle.",
+        "Animator" => "Plays an animated image (GIF / WebP / APNG).",
+        "AgentObject" => "Non-visual LLM client (ask a model from COBOL).",
+        "RestClient" => "Non-visual HTTP/REST client (async by default).",
+        "SqlDatabase" => "Non-visual SQL connection (sqlite / postgres / mysql / mssql).",
+        "IndexedFile" => "Non-visual COBOL indexed-file access (driven by generated PERFORM paragraphs).",
+        "Slider" => "Draggable value selector within Minimum..Maximum.",
+        "BarChart" => "Bar chart.",
+        "LineChart" => "Line chart.",
+        "PieChart" => "Pie chart.",
+        "AreaChart" => "Filled area chart.",
+        "ScatterChart" => "Scatter/bubble chart.",
+        "DonutChart" => "Donut chart.",
+        _ => "",
+    }
+}
+
+/// `(signature, description)` pairs for the inline methods that apply to one
+/// control type (beyond the universal set documented in the shared section).
+fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
+    let text_methods: Vec<(&'static str, &'static str)> = vec![
+        ("SetText(text: String)", "Replace the text content."),
+        ("GetText() → String", "Read the text content."),
+        ("AppendText(text: String)", "Append to the text content."),
+        ("Clear()", "Empty the text/items."),
+    ];
+    let caption_methods: Vec<(&'static str, &'static str)> = vec![
+        ("SetCaption(text: String)", "Replace the caption."),
+        ("GetCaption() → String", "Read the caption."),
+    ];
+    let value_methods: Vec<(&'static str, &'static str)> = vec![
+        ("SetValue(value: Integer)", "Set the current value."),
+        ("GetValue() → Integer", "Read the current value."),
+        ("Increment()", "Add Step to Value."),
+        ("Decrement()", "Subtract Step from Value."),
+        ("Reset()", "Return Value to Minimum."),
+    ];
+    let items_methods: Vec<(&'static str, &'static str)> = vec![
+        ("AddItem(text: String)", "Append one item."),
+        ("RemoveItem(text: String)", "Remove the first item equal to `text`."),
+        ("GetSelected() → String", "Read the selected item's value."),
+        ("GetSelectedIndex() → Integer", "Read the 0-based selected index (-1 = none)."),
+        ("SetSelectedIndex(index: Integer)", "Select by 0-based index."),
+        ("GetCount() → Integer", "Number of items."),
+        ("Clear()", "Remove all items."),
+    ];
+    let chart_methods: Vec<(&'static str, &'static str)> = vec![
+        (
+            "AddPoint(label: String, value: Number)",
+            "Append one data point and repaint.",
+        ),
+        ("Clear()", "Remove all pushed data (chart falls back to its sample preview)."),
+        ("Refresh()", "Force a repaint with the current data."),
+    ];
+    match name {
+        "Button" => caption_methods,
+        "Label" => caption_methods,
+        "CheckBox" | "RadioButton" => {
+            let mut v = caption_methods;
+            v.extend([
+                ("IsChecked() → Boolean (0/1)", "Read the checked state."),
+                (
+                    "SetChecked(value: Boolean)",
+                    "Set the checked state (`1`/`0`, also accepts true/false/yes/on).",
+                ),
+                ("Select()", "Check it (radio: also unchecks the group siblings)."),
+                ("Toggle()", "Flip the checked state."),
+            ]);
+            v
+        }
+        "TextBox" => text_methods,
+        "ListBox" | "ComboBox" | "ToolBar" | "StatusBar" => items_methods,
+        "ProgressBar" | "Slider" | "NumericUpDown" | "DateTimePicker" => value_methods,
+        "DataGrid" => vec![
+            ("GetRowCount() → Integer", "Number of data rows."),
+            ("GetCellValue(row: Integer, column: Integer) → String", "Read one cell (0-based indices)."),
+            ("SetCellValue(row: Integer, column: Integer, value: String)", "Write one cell."),
+            ("AddRow(cells: String)", "Append a row; cells separated by TAB."),
+            ("DeleteRow(row: Integer)", "Remove one row."),
+            ("ClearRows()", "Remove all rows."),
+            ("Sort(column: Integer)", "Sort by a column."),
+            ("SetFilter(column: String, value: String)", "Filter a column."),
+            ("ClearFilters()", "Drop all column filters."),
+            ("FreezeColumns(count: Integer)", "Freeze the first N columns."),
+            ("FreezeRows(count: Integer)", "Freeze the first N rows."),
+            ("SetRowHeight(pixels: Integer)", "Set the uniform row height."),
+            ("SetColumnWidth(column: Integer, pixels: Integer)", "Set one column's width."),
+            ("GetSelectedText() → String", "Text of the current selection."),
+            ("CopySelection()", "Copy the selection to the clipboard."),
+            ("ExportCSV() → String", "Serialise the grid as CSV."),
+            ("RefreshBinding() → Integer", "Re-hydrate rows from the bound data source; returns the row count."),
+        ],
+        "Timer" => vec![
+            ("Start()", "Set Enabled = 1 (ticks resume)."),
+            ("Stop()", "Set Enabled = 0 (ticks stop)."),
+            ("SetInterval(ms: Integer)", "Change the tick interval."),
+            ("IsEnabled() → Boolean (0/1)", "Read the running state."),
+        ],
+        "Animator" => vec![
+            ("Play() / PlayAnimation(name: String?)", "Start playing (optionally a named animation)."),
+            ("StopAnimation()", "Stop playing."),
+            ("Pause()", "Pause playback."),
+        ],
+        "AgentObject" => vec![
+            ("Ask(prompt: String) → String", "Send a prompt; returns the last delivered reply (fires `onResponse` when one arrives)."),
+            ("SetPrompt(text: String)", "Replace the SystemPrompt."),
+            ("SetModel(model: String)", "Switch the model id."),
+            ("GetResult() → String", "Read the `Result` property."),
+            ("Cancel()", "Cancel the in-flight request."),
+            ("IsBusy() → Boolean (0/1)", "An async request is in flight."),
+        ],
+        "RestClient" => vec![
+            ("Get(url: String) → String", "HTTP GET. Async mode: returns immediately, response lands in `ResponseBody`/`StatusCode` + `onComplete`. Sync mode: returns the body."),
+            ("Post(url: String, body: String) → String", "HTTP POST (same async/sync contract)."),
+            ("Put(url: String, body: String) → String", "HTTP PUT."),
+            ("Delete(url: String) → String", "HTTP DELETE."),
+            ("Call(verb: String, url: String, body: String?) → String", "Any verb by name."),
+            ("SetHeader(name: String, value: String)", "Add a header for subsequent requests."),
+            ("ClearHeaders()", "Drop all added headers."),
+            ("SetTimeout(seconds: Integer)", "Set the request timeout."),
+            ("Cancel()", "Cancel the in-flight request."),
+            ("IsBusy() → Boolean (0/1)", "An async request is in flight."),
+        ],
+        "SqlDatabase" => vec![
+            ("Open(connectionString: String) → Integer", "Open the connection; returns the handle (fires `onConnectOk`/`onConnectError`)."),
+            ("Execute(sql: String) → Integer", "Run a statement; returns the affected-row count (alias `Exec`)."),
+            ("Query(sql: String) → Integer", "Run a query; returns the result-row count."),
+            ("Fetch() → Boolean (0/1)", "Advance to the next row (fires `onRowFetched`)."),
+            ("FetchAll() → Integer", "Row count of the current result set."),
+            ("Close()", "Close the connection."),
+        ],
+        "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart" => {
+            chart_methods
+        }
+        "GroupBox" => {
+            let mut v = caption_methods;
+            v.push((
+                "RefreshBinding() → Integer",
+                "Repeating group: re-hydrate the cards from the bound data source.",
+            ));
+            v
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Extra usage notes appended to a control's section (generated paragraphs,
+/// data-flow contracts, and other things a code generator must know).
+fn control_usage_notes(name: &str) -> &'static str {
+    match name {
+        "IndexedFile" => "\
+### Usage (generated paragraphs — NOT `::` methods)\n\
+An IndexedFile control named `IXF-1` is driven with `PERFORM` on the paragraphs the IDE generates:\n\
+- `PERFORM IXF-1-OPEN` — open the file in `OpenMode` (`INPUT` or `I-O`).\n\
+- `MOVE key TO <key item>` then `PERFORM IXF-1-START` — position the record pointer (KEY >= value).\n\
+- `PERFORM IXF-1-READ-NEXT` / `IXF-1-READ-PREVIOUS` / `IXF-1-READ-FIRST` / `IXF-1-READ-LAST` — sequential reads; `WS-IXF-1-AT-END = 1` after the last record.\n\
+- `PERFORM IXF-1-READ-INVALID` — random read by key (INVALID KEY sets status `23`).\n\
+- `WRITE` / `REWRITE` / `DELETE` — use the plain COBOL verbs on the file's record.\n\
+- `PERFORM IXF-1-COMMIT` — flush pending writes (I-O mode).\n\
+- `PERFORM IXF-1-CLOSE` — close the file.\n\
+The two-character file status lands in the `StatusDataItem` (or `WS-IXF-1-STATUS`).\n",
+        "SqlDatabase" => "\
+### Usage (generated paragraphs and CALL API)\n\
+Besides the inline methods, the IDE generates paragraphs for a control named `DB-1`: `DB-1-CONNECT` (opens using `WS-DB-1-CONN-STRING`), `DB-1-EXEC` (runs `WS-SQL-QUERY`, row count in `WS-SQL-ROW-COUNT`), `DB-1-FETCH-ALL` (template row loop), `DB-1-COMMIT`, `DB-1-ROLLBACK`, `DB-1-CLOSE`. The low-level `CALL \"COBOL-OPEN-DB\" / \"COBOL-EXEC-SQL\" / \"COBOL-FETCH-ROW\" / ...` API is also available.\n",
+        "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart" => "\
+### Data flow\n\
+Three equivalent ways to feed the chart:\n\
+1. Inline methods: `Chart-1::AddPoint(\"Jan\", 150).` / `Chart-1::Clear().` / `Chart-1::Refresh().`\n\
+2. Generated paragraphs: `PERFORM Chart-1-ADD-POINT` (after `MOVE`s to `WS-Chart-1-SELECTED-LBL` / `-SELECTED-VAL`), `PERFORM Chart-1-SET-TABLE`, `PERFORM Chart-1-CLEAR`, `PERFORM Chart-1-REFRESH`.\n\
+3. Runtime calls: `CALL \"COBOL-CHART-ADD-POINT\" USING \"Chart-1\" label value` and `CALL \"COBOL-CHART-SET-TABLE\" USING \"Chart-1\" table count` (table rows: `PIC X(64)` label + `PIC 9(18)V9(6)` value).\n\
+Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueFields` properties.\n",
+        "GroupBox" => "\
+### Repeating groups (control arrays)\n\
+With `IsRepeatingGroup = 1` the GroupBox becomes a card template: set `ItemCount` (or bind `DataSource`) and address instance members as `Member(index)::Property` (1-based index). Handlers on members receive `CONTROL-ARRAY-INDEX`.\n",
+        _ => "",
+    }
+}
+
+/// Render the enriched Form Controls Reference (KB file 3).
+fn controls_reference_doc() -> String {
+    let control_types = [
         cobolt_forms::ControlType::Button,
         cobolt_forms::ControlType::TextBox,
         cobolt_forms::ControlType::Label,
@@ -1574,64 +2285,477 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
         cobolt_forms::ControlType::ScatterChart,
         cobolt_forms::ControlType::DonutChart,
     ];
+
     let mut doc = String::new();
     doc.push_str("# PowerRustCOBOL Form Controls Reference\n\n");
-    doc.push_str("This document inventories all visual and non-visual controls supported by the PowerRustCOBOL RAD Form Designer, listing their properties and events.\n\n");
+    doc.push_str(
+        "Complete reference for every control the RAD Form Designer supports: purpose, \
+         properties with value types / defaults / allowed domains, events, and inline methods. \
+         Properties are read as `<control>::<Property>` and written with \
+         `SET <control>::<Property> TO <value>` (or the designer op `set_property`). \
+         All properties are OPTIONAL — a control works with its defaults; set only what the \
+         request needs. Property names are case-insensitive at runtime but SHOULD be written \
+         exactly as listed. Setting a misspelled property silently creates a new, ignored \
+         property — it is never an error, so spelling matters.\n\n",
+    );
 
-    for ct in control_types {
-        let name = ct.as_str();
-        doc.push_str(&format!("## Control: {name}\n\n"));
-        
-        doc.push_str("### Settable Properties\n");
-        let mut props = cobolt_forms::model::property_names_for(name);
-        props.sort();
-        if props.is_empty() {
-            doc.push_str("- None\n");
-        } else {
-            for prop in props {
-                doc.push_str(&format!("- `{prop}`\n"));
-            }
-        }
-        doc.push_str("\n");
-
-        doc.push_str("### Supported Events\n");
-        let mut events: Vec<String> = ct.supported_events().iter().map(|e| (*e).to_string()).collect();
-        events.sort();
-        if events.is_empty() {
-            doc.push_str("- None\n");
-        } else {
-            for event in events {
-                doc.push_str(&format!("- `{event}`\n"));
-            }
-        }
-        doc.push_str("\n---\n\n");
+    // ── Shared sections ──────────────────────────────────────────────────────
+    doc.push_str("## Universal properties (every control)\n\n");
+    doc.push_str("Layout fields (settable like any property):\n\n");
+    for (sig, dom, desc) in [
+        ("Name", "String — control identifier", "The control id (assigned by the designer; treat as read-only)."),
+        ("Visible", "Boolean — `1`/`0`", "Whether the control is drawn."),
+        ("Enabled", "Boolean — `1`/`0`", "Whether the control accepts input."),
+        ("X", "Integer — pixels from the form's left edge", "Horizontal position."),
+        ("Y", "Integer — pixels from the form's top edge", "Vertical position."),
+        ("Width", "Integer — pixels > 0", "Control width."),
+        ("Height", "Integer — pixels > 0", "Control height."),
+        ("TabOrder", "Integer ≥ 0", "Keyboard Tab traversal order."),
+        ("Parent", "String — container control id or empty", "The container that owns this control."),
+        ("Tab", "Integer — 0-based tab page index", "Which TabControl page the control sits on (only inside a TabControl)."),
+    ] {
+        doc.push_str(&format!("- `{sig}` ({dom}) — {desc}\n"));
     }
-    std::fs::write(kb_dir.join("form_designer_controls.md"), doc)?;
+    doc.push_str("\nAppearance and behaviour properties shared by every control:\n\n");
+    {
+        let sample = cobolt_forms::Control::new("_", cobolt_forms::ControlType::Panel, 0, 0);
+        for name in UNIVERSAL_PROPS {
+            if let Some(v) = sample.properties.get(*name) {
+                let (ty, default) = prop_type_and_default(v);
+                let (domain, desc) = property_reference(name).unwrap_or(("", ""));
+                push_prop_line(&mut doc, name, ty, &default, domain, desc);
+            }
+        }
+    }
+    doc.push_str("\n## Universal events (visual controls)\n\n");
+    doc.push_str(
+        "Most visual controls support this shared input/lifecycle set (each control section \
+         lists which of them apply):\n\n",
+    );
+    for (ev, desc) in [
+        ("onClick", "left click released on the control"),
+        ("onDblClick / onDoubleClick", "double click (aliases)"),
+        ("onRightClick", "right click"),
+        ("onMiddleClick", "middle click"),
+        ("onMouseEnter / onMouseLeave", "pointer entered / left the control"),
+        ("onMouseDown / onMouseUp", "button pressed / released"),
+        ("onMouseMove", "pointer moved over the control"),
+        ("onMouseWheel", "wheel scrolled over the control"),
+        ("onContextMenu", "context-menu request (right click)"),
+        ("onGotFocus / onLostFocus", "keyboard focus gained / lost"),
+        ("onKeyDown / onKeyUp / onKeyPress", "keyboard input while focused"),
+        ("onEnterPressed / onEscapePressed", "Enter / Escape pressed while focused"),
+        ("onHoverEnter / onHoverLeave", "pointer rested ≥ `HoverDelayMs` / left after hovering"),
+        ("onResize / onResized / onMove / onMoved", "geometry changed"),
+        ("onVisibleChanged / onEnabledChanged", "Visible / Enabled flipped"),
+        ("onLoad", "control initialised when the form opens"),
+    ] {
+        doc.push_str(&format!("- `{ev}` — {desc}\n"));
+    }
+    doc.push_str(
+        "\nEvent handlers carry no parameters (repeating-group members receive \
+         `CONTROL-ARRAY-INDEX`, the 1-based index of the card that fired).\n\n",
+    );
 
-    // Write File 4: agents_registry.md
-    let agents_reg = r##"# PowerRustCOBOL Agent Registry
+    // ── The form itself ──────────────────────────────────────────────────────
+    doc.push_str("## The Form (window)\n\n");
+    doc.push_str(
+        "Form-level designer attributes: `title` (String), `width`/`height` (Integer px), \
+         `background_color` (hex color), optional background gradient \
+         (enabled/start/end/direction as in the universal gradient properties), \
+         `transparency` (0-100, 0 = opaque), `background_image` (path) with scale mode, \
+         and `GlassStyle` (exactly one of `\"Classic\"`, `\"Enhanced\"`, \
+         `\"Neumorphic Light\"`, `\"Neumorphic Dark\"`).\n\n",
+    );
+    doc.push_str("Form events (bind a handler in the designer; `onLoad` / `onClose` are pre-stubbed):\n\n");
+    for (group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {
+        let list = events
+            .iter()
+            .map(|e| format!("`{e}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        doc.push_str(&format!("- {group}: {list}\n"));
+    }
+    doc.push_str(
+        "\nNot every form event is wired into the runtime yet — prefer `onLoad` and `onClose` \
+         for lifecycle logic. Wired since spec 037: `onCloseRejected` (a close attempt was \
+         refused while `FormState` is `Waiting`, or a Sync child is Waiting) and \
+         `onFullScreenChanged` (the ACTUAL fullscreen state changed — read `me`'s `FullScreen` \
+         for the new value; fires once per real transition).\n\n",
+    );
 
-This document lists all built-in specialist and reviewer agents configured in the PowerRustCOBOL agentic AI mesh:
+    // ── 037 — main form, window lifecycle & multi-form invocation ────────────
+    doc.push_str("### Main form & window lifecycle (spec 037)\n\n");
+    doc.push_str(
+        "Window-lifecycle designer attributes on every form: `MainForm` (Boolean — exactly ONE \
+         form per project holds it; the first form created is the default; the Forms tree marks \
+         it with a crown), `TaskbarIcon` (image path — main form only: the single taskbar/dock \
+         entry uses it; non-main windows create no taskbar entries), `CanMinimize` / \
+         `CanMaximize` (Boolean, default true — native title-bar buttons), `WindowState` \
+         (`\"Normal\"` | `\"Minimized\"` | `\"Maximized\"` — the state the window opens in, \
+         settable at runtime), `FullScreen` (Boolean — orthogonal to WindowState; leaving \
+         fullscreen returns to the previous state), and `TitleVisible` (Boolean, default true — \
+         false renders a chromeless window).\n\n",
+    );
+    doc.push_str(
+        "`FormState` (`\"Ready\"` | `\"Waiting\"`, runtime-only, default Ready) guards unsaved \
+         work: while `Waiting`, EVERY close attempt on the form is refused (title-bar close, \
+         windowHandler Close, cascades) and `onCloseRejected` fires; set it back to `Ready` to \
+         allow closing. A Sync caller is also blocked while any of its Sync children is \
+         Waiting. Set it with `INVOKE me \"SetProperty\" USING \"FormState\" \"Waiting\"`.\n\n",
+    );
+    doc.push_str(
+        "Opening forms from COBOL — two methods on `me`, two syntaxes:\n\n\
+         - Comma form (trailing parameters OPTIONAL, defaulted from the target form's design): \
+         `INVOKE me::\"OpenFormSync\"(\"FORM-ID\", [windowState], [x], [y], [width], [height], \
+         [modal]) RETURNING H` — `modal` defaults to TRUE. \
+         `INVOKE me::\"OpenFormAsync\"(\"FORM-ID\", [windowState], [x], [y], [width], [height]) \
+         RETURNING H` — Async is never modal.\n\
+         - COBOL-standard space form (ALL parameters required — a mismatch is a compile \
+         error): `INVOKE me \"OpenFormSync\" USING form-id windowState x y width height modal \
+         RETURNING H`.\n\n\
+         `H` is a `windowHandler` (USAGE OBJECT). Methods on the handle: `Close`, `Focus` \
+         (restores a minimized window first), `SetWindowState(state)`, `SetFullScreen(bool)`, \
+         `SetTitleVisible(bool)`; read `H::FormState` for the child's state. When a form \
+         closes, every windowHandler referring to it becomes NULL automatically; invoking \
+         through a NULL handle is a runtime error.\n\n",
+    );
+    doc.push_str(
+        "Lifecycle rules: the MAIN form is a singleton — opening it again focuses the running \
+         instance and returns its existing handle; other forms can run any number of \
+         concurrent instances. Sync children close together with their caller (a Waiting form \
+         anywhere in the chain vetoes the whole close). Async children survive their caller — \
+         except when the MAIN form closes, which closes every form and exits the application. \
+         A modal Sync child blocks the caller's input AND its COBOL flow until the child \
+         closes (the RETURNING handle is then already NULL). `me` window methods: \
+         `SetWindowState`, `SetFullScreen`, `SetTitleVisible`, `Focus`, `Close`.\n\n---\n\n",
+    );
 
-## Orchestrator Agent
-- **Grace**: Plans, delegates, coordinates task sequencing, and integrates specialist outputs.
-  - **Companion Reviewer**: `Grace Pedantic Reviewer`
+    // ── Per-control sections ─────────────────────────────────────────────────
+    for ct in control_types {
+        let name = ct.as_str().to_owned();
+        let (dw, dh) = ct.default_size();
+        let events: Vec<&str> = ct.supported_events().to_vec();
+        let ctrl = cobolt_forms::Control::new("_", ct, 0, 0);
 
-## Specialist Agents
-- **Form Designer Agent**: Specialist responsible for RAD desktop form structures, layouts, control deployment, and visual styling properties.
-  - **Companion Reviewer**: `Form Designer Agent Pedantic Reviewer`
-- **COBOL Event Handler Script Agent**: Specialist responsible for generating COBOL-85 / RustCOBOL event handler implementations bound to control events.
-  - **Companion Reviewer**: `COBOL Event Handler Script Agent Pedantic Reviewer`
-- **Data (Indexed File) Agent**: Specialist responsible for creating or modifying PowerRustCOBOL indexed-file schemas (.cidx) and structural COBOL definitions.
-  - **Companion Reviewer**: `Data (Indexed File) Agent Pedantic Reviewer`
-- **Documentation Agent**: Specialist responsible for formatting, writing, and indexing markdown files exclusively inside the project `/Knowledge Base/` folder.
-  - **Companion Reviewer**: `Documentation Agent Pedantic Reviewer`
-- **Version Control Agent**: Specialist responsible for executing repository actions (Git status, branch, commit, push, merge, revert, rebase).
-  - **Companion Reviewer**: `Version Control Agent Pedantic Reviewer`
-"##;
-    std::fs::write(kb_dir.join("agents_registry.md"), agents_reg)?;
+        doc.push_str(&format!("## Control: {name}\n\n"));
+        let purpose = control_purpose(&name);
+        if !purpose.is_empty() {
+            doc.push_str(&format!("{purpose} Default size {dw}×{dh} px.\n\n"));
+        }
 
-    Ok(())
+        // Properties — type-specific ones in full, universals by reference.
+        doc.push_str("### Settable Properties\n");
+        doc.push_str(
+            "All universal properties above apply. Type-specific properties \
+             (type, default, allowed values):\n\n",
+        );
+        let mut specific = 0usize;
+        for (pname, v) in &ctrl.properties {
+            if UNIVERSAL_PROPS.contains(&pname.as_str()) {
+                continue;
+            }
+            let (ty, default) = prop_type_and_default(v);
+            let (domain, desc) = property_reference(pname).unwrap_or(("", ""));
+            push_prop_line(&mut doc, pname, ty, &default, domain, desc);
+            specific += 1;
+        }
+        if specific == 0 {
+            doc.push_str("- (none — this control only uses the universal properties)\n");
+        }
+        doc.push('\n');
+
+        // Events — split into universal (compact) and specific (described).
+        doc.push_str("### Supported Events\n");
+        let universal: Vec<&str> = events
+            .iter()
+            .copied()
+            .filter(|e| UNIVERSAL_EVENTS.contains(e))
+            .collect();
+        let specific_events: Vec<&str> = events
+            .iter()
+            .copied()
+            .filter(|e| !UNIVERSAL_EVENTS.contains(e))
+            .collect();
+        for ev in &specific_events {
+            let desc = event_reference(ev);
+            if desc.is_empty() {
+                doc.push_str(&format!("- `{ev}`\n"));
+            } else {
+                doc.push_str(&format!("- `{ev}` — {desc}\n"));
+            }
+        }
+        if !universal.is_empty() {
+            let list = universal
+                .iter()
+                .map(|e| format!("`{e}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            doc.push_str(&format!(
+                "- Plus the universal events: {list} (see \"Universal events\").\n"
+            ));
+        }
+        if specific_events.is_empty() && universal.is_empty() {
+            doc.push_str("- None\n");
+        }
+        doc.push('\n');
+
+        // Methods.
+        doc.push_str("### Methods\n");
+        doc.push_str(
+            "All controls support the universal methods (see the Control Methods Reference): \
+             `Show()`, `Hide()`, `Enable()`, `Disable()`, `SetFocus()`, `BringToFront()`, \
+             `SendToBack()`, `MoveTo(x, y)`, `Resize(w, h)`, `SetProperty(name, value)`, \
+             `GetProperty(name)`, `SetColor(color)`, `Refresh()`, and the property accessor \
+             forms `GET-<Prop>()` / `SET-<Prop>(value)`.\n",
+        );
+        let methods = control_method_docs(&name);
+        if !methods.is_empty() {
+            doc.push_str("Type-specific methods:\n\n");
+            for (sig, desc) in methods {
+                doc.push_str(&format!("- `{sig}` — {desc}\n"));
+            }
+        }
+        doc.push('\n');
+
+        let notes = control_usage_notes(&name);
+        if !notes.is_empty() {
+            doc.push_str(notes);
+            doc.push('\n');
+        }
+        doc.push_str("---\n\n");
+    }
+
+    doc
+}
+
+/// `(type label, printable default)` for a seeded property value. Booleans
+/// print as `1`/`0` — the value the runtime writes and compares.
+fn prop_type_and_default(v: &cobolt_forms::model::PropValue) -> (&'static str, String) {
+    match v {
+        cobolt_forms::model::PropValue::Bool(b) => ("Boolean", if *b { "1" } else { "0" }.into()),
+        cobolt_forms::model::PropValue::Int(n) => ("Integer", n.to_string()),
+        cobolt_forms::model::PropValue::String(s) => (
+            "String",
+            if s.is_empty() {
+                "(empty)".to_owned()
+            } else {
+                format!("\"{s}\"")
+            },
+        ),
+    }
+}
+
+/// Append one formatted property bullet to `doc`.
+fn push_prop_line(doc: &mut String, name: &str, ty: &str, default: &str, domain: &str, desc: &str) {
+    let mut line = format!("- `{name}` ({ty}, default {default}");
+    if !domain.is_empty() {
+        line.push_str(&format!("; {domain}"));
+    }
+    line.push(')');
+    if !desc.is_empty() {
+        line.push_str(&format!(" — {desc}"));
+    }
+    line.push('\n');
+    doc.push_str(&line);
+}
+
+/// Render the Control Methods Reference (KB file 5): the complete closed
+/// vocabulary of inline `::` methods with parameter types and return values.
+fn methods_reference_doc() -> String {
+    let mut d = String::new();
+    d.push_str("# PowerRustCOBOL Control Methods Reference\n\n");
+    d.push_str(
+        "Inline methods are invoked as `<control>::<Method>(args).` — as a statement, as an \
+         expression operand (`MOVE C::GetText() TO WS-X`), or with `RETURNING`. The method \
+         vocabulary is CLOSED: only the methods below (plus the `GET-`/`SET-` accessor forms) \
+         are recognised. Anything else is treated as a PROPERTY access — `C::Foo(x)` with an \
+         unknown `Foo` writes property `Foo`, it does not call a method. Do not invent methods.\n\n",
+    );
+    d.push_str("## Parameter conventions\n\n");
+    d.push_str(
+        "- `String` — a COBOL literal or data item; values are trimmed.\n\
+         - `Integer` / `Number` — numeric literal or numeric data item.\n\
+         - `Boolean` — `1`/`0` preferred; `true`/`yes`/`on` (any case) also count as true.\n\
+         - Missing arguments default to empty / 0 — pass every listed argument unless marked optional (`?`).\n\
+         - Methods that return a value can be used inline or with `RETURNING`; \
+           the value is a number when it parses as one, otherwise a string.\n\n",
+    );
+
+    let sections: &[(&str, &str, &[(&str, &str)])] = &[
+        (
+            "Universal (every control)",
+            "",
+            &[
+                ("Show() / Hide()", "Set `Visible` to 1 / 0."),
+                ("Enable() / Disable()", "Set `Enabled` to 1 / 0."),
+                ("SetFocus() (alias Focus())", "Give the control keyboard focus."),
+                ("BringToFront() / SendToBack()", "Jump the control to the top / bottom of the z-order."),
+                ("MoveTo(x: Integer, y: Integer)", "Move to form coordinates."),
+                ("Resize(width: Integer, height: Integer)", "Resize in pixels."),
+                ("SetProperty(name: String, value: Any)", "Write any property by name (also reaches User-Control children as `\"Child.Prop\"`)."),
+                ("GetProperty(name: String) → value", "Read any property by name."),
+                ("SetColor(color: String)", "Set `ForegroundColor` (hex color)."),
+                ("Refresh()", "No-op on most controls; on charts re-sends the current data."),
+                ("Validate()", "No-op (accepted for compatibility)."),
+                ("GET-<Prop>() → value / SET-<Prop>(value)", "Explicit accessor for ANY property, e.g. `C::GET-Width()`, `C::SET-Caption(\"Hi\")`."),
+                ("<Prop>() → value / <Prop>(value)", "Bare property name: no args reads, one arg writes."),
+            ],
+        ),
+        (
+            "Caption controls (Button, Label, CheckBox, RadioButton, GroupBox)",
+            "",
+            &[
+                ("SetCaption(text: String) / GetCaption() → String", "Write / read the `Caption`."),
+            ],
+        ),
+        (
+            "Text controls (TextBox)",
+            "",
+            &[
+                ("SetText(text: String) / GetText() → String", "Write / read the `Text`."),
+                ("AppendText(text: String)", "Append to the text."),
+                ("Clear()", "Empty `Text` (and `Items`)."),
+                ("SelectAll()", "Accepted; currently a no-op."),
+            ],
+        ),
+        (
+            "Check controls (CheckBox, RadioButton)",
+            "",
+            &[
+                ("IsChecked() → Boolean (0/1)", "Read the checked state."),
+                ("SetChecked(value: Boolean)", "Write the checked state."),
+                ("Select()", "Check; a RadioButton also unchecks its GroupName siblings."),
+                ("Toggle()", "Flip the checked state."),
+            ],
+        ),
+        (
+            "Value controls (ProgressBar, Slider, NumericUpDown, DateTimePicker)",
+            "",
+            &[
+                ("SetValue(value) / GetValue() → value", "Write / read `Value`."),
+                ("Increment() / Decrement()", "Add / subtract `Step` (default 1)."),
+                ("Reset()", "Return `Value` to `Minimum` (or 0)."),
+            ],
+        ),
+        (
+            "Item lists (ListBox, ComboBox, ToolBar, StatusBar)",
+            "`Items` is a newline-separated list; indexes are 0-based.",
+            &[
+                ("AddItem(text: String)", "Append one item."),
+                ("RemoveItem(text: String)", "Remove the first matching item."),
+                ("GetSelected() → String", "The selected value."),
+                ("GetSelectedIndex() → Integer (alias GetIndex())", "The selected index, -1 = none."),
+                ("SetSelectedIndex(index: Integer) (alias SetIndex())", "Select by index."),
+                ("GetCount() → Integer", "Item count."),
+                ("Clear()", "Remove every item."),
+            ],
+        ),
+        (
+            "DataGrid",
+            "Rows/cells are addressed with 0-based indexes; `AddRow` cells are TAB-separated.",
+            &[
+                ("GetRowCount() → Integer", "Data-row count."),
+                ("GetCellValue(row, column) → String", "Read one cell."),
+                ("SetCellValue(row, column, value)", "Write one cell."),
+                ("AddRow(cells: String)", "Append a TAB-separated row."),
+                ("DeleteRow(row: Integer)", "Remove a row."),
+                ("ClearRows()", "Remove all rows."),
+                ("Sort(column: Integer)", "Sort by column."),
+                ("SetFilter(column: String, value: String) / ClearFilters()", "Column filtering."),
+                ("FreezeColumns(n) / FreezeRows(n)", "Freeze leading columns/rows."),
+                ("SetRowHeight(px) / SetColumnWidth(column, px)", "Geometry."),
+                ("GetSelectedText() → String / CopySelection()", "Selection access."),
+                ("ExportCSV() → String", "CSV of the grid."),
+                ("RefreshBinding() → Integer", "Re-hydrate from the bound source (also on repeating GroupBoxes)."),
+            ],
+        ),
+        (
+            "Timer",
+            "",
+            &[
+                ("Start() / Stop()", "Run / halt the timer (its `Enabled` property)."),
+                ("SetInterval(ms: Integer)", "Change the tick interval."),
+                ("IsEnabled() → Boolean (0/1)", "Running state."),
+            ],
+        ),
+        (
+            "Animator / animations",
+            "Any control with named animations accepts these.",
+            &[
+                ("Play() / PlayAnimation(name: String?)", "Start playback (optionally a named animation)."),
+                ("StopAnimation()", "Stop playback."),
+                ("Pause()", "Pause playback."),
+            ],
+        ),
+        (
+            "Charts (BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart)",
+            "Equivalent to the `CALL \"COBOL-CHART-*\"` runtime calls and the generated `PERFORM <id>-ADD-POINT` paragraphs.",
+            &[
+                ("AddPoint(label: String, value: Number)", "Append one point and repaint."),
+                ("Clear()", "Drop all pushed points."),
+                ("Refresh()", "Repaint with current data."),
+            ],
+        ),
+        (
+            "AgentObject (LLM)",
+            "",
+            &[
+                ("Ask(prompt: String) → String", "Send a prompt; the reply also fires `onResponse`."),
+                ("SetPrompt(text: String)", "Replace the `SystemPrompt`."),
+                ("SetModel(model: String)", "Switch models."),
+                ("GetResult() → String", "Read the `Result` property."),
+                ("Cancel() / IsBusy() → Boolean", "Async control."),
+            ],
+        ),
+        (
+            "RestClient (HTTP)",
+            "Async by default (`Mode = \"Async\"`): the verb returns immediately, `Busy` = 1, and the response lands in `ResponseBody` / `StatusCode` with `onComplete` (or `onError` / `onTimeout`). With `Mode = \"Sync\"` the verb blocks and returns the body. The `url` argument is the FULL URL.",
+            &[
+                ("Get(url: String) → String", "HTTP GET."),
+                ("Post(url: String, body: String) → String", "HTTP POST."),
+                ("Put(url: String, body: String) → String", "HTTP PUT."),
+                ("Delete(url: String) → String", "HTTP DELETE."),
+                ("Call(verb: String, url: String, body: String?) → String", "Any verb by name."),
+                ("SetHeader(name: String, value: String) / ClearHeaders()", "Request headers."),
+                ("SetTimeout(seconds: Integer)", "Request timeout."),
+                ("Cancel() / IsBusy() → Boolean", "Async control."),
+            ],
+        ),
+        (
+            "SqlDatabase",
+            "Errors land in `LastError` and fire `onQueryError` / `onConnectError`.",
+            &[
+                ("Open(connectionString: String) → Integer", "Open; returns the handle, fires `onConnectOk`/`onConnectError`."),
+                ("Execute(sql: String) → Integer (alias Exec)", "Run DML/DDL; affected rows."),
+                ("Query(sql: String) → Integer", "Run a SELECT; result-row count."),
+                ("Fetch() → Boolean (0/1)", "Advance the row cursor; fires `onRowFetched`."),
+                ("FetchAll() → Integer", "Current result-set row count."),
+                ("Close()", "Close the connection."),
+            ],
+        ),
+    ];
+
+    for (title, note, methods) in sections {
+        d.push_str(&format!("## {title}\n\n"));
+        if !note.is_empty() {
+            d.push_str(&format!("{note}\n\n"));
+        }
+        for (sig, desc) in *methods {
+            d.push_str(&format!("- `{sig}` — {desc}\n"));
+        }
+        d.push('\n');
+    }
+
+    d.push_str(
+        "## IndexedFile — no inline methods\n\n\
+         IndexedFile controls are driven by the GENERATED PARAGRAPHS \
+         (`PERFORM <id>-OPEN`, `<id>-START`, `<id>-READ-NEXT`, `<id>-READ-PREVIOUS`, \
+         `<id>-READ-FIRST`, `<id>-READ-LAST`, `<id>-READ-INVALID`, `<id>-COMMIT`, \
+         `<id>-CLOSE`) and the plain COBOL verbs `WRITE` / `REWRITE` / `DELETE`. \
+         Do NOT call `::Open()` on an IndexedFile — that method belongs to SqlDatabase.\n",
+    );
+    d
 }
 
 #[cfg(test)]
@@ -1841,6 +2965,7 @@ mod resolve_main_tests {
         assert!(kb.join("ide_functionalities.md").exists());
         assert!(kb.join("form_designer_controls.md").exists());
         assert!(kb.join("agents_registry.md").exists());
+        assert!(kb.join("control_methods_reference.md").exists());
 
         // Check form designer controls document contents
         let form_controls_doc = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
@@ -1849,8 +2974,86 @@ mod resolve_main_tests {
         assert!(form_controls_doc.contains("## Control: DataGrid"));
         assert!(form_controls_doc.contains("### Settable Properties"));
         assert!(form_controls_doc.contains("### Supported Events"));
+        assert!(form_controls_doc.contains("### Methods"));
+        // Enrichment: types + defaults + domains are present.
+        assert!(form_controls_doc.contains("(Boolean, default"));
+        assert!(form_controls_doc.contains("(Integer, default"));
+        assert!(form_controls_doc.contains("0-100"));
+        assert!(form_controls_doc.contains("## Universal properties (every control)"));
+        assert!(form_controls_doc.contains("## The Form (window)"));
+        // Every designed property either is universal or documents a domain/description.
+        let sample = cobolt_forms::Control::new("_", cobolt_forms::ControlType::DataGrid, 0, 0);
+        for (name, _) in &sample.properties {
+            assert!(
+                UNIVERSAL_PROPS.contains(&name.as_str()) || property_reference(name).is_some(),
+                "DataGrid property `{name}` has no curated documentation"
+            );
+        }
+
+        // Check the methods reference document contents
+        let methods_doc = fs::read_to_string(kb.join("control_methods_reference.md")).unwrap();
+        assert!(methods_doc.contains("# PowerRustCOBOL Control Methods Reference"));
+        assert!(methods_doc.contains("AddPoint(label: String, value: Number)"));
+        assert!(methods_doc.contains("IndexedFile — no inline methods"));
+        assert!(methods_doc.contains("GET-<Prop>()"));
 
         // Clean up
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn every_control_property_is_documented() {
+        // The doc generator derives names/types/defaults from Control::new, so
+        // this test pins the curated layer: any NEW property must land in
+        // `property_reference` (or UNIVERSAL_PROPS) before it ships undocumented.
+        let all = [
+            cobolt_forms::ControlType::Button,
+            cobolt_forms::ControlType::TextBox,
+            cobolt_forms::ControlType::Label,
+            cobolt_forms::ControlType::CheckBox,
+            cobolt_forms::ControlType::RadioButton,
+            cobolt_forms::ControlType::ListBox,
+            cobolt_forms::ControlType::ComboBox,
+            cobolt_forms::ControlType::GroupBox,
+            cobolt_forms::ControlType::Panel,
+            cobolt_forms::ControlType::TabControl,
+            cobolt_forms::ControlType::DataGrid,
+            cobolt_forms::ControlType::PictureBox,
+            cobolt_forms::ControlType::ProgressBar,
+            cobolt_forms::ControlType::MenuBar,
+            cobolt_forms::ControlType::ToolBar,
+            cobolt_forms::ControlType::StatusBar,
+            cobolt_forms::ControlType::Line,
+            cobolt_forms::ControlType::DateTimePicker,
+            cobolt_forms::ControlType::NumericUpDown,
+            cobolt_forms::ControlType::TreeView,
+            cobolt_forms::ControlType::Splitter,
+            cobolt_forms::ControlType::Timer,
+            cobolt_forms::ControlType::Shape,
+            cobolt_forms::ControlType::Animator,
+            cobolt_forms::ControlType::AgentObject,
+            cobolt_forms::ControlType::RestClient,
+            cobolt_forms::ControlType::SqlDatabase,
+            cobolt_forms::ControlType::IndexedFile,
+            cobolt_forms::ControlType::Slider,
+            cobolt_forms::ControlType::BarChart,
+            cobolt_forms::ControlType::LineChart,
+            cobolt_forms::ControlType::PieChart,
+            cobolt_forms::ControlType::AreaChart,
+            cobolt_forms::ControlType::ScatterChart,
+            cobolt_forms::ControlType::DonutChart,
+        ];
+        for ct in all {
+            let type_name = ct.as_str().to_owned();
+            let ctrl = cobolt_forms::Control::new("_", ct, 0, 0);
+            for (name, _) in &ctrl.properties {
+                assert!(
+                    UNIVERSAL_PROPS.contains(&name.as_str())
+                        || property_reference(name).is_some(),
+                    "{type_name} property `{name}` has no curated documentation — \
+                     add it to property_reference()"
+                );
+            }
+        }
     }
 }

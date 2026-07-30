@@ -8,6 +8,258 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.44.1] — 2026-07-30
+
+### Fixed
+
+- **File → Reindex Knowledge Bases now shows a progress modal.** The
+  reindex reported only Output-panel lines, so selecting it looked like
+  nothing happened. It now dims the IDE and shows the same modal shape as
+  the Building dialog: a determinate bar driven per embedded record, a
+  spinner, and the current "n/m — subject" label (the started status line
+  until the first record reports). The Output panel keeps the final
+  summary, including the embedding device.
+
+## [PowerRustCOBOL 1.44.0] — 2026-07-30
+
+### Added
+
+- **File → Reindex Knowledge Bases.** A manual trigger for the same
+  incremental sync every Grace workflow runs at start: the System KB always,
+  the Project KB when a project is open. Runs on a worker thread — coarse
+  progress lines (about one per 5%) and a final summary, including the
+  embedding device, land in the Output panel; the menu item is disabled
+  while a reindex is running. Only new/changed/deleted documents are
+  re-embedded, so an up-to-date store finishes instantly. (Label, hover
+  hint, and status lines translated ×6.)
+
+### Removed
+
+- **File-menu cleanup:** "Open COBOL…", "Open Form…" and "Import Form…"
+  left the File menu — forms and sources open from the project tree
+  (Ctrl+O still opens a COBOL file). The now-unreachable Open Form file
+  dialog plumbing was deleted with them.
+
+## [PowerRustCOBOL 1.43.2] — 2026-07-30
+
+### Fixed
+
+- **The welcome pane finally speaks French.** French no longer borrows the
+  English quote pool: it gets its own curated set — the same subset the
+  other languages carry, Segond-style scripture included — plus the newly
+  added Marc 9:23, so the rotating quote follows the IDE's language in all
+  six languages.
+
+## [PowerRustCOBOL 1.43.1] — 2026-07-30
+
+### Fixed
+
+- **Welcome pane: Mark 9:23 joins the rotating quote pool** in all five
+  localised sets (EN/ES/PT/JA/ZH; French shares the English pool), with the
+  scripture reference localised per language like the existing Proverbs
+  entries.
+
+## [PowerRustCOBOL 1.43.0] — 2026-07-30
+
+### Added
+
+- **GPU embedding with a cool-running CPU fallback — one policy for both
+  Knowledge Bases.** The semantic embedder (System KB and project KBs share
+  it, for indexing and queries alike) now probes for a GPU at load: Metal is
+  carried by every macOS build automatically, CUDA on NVIDIA Linux/Windows
+  is the opt-in `embed-cuda` feature (building it needs the CUDA toolkit).
+  A GPU runs at
+  full speed; the CPU fallback runs **low-power** by default, capping the
+  compute pool at 2 threads so a reindex no longer pins every core and spins
+  the fans — an operator-set `RAYON_NUM_THREADS` is always respected, and
+  `PRC_EMBED_DEVICE=cpu|metal|cuda` forces a backend. The chosen device is
+  reported by `build_chunked_kb` ("embedding device: …") and in the Models
+  modal next to the semantic-model status (new label translated ×6). Default
+  builds remain pure-CPU and self-contained; AMD/Intel GPUs on Linux/Windows
+  stay on the CPU path (candle has no backend for them).
+
+## [PowerRustCOBOL 1.42.2] — 2026-07-30
+
+### Fixed
+
+- **Grace could not set the new window properties.** The agent-side form
+  property validator predated spec 037, so asking Grace to change MainForm,
+  TaskbarIcon, CanMinimize, CanMaximize, WindowState, FullScreen or
+  TitleVisible was rejected as "invalid property" even though the designer
+  applies all seven. The validator and the designer's applier now agree on
+  the full set, and the list-agreement test that caught the drift covers
+  the new keys in both directions.
+
+## [PowerRustCOBOL 1.42.1] — 2026-07-30
+
+### Fixed
+
+- **Setting the main form from the project panel left two crowns.** The
+  "Form properties" view in the project panel edits a form through its own
+  embedded designer state, and its MainForm claim never reached the
+  app-level settlement that demotes the previous holder — checking the box
+  there produced two forms with `main-form="true"` (and two crowns in the
+  Forms tree). Claims from the inspect view now settle through the same
+  path as designer claims: the previous holder is demoted in memory and on
+  disk, the demoted form's cached tree entry is refreshed so its crown
+  falls off immediately, and the crown override also honours the inspected
+  form so the transfer is visible the same frame.
+
+## [PowerRustCOBOL 1.42.0] — 2026-07-29
+
+### Added — Main form, window lifecycle & multi-form invocation (spec 037)
+
+- **Main form designation.** Every project now has exactly one **main form**
+  — the form shown first and the app's single taskbar/dock identity. The
+  first form created takes the role; move it with the new read-only-guarded
+  **Main form** checkbox (checking it on another form un-checks the holder in
+  one undoable action, and undo restores exactly the previous holder). The
+  Forms tree crowns the main form; projects loading with zero or several
+  holders normalise to the first in the list with a status notice.
+- **Taskbar identity.** Only the main form carries the new **Taskbar icon**
+  property; its window is the app's one taskbar entry (child windows are
+  created skip-taskbar; the macOS Dock naturally shows one icon per app).
+- **Window chrome & state.** New per-form properties honoured by the run
+  form: `CanMinimize`, `CanMaximize`, `TitleVisible` (chromeless windows),
+  `WindowState` (Normal/Minimized/Maximized, also settable at runtime) and
+  `FullScreen` — orthogonal to WindowState, with an **onFullScreenChanged**
+  event fired once per ACTUAL transition.
+- **FormState (Ready/Waiting).** A `Waiting` form cannot be closed by any
+  path — title-bar, handle `Close`, or cascade — and fires the new
+  **onCloseRejected** event instead; a Sync caller is equally blocked while
+  any of its Sync children is Waiting. Protects unsaved work.
+- **OpenFormSync / OpenFormAsync.** `INVOKE me::"OpenFormSync"("FORM-ID",
+  [windowState], [x], [y], [width], [height], [modal]) RETURNING H` — comma
+  form with optional, RAD-defaulted trailing parameters (modal defaults
+  true); the COBOL-standard space form requires every parameter and
+  mismatches fail **at compile time**. Returns a `windowHandler`
+  (USAGE OBJECT) with `Close` / `Focus` / `SetWindowState` /
+  `SetFullScreen` / `SetTitleVisible` / `FormState`; handles NULL
+  automatically when their form closes. Main form is a singleton; Sync
+  children die with their caller; Async children survive it (main-form
+  close still closes everything); modal Sync blocks the caller's COBOL flow
+  until the child closes.
+- **Status:** all lifecycle rules run headless-tested in the runtime and are
+  live in the single-window run form. Hosting the OpenForm* child windows
+  lands with the multi-viewport host (T1 spike findings pending) — until
+  then child opens are accepted, logged, and immediately released so
+  programs never deadlock.
+
+## [PowerRustCOBOL 1.41.14] — 2026-07-29
+
+### Fixed
+
+- **Center/Right-aligned TextBox text overflows toward the correct side in
+  the run form.** When the text grew wider than the box, the runtime editor
+  always revealed the HEAD of the text regardless of alignment (egui's
+  single-line editor only scrolls to follow the caret while focused, and
+  anchors to the start otherwise). An unfocused overflowing box now shows
+  the window the alignment implies — Left the head, Center the middle,
+  Right the tail — matching the designer face. While the box is focused the
+  caret stays in view as you type, so entering text at the end of a
+  Right-aligned box naturally shows the tail.
+
+## [PowerRustCOBOL 1.41.13] — 2026-07-29
+
+### Fixed
+
+- **TextBox and Label gain full text-alignment properties in the RAD.** The
+  TextBox Basic properties showed no alignment at all, and the Label only
+  offered horizontal Left/Center/Right. Both now expose **Horizontal
+  alignment** (Left, Center, Right, Justified) and **Vertical alignment**
+  (Top, Middle, Bottom), honoured by the designer face and the run form
+  alike. Notes: Justified stretches wrapped lines of static text — a TextBox
+  being edited falls back to left (egui's editor cannot justify live text) —
+  and a multiline TextBox stays top-anchored vertically since its editor
+  scrolls. Existing forms keep their exact look: missing properties default
+  to Left / Middle, the historical behaviour.
+
+## [PowerRustCOBOL 1.41.12] — 2026-07-29
+
+### Fixed
+
+- **TextBox font size (and family) now reach the run form.** The run-form
+  editable overlay never set a font on its egui `TextEdit`, so every TextBox
+  ran at the default ~14 px regardless of the designer's FontSize/FontName.
+  Both the single-line and multiline editors now use the same
+  `FontName` + `FontSize` the designer face paints with.
+- **TextBox HintText is now actually shown.** The property existed in the
+  model and the properties panel but nothing ever rendered it. The run form
+  now shows it as the editor's placeholder while the box is empty (same font
+  as the text, foreground colour at 55% so it reads as a hint on light and
+  dark faces), and the designer canvas previews the same faded hint on an
+  empty TextBox.
+
+## [PowerRustCOBOL 1.41.11] — 2026-07-29
+
+### Fixed
+
+- **RAG efficiency now measures retrieval selectivity.** The statistics
+  footer's `RAG efficiency` line previously subtracted the workflow's TOTAL
+  consumed input tokens (system prompts, conversation, tool results, resent
+  on every model call) from the indexed corpus, so a chatty workflow over a
+  small Knowledge Base reported a misleading ~4% even when retrieval injected
+  almost nothing. It now reports what selectivity actually saved —
+  `available − injected` as a share of the corpus, the same measurement the
+  verbose "Token savings" line always used — so injecting ~340 of ~31,000
+  corpus tokens reads as ~98.9%, regardless of how much non-KB context the
+  agents consumed. Injection is clamped to the corpus size (excerpt headers
+  count toward injected but not toward the corpus).
+
+## [PowerRustCOBOL 1.41.10] — 2026-07-29
+
+### Fixed
+
+- **Welcome-pane text outlined against bright backgrounds.** The welcome
+  title, license line, quotation, and author credit are now painted with a
+  1 px black outline (the glyphs drawn at the eight 1 px neighbour offsets in
+  black beneath the coloured text), so they stay readable over the bright
+  regions of the daily background photo. The outline follows the quote's
+  fade-in/fade-out so it never lingers after its text.
+
+## [PowerRustCOBOL 1.41.9] — 2026-07-29
+
+### Added
+
+- **Run statistics in the final balloon.** Every Grace workflow now closes its
+  final chat balloon with a measured statistics footer: overall wall time,
+  time by agent (busiest first, `×N` = model calls, typed extraction
+  included), exact input/output token totals, the peak single-call context,
+  and the RAG efficiency — `RAG efficiency: {}% ({} input tokens saved)`,
+  computed as the indexed Knowledge Base corpus MINUS the input tokens the run
+  actually consumed, as a share of that corpus. The same footer rides the
+  contextual RAD-designer and code-editor chats (it travels inside the applied
+  change-set's note, so "Applied N changes." carries it), the per-agent
+  numbers persist on the run record (`agent_stats`, `total_elapsed_ms`,
+  `peak_context_tokens`), and all six UI languages are covered.
+
+## [PowerRustCOBOL 1.41.8] — 2026-07-29
+
+### Added
+
+- **The System Knowledge Base now teaches types, domains, and methods.** The
+  generated `form_designer_controls.md` documents every property with its value
+  type (Boolean/Integer/String — derived from the very defaults `Control::new`
+  seeds, so it can never drift from the code), its default, and its allowed
+  domain (enum values, ranges, formats), plus described events and per-control
+  method signatures; a new `control_methods_reference.md` catalogues the entire
+  closed inline-method vocabulary with parameter types and return values, and
+  `rustcobol_extensions.md` gains the value conventions (booleans as `1`/`0`,
+  hex colors, newline `Items`, TAB-separated grid rows, 0-based indexes) and an
+  explicit warning that unknown methods degrade to property writes. A test pins
+  the curated layer: a control property without documentation fails the build.
+
+### Fixed
+
+- **`Chart::AddPoint(label, value)` now actually plots.** The inline chart
+  methods the Knowledge Base always advertised (`AddPoint`, `Clear`, `Refresh`)
+  fell through to the generic property-write path and silently did nothing to
+  the chart; they now drive the same `__ChartData` pipeline as the
+  `CALL "COBOL-CHART-*"` runtime calls, and both forms share one canonical
+  (upper-cased) data store so mixing them no longer forks the series. The
+  misleading `IndexedFile-1::Open()` example was replaced with the correct
+  `PERFORM <id>-OPEN` paragraph workflow.
+
 ## [PowerRustCOBOL 1.41.6] — 2026-07-29
 
 ### Fixed

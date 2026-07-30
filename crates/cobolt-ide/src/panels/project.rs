@@ -129,6 +129,11 @@ pub enum ProjectPanelEvent {
 pub struct ProjectPanel {
     /// Root directory of the open project / directory (if any).
     pub root: Option<PathBuf>,
+    /// 037 R4 — absolute path of the form holding MainForm in an OPEN
+    /// designer (unsaved claims included), fed by the app each frame so the
+    /// crown moves the moment the designation changes, not on save. `None` ⇒
+    /// trust the on-disk flags.
+    pub main_form_override: Option<PathBuf>,
     /// Expanded directories (tree mode only).
     expanded: HashSet<PathBuf>,
     /// mtime-keyed cache of loaded forms (for the controls sub-tree).
@@ -167,6 +172,7 @@ impl Default for ProjectPanel {
     fn default() -> Self {
         Self {
             root: None,
+            main_form_override: None,
             expanded: HashSet::new(),
             forms: HashMap::new(),
             indexed: HashMap::new(),
@@ -743,6 +749,44 @@ fn draw_document_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
             ],
             egui::Stroke::new(0.9, c),
         );
+    }
+}
+
+/// King's crown for the project's MAIN form (spec 037 R4). Painted gold with
+/// a dark outline regardless of the theme text colour, so the one special
+/// form reads instantly in both light and dark trees.
+fn draw_crown_icon(p: &egui::Painter, r: egui::Rect, _c: Color32) {
+    let gold = Color32::from_rgb(235, 185, 55);
+    let rim = Color32::from_rgba_unmultiplied(60, 40, 0, 200);
+    let w = r.width();
+    let h = r.height();
+    let at = |fx: f32, fy: f32| egui::pos2(r.min.x + w * fx, r.min.y + h * fy);
+    // Crown silhouette: band + three spikes (center tallest), as a filled
+    // polygon traced clockwise from the bottom-left of the band.
+    let pts = vec![
+        at(0.08, 0.88),
+        at(0.08, 0.32),
+        at(0.30, 0.55),
+        at(0.50, 0.16),
+        at(0.70, 0.55),
+        at(0.92, 0.32),
+        at(0.92, 0.88),
+    ];
+    p.add(egui::Shape::convex_polygon(
+        pts.clone(),
+        gold,
+        egui::Stroke::NONE,
+    ));
+    // The silhouette is concave; overlay the outline as segments so every
+    // valley keeps its crisp edge on top of the fill.
+    for pair in pts.windows(2) {
+        p.line_segment([pair[0], pair[1]], egui::Stroke::new(1.1, rim));
+    }
+    p.line_segment([pts[6], pts[0]], egui::Stroke::new(1.1, rim));
+    // Jewels on the spike tips.
+    for (fx, fy) in [(0.08, 0.30), (0.50, 0.14), (0.92, 0.30)] {
+        p.circle_filled(at(fx, fy), w * 0.075, gold);
+        p.circle_stroke(at(fx, fy), w * 0.075, egui::Stroke::new(0.8, rim));
     }
 }
 
@@ -1398,7 +1442,19 @@ impl ProjectPanel {
                             events.push(ProjectPanelEvent::ConfirmRemoveForm(p.clone()));
                         }
                     }
-                    tree_icon(ui, draw_document_icon);
+                    // 037 R4 — the main form wears the crown. An open
+                    // designer's (possibly unsaved) claim wins over the
+                    // on-disk flag so the crown moves immediately.
+                    let is_main = match (&self.main_form_override, &abs) {
+                        (Some(over), Some(p)) => over == p,
+                        (Some(_), None) => false,
+                        (None, _) => form.as_ref().map(|f| f.main_form).unwrap_or(false),
+                    };
+                    if is_main {
+                        tree_icon(ui, draw_crown_icon);
+                    } else {
+                        tree_icon(ui, draw_document_icon);
+                    }
                     full_width_select(ui, form_selected, RichText::new(name)).on_hover_text(rel)
                 })
                 .body(|ui| {

@@ -344,6 +344,7 @@ pub fn spawn_contextual_request(
     surface: &str,
     preferred_specialist: Option<&str>,
     context: &str,
+    tr: crate::i18n::Tr,
 ) -> Receiver<LlmResponse> {
     let (tx, rx) = mpsc::channel();
     let dir = project_dir.to_path_buf();
@@ -404,12 +405,37 @@ pub fn spawn_contextual_request(
                     let change_set_reply = crate::grace_host::approved_form_change_set_submission(
                         &record,
                         crate::agents_db::FORM_DESIGNER,
-                    );
+                    )
+                    .map(|submission| {
+                        // The designer's "Applied N changes." balloon is built
+                        // from the change-set NOTE (everything outside the
+                        // fenced JSON is discarded by the parser), so the
+                        // run-statistics footer must ride inside the note to
+                        // reach the final balloon.
+                        match (
+                            crate::agent::parse_change_set(&submission),
+                            crate::grace_host::statistics_footer(&record, &tr),
+                        ) {
+                            (Ok(mut cs), Some(stats)) => {
+                                cs.note = Some(match cs.note {
+                                    Some(note) if !note.trim().is_empty() => {
+                                        format!("{note}\n\n{stats}")
+                                    }
+                                    _ => stats,
+                                });
+                                serde_json::to_string_pretty(&cs)
+                                    .map(|json| format!("```json\n{json}\n```"))
+                                    .unwrap_or(submission)
+                            }
+                            _ => submission,
+                        }
+                    });
                     let reply = change_set_reply.unwrap_or_else(|| {
                         let mut summary = crate::grace_host::workflow_chat_reply(
                             &record,
                             preferred.as_deref(),
                             llm.verbose_log,
+                            &tr,
                         );
                         // An approved task that produced no operation changes
                         // nothing. Say so: reporting it as a plain success is

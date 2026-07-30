@@ -2559,12 +2559,50 @@ fn eat_on_exception(p: &mut Parser) -> bool {
 // sentence boundary (period or start of a new statement verb) so that the rest
 // of the program can be compiled cleanly.
 
-// `INVOKE object "method" [USING [BY …] arg …] [RETURNING dest]`
+// `INVOKE object "method" [USING [BY …] arg …] [RETURNING dest]`   (space form)
+// `INVOKE object::"method"(arg, arg, …) [RETURNING dest]`          (comma form, 037)
 fn parse_invoke(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // INVOKE
 
     let object = p.eat_identifier().map(|(n, _)| n).unwrap_or_default();
+
+    // ── 037 comma form: `INVOKE obj::"Method"(a, b, …)` ──────────────────
+    // Trailing parameters are optional (defaulted from the RAD design at
+    // runtime, R21); the space form below keeps COBOL-standard semantics —
+    // all parameters required for checked signatures (R22).
+    if *p.peek() == Token::Colon && *p.peek_at(1) == Token::Colon {
+        p.advance(); // ':'
+        p.advance(); // ':'
+        let method = crate::expr::take_string_literal(p)
+            .or_else(|| p.eat_identifier().map(|(n, _)| n))
+            .unwrap_or_default();
+        let mut args = Vec::new();
+        if p.eat(&Token::LParen) {
+            while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+                args.push(parse_expr(p));
+                if !p.eat(&Token::Comma) {
+                    break;
+                }
+            }
+            p.eat(&Token::RParen);
+        }
+        let returning = if p.eat(&Token::Returning) {
+            Some(parse_expr(p))
+        } else {
+            None
+        };
+        p.eat(&Token::Period);
+        return Stmt::Invoke {
+            object,
+            method,
+            args,
+            returning,
+            comma_form: true,
+            span,
+        };
+    }
+
     // method name: a quoted string ('SetCaption') or a bare identifier.
     let method = crate::expr::take_string_literal(p)
         .or_else(|| p.eat_identifier().map(|(n, _)| n))
@@ -2600,6 +2638,7 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
         method,
         args,
         returning,
+        comma_form: false,
         span,
     }
 }

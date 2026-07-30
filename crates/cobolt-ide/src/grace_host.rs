@@ -507,12 +507,56 @@ impl WorkflowControl {
     }
 }
 
+/// Shared per-agent usage accumulator for one workflow run: every model call
+/// (including typed extraction) adds its exact token counts and wall-clock
+/// time under the agent that made it, and the largest single-call prompt is
+/// tracked as the peak context. Read back into the record's `agent_stats` /
+/// `peak_context_tokens` when the run finishes.
+#[derive(Default)]
+pub struct UsageAccum {
+    /// agent → (calls, input_tokens, output_tokens, elapsed_ms)
+    pub per_agent: std::collections::HashMap<String, (u64, u64, u64, u64)>,
+    pub peak_context_tokens: u64,
+}
+
+impl UsageAccum {
+    fn add_call(&mut self, agent: &str, input: u64, output: u64, elapsed_ms: u64) {
+        let entry = self.per_agent.entry(agent.to_string()).or_default();
+        entry.0 += 1;
+        entry.1 += input;
+        entry.2 += output;
+        entry.3 += elapsed_ms;
+        self.peak_context_tokens = self.peak_context_tokens.max(input);
+    }
+
+    /// Snapshot as record entries, largest time first so the footer reads
+    /// busiest-agent-first.
+    fn to_stats(&self) -> Vec<cobolt_agents::grace::AgentStat> {
+        let mut stats: Vec<_> = self
+            .per_agent
+            .iter()
+            .map(|(agent, (calls, input, output, elapsed))| cobolt_agents::grace::AgentStat {
+                agent: agent.clone(),
+                calls: *calls,
+                input_tokens: *input,
+                output_tokens: *output,
+                elapsed_ms: *elapsed,
+            })
+            .collect();
+        stats.sort_by(|a, b| b.elapsed_ms.cmp(&a.elapsed_ms));
+        stats
+    }
+}
+
 pub struct DbAgentInvoker {
     pub project_dir: PathBuf,
     pub llm: LlmConfig,
     /// Shared (input, output) token accumulator across every LLM call this
     /// invoker makes; read back by the workflow host after the run.
     pub tokens: std::sync::Arc<std::sync::Mutex<(u64, u64)>>,
+    /// Shared per-agent usage accumulator (calls, tokens, elapsed, peak
+    /// context) feeding the run-statistics footer.
+    pub stats: std::sync::Arc<std::sync::Mutex<UsageAccum>>,
     /// Shared tool-evidence sink: native-tool executions are recorded here by
     /// the host closures (spec 030 R11), same records as the fenced protocol.
     pub evidence: std::sync::Arc<std::sync::Mutex<Vec<ToolEvidence>>>,
@@ -583,6 +627,36 @@ const PREBUILT_CHUNKED_KB: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/knowledge/chunked.data"
 ));
+
+/// Manual "Reindex Knowledge Bases" (File menu): the SAME incremental sync
+/// every Grace workflow performs at start — System KB always, Project KB when
+/// a project is open — without needing to send Grace a message. Returns a
+/// one-line summary for the Output panel. Runs on the caller's thread (the
+/// menu spawns a worker so the UI never blocks).
+pub fn reindex_knowledge_bases(
+    project_dir: Option<&Path>,
+    progress: &mut dyn FnMut(usize, usize, &str),
+) -> Result<String, String> {
+    let system_root = system_knowledge_root();
+    let (indexed, records) = sync_system_knowledge(&system_root, progress)
+        .map_err(|error| format!("System Knowledge Base {error}"))?;
+    let mut summary =
+        format!("System KB: {indexed} file(s) indexed, {records} record(s) chunked.");
+    if let Some(dir) = project_dir {
+        let files = cobolt_agents::project_knowledge::sync_documentation(dir)
+            .map_err(|error| format!("Project Knowledge Base could not be indexed: {error}"))?;
+        let store = cobolt_agents::chunked_knowledge::project_chunked_path(dir);
+        let recs = cobolt_agents::chunked_knowledge::sync_tree_with_progress(dir, &store, progress)
+            .map_err(|error| format!("Project Knowledge Base could not be chunked: {error}"))?;
+        summary.push_str(&format!(
+            " Project KB: {files} file(s) indexed, {recs} record(s) chunked."
+        ));
+    }
+    if let Some(device) = cobolt_agents::bert_embedder::active_device_label() {
+        summary.push_str(&format!(" Embedding device: {device}."));
+    }
+    Ok(summary)
+}
 
 fn sync_system_knowledge(
     system_root: &Path,
@@ -877,6 +951,7 @@ impl DbAgentInvoker {
             preamble: preamble.to_string(),
             max_tokens: cfg.max_tokens,
         };
+        let extract_started = std::time::Instant::now();
         let reply = match cobolt_agents::rig_transport::extract_typed_blocking::<T>(&call, source) {
             Ok(reply) => reply,
             Err(e) => {
@@ -891,6 +966,14 @@ impl DbAgentInvoker {
         if let Ok(mut totals) = self.tokens.lock() {
             totals.0 += reply.input_tokens;
             totals.1 += reply.output_tokens;
+        }
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.add_call(
+                agent,
+                reply.input_tokens,
+                reply.output_tokens,
+                extract_started.elapsed().as_millis() as u64,
+            );
         }
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Detail,
@@ -1245,6 +1328,14 @@ impl DbAgentInvoker {
             totals.0 += reply.input_tokens;
             totals.1 += reply.output_tokens;
         }
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.add_call(
+                agent,
+                reply.input_tokens,
+                reply.output_tokens,
+                started.elapsed().as_millis() as u64,
+            );
+        }
         // Feed the chat footers' model + context-usage indicator.
         crate::llm::record_last_model_call(
             &cfg.provider,
@@ -1457,6 +1548,105 @@ pub fn save_workflow_record(
 /// corpus a push-everything approach would have injected. Token counts are
 /// ≈4-chars/token estimates of measured character counts. `None` when the
 /// record predates the measurement or nothing is indexed.
+/// Copy the run's usage accumulator and wall clock onto the record — called at
+/// every point a record is finalized (clarity gate, direct answer, full run).
+fn stamp_run_statistics(
+    record: &mut WorkflowRecord,
+    usage: &Arc<Mutex<UsageAccum>>,
+    run_started: std::time::Instant,
+) {
+    if let Ok(usage) = usage.lock() {
+        record.agent_stats = usage.to_stats();
+        record.peak_context_tokens = usage.peak_context_tokens;
+    }
+    record.total_elapsed_ms = run_started.elapsed().as_millis().max(1) as u64;
+}
+
+/// `12.3s` / `4m 07s` / `1h 02m` — compact human duration for the statistics
+/// footer.
+fn format_duration_ms(ms: u64) -> String {
+    let secs = ms as f64 / 1000.0;
+    if secs < 60.0 {
+        format!("{secs:.1}s")
+    } else {
+        let minutes = (secs / 60.0).floor() as u64;
+        let rest = (secs - (minutes as f64) * 60.0).round() as u64;
+        if minutes < 60 {
+            format!("{minutes}m {rest:02}s")
+        } else {
+            format!("{}h {:02}m", minutes / 60, minutes % 60)
+        }
+    }
+}
+
+/// The run-statistics block appended to the FINAL chat balloon: overall wall
+/// time, per-agent time (busiest first, `×N` = model calls), exact token
+/// totals, the peak single-call context, and the RAG efficiency — how many
+/// input tokens selective retrieval saved versus pushing the whole indexed
+/// Knowledge Base corpus into the context (`available − injected`, as a
+/// share of available).
+/// `None` when the record carries no measurements (e.g. replayed old records).
+pub fn statistics_footer(record: &WorkflowRecord, tr: &crate::i18n::Tr) -> Option<String> {
+    let has_any = record.total_elapsed_ms > 0
+        || !record.agent_stats.is_empty()
+        || record.input_tokens > 0
+        || record.output_tokens > 0;
+    if !has_any {
+        return None;
+    }
+    let mut lines: Vec<String> = vec![format!("\u{1F4CA} {}", tr.stats_footer_title)];
+    if record.total_elapsed_ms > 0 {
+        lines.push(
+            tr.stats_overall_time
+                .replacen("{}", &format_duration_ms(record.total_elapsed_ms), 1),
+        );
+    }
+    if !record.agent_stats.is_empty() {
+        let joined = record
+            .agent_stats
+            .iter()
+            .map(|s| {
+                format!(
+                    "{} {} \u{00d7}{}",
+                    s.agent,
+                    format_duration_ms(s.elapsed_ms),
+                    s.calls
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" \u{00b7} ");
+        lines.push(tr.stats_time_by_agent.replacen("{}", &joined, 1));
+    }
+    if record.input_tokens > 0 || record.output_tokens > 0 {
+        lines.push(
+            tr.stats_tokens_total
+                .replacen("{}", &record.input_tokens.to_string(), 1)
+                .replacen("{}", &record.output_tokens.to_string(), 1),
+        );
+    }
+    if record.peak_context_tokens > 0 {
+        lines.push(
+            tr.stats_peak_context
+                .replacen("{}", &record.peak_context_tokens.to_string(), 1),
+        );
+    }
+    if record.kb_available_tokens > 0 {
+        // Saved = what selective retrieval did NOT inject, versus pushing the
+        // whole corpus into the context. Clamped: formatting overhead (PATH/
+        // SUBJECT/RELEVANCE headers) counts in `injected` but not in the
+        // corpus, so injected can exceed available on tiny corpora.
+        let injected = record.kb_injected_tokens.min(record.kb_available_tokens);
+        let saved = record.kb_available_tokens - injected;
+        let efficiency = 100.0 * saved as f64 / record.kb_available_tokens as f64;
+        lines.push(
+            tr.stats_rag_efficiency
+                .replacen("{}", &format!("{efficiency:.2}"), 1)
+                .replacen("{}", &saved.to_string(), 1),
+        );
+    }
+    Some(lines.join("\n"))
+}
+
 pub fn rag_savings_line(record: &WorkflowRecord, tr: &crate::i18n::Tr) -> Option<String> {
     if record.kb_available_tokens == 0 {
         return None;
@@ -1640,6 +1830,8 @@ pub fn run_grace_workflow_with_control(
     select_target: &mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
     use crate::agent_actions::{ActionKind, AgentAction};
+    let run_started = std::time::Instant::now();
+    let usage: Arc<Mutex<UsageAccum>> = Arc::new(Mutex::new(UsageAccum::default()));
     let mut actions: Vec<AgentAction> = Vec::new();
     let mut emit_action = |a: AgentAction| {
         actions.push(a.clone());
@@ -1675,6 +1867,7 @@ pub fn run_grace_workflow_with_control(
         project_dir: project_dir.to_path_buf(),
         llm: llm.clone(),
         tokens: token_sink.clone(),
+        stats: usage.clone(),
         evidence: evidence.clone(),
         cancel: control.cancel.clone(),
         request: request.to_string(),
@@ -1708,6 +1901,12 @@ pub fn run_grace_workflow_with_control(
         );
         record.request_clarity = Some(check.clarity);
         record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
+        {
+            let (inp, out) = *token_sink.lock().unwrap();
+            record.input_tokens = inp;
+            record.output_tokens = out;
+        }
+        stamp_run_statistics(&mut record, &usage, run_started);
         let path = save_workflow_record(project_dir, &record, &[])?;
         return Ok((record, path));
     }
@@ -1799,6 +1998,7 @@ pub fn run_grace_workflow_with_control(
         project_dir: project_dir.to_path_buf(),
         llm: llm.clone(),
         tokens: token_sink.clone(),
+        stats: usage.clone(),
         evidence: evidence.clone(),
         cancel: control.cancel.clone(),
         request: request.to_string(),
@@ -1903,6 +2103,12 @@ pub fn run_grace_workflow_with_control(
             record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
             record.kb_available_tokens = kb_available_tokens;
             record.kb_injected_tokens = kb_injected_tokens;
+            {
+                let (inp, out) = *token_sink.lock().unwrap();
+                record.input_tokens = inp;
+                record.output_tokens = out;
+            }
+            stamp_run_statistics(&mut record, &usage, run_started);
             let path = save_workflow_record(project_dir, &record, &[])?;
             return Ok((record, path));
         }
@@ -2116,6 +2322,7 @@ pub fn run_grace_workflow_with_control(
     record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
     record.kb_available_tokens = kb_available_tokens;
     record.kb_injected_tokens = kb_injected_tokens;
+    stamp_run_statistics(&mut record, &usage, run_started);
 
     let path = save_workflow_record(project_dir, &record, &tool_calls)?;
     on_progress(format!(
@@ -2518,16 +2725,17 @@ pub fn workflow_chat_reply(
     record: &WorkflowRecord,
     preferred_specialist: Option<&str>,
     verbose: bool,
+    tr: &crate::i18n::Tr,
 ) -> String {
     use cobolt_agents::grace::TaskState;
 
     if verbose {
-        return verbose_transcript(record);
+        return verbose_transcript(record, tr);
     }
 
     // Concise mode: Grace's one-line, user-facing summary of the work done.
     if !record.final_summary.trim().is_empty() {
-        return with_token_footer(record.final_summary.trim().to_string(), record);
+        return with_token_footer(record.final_summary.trim().to_string(), record, tr);
     }
 
     // Fallbacks when no summary was produced.
@@ -2547,10 +2755,10 @@ pub fn workflow_chat_reply(
         })
         .unwrap_or_default();
     if !preferred.is_empty() {
-        return with_token_footer(preferred.join("\n\n"), record);
+        return with_token_footer(preferred.join("\n\n"), record, tr);
     }
     if approved.len() == 1 && approved[0].0.eq_ignore_ascii_case(GRACE) {
-        return with_token_footer(readable_submission(approved[0].1), record);
+        return with_token_footer(readable_submission(approved[0].1), record, tr);
     }
     if !approved.is_empty() {
         return with_token_footer(
@@ -2560,6 +2768,7 @@ pub fn workflow_chat_reply(
                 .collect::<Vec<_>>()
                 .join("\n\n"),
             record,
+            tr,
         );
     }
 
@@ -2583,13 +2792,13 @@ pub fn workflow_chat_reply(
 /// The verbose chatbot transcript: Grace's plan, each delegated request and the
 /// agent's (summarised) response, the Pedantic verdict, and Grace's final line.
 /// Change-sets are rendered in plain language rather than dumped as raw JSON.
-fn verbose_transcript(record: &WorkflowRecord) -> String {
+fn verbose_transcript(record: &WorkflowRecord, tr: &crate::i18n::Tr) -> String {
     let (body, summary) = verbose_transcript_parts(record);
     let joined = match summary {
         Some(summary) => format!("{body}\n\nGrace: {summary}"),
         None => body,
     };
-    with_token_footer(joined.trim_end().to_string(), record)
+    with_token_footer(joined.trim_end().to_string(), record, tr)
 }
 
 /// The verbose transcript split in two: the coordination body (plan, delegated
@@ -2642,28 +2851,30 @@ fn verbose_transcript_parts(record: &WorkflowRecord) -> (String, Option<String>)
 /// then Grace's own final balloon (her consolidated summary plus the token
 /// footer) — previously the summary sat at the tail of one giant transcript
 /// balloon and read as the last specialist's text.
-pub fn workflow_chat_balloons(record: &WorkflowRecord, verbose: bool) -> Vec<String> {
+pub fn workflow_chat_balloons(
+    record: &WorkflowRecord,
+    verbose: bool,
+    tr: &crate::i18n::Tr,
+) -> Vec<String> {
     if !verbose {
-        return vec![workflow_chat_reply(record, None, false)];
+        return vec![workflow_chat_reply(record, None, false, tr)];
     }
     match verbose_transcript_parts(record) {
         (body, Some(summary)) => vec![
             body,
-            with_token_footer(format!("Grace: {summary}"), record),
+            with_token_footer(format!("Grace: {summary}"), record, tr),
         ],
-        (body, None) => vec![with_token_footer(body, record)],
+        (body, None) => vec![with_token_footer(body, record, tr)],
     }
 }
 
-/// Append a compact token-consumption footer, unless no tokens were recorded.
-fn with_token_footer(body: String, record: &WorkflowRecord) -> String {
-    if record.input_tokens == 0 && record.output_tokens == 0 {
-        body
-    } else {
-        format!(
-            "{body}\n\n\u{2014} {} tokens in / {} tokens out",
-            record.input_tokens, record.output_tokens
-        )
+/// Append the run-statistics footer to the FINAL balloon body: overall time,
+/// time by agent, token totals, peak context, and RAG efficiency. Bodiless
+/// records (no measurements at all) stay unchanged.
+fn with_token_footer(body: String, record: &WorkflowRecord, tr: &crate::i18n::Tr) -> String {
+    match statistics_footer(record, tr) {
+        Some(stats) => format!("{body}\n\n{stats}"),
+        None => body,
     }
 }
 
@@ -3204,7 +3415,7 @@ mod tests {
             "the detail belongs to verbose mode, not the concise bubble"
         );
         // Verbose keeps the full handoff, table included.
-        let verbose = workflow_chat_reply(&record, None, true);
+        let verbose = workflow_chat_reply(&record, None, true, &crate::i18n::Language::English.tr());
         assert!(verbose.contains("| Branch | idx-branch.cidx |"));
     }
 
@@ -3229,7 +3440,8 @@ mod tests {
             output_tokens: 50,
             ..Default::default()
         };
-        let balloons = workflow_chat_balloons(&record, true);
+        let tr = crate::i18n::Language::English.tr();
+        let balloons = workflow_chat_balloons(&record, true, &tr);
         assert_eq!(balloons.len(), 2, "transcript + Grace's final balloon");
         assert!(balloons[0].contains("Grace: planned 2 step(s)."));
         assert!(balloons[0].contains("All files are finalized"));
@@ -3239,12 +3451,13 @@ mod tests {
         );
         assert!(balloons[1].starts_with("Grace: Executed:"));
         assert!(
-            balloons[1].contains("tokens in"),
-            "the token footer rides Grace's final balloon"
+            balloons[1].contains("Tokens: 100 in / 50 out"),
+            "the statistics footer rides Grace's final balloon: {}",
+            balloons[1]
         );
 
         // Concise mode stays one balloon.
-        assert_eq!(workflow_chat_balloons(&record, false).len(), 1);
+        assert_eq!(workflow_chat_balloons(&record, false, &tr).len(), 1);
     }
 
     #[test]
@@ -3464,11 +3677,12 @@ mod tests {
             ],
             ..Default::default()
         };
+        let tr = crate::i18n::Language::English.tr();
         assert_eq!(
-            workflow_chat_reply(&record, Some("Form Designer Agent"), false),
+            workflow_chat_reply(&record, Some("Form Designer Agent"), false, &tr),
             "form result"
         );
-        let project_reply = workflow_chat_reply(&record, None, false);
+        let project_reply = workflow_chat_reply(&record, None, false, &tr);
         assert!(project_reply.contains("Form Designer Agent: form result"));
         assert!(project_reply.contains("COBOL Event Handler Script Agent: event result"));
     }
@@ -3750,6 +3964,7 @@ mod tests {
             project_dir: std::env::temp_dir(),
             llm: LlmConfig::defaults(),
             tokens: control.tokens.clone(),
+            stats: Arc::new(Mutex::new(UsageAccum::default())),
             evidence: Arc::new(Mutex::new(Vec::new())),
             cancel: control.cancel.clone(),
             request: String::new(),
@@ -3952,6 +4167,71 @@ mod tests {
         println!("savings line: {line}");
     }
 
+    /// The statistics footer appended to the FINAL balloon: overall time,
+    /// per-agent time ordered busiest-first, exact token totals, the peak
+    /// single-call context, and the requested RAG-efficiency form —
+    /// `RAG efficiency: {}% ({} input tokens saved)` where saved is
+    /// `kb_available_tokens − kb_injected_tokens`: what selective retrieval
+    /// kept OUT of the context versus pushing the whole corpus. Total
+    /// consumed input does not enter the formula.
+    #[test]
+    fn statistics_footer_reports_time_tokens_context_and_rag_efficiency() {
+        use cobolt_agents::grace::AgentStat;
+        let tr = crate::i18n::Language::English.tr();
+        let mut record = sample_record();
+        record.input_tokens = 9_000;
+        record.output_tokens = 2_500;
+        record.total_elapsed_ms = 222_000; // 3m 42s
+        record.peak_context_tokens = 4_321;
+        record.kb_available_tokens = 1_000_000;
+        // Injected ≠ consumed input (9_000) — the efficiency must follow the
+        // injection, proving retrieval selectivity is what is measured.
+        record.kb_injected_tokens = 2_000;
+        record.agent_stats = vec![
+            AgentStat {
+                agent: "Form Designer Agent".into(),
+                calls: 2,
+                input_tokens: 6_000,
+                output_tokens: 1_500,
+                elapsed_ms: 61_000,
+            },
+            AgentStat {
+                agent: GRACE.into(),
+                calls: 3,
+                input_tokens: 3_000,
+                output_tokens: 1_000,
+                elapsed_ms: 12_300,
+            },
+        ];
+        let footer = statistics_footer(&record, &tr).expect("measured record yields a footer");
+        assert!(footer.contains("Run statistics"), "{footer}");
+        assert!(footer.contains("Overall time: 3m 42s"), "{footer}");
+        assert!(
+            footer.contains("Form Designer Agent 1m 01s ×2"),
+            "{footer}"
+        );
+        assert!(footer.contains("Grace 12.3s ×3"), "{footer}");
+        assert!(footer.contains("Tokens: 9000 in / 2500 out"), "{footer}");
+        assert!(footer.contains("≈4321 tokens"), "{footer}");
+        // RAG efficiency per the requested formula: available − injected,
+        // as a share of available. 1_000_000 − 2_000 = 998_000 → 99.80%.
+        // Consumed input (9_000) plays no part.
+        assert!(
+            footer.contains("RAG efficiency: 99.80% (998000 input tokens saved)"),
+            "{footer}"
+        );
+
+        // The footer rides the final balloon body.
+        record.final_summary = "All done.".into();
+        let reply = workflow_chat_reply(&record, None, false, &tr);
+        assert!(reply.starts_with("All done."), "{reply}");
+        assert!(reply.contains("RAG efficiency: 99.80%"), "{reply}");
+
+        // A record with no measurements at all stays clean.
+        let bare = sample_record();
+        assert!(statistics_footer(&bare, &tr).is_none());
+    }
+
     /// Spec 036 T4 (AC4): verbose mode adds the finer per-submission
     /// granularity; the verdict itself never becomes an action in any mode.
     #[test]
@@ -4002,7 +4282,7 @@ mod tests {
             "Answer or ask the developer directly (no workflow required)",
         );
         assert_eq!(
-            workflow_chat_reply(&record, None, false),
+            workflow_chat_reply(&record, None, false, &crate::i18n::Language::English.tr()),
             "I coordinate the project agents."
         );
         assert_eq!(record.tasks[0].spec.agent, GRACE);

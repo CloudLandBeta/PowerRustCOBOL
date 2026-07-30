@@ -426,6 +426,20 @@ impl ModelsModal {
                                 ui.label(
                                     egui::RichText::new(tr.models_semantic_ready).small(),
                                 );
+                                // Embedding device (one policy, both KBs):
+                                // GPU full speed, CPU low-power. Only known
+                                // once an embedder has actually loaded.
+                                if let Some(dev) =
+                                    cobolt_agents::bert_embedder::active_device_label()
+                                {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} {dev}",
+                                            tr.models_embed_device
+                                        ))
+                                        .small(),
+                                    );
+                                }
                             } else {
                                 ui.label(
                                     egui::RichText::new(tr.models_semantic_missing).small(),

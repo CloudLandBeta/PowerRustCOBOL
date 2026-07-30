@@ -41,5 +41,14 @@ candle-core = "0.11"
 candle-nn = "0.11"
 candle-transformers = "0.11"
 
+# Metal needs no extra toolchain, so every macOS build carries it and the
+# runtime probe decides (GPU full speed, CPU fallback low-power). CUDA stays
+# an opt-in feature below: building it requires the CUDA toolkit.
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-transformers = { version = "0.11", features = ["metal"] }
+
 [features]
 default = []
+# NVIDIA GPU embedding on Linux/Windows (spec: GPU runs full speed; the CPU
+# fallback runs low-power). Opt-in: building needs the CUDA toolkit.
+embed-cuda = ["candle-transformers/cuda"]

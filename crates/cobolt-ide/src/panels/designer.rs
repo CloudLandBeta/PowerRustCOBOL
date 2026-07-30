@@ -1228,6 +1228,11 @@ pub struct DesignerPanel {
     /// loader force-reloads these (execute/reverse have no egui context).
     menu_cache_dirty: Vec<String>,
 
+    /// 037 R2 — MainForm flag transitions (true = claimed, false = un-claimed
+    /// by undo) awaiting the app's cross-file settlement. Drained every frame
+    /// by `App::drain_main_form_changes`.
+    pub main_form_changes: Vec<bool>,
+
     pub dirty: bool,
     pub close_requested: bool,
     /// Set when the user tries to close a dirty designer — shows the Save/Discard/Cancel dialog.
@@ -1368,6 +1373,7 @@ impl DesignerPanel {
             style_break_ack: false,
             pending_history_confirm: None,
             menu_cache_dirty: Vec::new(),
+            main_form_changes: Vec::new(),
             dirty: false,
             close_requested: false,
             close_confirm: false,
@@ -3814,6 +3820,46 @@ impl DesignerPanel {
                 self.dirty = true;
             }
 
+            // ── 037 Main form & window lifecycle ─────────────────────────────
+            "MainForm" => {
+                let want = value == "true" || value == "1";
+                if self.form.main_form != want {
+                    self.form.main_form = want;
+                    self.dirty = true;
+                    // The exactly-one invariant spans FILES; the app drains
+                    // these transitions and settles the other form(s) — a
+                    // claim clears the previous holder, an un-claim (undo)
+                    // restores it. Emitted only on a real flag change so a
+                    // no-op undo (this form already demoted by a later claim
+                    // elsewhere) stays silent.
+                    self.main_form_changes.push(want);
+                }
+            }
+            "TaskbarIcon" => {
+                self.form.taskbar_icon = value;
+                self.dirty = true;
+            }
+            "CanMinimize" => {
+                self.form.can_minimize = value != "false" && value != "0";
+                self.dirty = true;
+            }
+            "CanMaximize" => {
+                self.form.can_maximize = value != "false" && value != "0";
+                self.dirty = true;
+            }
+            "WindowState" => {
+                self.form.window_state = cobolt_forms::model::WindowState::from_str(&value);
+                self.dirty = true;
+            }
+            "FullScreen" => {
+                self.form.full_screen = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "TitleVisible" => {
+                self.form.title_visible = value != "false" && value != "0";
+                self.dirty = true;
+            }
+
             _ => {}
         }
     }
@@ -3843,6 +3889,13 @@ impl DesignerPanel {
             "BgImageMode" => Some(self.form.bg_image_mode.as_str().to_string()),
             "Theme" => Some(self.form.theme.clone().unwrap_or_default()),
             "UseThemeBackground" => Some(if self.form.use_theme_background { "true".to_string() } else { "false".to_string() }),
+            "MainForm" => Some(bool_str(self.form.main_form)),
+            "TaskbarIcon" => Some(self.form.taskbar_icon.clone()),
+            "CanMinimize" => Some(bool_str(self.form.can_minimize)),
+            "CanMaximize" => Some(bool_str(self.form.can_maximize)),
+            "WindowState" => Some(self.form.window_state.as_str().to_string()),
+            "FullScreen" => Some(bool_str(self.form.full_screen)),
+            "TitleVisible" => Some(bool_str(self.form.title_visible)),
             _ => None,
         }
     }
@@ -4449,6 +4502,7 @@ impl DesignerPanel {
                                     "RAD Form Designer chatbot",
                                     Some(crate::agents_db::FORM_DESIGNER),
                                     &context,
+                                    crate::i18n::current_tr(ui.ctx()),
                                 ),
                                 None => crate::llm::spawn_agent_request(
                                     llm_cfg,
@@ -7211,6 +7265,7 @@ impl DesignerPanel {
                                                 &format!(
                                                     "Handler `{program_id}` for `{ctrl_id}.{event_name}` failed validation.\n\nCURRENT INVALID HANDLER:\n```cobol\n{code}\n```\n\nVALIDATION ERRORS:\n{error_list}"
                                                 ),
+                                                crate::i18n::current_tr(ui.ctx()),
                                             )
                                         }
                                         None => crate::llm::spawn_request(
@@ -7695,6 +7750,7 @@ impl DesignerPanel {
                     &format!(
                         "Editing handler `{program_id}` for `{ctrl_id}.{event_name}`.\n\nCURRENT HANDLER:\n```cobol\n{code}\n```"
                     ),
+                    crate::i18n::current_tr(ui.ctx()),
                 ),
                 None => crate::llm::spawn_request(
                     &event_llm_cfg,
@@ -9168,6 +9224,11 @@ fn structural_prop_value(ctrl: &Control, key: &str) -> Option<PropValue> {
 ///
 /// This is the single list of settable form properties, and it must stay in step
 /// with `crate::agent::form_property_valid`, which the change-set validator uses.
+/// Canonical "true"/"false" for form-property reads.
+fn bool_str(v: bool) -> String {
+    if v { "true".to_string() } else { "false".to_string() }
+}
+
 pub(crate) fn canonical_form_prop_key(key: &str) -> Option<&'static str> {
     FORM_PROP_KEYS
         .iter()
@@ -9194,6 +9255,14 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "BgImageMode",
     "Theme",
     "UseThemeBackground",
+    // 037 Main form & window lifecycle
+    "MainForm",
+    "TaskbarIcon",
+    "CanMinimize",
+    "CanMaximize",
+    "WindowState",
+    "FullScreen",
+    "TitleVisible",
 ];
 
 /// The spelling under which `key` is already stored on `ctrl`, or `key` itself
@@ -12432,6 +12501,9 @@ mod property_key_case_tests {
             "backgroundgradientstartcolor", "backgroundgradientendcolor",
             "backgroundgradientdirection", "target", "backgroundimage", "bgimagemode",
             "theme", "usethemebackground",
+            // 037 main form & window lifecycle
+            "mainform", "taskbaricon", "canminimize", "canmaximize", "windowstate",
+            "fullscreen", "titlevisible",
         ] {
             assert!(
                 canonical_form_prop_key(word).is_some(),
@@ -12468,6 +12540,45 @@ mod property_key_case_tests {
             structural_prop_value(&c, "caption").map(|v| v.as_str().to_string()),
             Some("before".to_string()),
             "undo must capture the real previous value, not None"
+        );
+    }
+}
+
+#[cfg(test)]
+mod main_form_reassign_tests {
+    use super::*;
+
+    /// 037 R2/AC1 — the MainForm claim rides the designer undo stack: one
+    /// SetFormProp Cmd per direction, one app-settlement event per actual
+    /// flag transition (claim=true, un-claim=false), redo re-claims.
+    #[test]
+    fn main_form_reassign_claim_undo_redo_emit_one_transition_each() {
+        let form = Form::new("F1", "F1", 640, 480);
+        let mut dp = DesignerPanel::new(form);
+        assert!(!dp.form.main_form);
+
+        dp.set_form_prop("MainForm", "true".into());
+        assert!(dp.form.main_form, "claim sets the flag");
+        assert!(dp.dirty, "claim dirties the form");
+        assert_eq!(dp.main_form_changes, vec![true], "claim emits one event");
+        dp.main_form_changes.clear();
+
+        dp.undo();
+        assert!(!dp.form.main_form, "undo clears the flag");
+        assert_eq!(dp.main_form_changes, vec![false], "undo emits one un-claim");
+        dp.main_form_changes.clear();
+
+        dp.redo();
+        assert!(dp.form.main_form, "redo re-claims");
+        assert_eq!(dp.main_form_changes, vec![true], "redo emits one claim");
+
+        // A REPEATED set to the same value must be a no-op (no Cmd, no event).
+        dp.main_form_changes.clear();
+        dp.set_form_prop("MainForm", "true".into());
+        assert!(dp.main_form_changes.is_empty(), "same-value set stays silent");
+
+        println!(
+            "claim/undo/redo transitions: true → false → true (one event each); same-value set silent"
         );
     }
 }

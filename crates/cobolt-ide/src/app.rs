@@ -362,6 +362,11 @@ pub struct CoboltApp {
     welcome_quote_index: usize,
     welcome_quote_start_time: f64,
 
+    /// 037 R2 — previous MainForm holder per claim, so an undo (un-claim)
+    /// restores exactly the form that held the role before, not merely the
+    /// first in the list.
+    main_form_prev: Vec<Option<String>>,
+
     /// Whether the Help → About window is open.
     about_open: bool,
     /// Shown once after opening a project that has no usable AI model or no
@@ -416,6 +421,12 @@ pub struct CoboltApp {
     /// Pending binary build result channel (Phase 11).
     pending_build_rx:
         Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
+    /// Manual KB reindex (File menu): progress/done messages from the worker
+    /// thread, drained each frame. `Some` = running, which disables the menu
+    /// item and shows the progress modal.
+    kb_reindex_rx: Option<std::sync::mpsc::Receiver<KbReindexMsg>>,
+    /// Latest reindex phase for the modal bar: (fraction 0..1, "n/m — subject").
+    kb_reindex_phase: (f32, String),
     /// Streamed build-phase progress (fraction + message) for the Building modal.
     pending_build_progress: Option<std::sync::mpsc::Receiver<cobolt_compiler::BuildProgress>>,
     /// Latest build phase: (fraction 0..1, message).
@@ -441,7 +452,6 @@ enum FileRequest {
     SaveProject,
     PackageProject,
     AddFile(FileKind),
-    OpenForm,
     NewForm(Box<cobolt_forms::Form>),
     /// Pick a background image for the IDE appearance settings.
     PickBackgroundImage,
@@ -649,6 +659,15 @@ struct IndexedGridState {
 /// Inline form/control inspector shown in the Main Pane (from the project tree).
 /// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
 /// machinery without opening a designer window.
+/// Messages from the manual KB-reindex worker (File menu) to the UI thread.
+enum KbReindexMsg {
+    /// Embedding progress for the modal's determinate bar: fraction 0..1 and
+    /// a "n/m — subject" label. Sent per record; the drain keeps the latest.
+    Phase(f32, String),
+    /// The worker finished: the summary line, or the error.
+    Done(Result<String, String>),
+}
+
 struct InspectState {
     path: PathBuf,
     ctrl_id: Option<String>,
@@ -962,6 +981,7 @@ impl CoboltApp {
             lang_persisted: crate::ui_prefs::load_language(),
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
+            main_form_prev: Vec::new(),
             about_open: false,
             ai_setup_modal: false,
             doc_viewer: Default::default(),
@@ -983,6 +1003,8 @@ impl CoboltApp {
             agent_status: None,
             agent_debug_open: false,
             pending_build_rx: None,
+            kb_reindex_rx: None,
+            kb_reindex_phase: (0.0, String::new()),
             pending_build_progress: None,
             build_phase: (0.0, String::new()),
             pending_file: None,
@@ -2023,6 +2045,8 @@ impl CoboltApp {
                         bad.len()
                     ));
                 }
+                // Spec 037 R3 — exactly one main form per project.
+                self.apply_main_form_invariant();
             }
             Err(e) => {
                 self.output.push_status(format!(
@@ -2208,6 +2232,41 @@ impl CoboltApp {
         self.pending_build_rx = Some(rx);
         self.pending_build_progress = Some(prx);
         self.build_phase = (0.0, "Starting…".to_string());
+    }
+
+    /// File → Reindex Knowledge Bases: run the same incremental sync a Grace
+    /// workflow performs at start (System KB always, Project KB when a project
+    /// is open) on a worker thread, streaming coarse progress to the Output
+    /// panel. The menu item stays disabled while the worker runs.
+    fn do_reindex_kb(&mut self) {
+        if self.kb_reindex_rx.is_some() {
+            return;
+        }
+        let project_dir = self.project_dir();
+        let tr = self.lang.tr();
+        self.output.push_status(tr.status_kb_reindex_started.to_owned());
+        let (tx, rx) = std::sync::mpsc::channel::<KbReindexMsg>();
+        std::thread::spawn(move || {
+            // Per-record phase updates drive the modal's determinate bar; the
+            // UI drain keeps only the latest, so no throttling is needed.
+            let ptx = tx.clone();
+            let mut on_progress = move |done: usize, total: usize, subject: &str| {
+                if total == 0 {
+                    return;
+                }
+                let _ = ptx.send(KbReindexMsg::Phase(
+                    done as f32 / total as f32,
+                    format!("{done}/{total} — {subject}"),
+                ));
+            };
+            let result = crate::grace_host::reindex_knowledge_bases(
+                project_dir.as_deref(),
+                &mut on_progress,
+            );
+            let _ = tx.send(KbReindexMsg::Done(result));
+        });
+        self.kb_reindex_rx = Some(rx);
+        self.kb_reindex_phase = (0.0, String::new());
     }
 
     /// Memory key for a form's dev-agent conversation.
@@ -3370,13 +3429,6 @@ impl CoboltApp {
     }
 
     // ── Designer actions ──────────────────────────────────────────────────────
-
-    fn do_open_form(&mut self) {
-        self.begin_file_dialog(
-            FileRequest::OpenForm,
-            crate::file_dialog::DialogSpec::open().filter("RustCOBOL Form", &["cfrm"]),
-        );
-    }
 
     fn load_form_from_path(&mut self, path: PathBuf) {
         if self.designers.iter().any(|(p, _)| p == &path) {
@@ -6599,36 +6651,89 @@ impl CoboltApp {
             let green = egui::Color32::from_rgb(100, 220, 100);
             let light_blue = egui::Color32::from_rgb(130, 190, 255);
 
+            // egui has no text-outline style, so the 1 px black outline is
+            // painted by hand: the same galley eight times at the 1 px
+            // neighbour offsets with every glyph forced black, then the
+            // coloured galley on top — readable even where the photo behind
+            // the text is bright despite the scrim. `outline_alpha` follows
+            // the quote fade so the outline never lingers after its text.
+            fn outlined_label(
+                ui: &mut egui::Ui,
+                mut job: egui::text::LayoutJob,
+                outline_alpha: f32,
+            ) {
+                job.halign = egui::Align::Center;
+                let galley = ui.fonts_mut(|f| f.layout_job(job));
+                let (rect, _) =
+                    ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                let pos = rect.center_top();
+                let outline = egui::Color32::BLACK.gamma_multiply(outline_alpha);
+                for dx in [-1.0_f32, 0.0, 1.0] {
+                    for dy in [-1.0_f32, 0.0, 1.0] {
+                        if dx == 0.0 && dy == 0.0 {
+                            continue;
+                        }
+                        let mut shadow = egui::epaint::TextShape::new(
+                            pos + egui::vec2(dx, dy),
+                            galley.clone(),
+                            outline,
+                        );
+                        shadow.override_text_color = Some(outline);
+                        ui.painter().add(shadow);
+                    }
+                }
+                ui.painter()
+                    .add(egui::epaint::TextShape::new(pos, galley, egui::Color32::WHITE));
+            }
+
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0; // gaps are inserted explicitly
                 let top = ((ui.available_height() - block_h) * 0.5).max(0.0);
                 ui.add_space(top);
 
-                ui.label(crate::theme::brand_layout_job(
+                let mut title_job = crate::theme::brand_layout_job(
                     welcome_prefix,
                     &format!(" {}{welcome_suffix}", crate::version::VERSION),
                     TITLE_SIZE,
                     egui::Color32::WHITE,
-                ));
+                );
+                title_job.wrap.max_width = avail_w;
+                outlined_label(ui, title_job, 1.0);
                 ui.add_space(GAP_LICENSE);
-                ui.label(
-                    egui::RichText::new(license)
-                        .size(14.0)
-                        .color(egui::Color32::WHITE),
+                outlined_label(
+                    ui,
+                    egui::text::LayoutJob::simple(
+                        license.to_owned(),
+                        egui::FontId::proportional(14.0),
+                        egui::Color32::WHITE,
+                        avail_w,
+                    ),
+                    1.0,
                 );
                 ui.add_space(GAP_QUOTE);
-                ui.label(
-                    egui::RichText::new(quote)
-                        .size(16.0)
-                        .color(green.gamma_multiply(alpha)),
+                outlined_label(
+                    ui,
+                    egui::text::LayoutJob::simple(
+                        quote.to_owned(),
+                        egui::FontId::proportional(16.0),
+                        green.gamma_multiply(alpha),
+                        avail_w,
+                    ),
+                    alpha,
                 );
                 ui.add_space(GAP_AUTHOR);
-                ui.label(
-                    egui::RichText::new(&author_line)
-                        .size(15.0)
-                        .italics()
-                        .color(light_blue.gamma_multiply(alpha)),
+                let mut author_job = egui::text::LayoutJob::default();
+                author_job.append(
+                    &author_line,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(15.0),
+                        color: light_blue.gamma_multiply(alpha),
+                        italics: true,
+                        ..Default::default()
+                    },
                 );
+                outlined_label(ui, author_job, alpha);
             });
         });
     }
@@ -7634,6 +7739,54 @@ impl CoboltApp {
             });
     }
 
+    /// Progress modal for File → Reindex Knowledge Bases: same shape as the
+    /// Building modal — dimmed background, determinate bar, spinner + the
+    /// current "n/m — subject" label. Shown while the worker runs.
+    fn show_kb_reindex_modal(&mut self, ctx: &Context) {
+        if self.kb_reindex_rx.is_none() {
+            return;
+        }
+        let tr = self.lang.tr();
+        // Dim the rest of the IDE so the reindex reads as modal (same idiom
+        // as the Building modal).
+        let screen = ctx.content_rect();
+        ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Middle,
+            egui::Id::new("kb_reindex_dim"),
+        ))
+        .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
+        let (frac, msg) = (self.kb_reindex_phase.0, self.kb_reindex_phase.1.clone());
+        ctx.request_repaint(); // keep the bar live while the worker runs
+
+        egui::Window::new(tr.menu_reindex_kb_busy)
+            .id(egui::Id::new("kb_reindex_modal"))
+            .order(egui::Order::Foreground)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.add_space(8.0);
+                ui.add(
+                    egui::ProgressBar::new(frac.clamp(0.0, 1.0))
+                        .desired_width(280.0)
+                        .show_percentage(),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new());
+                    // Until the first record reports (model load, unchanged
+                    // scan) the label falls back to the started status line.
+                    let label = if msg.is_empty() {
+                        tr.status_kb_reindex_started
+                    } else {
+                        msg.as_str()
+                    };
+                    ui.label(egui::RichText::new(label).size(13.0));
+                });
+                ui.add_space(4.0);
+            });
+    }
+
     // ── Keyboard shortcuts (main window) ─────────────────────────────────────
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
@@ -7841,6 +7994,173 @@ impl CoboltApp {
         dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
         self.designers.push((path, dp));
         self.new_form.open = false;
+        // Spec 037 R3 — the first form created in a project becomes the main
+        // form (and any later violation heals to the first in the list).
+        self.apply_main_form_invariant();
+    }
+
+    /// Spec 037 R3 — run [`crate::main_form::normalize_main_form`] over the
+    /// open project, mirror the on-disk designation into every open designer
+    /// (so the properties panel and tree crown agree with the files), and
+    /// report a repair in the status line.
+    fn apply_main_form_invariant(&mut self) {
+        let Some(dir) = self.project_dir() else {
+            return;
+        };
+        let Some(proj) = self.cobolt_project.as_ref() else {
+            return;
+        };
+        let forms = proj.files.forms.clone();
+        let tr = self.lang.tr();
+        match crate::main_form::normalize_main_form(&dir, &forms) {
+            Ok(outcome) => {
+                let holder_abs = outcome.holder().map(|rel| dir.join(rel));
+                for (path, dp) in &mut self.designers {
+                    dp.form.main_form = holder_abs.as_deref() == Some(path.as_path());
+                }
+                match outcome {
+                    crate::main_form::MainFormOutcome::Assigned { holder } => {
+                        self.output.push_status(
+                            tr.status_main_form_assigned.replacen("{}", &holder, 1),
+                        );
+                    }
+                    crate::main_form::MainFormOutcome::Trimmed { holder, cleared } => {
+                        self.output.push_status(
+                            tr.status_main_form_trimmed
+                                .replacen("{}", &holder, 1)
+                                .replacen("{}", &cleared.to_string(), 1),
+                        );
+                    }
+                    crate::main_form::MainFormOutcome::Unchanged { .. } => {}
+                }
+            }
+            Err(e) => self.output.push_status(format!("Main form check: {e}")),
+        }
+    }
+
+    /// 037 R2 — settle MainForm flag transitions emitted by the designers'
+    /// undo stacks. A claim demotes the previous holder (open designers in
+    /// memory + dirty, closed forms directly on disk — an open designer's
+    /// unsaved edits are never committed as a side effect); an un-claim
+    /// (undo) restores the recorded previous holder. Both directions are one
+    /// user action; the status line names the forms involved.
+    fn drain_main_form_changes(&mut self) {
+        let mut events: Vec<(std::path::PathBuf, bool)> = Vec::new();
+        for (path, d) in &mut self.designers {
+            for claim in std::mem::take(&mut d.main_form_changes) {
+                events.push((path.clone(), claim));
+            }
+        }
+        // The project-panel "Form properties" view edits a form through its
+        // own embedded DesignerState — its MainForm claim must settle through
+        // the SAME path, or checking the box there leaves the previous holder
+        // crowned (two mains on disk).
+        if let Some(st) = &mut self.inspect {
+            for claim in std::mem::take(&mut st.designer.main_form_changes) {
+                events.push((st.path.clone(), claim));
+            }
+        }
+        if events.is_empty() {
+            return;
+        }
+        let Some(dir) = self.project_dir() else {
+            return; // standalone form outside a project — nothing to settle
+        };
+        let forms: Vec<String> = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.files.forms.clone())
+            .unwrap_or_default();
+        let tr = self.lang.tr();
+        let open_paths: Vec<std::path::PathBuf> =
+            self.designers.iter().map(|(p, _)| p.clone()).collect();
+        for (path, claim) in events {
+            if claim {
+                let Some(rel) = relative_to(&path, &dir) else {
+                    continue;
+                };
+                // Demote the previous holder: open designers in memory …
+                let mut prev: Option<String> = None;
+                for (p, d) in &mut self.designers {
+                    if *p != path && d.form.main_form {
+                        d.form.main_form = false;
+                        d.dirty = true;
+                        if prev.is_none() {
+                            prev = relative_to(p, &dir);
+                        }
+                    }
+                }
+                // … the inspected form's in-memory copy (its file is handled
+                // by the on-disk clear below; without this the inspect pane
+                // keeps showing a checked box until its mtime refresh) …
+                if let Some(st) = &mut self.inspect {
+                    if st.path != path && st.designer.form.main_form {
+                        st.designer.form.main_form = false;
+                        if prev.is_none() {
+                            prev = relative_to(&st.path, &dir);
+                        }
+                    }
+                }
+                // … and closed forms directly on disk.
+                match crate::main_form::clear_other_holders_on_disk(
+                    &dir,
+                    &forms,
+                    &rel,
+                    &open_paths,
+                ) {
+                    Ok(cleared) => {
+                        // Refresh the tree's cached copy of every demoted
+                        // form, so its crown falls off even after the
+                        // override clears (stale cache = second crown).
+                        for c in &cleared {
+                            self.project.refresh_form(&dir.join(c));
+                        }
+                        if prev.is_none() {
+                            prev = cleared.into_iter().next();
+                        }
+                    }
+                    Err(e) => self.output.push_status(format!("Main form change: {e}")),
+                }
+                self.output.push_status(
+                    tr.status_main_form_now
+                        .replacen("{}", &rel, 1)
+                        .replacen("{}", prev.as_deref().unwrap_or("—"), 1),
+                );
+                self.main_form_prev.push(prev);
+            } else {
+                match self.main_form_prev.pop().flatten() {
+                    Some(prev_rel) => {
+                        let prev_abs = dir.join(&prev_rel);
+                        let mut in_memory = false;
+                        for (p, d) in &mut self.designers {
+                            if *p == prev_abs {
+                                d.form.main_form = true;
+                                d.dirty = true;
+                                in_memory = true;
+                            }
+                        }
+                        if !in_memory {
+                            if let Err(e) = crate::main_form::restore_holder_on_disk(
+                                &dir,
+                                &prev_rel,
+                                &open_paths,
+                            ) {
+                                self.output
+                                    .push_status(format!("Main form restore: {e}"));
+                            } else {
+                                self.project.refresh_form(&prev_abs);
+                            }
+                        }
+                        self.output.push_status(
+                            tr.status_main_form_restored.replacen("{}", &prev_rel, 1),
+                        );
+                    }
+                    // No recorded holder (e.g. history cleared) — heal to the
+                    // R3 default rather than leaving the project holderless.
+                    None => self.apply_main_form_invariant(),
+                }
+            }
+        }
     }
 
     // ── Async file-dialog plumbing ──────────────────────────────────────────────
@@ -7887,7 +8207,6 @@ impl CoboltApp {
             }
             FileRequest::PackageProject => self.package_project_to(path),
             FileRequest::AddFile(kind) => self.add_file_to_project_path(kind, path),
-            FileRequest::OpenForm => self.load_form_from_path(path),
             FileRequest::NewForm(form) => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),
             FileRequest::PickProjectIcon => self.set_project_icon(path),
@@ -8547,6 +8866,42 @@ impl eframe::App for CoboltApp {
             }
         }
 
+        // ── Drain manual KB-reindex progress (File menu) ─────────────────────
+        if let Some(rx) = &self.kb_reindex_rx {
+            let mut finished = false;
+            loop {
+                match rx.try_recv() {
+                    Ok(KbReindexMsg::Phase(fraction, label)) => {
+                        self.kb_reindex_phase = (fraction, label);
+                    }
+                    Ok(KbReindexMsg::Done(Ok(summary))) => {
+                        self.output.push_status(format!("✅ {summary}"));
+                        finished = true;
+                    }
+                    Ok(KbReindexMsg::Done(Err(e))) => {
+                        self.output
+                            .push_status(format!("❌ Knowledge Base reindex: {e}"));
+                        finished = true;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        // Worker gone without a Done (panic): report, stop.
+                        if !finished {
+                            self.output
+                                .push_status("❌ Knowledge Base reindex stopped unexpectedly.");
+                        }
+                        finished = true;
+                        break;
+                    }
+                }
+            }
+            if finished {
+                self.kb_reindex_rx = None;
+            } else {
+                ctx.request_repaint(); // keep polling while the worker runs
+            }
+        }
+
         // ── Pending editor open from a designer window ────────────────────────
         if let Some(path) = self.pending_open_in_editor.take() {
             self.open_in_editor(path);
@@ -8572,6 +8927,7 @@ impl eframe::App for CoboltApp {
         // to a designer viewport (those render it themselves, on top).
         // "Building…" progress modal (closes right before the result is shown).
         self.show_building_modal(ctx);
+        self.show_kb_reindex_modal(ctx);
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
         self.show_form_error(ctx);
         // Duplicate COBOL ID / Validation alert — modal.
@@ -8610,9 +8966,22 @@ impl eframe::App for CoboltApp {
                         self.do_build_binary(); ui.close();
                     }
                     ui.separator();
-                    if ui.button(tr.menu_open_cobol).clicked()  { self.do_open();             ui.close(); }
-                    if ui.button(tr.menu_open_form).clicked()   { self.do_open_form();         ui.close(); }
-                    if ui.button(tr.menu_import_form).clicked() { self.do_add_file_to_project(FileKind::Form); ui.close(); }
+                    // Manual KB reindex — the same incremental sync a Grace
+                    // workflow runs at start, without sending a message.
+                    let reindexing = self.kb_reindex_rx.is_some();
+                    let reindex_label = if reindexing {
+                        tr.menu_reindex_kb_busy
+                    } else {
+                        tr.menu_reindex_kb
+                    };
+                    if ui
+                        .add_enabled(!reindexing, egui::Button::new(reindex_label))
+                        .on_hover_text(tr.menu_reindex_kb_hint)
+                        .clicked()
+                    {
+                        self.do_reindex_kb();
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button(tr.menu_save).clicked() { self.do_save(); ui.close(); }
                     ui.separator();
@@ -8719,6 +9088,24 @@ impl eframe::App for CoboltApp {
         let has_project = self.cobolt_project.is_some();
         if has_project {
             self.output.show(root_ui, &tr);
+
+            // 037 R4 — an open designer's (possibly unsaved) MainForm claim
+            // outranks the on-disk flags, so the tree crown moves the moment
+            // the checkbox is ticked, not on save. The project-panel inspect
+            // view carries the same weight: its claim saves eagerly, but the
+            // demotion of the previous holder settles a frame later — the
+            // override keeps the crown unique on screen meanwhile.
+            self.project.main_form_override = self
+                .designers
+                .iter()
+                .find(|(_, d)| d.form.main_form)
+                .map(|(p, _)| p.clone())
+                .or_else(|| {
+                    self.inspect
+                        .as_ref()
+                        .filter(|st| st.designer.form.main_form)
+                        .map(|st| st.path.clone())
+                });
 
             let proj_events = self
                 .project
@@ -9047,6 +9434,10 @@ impl eframe::App for CoboltApp {
                 d.show_preview = false;
             }
         }
+
+        // 037 R2 — settle MainForm claims/un-claims emitted by designer undo
+        // stacks this frame (checkbox tick, Cmd+Z, Cmd+Y all end up here).
+        self.drain_main_form_changes();
 
         // ── Documentation viewer window (Help → Documentation) ───────────────────
         self.doc_viewer.show(ctx, self.lang, &tr);
@@ -11070,6 +11461,9 @@ impl CoboltApp {
                     .push_status(format!("Could not delete form {}: {e}", path.display()));
             }
         }
+        // Spec 037 R3 — deleting the main form auto-assigns the first
+        // remaining form (with a status notice).
+        self.apply_main_form_invariant();
     }
 
     fn show_generated_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {

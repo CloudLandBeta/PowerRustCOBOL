@@ -4740,13 +4740,25 @@ impl PropertiesPanel {
             // ── Label ─────────────────────────────────────────────────────────
             ControlType::Label => {
                 section_header(ui, "Basic properties");
-                combo_row_inline(
+                combo_row_inline_labeled(
                     ui,
                     id,
                     "TextAlignment",
+                    "Horizontal alignment",
                     ctrl,
                     action,
-                    &["Left", "Center", "Right"],
+                    &["Left", "Center", "Right", "Justified"],
+                    "Left",
+                );
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "VerticalAlignment",
+                    "Vertical alignment",
+                    ctrl,
+                    action,
+                    &["Top", "Middle", "Bottom"],
+                    "Middle",
                 );
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
                 bool_row_inline(ui, id, "AutoSize", "AutoSize", ctrl, action);
@@ -4780,6 +4792,26 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "TextAlignment",
+                    "Horizontal alignment",
+                    ctrl,
+                    action,
+                    &["Left", "Center", "Right", "Justified"],
+                    "Left",
+                );
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "VerticalAlignment",
+                    "Vertical alignment",
+                    ctrl,
+                    action,
+                    &["Top", "Middle", "Bottom"],
+                    "Middle",
+                );
                 int_prop_row(
                     ui,
                     id,
@@ -6797,6 +6829,94 @@ impl PropertiesPanel {
                     });
                 });
 
+                // ── Window (spec 037) ────────────────────────────────────────────────
+                section_header(ui, tr.sec_window);
+                property_row(ui, tr.lbl_main_form, |ui| {
+                    let mut main = form.main_form;
+                    // R3: the holder's checkbox is read-only — the role moves
+                    // by checking MainForm on ANOTHER form, never by leaving
+                    // the project without one.
+                    let resp = ui.add_enabled(!form.main_form, egui::Checkbox::new(&mut main, ""));
+                    if form.main_form {
+                        resp.on_disabled_hover_text(tr.tip_main_form_locked);
+                    } else if main {
+                        action.form_props.push(("MainForm".into(), "true".into()));
+                    }
+                });
+                if form.main_form {
+                    // R9 — only the main form carries the taskbar icon.
+                    const TB_ICON_KEY: &str = "form-TaskbarIcon";
+                    let tb_wid = egui::Id::new(TB_ICON_KEY);
+                    let tb_buf = self
+                        .form_bufs
+                        .entry(TB_ICON_KEY.into())
+                        .or_insert(form.taskbar_icon.clone());
+                    if *tb_buf != form.taskbar_icon && !ui.memory(|m| m.has_focus(tb_wid)) {
+                        *tb_buf = form.taskbar_icon.clone();
+                    }
+                    property_row(ui, tr.lbl_taskbar_icon, |ui| {
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(tb_buf)
+                                    .id(tb_wid)
+                                    .desired_width(ui.available_width()),
+                            )
+                            .lost_focus()
+                        {
+                            action
+                                .form_props
+                                .push(("TaskbarIcon".into(), tb_buf.clone()));
+                        }
+                    });
+                }
+                property_row(ui, tr.lbl_can_minimize, |ui| {
+                    let mut v = form.can_minimize;
+                    if ui.checkbox(&mut v, "").changed() {
+                        action
+                            .form_props
+                            .push(("CanMinimize".into(), v.to_string()));
+                    }
+                });
+                property_row(ui, tr.lbl_can_maximize, |ui| {
+                    let mut v = form.can_maximize;
+                    if ui.checkbox(&mut v, "").changed() {
+                        action
+                            .form_props
+                            .push(("CanMaximize".into(), v.to_string()));
+                    }
+                });
+                property_row(ui, tr.lbl_window_state, |ui| {
+                    let cur = form.window_state.as_str();
+                    egui::ComboBox::from_id_salt("form-window-state")
+                        .selected_text(cur)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for opt in ["Normal", "Minimized", "Maximized"] {
+                                if ui.selectable_label(cur == opt, opt).clicked() && cur != opt {
+                                    action
+                                        .form_props
+                                        .push(("WindowState".into(), opt.to_owned()));
+                                }
+                            }
+                        });
+                });
+                property_row(ui, tr.lbl_full_screen, |ui| {
+                    let mut v = form.full_screen;
+                    if ui.checkbox(&mut v, "").changed() {
+                        action
+                            .form_props
+                            .push(("FullScreen".into(), v.to_string()));
+                    }
+                });
+                property_row(ui, tr.lbl_title_visible, |ui| {
+                    let mut v = form.title_visible;
+                    if ui.checkbox(&mut v, "").changed() {
+                        action
+                            .form_props
+                            .push(("TitleVisible".into(), v.to_string()));
+                    }
+                });
+
                 // ── Appearance ────────────────────────────────────────────────────────
                 section_header(ui, tr.sec_appearance);
                 const TITLE_KEY: &str = "form-Title";
@@ -7750,6 +7870,43 @@ fn combo_row_labeled(
                 }
             }
         });
+}
+
+/// Combo row — inline style with a display label distinct from the stored
+/// property key (e.g. "Horizontal alignment" editing `TextAlignment`).
+/// `fallback` is shown when the control predates the property — it must match
+/// what the renderer actually does for a missing value (e.g. "Middle", which
+/// is NOT the first list entry).
+fn combo_row_inline_labeled(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    opts: &[&str],
+    fallback: &str,
+) {
+    let cur = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| fallback.to_owned());
+    property_row(ui, label, |ui| {
+        egui::ComboBox::from_id_salt(format!("cbi_{ctrl_id}_{key}"))
+            .selected_text(&cur)
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for &opt in opts {
+                    if ui.selectable_label(cur == opt, opt).clicked() {
+                        action.set_props.push((
+                            ctrl_id.to_owned(),
+                            key.to_owned(),
+                            PropValue::String(opt.to_owned()),
+                        ));
+                    }
+                }
+            });
+    });
 }
 
 /// Combo row — inline horizontal style.

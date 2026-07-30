@@ -694,14 +694,20 @@ pub enum Stmt {
     },
 
     /// Visual-object **method invocation** (PowerCOBOL OO):
-    ///   `INVOKE Label-1 "SetCaption" USING "Hi"`
+    ///   `INVOKE Label-1 "SetCaption" USING "Hi"`   (space form)
+    ///   `INVOKE me::"OpenFormSync"("F2", 10)`      (comma form, spec 037)
     ///   `Label-1::SetCaption("Hi")`
     /// `args` are the operands; `returning` receives a getter's result.
+    /// `comma_form` records the `obj::"Method"(a, b)` spelling: its trailing
+    /// parameters are OPTIONAL (defaulted at runtime, 037 R21), while the
+    /// classic space form requires every parameter of a checked signature
+    /// (037 R22 — enforced by `cobolt-semantic`).
     Invoke {
         object: String,
         method: String,
         args: Vec<Expr>,
         returning: Option<Expr>,
+        comma_form: bool,
         span: Span,
     },
 

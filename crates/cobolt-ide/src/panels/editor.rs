@@ -2424,7 +2424,7 @@ impl EditorPanel {
         }
 
         if do_send && !busy {
-            self.send_ai_prompt(&path, cfg, code, project_root);
+            self.send_ai_prompt(&path, cfg, code, project_root, *tr);
         }
 
         applied
@@ -2468,6 +2468,7 @@ impl EditorPanel {
         cfg: &crate::llm::LlmConfig,
         code: &str,
         project_root: Option<&std::path::Path>,
+        tr: crate::i18n::Tr,
     ) {
         let prompt = self.ai_prompt.trim().to_string();
         if prompt.is_empty() {
@@ -2494,6 +2495,7 @@ impl EditorPanel {
                 "COBOL code editor chatbot",
                 None,
                 &format!("Current file `{filename}`:\n```cobol\n{code}\n```"),
+                tr,
             ),
             None => crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename, &skills, None),
         };

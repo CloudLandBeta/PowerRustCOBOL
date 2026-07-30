@@ -42,17 +42,48 @@ fn main() -> Result<(), String> {
     std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
     cobolt_compiler::publish_system_documentation(&scratch).map_err(|e| e.to_string())?;
     let store = scratch.join("chunked.data");
-    let mut last_report = std::time::Instant::now();
+    // Command-line progress: an 80-step character bar. Completed steps are
+    // dots, the frontier is a `*`; when the `*` disappears (all 80 dots) the
+    // indexing is done. Redrawn in place with `\r`, only when the frontier
+    // actually moves.
+    const BAR_STEPS: usize = 80;
+    let mut last_cell = usize::MAX;
     let records = cobolt_agents::chunked_knowledge::sync_tree_with_progress(
         &scratch,
         &store,
-        &mut |done, total, subject| {
-            if last_report.elapsed().as_millis() >= 500 || done + 1 == total {
-                println!("  embedding {done}/{total} — {subject}");
-                last_report = std::time::Instant::now();
+        &mut |done, total, _subject| {
+            if total == 0 {
+                return;
             }
+            let cell = (done * BAR_STEPS) / total; // 0..=BAR_STEPS
+            if cell == last_cell {
+                return;
+            }
+            last_cell = cell;
+            let mut bar = String::with_capacity(BAR_STEPS);
+            for i in 0..BAR_STEPS {
+                bar.push(if i < cell {
+                    '.'
+                } else if i == cell {
+                    '*'
+                } else {
+                    ' '
+                });
+            }
+            print!("\r{bar}");
+            use std::io::Write as _;
+            let _ = std::io::stdout().flush();
         },
     )?;
+    // Land the cursor on a fresh line after the bar (a no-op visual change
+    // when nothing needed re-embedding and the bar never drew).
+    if last_cell != usize::MAX {
+        println!("\r{}", ".".repeat(BAR_STEPS));
+    }
+    // GPU runs full speed; the CPU fallback runs low-power (capped threads).
+    if let Some(dev) = cobolt_agents::bert_embedder::active_device_label() {
+        println!("embedding device: {dev}");
+    }
 
     // Verify the store answers for every published document under the
     // semantic stamp before shipping it.

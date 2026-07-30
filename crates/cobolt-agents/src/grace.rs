@@ -167,6 +167,31 @@ pub struct WorkflowRecord {
     /// unparseable.
     #[serde(default)]
     pub request_clarity: Option<u8>,
+    /// Per-agent usage totals across the run (model calls + typed extraction).
+    /// Empty on records written before the statistics footer existed.
+    #[serde(default)]
+    pub agent_stats: Vec<AgentStat>,
+    /// Wall-clock duration of the whole run in milliseconds (request received
+    /// → record finalized), including retrieval/indexing time between calls.
+    /// 0 when unknown (older records).
+    #[serde(default)]
+    pub total_elapsed_ms: u64,
+    /// The largest single-call prompt (input-token) size observed — the peak
+    /// context any one request actually reached. 0 when unknown.
+    #[serde(default)]
+    pub peak_context_tokens: u64,
+}
+
+/// One agent's accumulated usage across a workflow run: how many model calls
+/// it made, the exact token counts those calls reported, and the wall-clock
+/// time spent waiting on them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentStat {
+    pub agent: String,
+    pub calls: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub elapsed_ms: u64,
 }
 
 /// The reviewer name recorded for a machine-validation rejection (the lint

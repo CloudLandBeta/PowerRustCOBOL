@@ -34,6 +34,7 @@ pub mod grace_session;
 pub mod i18n;
 pub mod inspector;
 pub mod llm;
+pub mod main_form;
 mod panels;
 pub mod pdf_export;
 mod project_fs;

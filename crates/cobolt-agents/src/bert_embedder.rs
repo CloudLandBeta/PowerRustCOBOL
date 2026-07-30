@@ -101,6 +101,108 @@ pub struct BertEmbedder {
     device: Device,
 }
 
+/// The embedding device chosen for this process, as a human-readable label
+/// ("Metal", "CUDA 0", "CPU · low-power (2 threads)"). Set by the first
+/// [`pick_device`] call; empty before any embedder loads. Every embedding
+/// path shares it — the System KB, project KBs, and query embedding.
+static ACTIVE_DEVICE_LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The label of the device the embedder runs on, for CLI/UI reporting.
+/// `None` until an embedder has loaded.
+pub fn active_device_label() -> Option<&'static str> {
+    ACTIVE_DEVICE_LABEL.get().map(|s| s.as_str())
+}
+
+/// How many rayon threads the LOW-POWER CPU fallback uses. Two keeps the
+/// machine cool and responsive; the reindex simply takes longer.
+const CPU_LOW_POWER_THREADS: &str = "2";
+
+/// Choose the embedding device (one policy, both KBs):
+///
+/// - Metal (every macOS build carries it) / CUDA (opt-in `embed-cuda`
+///   feature) usable at runtime ⇒ **full speed** on the GPU.
+/// - CPU fallback ⇒ **low-power**: the rayon pool that candle's CPU matmuls
+///   use is capped to [`CPU_LOW_POWER_THREADS`] so a reindex never pins all
+///   cores (fan noise was the reported symptom). The cap only works when set
+///   before rayon's global pool first initialises — which holds because
+///   nothing else in the workspace uses rayon — and an operator-set
+///   `RAYON_NUM_THREADS` is always respected.
+///
+/// `PRC_EMBED_DEVICE=cpu|metal|cuda` forces a backend (a forced GPU that
+/// fails to initialise still falls back to low-power CPU rather than
+/// crashing).
+fn pick_device() -> Device {
+    let forced = std::env::var("PRC_EMBED_DEVICE")
+        .map(|v| v.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    #[cfg(target_os = "macos")]
+    if forced.is_empty() || forced == "metal" {
+        match Device::new_metal(0) {
+            Ok(d) => {
+                let _ = ACTIVE_DEVICE_LABEL.set("Metal".to_owned());
+                return d;
+            }
+            Err(e) => tracing::warn!(%e, "Metal unavailable; falling back"),
+        }
+    }
+    #[cfg(feature = "embed-cuda")]
+    if forced.is_empty() || forced == "cuda" {
+        match Device::new_cuda(0) {
+            Ok(d) => {
+                let _ = ACTIVE_DEVICE_LABEL.set("CUDA 0".to_owned());
+                return d;
+            }
+            Err(e) => tracing::warn!(%e, "CUDA unavailable; falling back"),
+        }
+    }
+
+    // CPU fallback (or forced "cpu") — low-power unless the operator chose
+    // their own thread count.
+    let threads = match std::env::var("RAYON_NUM_THREADS") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => {
+            std::env::set_var("RAYON_NUM_THREADS", CPU_LOW_POWER_THREADS);
+            CPU_LOW_POWER_THREADS.to_owned()
+        }
+    };
+    let _ = ACTIVE_DEVICE_LABEL.set(format!("CPU ({threads} threads)"));
+    Device::Cpu
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::*;
+
+    /// The CPU path is LOW-POWER — the rayon pool is capped unless the
+    /// operator chose a thread count — and the label reports the device.
+    /// CPU is forced via the override so the test holds on machines whose
+    /// build carries a GPU backend (every macOS build has Metal). (The only
+    /// test touching these env vars.)
+    #[test]
+    fn cpu_fallback_is_low_power_and_reports_a_label() {
+        std::env::set_var("PRC_EMBED_DEVICE", "cpu");
+        std::env::remove_var("RAYON_NUM_THREADS");
+        let device = pick_device();
+        assert!(matches!(device, Device::Cpu), "forced cpu picks CPU");
+        assert_eq!(
+            std::env::var("RAYON_NUM_THREADS").as_deref(),
+            Ok(CPU_LOW_POWER_THREADS),
+            "low-power cap applied when the operator set nothing"
+        );
+        let label = active_device_label().expect("label set by pick_device");
+        assert!(label.starts_with("CPU"), "label names the device: {label}");
+        println!("embedding device label: {label}");
+
+        // An operator-set thread count is respected, never overwritten.
+        std::env::set_var("RAYON_NUM_THREADS", "7");
+        let _ = pick_device();
+        assert_eq!(std::env::var("RAYON_NUM_THREADS").as_deref(), Ok("7"));
+        std::env::remove_var("RAYON_NUM_THREADS");
+        std::env::remove_var("PRC_EMBED_DEVICE");
+    }
+}
+
 impl BertEmbedder {
     /// Load the model, fetching it into `cache_dir` on first use.
     pub fn load(cache_dir: &Path) -> Result<Self, String> {
@@ -123,7 +225,7 @@ impl BertEmbedder {
             .with_truncation(Some(truncation))
             .map_err(|e| format!("configuring truncation: {e}"))?;
 
-        let device = Device::Cpu;
+        let device = pick_device();
         // SAFETY: mmap of a file we just resolved; candle requires unsafe here
         // because the mapping must outlive the borrow, which `VarBuilder` owns.
         let vb = unsafe {

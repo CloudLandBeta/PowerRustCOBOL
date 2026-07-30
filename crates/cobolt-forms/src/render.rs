@@ -2941,6 +2941,25 @@ fn render_interactive(
                 }
             };
             let mut buf = sv(ctrl, "Text");
+            // The designer paints the face with the control's own font
+            // (family + size); the editable overlay must match or the run
+            // form silently falls back to egui's default ~14 px font.
+            let edit_font = crate::fonts::font_id(
+                ui.ctx(),
+                &sv(ctrl, "FontName"),
+                paint::ctrl_font_size(ctrl),
+            );
+            // Placeholder shown while the box is empty — same font as the
+            // text, foreground colour faded so it reads as a hint on both
+            // light and dark faces (egui's default hint gray vanishes on
+            // glass themes).
+            let hint_text = sv(ctrl, "HintText");
+            let hint_col = txt_col.gamma_multiply(0.55);
+            // TextAlignment / VerticalAlignment, matching the designer face.
+            // Justified lays out left in the editor — egui's TextEdit cannot
+            // justify editable text; the static designer face previews it.
+            let halign = paint::text_halign(&sv(ctrl, "TextAlignment"));
+            let valign = paint::text_valign(&sv(ctrl, "VerticalAlignment"));
             // Keep the editable content clear of the box's own rounded corners: inset
             // by at least the corner radius so text never renders in the corner zone
             // (outside the rounded arc), which would read as bleed past the corner.
@@ -2971,6 +2990,47 @@ fn render_interactive(
                     egui::pos2(screen.right() - pad, screen.bottom() - vpad),
                 )
             };
+            // Where in an OVERFLOWING text the at-rest view window sits follows
+            // the alignment: Left shows the head, Center the middle, Right the
+            // tail. egui's editor always reveals the head when the galley is
+            // wider than the field (its scroll offset only follows the caret
+            // while focused), so an unfocused overflowing single-line box is
+            // hosted in a rect widened to the full text and anchored per the
+            // alignment — the box's clip rect then reveals the correct window.
+            // While focused the normal rect is used so egui keeps the caret in
+            // view as the user types. Interaction cannot leak outside the box:
+            // egui clips a widget's interact rect to the active clip rect.
+            let single_rect = if !multiline
+                && !ui.ctx().memory(|m| m.has_focus(ctrl_id))
+                && !matches!(halign, egui::Align::LEFT)
+            {
+                let text_w = ui.fonts_mut(|f| {
+                    f.layout_no_wrap(buf.clone(), edit_font.clone(), txt_col)
+                        .size()
+                        .x
+                });
+                // TextEdit keeps its default inner margin (4 px each side)
+                // even with Frame::NONE, so the editable width is slightly
+                // narrower than the rect it is put into.
+                let margin_w = 8.0;
+                if text_w > (edit_rect.width() - margin_w).max(0.0) {
+                    let w = text_w + margin_w;
+                    match halign {
+                        egui::Align::RIGHT => egui::Rect::from_min_max(
+                            egui::pos2(edit_rect.right() - w, edit_rect.top()),
+                            edit_rect.right_bottom(),
+                        ),
+                        _ => egui::Rect::from_center_size(
+                            edit_rect.center(),
+                            egui::vec2(w, edit_rect.height()),
+                        ),
+                    }
+                } else {
+                    edit_rect
+                }
+            } else {
+                edit_rect
+            };
             let resp = if multiline {
                 // egui's multiline editor auto-grows to its content, so it would
                 // spill past the TextBox's fixed height (and its rounded bottom).
@@ -2989,6 +3049,12 @@ fn render_interactive(
                                     .interactive(enabled)
                                     .desired_rows(1)
                                     .desired_width(edit_rect.width())
+                                    .horizontal_align(halign)
+                                    .font(edit_font.clone())
+                                    .hint_text(
+                                        egui::RichText::new(hint_text.as_str())
+                                            .color(hint_col),
+                                    )
                                     .text_color(txt_col),
                             )
                         })
@@ -3001,12 +3067,17 @@ fn render_interactive(
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(screen.intersect(ui.clip_rect()));
                     ui.put(
-                        edit_rect,
+                        single_rect,
                         egui::TextEdit::singleline(&mut buf)
                             .id(ctrl_id)
                             .frame(egui::Frame::NONE)
                             .interactive(enabled)
-                            .vertical_align(egui::Align::Center)
+                            .horizontal_align(halign)
+                            .vertical_align(valign)
+                            .font(edit_font.clone())
+                            .hint_text(
+                                egui::RichText::new(hint_text.as_str()).color(hint_col),
+                            )
                             .text_color(txt_col),
                     )
                 })

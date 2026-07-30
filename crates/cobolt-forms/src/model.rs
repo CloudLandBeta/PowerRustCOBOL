@@ -2621,6 +2621,9 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             "onHide",
             "onClose",
             "onClosing",
+            // 037 R17 — a close attempt was refused because FormState is
+            // Waiting (or a Sync child of this form is Waiting).
+            "onCloseRejected",
             "onClosed",
             "onDestroy",
         ],
@@ -2648,6 +2651,9 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             "onRestore",
             "onFullscreen",
             "onExitFullscreen",
+            // 037 R14 — the ACTUAL fullscreen state changed (either
+            // direction); read `me`'s FullScreen for the new value.
+            "onFullScreenChanged",
         ],
     ),
     (
@@ -2877,6 +2883,11 @@ impl Control {
             ControlType::TextBox => {
                 props.insert("Text".into(), PropValue::String("".into()));
                 props.insert("HintText".into(), PropValue::String("".into()));
+                props.insert("TextAlignment".into(), PropValue::String("Left".into()));
+                props.insert(
+                    "VerticalAlignment".into(),
+                    PropValue::String("Middle".into()),
+                );
                 props.insert("InnerPadding".into(), PropValue::Int(3));
                 props.insert("MaximumLength".into(), PropValue::Int(0));
                 props.insert("Multiline".into(), PropValue::Bool(false));
@@ -2889,6 +2900,10 @@ impl Control {
             }
             ControlType::Label => {
                 props.insert("TextAlignment".into(), PropValue::String("Left".into()));
+                props.insert(
+                    "VerticalAlignment".into(),
+                    PropValue::String("Middle".into()),
+                );
                 props.insert("WordWrap".into(), PropValue::Bool(false));
                 props.insert("AutoSize".into(), PropValue::Bool(false));
                 props.insert("BorderStyle".into(), PropValue::String("None".into()));
@@ -3970,6 +3985,39 @@ pub struct UserProcedure {
 
 // ── Form ─────────────────────────────────────────────────────────────────────
 
+/// Initial window state of a running form (spec 037 R13). Orthogonal to
+/// `Form::full_screen` (R14): leaving fullscreen returns to this state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowState {
+    #[default]
+    Normal,
+    Minimized,
+    Maximized,
+}
+
+impl WindowState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WindowState::Normal => "Normal",
+            WindowState::Minimized => "Minimized",
+            WindowState::Maximized => "Maximized",
+        }
+    }
+
+    /// Lenient parse; anything unrecognised is Normal so old/hand-edited
+    /// `.cfrm` files never fail to load over this field.
+    pub fn from_str(value: &str) -> Self {
+        let v = value.trim();
+        if v.eq_ignore_ascii_case("Minimized") {
+            WindowState::Minimized
+        } else if v.eq_ignore_ascii_case("Maximized") {
+            WindowState::Maximized
+        } else {
+            WindowState::Normal
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Form {
     pub name: String,
@@ -4032,6 +4080,22 @@ pub struct Form {
     pub use_theme_background: bool,
     /// Which Liquid Glass recipe to apply to control surfaces.
     pub glass_style: GlassStyle,
+
+    // ── 037 Main form & window lifecycle ────────────────────────────────────
+    /// Exactly one form per project holds this (spec 037 R1–R3); enforced by
+    /// the IDE (normalisation + reassignment), not by this crate.
+    pub main_form: bool,
+    /// Taskbar/dock icon image path — only meaningful on the main form (R9).
+    pub taskbar_icon: String,
+    /// Native minimize / maximize-restore title-bar controls (R12).
+    pub can_minimize: bool,
+    pub can_maximize: bool,
+    /// State the window opens in; runtime-settable thereafter (R13).
+    pub window_state: WindowState,
+    /// Open in fullscreen; orthogonal to `window_state` (R14).
+    pub full_screen: bool,
+    /// Show the native title bar; false = chromeless window (R15).
+    pub title_visible: bool,
 }
 
 impl Form {
@@ -4078,6 +4142,13 @@ impl Form {
             theme: None,
             use_theme_background: false,
             glass_style: GlassStyle::default(),
+            main_form: false,
+            taskbar_icon: String::new(),
+            can_minimize: true,
+            can_maximize: true,
+            window_state: WindowState::default(),
+            full_screen: false,
+            title_visible: true,
         };
         form.seed_repository_if_empty();
         form
@@ -5723,10 +5794,13 @@ mod tests {
             "onDoubleClick",
             "onPaste",
             "onUnhandledException",
+            // Spec 037 lifecycle additions (wired, not just designable).
+            "onCloseRejected",
+            "onFullScreenChanged",
         ] {
             assert!(all.contains(&ev), "missing form event: {ev}");
         }
-        assert_eq!(all.len(), 66, "expected 66 form events");
+        assert_eq!(all.len(), 68, "expected 68 form events (66 + 2 from 037)");
     }
 
     #[test]

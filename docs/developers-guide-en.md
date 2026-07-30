@@ -501,6 +501,20 @@ until the model arrives — nothing is thrown away. Whenever records do need
 conversation shows a **progress bar** (`Indexing Knowledge Base (n of m
 records)`) so a long index never looks stuck.
 
+**Embedding device.** One policy covers the System KB and every project KB,
+for indexing and searches alike: when a supported GPU is available the
+embedder uses it at **full speed** — Metal on macOS, CUDA on NVIDIA
+Linux/Windows (a build made with the `embed-cuda` option) — and otherwise it
+falls back to the CPU in **low-power** mode, capping its compute threads at
+two so a long reindex stays quiet instead of pinning every core. Power
+users can override either side: set `RAYON_NUM_THREADS` to choose the CPU
+thread count, or `PRC_EMBED_DEVICE=cpu|metal|cuda` to force a backend (a
+forced GPU that fails still falls back to the CPU rather than crashing).
+The active device is shown in the Models modal next to the semantic model's
+status, and printed by the command-line reindex (`embedding device: …`).
+AMD and Intel GPUs on Linux/Windows are not supported by the inference
+backend and use the CPU path.
+
 When the agent **repositions controls** on a form, the affected controls
 **glide** from their old places to the new ones — all at once, over about a
 second — so you can see the layout change take shape instead of the controls
@@ -1732,6 +1746,94 @@ Other built-in services available via `CALL` (covered in their sections):
 > **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
 > the properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
 > `"Value"`). Control IDs are the IDs shown in the tree (e.g. `"BTN-GREET"`).
+
+### Multi-form applications and the main form
+
+Every project has exactly **one main form** — the form the application shows
+first and the app's single identity in the OS taskbar/dock. The first form you
+create takes the role automatically; move it by checking **Main form** in
+another form's Window properties (the current holder's checkbox is read-only,
+so a project can never end up without one). The Forms tree marks the main form
+with a **crown**. If a project ever loads with zero or several forms marked,
+the first form in the project list wins and the status line says so.
+
+The main form's Window section also offers **Taskbar icon** — the image the
+single taskbar/dock entry uses. Windows opened from other forms never create
+taskbar entries. Per-OS note: on macOS the Dock naturally shows one icon per
+application; on Windows/Linux child windows are created with the skip-taskbar
+flag.
+
+**Window chrome & state.** Every form has `CanMinimize` / `CanMaximize`
+(title-bar buttons), `TitleVisible` (`false` = chromeless window),
+`WindowState` (`Normal` / `Minimized` / `Maximized` — the state the window
+opens in, settable at runtime) and `FullScreen` (orthogonal to WindowState:
+leaving fullscreen returns to the previous state). At runtime:
+
+```cobol
+    INVOKE me "SetWindowState"  USING "Maximized".
+    INVOKE me "SetFullScreen"   USING "true".
+    INVOKE me "SetTitleVisible" USING "false".
+```
+
+Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
+event (the OS may refuse a request — the event follows reality, once per real
+change; read `me`'s `FullScreen` for the new value).
+
+**FormState — protecting unsaved work.** `FormState` is a runtime-only form
+property with two values, `Ready` (default) and `Waiting`. While a form is
+`Waiting` it cannot be closed by ANY path — the title-bar button, a
+`windowHandler` `Close`, or a cascade — and its `onCloseRejected` event fires
+instead. Typical pattern: set `Waiting` in `onTextChanged` handlers, set
+`Ready` after a successful save:
+
+```cobol
+    INVOKE me "SetProperty" USING "FormState" "Waiting".
+    *> … after saving …
+    INVOKE me "SetProperty" USING "FormState" "Ready".
+```
+
+**Opening forms from COBOL.** Two methods on `me`, each in two syntaxes:
+
+```cobol
+    *> Comma form — trailing parameters are OPTIONAL and default to the
+    *> target form's designed properties; modal defaults to true.
+    INVOKE me::"OpenFormSync"("DETAIL-FORM") RETURNING WS-H.
+    INVOKE me::"OpenFormAsync"("DETAIL-FORM", "Maximized", 100, 80)
+        RETURNING WS-H.
+
+    *> COBOL-standard space form — ALL parameters are required; a missing or
+    *> wrongly-typed parameter is a COMPILE-TIME error.
+    INVOKE me "OpenFormSync"
+        USING "DETAIL-FORM" "Normal" 100 80 640 480 "true"
+        RETURNING WS-H.
+```
+
+`WS-H` is a **windowHandler** (declare it `USAGE OBJECT`). Through it you can
+`Close`, `Focus` (restores a minimized window first), `SetWindowState`,
+`SetFullScreen`, `SetTitleVisible`, and read `WS-H::FormState`. When a form
+closes, every windowHandler that referred to it becomes **NULL**
+automatically; invoking through a NULL handle is a runtime error.
+
+**Lifecycle rules.**
+
+- The **main form is a singleton**: opening it while it runs focuses the
+  running instance and returns its existing handle. Other forms may run any
+  number of concurrent instances.
+- **Sync** children close together with their caller — and a caller cannot
+  close while any of its Sync children is `Waiting` (it gets
+  `onCloseRejected` too).
+- **Async** children survive their caller's close — except when the **main
+  form** closes: then every form closes and the application exits.
+- A **modal** Sync child blocks the caller's input and its COBOL flow until
+  the child closes; the `RETURNING` handle is NULL by the time the caller
+  resumes.
+
+> **Status.** The window-lifecycle rules above (FormState vetoes,
+> `onCloseRejected`, window commands, `onFullScreenChanged`) are live in the
+> run-form runtime today. Hosting the OpenForm* **child windows** is landing
+> with the multi-viewport host; until then a child open is accepted, logged
+> to stderr, and immediately released (its handle reads NULL), so programs
+> never deadlock.
 
 ---
 

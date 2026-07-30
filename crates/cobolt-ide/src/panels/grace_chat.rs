@@ -302,7 +302,7 @@ impl GraceChatPanel {
                     // transcript, then Grace's OWN final balloon — her summary
                     // no longer drowns at the tail of the transcript balloon.
                     let mut balloons =
-                        crate::grace_host::workflow_chat_balloons(&record, verbose);
+                        crate::grace_host::workflow_chat_balloons(&record, verbose, tr);
                     let reply = balloons.pop().unwrap_or_default();
                     for balloon in balloons {
                         self.history.push(ChatTurn::assistant(balloon));
