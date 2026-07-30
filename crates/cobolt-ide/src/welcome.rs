@@ -22,8 +22,7 @@ pub fn quotes(lang: Language) -> &'static [Quote] {
         Language::Japanese => JA,
         Language::Chinese => ZH,
         Language::English => EN,
-        // French shares the English quote pool until a French set is provided.
-        Language::French => EN,
+        Language::French => FR,
     }
 }
 
@@ -89,6 +88,7 @@ const EN: &[Quote] = &[
     ("Proverbs 16:24", "Pleasant words are a honeycomb, sweet to the soul and healing to the bones."),
     ("Proverbs 11:8", "The righteous person is rescued from trouble, and it falls on the wicked instead."),
     ("Proverbs 29:11", "A fool gives full vent to his anger, but a wise man keeps himself under control."),
+    ("Mark 9:23", "Jesus said to him, ‘If you can believe, all things are possible to him who believes.’"),
 ];
 
 const ES: &[Quote] = &[
@@ -110,6 +110,7 @@ const ES: &[Quote] = &[
     ("Proverbios 15:1", "La respuesta amable calma el enojo, pero la palabra hiriente lo enciende."),
     ("Proverbios 27:17", "El hierro se afila con el hierro, y el hombre con su prójimo."),
     ("Proverbios 13:4", "El perezoso desea y nada alcanza, pero el diligente prospera."),
+    ("Marcos 9:23", "Jesús le dijo: Si puedes creer, al que cree todo le es posible."),
 ];
 
 const PT: &[Quote] = &[
@@ -131,6 +132,7 @@ const PT: &[Quote] = &[
     ("Provérbios 15:1", "A resposta branda desvia o furor, mas a palavra dura suscita a ira."),
     ("Provérbios 27:17", "Como o ferro afia o ferro, assim o homem afia o seu companheiro."),
     ("Provérbios 13:4", "O preguiçoso deseja e nada consegue, mas o diligente prospera."),
+    ("Marcos 9:23", "E Jesus disse-lhe: Se tu podes crer, tudo é possível ao que crê."),
 ];
 
 const JA: &[Quote] = &[
@@ -152,6 +154,7 @@ const JA: &[Quote] = &[
     ("箴言 15:1", "柔らかな答えは憤りを静め、激しい言葉は怒りを引き起こす。"),
     ("箴言 27:17", "鉄は鉄をとぐ。人はその友によって磨かれる。"),
     ("箴言 13:4", "怠け者は欲しても得られず、勤勉な者は豊かになる。"),
+    ("マルコ 9:23", "イエスは言われた。できれば、と言うのか。信じる者には、どんなことでもできる。"),
 ];
 
 const ZH: &[Quote] = &[
@@ -188,6 +191,29 @@ const ZH: &[Quote] = &[
     ("箴言 15:1", "回答柔和，使怒消退；言语暴戾，触动怒气。"),
     ("箴言 27:17", "铁磨铁，磨出刃来；朋友相感，也是如此。"),
     ("箴言 13:4", "懒惰人羡慕，却无所得；殷勤人必得丰裕。"),
+    ("马可福音 9:23", "耶稣对他说：你若能信，在信的人，凡事都能。"),
+];
+
+const FR: &[Quote] = &[
+    ("Alan Kay", "La meilleure façon de prédire l’avenir, c’est de l’inventer."),
+    ("Steve Jobs", "La technologie seule ne suffit pas."),
+    ("Steve Jobs", "Le design, ce n’est pas seulement l’apparence et le ressenti. Le design, c’est comment ça fonctionne."),
+    ("Steve Jobs", "L’innovation est la seule façon de gagner."),
+    ("Bill Gates", "Vos clients les plus mécontents sont votre plus grande source d’apprentissage."),
+    ("Linus Torvalds", "Si vous pensez que vos utilisateurs sont des idiots, seuls des idiots l’utiliseront."),
+    ("Grace Hopper", "Il est plus facile de demander pardon que de demander la permission."),
+    ("Alan Kay", "Les choses simples doivent être simples ; les choses complexes doivent être possibles."),
+    ("Edsger Dijkstra", "L’informatique n’est pas plus la science des ordinateurs que l’astronomie n’est celle des télescopes."),
+    ("Elon Musk", "Quand une chose est vraiment importante, on la fait même si les chances ne sont pas en notre faveur."),
+    ("Donald Knuth", "La propriété la plus importante d’un programme est de réaliser l’intention de son utilisateur."),
+    ("Proverbes 1:7", "La crainte de l’Éternel est le commencement de la science ; les insensés méprisent la sagesse et l’instruction."),
+    ("Proverbes 3:5-6", "Confie-toi en l’Éternel de tout ton cœur, et ne t’appuie pas sur ta sagesse ; reconnais-le dans toutes tes voies, et il aplanira tes sentiers."),
+    ("Proverbes 4:7", "Voici le commencement de la sagesse : acquiers la sagesse, et avec tout ce que tu possèdes acquiers l’intelligence."),
+    ("Proverbes 16:18", "L’arrogance précède la ruine, et l’orgueil précède la chute."),
+    ("Proverbes 15:1", "Une réponse douce calme la fureur, mais une parole dure excite la colère."),
+    ("Proverbes 27:17", "Comme le fer aiguise le fer, ainsi un homme aiguise un autre homme."),
+    ("Proverbes 13:4", "Le paresseux désire et n’obtient rien, mais le diligent prospère."),
+    ("Marc 9:23", "Jésus lui dit : Si tu peux croire, tout est possible à celui qui croit."),
 ];
 
 #[cfg(test)]
@@ -203,6 +229,7 @@ mod tests {
             Language::Portuguese,
             Language::Japanese,
             Language::Chinese,
+            Language::French,
         ] {
             let q = quotes(lang);
             assert!(!q.is_empty(), "{lang:?} quote pool is empty");
@@ -215,6 +242,10 @@ mod tests {
         // Non-English pools must actually differ from English (localised).
         assert_ne!(
             quotes(Language::Spanish)[0].1,
+            quotes(Language::English)[0].1
+        );
+        assert_ne!(
+            quotes(Language::French)[0].1,
             quotes(Language::English)[0].1
         );
     }

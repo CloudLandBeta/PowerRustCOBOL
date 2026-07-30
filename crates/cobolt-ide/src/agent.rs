@@ -204,6 +204,14 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "bgimagemode"
             | "theme"
             | "usethemebackground"
+            // 037 main form & window lifecycle
+            | "mainform"
+            | "taskbaricon"
+            | "canminimize"
+            | "canmaximize"
+            | "windowstate"
+            | "fullscreen"
+            | "titlevisible"
     )
 }
 
