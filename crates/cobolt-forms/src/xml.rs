@@ -169,6 +169,10 @@ enum OwnedEvent {
         title_visible: bool,
         // 038 Window effects opt-out
         window_effects: bool,
+        // Window start position (operator, 2026-07-31)
+        x: i32,
+        y: i32,
+        start_position: crate::model::FormStartPosition,
     },
     ControlStart(AttrPairs),
     PropertyStart(String), // property name
@@ -270,6 +274,18 @@ fn next_owned<R: std::io::BufRead>(
                     let window_effects = get_attr(e, b"window-effects")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
+                    // Window start position — optional so pre-existing files
+                    // load with the exact historical behaviour (System: OS
+                    // places the window, x/y unused).
+                    let x = get_attr(e, b"x")?
+                        .and_then(|v| v.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    let y = get_attr(e, b"y")?
+                        .and_then(|v| v.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    let start_position = get_attr(e, b"start-position")?
+                        .map(|v| crate::model::FormStartPosition::from_str(&v))
+                        .unwrap_or_default();
 
                     Ok(OwnedEvent::FormStart {
                         name,
@@ -298,6 +314,9 @@ fn next_owned<R: std::io::BufRead>(
                         full_screen,
                         title_visible,
                         window_effects,
+                        x,
+                        y,
+                        start_position,
                     })
                 }
                 b"Control" => {
@@ -429,6 +448,9 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 full_screen,
                 title_visible,
                 window_effects,
+                x,
+                y,
+                start_position,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -454,6 +476,9 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.full_screen = full_screen;
                 f.title_visible = title_visible;
                 f.window_effects = window_effects;
+                f.x = x;
+                f.y = y;
+                f.start_position = start_position;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -1103,6 +1128,22 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
         if !form.window_effects {
             elem.push_attribute(("window-effects", "false"));
         }
+        // Window start position — additive. `x`/`y` are written whenever set,
+        // even if `start-position` is not `Custom`, so a coordinate staged
+        // ahead of switching the dropdown to Custom is not silently dropped.
+        let x_str;
+        if form.x != 0 {
+            x_str = form.x.to_string();
+            elem.push_attribute(("x", x_str.as_str()));
+        }
+        let y_str;
+        if form.y != 0 {
+            y_str = form.y.to_string();
+            elem.push_attribute(("y", y_str.as_str()));
+        }
+        if form.start_position != crate::model::FormStartPosition::System {
+            elem.push_attribute(("start-position", form.start_position.as_str()));
+        }
         w.write_event(Event::Start(elem))?;
 
         // ── <working-storage> ─────────────────────────────────────────────────
@@ -1667,6 +1708,55 @@ Actor Caption:string</Property>
             "038 opt-out: false round-trips = {}, absent ⇒ {}",
             !loaded.window_effects, plain.window_effects
         );
+    }
+
+    /// A form that predates window start position (no `x`/`y`/`start-position`
+    /// attributes at all) must load to exactly today's behaviour: `System`,
+    /// 0, 0 — the one variant nothing applies at launch. This is the
+    /// byte-for-byte backward-compatibility guarantee the feature depends on.
+    #[test]
+    fn window_start_position_is_additive_and_backward_compatible() {
+        let plain = load_form_from_str(
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="F" title="F" width="640" height="480" background="#FFFFFF"></Form>"##,
+        )
+        .expect("load");
+        assert_eq!(plain.start_position, crate::model::FormStartPosition::System);
+        assert_eq!((plain.x, plain.y), (0, 0));
+        let path = std::env::temp_dir().join("cobolt_test_start_position_absent.cfrm");
+        save_form(&plain, &path).expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            !saved.contains("start-position") && !saved.contains(" x=") && !saved.contains(" y="),
+            "System/0/0 must not be written — the additive contract: {saved}"
+        );
+        let _ = std::fs::remove_file(&path);
+
+        // Custom + a real coordinate round-trips exactly.
+        let mut form = sample_form();
+        form.start_position = crate::model::FormStartPosition::Custom;
+        form.x = 240;
+        form.y = -30; // a second monitor to the left is a legitimate coordinate
+        let path2 = std::env::temp_dir().join("cobolt_test_start_position_manual.cfrm");
+        save_form(&form, &path2).expect("save");
+        let loaded = load_form(&path2).expect("load");
+        assert_eq!(loaded.start_position, crate::model::FormStartPosition::Custom);
+        assert_eq!((loaded.x, loaded.y), (240, -30));
+        let _ = std::fs::remove_file(&path2);
+
+        // A screen-relative choice round-trips too, and x/y stay whatever
+        // they were staged to — switching away from Custom does not erase
+        // them, so switching back finds the developer's coordinate intact.
+        let mut form2 = sample_form();
+        form2.start_position = crate::model::FormStartPosition::BottomRight;
+        form2.x = 15;
+        form2.y = 15;
+        let path3 = std::env::temp_dir().join("cobolt_test_start_position_screen_relative.cfrm");
+        save_form(&form2, &path3).expect("save");
+        let loaded2 = load_form(&path3).expect("load");
+        assert_eq!(loaded2.start_position, crate::model::FormStartPosition::BottomRight);
+        assert_eq!((loaded2.x, loaded2.y), (15, 15));
+        let _ = std::fs::remove_file(&path3);
     }
 
     #[test]

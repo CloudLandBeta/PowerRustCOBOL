@@ -1638,6 +1638,12 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 - Individual controls automatically inherit the style's parameters (colors, padding, borders, shadows). Do not restyle controls one by one to emulate a style.
 - `Theme` and `UseThemeBackground` are a SEPARATE named asset-pack slot, not the mechanism for selecting a `GlassStyle`.
 
+## Window Start Position
+- Where a form's window opens on screen is the form-level `StartPosition` property. Its only accepted values are the exact strings `"System"`, `"Custom"`, `"TopLeft"`, `"TopCenter"`, `"TopRight"`, `"MiddleLeft"`, `"Center"`, `"MiddleRight"`, `"BottomLeft"`, `"BottomCenter"`, `"BottomRight"`.
+- `System` (the default) leaves window placement to the OS/window manager, exactly as every form behaved before this property existed — `X`/`Y` are not applied. `Custom` applies the form-level `X`/`Y` properties (screen-pixel coordinates) at launch. Every other value computes a position from the actual screen and window size at launch — an edge, a corner, or `Center` — and ignores `X`/`Y`.
+- Applied with `{ "op": "set_property", "control_id": "Form", "key": "StartPosition", "value": "Custom" }`, and `X`/`Y` the same way with integer values. Setting `X`/`Y` alone does not move the window unless `StartPosition` is also `"Custom"`.
+- `X`/`Y` here are the FORM's own coordinates (its window's position on screen), not to be confused with a CONTROL's `X`/`Y` (its position within the form).
+
 ## Code generation & Compilation
 - Multi-agent coordination: Grace (Orchestrator) plans and delegates UI design to Form Designer Agent, event implementations to COBOL Event Handler Script Agent, and schema setups to Data Agent.
 - During IDE build/compilation, the project is parsed, semantic checks are performed, and it is compiled into a single native executable.

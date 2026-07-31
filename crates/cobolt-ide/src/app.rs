@@ -1385,6 +1385,26 @@ impl CoboltApp {
         removed
     }
 
+    /// Remove user procedures orphaned by since-deleted controls from the
+    /// designer form at `idx`. The designer already sweeps at delete time;
+    /// this is the self-heal for a form whose orphan predates that sweep —
+    /// which is the form the developer is holding right now, where the orphan
+    /// is precisely what stops it from running.
+    fn autoclean_orphaned_procedures(&mut self, idx: usize) -> usize {
+        if idx >= self.designers.len() {
+            return 0;
+        }
+        let removed = self.designers[idx].1.prune_orphaned_procedures();
+        for name in &removed {
+            self.designers[idx].1.dirty = true;
+            self.output.push_status(format!(
+                "Removed procedure {name}: every control it referenced was deleted, \
+                 and nothing called it. Undo restores it."
+            ));
+        }
+        removed.len()
+    }
+
     /// Run Form: launch the form as a standalone `rcrun run-form` process.
     fn do_run_form(&mut self, idx: usize) {
         self.launch_form_process(idx, false);
@@ -1409,6 +1429,9 @@ impl CoboltApp {
         // before the guardian runs, so a stale config can't block Run with
         // `missing-target-control`.
         self.autoclean_orphaned_bindings(idx);
+        // …and procedures left addressing deleted controls, which the code
+        // generator would otherwise emit into a program that cannot launch.
+        self.autoclean_orphaned_procedures(idx);
         let form = self.designers[idx].1.form.clone();
         let label = self.designers[idx]
             .0
@@ -3557,6 +3580,7 @@ impl CoboltApp {
         // Drop data bindings orphaned by a since-deleted target/source control so
         // the saved .cfrm stays clean and Save is never blocked on a stale config.
         self.autoclean_orphaned_bindings(idx);
+        self.autoclean_orphaned_procedures(idx);
         let path = self.designers[idx].0.clone();
         let form = self.designers[idx].1.form.clone();
         let label = path
@@ -8899,6 +8923,17 @@ impl eframe::App for CoboltApp {
             self.lang_persisted = self.lang;
         }
         self.poll_llm_benchmark();
+        // Cleanups the designers performed on their own reach the Output panel
+        // here — an automatic removal that leaves no trace is how a developer
+        // loses work without knowing it.
+        let notices: Vec<String> = self
+            .designers
+            .iter_mut()
+            .flat_map(|(_, d)| d.orphan_notices.drain(..))
+            .collect();
+        for notice in notices {
+            self.output.push_status(notice);
+        }
         if self.llm_benchmark_rx.is_some() {
             ctx.request_repaint();
         }

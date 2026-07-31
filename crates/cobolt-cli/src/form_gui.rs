@@ -657,6 +657,13 @@ pub fn cmd_run_form(args: &[String]) {
         fx_transparent,
         fx_chrome_pending: fx_hide_chrome && form.title_visible,
         fx_chrome_hidden_for_exit: false,
+        // Window start position: the eight edge/corner positions and Center
+        // need the monitor's actual size, which the builder cannot know
+        // before the window exists — set on the first frame, same trick as
+        // `start_minimized` just above. `System` (do nothing) and `Custom`
+        // (already given to the builder via `with_position`, below) need no
+        // first-frame command at all.
+        pending_start_position: form.start_position.is_screen_relative().then_some(form.start_position),
     };
 
     let mut viewport = egui::ViewportBuilder::default()
@@ -675,10 +682,18 @@ pub fn cmd_run_form(args: &[String]) {
         // bar would be the one fixed, un-animated element on screen. It is
         // switched back on the frame the animation ends (see `restore_chrome`).
         .with_decorations(form.title_visible && !fx_hide_chrome)
-        .with_fullscreen(form.full_screen)
-        .with_maximized(
-            form.window_state == cobolt_forms::model::WindowState::Maximized,
-        );
+        .with_fullscreen(form.full_screen);
+    // Window start position — `Custom` is the one variant with a concrete
+    // coordinate available before the window exists, so it goes straight
+    // into the builder; every screen-relative variant needs the monitor's
+    // size, unknown until the window is up (see `pending_start_position`
+    // above), and `System` means "do not touch it", exactly like today.
+    if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
+        viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
+    }
+    viewport = viewport.with_maximized(
+        form.window_state == cobolt_forms::model::WindowState::Maximized,
+    );
     if fx_transparent {
         // The effect plays over the DESKTOP: the surface must carry alpha, and
         // that can only be decided at creation. macOS still draws a drop
@@ -784,6 +799,11 @@ struct FormApp {
     /// 037 R13 — the form was designed to OPEN minimized; winit has no
     /// pre-minimized builder, so the first frame sends the command once.
     start_minimized: bool,
+    /// A screen-relative Start Position (the eight edge/corner positions or
+    /// Center) — `None` once applied, or when the form is `System`/`Custom`
+    /// and needs no first-frame command at all (`Custom` is already in the
+    /// viewport builder; `System` means "do not touch it").
+    pending_start_position: Option<cobolt_forms::model::FormStartPosition>,
     /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
     supervisor: cobolt_runtime::form_host::FormSupervisor,
     /// Requests from the interpreter thread (OpenForm*, handle methods, …).
@@ -1199,6 +1219,29 @@ impl eframe::App for FormApp {
         if self.start_minimized {
             self.start_minimized = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+        // Window start position — the eight edge/corner positions and Center
+        // need the monitor's size, which (unlike `start_minimized` above)
+        // winit may not have reported yet on the very first frame; keep this
+        // pending until both it and the window's own outer size are known,
+        // rather than consuming the flag against absent data.
+        if let Some(pos) = self.pending_start_position {
+            let ready = ctx.input(|i| {
+                let v = i.viewport();
+                Some((v.monitor_size?, v.outer_rect?.size()))
+            });
+            if let Some((monitor, window)) = ready {
+                if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
+                    pos,
+                    (monitor.x, monitor.y),
+                    (window.x, window.y),
+                ) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(
+                        egui::pos2(x, y),
+                    ));
+                }
+                self.pending_start_position = None;
+            }
         }
         // Theme pack + glass style for the unified painter (per frame — same
         // contract as the IDE's running-form viewport).

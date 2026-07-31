@@ -1224,6 +1224,57 @@ fn is_id_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
 }
 
+/// Every control id `code` addresses as `receiver::member`, uppercased and
+/// deduplicated. The `::` is what makes a name a control reference — a bare
+/// word could be any COBOL identifier.
+pub fn control_refs_in_code(code: &str) -> Vec<String> {
+    let bytes = code.as_bytes();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b':' && bytes[i + 1] == b':' {
+            let mut start = i;
+            while start > 0 && is_id_byte(bytes[start - 1]) {
+                start -= 1;
+            }
+            if start < i {
+                let name = code[start..i].to_ascii_uppercase();
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Is `word` mentioned in `code` as a whole word (case-insensitive)? Used to
+/// tell a procedure that something still calls from one nothing refers to.
+fn code_mentions_word(code: &str, word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+    let hay = code.to_ascii_uppercase();
+    let needle = word.to_ascii_uppercase();
+    let (hay, needle) = (hay.as_bytes(), needle.as_bytes());
+    let mut i = 0usize;
+    while i + needle.len() <= hay.len() {
+        if &hay[i..i + needle.len()] == needle {
+            let before = i == 0 || !is_id_byte(hay[i - 1]);
+            let j = i + needle.len();
+            let after = j >= hay.len() || !is_id_byte(hay[j]);
+            if before && after {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Rewrite control references in handler/procedure COBOL where the control id is
 /// a member-access root: `Old::…` or `Old(idx)…`. Case-insensitive on the id;
 /// requires a non-identifier byte before it so `Old` inside a longer name is
@@ -4018,6 +4069,138 @@ impl WindowState {
     }
 }
 
+/// Where a form's window opens on screen (operator, 2026-07-31). `Form::x` /
+/// `Form::y` are the design-time coordinates; whether they are ever USED
+/// depends on this.
+///
+/// `System` is the default, and it means exactly what happens today for
+/// every form that predates this field: the OS/window manager places the
+/// window, and `x`/`y` are not applied at all. A `.cfrm` written before this
+/// existed has no `start-position` attribute, parses to `System`, and opens
+/// exactly where it always has — this field cannot change a single existing
+/// form's behavior on its own. `Custom` is the only variant that reads
+/// `x`/`y`; the eight edge/corner positions and `Center` instead compute a
+/// position from the screen and window size at launch, which `x`/`y` cannot
+/// express and are ignored for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormStartPosition {
+    #[default]
+    System,
+    Custom,
+    TopLeft,
+    TopCenter,
+    TopRight,
+    MiddleLeft,
+    Center,
+    MiddleRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl FormStartPosition {
+    pub const ALL: [FormStartPosition; 11] = [
+        FormStartPosition::System,
+        FormStartPosition::Custom,
+        FormStartPosition::TopLeft,
+        FormStartPosition::TopCenter,
+        FormStartPosition::TopRight,
+        FormStartPosition::MiddleLeft,
+        FormStartPosition::Center,
+        FormStartPosition::MiddleRight,
+        FormStartPosition::BottomLeft,
+        FormStartPosition::BottomCenter,
+        FormStartPosition::BottomRight,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FormStartPosition::System => "System",
+            FormStartPosition::Custom => "Custom",
+            FormStartPosition::TopLeft => "TopLeft",
+            FormStartPosition::TopCenter => "TopCenter",
+            FormStartPosition::TopRight => "TopRight",
+            FormStartPosition::MiddleLeft => "MiddleLeft",
+            FormStartPosition::Center => "Center",
+            FormStartPosition::MiddleRight => "MiddleRight",
+            FormStartPosition::BottomLeft => "BottomLeft",
+            FormStartPosition::BottomCenter => "BottomCenter",
+            FormStartPosition::BottomRight => "BottomRight",
+        }
+    }
+
+    /// Lenient parse; anything unrecognised is `System` — the one value that
+    /// changes nothing for a form that does not (or no longer) name a real
+    /// variant, exactly like `WindowState::from_str`.
+    pub fn from_str(value: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|v| v.as_str().eq_ignore_ascii_case(value.trim()))
+            .unwrap_or(FormStartPosition::System)
+    }
+
+    /// Does this variant compute its position from the screen at launch,
+    /// rather than from `Form::x`/`Form::y` or the OS default?
+    pub fn is_screen_relative(self) -> bool {
+        !matches!(self, FormStartPosition::System | FormStartPosition::Custom)
+    }
+}
+
+/// The window's top-left corner for `pos`, given the screen's and the
+/// window's own size — pure geometry, unit-tested without an egui context or
+/// a real monitor.
+///
+/// `None` for `System` (do not touch the OS-placed position at all) and for
+/// `Custom` (the caller already has `Form::x`/`Form::y` and does not need
+/// this function to tell it what they are). Every screen-relative variant
+/// clamps into `0.0..=(screen - window)`, so a window larger than the screen
+/// is pinned to the near edge instead of computing a negative, off-screen
+/// origin.
+pub fn resolved_start_position(
+    pos: FormStartPosition,
+    screen: (f32, f32),
+    window: (f32, f32),
+) -> Option<(f32, f32)> {
+    if !pos.is_screen_relative() {
+        return None;
+    }
+    let axis = |screen: f32, window: f32, near: bool, mid: bool| {
+        if mid {
+            ((screen - window) / 2.0).max(0.0)
+        } else if near {
+            0.0
+        } else {
+            (screen - window).max(0.0)
+        }
+    };
+    let (sw, sh) = screen;
+    let (ww, wh) = window;
+    let (left, center_x, right) = (
+        axis(sw, ww, true, false),
+        axis(sw, ww, false, true),
+        axis(sw, ww, false, false),
+    );
+    let (top, middle_y, bottom) = (
+        axis(sh, wh, true, false),
+        axis(sh, wh, false, true),
+        axis(sh, wh, false, false),
+    );
+    Some(match pos {
+        FormStartPosition::TopLeft => (left, top),
+        FormStartPosition::TopCenter => (center_x, top),
+        FormStartPosition::TopRight => (right, top),
+        FormStartPosition::MiddleLeft => (left, middle_y),
+        FormStartPosition::Center => (center_x, middle_y),
+        FormStartPosition::MiddleRight => (right, middle_y),
+        FormStartPosition::BottomLeft => (left, bottom),
+        FormStartPosition::BottomCenter => (center_x, bottom),
+        FormStartPosition::BottomRight => (right, bottom),
+        FormStartPosition::System | FormStartPosition::Custom => unreachable!(
+            "is_screen_relative() already excluded these two variants"
+        ),
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct Form {
     pub name: String,
@@ -4101,6 +4284,16 @@ pub struct Form {
     /// Play the PROJECT's window entrance/exit effects (spec 038 R3). Forms
     /// never choose effects — only this on/off; false opens/closes instantly.
     pub window_effects: bool,
+
+    // ── Window start position (operator, 2026-07-31) ─────────────────────────
+    /// Design-time window coordinates, in screen pixels. Only ever APPLIED
+    /// when `start_position` is `Custom` — see [`FormStartPosition`].
+    pub x: i32,
+    pub y: i32,
+    /// Where the window opens. Defaults to `System` (OS/window manager
+    /// decides, `x`/`y` unused) so a form that predates this field opens
+    /// exactly where it always has.
+    pub start_position: FormStartPosition,
 }
 
 impl Form {
@@ -4155,6 +4348,9 @@ impl Form {
             full_screen: false,
             title_visible: true,
             window_effects: true,
+            x: 0,
+            y: 0,
+            start_position: FormStartPosition::default(),
         };
         form.seed_repository_if_empty();
         form
@@ -4404,6 +4600,77 @@ impl Form {
         self.prune_orphaned_data_bindings();
     }
 
+    /// Indices of the user procedures left orphaned by control deletions —
+    /// the ones nothing can reach and that can no longer compile.
+    ///
+    /// A procedure is orphaned when all three hold:
+    /// 1. it addresses at least one control (`receiver::member`) — a procedure
+    ///    of pure COBOL depends on no control and is never orphaned;
+    /// 2. NONE of the controls it addresses still exists;
+    /// 3. no surviving handler, form event or other procedure names it, so
+    ///    nothing calls it.
+    ///
+    /// All three are required because this decides the removal of code the
+    /// developer may have written: a procedure that still has one live control
+    /// or one live caller is a procedure with a defect, not an orphan, and the
+    /// developer must be the one to resolve it.
+    ///
+    /// Run to a fixpoint: removing a procedure can leave the only procedure it
+    /// called with no caller either. Indices are ascending and refer to the
+    /// list as it stands, so remove them from the highest down.
+    ///
+    /// Observed live: an agent created `UPDATE-CONCATENATION` over fifteen
+    /// TextBoxes; the developer deleted every control, and the procedure —
+    /// which is form-level, not control-level — stayed behind. Its body ended
+    /// with its own `GOBACK.`, so the form could no longer be launched at all
+    /// ("paragraph 'GOBACK' is declared more than once"), and nothing on
+    /// screen explained why (operator, 2026-07-31).
+    pub fn orphaned_user_procedures(&self) -> Vec<usize> {
+        let live: std::collections::HashSet<String> = self
+            .controls
+            .iter()
+            .map(|c| c.id.to_ascii_uppercase())
+            .collect();
+        let mut doomed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        loop {
+            let mut grew = false;
+            for (i, proc) in self.user_procedures.iter().enumerate() {
+                if doomed.contains(&i) {
+                    continue;
+                }
+                let refs = control_refs_in_code(&proc.code);
+                if refs.is_empty() || refs.iter().any(|r| live.contains(r)) {
+                    continue;
+                }
+                let called = self
+                    .controls
+                    .iter()
+                    .flat_map(|c| c.events.iter())
+                    .chain(self.form_events.iter())
+                    .any(|ev| code_mentions_word(&ev.code, &proc.name))
+                    || self
+                        .user_procedures
+                        .iter()
+                        .enumerate()
+                        .any(|(j, other)| {
+                            j != i
+                                && !doomed.contains(&j)
+                                && code_mentions_word(&other.code, &proc.name)
+                        });
+                if !called {
+                    doomed.insert(i);
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+        let mut out: Vec<usize> = doomed.into_iter().collect();
+        out.sort_unstable();
+        out
+    }
+
     /// Remove data bindings orphaned by a control deletion. A whole binding is
     /// dropped when its **target** control is gone (for a control array, its host
     /// GroupBox — resolved by array id), or when its control-based **source**
@@ -4530,6 +4797,212 @@ fn find_in_mut<'a>(ctrl: &'a mut Control, id: &str) -> Option<&'a mut Control> {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod orphan_procedure_tests {
+    use super::*;
+
+    fn proc(name: &str, code: &str) -> UserProcedure {
+        UserProcedure {
+            name: name.into(),
+            code: code.into(),
+        }
+    }
+
+    fn form_with(controls: &[&str], procs: Vec<UserProcedure>) -> Form {
+        let mut form = Form::new("F", "T", 400, 300);
+        for (i, id) in controls.iter().enumerate() {
+            form.controls
+                .push(Control::new(*id, ControlType::TextBox, 0, i as i32 * 30));
+        }
+        form.user_procedures = procs;
+        form
+    }
+
+    /// The shape that broke PowerDemo3: a procedure over fifteen TextBoxes,
+    /// every one of them deleted. It is form-level, so deleting the controls
+    /// left it behind, invisible on the canvas — and its body was enough to
+    /// stop the form from launching at all.
+    #[test]
+    fn a_procedure_whose_every_control_is_gone_is_orphaned() {
+        let body = "       PROCEDURE DIVISION.\n           STRING txt1::Text DELIMITED BY SIZE \
+                    txt2::Text DELIMITED BY SIZE INTO WS-X\n           MOVE WS-X TO \
+                    lblConcat::Caption.";
+        let form = form_with(&[], vec![proc("UPDATE-CONCATENATION", body)]);
+        assert_eq!(form.orphaned_user_procedures(), vec![0]);
+        // One surviving control it addresses is enough to keep it: that is a
+        // defect for the developer to resolve, not an orphan to remove.
+        let form = form_with(&["TXT2"], vec![proc("UPDATE-CONCATENATION", body)]);
+        assert!(form.orphaned_user_procedures().is_empty());
+    }
+
+    /// Deleting code is not a cleanup when someone still calls it.
+    #[test]
+    fn a_procedure_something_still_calls_is_never_removed() {
+        let body = "       PROCEDURE DIVISION.\n           MOVE txt1::Text TO WS-X.";
+        let caller = "       PROCEDURE DIVISION.\n           PERFORM UPDATE-CONCATENATION.";
+
+        // Called from a surviving control's handler.
+        let mut form = form_with(&["BTN"], vec![proc("UPDATE-CONCATENATION", body)]);
+        form.controls[0].events.push(EventBinding {
+            event: "onClick".into(),
+            paragraph: "BTN--ONCLICK".into(),
+            code: caller.into(),
+        });
+        assert!(form.orphaned_user_procedures().is_empty());
+
+        // Called from a form event.
+        let mut form = form_with(&[], vec![proc("UPDATE-CONCATENATION", body)]);
+        form.form_events.push(EventBinding {
+            event: "onLoad".into(),
+            paragraph: "F--ONLOAD".into(),
+            code: caller.into(),
+        });
+        assert!(form.orphaned_user_procedures().is_empty());
+
+        // Called from another procedure that is itself still reachable.
+        let mut form = form_with(&["TXT9"], vec![proc("UPDATE-CONCATENATION", body)]);
+        form.user_procedures
+            .push(proc("RECALC", "       PROCEDURE DIVISION.\n           PERFORM UPDATE-CONCATENATION.\n           MOVE txt9::Text TO WS-Y."));
+        assert!(form.orphaned_user_procedures().is_empty());
+    }
+
+    /// A procedure of pure COBOL depends on no control, so no deletion can
+    /// orphan it — however many controls disappear around it.
+    #[test]
+    fn a_procedure_that_addresses_no_control_is_left_alone() {
+        let form = form_with(
+            &[],
+            vec![proc(
+                "ROUND-TOTAL",
+                "       PROCEDURE DIVISION.\n           COMPUTE WS-T = WS-A + WS-B.",
+            )],
+        );
+        assert!(form.orphaned_user_procedures().is_empty());
+    }
+
+    /// Removing an orphan can strand the only procedure it called: the sweep
+    /// runs to a fixpoint, so one deletion does not need a second sweep.
+    #[test]
+    fn an_orphan_takes_what_only_it_called_with_it() {
+        let form = form_with(
+            &[],
+            vec![
+                proc(
+                    "TOP",
+                    "       PROCEDURE DIVISION.\n           MOVE txt1::Text TO WS-X.\n           PERFORM HELPER.",
+                ),
+                proc(
+                    "HELPER",
+                    "       PROCEDURE DIVISION.\n           MOVE txt2::Text TO WS-Y.",
+                ),
+            ],
+        );
+        assert_eq!(form.orphaned_user_procedures(), vec![0, 1]);
+    }
+
+    #[test]
+    fn control_references_are_read_from_the_member_operator() {
+        let refs = control_refs_in_code(
+            "MOVE txt1::Text TO WS-X\nSET Save-Button::Enabled TO 0\nMOVE WS-X TO WS-Y",
+        );
+        assert_eq!(refs, vec!["TXT1", "SAVE-BUTTON"]);
+        // A bare word is any COBOL identifier, not a control.
+        assert!(control_refs_in_code("PERFORM UPDATE-CONCATENATION.").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod start_position_tests {
+    use super::*;
+
+    #[test]
+    fn round_trips_every_variant_through_as_str_and_from_str() {
+        for pos in FormStartPosition::ALL {
+            assert_eq!(FormStartPosition::from_str(pos.as_str()), pos);
+        }
+        // Anything unrecognised — including an empty/absent attribute — is
+        // System, the one variant a form that never opted in already has.
+        assert_eq!(FormStartPosition::from_str(""), FormStartPosition::System);
+        assert_eq!(FormStartPosition::from_str("bogus"), FormStartPosition::System);
+        assert_eq!(FormStartPosition::default(), FormStartPosition::System);
+    }
+
+    #[test]
+    fn only_the_nine_screen_relative_variants_compute_a_position() {
+        for pos in [FormStartPosition::System, FormStartPosition::Custom] {
+            assert!(
+                resolved_start_position(pos, (1920.0, 1080.0), (800.0, 600.0)).is_none(),
+                "{pos:?} must not compute a screen position — the caller \
+                 already has its own answer (OS default, or Form::x/y)"
+            );
+        }
+        let relative = [
+            FormStartPosition::TopLeft,
+            FormStartPosition::TopCenter,
+            FormStartPosition::TopRight,
+            FormStartPosition::MiddleLeft,
+            FormStartPosition::Center,
+            FormStartPosition::MiddleRight,
+            FormStartPosition::BottomLeft,
+            FormStartPosition::BottomCenter,
+            FormStartPosition::BottomRight,
+        ];
+        assert_eq!(relative.len(), 9, "8 directions plus Screen Center");
+        for pos in relative {
+            assert!(resolved_start_position(pos, (1920.0, 1080.0), (800.0, 600.0)).is_some());
+        }
+    }
+
+    /// The nine positions on a concrete screen/window pair — the numbers a
+    /// developer would actually see, not just "some value came back".
+    #[test]
+    fn computes_the_expected_corner_edge_and_center_coordinates() {
+        let screen = (1920.0, 1080.0);
+        let window = (800.0, 600.0);
+        let at = |pos| resolved_start_position(pos, screen, window).unwrap();
+
+        assert_eq!(at(FormStartPosition::TopLeft), (0.0, 0.0));
+        assert_eq!(at(FormStartPosition::TopRight), (1120.0, 0.0));
+        assert_eq!(at(FormStartPosition::BottomLeft), (0.0, 480.0));
+        assert_eq!(at(FormStartPosition::BottomRight), (1120.0, 480.0));
+        assert_eq!(at(FormStartPosition::Center), (560.0, 240.0));
+        assert_eq!(at(FormStartPosition::TopCenter), (560.0, 0.0));
+        assert_eq!(at(FormStartPosition::BottomCenter), (560.0, 480.0));
+        assert_eq!(at(FormStartPosition::MiddleLeft), (0.0, 240.0));
+        assert_eq!(at(FormStartPosition::MiddleRight), (1120.0, 240.0));
+    }
+
+    /// A window bigger than the screen (an ultra-wide design opened on a
+    /// laptop) must not compute a negative, off-screen origin — it pins to
+    /// the near edge instead.
+    #[test]
+    fn a_window_larger_than_the_screen_clamps_to_the_near_edge() {
+        let got = resolved_start_position(
+            FormStartPosition::BottomRight,
+            (800.0, 600.0),
+            (1200.0, 900.0),
+        )
+        .unwrap();
+        assert_eq!(got, (0.0, 0.0), "clamped, never negative: {got:?}");
+        let center = resolved_start_position(
+            FormStartPosition::Center,
+            (800.0, 600.0),
+            (1200.0, 900.0),
+        )
+        .unwrap();
+        assert_eq!(center, (0.0, 0.0));
+    }
+
+    /// A brand-new form and one loaded from a `.cfrm` that never named the
+    /// feature must be indistinguishable: `System`, `(0, 0)`.
+    #[test]
+    fn a_fresh_form_defaults_to_system_at_the_origin() {
+        let form = Form::new("F", "T", 400, 300);
+        assert_eq!(form.start_position, FormStartPosition::System);
+        assert_eq!((form.x, form.y), (0, 0));
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -233,6 +233,10 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "titlevisible"
             // 038 window effects opt-out
             | "windoweffects"
+            // Window start position
+            | "x"
+            | "y"
+            | "startposition"
     )
 }
 
@@ -1082,6 +1086,26 @@ pub fn build_context(form: &Form) -> String {
     out.push_str(
         "  GlassStyle is the visual style of the form and its controls (this is what \"neumorphic dark\", \"neumorphic light\", \"classic\", \"enhanced\" refer to).\n  Theme is a SEPARATE named asset-pack slot and is NOT how a GlassStyle is selected.\n\n",
     );
+    out.push_str(&format!(
+        "  X={}  Y={}  StartPosition={:?}\n",
+        form.x,
+        form.y,
+        form.start_position.as_str()
+    ));
+    out.push_str(&format!(
+        "  SUPPORTED StartPosition VALUES (exact spelling): {}\n",
+        cobolt_forms::model::FormStartPosition::ALL
+            .iter()
+            .map(|s| format!("{:?}", s.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    out.push_str(
+        "  X/Y are design-time window coordinates in screen pixels. They are ONLY applied at \
+         launch when StartPosition is \"Custom\" — every other StartPosition computes its own \
+         position (or, for \"System\", lets the OS place the window) and ignores X/Y. Setting X/Y \
+         alone does not move the window unless StartPosition is also set to \"Custom\".\n\n",
+    );
 
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
@@ -1165,6 +1189,53 @@ pub fn build_context(form: &Form) -> String {
             procs.join(", ")
         }
     ));
+    out.push_str(&event_handlers_context(form));
+    out
+}
+
+/// The existing bound event handlers, verbatim — the only place an agent can
+/// learn what a control's behavior actually IS, as opposed to what events its
+/// TYPE merely supports (`EVENTS BY TYPE`, above, is a legend of names, not a
+/// record of any control's real wiring).
+///
+/// Without this, a task that asks an agent to read existing behavior — "write
+/// a caption describing what this handler does", "match this control's
+/// effect on the others" — has nothing to read. Observed live: asked to
+/// summarize each of 15 TextBoxes' handler into a Label caption, every
+/// specialist that tried wrote the SAME caption on all 15 — first the
+/// developer's own example, then a mangled copy of the task instruction
+/// itself — because that was the only text available to copy from
+/// (operator, 2026-07-31). Empty section markers are omitted entirely, so an
+/// ordinary form with no handlers yet leaves the context unchanged.
+fn event_handlers_context(form: &Form) -> String {
+    let mut out = String::new();
+    let mut control_lines: Vec<String> = Vec::new();
+    for c in &form.controls {
+        for ev in &c.events {
+            if ev.has_code() {
+                control_lines.push(format!("  {}::{}\n{}\n", c.id, ev.event, ev.code));
+            }
+        }
+    }
+    if !control_lines.is_empty() {
+        out.push_str(
+            "EVENT HANDLERS (existing bound code, verbatim — the ONLY source of \
+             truth for what a control's event actually does; a task that reads or \
+             describes existing behavior must be answered from this, never \
+             invented or guessed):\n",
+        );
+        out.push_str(&control_lines.join("\n"));
+    }
+    let form_lines: Vec<String> = form
+        .form_events
+        .iter()
+        .filter(|ev| ev.has_code())
+        .map(|ev| format!("  {}\n{}\n", ev.event, ev.code))
+        .collect();
+    if !form_lines.is_empty() {
+        out.push_str("FORM EVENT HANDLERS (existing bound code, verbatim):\n");
+        out.push_str(&form_lines.join("\n"));
+    }
     out
 }
 
@@ -1208,6 +1279,7 @@ pub(crate) fn build_project_tree_context(
         "PROJECT: {} version {} main {}",
         project.project.name, project.project.version, project.project.main
     );
+    out.push_str(&window_effects_context(project));
     append_file_section(&mut out, "COMMON COBOL SOURCES", &project.files.sources);
     append_file_section(&mut out, "FORMS", &project.files.forms);
     append_indexed_section(&mut out, &project.files, project_root);
@@ -1232,6 +1304,37 @@ pub(crate) fn build_project_tree_context(
     }
 
     out
+}
+
+/// The PROJECT's own window entrance/exit effect settings — configured once,
+/// in `[forms]` of the project file, and applied to every form whose own
+/// `WindowEffects` property is true. Distinct from anything a `Form` carries:
+/// a form only has that one on/off switch; the effect itself, its duration,
+/// and its easing are project-wide and live on `CoboltProject`, which
+/// `build_context` (given only a `&Form`) never sees.
+///
+/// Without this, a question like "what entrance effect does the project use,
+/// and how long does it run" had no live value to answer from — the platform
+/// Knowledge Base documents the effect CATALOGUE (what `matrix-rain` is, its
+/// duration band, that it is a project setting) but cannot contain what THIS
+/// project's `entrance-effect` / `entrance-ms` are actually set to; that is
+/// data, not documentation (operator, 2026-07-31).
+fn window_effects_context(project: &CoboltProject) -> String {
+    let entrance = project.entrance_fx();
+    let exit = project.exit_fx();
+    format!(
+        "WINDOW EFFECTS (project-level; applies to every form whose WindowEffects property is true):\n  \
+         Entrance: {}, {} ms, {} easing\n  \
+         Exit: {}, {} ms, {} easing\n  \
+         Replay entrance when a window is restored after minimize: {}\n",
+        entrance.effect.as_str(),
+        entrance.duration_ms,
+        entrance.easing.as_str(),
+        exit.effect.as_str(),
+        exit.duration_ms,
+        exit.easing.as_str(),
+        project.forms.entrance_on_restore,
+    )
 }
 
 fn append_file_section(out: &mut String, title: &str, files: &[String]) {
@@ -1407,6 +1510,80 @@ mod tests {
         }
         // Every advertised value must also be one the applier accepts.
         assert!(form_property_valid("GlassStyle"));
+    }
+
+    /// Grace must be able to both READ where the window opens and SET a real
+    /// coordinate for it, and must be told the one thing that trips a naive
+    /// "just set X/Y" attempt: neither is applied unless StartPosition is
+    /// also "Custom".
+    #[test]
+    fn context_exposes_window_start_position() {
+        let mut form = Form::new("F", "T", 800, 600);
+        form.x = 240;
+        form.y = -30;
+        form.start_position = cobolt_forms::model::FormStartPosition::BottomRight;
+        let ctx = build_context(&form);
+
+        assert!(ctx.contains("X=240  Y=-30"), "context: {ctx}");
+        assert!(ctx.contains("StartPosition=\"BottomRight\""), "context: {ctx}");
+        for value in cobolt_forms::model::FormStartPosition::ALL {
+            assert!(
+                ctx.contains(value.as_str()),
+                "CONTEXT must advertise StartPosition {value:?}"
+            );
+        }
+        assert!(
+            ctx.contains("ignores X/Y") || ctx.to_ascii_lowercase().contains("ignore"),
+            "the context must warn that X/Y alone do not move the window: {ctx}"
+        );
+        assert!(form_property_valid("X"));
+        assert!(form_property_valid("Y"));
+        assert!(form_property_valid("StartPosition"));
+    }
+
+    /// The context must carry the ACTUAL bound handler code, not merely which
+    /// event names a control's TYPE supports — otherwise a task that reads or
+    /// describes existing behavior has nothing to read. Observed live: asked
+    /// to write a caption per TextBox from "the event handler logic", the
+    /// specialist wrote the SAME text on all fifteen, because the code was
+    /// never in its context to read from (operator, 2026-07-31).
+    #[test]
+    fn context_carries_the_actual_bound_handler_code() {
+        let mut form = Form::new("F", "T", 400, 300);
+        let mut txt1 = Control::new("TXT1", ControlType::TextBox, 0, 0);
+        txt1.events.push(cobolt_forms::model::EventBinding {
+            event: "onEnterPressed".into(),
+            paragraph: "TXT1--ONENTERPRESSED".into(),
+            code: "       PROCEDURE DIVISION.\n           MOVE \"#0000FF\" TO TXT1::BackgroundColor.".into(),
+        });
+        // An unwritten handler (empty code, the template state) must not
+        // appear as if it were real behavior.
+        txt1.events.push(cobolt_forms::model::EventBinding {
+            event: "onClick".into(),
+            paragraph: "TXT1--ONCLICK".into(),
+            code: String::new(),
+        });
+        form.controls.push(txt1);
+        form.form_events.push(cobolt_forms::model::EventBinding {
+            event: "onLoad".into(),
+            paragraph: "F--ONLOAD".into(),
+            code: "       PROCEDURE DIVISION.\n           DISPLAY \"loaded\".".into(),
+        });
+
+        let ctx = build_context(&form);
+        assert!(ctx.contains("EVENT HANDLERS"), "the section must be present");
+        assert!(ctx.contains("TXT1::onEnterPressed"));
+        assert!(ctx.contains("#0000FF"), "the actual code must be inlined, not summarized");
+        assert!(!ctx.contains("TXT1::onClick"), "an unwritten handler is not behavior");
+        assert!(ctx.contains("FORM EVENT HANDLERS"));
+        assert!(ctx.contains("DISPLAY \"loaded\""));
+
+        // A form with no real handlers yet must not gain an empty section —
+        // ordinary forms outnumber ones under analysis, and an empty heading
+        // is a red herring, not information.
+        let bare = Form::new("F2", "T", 400, 300);
+        let ctx2 = build_context(&bare);
+        assert!(!ctx2.contains("EVENT HANDLERS"));
     }
 
     #[test]
@@ -1899,6 +2076,40 @@ mod tests {
         assert!(ctx.contains("dropshadow"));
         assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
+    }
+
+    /// The exact question this closes: "what entrance effect does the project
+    /// use, and how long does it run?" had no live value to answer from — a
+    /// form only carries the on/off `WindowEffects` switch; the effect,
+    /// duration, and easing are project-wide, in `[forms]` of the project
+    /// file, on `CoboltProject`, which the form-only `build_context` never
+    /// sees. Values match a real project's `[forms]` section (operator,
+    /// 2026-07-31) so this doubles as the regression anchor for that report.
+    #[test]
+    fn context_carries_the_projects_actual_configured_window_effects() {
+        let mut project = crate::project_model::CoboltProject::new("Demo", "src/main.cbl");
+        project.forms.entrance_effect = "matrix-rain".into();
+        project.forms.entrance_ms = 4000;
+        project.forms.entrance_easing = "ease-in-out".into();
+        project.forms.exit_effect = "zoom".into();
+        project.forms.exit_ms = 400;
+        project.forms.exit_easing = "ease-in".into();
+        project.forms.entrance_on_restore = true;
+
+        let ctx = build_context_with_project(&form_with_label(), Some(&project), None);
+        assert!(ctx.contains("WINDOW EFFECTS"), "context: {ctx}");
+        assert!(ctx.contains("Entrance: matrix-rain, 4000 ms, ease-in-out easing"));
+        assert!(ctx.contains("Exit: zoom, 400 ms, ease-in easing"));
+        assert!(ctx.contains("Replay entrance when a window is restored after minimize: true"));
+
+        // A project whose file predates spec 038 (no `[forms]` section at
+        // all, so `FormsConfig::default()` is what serde falls back to) still
+        // gets an honest, explicit "none" — not a section that silently
+        // disappears and reads as "no data" rather than "no effect".
+        let mut pre038 = crate::project_model::CoboltProject::new("Pre038", "src/main.cbl");
+        pre038.forms = Default::default();
+        let ctx2 = build_context_with_project(&form_with_label(), Some(&pre038), None);
+        assert!(ctx2.contains("Entrance: none"), "context: {ctx2}");
     }
 
     #[test]

@@ -1353,6 +1353,11 @@ pub struct DesignerPanel {
     pub ai_history_font_size: f32,
     pub ai_error_font_size: f32,
     pub global_ai_prompt: String,
+    /// Cleanups the designer performed on its own, waiting to be reported in
+    /// the Output panel. Automatic removal that leaves no trace is how a
+    /// developer loses work without knowing it; the app drains this every
+    /// frame and prints one line per item.
+    pub orphan_notices: Vec<String>,
     /// Prompt-box height, user-authoritative: 0 = "never dragged" (renders at
     /// the 3-row default); only the box's corner-grip drag writes it, clamped
     /// between the 1-row and 6-row limits.
@@ -1457,6 +1462,7 @@ impl DesignerPanel {
             ai_history_font_size: 14.0,
             ai_error_font_size: 13.0,
             global_ai_prompt: String::new(),
+            orphan_notices: Vec::new(),
             ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             global_ai_streaming: String::new(),
             ai_transcript_mark: (0, 0, false),
@@ -2764,6 +2770,16 @@ impl DesignerPanel {
             });
         }
         self.selected_ids.clear();
+        // A control deletion can leave a form-level procedure addressing
+        // nothing that exists. It is invisible on the canvas, it survives
+        // deleting every control, and it can break the form outright — so it
+        // goes with them, undoably and on the record.
+        for name in self.prune_orphaned_procedures() {
+            self.orphan_notices.push(format!(
+                "Removed procedure {name}: every control it referenced was deleted, \
+                 and nothing called it. Undo restores it."
+            ));
+        }
     }
 
     pub fn delete_selected(&mut self) {
@@ -3911,6 +3927,26 @@ impl DesignerPanel {
         }
     }
 
+    /// Remove the user procedures orphaned by a control deletion, returning
+    /// their names for the Output panel. See
+    /// [`cobolt_forms::Form::orphaned_user_procedures`] for what earns that
+    /// word — the test is deliberately strict, because this deletes code.
+    ///
+    /// Each removal is a normal `RemoveProcedure` command, so it rides the
+    /// undo stack with its full body: one undo brings the procedure back, the
+    /// next brings the control back. Nothing is lost silently.
+    pub fn prune_orphaned_procedures(&mut self) -> Vec<String> {
+        let mut removed = Vec::new();
+        for index in self.form.orphaned_user_procedures().into_iter().rev() {
+            if let Some(proc) = self.form.user_procedures.get(index).cloned() {
+                removed.push(proc.name.clone());
+                self.apply(Cmd::RemoveProcedure { index, proc });
+            }
+        }
+        removed.reverse();
+        removed
+    }
+
     /// Apply a data binding from the binding editor as an undoable command.
     /// Binding application rewrites target-control properties (columns,
     /// sources, preview values), so the pre-apply bindings and controls are
@@ -4117,6 +4153,25 @@ impl DesignerPanel {
                 self.dirty = true;
             }
 
+            // ── Window start position ────────────────────────────────────
+            "X" => {
+                if let Ok(v) = value.parse::<i32>() {
+                    self.form.x = v;
+                    self.dirty = true;
+                }
+            }
+            "Y" => {
+                if let Ok(v) = value.parse::<i32>() {
+                    self.form.y = v;
+                    self.dirty = true;
+                }
+            }
+            "StartPosition" => {
+                self.form.start_position =
+                    cobolt_forms::model::FormStartPosition::from_str(&value);
+                self.dirty = true;
+            }
+
             _ => {}
         }
     }
@@ -4154,6 +4209,9 @@ impl DesignerPanel {
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
+            "X" => Some(self.form.x.to_string()),
+            "Y" => Some(self.form.y.to_string()),
+            "StartPosition" => Some(self.form.start_position.as_str().to_string()),
             _ => None,
         }
     }
@@ -9730,6 +9788,10 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "FullScreen",
     "TitleVisible",
     "WindowEffects",
+    // Window start position
+    "X",
+    "Y",
+    "StartPosition",
 ];
 
 /// The spelling under which `key` is already stored on `ctrl`, or `key` itself
@@ -13121,6 +13183,37 @@ mod property_key_case_tests {
         }
     }
 
+    /// The exact feature the developer asked for: X/Y are editable in the
+    /// property pane (`set_form_prop`), undoable, and negative coordinates
+    /// (a monitor to the left of the primary) are legal. StartPosition
+    /// defaults to `System` — the one value that changes nothing for a form
+    /// that never touched this feature (operator, 2026-07-31).
+    #[test]
+    fn window_position_is_editable_and_undoable() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        assert_eq!(d.form.start_position, cobolt_forms::model::FormStartPosition::System);
+        assert_eq!((d.form.x, d.form.y), (0, 0));
+
+        d.set_form_prop("X", "240".into());
+        d.set_form_prop("Y", "-30".into());
+        d.set_form_prop("StartPosition", "Custom".into());
+        assert_eq!((d.form.x, d.form.y), (240, -30));
+        assert_eq!(d.form.start_position, cobolt_forms::model::FormStartPosition::Custom);
+
+        // Undo unwinds one property write at a time, like every other
+        // form-level property.
+        d.undo();
+        assert_eq!(d.form.start_position, cobolt_forms::model::FormStartPosition::System);
+        d.undo();
+        assert_eq!(d.form.y, 0);
+        d.undo();
+        assert_eq!(d.form.x, 0);
+
+        // An unrecognised StartPosition string never panics and is System.
+        d.set_form_prop("StartPosition", "diagonal".into());
+        assert_eq!(d.form.start_position, cobolt_forms::model::FormStartPosition::System);
+    }
+
     /// The validator and the applier must recognise the same set. A key the
     /// validator accepts but the applier drops is the silent no-op this module
     /// exists to prevent; a key the applier handles but the validator rejects is
@@ -13150,6 +13243,8 @@ mod property_key_case_tests {
             "fullscreen", "titlevisible",
             // 038 window effects opt-out
             "windoweffects",
+            // Window start position
+            "x", "y", "startposition",
         ] {
             assert!(
                 canonical_form_prop_key(word).is_some(),
@@ -13187,6 +13282,73 @@ mod property_key_case_tests {
             Some("before".to_string()),
             "undo must capture the real previous value, not None"
         );
+    }
+}
+
+#[cfg(test)]
+mod orphan_sweep_tests {
+    use super::*;
+
+    /// Deleting the last control that a procedure addressed takes the
+    /// procedure with it — reported, and undoable, because it is code the
+    /// developer may want back. Observed live: the procedure stayed, and the
+    /// form could no longer be launched at all (operator, 2026-07-31).
+    #[test]
+    fn deleting_the_last_control_takes_the_orphaned_procedure_and_says_so() {
+        let mut form = Form::new("F", "T", 400, 300);
+        form.controls
+            .push(Control::new("TXT1", ControlType::TextBox, 0, 0));
+        form.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "UPDATE-CONCATENATION".into(),
+            code: "       PROCEDURE DIVISION.\n           MOVE txt1::Text TO WS-X.".into(),
+        });
+        let mut dp = DesignerPanel::new(form);
+
+        dp.selected_ids = vec!["TXT1".into()];
+        dp.delete_selected();
+        assert!(dp.form.controls.is_empty());
+        assert!(
+            dp.form.user_procedures.is_empty(),
+            "the orphaned procedure must go with the control"
+        );
+        assert_eq!(dp.orphan_notices.len(), 1, "the removal must be reported");
+        assert!(dp.orphan_notices[0].contains("UPDATE-CONCATENATION"));
+
+        // Nothing is lost silently: undo brings the code back — through the
+        // same confirmation any procedure-history step asks for — and the next
+        // undo brings the control back.
+        dp.undo();
+        assert!(
+            dp.pending_history_confirm.is_some(),
+            "restoring procedure code asks first"
+        );
+        dp.confirm_pending_history(true);
+        assert_eq!(dp.form.user_procedures.len(), 1);
+        assert!(dp.form.user_procedures[0].code.contains("txt1::Text"));
+        dp.undo();
+        assert_eq!(dp.form.controls.len(), 1);
+    }
+
+    /// A procedure that still addresses a live control is a defect for the
+    /// developer to resolve, never something the IDE deletes for them.
+    #[test]
+    fn a_procedure_with_a_surviving_control_is_kept() {
+        let mut form = Form::new("F", "T", 400, 300);
+        form.controls
+            .push(Control::new("TXT1", ControlType::TextBox, 0, 0));
+        form.controls
+            .push(Control::new("TXT2", ControlType::TextBox, 0, 40));
+        form.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "RECALC".into(),
+            code: "       PROCEDURE DIVISION.\n           MOVE txt1::Text TO WS-X\n           MOVE txt2::Text TO WS-Y."
+                .into(),
+        });
+        let mut dp = DesignerPanel::new(form);
+
+        dp.selected_ids = vec!["TXT1".into()];
+        dp.delete_selected();
+        assert_eq!(dp.form.user_procedures.len(), 1, "TXT2 still keeps it alive");
+        assert!(dp.orphan_notices.is_empty());
     }
 }
 

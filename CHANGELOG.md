@@ -1,5 +1,195 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.52.0] — 2026-07-31
+
+### Added
+
+- **A form's window position is now a design-time property.** The property
+  pane gains a `Geometry` section — first, as a control's own inspector
+  already leads with its Geometry section — holding `X` and `Y` (drag or type
+  a screen-pixel coordinate), `Width`/`Height` (moved here from the removed
+  `Size` section, not duplicated), and a new `Start Position` dropdown: System
+  Default, Custom (use X/Y), the eight edge/corner positions, and Screen
+  Center.
+  - `System` — today's behavior, unchanged: the OS/window manager places the
+    window, `X`/`Y` are not applied. This is the default, so every existing
+    form opens exactly where it always has; the feature cannot move a single
+    form on its own.
+  - `Custom` applies the form's own `X`/`Y` at launch.
+  - The eight positions and Screen Center compute their position from the
+    actual screen and window size when the window opens, and ignore `X`/`Y`
+    — a window larger than the screen clamps to the near edge instead of
+    landing off-screen. `X`/`Y` stay visible and editable regardless of the
+    current Start Position, so a coordinate can be staged before switching to
+    Custom.
+  - Every property is undoable, one write at a time, like the rest of the
+    Form property pane, and reaches Grace and the specialists through the
+    same delegated context as GlassStyle — including the warning that setting
+    `X`/`Y` alone does not move the window unless Start Position is also
+    `Custom`.
+  - A `.cfrm` written before this feature existed has none of the new
+    attributes, loads to exactly `System`/`(0, 0)`, and round-trips
+    byte-identical until the developer actually changes something here.
+
+## [PowerRustCOBOL 1.51.1] — 2026-07-31
+
+### Fixed
+
+- **Grace could not say what the project's window entrance/exit effect
+  actually was.** A form only carries the on/off `WindowEffects` switch — the
+  effect itself, its duration, and its easing are project-wide, set once in
+  `[forms]` of the project file. Nothing in Grace's context ever carried that
+  section: the platform's Knowledge Base documents the effect CATALOGUE (what
+  `matrix-rain` is, its duration band, that it's a project setting) but
+  cannot contain what a SPECIFIC project actually picked — that's data, not
+  documentation, and it lived on `CoboltProject`, which the form-only context
+  builder never read.
+  - The context now carries a `WINDOW EFFECTS` section: the project's real
+    entrance and exit effect, duration, and easing, and whether the entrance
+    replays on restore — from the same `[forms]` values `rcrun` itself
+    launches with. A project with no effect configured (or one whose file
+    predates window effects entirely) gets an explicit "none", not a section
+    that silently disappears and reads as missing data.
+  - Grace's routing rules now name this source too, alongside the controls,
+    events, handler code, and indexed files from 1.51.0.
+
+## [PowerRustCOBOL 1.51.0] — 2026-07-31
+
+### Added
+
+- **Grace answers investigative questions about the open project from the real
+  thing, not from memory.** "What properties does TXT4 have, and what does
+  its onGotFocus handler actually do?", "what fields does CUSTOMERS.cidx
+  have?" — the data for this was already reaching her on every request
+  (`CONTROLS`, `CONTROL API BY ID`, `EVENT HANDLERS` / `FORM EVENT HANDLERS`,
+  the `INDEXED FILES` entry of the project tree), but nothing told her to
+  answer FROM it specifically, or to quote a handler's code verbatim rather
+  than describe it. Her routing rules now name each source by what it answers
+  — current property values and real methods from `CONTROL API BY ID`,
+  supported event names from `EVENTS BY TYPE`, the actual bound COBOL from
+  `EVENT HANDLERS`, record layout and keys from `INDEXED FILES` — and require
+  a platform-level fact the context itself doesn't explain (a method's exact
+  parameters, what a property is for) to come from cited Knowledge Base
+  evidence instead of a guess. A control TYPE's generic capabilities are never
+  substituted for what one REAL control on the open form is actually wired to
+  do.
+  - Grace can now call `knowledge.search` herself. Her context always carries
+    the top-scored excerpts for the request, but a top-8 retrieval tuned to
+    the whole request can miss the one entry a specific follow-up needs — and
+    without the tool declared, telling her to search for it would have been
+    telling her to use something she did not have. Existing projects gain the
+    tool the next time they load, the same backfill every specialist already
+    gets; a developer's own tool list is otherwise left alone.
+
+## [PowerRustCOBOL 1.50.3] — 2026-07-31
+
+### Fixed
+
+- **Typing or pasting in the prompt-review editor could crash the IDE.** The
+  editor's layouter — which paints Grace's flagged passages on a highlighted
+  background — computed their byte ranges from `state.revised` one line
+  before `TextEdit` (which owns that same string by `&mut`) applied the
+  frame's keystroke or paste to it. The ranges it then painted with were
+  ranges into a string that no longer existed: any edit before a flagged
+  passage shifted everything after it, and the old numbers could land inside
+  a multi-byte character — an em dash, an accented letter — which panics a
+  `&str` slice and took the whole application down mid-session.
+  - The layouter now recomputes the flagged ranges from the exact text it is
+    about to paint, every time it is called, instead of from a snapshot taken
+    before the edit. The hover tooltip that explains a flagged passage had the
+    same staleness bug (silently, since it only ever mis-highlighted rather
+    than crashed) and is fixed the same way.
+  - `highlight_job` also gained a defensive check — a range that fails to land
+    on a character boundary of the text in front of it is now skipped, not
+    sliced. No text is lost when a highlight is skipped; only that one
+    passage's marking is. This is not the fix, but if a future change ever
+    reintroduces a similar mismatch, one flagged passage loses its
+    highlighting instead of crashing the IDE.
+
+## [PowerRustCOBOL 1.50.2] — 2026-07-31
+
+### Fixed
+
+- **Extending a control's existing behavior could silently delete it.**
+  `generate_event_handler` always replaces a control+event's whole body — it
+  cannot merge or append. 1.50.1 gave the Event Handler Agent visibility into
+  that existing code, but nothing told it what to DO with what it saw: a task
+  that only asked to add to a TextBox's existing `onEnterPressed` handler
+  could return a clean, correct implementation of the NEW requirement alone,
+  overwriting whatever the control did before, with no error anywhere in the
+  pipeline — the reviewer checked the new requirement in isolation too.
+  - The Event Handler Agent's prompt now states the mechanic plainly: when its
+    context's `EVENT HANDLERS` block already shows code for the exact
+    control+event it is delegated, its returned code must be the COMPLETE
+    handler — the prior behavior still present, the new requirement added —
+    unless the task explicitly asks to remove or change something specific.
+  - Its Pedantic reviewer's checklist now checks for exactly that: when the
+    delegation shows prior code for the target, the submission must still do
+    everything that code did, or be rejected by name — a rewrite is not
+    approved merely because the new part is implemented correctly.
+  - Existing projects upgrade their stored Event Handler and reviewer prompts
+    on open, same as the earlier corrections; an edited prompt is still never
+    touched.
+
+## [PowerRustCOBOL 1.50.1] — 2026-07-31
+
+### Fixed
+
+- **An agent asked to describe a control's behavior could not see its
+  behavior.** The delegated context listed a control's declared properties
+  and methods, and the event NAMES its type merely supports — never the
+  actual COBOL bound to any real control's events. A task asking Grace to
+  read each of fifteen TextBoxes' handlers and caption a Label with what each
+  one does had nothing to read: every specialist that tried wrote the SAME
+  caption on all fifteen, first the developer's own example, then a mangled
+  copy of the task instruction itself, because that was the only text
+  available to copy from.
+  - The context now carries an `EVENT HANDLERS` / `FORM EVENT HANDLERS`
+    section: the verbatim bound code of every control and form event that has
+    one (an unwritten, empty-bodied handler is not listed — it is not
+    behavior). It reaches the Form Designer Agent, whose property writes
+    (captions, colors, anything meant to reflect real behavior) needed it,
+    and the COBOL Event Handler Script Agent, which extends or must not
+    conflict with what already exists. An ordinary form with no handlers yet
+    is unaffected — the section is omitted entirely rather than shown empty.
+  - The Form Designer Agent's prompt now names the block and states the
+    specific defect this closes: identical text across controls whose task
+    calls for per-control differentiation. Its Pedantic reviewer's checklist
+    now checks for exactly that pattern by name — it had approved the
+    duplicated caption twice.
+  - Existing projects upgrade their stored Form Designer and reviewer prompts
+    on open, same as the earlier event-ownership correction; an edited prompt
+    is still never touched. The underlying data fix reaches every project
+    immediately regardless, since delegated context is built fresh on every
+    request and is not itself stored per project.
+
+## [PowerRustCOBOL 1.50.0] — 2026-07-31
+
+### Added
+
+- **The designer removes the procedures a deletion orphans.** A common
+  procedure belongs to the form, not to a control, so deleting every control
+  it addressed left it behind — invisible on the canvas, absent from the
+  properties, and still generated into the COBOL. Observed live: a procedure
+  over fifteen TextBoxes survived the deletion of all fifteen, and the form
+  could no longer be launched at all, with an error naming a duplicate
+  paragraph rather than the procedure that caused it.
+  - A procedure is orphaned only when all three hold: it addresses at least
+    one control, NONE of the controls it addresses still exists, and nothing —
+    no handler, no form event, no other procedure — calls it. One live control
+    or one live caller makes it a defect for the developer to resolve, never
+    something the IDE deletes for them. A procedure of pure COBOL depends on
+    no control and is never touched.
+  - The sweep runs to a fixpoint, so an orphan takes with it the helper only
+    it called.
+  - Each removal rides the undo stack with its full body and is reported in
+    the Output panel: one undo restores the procedure (through the same
+    confirmation any procedure-history step asks for), the next restores the
+    control. An automatic removal that leaves no trace is how a developer
+    loses work without knowing it.
+  - Run and Save self-heal a form whose orphan predates this sweep — which is
+    the form a developer is holding right now.
+
 ## [PowerRustCOBOL 1.49.4] — 2026-07-31
 
 ### Fixed

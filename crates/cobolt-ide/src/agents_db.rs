@@ -283,6 +283,58 @@ fn prompt_predates_event_ownership_rule(name: &str, prompt: &str) -> bool {
     false
 }
 
+/// True when the Form Designer prompt predates knowledge of the `EVENT
+/// HANDLERS` context block (spec: event-handler visibility). Before it, the
+/// prompt could see a control's declared properties and methods but never the
+/// CODE bound to its events — a task asking it to describe or write from a
+/// control's real behavior had nothing to read, and it copied the only text
+/// available onto every control (operator report, 2026-07-31: fifteen
+/// TextBoxes, one identical caption on all of them, twice). Only an
+/// UNMODIFIED old default is replaced.
+fn prompt_predates_event_visibility_rule(name: &str, prompt: &str) -> bool {
+    if name == FORM_DESIGNER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::FORM_DESIGNER_EVENT_VISIBILITY_MARKER,
+            crate::llm::LEGACY_FORM_DESIGNER_PROMPT_V2,
+        );
+    }
+    if name == PEDANTIC_FORM_DESIGNER_REVIEWER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::PEDANTIC_UI_IDENTICAL_VALUES_MARKER,
+            crate::llm::LEGACY_PEDANTIC_UI_PROMPT_V1,
+        );
+    }
+    false
+}
+
+/// True when the Event Handler prompt (or its reviewer) predates the
+/// preservation rule: `generate_event_handler` always REPLACES a control's
+/// event body wholesale, and before this rule nothing told the agent to keep
+/// the prior handler's behavior when a task only asked to add to it, nor told
+/// the reviewer to check for a silent drop. A task that extends an existing
+/// handler is exactly the shape this closes — the same class of gap as event
+/// visibility (operator report, 2026-07-31), one step further: seeing the old
+/// code is not the same as being told not to overwrite it.
+fn prompt_predates_handler_preservation_rule(name: &str, prompt: &str) -> bool {
+    if name == EVENT_HANDLER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::EVENT_HANDLER_PRESERVATION_MARKER,
+            crate::llm::LEGACY_EVENT_HANDLER_PROMPT_V2,
+        );
+    }
+    if name == PEDANTIC_EVENT_HANDLER_REVIEWER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::PEDANTIC_EVENT_PRESERVATION_MARKER,
+            crate::llm::LEGACY_PEDANTIC_EVENT_PROMPT_V2,
+        );
+    }
+    false
+}
+
 fn prompt_carries_broken_form_style_guidance(prompt: &str) -> bool {
     // A corrected prompt always names the real property. Stale ones never do —
     // they only ever spoke of `Theme`. This keeps the corrected defaults from
@@ -1133,7 +1185,7 @@ impl AgentsDb {
         self.ensure_data_indexed_file_agent(llm);
         self.ensure_required_reviewers(llm);
         self.ensure_builtin_connections(llm);
-        self.ensure_specialist_knowledge_tools();
+        self.ensure_knowledge_search_tool();
         self.sort_rail();
         self.agents.len().saturating_sub(before)
     }
@@ -1503,12 +1555,23 @@ impl AgentsDb {
         }
     }
 
-    /// Ensure every specialist can retrieve project documentation. Write access
-    /// remains exclusive to Documentation Agent and is enforced by the backend.
-    pub fn ensure_specialist_knowledge_tools(&mut self) -> usize {
+    /// Ensure every specialist — and Grace herself — can retrieve project and
+    /// platform documentation. Write access remains exclusive to Documentation
+    /// Agent and is enforced by the backend.
+    ///
+    /// Grace's own context always carries the top-scored System/Project
+    /// Knowledge Base excerpts for the request, fetched before she ever sees
+    /// it — but a top-8 retrieval tuned to the request as a whole can miss the
+    /// one entry an investigative follow-up actually needs (a specific
+    /// method's parameter list, one control type's property domain). Without
+    /// this tool she could not go look for it — her prompt would be telling
+    /// her to call something she does not have, exactly the "invented tool"
+    /// failure the platform's own contracts forbid everyone else from
+    /// committing (spec: investigative Q&A, operator report, 2026-07-31).
+    pub fn ensure_knowledge_search_tool(&mut self) -> usize {
         let mut changed = 0;
         for agent in &mut self.agents {
-            if agent.kind == AgentKind::Specialist
+            if matches!(agent.kind, AgentKind::Specialist | AgentKind::Orchestrator)
                 && !agent.tools.iter().any(|tool| tool == "knowledge.search")
             {
                 agent.tools.push("knowledge.search".into());
@@ -1550,6 +1613,8 @@ impl AgentsDb {
             || legacy_form_prompt
             || prompt_predates_language_contract(name, &current_prompt)
             || prompt_predates_event_ownership_rule(name, &current_prompt)
+            || prompt_predates_event_visibility_rule(name, &current_prompt)
+            || prompt_predates_handler_preservation_rule(name, &current_prompt)
             || prompt_carries_broken_form_style_guidance(&current_prompt)
         {
             default_prompt.to_string()
@@ -1835,7 +1900,7 @@ impl AgentsDb {
         changed += self.ensure_required_reviewers(llm);
         changed += self.ensure_builtin_definitions(llm);
         changed += self.ensure_builtin_connections(llm);
-        changed += self.ensure_specialist_knowledge_tools();
+        changed += self.ensure_knowledge_search_tool();
         self.sort_rail();
         changed
     }
@@ -2456,6 +2521,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(proj);
     }
 
+    /// Grace's own context always carries the top-scored Knowledge Base
+    /// excerpts for the request — but a top-8 retrieval tuned to the whole
+    /// request can miss the one entry a follow-up investigative question
+    /// actually needs (a specific method's parameters, one control type's
+    /// property domain). Her prompt now tells her to call `knowledge.search`
+    /// for exactly that gap; without the tool declared, that instruction
+    /// would be telling her to use something she does not have — the
+    /// "invented tool" failure the platform's own contracts forbid everyone
+    /// else from committing.
+    #[test]
+    fn grace_can_search_the_knowledge_base_new_and_existing_projects() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        assert!(
+            db.by_name(GRACE)
+                .unwrap()
+                .tools
+                .iter()
+                .any(|t| t == "knowledge.search"),
+            "a newly created project's Grace must declare knowledge.search"
+        );
+
+        // A project seeded before this fix has Grace WITHOUT the tool.
+        {
+            let grace = db.agents.iter_mut().find(|a| a.name == GRACE).unwrap();
+            grace.tools.clear();
+        }
+        db.save_all().unwrap();
+        assert!(db.ensure_knowledge_search_tool() > 0, "the backfill must fire");
+        assert!(db
+            .by_name(GRACE)
+            .unwrap()
+            .tools
+            .iter()
+            .any(|t| t == "knowledge.search"));
+        assert_eq!(
+            db.ensure_knowledge_search_tool(),
+            0,
+            "backfill is idempotent"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
     #[test]
     fn fixed_agents_include_protected_documentation_with_project_retrieval() {
         let proj = tmp_project();
@@ -2804,6 +2914,119 @@ mod tests {
         db.save_prompt(GRACE, &edited).unwrap();
         db.ensure_fixed_agents(&llm);
         assert_eq!(db.load_prompt(GRACE), edited);
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The exact prompts a project open before this fix has stored: Form
+    /// Designer at `LEGACY_FORM_DESIGNER_PROMPT_V2` (it never mentioned the
+    /// `EVENT HANDLERS` block), its reviewer at `LEGACY_PEDANTIC_UI_PROMPT_V1`
+    /// (it never checked for identical values copied across controls). Both
+    /// must upgrade on the same project open — the fix is the DATA reaching
+    /// the agent (already live regardless of the stored prompt), but the
+    /// prompt upgrade is what tells the agent that data exists and tells the
+    /// reviewer to check for the exact defect it twice approved.
+    #[test]
+    fn project_open_upgrades_the_pre_event_visibility_prompts() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        db.save_prompt(FORM_DESIGNER, crate::llm::LEGACY_FORM_DESIGNER_PROMPT_V2)
+            .unwrap();
+        db.save_prompt(
+            PEDANTIC_FORM_DESIGNER_REVIEWER,
+            crate::llm::LEGACY_PEDANTIC_UI_PROMPT_V1,
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+
+        let designer = db.load_prompt(FORM_DESIGNER);
+        assert!(designer.contains(crate::llm::FORM_DESIGNER_EVENT_VISIBILITY_MARKER));
+        assert!(designer.contains("EVENT HANDLERS"));
+        // The earlier (event-ownership) rule survives the newer upgrade.
+        assert!(designer.contains(crate::llm::FORM_DESIGNER_EVENT_OWNERSHIP_MARKER));
+
+        let reviewer = db.load_prompt(PEDANTIC_FORM_DESIGNER_REVIEWER);
+        assert!(reviewer.contains(crate::llm::PEDANTIC_UI_IDENTICAL_VALUES_MARKER));
+
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+        for (name, default) in [
+            (FORM_DESIGNER, crate::llm::DEFAULT_FORM_DESIGNER_AGENT_PROMPT),
+            (
+                PEDANTIC_FORM_DESIGNER_REVIEWER,
+                crate::llm::DEFAULT_PEDANTIC_UI_PROMPT,
+            ),
+        ] {
+            assert!(
+                !prompt_predates_event_visibility_rule(name, default),
+                "{name}'s shipped default must not look stale to its own detector"
+            );
+        }
+
+        // A developer's own prompt is theirs, however short.
+        db.save_prompt(FORM_DESIGNER, "House rule: buttons are 90px wide.")
+            .unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(
+            db.load_prompt(FORM_DESIGNER),
+            "House rule: buttons are 90px wide."
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Seeing that an event already has code is not the same as being told
+    /// not to overwrite it: `generate_event_handler` always replaces the whole
+    /// body, so a task that only asked to ADD to a control's existing behavior
+    /// could silently delete it. Both the Event Handler Agent and its reviewer
+    /// need the rule, and both must upgrade on project open.
+    #[test]
+    fn project_open_upgrades_the_pre_preservation_prompts() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        db.save_prompt(EVENT_HANDLER, crate::llm::LEGACY_EVENT_HANDLER_PROMPT_V2)
+            .unwrap();
+        db.save_prompt(
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+            crate::llm::LEGACY_PEDANTIC_EVENT_PROMPT_V2,
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+
+        let handler = db.load_prompt(EVENT_HANDLER);
+        assert!(handler.contains(crate::llm::EVENT_HANDLER_PRESERVATION_MARKER));
+        // The earlier (language-contract) correction survives the newer upgrade.
+        assert!(handler.contains(crate::llm::EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER));
+
+        let reviewer = db.load_prompt(PEDANTIC_EVENT_HANDLER_REVIEWER);
+        assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_PRESERVATION_MARKER));
+        assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_LANGUAGE_CONTRACT_MARKER));
+
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+        for (name, default) in [
+            (EVENT_HANDLER, crate::llm::DEFAULT_EVENT_HANDLER_PROMPT),
+            (
+                PEDANTIC_EVENT_HANDLER_REVIEWER,
+                crate::llm::DEFAULT_PEDANTIC_EVENT_PROMPT,
+            ),
+        ] {
+            assert!(
+                !prompt_predates_handler_preservation_rule(name, default),
+                "{name}'s shipped default must not look stale to its own detector"
+            );
+        }
+
+        // A developer's own prompt is theirs, however short.
+        db.save_prompt(EVENT_HANDLER, "House rule: prefer COMPUTE over MOVE for arithmetic.")
+            .unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(
+            db.load_prompt(EVENT_HANDLER),
+            "House rule: prefer COMPUTE over MOVE for arithmetic."
+        );
         let _ = std::fs::remove_dir_all(proj);
     }
 

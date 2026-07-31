@@ -217,12 +217,30 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                 });
 
                 // ── The revision, editable, with the flagged passages marked ──
-                let highlights = locate(&state.revised, &state.notes);
-                let hl_ranges: Vec<std::ops::Range<usize>> =
-                    highlights.iter().map(|h| h.range.clone()).collect();
+                //
+                // The layouter is handed `buf`, not `state.revised` — and `buf`
+                // is the text AFTER `TextEdit` has already applied this frame's
+                // keystroke or paste, which happens INSIDE `.show()` below. A
+                // range computed from `state.revised` one line earlier is a
+                // range into a string that no longer exists the moment a byte
+                // is inserted or removed before it: the offsets are still
+                // numbers, but they now point at whatever bytes happen to sit
+                // there in the NEW string, mid-character as often as not. That
+                // produced a live crash — paste text before a flagged passage
+                // containing an em dash, and the stale range sliced into one of
+                // its bytes (operator report, 2026-07-31). `locate` re-run on
+                // `buf.as_str()` is cheap (one form-sized string, a handful of
+                // notes) and is the only text the ranges are ever allowed to be
+                // ranges into.
+                let notes_for_layout = state.notes.clone();
                 let font = state.font;
                 let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
-                    let mut job = highlight_job(ui, buf.as_str(), &hl_ranges, font);
+                    let now = buf.as_str();
+                    let ranges: Vec<std::ops::Range<usize>> = locate(now, &notes_for_layout)
+                        .into_iter()
+                        .map(|h| h.range)
+                        .collect();
+                    let mut job = highlight_job(ui, now, &ranges, font);
                     job.wrap.max_width = wrap;
                     ui.ctx().fonts_mut(|f| f.layout_job(job))
                 };
@@ -249,7 +267,12 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                     })
                     .inner;
 
-                // Why a passage is marked, on hover.
+                // Why a passage is marked, on hover. `state.revised` is now the
+                // post-edit text (`.show()` above already applied this frame's
+                // keystroke to it), so `locate` is run again here, against that
+                // same text — never against the pre-edit snapshot the layouter
+                // no longer uses either.
+                let highlights = locate(&state.revised, &state.notes);
                 if let Some(pos) = ctx.pointer_hover_pos() {
                     if out.response.rect.contains(pos) {
                         let cursor = out.galley.cursor_from_pos(pos - out.galley_pos);
@@ -339,7 +362,7 @@ fn highlight_job(
     let mut job = egui::text::LayoutJob::default();
     let mut at = 0usize;
     for r in ranges {
-        if r.start > text.len() || r.end > text.len() || r.start < at {
+        if !range_is_paintable(text, r, at) {
             continue;
         }
         if r.start > at {
@@ -360,6 +383,26 @@ fn highlight_job(
     job
 }
 
+/// Is `r` safe to slice out of `text` and paint, given `at` (the position
+/// already appended)? A pure predicate so the invariant is testable without
+/// an `egui::Ui` — see `highlight_job`'s doc comment for why it exists at all.
+///
+/// `locate` only ever returns ranges that land on a char boundary of the text
+/// it was run against — an exact-substring match cannot end mid-character,
+/// since UTF-8 is self-synchronizing. This check exists for the text NOT
+/// being that text: a caller that (again) hands `highlight_job` a range
+/// computed against a different string than the one it is now slicing would
+/// otherwise panic the whole app over one flagged passage, exactly as
+/// happened live (operator report, 2026-07-31) when the ranges were computed
+/// one frame before the text they were sliced from.
+fn range_is_paintable(text: &str, r: &std::ops::Range<usize>, at: usize) -> bool {
+    r.start >= at
+        && r.start <= r.end
+        && r.end <= text.len()
+        && text.is_char_boundary(r.start)
+        && text.is_char_boundary(r.end)
+}
+
 fn char_to_byte(text: &str, char_index: usize) -> usize {
     text.char_indices()
         .nth(char_index)
@@ -370,6 +413,70 @@ fn char_to_byte(text: &str, char_index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The live crash, reduced to its cause: a range computed against one
+    /// string, then sliced out of a DIFFERENT string where the same byte
+    /// offset lands mid-character. `highlight_job`'s layouter used to compute
+    /// ranges from `state.revised` one line before `TextEdit` (which owns the
+    /// SAME string by `&mut`) applied that frame's keystroke or paste to it —
+    /// so the ranges it painted with were ranges into a string that no longer
+    /// existed by the time painting happened. The fix is structural (the
+    /// layouter now re-runs `locate` against `buf.as_str()`, the only text it
+    /// is ever allowed to be a range into); this test locks in the guard that
+    /// stands behind it regardless.
+    #[test]
+    fn a_range_that_lands_mid_character_is_never_painted() {
+        // The exact live shape: the developer's cursor sits right where a
+        // flagged quote begins, and the frame's `TextEdit` applies a
+        // keystroke — here, typing an em dash — BEFORE the layouter paints.
+        // In "AB CD", the range 3..5 is "CD", a valid range with `at` byte
+        // boundaries throughout. Insert "—" (3 bytes) at that exact
+        // position and the SAME numbers, unchanged, are what a stale
+        // pre-edit range would still say: "AB —CD" is now the text, and
+        // byte 5 sits inside the dash's own continuation bytes — not a
+        // character boundary at all.
+        let before = "AB CD";
+        let range_from_before = 3..5; // "CD", byte-exact in `before`
+        assert!(range_is_paintable(before, &range_from_before, 0));
+
+        let after = "AB —CD";
+        assert!(
+            !range_is_paintable(after, &range_from_before, 0),
+            "a range computed against the pre-edit text must not be trusted \
+             against the post-edit text"
+        );
+
+        // The same logical quote ("CD") IS paintable once its range is
+        // recomputed against the actual current text — proving the guard
+        // rejects staleness specifically, not "any range near a multi-byte
+        // character".
+        assert!(range_is_paintable(after, &(6..8), 0));
+
+        // Bounds and ordering degenerate cases, all rejected without a panic.
+        assert!(!range_is_paintable("short", &(0..99), 0), "past the end");
+        assert!(!range_is_paintable("short", &(3..1), 0), "start after end");
+        assert!(!range_is_paintable("short", &(0..3), 4), "before `at`");
+    }
+
+    /// `highlight_job` must not panic on a range that fails the guard, and
+    /// must still paint the FULL text — only the one bad range's highlight is
+    /// dropped, not the text it would have covered.
+    #[test]
+    fn highlight_job_degrades_instead_of_crashing_on_a_bad_range() {
+        egui::__run_test_ui(|ui| {
+            let text = "Update the — em dash — handlers";
+            // In-bounds, but its END (byte 13) is a continuation byte of the
+            // em dash — exactly the shape of the live panic.
+            let bad = vec![11..13];
+            let job = highlight_job(ui, text, &bad, 14.0);
+            assert_eq!(job.text, text, "no text is lost when a highlight is skipped");
+
+            // A well-formed range still paints normally alongside a bad one.
+            let mixed = vec![11..13, 4..7]; // "the", byte-exact
+            let job = highlight_job(ui, text, &mixed, 14.0);
+            assert_eq!(job.text, text);
+        });
+    }
 
     /// The modal opens at ten rows and a grip is bounded at fifteen.
     #[test]

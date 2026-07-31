@@ -6640,6 +6640,76 @@ impl PropertiesPanel {
 
     // ── Form inspector ────────────────────────────────────────────────────────
 
+
+
+    /// The Form's own Geometry section — position, size, and where the window
+    /// opens. First section, mirroring `show_geometry_grid` for a control
+    /// (operator, 2026-07-31): "as usual" a new section leads.
+    ///
+    /// `X`/`Y` are design-time coordinates; they are only ever APPLIED at
+    /// launch when Start Position is `Custom`. Every other Start Position
+    /// still shows them (a developer may want to stage a coordinate ahead of
+    /// switching to Custom) but launch ignores them.
+    fn show_form_geometry(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
+        section_header(ui, tr.sec_geometry);
+        let mut x = form.x;
+        property_row(ui, "X", |ui| {
+            if ui.add(DragValue::new(&mut x).speed(1)).changed() {
+                action.form_props.push(("X".into(), x.to_string()));
+            }
+        });
+        let mut y = form.y;
+        property_row(ui, "Y", |ui| {
+            if ui.add(DragValue::new(&mut y).speed(1)).changed() {
+                action.form_props.push(("Y".into(), y.to_string()));
+            }
+        });
+        let mut w = form.width as i64;
+        property_row(ui, tr.lbl_width, |ui| {
+            if ui
+                .add(DragValue::new(&mut w).speed(1).range(64..=9999))
+                .changed()
+            {
+                action.form_props.push(("Width".into(), w.to_string()));
+            }
+        });
+        let mut h = form.height as i64;
+        property_row(ui, tr.lbl_height, |ui| {
+            if ui
+                .add(DragValue::new(&mut h).speed(1).range(64..=9999))
+                .changed()
+            {
+                action.form_props.push(("Height".into(), h.to_string()));
+            }
+        });
+        property_row(ui, tr.lbl_start_position, |ui| {
+            let cur = form.start_position;
+            egui::ComboBox::from_id_salt("form_start_position")
+                .selected_text(start_position_label(cur, tr))
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for opt in cobolt_forms::model::FormStartPosition::ALL {
+                        if ui
+                            .selectable_label(cur == opt, start_position_label(opt, tr))
+                            .clicked()
+                        {
+                            action
+                                .form_props
+                                .push(("StartPosition".into(), opt.as_str().to_string()));
+                        }
+                    }
+                });
+        });
+        if form.start_position != cobolt_forms::model::FormStartPosition::Custom {
+            ui.label(
+                RichText::new(tr.hint_start_position_ignores_xy)
+                    .small()
+                    .color(Color32::GRAY)
+                    .italics(),
+            );
+        }
+    }
+
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
         self.show_tabs(ui);
         self.property_split = self
@@ -6649,6 +6719,10 @@ impl PropertiesPanel {
 
         match self.active_tab {
             InspectorTab::Visuals => {
+                // Geometry is first, as it is for a control's own inspector
+                // (`show_geometry_grid`) — the position/size facts a
+                // developer reaches for before anything else.
+                self.show_form_geometry(ui, form, action, tr);
                 section_header(ui, tr.sec_form_props);
                 property_row(ui, tr.lbl_name, |ui| {
                     ui.label(&form.name);
@@ -7163,46 +7237,10 @@ impl PropertiesPanel {
                     .italics(),
                 );
 
-                // ── Size ──────────────────────────────────────────────────────────────
-                section_header(ui, tr.sec_size);
-                {
-                    const K: &str = "form-Width";
-                    let wid = egui::Id::new(K);
-                    let buf = self
-                        .form_bufs
-                        .entry(K.into())
-                        .or_insert(form.width.to_string());
-                    if !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = form.width.to_string();
-                    }
-                    property_row(ui, tr.lbl_width, |ui| {
-                        if ui
-                            .add(egui::TextEdit::singleline(buf).id(wid).desired_width(70.0))
-                            .lost_focus()
-                        {
-                            action.form_props.push(("Width".into(), buf.clone()));
-                        }
-                    });
-                }
-                {
-                    const K: &str = "form-Height";
-                    let wid = egui::Id::new(K);
-                    let buf = self
-                        .form_bufs
-                        .entry(K.into())
-                        .or_insert(form.height.to_string());
-                    if !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = form.height.to_string();
-                    }
-                    property_row(ui, tr.lbl_height, |ui| {
-                        if ui
-                            .add(egui::TextEdit::singleline(buf).id(wid).desired_width(70.0))
-                            .lost_focus()
-                        {
-                            action.form_props.push(("Height".into(), buf.clone()));
-                        }
-                    });
-                }
+                // Width/Height now live in the Geometry section at the top
+                // of this tab (`show_form_geometry`), alongside X/Y and Start
+                // Position — moved there, not duplicated (operator,
+                // 2026-07-31).
             }
             InspectorTab::Events => {
                 // ── Form-level Events ─────────────────────────────────────────────────
@@ -7570,6 +7608,26 @@ fn section_header(ui: &mut Ui, title: &str) {
         egui::TextStyle::Button.resolve(ui.style()),
         Color32::WHITE,
     );
+}
+
+/// Human label for one `FormStartPosition` in the Start Position dropdown.
+/// The wire spelling (`FormStartPosition::as_str`, e.g. `"TopLeft"`) is what
+/// is persisted and what Grace/specialists see; this is display-only.
+fn start_position_label(pos: cobolt_forms::model::FormStartPosition, tr: &Tr) -> &'static str {
+    use cobolt_forms::model::FormStartPosition as SP;
+    match pos {
+        SP::System => tr.sp_system,
+        SP::Custom => tr.sp_custom,
+        SP::TopLeft => tr.sp_top_left,
+        SP::TopCenter => tr.sp_top_center,
+        SP::TopRight => tr.sp_top_right,
+        SP::MiddleLeft => tr.sp_middle_left,
+        SP::Center => tr.sp_center,
+        SP::MiddleRight => tr.sp_middle_right,
+        SP::BottomLeft => tr.sp_bottom_left,
+        SP::BottomCenter => tr.sp_bottom_center,
+        SP::BottomRight => tr.sp_bottom_right,
+    }
 }
 
 fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut InspectorAction) {

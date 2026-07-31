@@ -603,7 +603,7 @@ pub struct DbAgentInvoker {
 /// *could* infer an answer — so an ambiguous "the button's name" was silently
 /// resolved to the control id and the whole workflow ran on a guess. The test
 /// is not "can I infer this?" but "would the readings deliver different work?".
-const RESPONSE_ROUTING_CONTRACT: &str = "RESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n2. DEVELOPER CLARIFICATION — the request admits more than one reasonable reading, and the readings would produce DIFFERENT artifacts: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n   WHEN IN DOUBT, ASK. Do not resolve an ambiguity by picking the reading you find most likely and proceeding: a plausible guess that is wrong costs the developer a whole workflow, while a question costs one message. Being ABLE to infer an answer is NOT a reason to skip the question — the test is whether the competing readings would change the delivered artifact, not whether you can pick a favourite.\n   Words that name a control's text are ambiguous BY CONSTRUCTION and are the most common trap: \"name\", \"nome\", \"nombre\", \"label\", \"text\", \"texto\", \"title\" may mean the control's IDENTIFIER (its id, e.g. Button-3) or its VISIBLE TEXT (its Caption or Text property). The two routinely differ — a form can hold a control whose id is \"Button-3\" while its Caption reads \"Button-2\". Never settle that silently: quote both candidate values for a concrete control and ask which one the developer means.\n   Ask as well when the request and its own example disagree, when a literal's exact spelling or punctuation is uncertain, when the target resource is not uniquely identified, or when a requested change could alter existing behavior in more than one way.\n   Put every question you need in ONE reply, each as a separate short question, and stop — do not plan or mutate anything in the same turn.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.";
+const RESPONSE_ROUTING_CONTRACT: &str = "RESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n   QUESTIONS ABOUT THE OPEN PROJECT — its controls, its form, its indexed files — are answered from the CONTEXT block above, not from memory or general platform knowledge: `CONTROLS` and `CONTROL API BY ID` for a control's real properties, their CURRENT values, and its real methods; `EVENTS BY TYPE` for which event names its type supports; `EVENT HANDLERS` / `FORM EVENT HANDLERS` for the ACTUAL COBOL bound to a specific control or form event — reproduce it VERBATIM when asked to show, list, or quote it, never a summary that reads plausible but is not the code that is actually there; the `INDEXED FILES` entry of `PROJECT TREE INVENTORY` for a file's record layout, fields, and keys; and `WINDOW EFFECTS` for the PROJECT's actual configured entrance/exit effect, duration, and easing (a form only carries the on/off switch — the effect itself is project-wide, and only this block has the value actually set, never the Knowledge Base, which documents the CATALOGUE of effects, not what this project picked). That block is the only ground truth for what THIS project's form and files actually contain — a control TYPE's generic capabilities are not the same claim as what one REAL control on this form is wired to do, and the two must never be answered as if they were. When the question needs a platform-level fact the CONTEXT itself does not explain — a method's parameter list and return type, what a property or method is FOR — that comes from Knowledge Base evidence, cited by PATH; call `knowledge.search` for it when the injected excerpts do not already cover the exact control type or method asked about, rather than guess or describe from general COBOL/GUI knowledge.\n2. DEVELOPER CLARIFICATION — the request admits more than one reasonable reading, and the readings would produce DIFFERENT artifacts: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n   WHEN IN DOUBT, ASK. Do not resolve an ambiguity by picking the reading you find most likely and proceeding: a plausible guess that is wrong costs the developer a whole workflow, while a question costs one message. Being ABLE to infer an answer is NOT a reason to skip the question — the test is whether the competing readings would change the delivered artifact, not whether you can pick a favourite.\n   Words that name a control's text are ambiguous BY CONSTRUCTION and are the most common trap: \"name\", \"nome\", \"nombre\", \"label\", \"text\", \"texto\", \"title\" may mean the control's IDENTIFIER (its id, e.g. Button-3) or its VISIBLE TEXT (its Caption or Text property). The two routinely differ — a form can hold a control whose id is \"Button-3\" while its Caption reads \"Button-2\". Never settle that silently: quote both candidate values for a concrete control and ask which one the developer means.\n   Ask as well when the request and its own example disagree, when a literal's exact spelling or punctuation is uncertain, when the target resource is not uniquely identified, or when a requested change could alter existing behavior in more than one way.\n   Put every question you need in ONE reply, each as a separate short question, and stop — do not plan or mutate anything in the same turn.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.";
 
 /// How a retrieved excerpt names the store it came from. Both stores hold
 /// files under a folder literally called `Knowledge Base`, so their paths are
@@ -2475,6 +2475,7 @@ pub(crate) fn inject_task_context_for_test(context: &str, plan: &mut [TaskSpec])
 fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
     let inventory = control_inventory_excerpt(context);
     let api = control_api_excerpt(context);
+    let handlers = event_handlers_excerpt(context);
     // Which control types are in play is a property of the WHOLE plan, not of
     // one task's wording: the designer task says "deploy 15 TextBoxes" and the
     // event task then says "the handlers for those" — and the second one, read
@@ -2502,6 +2503,14 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             for block in [
                 form_properties_excerpt(context),
                 property_keys_excerpt(context, &inventory, &objectives, "this task"),
+                // A property write that must reflect existing behavior — a
+                // caption describing what a handler does, a color matching
+                // another control's effect — needs that behavior to be
+                // readable. Observed live: with this block absent, every
+                // control got the SAME caption, because the developer's
+                // example (or the task instruction itself) was the only text
+                // available to copy (operator, 2026-07-31).
+                handlers.clone(),
             ] {
                 if block.is_empty() {
                     continue;
@@ -2521,14 +2530,17 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             // that its reviewer can never verify, so the correction loop never
             // terminates. Give it the inventory (ids/types), the CONTROL API BY
             // ID block (each control's real methods and properties), the events
-            // its types actually support, and the procedures it may CALL — its
-            // prompt names all four, so withholding any one leaves it obeying a
-            // list it cannot see.
+            // its types actually support, the procedures it may CALL, and the
+            // code of handlers that already exist — needed whenever a task asks
+            // it to extend, match, or avoid conflicting with one — its prompt
+            // names all these, so withholding any one leaves it obeying a list
+            // it cannot see.
             let mut ctx = inventory.clone();
             for block in [
                 events_excerpt(context, &inventory, &objectives, "this task"),
                 api.clone(),
                 procedures_excerpt(context),
+                handlers.clone(),
             ] {
                 if block.is_empty() {
                     continue;
@@ -2845,6 +2857,44 @@ fn control_api_excerpt(context: &str) -> String {
     let end = [
         "PROPERTY INTENT MAP",
         "PROCEDURES:",
+        "PROJECT TREE INVENTORY",
+        "LIVE UI TREE",
+        "RELEVANT INDEXED KNOWLEDGE",
+        "KNOWLEDGE PRECEDENCE",
+    ]
+    .iter()
+    .filter_map(|m| rest.find(m))
+    .min()
+    .unwrap_or(rest.len());
+    rest[..end].trim_end().to_string()
+}
+
+/// Slice the `EVENT HANDLERS` / `FORM EVENT HANDLERS` blocks from the surface
+/// context: the existing bound handler code, verbatim, for every control and
+/// form event that has one. Not filtered by objective or by type, matching
+/// [`control_inventory_excerpt`] — a task that reads existing behavior needs
+/// exactly the controls already on the form, which is what `CONTROLS:` itself
+/// is never trimmed to either.
+///
+/// Without this, an agent asked to describe, summarize, or match an existing
+/// handler's behavior has no code to read. Observed live: asked to write a
+/// caption per TextBox from "the event handler logic", the specialist wrote
+/// the SAME text on all fifteen — first the developer's own example, then a
+/// mangled copy of the task instruction — because that was the only text it
+/// had (operator, 2026-07-31). Empty when neither marker is present, so a
+/// form with no handlers yet leaves the delegated context unchanged.
+fn event_handlers_excerpt(context: &str) -> String {
+    // The control-level block is omitted when no control has a real handler
+    // yet, so the form-level block (form onLoad/onClose) is a valid start on
+    // its own.
+    let at = context
+        .find("EVENT HANDLERS (existing bound code")
+        .or_else(|| context.find("FORM EVENT HANDLERS (existing bound code"));
+    let Some(at) = at else {
+        return String::new();
+    };
+    let rest = &context[at..];
+    let end = [
         "PROJECT TREE INVENTORY",
         "LIVE UI TREE",
         "RELEVANT INDEXED KNOWLEDGE",
@@ -4105,6 +4155,36 @@ mod tests {
         assert!(RESPONSE_ROUTING_CONTRACT.contains("is NOT a reason to skip the question"));
     }
 
+    /// The developer must be able to interrogate the open project through
+    /// Grace — "what properties does TXT4 have", "what does its onGotFocus
+    /// handler do", "what fields does CUSTOMERS.cidx have" — and get the
+    /// REAL answer for THIS project, not a plausible-sounding generic one.
+    /// The data was already reaching her (CONTROLS, CONTROL API BY ID, EVENT
+    /// HANDLERS and the indexed-file section are all unconditionally in her
+    /// context); what was missing was being told to answer FROM it, and to
+    /// quote handler code verbatim rather than summarize it.
+    #[test]
+    fn the_routing_contract_tells_grace_to_answer_project_questions_from_context() {
+        for marker in [
+            "CONTROLS",
+            "CONTROL API BY ID",
+            "EVENT HANDLERS",
+            "FORM EVENT HANDLERS",
+            "INDEXED FILES",
+            "WINDOW EFFECTS",
+            "VERBATIM",
+            "knowledge.search",
+        ] {
+            assert!(
+                RESPONSE_ROUTING_CONTRACT.contains(marker),
+                "the routing contract must direct Grace to {marker} for project questions"
+            );
+        }
+        // The specific confusion this closes: a control TYPE's generic
+        // capabilities are not what one REAL control on this form does.
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("generic capabilities"));
+    }
+
     /// The developer's own words reach every agent, so a Portuguese request
     /// gets a Portuguese plan, review and summary instead of an English one.
     #[test]
@@ -4925,6 +5005,67 @@ mod tests {
         assert!(!mentions_type("rename PanelHeader", "Panel"));
         assert!(!mentions_type("tidy the LineChart", "Line"));
         assert!(!mentions_type("no controls here", "Slider"));
+    }
+
+    /// The exact shape of the operator's report: a task that must READ
+    /// existing behavior — here, write a caption from a TextBox's own handler
+    /// — needs the bound code to be part of its delegated context, for
+    /// whichever agent the property write belongs to (Form Designer) and for
+    /// the agent that reads/extends handlers (Event Handler). Before this,
+    /// neither branch carried it; only `EVENTS BY TYPE` (a legend of names a
+    /// TYPE supports) reached them, which describes no real control's actual
+    /// wiring.
+    #[test]
+    fn a_task_reading_existing_behavior_receives_the_bound_handler_code() {
+        let context = "CONTEXT\nFORM: TEXTBOXES-FORM (900x700)\n\
+             CONTROLS:\n  TXT1 (TextBox) @(10,10) 200x24\n  LBL-1 (Label) @(10,50) 200x24\n\
+             PROPERTY KEYS BY TYPE:\n  TextBox: Text, BackgroundColor\n  Label: Caption\n\
+             EVENTS BY TYPE:\n  TextBox: onEnterPressed, onGotFocus\n  Label: onClick\n\
+             CONTROL API BY ID:\n  TXT1 (TextBox): properties [Text]; methods []\n\
+             PROCEDURES: (none)\n\
+             EVENT HANDLERS (existing bound code — the ONLY source of truth for what a control's event actually does; a task that reads or describes existing behavior must be answered from this, never invented or guessed):\n  \
+             TXT1::onEnterPressed\n       PROCEDURE DIVISION.\n           MOVE \"#0000FF\" TO TXT1::BackgroundColor.\n\n\
+             PROJECT TREE INVENTORY\nPROJECT: X version 1.0.0 main src/main.cbl";
+
+        let mut plan = vec![
+            TaskSpec {
+                id: "T1".into(),
+                agent: crate::agents_db::FORM_DESIGNER.into(),
+                objective: "for each TextBox, write a caption on LBL-1 describing its handler".into(),
+                context: String::new(),
+                reviewer: None,
+                depends_on: vec![],
+                acceptance: String::new(),
+            },
+            TaskSpec {
+                id: "T2".into(),
+                agent: crate::agents_db::EVENT_HANDLER.into(),
+                objective: "extend TXT1's handler".into(),
+                context: String::new(),
+                reviewer: None,
+                depends_on: vec!["T1".into()],
+                acceptance: String::new(),
+            },
+        ];
+        inject_task_context(context, &mut plan);
+
+        for task in &plan {
+            assert!(
+                task.context.contains("TXT1::onEnterPressed"),
+                "{}: the bound event name must reach the task",
+                task.id
+            );
+            assert!(
+                task.context.contains("#0000FF"),
+                "{}: the actual code must be inlined, not just referenced",
+                task.id
+            );
+            assert!(
+                !task.context.contains("PROJECT TREE INVENTORY"),
+                "{}: the slice must stop before the unrelated project inventory",
+                task.id
+            );
+        }
     }
 
     /// With no surface context (markers absent), injection is a no-op — the
