@@ -15,6 +15,32 @@
 //! by dragging a grip or pressing a font button. No branch here derives a size
 //! from how long a text is or how many passages Grace flagged, so there is no
 //! path by which the window can grow itself (operator, 2026-07-31).
+//!
+//! One more rule the same regression taught, the hard way: the two columns
+//! below (the Grace image, the text) are sized from `state.width` directly —
+//! **never** from `ui.max_rect()` / `ui.available_width()`, even though a
+//! `ui.max_rect()` read looks perfectly innocent right after the window opens.
+//! `egui::Window` auto-sizes to fit its content and — per its own doc comment
+//! on `fixed_size` — "may still auto-resize" past a requested size even with
+//! `resizable(false)`. `ui.max_rect()` inside such a window is the *auto-sizing
+//! region itself*: reading its width to size a column, then handing that
+//! column both `set_min_size` and `set_max_size` (as the original/editor
+//! blocks below do, to stay bounded), makes the column literally BECOME
+//! whatever `max_rect` reported — which can grow the next frame. `state.width`
+//! has no such loop: it is a plain number nothing but the window's own grip
+//! ever writes.
+//!
+//! The window's own grip (drawn at the very end of `show()`) is anchored on
+//! the ACTUAL rendered content's bounding rect — the `InnerResponse` egui
+//! itself hands back for the `ui.horizontal_top` block below, not a
+//! hand-computed guess of where the title bar, margins and stroke leave off.
+//! That rect is `child_ui.min_rect()` under the hood (egui's own accounting
+//! of what was placed), so the grip lands at the window's true corner at any
+//! title bar height, window margin or font size the active theme happens to
+//! use — including future retunes of `app.rs::apply_theme` — without this
+//! file needing to re-guess egui's chrome pixel-for-pixel ever again. Reading
+//! it here is safe precisely because it is read AFTER layout, purely to
+//! position a non-allocating decoration — never fed back into a child's size.
 
 use crate::i18n::Tr;
 use crate::prompt_polish::{locate, Note};
@@ -82,6 +108,24 @@ impl PromptReview {
     }
 }
 
+/// Real chrome this file's seed is built from — not arbitrary literals. They
+/// mirror `app.rs::apply_theme`'s window styling (a 12px window margin, an
+/// 8px item spacing, a 25px Heading font) plus egui's own `Frame::window`
+/// stroke width (1.0) and — confirmed by reading
+/// `egui-0.35.0/src/containers/window.rs` — the fact that a window's content
+/// sits behind *two* nested inner margins, not one: the outer `Frame::window`
+/// margin, and a second `Frame::NONE.inner_margin(window_margin)` egui wraps
+/// around the body specifically (below the title bar). If the theme is
+/// retuned these drift out of date; per the module doc comment above, that
+/// can only make the window's *opening* frame a little less snug, never
+/// regress into the growing-window bug, because nothing downstream treats
+/// this number as a constraint any more — `show()` never calls
+/// `Window::fixed_size`/`min_size`/`max_size`.
+const CHROME_WINDOW_MARGIN: f32 = 12.0;
+const CHROME_STROKE: f32 = 1.0;
+const CHROME_ITEM_SPACING: f32 = 8.0;
+const CHROME_HEADING_FONT: f32 = 25.0;
+
 /// The window's size, from the three state numbers alone.
 ///
 /// This signature IS the guarantee the operator asked for: there is no
@@ -89,14 +133,39 @@ impl PromptReview {
 /// because a text got longer, because Grace flagged more passages, or because
 /// a wrapped line appeared — only because the developer dragged a grip or
 /// enlarged the font.
+///
+/// The result is a SEED, used only for the window's opening `default_size`
+/// (so it doesn't visibly pop on the first frame) and for the one-time
+/// centering math in `show()`. It does not have to match egui's real chrome
+/// pixel for pixel: `show()` anchors its own resize grip on the actually
+/// rendered content's bounding rect, not on this estimate — see the module
+/// doc comment for why that is what actually keeps the window from growing.
 pub fn window_size(font: f32, rows: f32, width: f32) -> egui::Vec2 {
     let row = row_height(font.clamp(MIN_FONT, MAX_FONT));
     let rows = rows.clamp(MIN_ROWS, MAX_ROWS);
     let editor_h = rows * row + 8.0;
     let original_h = ORIGINAL_ROWS * row + 8.0;
+
+    // Outer `Frame::window` margin + stroke, top and bottom, plus the body's
+    // own nested `Frame::NONE` margin, top and bottom, plus the title bar
+    // (a Heading-sized row) and the item spacing between it and the body.
+    let window_chrome = 2.0 * (CHROME_WINDOW_MARGIN + CHROME_STROKE)
+        + 2.0 * CHROME_WINDOW_MARGIN
+        + row_height(CHROME_HEADING_FONT)
+        + CHROME_ITEM_SPACING;
+
     egui::vec2(
         width.clamp(MIN_WIDTH, MAX_WIDTH),
-        34.0 + original_h + 30.0 + editor_h + 24.0 + 38.0 + 20.0,
+        window_chrome
+            + row_height(11.5) // the "review_original" heading label
+            + original_h
+            + 6.0 // the explicit `ui.add_space(6.0)` after the original block
+            + 30.0 // the "review_revised" row, with the A+/A- buttons
+            + editor_h
+            + 4.0 // the explicit `ui.add_space(4.0)` before the hint
+            + row_height(11.5) // budget for the hint label, shown or not
+            + 6.0 // the explicit `ui.add_space(6.0)` before the button row
+            + 30.0, // the Submit/Cancel row
     )
 }
 
@@ -144,24 +213,36 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
         .collapsible(false)
         // egui's own resize is what inflates on its own; the grips below write
         // state instead, and the window is laid out from that state.
+        //
+        // `default_size` — not `fixed_size` — because `fixed_size` sets the
+        // window's *outer* footprint (title bar, margins and stroke
+        // included) and egui's own doc comment on it warns the window "may
+        // still auto-resize" past that even with `resizable(false)`. `size`
+        // here is only ever a best-effort SEED (see `window_size`'s doc
+        // comment); the real anti-growth guarantee is that the content below
+        // is bounded by `state` alone, so wherever egui's real auto-size
+        // lands is itself state-bounded, and the window's own grip (at the
+        // end of this closure) is drawn at THAT actual corner.
         .resizable(false)
-        .fixed_size(size);
+        .default_size(size);
     if std::mem::take(&mut state.center_next_frame) {
         let c = ctx.content_rect().center();
         window = window.current_pos(c - size * 0.5);
     }
     window.show(ctx, |ui| {
-        // The window's content rect. It IS `size` — egui gave it to us because
-        // we asked for exactly that — so measuring it feeds nothing back: the
-        // columns below are derived from state, through this rect, and never
-        // from how much room the text would like. Taking it from egui rather
-        // than recomputing it is what keeps the columns flush with the frame
-        // (and the title bar above it) whatever margins the style applies.
-        let content = ui.max_rect();
-        let img_w = content.width() * GRACE_SHARE;
-        let text_w = content.width() - img_w - COL_GAP;
+        // The two columns' widths come from `state.width` directly — never
+        // from `ui.max_rect()` / `ui.available_width()`. See the module doc
+        // comment for why: this window no longer has a `fixed_size`, so
+        // `ui.max_rect()` here is the auto-sizing region itself, and the
+        // original/editor blocks below force their own size to match
+        // `text_w` exactly (`set_min_size` + `set_max_size`) — feeding a
+        // `max_rect` reading into that would be the classic loop, just one
+        // step removed. `state.width` is a plain number; nothing but this
+        // window's own grip, at the bottom of this closure, ever writes it.
+        let img_w = state.width * GRACE_SHARE;
+        let text_w = state.width - img_w - COL_GAP;
 
-        ui.horizontal_top(|ui| {
+        let content = ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = COL_GAP;
             ui.allocate_ui(egui::vec2(img_w, size.y - 30.0), |ui| {
                 ui.add(
@@ -333,10 +414,16 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
         });
 
         // The window's grip, in its bottom-right corner: width and height
-        // together, each clamped to its own bounds.
+        // together, each clamped to its own bounds. Anchored on the rect
+        // `ui.horizontal_top` actually reports it used — egui's own
+        // `child_ui.min_rect()` accounting of what got placed, not a
+        // hand-computed guess of where the title bar, margins and stroke
+        // leave off — so it always lands at the window's true corner. See
+        // the module doc comment for why reading it here, after layout, is
+        // safe: it positions a decoration, never a child's own size.
         let delta = grip(
             ui,
-            content.right_bottom(),
+            content.response.rect.right_bottom(),
             "grace_review_window_grip",
             egui::CursorIcon::ResizeNwSe,
         );
@@ -532,5 +619,132 @@ mod tests {
         for _ in 0..3 {
             assert_eq!(window_size(DEFAULT_FONT, 12.0, 800.0), base);
         }
+    }
+
+    /// The live regression, reproduced end to end: actually run `show()`
+    /// through egui (real fonts, so `TextEdit` reports real row heights, not
+    /// this file's own `row_height` guess) and read back the window's own
+    /// rendered outer rect — `egui::Memory::area_rect`, the same bookkeeping
+    /// `Window::show` itself writes — rather than trusting any number this
+    /// file computes. Before this fix that rect could differ from what
+    /// `window_size()` asked for (because `fixed_size` only *requests* an
+    /// outer size and egui's own doc comment on it warns the window "may
+    /// still auto-resize" past that), and the custom grip — drawn at
+    /// `content.right_bottom()`, a pre-render estimate — would then sit well
+    /// above the window's true, grown corner. This test pins two invariants
+    /// that together rule that out: the rendered window is stable across
+    /// repeated frames of unchanged state (no runaway growth), and it does
+    /// not depend on how much text or how many flagged passages are in it
+    /// (only `state.rows`/`state.width`/`state.font` may change it).
+    #[test]
+    fn the_rendered_window_is_stable_and_content_independent() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let tr = crate::i18n::Language::English.tr();
+        let id = egui::Id::new("grace_prompt_review");
+
+        let run = |state: &mut PromptReview| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1600.0, 1200.0),
+            ));
+            let _ = ctx.run_ui(input, |ui| {
+                let ctx = ui.ctx().clone();
+                let _ = show(&ctx, &tr, state);
+            });
+        };
+
+        // egui needs one frame to discover an auto-sized window's own
+        // content-driven size at all — universal to immediate-mode layout,
+        // not specific to this file — so the FIRST frame a window with a
+        // given id is ever shown is not a fair "did it grow?" baseline.
+        // Warm up past that once, then compare: a real self-inflation loop
+        // would keep growing on every subsequent frame, not stop after one.
+        let mut short = PromptReview::new("short original".into(), "short revision".into(), vec![]);
+        run(&mut short);
+        run(&mut short);
+        let rect_frame_1 = ctx.memory(|m| m.area_rect(id)).expect("window rendered");
+        run(&mut short);
+        let rect_frame_2 = ctx.memory(|m| m.area_rect(id)).expect("window rendered");
+        assert!(
+            (rect_frame_1.width() - rect_frame_2.width()).abs() < 0.5
+                && (rect_frame_1.height() - rect_frame_2.height()).abs() < 0.5,
+            "the window's own rendered rect changed between two frames of \
+             unchanged state ({rect_frame_1:?} -> {rect_frame_2:?}) — this is \
+             the self-inflation loop this file exists to prevent"
+        );
+
+        // A much longer revision — exactly the kind of input that, before
+        // this fix, could have reached the window's size through
+        // `ui.max_rect()`/`content.width()` had the columns still been
+        // derived from it. `notes` stays empty on both sides so the hint
+        // label (deliberately content-driven — it names a passage Grace
+        // actually flagged, not a wrapped-line accident) does not confound
+        // this comparison: it is not the invariant under test here.
+        let long_revision = "word ".repeat(400);
+        let mut long = PromptReview::new("short original".into(), long_revision, vec![]);
+        run(&mut long);
+        run(&mut long);
+        run(&mut long);
+        let rect_long = ctx.memory(|m| m.area_rect(id)).expect("window rendered");
+
+        assert!(
+            (rect_frame_2.width() - rect_long.width()).abs() < 0.5,
+            "window width changed with content length ({} vs {}) — a column \
+             is reading available/max_rect space again instead of state.width",
+            rect_frame_2.width(),
+            rect_long.width(),
+        );
+        assert!(
+            (rect_frame_2.height() - rect_long.height()).abs() < 0.5,
+            "window height changed with content length ({} vs {}) — the same \
+             self-inflation bug this file exists to prevent",
+            rect_frame_2.height(),
+            rect_long.height(),
+        );
+    }
+
+    /// The companion to the previous test, from the other direction: the
+    /// rendered width MUST track `state.width` (the only thing a developer's
+    /// drag on the window's own grip ever writes). A fresh `Context` per
+    /// width, so neither run's `Resize`/`Area` memory can leak into the
+    /// other and quietly make this pass for the wrong reason.
+    #[test]
+    fn the_rendered_window_width_tracks_state_width() {
+        let tr = crate::i18n::Language::English.tr();
+        let id = egui::Id::new("grace_prompt_review");
+
+        let rendered_width_at = |width: f32| -> f32 {
+            let ctx = egui::Context::default();
+            ctx.set_fonts(egui::FontDefinitions::default());
+            let mut state = PromptReview::new("orig".into(), "rev".into(), vec![]);
+            state.width = width;
+            let run = |state: &mut PromptReview| {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1600.0, 1200.0),
+                ));
+                let _ = ctx.run_ui(input, |ui| {
+                    let ctx = ui.ctx().clone();
+                    let _ = show(&ctx, &tr, state);
+                });
+            };
+            run(&mut state);
+            run(&mut state); // past the one-frame auto-size discovery settle
+            ctx.memory(|m| m.area_rect(id)).expect("window rendered").width()
+        };
+
+        let narrow = rendered_width_at(MIN_WIDTH);
+        let wide = rendered_width_at(MAX_WIDTH);
+        let state_delta = MAX_WIDTH - MIN_WIDTH;
+        let rendered_delta = wide - narrow;
+        assert!(
+            (rendered_delta - state_delta).abs() < 1.0,
+            "a {state_delta}px change in `state.width` produced a {rendered_delta}px \
+             change in the rendered window ({narrow} -> {wide}) — the columns are not \
+             tracking `state.width` one-to-one"
+        );
     }
 }
