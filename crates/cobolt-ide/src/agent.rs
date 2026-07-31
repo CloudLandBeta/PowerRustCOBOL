@@ -582,6 +582,45 @@ pub(crate) fn handler_body_shape_error(code: &str) -> Option<String> {
                 .to_string(),
         );
     }
+    // The scaffold is the IDE's, and a body that writes it too produces a
+    // program the parser rejects. Observed live: a procedure ended with its
+    // own `GOBACK.`, the generator appended the closing `GOBACK.` after it,
+    // and every launch of the form died on "paragraph 'GOBACK' is declared
+    // more than once" — a body-authored line the reviewer had approved, and
+    // which survived the developer deleting every control (operator,
+    // 2026-07-31). Both prompts already forbid this; the gate is what makes
+    // the ban hold when a model or a reviewer overlooks it.
+    for line in code.lines() {
+        let text = line
+            .split("*>")
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches('.')
+            .trim()
+            .to_ascii_uppercase();
+        // `GOBACK` only as a statement of its own — that is the line the
+        // parser reads as a paragraph name, and matching it exactly keeps a
+        // literal such as `MOVE "GOBACK" TO WS-X` out of the gate. The
+        // wrappers are caught by their opening words, which carry a name.
+        let word = if text == "GOBACK" {
+            Some("GOBACK")
+        } else {
+            ["IDENTIFICATION DIVISION", "PROGRAM-ID", "END PROGRAM"]
+                .into_iter()
+                .find(|w| text.starts_with(w))
+        };
+        if let Some(word) = word {
+            return Some(format!(
+                "Remove `{word}` from the body: the IDE generates IDENTIFICATION \
+                 DIVISION, PROGRAM-ID, the closing GOBACK and END PROGRAM around \
+                 it. A body that writes them too yields a duplicate — a second \
+                 `GOBACK.` is read as a second paragraph of that name, and the \
+                 form fails to launch with \"paragraph 'GOBACK' is declared more \
+                 than once\"."
+            ));
+        }
+    }
     None
 }
 
@@ -1633,6 +1672,46 @@ mod tests {
             "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.\n"
         )
         .is_some_and(|m| m.contains("DATA DIVISION")));
+    }
+
+    /// Operator report (2026-07-31): a common procedure ended with its own
+    /// `GOBACK.`; the generator appended the closing `GOBACK.` right after it,
+    /// and the form could no longer be launched — "paragraph 'GOBACK' is
+    /// declared more than once". The reviewer had called the submission
+    /// flawless, and deleting every control did not clear it, because a
+    /// procedure is form-level and outlives the controls it mentions.
+    #[test]
+    fn a_body_may_not_write_the_scaffold_the_ide_generates() {
+        let body = |tail: &str| {
+            format!(
+                "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+                 PROCEDURE DIVISION.\n           MOVE SPACES TO WS-X.\n{tail}"
+            )
+        };
+        for tail in [
+            "           GOBACK.\n",
+            "       GOBACK\n",
+            "       END PROGRAM UPDATE-CONCATENATION.\n",
+            "       IDENTIFICATION DIVISION.\n",
+            "       PROGRAM-ID. UPDATE-CONCATENATION.\n",
+        ] {
+            let error = handler_body_shape_error(&body(tail))
+                .unwrap_or_else(|| panic!("the scaffold must be rejected: {tail:?}"));
+            assert!(error.contains("the IDE generates"), "{error}");
+        }
+        // The exact procedure that broke the form.
+        assert!(handler_body_shape_error(
+            "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-FULL-TEXT PIC X(2000).\n\n       PROCEDURE DIVISION.\n           MOVE SPACES TO WS-FULL-TEXT\n           MOVE WS-FULL-TEXT TO lblConcat::Caption.\n           GOBACK."
+        )
+        .is_some());
+
+        // …while a body that leaves the scaffold alone still passes, and a
+        // GOBACK inside a literal or a comment is not a scaffold line.
+        assert!(handler_body_shape_error(&body("           CONTINUE.\n")).is_none());
+        assert!(handler_body_shape_error(&body(
+            "           MOVE \"GOBACK\" TO WS-VERB.\n           *> GOBACK is the IDE's.\n"
+        ))
+        .is_none());
     }
 
     /// Operator report (2026-07-30): a keyboard handler binding its event

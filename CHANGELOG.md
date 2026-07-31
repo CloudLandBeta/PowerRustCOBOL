@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.49.4] — 2026-07-31
+
+### Fixed
+
+- **A handler or procedure may no longer write the scaffold the IDE
+  generates.** A common procedure ended with its own `GOBACK.`; the generator
+  appended the closing `GOBACK.` right below it, and the form stopped
+  launching — "paragraph 'GOBACK' is declared more than once", because a
+  standalone `GOBACK.` line is read as a paragraph name. Both prompts already
+  forbade it and the reviewer's checklist called it fatal, yet the submission
+  was approved as flawless; the machine gate now rejects `GOBACK`,
+  `IDENTIFICATION DIVISION`, `PROGRAM-ID` and `END PROGRAM` in an
+  agent-authored body, naming the launch error the duplicate causes. A
+  `GOBACK` inside a literal or a comment is not a scaffold line and still
+  passes.
+
+## [PowerRustCOBOL 1.49.3] — 2026-07-31
+
+### Fixed
+
+- **"Grace is reviewing the request…" is no longer reported as a failure.**
+  The RAD assistant's `ai_status` carries both progress and errors, and the
+  footer renders as "AI error — Details" everything that is not the literal
+  string `Thinking...`. The review's own status was neither, so while Grace
+  worked the developer was shown an error button where the model indicator
+  belongs. Progress statuses are now recognised as such, in every language,
+  and the review also counts as busy — the prompt box no longer accepts a
+  second send while a review is in flight.
+- **The modal's columns are flush with its frame again.** Their widths were
+  computed from the window's declared size minus hand-tuned constants, which
+  did not match the margins the style actually applies — so the content box
+  sat offset from the title bar above it. They now come from the content rect
+  egui hands back, which IS the size the state asked for.
+- **The editor and the window both have a resize grip.** The editor's grip
+  changes the text area within the ten-to-fifteen row bounds; the window's
+  corner grip changes width and height together. Both write state, and the
+  window is laid out from that state — egui's own resizing, which is what
+  inflates on its own, stays off.
+- **Font controls over the revision.** `A−` and `A+` set the editor's font
+  between 10 and 26 px. A bigger font makes the window taller, because that is
+  what the developer asked for by pressing the button; it never changes the
+  width.
+- **`Back to the prompt` is now `Cancel`**, in all six languages.
+
 ## [PowerRustCOBOL 1.49.2] — 2026-07-31
 
 ### Fixed

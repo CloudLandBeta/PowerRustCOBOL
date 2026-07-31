@@ -85,6 +85,18 @@ const GLOBAL_AI_PROMPT_BOTTOM_PAD: f32 = 6.0;
 const GLOBAL_AI_INPUT_HEIGHT: f32 = 184.0;
 const GLOBAL_AI_PANE_MIN_HEIGHT: f32 = GLOBAL_AI_HISTORY_MIN_HEIGHT + GLOBAL_AI_INPUT_HEIGHT + 24.0;
 
+/// Is this `ai_status` a work-in-progress message rather than a failure?
+///
+/// The field carries both, and the pane's footer treats everything that is not
+/// progress as an error — so a new progress message that forgets to register
+/// here is shown to the developer as "AI error" with a Details button, in the
+/// model indicator's place. That is exactly what happened to Grace's review
+/// status (operator, 2026-07-31). Register progress text here, or use one of
+/// the strings already listed.
+pub(crate) fn status_is_progress(status: &str, tr: &crate::i18n::Tr) -> bool {
+    status == "Thinking..." || status == tr.review_working
+}
+
 // ── Collapsible designer chrome (spec 033) ──────────────────────────────────
 // Fixed geometry for the toolbox rail and properties drawer. These are CONSTANTS,
 // never derived from available/max space, so the collapsed/hidden states can't
@@ -4365,7 +4377,16 @@ impl DesignerPanel {
                     let mut show_error_modal = false;
                     let mut decrease_history_font = false;
                     let mut increase_history_font = false;
-                    let busy = self.ai_status.as_deref() == Some("Thinking...");
+                    // `ai_status` carries BOTH progress and failure, and the
+                    // footer below renders anything that is not progress as
+                    // "AI error". Grace's review status was neither listed nor
+                    // an error, so "Grace is reviewing the request…" was shown
+                    // to the developer as a failure with a Details button, in
+                    // the model indicator's place (operator, 2026-07-31).
+                    let busy = self
+                        .ai_status
+                        .as_deref()
+                        .is_some_and(|s| status_is_progress(s, &tr));
                     let history_len = self.ai_history.len();
                     let history_font_size = self.ai_history_font_size;
 
@@ -4739,7 +4760,7 @@ impl DesignerPanel {
                             ui.add_space(GLOBAL_AI_PROMPT_BOTTOM_PAD);
 
                             if let Some(err) = &self.ai_status {
-                                if err != "Thinking..." {
+                                if !status_is_progress(err, &tr) {
                                     ui.horizontal(|ui| {
                                         ui.label(
                                             egui::RichText::new("AI error")
@@ -13166,6 +13187,39 @@ mod property_key_case_tests {
             Some("before".to_string()),
             "undo must capture the real previous value, not None"
         );
+    }
+}
+
+#[cfg(test)]
+mod ai_status_tests {
+    use super::*;
+
+    /// `ai_status` carries progress AND failure, and the pane renders anything
+    /// that is not progress as "AI error" with a Details button, in the model
+    /// indicator's place. Grace's review status was neither listed nor an
+    /// error, so the developer was told the review had failed while it was
+    /// still running. Every progress string must be registered, in every
+    /// language — the check compares the localized text the panel actually
+    /// stores.
+    #[test]
+    fn every_progress_status_is_told_apart_from_a_failure() {
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            assert!(
+                status_is_progress("Thinking...", &tr),
+                "{lang:?}: the thinking status is progress"
+            );
+            assert!(
+                status_is_progress(tr.review_working, &tr),
+                "{lang:?}: Grace's review status is progress, not a failure"
+            );
+            // A real failure still reaches the error footer.
+            assert!(!status_is_progress(
+                "stream error: HttpError: Invalid status code 400",
+                &tr
+            ));
+            assert!(!status_is_progress("", &tr));
+        }
     }
 }
 
