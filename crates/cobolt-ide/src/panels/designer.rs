@@ -68,6 +68,14 @@ const GLOBAL_AI_HISTORY_MIN_HEIGHT: f32 = 48.0;
 /// margins). The old 4.0 under-counted it, so the last text row's descenders
 /// were clipped at the box's bottom edge.
 const GLOBAL_AI_PROMPT_CHROME: f32 = 12.0;
+/// Padding between the prompt box's border and its text viewport, per side.
+/// Two of these are the box's own chrome; the rest of
+/// [`GLOBAL_AI_PROMPT_CHROME`] is the slack that keeps the last row's
+/// descenders clear of the border.
+const PROMPT_FRAME_MARGIN: f32 = 4.0;
+/// Width of that frame's border. egui draws it OUTSIDE the margin box, so the
+/// text viewport must give it back or the box overshoots its dragged height.
+const PROMPT_FRAME_STROKE: f32 = 1.0;
 /// Breathing room UNDER the prompt box, before the status/history-controls
 /// rows, so the box never sits flush against the pane below it.
 const GLOBAL_AI_PROMPT_BOTTOM_PAD: f32 = 6.0;
@@ -1338,6 +1346,17 @@ pub struct DesignerPanel {
     /// between the 1-row and 6-row limits.
     pub ai_prompt_height: f32,
     pub global_ai_streaming: String,
+    /// What the AI pane's transcript looked like last frame — turn count,
+    /// streamed-buffer length, and whether the agents were working. Any change
+    /// is new material at the bottom (a sent prompt, a returned turn, a Grace
+    /// or specialist progress line, the "Thinking…" indicator appearing), and
+    /// that is exactly when the view follows it down.
+    ai_transcript_mark: (usize, usize, bool),
+    /// Whether the transcript was parked at its bottom last frame. Reading back
+    /// through earlier turns is the same intent as holding the mouse button —
+    /// while the view is away from the bottom, new material does not drag it
+    /// back; returning to the bottom resumes the follow.
+    ai_transcript_at_bottom: bool,
 
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
@@ -1416,6 +1435,8 @@ impl DesignerPanel {
             global_ai_prompt: String::new(),
             ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             global_ai_streaming: String::new(),
+            ai_transcript_mark: (0, 0, false),
+            ai_transcript_at_bottom: true,
             show_preview: false,
             cobol_structure_edit: None,
             preview_state: HashMap::new(),
@@ -1538,6 +1559,30 @@ impl DesignerPanel {
     /// R6/R7). Invalid ops (per `agent::validate`) are skipped. Returns the number
     /// of operations applied. Nothing is pushed when the change-set is all-invalid
     /// or empty.
+    /// Where a `deploy_control` whose id is already taken must land: on the
+    /// control this change-set is still staging, or on the one already on the
+    /// form. `None` when the id is free — or when it names a control of a
+    /// DIFFERENT type, which is a genuine collision and keeps the old
+    /// behaviour of minting a fresh auto id.
+    fn redeploy_target(
+        &self,
+        id: &str,
+        ct: &ControlType,
+        deployed: &std::collections::HashMap<String, usize>,
+        cmds: &[Cmd],
+    ) -> Option<RedeployTarget> {
+        if let Some(&i) = deployed.get(&id.to_ascii_uppercase()) {
+            return match cmds.get(i) {
+                Some(Cmd::AddControl { ctrl, .. }) if ctrl.control_type == *ct => {
+                    Some(RedeployTarget::Pending(i))
+                }
+                _ => None,
+            };
+        }
+        let c = self.form.find_control(id)?;
+        (c.control_type == *ct).then(|| RedeployTarget::OnForm(c.id.clone()))
+    }
+
     pub fn apply_agent_change_set(&mut self, cs: &crate::agent::AgentChangeSet) -> usize {
         use crate::agent::AgentOp;
         let status = crate::agent::validate(cs, &self.form);
@@ -1545,6 +1590,9 @@ impl DesignerPanel {
         let mut reserved: HashSet<String> =
             self.form.controls.iter().map(|c| c.id.clone()).collect();
         let mut added = 0usize;
+        // Controls this change-set deploys, by upper-cased id → index in `cmds`.
+        let mut deployed: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
 
         for (op, err) in cs.operations.iter().zip(status.iter()) {
             if err.is_some() {
@@ -1559,6 +1607,43 @@ impl DesignerPanel {
                     properties,
                 } => {
                     let ct = ControlType::from_str(control_type);
+                    // A deploy that names a control ALREADY on the form is a
+                    // redeploy, not a second control. Agents re-emit their whole
+                    // change-set as a matter of course — a correction round, or a
+                    // second task over the same form — and every id they repeat
+                    // used to be minted as a clone under an auto id, silently
+                    // doubling the form. Fold the properties into the control
+                    // that already carries the id instead.
+                    if let Some(cid) = id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .and_then(|s| self.redeploy_target(s, &ct, &deployed, &cmds))
+                    {
+                        match cid {
+                            RedeployTarget::Pending(i) => {
+                                if let Some(Cmd::AddControl { ctrl, .. }) = cmds.get_mut(i) {
+                                    apply_deploy_properties(ctrl, properties);
+                                }
+                            }
+                            RedeployTarget::OnForm(cid) => {
+                                for (k, v) in properties {
+                                    let Some(pv) = json_to_prop(v) else { continue };
+                                    let old = self
+                                        .form
+                                        .find_control(&cid)
+                                        .and_then(|c| structural_prop_value(c, k));
+                                    cmds.push(Cmd::SetProperty {
+                                        id: cid.clone(),
+                                        key: k.clone(),
+                                        old,
+                                        new: pv,
+                                    });
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     let cid = id
                         .clone()
                         .filter(|s| !s.trim().is_empty() && !reserved.contains(s))
@@ -1599,6 +1684,7 @@ impl DesignerPanel {
                         index: self.form.controls.len() + added,
                         ctrl: c,
                     });
+                    deployed.insert(cid.to_ascii_uppercase(), cmds.len() - 1);
                     added += 1;
                 }
                 AgentOp::SetProperty {
@@ -4171,6 +4257,22 @@ impl DesignerPanel {
                             self.ai_history.len(),
                         );
                     }
+                    // Follow the transcript down whenever something is appended to
+                    // it — a turn, a Grace/specialist progress line, the
+                    // "Thinking…" indicator — but never while a mouse button is
+                    // held: that is the developer scrolling back, dragging the
+                    // scrollbar or selecting text, and yanking the view then is
+                    // worse than not following at all (operator, 2026-07-31).
+                    let mark = (
+                        self.ai_history.len(),
+                        self.global_ai_streaming.len(),
+                        busy,
+                    );
+                    let grew = mark != self.ai_transcript_mark;
+                    self.ai_transcript_mark = mark;
+                    let follow_transcript = grew
+                        && self.ai_transcript_at_bottom
+                        && !ui.input(|i| i.pointer.any_down());
                     // Detached child: paints inside history_rect without reporting
                     // its size back to the panel — overflow here must never grow
                     // the pane (egui stores a resizable panel's height from its
@@ -4179,7 +4281,7 @@ impl DesignerPanel {
                     {
                         let ui = &mut hist_ui;
                         ui.set_clip_rect(history_rect);
-                        egui::ScrollArea::vertical()
+                        let out = egui::ScrollArea::vertical()
                             .id_salt("global_ai_history_scroll")
                             .auto_shrink([false, false])
                             .max_height(history_rect.height())
@@ -4226,8 +4328,19 @@ impl DesignerPanel {
                                             history_font_size,
                                         );
                                     }
+                                    if follow_transcript {
+                                        ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                                    }
                                 });
                             });
+                        // Where the view ended up, for the next frame's decision.
+                        // A transcript shorter than its viewport is trivially at
+                        // the bottom.
+                        let slack = 4.0;
+                        self.ai_transcript_at_bottom = out.content_size.y
+                            <= out.inner_rect.height() + slack
+                            || out.state.offset.y + out.inner_rect.height() + slack
+                                >= out.content_size.y;
                     }
 
                     let pane_style = ui.style().clone();
@@ -4264,34 +4377,56 @@ impl DesignerPanel {
                             let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
 
                             ui.horizontal_top(|ui| {
+                                // The box the developer SEES is this frame, and it
+                                // is the only thing that carries the border. The
+                                // editor inside is frameless: a TextEdit's own
+                                // frame is content-sized, so pasting more lines
+                                // than the box holds grew that border past the
+                                // viewport — the bottom edge disappeared and the
+                                // last line read as clipped by the pane (operator
+                                // report, 2026-07-31). Only the grip drag resizes.
                                 let frame = egui::Frame::NONE
                                     .fill(crate::theme::active().bg_extreme)
-                                    .stroke(egui::Stroke::new(1.0, crate::theme::active().panel_border()))
+                                    .stroke(egui::Stroke::new(
+                                        PROMPT_FRAME_STROKE,
+                                        crate::theme::active().panel_border(),
+                                    ))
                                     .corner_radius(egui::CornerRadius::same(6))
-                                    .inner_margin(egui::Margin::same(2));
+                                    .inner_margin(egui::Margin::same(PROMPT_FRAME_MARGIN as i8));
 
                                 ui.vertical(|ui| {
                                     // Fixed (text_w × prompt_height) box; text
-                                    // beyond it scrolls INSIDE. desired_rows
-                                    // matches the box so the editor's frame
-                                    // fills it exactly at every dragged size.
-                                    let prompt_rows = (((prompt_height
-                                        - GLOBAL_AI_PROMPT_CHROME)
-                                        / prompt_row)
-                                        .round()
-                                        .max(1.0)) as usize;
+                                    // beyond it scrolls INSIDE. The viewport is
+                                    // the frame's content area, and desired_rows
+                                    // is what FITS in it, so an idle box shows no
+                                    // scrollbar at any dragged size.
                                     let box_size = egui::vec2(text_w, prompt_height);
+                                    let box_chrome =
+                                        2.0 * (PROMPT_FRAME_MARGIN + PROMPT_FRAME_STROKE);
+                                    let view_size = egui::vec2(
+                                        (box_size.x - box_chrome).max(1.0),
+                                        (box_size.y - box_chrome).max(prompt_row),
+                                    );
+                                    let prompt_rows =
+                                        ((view_size.y / prompt_row).floor().max(1.0)) as usize;
                                     // Enter sends; Shift+Enter inserts a newline.
                                     // Plain Enter is consumed BEFORE the TextEdit
                                     // sees it (only while the box is focused) so no
                                     // newline is inserted; Shift+Enter is left alone.
                                     let te_id = egui::Id::new("global_ai_prompt_edit");
                                     let mut enter_send = false;
-                                    let inner = ui.allocate_ui(box_size, |ui| {
-                                        ui.set_min_size(box_size);
+                                    let inner = frame.show(ui, |ui| {
+                                        ui.set_min_size(view_size);
+                                        ui.set_max_size(view_size);
                                         egui::ScrollArea::vertical()
                                             .id_salt("global_ai_prompt_scroll")
                                             .auto_shrink([false, false])
+                                            // Both bounds, or the 64px default
+                                            // `min_scrolled_height` silently makes
+                                            // the box taller than the drag asked
+                                            // for at the small end.
+                                            .min_scrolled_height(view_size.y)
+                                            .max_height(view_size.y)
                                             .show(ui, |ui| {
                                                 if ui.memory(|m| m.has_focus(te_id)) {
                                                     enter_send = ui.input_mut(|i| {
@@ -4306,6 +4441,7 @@ impl DesignerPanel {
                                                         &mut self.global_ai_prompt,
                                                     )
                                                     .id(te_id)
+                                                    .frame(egui::Frame::NONE)
                                                     .hint_text("How can I help you today?")
                                                     .desired_width(f32::INFINITY)
                                                     .desired_rows(prompt_rows)
@@ -4318,6 +4454,13 @@ impl DesignerPanel {
                                     {
                                         do_send = true;
                                     }
+                                    // The grip belongs to the BORDERED BOX the user
+                                    // sees — the frame — which is exactly
+                                    // `box_size` and follows the drag continuously.
+                                    // Anchoring it to anything content-sized (the
+                                    // old TextEdit frame) walked it off the corner
+                                    // as the text grew (operator report,
+                                    // 2026-07-31).
                                     let box_rect = inner.response.rect;
                                     // Bottom-right resize grip, registered AFTER
                                     // the TextEdit so it wins the hit-test over
@@ -4347,7 +4490,10 @@ impl DesignerPanel {
                                     } else {
                                         ui.visuals().widgets.inactive.fg_stroke
                                     };
-                                    let corner = box_rect.max - egui::vec2(3.0, 3.0);
+                                    // Inset past the frame's stroke and corner
+                                    // radius so the diagonals read as sitting on
+                                    // the box's INNER edge, not straddling it.
+                                    let corner = box_rect.max - egui::vec2(5.0, 5.0);
                                     for step in 1..=3 {
                                         let offset = 3.0 * step as f32;
                                         ui.painter().line_segment(
@@ -9287,6 +9433,42 @@ fn canonical_prop_key(ctrl: &Control, key: &str) -> String {
         .unwrap_or_else(|| key.to_owned())
 }
 
+/// Target of a `deploy_control` whose id is already in use — see
+/// [`FormDesigner::redeploy_target`].
+enum RedeployTarget {
+    /// Index in the pending command list of the `AddControl` that owns the id.
+    Pending(usize),
+    /// Id of the control already on the form (its own exact spelling).
+    OnForm(String),
+}
+
+/// Apply a `deploy_control` property bag to a control, geometry included.
+fn apply_deploy_properties(
+    ctrl: &mut Control,
+    properties: &serde_json::Map<String, serde_json::Value>,
+) {
+    if let Some(x) = json_prop_i32(properties, "X") {
+        ctrl.rect.x = x;
+    }
+    if let Some(y) = json_prop_i32(properties, "Y") {
+        ctrl.rect.y = y;
+    }
+    if let Some(w) = json_prop_i32(properties, "Width") {
+        ctrl.rect.w = w;
+    }
+    if let Some(h) = json_prop_i32(properties, "Height") {
+        ctrl.rect.h = h;
+    }
+    for (k, v) in properties {
+        if matches!(k.as_str(), "X" | "Y" | "Width" | "Height") {
+            continue;
+        }
+        if let Some(pv) = json_to_prop(v) {
+            apply_structural_prop(ctrl, k, &pv);
+        }
+    }
+}
+
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
     let lower_key = key.to_ascii_lowercase();
     match lower_key.as_str() {
@@ -11667,6 +11849,101 @@ mod text_align_tests {
         // Lenient about compound 9-position values.
         assert_eq!(text_halign("MiddleRight"), egui::Align::RIGHT);
         assert_eq!(text_halign("TopCenter"), egui::Align::Center);
+    }
+
+    /// A second workflow task that re-emits the SAME deploy set (the trace that
+    /// produced 32 textboxes for a 15-textbox request) must land on the controls
+    /// that already carry those ids, not clone them under auto ids.
+    #[test]
+    fn redeploying_an_existing_id_updates_that_control() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let deploy = |id: &str, x: i64, colour: &str| {
+            let mut props = serde_json::Map::new();
+            props.insert("X".into(), serde_json::json!(x));
+            props.insert("Y".into(), serde_json::json!(50));
+            props.insert("ForegroundColor".into(), serde_json::json!(colour));
+            AgentOp::DeployControl {
+                control_type: "TextBox".into(),
+                id: Some(id.into()),
+                parent_id: None,
+                parent: None,
+                properties: props,
+            }
+        };
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let first = AgentChangeSet {
+            operations: vec![deploy("TXT-1", 50, "#000000"), deploy("TXT-2", 400, "#0000FF")],
+            note: None,
+        };
+        d.apply_agent_change_set(&first);
+        assert_eq!(d.form.controls.len(), 2);
+
+        // Task 3 "validates" by re-emitting the whole set with its own layout.
+        let again = AgentChangeSet {
+            operations: vec![deploy("TXT-1", 70, "#FF0000"), deploy("TXT-2", 370, "#0000FF")],
+            note: None,
+        };
+        d.apply_agent_change_set(&again);
+        assert_eq!(d.form.controls.len(), 2, "no clones: the ids were reused");
+        let t1 = d.form.find_control("TXT-1").unwrap();
+        assert_eq!(t1.rect.x, 70, "the redeploy moved the control it named");
+        assert_eq!(
+            t1.get_prop("ForegroundColor").unwrap().as_str(),
+            "#FF0000",
+            "and set its properties"
+        );
+    }
+
+    /// Same id twice inside ONE change-set (a merged correction round): the
+    /// second deploy folds into the control the first one is still staging.
+    #[test]
+    fn a_repeated_id_within_one_change_set_folds_into_one_control() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let deploy = |id: &str, w: i64| {
+            let mut props = serde_json::Map::new();
+            props.insert("Width".into(), serde_json::json!(w));
+            AgentOp::DeployControl {
+                control_type: "TextBox".into(),
+                id: Some(id.into()),
+                parent_id: None,
+                parent: None,
+                properties: props,
+            }
+        };
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.apply_agent_change_set(&AgentChangeSet {
+            operations: vec![deploy("TXT-1", 300), deploy("TXT-1", 250)],
+            note: None,
+        });
+        assert_eq!(d.form.controls.len(), 1);
+        assert_eq!(d.form.find_control("TXT-1").unwrap().rect.w, 250);
+    }
+
+    /// The id collision that is NOT a redeploy — a different control type —
+    /// still gets a fresh auto id rather than silently retyping the control.
+    #[test]
+    fn a_colliding_id_of_another_type_still_gets_a_new_id() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("TXT-1", ControlType::TextBox, 0, 0));
+        d.apply_agent_change_set(&AgentChangeSet {
+            operations: vec![AgentOp::DeployControl {
+                control_type: "Button".into(),
+                id: Some("TXT-1".into()),
+                parent_id: None,
+                parent: None,
+                properties: serde_json::Map::new(),
+            }],
+            note: None,
+        });
+        assert_eq!(d.form.controls.len(), 2);
+        assert_eq!(
+            d.form.find_control("TXT-1").unwrap().control_type,
+            ControlType::TextBox,
+            "the original control kept its type"
+        );
     }
 
     #[test]

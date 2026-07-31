@@ -2966,7 +2966,18 @@ impl CoboltApp {
             for set in sets {
                 match set {
                     Ok(cs) => {
+                        // Name what will be skipped BEFORE applying — a silently
+                        // discarded handler is exactly how a workflow reports
+                        // success while the form gains no events.
+                        let discarded = crate::agent::discarded_ops(&cs, &st.designer.form);
                         let n = st.designer.apply_agent_change_set(&cs);
+                        if !discarded.is_empty() {
+                            notes.push(format!(
+                                "⚠ {} operation(s) from Grace could not be applied and were discarded:\n  • {}",
+                                discarded.len(),
+                                discarded.join("\n  • ")
+                            ));
+                        }
                         if n > 0 {
                             let _ = save_form(&st.designer.form, &st.path);
                             st.designer.dirty = false;

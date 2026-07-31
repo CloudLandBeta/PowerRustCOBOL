@@ -8,6 +8,138 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.47.8] — 2026-07-31
+
+### Changed
+
+- **Half again the rain, and the clock gives way when it must.** The matrix
+  effect gets one falling line per ~19 px of width instead of ~28 — 50% more
+  lines — each still owning its own start, 10–25 ms behind the one before it
+  (lines launched in pairs to buy density were tried and rejected). Line
+  count and beat pull against each other: `n` lines cannot start in less than
+  `n × 17.5 ms`, and each still has to fall, so with the duration fixed the
+  only way to honour both is to drop lines. The configured duration is now
+  the effect's FLOOR rather than its ceiling, bounded at 6 s. At the 4000 ms
+  setting nothing overruns at all — a 1440 px window simply gets 72 lines
+  instead of 48; at 2000 ms the effect takes ~3.5 s to land them, and the
+  developer can trade the overrun back by lowering the duration. Every line
+  still lands before the effect ends.
+
+## [PowerRustCOBOL 1.47.6] — 2026-07-31
+
+### Fixed
+
+- **"caixa de texto" now names a TextBox.** The filter that decides which
+  control types a task's context carries keyed on the English type name, so
+  every everyday wording — "caixa de texto", "campo de digitação", "text
+  box", "entrada de dados", "botões", "lista suspensa" — named nothing, and
+  the specialist was left binding against a legend it never received. Types
+  are matched word by word with plurals folded in, plus the everyday names
+  for the dozen types a form request actually reaches for, in the three
+  languages the IDE is used in. The guard that made the strict match worth
+  having still holds: `PanelHeader` is not a `Panel`, `LineCharts` are not
+  `Line`s.
+- **A task no longer has to name the type itself.** Which types are in play
+  is a property of the whole plan: the designer task says "deploy 15
+  TextBoxes" and the event task then says "the handlers for those" — read
+  alone, the second names no type at all. Both tasks work on the same form,
+  so both get the same legend.
+- **The RAD assistant's transcript follows the conversation again.** Nothing
+  scrolled it: a returned turn, a Grace or specialist progress line, the
+  "Thinking…" indicator appearing — all of it landed below the fold. The
+  view now follows whenever material is appended, and holds still while a
+  mouse button is down or while the developer has scrolled back to read
+  earlier turns; returning to the bottom resumes the follow.
+
+## [PowerRustCOBOL 1.47.5] — 2026-07-31
+
+### Fixed
+
+- **A plural cost the workflow its events.** "adicione 15 textboxes…" is a
+  task about TextBoxes, but the filter that decides which control types a
+  task's context carries matched whole words only, so "TextBoxes" did not
+  name `TextBox`: the type's events and property keys were cut from the
+  context of both the designer and the event agent. The event agent is
+  required to bind only names its context lists — with none listed it
+  guessed, writing `onFocus`/`onBlur` where the real names are
+  `onGotFocus`/`onLostFocus`, and every handler carrying a guess was
+  discarded at apply time. The filter now accepts the `s`/`es` plural, while
+  still refusing to read `PanelHeader` as a `Panel` or `LineCharts` as a
+  `Line`.
+- **A discarded operation now says so.** The apply path skips operations that
+  cannot be applied — by design, since an invalid one would corrupt the form
+  — but it reported only how many it applied. A change-set whose handlers all
+  named a nonexistent event therefore ended as "applied 1 change" with no
+  events on the form and nothing to explain it. Each skipped operation is now
+  named with its reason in the workflow log.
+
+## [PowerRustCOBOL 1.47.4] — 2026-07-31
+
+### Fixed
+
+- **Pasting into the assistant's prompt resized the box.** Paste more lines
+  than the box holds and its border grew past the pane, the bottom edge
+  disappearing and the last line reading as cut off. The border belonged to
+  the `TextEdit` itself, and a TextEdit is sized by its content — so the
+  thing the developer took for the box's size was never the box's size. The
+  bordered box is now a frame of exactly the dragged height, with a
+  frameless editor scrolling inside it: the text scrolls, the box does not
+  move. Its height still comes from one place only — the corner grip's drag,
+  clamped to 1–6 rows — and the grip is anchored to that frame, so it tracks
+  the corner instead of following the text down. The scroll viewport is
+  pinned at both ends, which also stops egui's 64px `min_scrolled_height`
+  from quietly overriding the smallest dragged sizes.
+
+## [PowerRustCOBOL 1.47.3] — 2026-07-31
+
+### Fixed
+
+- **A form asked for 15 textboxes came back with twice that many.** A
+  `deploy_control` naming an id the form already carried did not touch that
+  control: the id was taken, so the designer minted a *new* one under an
+  auto id. Agents re-emit their whole change-set as a matter of course, so
+  a workflow with two form tasks over the same form deployed everything
+  twice, and the developer got 32 controls with the second set named
+  `TextBox-N`. A deploy whose id already names a control **of the same
+  type** is now a redeploy: its properties are applied to that control,
+  within the same change-set as well as across change-sets. An id that
+  collides with a control of a *different* type is still a real collision
+  and still gets a fresh id. The change-set contract tells the agents this,
+  so they also know a bare redeploy overwrites the layout it omits.
+- **Grace planned "validate the result" as a task.** The plan behind that
+  same form ended with a third task asking the Form Designer Agent to
+  confirm the controls matched the handlers. A specialist has exactly one
+  output channel — its change-set — so a task it cannot answer with new
+  operations it answers by re-emitting the ones it already sent, here with
+  a different layout and no colours. Cross-task consistency is Grace's own
+  integration step, shared with the Pedantic companions; the orchestrator
+  is now told not to delegate verification, and to reopen a specialist's
+  task only when the comparison finds a concrete mismatch to fix.
+- **A 401 said "Unauthorized" and left the developer guessing.** The
+  provider's rejection reads like an account problem, when the cause is
+  almost always a credential that expired or was rotated since it was
+  stored. The error now carries what to check, in order: that a valid API
+  key for that provider is registered for the model; whether it has
+  expired — **stating how long the key on file has been registered in
+  PowerRustCOBOL**, since that is what settles it; and whether the provider
+  still offers the selected model. Key dates are recorded from now on; a
+  key stored by an earlier build says its age is unknown rather than
+  guessing.
+
+## [PowerRustCOBOL 1.47.2] — 2026-07-31
+
+### Fixed
+
+- **The assistant prompt's resize grip sat outside the box.** The corner
+  grip was anchored to the slab allocated around the editor rather than to
+  the editor's own frame — the bordered box you actually see. The slab
+  carries the height as it is dragged, continuously, while the editor snaps
+  to whole text rows, so the two bottoms disagreed: the grip hung below the
+  border at rest and walked further out with every drag. It now follows the
+  editor's frame and is inset past the stroke and corner radius, so it
+  reads as sitting on the box's inner edge. Both assistants — the RAD
+  designer's and the project chat — carried the same construct.
+
 ## [PowerRustCOBOL 1.47.1] — 2026-07-30
 
 ### Changed

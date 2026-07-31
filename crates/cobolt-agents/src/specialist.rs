@@ -12,6 +12,10 @@ pub struct MeshRequest {
     pub provider: String,
     pub model: String,
     pub api_key: String,
+    /// How long `api_key` has been on file, in days — carried alongside the
+    /// credential so a 401 can say how stale it is. `None` when the host
+    /// recorded no date for it.
+    pub key_age_days: Option<i64>,
     pub endpoint: String,
     /// Explicit target specialist (FormsDesigner, EventBinder, CodeGenerator).
     /// If None, the mesh routes based on the user prompt.

@@ -178,6 +178,21 @@ pub fn validate(cs: &AgentChangeSet, form: &Form) -> Vec<Option<String>> {
         .collect()
 }
 
+/// The operations `cs` would NOT apply to `form`, each named with its reason.
+///
+/// The apply path skips invalid operations by design, and until now it reported
+/// only how many it applied — so a change-set whose handlers all named an event
+/// the control does not have produced "applied 1 change" and no events, with
+/// nothing to tell the developer why (operator report, 2026-07-31). Call this
+/// BEFORE applying: the verdict depends on the form's pre-state.
+pub fn discarded_ops(cs: &AgentChangeSet, form: &Form) -> Vec<String> {
+    validate(cs, form)
+        .iter()
+        .zip(cs.operations.iter())
+        .filter_map(|(err, op)| err.as_ref().map(|e| format!("{}: {e}", op_ref(op))))
+        .collect()
+}
+
 fn is_form_id(form_name: &str, id: &str) -> bool {
     id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(form_name)
 }
@@ -1796,4 +1811,45 @@ mod tests {
         let v = validate(&cs, &form);
         assert_eq!(v, vec![None]);
     }
+
+    /// A handler bound to an event the control does not have is skipped at
+    /// apply. Silently, until now: the workflow reported success and the form
+    /// gained nothing. `discarded_ops` is what the developer is told instead.
+    #[test]
+    fn a_handler_on_a_nonexistent_event_is_reported_not_swallowed() {
+        let body = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+                    PROCEDURE DIVISION.\n           CONTINUE.\n";
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::DeployControl {
+                    control_type: "TextBox".into(),
+                    id: Some("TXT-1".into()),
+                    parent_id: None,
+                    parent: None,
+                    properties: serde_json::Map::new(),
+                },
+                AgentOp::GenerateEventHandler {
+                    control_id: "TXT-1".into(),
+                    // The real name is onGotFocus — this is the guess that cost
+                    // the developer a whole workflow's worth of events.
+                    event: "onFocus".into(),
+                    code: body.into(),
+                },
+                AgentOp::GenerateEventHandler {
+                    control_id: "TXT-1".into(),
+                    event: "onChange".into(),
+                    code: body.into(),
+                },
+            ],
+            note: None,
+        };
+        let form = form_with_label();
+        let discarded = discarded_ops(&cs, &form);
+        assert_eq!(discarded.len(), 1, "only the bad event is dropped: {discarded:?}");
+        assert!(
+            discarded[0].contains("TXT-1.onFocus") && discarded[0].contains("no event 'onFocus'"),
+            "the report must name the operation and the reason: {discarded:?}"
+        );
+    }
 }
+

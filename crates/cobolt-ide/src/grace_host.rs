@@ -1313,7 +1313,13 @@ impl DbAgentInvoker {
                         // Only after the full retry ladder actually ran:
                         // "repeatedly" would be false for a cancel that
                         // stopped the loop on the first empty reply.
-                        let hint = if attempt >= 2
+                        // A 401 reads like an account problem and sends the
+                        // developer to the provider's dashboard; it is usually
+                        // a stale credential here. Say what to check, and how
+                        // long this key has been on file.
+                        let hint = if crate::llm::is_unauthorized(&msg) {
+                            format!("\n\n{}", crate::llm::unauthorized_help(&cfg))
+                        } else if attempt >= 2
                             && (msg.contains("no message or tool call")
                                 || msg.contains("no assistant text"))
                         {
@@ -2420,6 +2426,16 @@ pub(crate) fn inject_task_context_for_test(context: &str, plan: &mut [TaskSpec])
 fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
     let inventory = control_inventory_excerpt(context);
     let api = control_api_excerpt(context);
+    // Which control types are in play is a property of the WHOLE plan, not of
+    // one task's wording: the designer task says "deploy 15 TextBoxes" and the
+    // event task then says "the handlers for those" — and the second one, read
+    // alone, names no type at all. The tasks work on the same form, so they get
+    // the same legend.
+    let objectives = plan
+        .iter()
+        .map(|t| t.objective.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     for task in plan.iter_mut() {
         if !task.context.trim().is_empty() {
             continue; // Grace's own explicit context wins.
@@ -2436,7 +2452,7 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             let mut ctx = inventory.clone();
             for block in [
                 form_properties_excerpt(context),
-                property_keys_excerpt(context, &inventory, &task.objective, "this task"),
+                property_keys_excerpt(context, &inventory, &objectives, "this task"),
             ] {
                 if block.is_empty() {
                     continue;
@@ -2461,7 +2477,7 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             // list it cannot see.
             let mut ctx = inventory.clone();
             for block in [
-                events_excerpt(context, &inventory, &task.objective, "this task"),
+                events_excerpt(context, &inventory, &objectives, "this task"),
                 api.clone(),
                 procedures_excerpt(context),
             ] {
@@ -2587,7 +2603,7 @@ fn property_keys_excerpt(context: &str, inventory: &str, objective: &str, scope:
         // `Id (Type) @(x,y) WxH`. Named in the objective: a whole-word match, so
         // "Panel" does not fire on "PanelHeader" and "Line" not on "LineChart".
         let on_form = inventory.contains(&format!("({ty})"));
-        if on_form || mentions_type(objective, ty) {
+        if on_form || names_type(objective, ty) {
             kept.push(line);
         }
     }
@@ -2600,23 +2616,111 @@ fn property_keys_excerpt(context: &str, inventory: &str, objective: &str, scope:
     )
 }
 
-/// Whether `text` names control type `ty` as a whole word, case-insensitively.
-fn mentions_type(text: &str, ty: &str) -> bool {
-    let hay = text.to_ascii_lowercase();
-    let needle = ty.to_ascii_lowercase();
-    let mut from = 0;
-    while let Some(rel) = hay[from..].find(&needle) {
-        let start = from + rel;
-        let end = start + needle.len();
-        let before_ok = start == 0
-            || !hay.as_bytes()[start - 1].is_ascii_alphanumeric();
-        let after_ok = end == hay.len() || !hay.as_bytes()[end].is_ascii_alphanumeric();
-        if before_ok && after_ok {
-            return true;
-        }
-        from = end;
+/// Whether `text` names control type `ty` as a whole word, case-insensitively,
+/// **including its plural**.
+///
+/// The plural is not a nicety: an objective naming what it builds says "add 15
+/// TextBoxes", and a strict whole-word test rejected that — the type's events
+/// and property keys were then stripped from the task context, the event agent
+/// guessed `onFocus` where the real name is `onGotFocus`, and every handler
+/// carrying a guessed name was discarded at apply time without a word
+/// (operator report, 2026-07-31). `s` and `es` cover the English and the
+/// Iberian plurals alike; the guard against `Panel` firing on `PanelHeader`
+/// and `Line` on `LineChart` still holds, because what follows the suffix must
+/// itself be a boundary.
+/// What a developer calls a control when they are not reading the type list.
+///
+/// The type filter used to key on the exact English type name, so "adicione 15
+/// caixas de texto" or "campos de digitação" named nothing, the type's events
+/// and properties were cut from the task context, and the specialist — bound to
+/// use only names its context lists — guessed. These are the everyday words for
+/// the types a form request actually reaches for, in the three languages the
+/// IDE is used in; both accented and unaccented spellings are listed because
+/// developers type both.
+fn type_aliases(ty: &str) -> &'static [&'static str] {
+    match ty {
+        "TextBox" => &[
+            "text box",
+            "caixa de texto",
+            "caja de texto",
+            "campo de texto",
+            "campo de digitação",
+            "campo de digitacao",
+            "campo de entrada",
+            "entrada de dados",
+            "entrada de texto",
+        ],
+        "Label" => &["rótulo", "rotulo", "etiqueta", "legenda"],
+        // Irregular plurals are listed outright: the singularizer strips `s`/`es`,
+        // which turns "botões" into "botõ", not into "botão".
+        "Button" => &[
+            "botão", "botao", "botões", "botoes", "botón", "boton", "botones", "push button",
+        ],
+        "CheckBox" => &[
+            "check box",
+            "caixa de seleção",
+            "caixa de selecao",
+            "casilla de verificación",
+            "casilla de verificacion",
+        ],
+        "RadioButton" => &[
+            "radio button",
+            "botão de opção",
+            "botao de opcao",
+            "botón de opción",
+            "boton de opcion",
+        ],
+        "ComboBox" => &[
+            "combo box",
+            "caixa de combinação",
+            "caixa de combinacao",
+            "lista suspensa",
+            "lista desplegable",
+            "dropdown",
+        ],
+        "ListBox" => &["list box", "caixa de listagem", "caja de lista", "lista de itens"],
+        "DataGrid" => &["grade de dados", "grade de datos", "tabela de dados", "grid"],
+        "PictureBox" => &["caixa de imagem", "imagem", "imagen"],
+        "GroupBox" => &["caixa de grupo", "agrupamento", "grupo de controles"],
+        "ProgressBar" => &["barra de progresso", "barra de progreso"],
+        "DateTimePicker" => &["seletor de data", "selector de fecha", "campo de data"],
+        _ => &[],
     }
-    false
+}
+
+/// [`mentions_type`], plus the everyday words for the type ([`type_aliases`]).
+fn names_type(text: &str, ty: &str) -> bool {
+    mentions_type(text, ty) || type_aliases(ty).iter().any(|a| mentions_type(text, a))
+}
+
+fn mentions_type(text: &str, ty: &str) -> bool {
+    let hay = type_words(text);
+    let needle = type_words(ty);
+    if needle.is_empty() || needle.len() > hay.len() {
+        return false;
+    }
+    hay.windows(needle.len()).any(|w| w == needle.as_slice())
+}
+
+/// Split on non-alphanumerics and singularize each word, so both sides of a
+/// comparison are compared in the same shape: `TextBoxes` and `text box` both
+/// become `[textbox]`/`[text, box]`, and `caixas de texto` matches the alias
+/// `caixa de texto`. Matching whole words is what keeps `Panel` out of
+/// `PanelHeader` and `Line` out of `LineChart` — those are single words that
+/// singularize to themselves.
+fn type_words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            for suffix in ["es", "s"] {
+                if w.len() > suffix.len() + 2 && w.ends_with(suffix) {
+                    return w[..w.len() - suffix.len()].to_string();
+                }
+            }
+            w.to_string()
+        })
+        .collect()
 }
 
 /// Slice the `EVENTS BY TYPE` block down to the types in play, exactly as
@@ -2649,7 +2753,7 @@ fn events_excerpt(context: &str, inventory: &str, objective: &str, scope: &str) 
             continue;
         }
         let on_form = inventory.contains(&format!("({ty})"));
-        if on_form || mentions_type(objective, ty) {
+        if on_form || names_type(objective, ty) {
             kept.push(line);
         }
     }
@@ -3316,6 +3420,77 @@ fn grace_final_summary(record: &WorkflowRecord, evidence: &[ToolEvidence]) -> St
 mod tests {
     use super::*;
     use cobolt_agents::grace::{TaskRecord, TaskSpec, TaskState};
+
+    /// An objective names what it BUILDS, and it names it in the plural: "add
+    /// 15 TextBoxes". Missing that stripped TextBox from the task context, and
+    /// the event agent — told to bind only names its context lists — guessed
+    /// `onFocus` for `onGotFocus`; every such handler was dropped at apply.
+    #[test]
+    fn a_plural_still_names_its_control_type() {
+        let objective = "Implementar 15 handlers de eventos únicos para os TextBoxes \
+                         e a concatenação no Label inferior";
+        assert!(mentions_type(objective, "TextBox"), "TextBoxes ⇒ TextBox");
+        assert!(mentions_type(objective, "Label"), "singular still matches");
+        assert!(mentions_type("align the Buttons", "Button"), "Buttons ⇒ Button");
+        assert!(mentions_type("tidy the ListBoxes", "ListBox"));
+        assert!(mentions_type("three Sliders", "Slider"));
+        // The guard that made the strict test worth having still holds.
+        assert!(
+            !mentions_type("restyle the PanelHeader", "Panel"),
+            "a longer identifier is not a plural"
+        );
+        assert!(
+            !mentions_type("add two LineCharts", "Line"),
+            "LineCharts is a LineChart, never a Line"
+        );
+        assert!(mentions_type("add two LineCharts", "LineChart"));
+    }
+
+    /// A developer writes "caixa de texto", not "TextBox". Keying the type
+    /// filter on the English type name alone left those requests with no
+    /// legend at all — the failure mode that cost a whole workflow its events.
+    #[test]
+    fn everyday_words_name_their_control_type() {
+        for text in [
+            "adicione 15 caixas de texto",
+            "quero campos de digitação em 3 colunas",
+            "coloque um text box aqui",
+            "uma entrada de dados por linha",
+            "adicione TextBoxes",
+        ] {
+            assert!(names_type(text, "TextBox"), "TextBox not named by: {text}");
+        }
+        assert!(names_type("um rótulo no rodapé", "Label"));
+        assert!(names_type("dois botões de ação", "Button"));
+        assert!(names_type("una casilla de verificación", "CheckBox"));
+        assert!(names_type("uma lista suspensa de países", "ComboBox"));
+        assert!(names_type("barra de progresso no topo", "ProgressBar"));
+        // An alias must not drag in a type the request never mentions.
+        assert!(!names_type("adicione 15 caixas de texto", "DataGrid"));
+        assert!(!names_type("adicione 15 caixas de texto", "TreeView"));
+    }
+
+    /// The same slice, end to end: the events legend must survive a plural.
+    #[test]
+    fn the_events_legend_survives_a_plural_objective() {
+        let context = "EVENTS BY TYPE (for all available controls):\n  \
+                       TextBox: onChange, onGotFocus, onLostFocus\n  \
+                       Slider: onValueChanged\nCONTROL API BY ID:\n";
+        let kept = events_excerpt(
+            context,
+            "  (none)",
+            "Implementar 15 handlers para os TextBoxes",
+            "this task",
+        );
+        assert!(
+            kept.contains("TextBox: onChange, onGotFocus, onLostFocus"),
+            "the type the task is about must reach the agent: {kept}"
+        );
+        assert!(
+            !kept.contains("Slider:"),
+            "and only that type, or the budget goes"
+        );
+    }
 
     fn sample_record() -> WorkflowRecord {
         WorkflowRecord {

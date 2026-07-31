@@ -998,9 +998,27 @@ impl SettingsForm {
                                 };
                                 let now = ui.ctx().input(|i| i.time);
                                 let el = now - started;
-                                let ent_d = ent.duration_ms.max(1) as f64 / 1000.0;
+                                // The preview card's width, known before the
+                                // rect is allocated: MatrixRain schedules its
+                                // lines in real milliseconds across it, and
+                                // takes as long as that schedule needs.
+                                let card_w =
+                                    (content_w - splitter - 40.0).clamp(220.0, 460.0);
+                                let fx_ms = |spec: &FxSpec| -> u32 {
+                                    if spec.effect == WindowEffect::MatrixRain {
+                                        cobolt_forms::window_fx::matrix_effective_duration_ms(
+                                            card_w,
+                                            spec.duration_ms,
+                                        )
+                                    } else {
+                                        spec.duration_ms
+                                    }
+                                };
+                                let ent_ms = fx_ms(&ent);
+                                let exit_ms = fx_ms(&exit);
+                                let ent_d = ent_ms.max(1) as f64 / 1000.0;
                                 let hold = 0.4_f64;
-                                let exit_d = exit.duration_ms.max(1) as f64 / 1000.0;
+                                let exit_d = exit_ms.max(1) as f64 / 1000.0;
                                 let phase = if ent.is_active() && el < ent_d {
                                     Some((
                                         ent.effect,
@@ -1018,10 +1036,7 @@ impl SettingsForm {
                                     None => self.fx_preview_started = None,
                                     Some((effect, t)) => {
                                         let (rect, _) = ui.allocate_exact_size(
-                                            egui::vec2(
-                                                (content_w - splitter - 40.0).clamp(220.0, 460.0),
-                                                150.0,
-                                            ),
+                                            egui::vec2(card_w, 150.0),
                                             egui::Sense::hover(),
                                         );
                                         let painter = ui.painter().with_clip_rect(rect);
@@ -1039,9 +1054,9 @@ impl SettingsForm {
                                             // see-through window.
                                             false,
                                             if matches!(phase, Some((e, _)) if e == exit.effect) {
-                                                exit.duration_ms
+                                                exit_ms
                                             } else {
-                                                ent.duration_ms
+                                                ent_ms
                                             },
                                             &mut |p, r| {
                                                 p.rect_filled(r, 4.0, card_bg);

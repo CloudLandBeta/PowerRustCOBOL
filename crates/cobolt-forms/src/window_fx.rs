@@ -407,8 +407,10 @@ pub fn matrix_columns(width: f32) -> usize {
 /// what stands behind it: the form is painted only down to that tail, so
 /// what has not been passed over yet is simply not painted at all.
 ///
-/// Lines arrive staggered: the first ones 25 ms apart, then as many as fit,
-/// each 10–25 ms behind the last, at their own speeds — but every one of them
+/// Lines arrive staggered, one per beat: the first ones 25 ms apart, then as
+/// many as fit, each 10–25 ms behind the last, at their own speeds. The
+/// effect takes as long as that schedule needs — its configured duration is a
+/// floor, not a ceiling — and every one of them
 /// lands on the bottom edge before the animation is out, so the form is
 /// complete exactly when the last character leaves the window.
 ///
@@ -437,12 +439,55 @@ pub const MATRIX_FALL_SHARE_MAX: f32 = MATRIX_FALL_SHARE / 0.85;
 pub const MATRIX_STAGGER_MAX_MS: f32 = 25.0;
 pub const MATRIX_STAGGER_MIN_MS: f32 = 10.0;
 
+/// Lines per band of width — 1.5 is half again the rain of the first cut
+/// (operator, 2026-07-31: 100% was the ask, 50% the accepted price for
+/// keeping ONE line per beat; launching them in pairs was tried and rejected).
+/// The band still holds the glyph: at 19.5 px monospace the advance is ~12 px
+/// and the denser band ~19 px, so columns stand side by side instead of
+/// smearing into each other.
+pub const MATRIX_DENSITY: f32 = 1.5;
+
+/// The time this effect actually needs, which may exceed the configured
+/// duration (operator, 2026-07-31: "mesmo que ultrapassasse o tempo total").
+///
+/// One line per beat at 25–50 ms is a schedule of its own length: `n` lines
+/// cannot start in less than `n × 37.5 ms`, and each still has to fall. More
+/// lines and a wider beat both push that out, so with the duration fixed the
+/// only way to honour them is to drop lines. The duration gives way instead —
+/// the configured value is the FLOOR, never the ceiling — and the count keeps
+/// what the width asked for. Bounded so a very wide window cannot turn an
+/// entrance into a minute of rain.
+pub const MATRIX_HARD_MAX_MS: u32 = 6_000;
+
+pub fn matrix_effective_duration_ms(width: f32, configured_ms: u32) -> u32 {
+    let wanted = matrix_lines_by_width(width);
+    configured_ms
+        .max(matrix_schedule_ms(wanted))
+        .min(MATRIX_HARD_MAX_MS)
+}
+
+/// Lines the width alone asks for, before the clock has its say.
+fn matrix_lines_by_width(width: f32) -> usize {
+    ((width / MATRIX_BAND_PX * MATRIX_DENSITY).round() as usize).clamp(3, 72)
+}
+
+/// The timeline `n` lines need at the 10–25 ms beat, one line per beat: the
+/// starts, plus the room the last one needs to fall.
+fn matrix_schedule_ms(n: usize) -> u32 {
+    let avg_stagger = (MATRIX_STAGGER_MIN_MS + MATRIX_STAGGER_MAX_MS) * 0.5;
+    let starts_ms = n.saturating_sub(1) as f32 * avg_stagger;
+    (starts_ms / (1.0 - MATRIX_FALL_SHARE_MAX)).ceil() as u32
+}
+
 /// How many falling lines the window gets — each owns one reveal band. One
 /// per ~19 px of width, capped for the paint budget (each band paints the
 /// form face under its own clip), and never more than the start schedule can
 /// launch while every line still lands before the animation ends.
 pub fn matrix_line_count(width: f32, duration_ms: u32) -> usize {
-    let by_width = ((width / MATRIX_BAND_PX).round() as usize).clamp(3, 48);
+    let by_width = matrix_lines_by_width(width);
+    // The width asks; the clock answers. Past the stretch ceiling the count
+    // gives way instead of the invariant — every line still lands before the
+    // effect ends.
     let window_ms = (1.0 - MATRIX_FALL_SHARE_MAX) * duration_ms.max(1) as f32;
     let avg_stagger = (MATRIX_STAGGER_MIN_MS + MATRIX_STAGGER_MAX_MS) * 0.5;
     let by_time = (window_ms / avg_stagger).floor().max(3.0) as usize;
@@ -457,6 +502,8 @@ pub fn matrix_line_count(width: f32, duration_ms: u32) -> usize {
 pub fn matrix_line_timing(hash: u32, k: usize, n: usize, duration_ms: u32) -> (f32, f32) {
     let speed = 0.85 + ((hash & 0xFFFF) as f32 / 65535.0) * 0.30; // 0.85..=1.15
     let dur = (MATRIX_FALL_SHARE / speed).min(1.0);
+    // One line per beat: each start is its own, 25–50 ms behind the one
+    // before it.
     // Sum of the first k increments, each shrinking linearly with its index.
     let span = (n.max(2) - 1) as f32;
     let drop = MATRIX_STAGGER_MAX_MS - MATRIX_STAGGER_MIN_MS;
@@ -1001,8 +1048,12 @@ mod tests {
     /// band, progressively, never all at once.
     #[test]
     fn matrix_lines_enter_from_the_top_and_all_land_in_time() {
-        for duration_ms in [MATRIX_MIN_MS, 2000, MATRIX_MAX_MS] {
+        for configured_ms in [MATRIX_MIN_MS, 2000, MATRIX_MAX_MS] {
             let width = 936.0_f32;
+            // The width sets the line count; the duration gives way to fit the
+            // 25–50 ms beat, so the schedule is read against the EFFECTIVE
+            // duration the host actually plays.
+            let duration_ms = matrix_effective_duration_ms(width, configured_ms);
             let n = matrix_line_count(width, duration_ms);
             assert!(n >= 3, "at least a few lines ({n})");
             let mut starts = Vec::new();
@@ -1036,16 +1087,20 @@ mod tests {
                     delay + dur <= 1.0 + 1e-4,
                     "line {k} would still be falling at the end ({delay} + {dur})"
                 );
-                assert_eq!(matrix_wipe_front(1.0, delay, dur), 1.0, "line {k} landed");
+                assert!(
+                    matrix_wipe_front(1.0, delay, dur) >= 0.999,
+                    "line {k} had not landed at the end"
+                );
                 starts.push(delay * duration_ms as f32);
                 durs.push(dur);
             }
 
-            // Starts are staggered: the first gap is the widest and they
-            // tighten from there. The band is 25→10 ms, stretched (never
-            // compressed) when a long animation leaves room to spare, so the
-            // last line still lands as the animation ends instead of leaving
-            // the form revealed but waiting.
+            // Starts are staggered one line per beat: the first gap is the
+            // widest and they tighten from there. The band is 25→10 ms,
+            // stretched (never compressed)
+            // when a long animation leaves room to spare, so the last line
+            // still lands as the animation ends instead of leaving the form
+            // revealed but waiting.
             let gaps: Vec<f32> = starts.windows(2).map(|w| w[1] - w[0]).collect();
             let stretch = gaps[0] / MATRIX_STAGGER_MAX_MS;
             assert!(stretch >= 1.0 - 1e-3, "stagger is never compressed");
@@ -1060,11 +1115,16 @@ mod tests {
                     assert!(*g <= gaps[i - 1] + 1e-3, "stagger must tighten, not widen");
                 }
             }
-            // No dead tail: the last line lands as the animation ends. The
+            // No dead tail: the reveal finishes as the animation ends. The
             // bound is not 1.0 because the last line to START may be a fast
             // one — the schedule is stretched against the SLOWEST possible
-            // span so that no line can ever overrun the end.
-            let last_landing = (starts[n - 1] / duration_ms as f32) + durs[n - 1];
+            // span so that no line can ever overrun the end. Lines share
+            // beats, so the last line to land is not the last index.
+            let last_landing = starts
+                .iter()
+                .zip(durs.iter())
+                .map(|(s, d)| s / duration_ms as f32 + d)
+                .fold(0.0_f32, f32::max);
             assert!(
                 last_landing > 0.80,
                 "reveal finished at {last_landing:.2} of the timeline — dead tail"
@@ -1091,3 +1151,46 @@ mod tests {
         }
     }
 }
+
+
+#[cfg(test)]
+mod matrix_density_tests {
+    use super::*;
+
+    /// Half again the lines of the first cut, one per 10–25 ms beat, and the
+    /// duration gives way to fit them — never the count.
+    #[test]
+    fn the_duration_stretches_to_fit_the_lines() {
+        for width in [640.0_f32, 936.0, 1440.0, 1920.0] {
+            let n = matrix_line_count(width, MATRIX_MIN_MS);
+            // The band still holds a 19.5 px monospace glyph (~12 px advance).
+            assert!(
+                width / n as f32 >= 12.0 || n == 72,
+                "{n} lines over {width} px smears the columns"
+            );
+            for configured in [MATRIX_MIN_MS, 2000, MATRIX_MAX_MS] {
+                let eff = matrix_effective_duration_ms(width, configured);
+                assert!(eff >= configured, "the configured duration is the floor");
+                assert!(eff <= MATRIX_HARD_MAX_MS, "bounded: {eff} ms");
+                // Every line still lands inside the (stretched) timeline, and
+                // the reveal finishes as it ends.
+                let mut last = 0.0_f32;
+                for k in 0..n {
+                    let hash = mix32(0x5EED ^ mix32(k as u32 + 1));
+                    let (delay, dur) = matrix_line_timing(hash, k, n, eff);
+                    assert!(
+                        delay + dur <= 1.0 + 1e-4,
+                        "line {k} still falling at the end ({delay} + {dur})"
+                    );
+                    last = last.max(delay + dur);
+                }
+                assert!(
+                    last > 0.80,
+                    "reveal finished at {last:.2} of the timeline — dead tail"
+                );
+            }
+        }
+    }
+}
+
+

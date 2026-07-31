@@ -31,6 +31,19 @@ use cobolt_parser::parse;
 use cobolt_runtime::{FormEvent, Interpreter, StateUpdate};
 use cobolt_semantic::analyze;
 
+/// How long an effect actually plays. Every effect but MatrixRain takes the
+/// duration it was configured with; MatrixRain's falling lines are scheduled
+/// in real milliseconds, one per 25–50 ms beat, so its configured value is a
+/// FLOOR — the effect runs as long as its own schedule needs (operator,
+/// 2026-07-31: more lines at a wider beat, "mesmo que ultrapassasse o tempo").
+fn fx_duration_ms(spec: &cobolt_forms::window_fx::FxSpec, width: f32) -> u32 {
+    if spec.effect == cobolt_forms::window_fx::WindowEffect::MatrixRain {
+        cobolt_forms::window_fx::matrix_effective_duration_ms(width, spec.duration_ms)
+    } else {
+        spec.duration_ms
+    }
+}
+
 fn load_run_form_icon(path: Option<&Path>) -> Option<egui::IconData> {
     path.and_then(|path| std::fs::read(path).ok())
         .and_then(|bytes| decode_icon(&bytes))
@@ -1251,7 +1264,8 @@ impl eframe::App for FormApp {
                 self.fx_chrome_hidden_for_exit = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
             }
-            let dur = self.fx_exit.duration_ms.max(1) as f64 / 1000.0;
+            let exit_ms = fx_duration_ms(&self.fx_exit, root_ui.max_rect().width());
+            let dur = exit_ms.max(1) as f64 / 1000.0;
             let t_lin = 1.0 - (started.elapsed().as_secs_f64() / dur).min(1.0);
             if t_lin <= 0.0 {
                 if !self.quit_sent {
@@ -1264,7 +1278,7 @@ impl eframe::App for FormApp {
                     .fx_exit
                     .effect
                     .progress(self.fx_exit.easing, t_lin as f32);
-                self.paint_fx_frame(root_ui, self.fx_exit.effect, self.fx_exit.duration_ms, t);
+                self.paint_fx_frame(root_ui, self.fx_exit.effect, exit_ms, t);
                 ctx.request_repaint();
             }
             return;
@@ -1418,7 +1432,11 @@ impl eframe::App for FormApp {
             let started = *self
                 .fx_entrance_start
                 .get_or_insert_with(std::time::Instant::now);
-            let dur = self.fx_entrance.duration_ms.max(1) as f64 / 1000.0;
+            // MatrixRain sets its own floor: one line per 25–50 ms beat is a
+            // schedule of its own length, and the configured duration is the
+            // MINIMUM it may take, never the maximum (operator, 2026-07-31).
+            let ent_ms = fx_duration_ms(&self.fx_entrance, root_ui.max_rect().width());
+            let dur = ent_ms.max(1) as f64 / 1000.0;
             let t_lin = (started.elapsed().as_secs_f64() / dur).min(1.0);
             if t_lin >= 1.0 {
                 self.fx_entrance_done = true; // live UI takes over this frame
@@ -1434,7 +1452,7 @@ impl eframe::App for FormApp {
                     .fx_entrance
                     .effect
                     .progress(self.fx_entrance.easing, t_lin as f32);
-                self.paint_fx_frame(root_ui, self.fx_entrance.effect, self.fx_entrance.duration_ms, t);
+                self.paint_fx_frame(root_ui, self.fx_entrance.effect, ent_ms, t);
                 ctx.request_repaint();
                 return;
             }

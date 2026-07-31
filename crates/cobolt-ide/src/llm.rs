@@ -21,6 +21,11 @@ pub struct LlmConfig {
     pub endpoint_user_edited: bool,
     #[serde(default)]
     pub api_key: String,
+    /// Runtime only: which credential slot [`Self::api_key`] came from, so a
+    /// 401 can look up how long that exact key has been on file. Never
+    /// persisted — it is derived every time a profile resolves.
+    #[serde(skip)]
+    pub api_key_slot: String,
     #[serde(default)]
     pub model: String,
     #[serde(default = "default_system_prompt")]
@@ -62,6 +67,13 @@ pub struct LlmConfig {
     /// `profile::<uuid>` slots; provider/model slots remain only for migration.
     #[serde(default)]
     pub api_keys: std::collections::HashMap<String, String>,
+    /// When each credential was stored, as unix seconds. A 401 is most often
+    /// an EXPIRED key, and "this one has been on file for four months" is the
+    /// fact that settles it — so the store records the date and
+    /// [`unauthorized_help`] reports it. Keys saved before this build carry no
+    /// date and are reported as such rather than guessed at.
+    #[serde(default)]
+    pub api_key_saved_at: std::collections::HashMap<String, i64>,
     /// Persisted deletion markers prevent a last-known-good backup from
     /// resurrecting a credential that the developer explicitly deleted.
     #[serde(default)]
@@ -128,13 +140,17 @@ impl ModelProfile {
         cfg.temperature = self.temperature;
         cfg.max_tokens = self.max_tokens;
         cfg.timeout_secs = self.timeout_secs;
+        let profile_slot = profile_api_key_slot(&self.id);
+        let legacy_slot = api_key_slot(&self.provider, &self.model);
+        cfg.api_key_slot = if base.api_keys.contains_key(&profile_slot) {
+            profile_slot.clone()
+        } else {
+            legacy_slot.clone()
+        };
         cfg.api_key = base
             .api_keys
-            .get(&profile_api_key_slot(&self.id))
-            .or_else(|| {
-                base.api_keys
-                    .get(&api_key_slot(&self.provider, &self.model))
-            })
+            .get(&profile_slot)
+            .or_else(|| base.api_keys.get(&legacy_slot))
             .cloned()
             .unwrap_or_default();
         cfg
@@ -145,6 +161,16 @@ impl ModelProfile {
 /// edits better than the legacy provider+model key.
 pub fn profile_api_key_slot(profile_id: &str) -> String {
     format!("profile::{}", profile_id.trim())
+}
+
+/// Wall-clock seconds since the epoch, for stamping when a credential was
+/// stored. A clock the user moved backwards yields a negative age, which the
+/// caller floors at zero rather than reporting a key stored in the future.
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Legacy key for [`LlmConfig::api_keys`]: provider-scoped so the same model
@@ -177,6 +203,8 @@ impl LlmConfig {
             endpoint: String::new(),
             endpoint_user_edited: false,
             api_key: String::new(),
+            api_key_slot: String::new(),
+            api_key_saved_at: std::collections::HashMap::new(),
             model: String::new(),
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             cobol_proficiency_prompt: default_cobol_proficiency_prompt(),
@@ -365,11 +393,34 @@ impl LlmConfig {
 
     /// Store a non-empty credential. Empty form fields never erase a key; a
     /// profile key is removed only by [`Self::delete_model_profile`].
+    ///
+    /// Storing stamps the date, so a later 401 can say how long the key has
+    /// been on file — re-storing the same slot restamps it, which is exactly
+    /// right: that is the developer renewing the credential.
     pub fn store_api_key(&mut self, slot: String, key: &str) {
         if !key.trim().is_empty() {
             self.deleted_api_key_slots.remove(&slot);
+            let changed = self.api_keys.get(&slot).map(|k| k != key).unwrap_or(true);
+            if changed {
+                self.api_key_saved_at.insert(slot.clone(), now_unix());
+            }
             self.api_keys.insert(slot, key.to_string());
         }
+    }
+
+    /// How many days ago the credential in `slot` was stored. `None` when the
+    /// slot is unknown or predates the stamping.
+    pub fn api_key_age_days(&self, slot: &str) -> Option<i64> {
+        let saved = *self.api_key_saved_at.get(slot)?;
+        Some(((now_unix() - saved).max(0)) / 86_400)
+    }
+
+    /// The age of the credential this (resolved) config actually sends.
+    pub fn active_api_key_age_days(&self) -> Option<i64> {
+        if !self.api_key_slot.is_empty() {
+            return self.api_key_age_days(&self.api_key_slot);
+        }
+        self.api_key_age_days(&api_key_slot(&self.provider, &self.model))
     }
 
     /// Merge credentials from a possibly stale settings draft without removing
@@ -1122,6 +1173,17 @@ fn run_mesh_request(
             let reply = match cobolt_agents::rig_transport::run_chat_blocking(&call, &on_chunk) {
                 Ok(r) => r,
                 Err(e) => {
+                    // A 401 reads like an account problem; here it is usually
+                    // a stale credential. Say what to check, and how long this
+                    // key has been on file.
+                    let e = if is_unauthorized(&e) {
+                        format!(
+                            "{e}\n\n{}",
+                            unauthorized_help_for(&req.provider, &req.model, req.key_age_days)
+                        )
+                    } else {
+                        e
+                    };
                     push_connection_log(&format!("{trace}=== ERROR ===\n{e}\n"));
                     push_ai_log(AiLogKind::Error, e.clone());
                     let _ = tx.send(LlmResponse::Err(e));
@@ -1243,6 +1305,7 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
         provider: cfg.provider.clone(),
         model: cfg.model.clone(),
         api_key: cfg.api_key.clone(),
+        key_age_days: cfg.active_api_key_age_days(),
         endpoint: cfg.endpoint.clone(),
         specialist: None,
         system_prompt: String::new(),
@@ -1276,6 +1339,48 @@ pub fn credential_gap(cfg: &LlmConfig) -> Option<String> {
          credential is rejected by the provider as an authorization failure.",
         cfg.provider, cfg.model, cfg.endpoint
     ))
+}
+
+/// Whether a provider error is an authorization rejection. Matched on the
+/// shapes the transports actually produce — `Invalid status code 401
+/// Unauthorized` from the request path and `InvalidStatusCodeWithMessage(401,
+/// …)` from the SSE stream — rather than on a bare "401", which would also
+/// match a token count or a model name.
+pub fn is_unauthorized(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("unauthorized") || m.contains("status code 401") || m.contains("(401")
+}
+
+/// What to check when the provider answers 401, in the order that resolves it
+/// fastest (operator, 2026-07-31).
+///
+/// A 401 reads like an account problem, so the developer goes looking at the
+/// provider's dashboard; nine times out of ten the credential simply expired
+/// or was rotated and the copy PowerRustCOBOL holds is stale. The key's age on
+/// file is what settles that, so it is reported when known — a key stored
+/// before this build carries no date, and saying so is better than guessing.
+pub fn unauthorized_help(cfg: &LlmConfig) -> String {
+    unauthorized_help_for(&cfg.provider, &cfg.model, cfg.active_api_key_age_days())
+}
+
+/// [`unauthorized_help`] for callers that hold the request rather than the
+/// configuration — the chat/mesh funnel knows its provider, model and (via
+/// `MeshRequest::key_age_days`) how old the credential it just used is.
+pub fn unauthorized_help_for(provider: &str, model: &str, key_age_days: Option<i64>) -> String {
+    let registered = match key_age_days {
+        Some(0) => "was stored today".to_string(),
+        Some(1) => "was stored yesterday".to_string(),
+        Some(d) if d < 60 => format!("was stored {d} days ago"),
+        Some(d) => format!("was stored {d} days ago ({:.1} months)", d as f32 / 30.4),
+        None => "was stored before this build recorded key dates, so its age is unknown".to_string(),
+    };
+    format!(
+        "the provider rejected the credential (401 Unauthorized). Check, in this order:\n\
+         1. that a VALID API key for \"{provider}\" is registered for this model — Models Manager, the model's API key field;\n\
+         2. whether that key has EXPIRED or been rotated at the provider: the one on file {registered}, and providers commonly expire keys on a schedule;\n\
+         3. that the model \"{model}\" is still offered by \"{provider}\" — a retired or renamed model answers 401 as readily as a bad key.\n\
+         The fix for an expired key is to renew it at the provider and update it in the model's registration.",
+    )
 }
 
 pub fn spawn_agent_request(
@@ -1947,6 +2052,8 @@ When one approved artifact changes after another artifact was reviewed, all affe
 
 Approval of an earlier version does not automatically apply to a modified version.
 
+This consistency check is Grace's OWN step, shared with the Pedantic companions. Never plan a task whose objective is to verify, validate, confirm, cross-check, or "ensure consistency of" work another task already produced. A specialist has exactly one output channel — its change-set — so a task it cannot answer with NEW operations it answers by re-emitting the operations it already submitted, with whatever coordinates and properties the second pass happens to invent, overwriting the reviewed layout. A verification task creates nothing and endangers what already exists. Compare the approved outputs yourself, and reopen the responsible specialist's task only when that comparison finds a concrete mismatch to FIX — naming the mismatch.
+
 Tool and MCP Governance
 
 Grace must verify that agents use only tools and MCP Server operations that are available and authorized for their task.
@@ -2239,6 +2346,8 @@ It must confirm that: identifiers match exactly; referenced controls, files, met
 When one approved artifact changes after another artifact was reviewed, all affected downstream artifacts must be revalidated.
 
 Approval of an earlier version does not automatically apply to a modified version.
+
+This consistency check is Grace's OWN step, shared with the Pedantic companions. Never plan a task whose objective is to verify, validate, confirm, cross-check, or "ensure consistency of" work another task already produced. A specialist has exactly one output channel — its change-set — so a task it cannot answer with NEW operations it answers by re-emitting the operations it already submitted, with whatever coordinates and properties the second pass happens to invent, overwriting the reviewed layout. A verification task creates nothing and endangers what already exists. Compare the approved outputs yourself, and reopen the responsible specialist's task only when that comparison finds a concrete mismatch to FIX — naming the mismatch.
 
 Tool and MCP Governance
 
@@ -3943,6 +4052,41 @@ mod tests {
             max_tokens: 8192,
             timeout_secs: 120,
         }
+    }
+
+    /// A 401 is read as an account problem; it is nearly always a stale key.
+    /// The guidance names the three things to check and dates the credential.
+    #[test]
+    fn a_401_is_answered_with_the_three_checks_and_the_key_age() {
+        assert!(is_unauthorized(
+            "SSE error: InvalidStatusCodeWithMessage(401, \"Unauthorized\")"
+        ));
+        assert!(is_unauthorized("HTTP status code 401"));
+        assert!(!is_unauthorized("HTTP status code 404: model not found"));
+
+        let help = unauthorized_help_for("ollama_cloud", "gemma4:31b", Some(97));
+        assert!(help.contains("ollama_cloud") && help.contains("gemma4:31b"));
+        assert!(help.contains("VALID API key"), "check 1");
+        assert!(help.contains("stored 97 days ago"), "check 2 dates the key");
+        assert!(help.contains("still offered"), "check 3");
+
+        // Wording that reads naturally at the near end of the scale…
+        assert!(unauthorized_help_for("p", "m", Some(0)).contains("was stored today"));
+        assert!(unauthorized_help_for("p", "m", Some(1)).contains("was stored yesterday"));
+        // …and an honest answer when no date was ever recorded.
+        assert!(unauthorized_help_for("p", "m", None).contains("age is unknown"));
+    }
+
+    /// The age travels with the credential, so the chat funnel — which holds a
+    /// `MeshRequest`, never an `LlmConfig` — can date the key it just used.
+    #[test]
+    fn a_mesh_request_carries_the_age_of_the_key_it_sends() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "ollama_cloud".into();
+        cfg.model = "gemma4:31b".into();
+        let slot = api_key_slot(&cfg.provider, &cfg.model);
+        cfg.store_api_key(slot, "secret");
+        assert_eq!(mesh_request_base(&cfg).key_age_days, Some(0));
     }
 
     #[test]

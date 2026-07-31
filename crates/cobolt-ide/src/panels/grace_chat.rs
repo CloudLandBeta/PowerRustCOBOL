@@ -726,8 +726,14 @@ impl GraceChatPanel {
                         })
                         .inner
                 });
-                let box_rect = inner.response.rect;
                 let response = inner.inner;
+                // The grip belongs to the EDITOR'S OWN FRAME — the bordered box
+                // the user sees — not to the slab allocated around it. The slab
+                // carries the continuously dragged height while the editor snaps
+                // to whole rows, so a grip pinned to the slab sits off the corner
+                // at rest and walks further out with every drag (operator report,
+                // 2026-07-31).
+                let box_rect = response.rect;
                 // Bottom-right resize grip. Registered AFTER the TextEdit so it
                 // wins the hit-test over it (egui: later widget is on top) —
                 // an egui::Resize corner is registered before its contents and
@@ -757,7 +763,9 @@ impl GraceChatPanel {
                 } else {
                     ui.visuals().widgets.inactive.fg_stroke
                 };
-                let corner = box_rect.max - egui::vec2(3.0, 3.0);
+                // Inset past the frame's stroke and corner radius so the
+                // diagonals read as sitting on the box's INNER edge.
+                let corner = box_rect.max - egui::vec2(5.0, 5.0);
                 for step in 1..=3 {
                     let offset = 3.0 * step as f32;
                     ui.painter().line_segment(
