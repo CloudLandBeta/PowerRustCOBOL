@@ -375,6 +375,25 @@ fn validate_workflow_coordination(
     validate_no_pedantic_task_agent(db, plan)
 }
 
+/// The connection Grace herself is configured with, for the Grace-owned steps
+/// that run OUTSIDE a workflow — today, the prompt review.
+///
+/// Those steps used to borrow the panel's own `LlmConfig`, which is a
+/// different model entirely: observed live, the review went to the profile
+/// behind the RAD assistant while the workflow that followed ran on Grace's
+/// profile, so a request Grace could plan perfectly well failed its review on
+/// an unrelated provider's billing error. If Grace speaks, Grace's model
+/// answers (operator, 2026-07-31).
+///
+/// `None` when Grace is absent, disabled, or has no model configured; the
+/// caller decides what that means for its step.
+pub fn grace_connection(project_dir: &Path, llm: &LlmConfig) -> Option<LlmConfig> {
+    let db = AgentsDb::load(project_dir);
+    let agent = db.by_name(GRACE).filter(|a| a.enabled)?;
+    let cfg = crate::agents_db::resolve_agent_connection(agent, llm)?;
+    (!cfg.model.trim().is_empty()).then_some(cfg)
+}
+
 /// Grace's configured `provider/model` for the chat footers' model label —
 /// the idle-state fallback before any call has run (afterwards the live
 /// [`crate::llm::last_model_call`] record wins). `None` when Grace is absent
@@ -585,6 +604,35 @@ pub struct DbAgentInvoker {
 /// resolved to the control id and the whole workflow ran on a guess. The test
 /// is not "can I infer this?" but "would the readings deliver different work?".
 const RESPONSE_ROUTING_CONTRACT: &str = "RESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n2. DEVELOPER CLARIFICATION — the request admits more than one reasonable reading, and the readings would produce DIFFERENT artifacts: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n   WHEN IN DOUBT, ASK. Do not resolve an ambiguity by picking the reading you find most likely and proceeding: a plausible guess that is wrong costs the developer a whole workflow, while a question costs one message. Being ABLE to infer an answer is NOT a reason to skip the question — the test is whether the competing readings would change the delivered artifact, not whether you can pick a favourite.\n   Words that name a control's text are ambiguous BY CONSTRUCTION and are the most common trap: \"name\", \"nome\", \"nombre\", \"label\", \"text\", \"texto\", \"title\" may mean the control's IDENTIFIER (its id, e.g. Button-3) or its VISIBLE TEXT (its Caption or Text property). The two routinely differ — a form can hold a control whose id is \"Button-3\" while its Caption reads \"Button-2\". Never settle that silently: quote both candidate values for a concrete control and ask which one the developer means.\n   Ask as well when the request and its own example disagree, when a literal's exact spelling or punctuation is uncertain, when the target resource is not uniquely identified, or when a requested change could alter existing behavior in more than one way.\n   Put every question you need in ONE reply, each as a separate short question, and stop — do not plan or mutate anything in the same turn.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.";
+
+/// How a retrieved excerpt names the store it came from. Both stores hold
+/// files under a folder literally called `Knowledge Base`, so their paths are
+/// indistinguishable — the label is the only thing that tells an agent whether
+/// the document it is about to cite exists in the developer's project.
+const SYSTEM_KB_SOURCE: &str = "System Knowledge Base (platform reference, outside the project)";
+const PROJECT_KB_SOURCE: &str = "Project Knowledge Base (this project's own material)";
+
+/// What an agent may conclude from a retrieved excerpt, and what it may not.
+/// The citation rule is per-store: quoting a System KB path as a project file
+/// sends the developer looking for something their project does not contain.
+const KNOWLEDGE_PRECEDENCE_CONTRACT: &str = "KNOWLEDGE PRECEDENCE CONTRACT:\n- Treat relevant Knowledge Base excerpts as authoritative evidence and prefer them over general model training.\n- Every excerpt carries a SOURCE line. Excerpts from the System Knowledge Base are the PLATFORM's own reference (controls, properties, events, RustCOBOL extensions, the agent registry); that store lives outside every project and is never copied into one. Excerpts from the Project Knowledge Base are the developer's own material for THIS project.\n- Cite the project-relative PATH only for a Project Knowledge Base excerpt. Cite a System Knowledge Base excerpt as platform documentation — never as a file in the project, and never ask the developer to add, publish or copy it into their project.\n- Never replace, contradict, or embellish this evidence with generic assumptions.\n- If there is no relevant evidence, say so clearly. Use general knowledge only when appropriate and label it as general guidance; ask the developer for missing project facts instead of inventing them.";
+
+/// Render the retrieved excerpts for the agents' context, each carrying the
+/// store it came from.
+fn format_knowledge_excerpts(hits: &[(&str, cobolt_agents::chunked_knowledge::ChunkHit)]) -> String {
+    if hits.is_empty() {
+        return "(no relevant Knowledge Base evidence found)".to_string();
+    }
+    hits.iter()
+        .map(|(source, hit)| {
+            format!(
+                "SOURCE: {source}\nPATH: {}\nSUBJECT: {} ({})\nRELEVANCE: {:.4}\nCONTENT:\n{}",
+                hit.source_path, hit.subject, hit.kind, hit.score, hit.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n")
+}
 
 /// The platform's own reference documents. They are generated from the
 /// compiled binary, so a missing one means the installed platform predates the
@@ -1991,30 +2039,31 @@ pub fn run_grace_workflow_with_control(
     // request — from both stores — never a whole catalogue document. The
     // essential documents remain published and indexed; their content now
     // arrives through retrieval instead of being injected wholesale.
+    //
+    // Each excerpt is labelled with the store it came from. The two are not
+    // interchangeable and their paths look identical — a System KB hit reads
+    // `Knowledge Base/form_designer_controls.md`, which is exactly what a
+    // project file would read, though no such file exists in the project. Left
+    // unlabelled, an agent cites platform reference material as project
+    // evidence, and the developer is told to publish documentation into a
+    // folder that must stay theirs (operator, 2026-07-31).
     let system_store = system_root.join("data").join("chunked.data");
-    let mut knowledge = cobolt_agents::chunked_knowledge::search(&system_store, request, 6)
-        .map_err(|error| format!("System knowledge could not be searched: {error}"))?;
+    let mut knowledge: Vec<(&str, cobolt_agents::chunked_knowledge::ChunkHit)> =
+        cobolt_agents::chunked_knowledge::search(&system_store, request, 6)
+            .map_err(|error| format!("System knowledge could not be searched: {error}"))?
+            .into_iter()
+            .map(|hit| (SYSTEM_KB_SOURCE, hit))
+            .collect();
     knowledge.extend(
         cobolt_agents::chunked_knowledge::search(&project_store, request, 6)
-            .map_err(|error| format!("Project knowledge could not be searched: {error}"))?,
+            .map_err(|error| format!("Project knowledge could not be searched: {error}"))?
+            .into_iter()
+            .map(|hit| (PROJECT_KB_SOURCE, hit)),
     );
-    knowledge.sort_by(|left, right| right.score.total_cmp(&left.score));
+    knowledge.sort_by(|left, right| right.1.score.total_cmp(&left.1.score));
     knowledge.truncate(8);
 
-    let search_results = if knowledge.is_empty() {
-        "(no relevant Knowledge Base evidence found)".to_string()
-    } else {
-        knowledge
-            .iter()
-            .map(|hit| {
-                format!(
-                    "PATH: {}\nSUBJECT: {} ({})\nRELEVANCE: {:.4}\nCONTENT:\n{}",
-                    hit.source_path, hit.subject, hit.kind, hit.score, hit.content
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n---\n\n")
-    };
+    let search_results = format_knowledge_excerpts(&knowledge);
 
     // Retrieval observability: what the RAG actually injected vs. the whole
     // chunked corpus a push-everything approach would have sent. Characters
@@ -2029,7 +2078,7 @@ pub fn run_grace_workflow_with_control(
     let knowledge_context = search_results;
 
     let knowledge_context = format!(
-        "{knowledge_context}\n\nPROJECT KNOWLEDGE PRECEDENCE CONTRACT:\n- Treat relevant Knowledge Base excerpts as authoritative project evidence and prefer them over general model training.\n- Cite the project-relative PATH for project-specific claims.\n- Never replace, contradict, or embellish project evidence with generic assumptions.\n- If there is no relevant evidence, say so clearly. Use general knowledge only when appropriate and label it as general guidance; ask the developer for missing project facts instead of inventing them."
+        "{knowledge_context}\n\n{KNOWLEDGE_PRECEDENCE_CONTRACT}"
     );
     // Base transport (resolves model/key/prompt per agent), decorated with the
     // tool-execution layer: declared-tools governance + git/egui backends.
@@ -2111,7 +2160,7 @@ pub fn run_grace_workflow_with_control(
     let planning_context = planning_surface_context(context, request);
     let planning_context = planning_context.as_str();
     let plan_user = format!(
-        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers the assistant's most recent question means the real objective is the earlier request combined with this answer; likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
+        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers the assistant's most recent question means the real objective is the earlier request combined with this answer; likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
     // The MODEL routes the request — no keyword pre-classification. Grace
     // reads the request and the contracts and chooses one of three shapes:
@@ -2798,8 +2847,8 @@ fn control_api_excerpt(context: &str) -> String {
         "PROCEDURES:",
         "PROJECT TREE INVENTORY",
         "LIVE UI TREE",
-        "RELEVANT INDEXED PROJECT KNOWLEDGE",
-        "PROJECT KNOWLEDGE PRECEDENCE",
+        "RELEVANT INDEXED KNOWLEDGE",
+        "KNOWLEDGE PRECEDENCE",
     ]
     .iter()
     .filter_map(|m| rest.find(m))
@@ -3225,7 +3274,7 @@ fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
 /// empty string when there was no relevant evidence.
 fn summarize_knowledge_context(ctx: &str) -> String {
     let head = ctx
-        .split("\n\nPROJECT KNOWLEDGE PRECEDENCE CONTRACT:")
+        .split("\n\nKNOWLEDGE PRECEDENCE CONTRACT:")
         .next()
         .unwrap_or("")
         .trim();
@@ -4893,6 +4942,112 @@ mod tests {
         }];
         inject_task_context("(no additional surface context)", &mut plan);
         assert!(plan[0].context.is_empty());
+    }
+
+    /// The two stores produce identically shaped paths, so only the SOURCE
+    /// line tells an agent whether the document it is about to cite exists in
+    /// the developer's project. Observed live: a System KB hit arrived as
+    /// `PATH: Knowledge Base/form_designer_controls.md` under a heading that
+    /// called it project knowledge, next to a rule telling the agent to cite
+    /// project-relative paths — for a file the project does not contain.
+    #[test]
+    fn a_retrieved_excerpt_names_the_store_it_came_from() {
+        let hit = |path: &str| cobolt_agents::chunked_knowledge::ChunkHit {
+            source_path: path.to_string(),
+            subject: "TextBox".into(),
+            kind: "control".into(),
+            score: 0.87,
+            content: "Control TextBox.".into(),
+        };
+        // The very collision the label exists for: same path, different store.
+        let rendered = format_knowledge_excerpts(&[
+            (SYSTEM_KB_SOURCE, hit("Knowledge Base/form_designer_controls.md")),
+            (PROJECT_KB_SOURCE, hit("Knowledge Base/form_designer_controls.md")),
+        ]);
+        assert!(rendered.contains(&format!("SOURCE: {SYSTEM_KB_SOURCE}")));
+        assert!(rendered.contains(&format!("SOURCE: {PROJECT_KB_SOURCE}")));
+        assert_ne!(SYSTEM_KB_SOURCE, PROJECT_KB_SOURCE);
+        assert!(SYSTEM_KB_SOURCE.contains("outside the project"));
+
+        // No evidence is a stated fact, not an empty block.
+        assert!(format_knowledge_excerpts(&[]).contains("no relevant"));
+
+        // The contract's citation rule is per-store, and it forbids the
+        // request that the stale prompt used to invite.
+        assert!(KNOWLEDGE_PRECEDENCE_CONTRACT.contains("SOURCE line"));
+        assert!(KNOWLEDGE_PRECEDENCE_CONTRACT.contains("never copied into one"));
+        assert!(KNOWLEDGE_PRECEDENCE_CONTRACT
+            .contains("never ask the developer to add, publish or copy it into their project"));
+    }
+
+    /// The System KB describes the platform and lives at machine level; the
+    /// Project KB is the developer's folder inside the project. Nothing
+    /// publishes the first into the second — the prompt said otherwise for
+    /// several releases, and a developer reading the trace could only conclude
+    /// the IDE was writing its own reference material into their project.
+    #[test]
+    fn graces_prompt_states_where_each_knowledge_base_lives() {
+        let prompt = crate::llm::default_grace_prompt();
+        assert!(
+            !prompt.contains("published to the project's Knowledge Base"),
+            "the stale publishing claim is back"
+        );
+        assert!(prompt.contains("lives OUTSIDE every project"));
+        assert!(prompt.contains(crate::llm::GRACE_KNOWLEDGE_STORES_MARKER));
+        assert!(
+            prompt.contains("being empty is a valid state for it"),
+            "an empty Project KB must not read as a missing platform reference"
+        );
+        // The previous generation is kept verbatim, stale claim and all, so an
+        // unmodified stored copy can still be recognised and upgraded.
+        assert!(crate::llm::LEGACY_GRACE_PROMPT_V2
+            .contains("published to the project's Knowledge Base"));
+        assert!(!crate::llm::LEGACY_GRACE_PROMPT_V2
+            .contains(crate::llm::GRACE_KNOWLEDGE_STORES_MARKER));
+    }
+
+    /// A Grace-owned step outside the workflow (the prompt review) must run on
+    /// GRACE's connection, not on whatever profile the calling panel happens to
+    /// hold. Observed live: the review went to the RAD assistant's Anthropic
+    /// profile and died on that account's billing, while the workflow that
+    /// followed ran happily on Grace's own Ollama model.
+    #[test]
+    fn a_grace_owned_step_runs_on_graces_own_connection() {
+        let project =
+            std::env::temp_dir().join(format!("prc-grace-conn-{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&project).unwrap();
+        let mut fallback = LlmConfig::load_defaults_for_test();
+        fallback.provider = "anthropic".into();
+        fallback.model = "claude-opus-5".into();
+
+        let mut db = AgentsDb::load(&project);
+        db.ensure_fixed_agents(&fallback);
+        {
+            let grace = db
+                .agents
+                .iter_mut()
+                .find(|a| a.name == GRACE)
+                .expect("Grace exists");
+            grace.model_profile = None;
+            grace.provider = "ollama_cloud".into();
+            grace.endpoint = "https://ollama.com/v1".into();
+            grace.model = "gemma4:31b".into();
+        }
+        db.save_all().unwrap();
+
+        let cfg = grace_connection(&project, &fallback).expect("Grace has a model");
+        assert_eq!(cfg.model, "gemma4:31b", "the panel's model must not win");
+        assert_eq!(cfg.provider, "ollama_cloud");
+
+        // A Grace who cannot answer says so, rather than quietly borrowing
+        // someone else's credentials.
+        {
+            let grace = db.agents.iter_mut().find(|a| a.name == GRACE).unwrap();
+            grace.enabled = false;
+        }
+        db.save_all().unwrap();
+        assert!(grace_connection(&project, &fallback).is_none());
+        let _ = std::fs::remove_dir_all(&project);
     }
 
     /// Grace planned a second "review the completed change" task with the

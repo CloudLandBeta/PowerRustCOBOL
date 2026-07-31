@@ -1357,6 +1357,18 @@ pub struct DesignerPanel {
     /// while the view is away from the bottom, new material does not drag it
     /// back; returning to the bottom resumes the follow.
     ai_transcript_at_bottom: bool,
+    /// Name completion for the prompt box (controls, data items, properties,
+    /// events) — never COBOL itself.
+    prompt_ac: PromptAc,
+    /// Grace's review of the request, in flight: the developer pressed send,
+    /// and the workflow does not start until they have read the rewrite.
+    review_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    /// The request as the developer wrote it, kept while the review runs.
+    review_original: Option<String>,
+    /// The open modal, if any.
+    review_modal: Option<crate::panels::prompt_review::PromptReview>,
+    /// Set by the modal's Submit: the text the workflow actually receives.
+    review_accepted: Option<String>,
 
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
@@ -1437,6 +1449,11 @@ impl DesignerPanel {
             global_ai_streaming: String::new(),
             ai_transcript_mark: (0, 0, false),
             ai_transcript_at_bottom: true,
+            prompt_ac: PromptAc::default(),
+            review_rx: None,
+            review_original: None,
+            review_modal: None,
+            review_accepted: None,
             show_preview: false,
             cobol_structure_edit: None,
             preview_state: HashMap::new(),
@@ -1559,6 +1576,144 @@ impl DesignerPanel {
     /// R6/R7). Invalid ops (per `agent::validate`) are skipped. Returns the number
     /// of operations applied. Nothing is pushed when the change-set is all-invalid
     /// or empty.
+    /// Drive the prompt box's name completion: accept what the developer
+    /// picked, otherwise recompute the list from the caret and draw it.
+    ///
+    /// The list is names only — control ids, data items, procedures, and the
+    /// properties/events of the form's own control types. COBOL itself is never
+    /// completed (see [`crate::prompt_complete`]): a prompt is prose, and a
+    /// popup over "display the total" would be in the way, not in the help.
+    fn prompt_completion(
+        &mut self,
+        ctx: &egui::Context,
+        te_id: egui::Id,
+        out: &egui::text_edit::TextEditOutput,
+        box_rect: egui::Rect,
+        input: PromptAcInput,
+    ) {
+        if input.accept {
+            self.prompt_accept(ctx, te_id, out, input.sel);
+            return;
+        }
+        if input.dismiss || !input.editable || !ctx.memory(|m| m.has_focus(te_id)) {
+            self.prompt_ac.close();
+            return;
+        }
+        self.prompt_ac.sel = input.sel;
+
+        // Recompute from the caret. The catalogue is built only while the box
+        // has focus — it walks the form and parses working-storage, which is
+        // not work to do on every frame of a pane nobody is typing into.
+        let Some(cursor) = out.state.cursor.char_range() else {
+            self.prompt_ac.close();
+            return;
+        };
+        let caret = char_to_byte(&self.global_ai_prompt, cursor.primary.index.0);
+        let catalog = crate::prompt_complete::Catalog::from_form(
+            &self.form,
+            crate::panels::editor::build_prompt_data_items(&self.form, ""),
+        );
+        match crate::prompt_complete::complete(&self.global_ai_prompt, caret, &catalog) {
+            Some(c) => {
+                if c.items != self.prompt_ac.items {
+                    self.prompt_ac.sel = 0; // a new list starts at the top
+                }
+                self.prompt_ac.replace = (c.replace.start, c.replace.end);
+                self.prompt_ac.items = c.items;
+                self.prompt_ac.visible = true;
+            }
+            None => self.prompt_ac.close(),
+        }
+
+        if let Some(clicked) = self.prompt_popup(ctx, box_rect) {
+            self.prompt_accept(ctx, te_id, out, clicked);
+        }
+    }
+
+    /// Put item `index` into the prompt, replacing the word the caret is on,
+    /// and leave the caret after it so typing simply continues.
+    fn prompt_accept(
+        &mut self,
+        ctx: &egui::Context,
+        te_id: egui::Id,
+        out: &egui::text_edit::TextEditOutput,
+        index: usize,
+    ) {
+        let (start, end) = self.prompt_ac.replace;
+        if let Some(item) = self.prompt_ac.items.get(index) {
+            if start <= end
+                && end <= self.global_ai_prompt.len()
+                && self.global_ai_prompt.is_char_boundary(start)
+                && self.global_ai_prompt.is_char_boundary(end)
+            {
+                let label = item.label.clone();
+                self.global_ai_prompt.replace_range(start..end, &label);
+                let caret = self.global_ai_prompt[..start + label.len()].chars().count();
+                let mut state = out.state.clone();
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(
+                    egui::text::CCursor::new(egui::text::CharIndex(caret)),
+                )));
+                state.store(ctx, te_id);
+            }
+        }
+        self.prompt_ac.close();
+    }
+
+    /// Draw the completion list under the prompt box. Returns the index the
+    /// developer clicked, if any.
+    fn prompt_popup(&self, ctx: &egui::Context, box_rect: egui::Rect) -> Option<usize> {
+        if !self.prompt_ac.visible || self.prompt_ac.items.is_empty() {
+            return None;
+        }
+        let mut clicked = None;
+        let screen = ctx.content_rect();
+        let width = box_rect.width().min(420.0).max(220.0);
+        let pos = egui::pos2(
+            box_rect.left().min(screen.right() - width - 8.0),
+            box_rect.bottom() + 4.0,
+        );
+        egui::Area::new(egui::Id::new("global_ai_prompt_ac"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.spacing_mut().item_spacing.y = 1.0;
+                    for (i, item) in self.prompt_ac.items.iter().enumerate() {
+                        let selected = i == self.prompt_ac.sel;
+                        let label = egui::RichText::new(&item.label)
+                            .monospace()
+                            .color(prompt_ac_color(item.kind));
+                        let resp = ui.selectable_label(selected, label);
+                        if resp.clicked() {
+                            clicked = Some(i);
+                        }
+                        // The kind (and the type a member came from) rides on
+                        // the same row, right-aligned and quiet.
+                        let hint = match &item.owner {
+                            Some(t) if item.kind != crate::prompt_complete::Kind::Control => {
+                                format!("{} · {t}", item.kind.detail())
+                            }
+                            _ => item.kind.detail().to_string(),
+                        };
+                        ui.painter().text(
+                            egui::pos2(resp.rect.right() - 4.0, resp.rect.center().y),
+                            egui::Align2::RIGHT_CENTER,
+                            hint,
+                            egui::FontId::proportional(10.0),
+                            egui::Color32::from_gray(140),
+                        );
+                    }
+                    ui.label(
+                        egui::RichText::new("↑↓ escolher · Tab/Enter aceitar · Esc fechar")
+                            .small()
+                            .color(egui::Color32::from_gray(120)),
+                    );
+                });
+            });
+        clicked
+    }
+
     /// Where a `deploy_control` whose id is already taken must land: on the
     /// control this change-set is still staging, or on the one already on the
     /// form. `None` when the id is free — or when it names a control of a
@@ -4415,6 +4570,17 @@ impl DesignerPanel {
                                     // newline is inserted; Shift+Enter is left alone.
                                     let te_id = egui::Id::new("global_ai_prompt_edit");
                                     let mut enter_send = false;
+                                    // The completion popup owns Enter, Tab, the
+                                    // arrows and Escape WHILE IT IS OPEN — the
+                                    // keys are consumed before the editor sees
+                                    // them, exactly as plain Enter already is, so
+                                    // accepting a name never also sends the
+                                    // prompt.
+                                    let ac_len = self.prompt_ac.items.len();
+                                    let ac_open = self.prompt_ac.visible && ac_len > 0;
+                                    let mut ac_sel = self.prompt_ac.sel.min(ac_len.saturating_sub(1));
+                                    let mut ac_accept = false;
+                                    let mut ac_dismiss = false;
                                     let inner = frame.show(ui, |ui| {
                                         ui.set_min_size(view_size);
                                         ui.set_max_size(view_size);
@@ -4429,24 +4595,54 @@ impl DesignerPanel {
                                             .max_height(view_size.y)
                                             .show(ui, |ui| {
                                                 if ui.memory(|m| m.has_focus(te_id)) {
-                                                    enter_send = ui.input_mut(|i| {
-                                                        i.consume_key(
-                                                            egui::Modifiers::NONE,
-                                                            egui::Key::Enter,
-                                                        )
+                                                    ui.input_mut(|i| {
+                                                        if ac_open {
+                                                            if i.consume_key(
+                                                                egui::Modifiers::NONE,
+                                                                egui::Key::ArrowDown,
+                                                            ) {
+                                                                ac_sel = (ac_sel + 1) % ac_len;
+                                                            }
+                                                            if i.consume_key(
+                                                                egui::Modifiers::NONE,
+                                                                egui::Key::ArrowUp,
+                                                            ) {
+                                                                ac_sel =
+                                                                    (ac_sel + ac_len - 1) % ac_len;
+                                                            }
+                                                            if i.consume_key(
+                                                                egui::Modifiers::NONE,
+                                                                egui::Key::Tab,
+                                                            ) || i.consume_key(
+                                                                egui::Modifiers::NONE,
+                                                                egui::Key::Enter,
+                                                            ) {
+                                                                ac_accept = true;
+                                                            }
+                                                            if i.consume_key(
+                                                                egui::Modifiers::NONE,
+                                                                egui::Key::Escape,
+                                                            ) {
+                                                                ac_dismiss = true;
+                                                            }
+                                                        } else {
+                                                            enter_send = i.consume_key(
+                                                                egui::Modifiers::NONE,
+                                                                egui::Key::Enter,
+                                                            );
+                                                        }
                                                     });
                                                 }
-                                                ui.add(
-                                                    egui::TextEdit::multiline(
-                                                        &mut self.global_ai_prompt,
-                                                    )
-                                                    .id(te_id)
-                                                    .frame(egui::Frame::NONE)
-                                                    .hint_text("How can I help you today?")
-                                                    .desired_width(f32::INFINITY)
-                                                    .desired_rows(prompt_rows)
-                                                    .interactive(!busy),
+                                                egui::TextEdit::multiline(
+                                                    &mut self.global_ai_prompt,
                                                 )
+                                                .id(te_id)
+                                                .frame(egui::Frame::NONE)
+                                                .hint_text("How can I help you today?")
+                                                .desired_width(f32::INFINITY)
+                                                .desired_rows(prompt_rows)
+                                                .interactive(!busy)
+                                                .show(ui)
                                             })
                                             .inner
                                     });
@@ -4454,6 +4650,18 @@ impl DesignerPanel {
                                     {
                                         do_send = true;
                                     }
+                                    self.prompt_completion(
+                                        &ectx,
+                                        te_id,
+                                        &inner.inner,
+                                        inner.response.rect,
+                                        PromptAcInput {
+                                            sel: ac_sel,
+                                            accept: ac_accept,
+                                            dismiss: ac_dismiss,
+                                            editable: !busy,
+                                        },
+                                    );
                                     // The grip belongs to the BORDERED BOX the user
                                     // sees — the frame — which is exactly
                                     // `box_size` and follows the drag continuously.
@@ -4613,9 +4821,41 @@ impl DesignerPanel {
                             self.ai_error_modal = Some(err.clone());
                         }
                     }
-                    if do_send {
-                        let prompt = self.global_ai_prompt.clone();
-                        if !prompt.trim().is_empty() {
+                    // Pressing send asks Grace to REVIEW the request first;
+                    // the workflow starts only from the modal's Submit, with
+                    // the text the developer approved (operator, 2026-07-31).
+                    if do_send
+                        && self.review_rx.is_none()
+                        && self.review_modal.is_none()
+                        && !self.global_ai_prompt.trim().is_empty()
+                    {
+                        let original = self.global_ai_prompt.clone();
+                        let mut ctx_for_review = crate::agent::build_context_with_project(
+                            &self.form,
+                            project,
+                            project_root,
+                        );
+                        if let Some(tree) = crate::agent_inspection::latest_summary() {
+                            ctx_for_review.push_str("\n\n");
+                            ctx_for_review.push_str(&tree);
+                        }
+                        // The review is Grace's own step, so it runs on GRACE's
+                        // model — not on this panel's profile, which is a
+                        // different connection with different credentials.
+                        let review_cfg = crate::grace_host::grace_connection(
+                            project_root.unwrap_or_else(|| std::path::Path::new("")),
+                            llm_cfg,
+                        );
+                        self.ai_status = Some(tr.review_working.to_string());
+                        self.review_original = Some(original.clone());
+                        self.review_rx = Some(crate::llm::spawn_prompt_review(
+                            review_cfg.as_ref().unwrap_or(llm_cfg),
+                            &ctx_for_review,
+                            &original,
+                        ));
+                    }
+                    if let Some(prompt) = self.review_accepted.take() {
+                        {
                             self.ai_history.push(crate::llm::ChatTurn::user(prompt.clone()));
                             self.global_ai_prompt.clear();
                             self.ai_status = Some("Thinking...".to_string());
@@ -4694,6 +4934,60 @@ impl DesignerPanel {
                             }
                         }
                     }
+                    // ── Grace's review came back ─────────────────────────
+                    if let Some(rx) = self.review_rx.take() {
+                        match rx.try_recv() {
+                            Ok(crate::llm::LlmResponse::Ok(text)) => {
+                                let original =
+                                    self.review_original.take().unwrap_or_default();
+                                match crate::prompt_polish::parse_review(&text) {
+                                    Some(review) => {
+                                        self.ai_status = None;
+                                        self.review_modal =
+                                            Some(crate::panels::prompt_review::PromptReview::new(
+                                                original,
+                                                review.revised,
+                                                review.notes,
+                                            ));
+                                    }
+                                    // A review that did not parse must never
+                                    // cost the developer their request: run it
+                                    // as written.
+                                    None => self.review_accepted = Some(original),
+                                }
+                            }
+                            Ok(crate::llm::LlmResponse::Err(e)) => {
+                                crate::llm::push_ai_log(
+                                    crate::llm::AiLogKind::Error,
+                                    format!("prompt review failed, sending the request as written: {e}"),
+                                );
+                                self.review_accepted = self.review_original.take();
+                            }
+                            // Streaming chunks are not interesting here.
+                            Ok(_) => self.review_rx = Some(rx),
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                ui.ctx().request_repaint();
+                                self.review_rx = Some(rx);
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                self.review_accepted = self.review_original.take();
+                            }
+                        }
+                    }
+                    if let Some(modal) = self.review_modal.as_mut() {
+                        match crate::panels::prompt_review::show(ui.ctx(), &tr, modal) {
+                            Some(crate::panels::prompt_review::ReviewAction::Submit(text)) => {
+                                self.review_modal = None;
+                                self.review_accepted = Some(text);
+                            }
+                            Some(crate::panels::prompt_review::ReviewAction::Cancel) => {
+                                self.review_modal = None;
+                                self.ai_status = None;
+                            }
+                            None => {}
+                        }
+                    }
+
                     let mut keep_rx = true;
                     let mut ai_reply = None;
                     if let Some(rx) = self.ai_rx.take() {
@@ -9466,6 +9760,52 @@ fn apply_deploy_properties(
         if let Some(pv) = json_to_prop(v) {
             apply_structural_prop(ctrl, k, &pv);
         }
+    }
+}
+
+/// The prompt box's completion state, carried between frames.
+#[derive(Default)]
+pub struct PromptAc {
+    visible: bool,
+    sel: usize,
+    items: Vec<crate::prompt_complete::Suggestion>,
+    /// Byte range in the prompt text that accepting replaces.
+    replace: (usize, usize),
+}
+
+impl PromptAc {
+    fn close(&mut self) {
+        self.visible = false;
+        self.items.clear();
+        self.sel = 0;
+    }
+}
+
+/// What the key handling in front of the editor decided this frame.
+struct PromptAcInput {
+    sel: usize,
+    accept: bool,
+    dismiss: bool,
+    editable: bool,
+}
+
+fn char_to_byte(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
+}
+
+/// One colour per kind, so a name's origin reads at a glance: the project's own
+/// words warm, the platform's members cool.
+fn prompt_ac_color(kind: crate::prompt_complete::Kind) -> egui::Color32 {
+    use crate::prompt_complete::Kind;
+    match kind {
+        Kind::Control => egui::Color32::from_rgb(120, 190, 255),
+        Kind::DataItem => egui::Color32::from_rgb(220, 200, 120),
+        Kind::Procedure => egui::Color32::from_rgb(200, 160, 240),
+        Kind::Property => egui::Color32::from_rgb(140, 220, 160),
+        Kind::Event => egui::Color32::from_rgb(240, 170, 130),
     }
 }
 

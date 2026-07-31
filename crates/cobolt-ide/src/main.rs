@@ -37,6 +37,8 @@ pub mod llm;
 pub mod main_form;
 mod panels;
 pub mod pdf_export;
+pub mod prompt_complete;
+pub mod prompt_polish;
 mod project_fs;
 mod project_model;
 mod runner;

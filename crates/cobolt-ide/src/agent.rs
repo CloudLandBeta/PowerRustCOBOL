@@ -240,6 +240,78 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
 /// operation alone, with no control inventory. Shared with the workflow lint
 /// gate ([`lint_change_set_submission`]) so the two can never disagree — an
 /// operation this rejects is exactly one the apply path would silently skip.
+/// Every control type the designer can deploy. One list, used to build the
+/// context block AND to prove an event name wrong without a form.
+pub(crate) const ALL_CONTROL_TYPES: [&str; 35] = [
+    "Button",
+    "TextBox",
+    "Label",
+    "CheckBox",
+    "RadioButton",
+    "ListBox",
+    "ComboBox",
+    "GroupBox",
+    "Panel",
+    "TabControl",
+    "DataGrid",
+    "PictureBox",
+    "ProgressBar",
+    "MenuBar",
+    "ToolBar",
+    "StatusBar",
+    "Line",
+    "DateTimePicker",
+    "NumericUpDown",
+    "TreeView",
+    "Splitter",
+    "Timer",
+    "Shape",
+    "Animator",
+    "AgentObject",
+    "RestClient",
+    "SqlDatabase",
+    "IndexedFile",
+    "Slider",
+    "BarChart",
+    "LineChart",
+    "PieChart",
+    "AreaChart",
+    "ScatterChart",
+    "DonutChart",
+];
+
+/// The real event names that resemble `event` — what the agent probably meant.
+/// `onFocus` finds `onGotFocus`/`onLostFocus`; `keyboard` finds nothing, which
+/// is itself the answer.
+fn event_name_suggestions(event: &str) -> Vec<&'static str> {
+    let needle = event.trim().to_ascii_lowercase();
+    let stem = needle.strip_prefix("on").unwrap_or(&needle);
+    if stem.len() < 3 {
+        return Vec::new();
+    }
+    let mut out: Vec<&'static str> = Vec::new();
+    for ty in ALL_CONTROL_TYPES {
+        for e in ControlType::from_str(ty).supported_events() {
+            let lower = e.to_ascii_lowercase();
+            if lower.contains(stem) && !out.contains(e) {
+                out.push(e);
+            }
+        }
+    }
+    out.truncate(4);
+    out
+}
+
+/// Whether ANY control type supports `event`.
+fn event_exists_anywhere(event: &str) -> bool {
+    ALL_CONTROL_TYPES.iter().any(|ty| {
+        ControlType::from_str(ty)
+            .supported_events()
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(event.trim()))
+    })
+}
+
 pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
     match op {
         AgentOp::DeployControl {
@@ -257,7 +329,25 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
                     .then(|| format!("'{control_type}' has no property '{key}'."))
             })
         }
-        AgentOp::GenerateEventHandler { code, .. } => handler_body_shape_error(code),
+        AgentOp::GenerateEventHandler { event, code, .. } => {
+            // An event name no control type has is provably wrong whatever
+            // control it targets — and it is the failure the workflow used to
+            // discover one name at a time, a reviewer round each, or (before
+            // the reviewer had the legend) not at all: the operation was
+            // dropped at apply and no handler appeared. Naming every bad name
+            // at once costs one round instead of three.
+            if !event_exists_anywhere(event) {
+                let hint = match event_name_suggestions(event).as_slice() {
+                    [] => String::new(),
+                    names => format!(" Did you mean {}?", names.join(", ")),
+                };
+                return Some(format!(
+                    "No control type has an event '{event}'.{hint} Use the exact \
+                     name from EVENTS BY TYPE in your context."
+                ));
+            }
+            handler_body_shape_error(code)
+        }
         AgentOp::CreateProcedure { name, code } => {
             if name.trim().is_empty() {
                 return Some("Procedure name is empty.".to_string());
@@ -976,42 +1066,7 @@ pub fn build_context(form: &Form) -> String {
         out.push('\n');
     }
 
-    let all_types = [
-        "Button",
-        "TextBox",
-        "Label",
-        "CheckBox",
-        "RadioButton",
-        "ListBox",
-        "ComboBox",
-        "GroupBox",
-        "Panel",
-        "TabControl",
-        "DataGrid",
-        "PictureBox",
-        "ProgressBar",
-        "MenuBar",
-        "ToolBar",
-        "StatusBar",
-        "Line",
-        "DateTimePicker",
-        "NumericUpDown",
-        "TreeView",
-        "Splitter",
-        "Timer",
-        "Shape",
-        "Animator",
-        "AgentObject",
-        "RestClient",
-        "SqlDatabase",
-        "Slider",
-        "BarChart",
-        "LineChart",
-        "PieChart",
-        "AreaChart",
-        "ScatterChart",
-        "DonutChart",
-    ];
+    let all_types = ALL_CONTROL_TYPES;
 
     out.push_str("PROPERTY KEYS BY TYPE (for all available controls):\n");
     for t in &all_types {
@@ -1810,6 +1865,45 @@ mod tests {
         let form = form_with_label();
         let v = validate(&cs, &form);
         assert_eq!(v, vec![None]);
+    }
+
+    /// The workflow's machine gate must name EVERY bad event name at once: the
+    /// reviewer finds them one per round, and a three-round correction budget
+    /// spent on spelling is a workflow that never reaches the code.
+    #[test]
+    fn an_event_no_control_type_has_is_caught_before_the_reviewer() {
+        let body = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+                    PROCEDURE DIVISION.\n           CONTINUE.\n";
+        let handler = |ctrl: &str, event: &str| AgentOp::GenerateEventHandler {
+            control_id: ctrl.into(),
+            event: event.into(),
+            code: body.into(),
+        };
+        let cs = AgentChangeSet {
+            operations: vec![
+                handler("TXT-2", "onFocus"),
+                handler("TXT-4", "keyboard"),
+                handler("TXT-1", "onChange"),
+            ],
+            note: None,
+        };
+        let report = lint_change_set_submission(crate::agents_db::EVENT_HANDLER, &change_set_json(&cs))
+            .expect("the gate must reject");
+        assert!(report.contains("onFocus"), "{report}");
+        assert!(report.contains("keyboard"), "{report}");
+        assert!(
+            !report.contains("onChange"),
+            "a real event must not be flagged: {report}"
+        );
+        // The suggestion is what turns a rejection into a fix.
+        assert!(report.contains("onGotFocus"), "no suggestion offered: {report}");
+    }
+
+    fn change_set_json(cs: &AgentChangeSet) -> String {
+        format!(
+            "```json\n{}\n```",
+            serde_json::to_string(&serde_json::json!({ "operations": cs.operations })).unwrap()
+        )
     }
 
     /// A handler bound to an event the control does not have is skipped at

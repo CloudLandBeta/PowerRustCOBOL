@@ -1641,6 +1641,14 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 ## Code generation & Compilation
 - Multi-agent coordination: Grace (Orchestrator) plans and delegates UI design to Form Designer Agent, event implementations to COBOL Event Handler Script Agent, and schema setups to Data Agent.
 - During IDE build/compilation, the project is parsed, semantic checks are performed, and it is compiled into a single native executable.
+
+## The two Knowledge Bases
+There are two separate stores, and they are never merged on disk:
+
+- **System Knowledge Base** — this document and its siblings (`rustcobol_extensions.md`, `form_designer_controls.md`, `control_methods_reference.md`, `agents_registry.md`). It describes the PLATFORM, so it lives at machine level in `~/PowerRustCOBOL/Knowledge Base/`, with its vector index in `~/PowerRustCOBOL/data/`. It is regenerated from the running binary at the start of every workflow — which is why it cannot drift behind the installed IDE and is never legitimately empty. It is **not** copied into any project, and compilation does not publish it into one.
+- **Project Knowledge Base** — the developer's own `<project>/Knowledge Base/` folder: requirements, diagrams, data models, decisions. Its index lives in `<project>/data/`. An empty Project Knowledge Base is a normal state, not a fault.
+
+Both stores are searched for every request, and the matching subject records — not whole documents — are injected into the agents' context. Each excerpt carries a `SOURCE:` line naming its store, because the two use identically shaped paths: a System KB hit reads `Knowledge Base/form_designer_controls.md`, which is exactly how a project file would read even though the project contains no such file. Cite the project-relative path only for Project Knowledge Base excerpts; a System Knowledge Base excerpt is platform documentation and must never be reported as a project file, nor requested from the developer.
 "##;
     std::fs::write(kb_dir.join("ide_functionalities.md"), ide_funcs)?;
 

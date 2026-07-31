@@ -1016,19 +1016,30 @@ impl AgentsDb {
         changed
     }
 
-    /// Upgrade Grace's stored prompt when it is the unmodified
-    /// pre-event-ownership shipped default. Grace's prompt file is written once
-    /// at creation and is not covered by `repair_builtin_definition`, so
-    /// without this the planning rule ("never plan placeholder event-wiring
-    /// tasks") would reach only NEW projects. An edited prompt is the
-    /// developer's and is never replaced.
+    /// Upgrade Grace's stored prompt when it is an unmodified shipped default
+    /// of an earlier generation. Grace's prompt file is written once at
+    /// creation and is not covered by `repair_builtin_definition`, so without
+    /// this a corrected rule would reach only NEW projects — the existing
+    /// project, the one the developer is actually working in, would keep the
+    /// old text forever. An EDITED prompt is the developer's and is never
+    /// replaced; each generation is therefore recognised by its exact snapshot
+    /// plus a marker proving the correction is absent.
+    ///
+    /// V1: before the event-ownership planning rule (no placeholder wiring).
+    /// V2: before the knowledge-store correction (the System KB was described
+    /// as published into the project).
     fn ensure_grace_prompt_current(&mut self) -> bool {
         let current = self.load_prompt(GRACE);
-        if !prompt_is_unmodified_legacy(
+        let stale = prompt_is_unmodified_legacy(
             &current,
             crate::llm::GRACE_EVENT_OWNERSHIP_MARKER,
             crate::llm::LEGACY_GRACE_PROMPT_V1,
-        ) {
+        ) || prompt_is_unmodified_legacy(
+            &current,
+            crate::llm::GRACE_KNOWLEDGE_STORES_MARKER,
+            crate::llm::LEGACY_GRACE_PROMPT_V2,
+        );
+        if !stale {
             return false;
         }
         self.save_prompt(GRACE, &crate::llm::default_grace_prompt())
@@ -2763,6 +2774,36 @@ mod tests {
             db.load_prompt(FORM_DESIGNER),
             "House rule: buttons are 90px wide."
         );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// A prompt correction that only reaches new projects has not shipped: the
+    /// developer's existing project keeps the old text forever. Grace's stored
+    /// prompt is written once at creation, so every shipped generation needs
+    /// its own snapshot — here the one that claimed the platform's reference
+    /// documents are published into the project's Knowledge Base.
+    #[test]
+    fn project_open_upgrades_the_pre_knowledge_store_prompt() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        db.save_prompt(GRACE, crate::llm::LEGACY_GRACE_PROMPT_V2)
+            .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+        let grace = db.load_prompt(GRACE);
+        assert!(grace.contains(crate::llm::GRACE_KNOWLEDGE_STORES_MARKER));
+        assert!(!grace.contains("published to the project's Knowledge Base"));
+        // The earlier rules survive the newer upgrade.
+        assert!(grace.contains(crate::llm::GRACE_EVENT_OWNERSHIP_MARKER));
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+
+        // An edited prompt carrying the stale claim is still the developer's.
+        let edited = format!("House rule: plan in Portuguese.\n\n{}", crate::llm::LEGACY_GRACE_PROMPT_V2);
+        db.save_prompt(GRACE, &edited).unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(db.load_prompt(GRACE), edited);
         let _ = std::fs::remove_dir_all(proj);
     }
 

@@ -1,12 +1,116 @@
-<!--
-SPDX-License-Identifier: Apache-2.0
-Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
-
-Licensed under the Apache License, Version 2.0.
-See the LICENSE file in the project root for full license information.
--->
-
 # PowerRustCOBOL — Changelog
+
+## [PowerRustCOBOL 1.49.2] — 2026-07-31
+
+### Fixed
+
+- **Grace no longer believes the platform's documentation lives in the
+  developer's project.** Her prompt still described an architecture the
+  compiler abandoned: that the System Knowledge Base documents "are
+  automatically published to the project's Knowledge Base during compilation".
+  They are not, and never were copied there since — the System KB is the
+  platform's own reference, it lives at machine level in `~/PowerRustCOBOL`,
+  and it is republished from the running binary at the start of every
+  workflow. The project's `Knowledge Base/` folder is the developer's, and
+  being empty is a normal state for it. Grace's prompt now says exactly that,
+  and an existing project's stored prompt is upgraded on open when it is an
+  unmodified copy of the old default — an edited prompt is still never
+  touched.
+- **A retrieved excerpt now names the store it came from.** Both knowledge
+  bases keep their files under a folder called `Knowledge Base`, so their
+  paths are indistinguishable: a System KB hit arrives as
+  `Knowledge Base/form_designer_controls.md`, which is exactly how a project
+  file would read though the project contains no such file. The hits were
+  merged under a heading that called all of them project knowledge, beside a
+  rule telling agents to cite project-relative paths. Every excerpt now
+  carries a `SOURCE:` line, and the precedence contract makes the citation
+  rule per-store: platform documentation is never reported as a project file,
+  and never requested from the developer.
+
+## [PowerRustCOBOL 1.49.1] — 2026-07-31
+
+### Fixed
+
+- **Grace's review now runs as Grace.** The review shipped in 1.49.0 never
+  reached the developer: it was sent on the RAD assistant's own model profile
+  instead of Grace's, so on a project whose Grace speaks to one provider and
+  whose panel points at another, the review died on the second provider's
+  billing error while the workflow that followed ran perfectly on the first.
+  The step is Grace's, so Grace's configured connection answers it.
+- **The review is no longer handed a specialist's protocol.** The request went
+  out with no agent named, so the keyword router read the developer's text,
+  picked a built-in specialist from it — a request mentioning events chose the
+  Event Binder — and composed that specialist's change-set protocol on top of
+  the review instruction: Grace was being asked to polish the prompt and emit
+  form operations in the same reply. Naming Grace, who is not a built-in
+  specialist, keeps the review instruction the whole of the system prompt.
+
+## [PowerRustCOBOL 1.49.0] — 2026-07-31
+
+### Added
+
+- **Grace reviews the request before anything runs.** The defects the Pedantic
+  agents keep catching are born in the specification, not in the model: one
+  ambiguous sentence reaches four agents, each resolves it differently, and
+  the correction loop pays for it. So pressing send in the RAD assistant no
+  longer starts the workflow — it asks Grace to rewrite the request first:
+  grammar and spelling fixed, ambiguity about what PowerRustCOBOL can
+  actually do removed, the content reordered for clarity and completeness,
+  and the developer's intent preserved exactly, with nothing added that was
+  not asked for.
+  - A modal shows both versions — the developer's own words, read-only, above
+    Grace's revision, editable. The passages that still read two ways are
+    highlighted in place, each carrying its reason as a tooltip; editing one
+    away removes its highlight. Submit sends the revision as it then stands;
+    Cancel returns to the prompt box with the request untouched.
+  - The window opens centred on the RAD window and can be dragged anywhere.
+    Its size comes from state and from nothing else: the editor opens at ten
+    rows, only the corner grip changes that, and it stops at fifteen. The
+    function that computes the window's size takes the row count and the row
+    height — there is no argument through which the content could make it
+    grow.
+  - A review that fails or does not parse never costs the developer their
+    request: the workflow runs with the text exactly as written, and the
+    failure is noted in the AI log.
+
+## [PowerRustCOBOL 1.48.1] — 2026-07-31
+
+### Fixed
+
+- **A wrong event name is now caught once, not once per round.** With the
+  event legend finally reaching the specialists (1.47.6), the Pedantic
+  reviewer started catching invented event names — but one per review round:
+  `keyboard` in the first, `onFocus` in the second, and a three-round
+  correction budget spent on spelling is a workflow that never reaches the
+  code. An event name that NO control type has is provably wrong without a
+  form, so the machine gate now rejects the whole set at submission, naming
+  every bad name at once and suggesting the real one (`onFocus` →
+  `onGotFocus`, `onLostFocus`).
+- **The wrong name is no longer born in the delegation.** It came from the
+  Form Designer's own prose — "txt2 (onFocus)", "txt4 (onKeyPress - Enter)" —
+  which the event agent then followed instead of the legend. The designer is
+  now told to copy the event name verbatim from `EVENTS BY TYPE`, and warned
+  about exactly the plausible spellings that are wrong.
+
+## [PowerRustCOBOL 1.48.0] — 2026-07-31
+
+### Added
+
+- **Name completion in the AI assistant's prompt box.** The developer writing
+  a prompt has to spell the project's own words exactly — a control id, a data
+  item, a procedure, a property, an event — because the agents bind to what
+  the prompt says, and a typo there costs a whole workflow. Those names now
+  complete as you type, from the same catalogue the delegated task context is
+  built from: two characters open the list, `<control>::` narrows it to that
+  control's own properties and events, ↑↓ choose, Tab or Enter accept, Esc
+  closes. Each row carries its kind, and a member its owning type.
+  - **COBOL itself is never completed.** A prompt is prose: a popup over
+    "display the total" or "set the colour" would be in the way, not in the
+    help. Reserved words are excluded by asking the lexer's own keyword table,
+    so the exclusion cannot drift from the language — while a NAME that merely
+    contains a keyword (`SAVE-BUTTON`) still completes.
+  - While the list is open it owns Enter, so accepting a name never also sends
+    the prompt.
 
 ## [PowerRustCOBOL 1.47.8] — 2026-07-31
 
