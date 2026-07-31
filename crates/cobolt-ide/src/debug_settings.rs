@@ -53,6 +53,11 @@ pub struct DebugSettings {
     // ── Agentic AI ────────────────────────────────────────────────────────
     /// `[ai-pane]` sizing lines on stderr each frame.
     pub ai_pane_debug: bool,
+    /// 038 R14 — machine-wide window-effects kill-switch: every entrance/exit
+    /// effect is skipped (instant open/close/restore) without touching any
+    /// project or form. Accessibility / weak-GPU escape hatch, NOT a
+    /// diagnostic: it does not count toward `any_enabled`.
+    pub no_window_fx: bool,
     // ── Indexed files ─────────────────────────────────────────────────────
     /// INDEXED transaction log level: `off` | `basic` | `full` (redb engine).
     pub indexed_log: String,
@@ -72,6 +77,7 @@ impl Default for DebugSettings {
             rounded_clip: false,
             databind_trace: false,
             ai_pane_debug: false,
+            no_window_fx: false,
             indexed_log: "off".into(),
             indexed_log_format: "text".into(),
             log_filter: String::new(),
@@ -142,6 +148,7 @@ impl DebugSettings {
                 onoff(self.datagrid_diagnostics),
             ),
             ("COBOLT_DATABIND_TRACE", onoff(self.databind_trace)),
+            ("PRC_NO_WINDOW_FX", onoff(self.no_window_fx)),
             ("COBOL_INDEXED_LOG", self.indexed_log.clone()),
             ("COBOL_INDEXED_LOG_FORMAT", self.indexed_log_format.clone()),
         ];
@@ -219,6 +226,15 @@ static SECTIONS: &[Section] = &[
                        only.",
                 env: "COBOLT_ROUNDED_CLIP",
                 get: |s| &mut s.rounded_clip,
+            },
+            Switch::Flag {
+                label: "Disable window effects",
+                hint: "Skip every project window entrance/exit effect (instant open, close \
+                       and restore) without changing any project or form — for motion \
+                       sensitivity, weak GPUs, or automation (spec 038). The same variable \
+                       works for a bare `rcrun run-form`.",
+                env: "PRC_NO_WINDOW_FX",
+                get: |s| &mut s.no_window_fx,
             },
         ],
     },
@@ -467,8 +483,27 @@ mod tests {
         };
         assert_eq!(get("COBOLT_DATABIND_TRACE"), Some("0"));
         assert_eq!(get("COBOL_INDEXED_LOG"), Some("off"));
+        assert_eq!(get("PRC_NO_WINDOW_FX"), Some("0"), "fx kill-switch explicit off");
         // No filter set ⇒ the child keeps its own default.
         assert_eq!(get("COBOLT_LOG"), None);
+    }
+
+    /// 038 R14 — the window-effects kill-switch reaches children as "1" when
+    /// on, and is NOT a diagnostic: it never triggers the dump condition.
+    #[test]
+    fn window_fx_kill_switch_forwards_without_counting_as_diagnostic() {
+        let mut s = DebugSettings::default();
+        s.no_window_fx = true;
+        assert!(
+            !s.any_enabled(),
+            "kill-switch must not trigger the diagnostics dump"
+        );
+        let env = s.child_env();
+        assert!(
+            env.contains(&("PRC_NO_WINDOW_FX", "1".to_string())),
+            "child env carries the kill-switch"
+        );
+        println!("kill-switch: child env PRC_NO_WINDOW_FX=1, any_enabled={}", s.any_enabled());
     }
 
     #[test]

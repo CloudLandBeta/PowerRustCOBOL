@@ -1,8 +1,0 @@
-[project]
-name = "BarChart Test"
-version = "1.0.0"
-main = "generated/bar-chart.cbl"
-
-[files]
-forms = ["forms/bar-chart.cfrm"]
-generated = ["generated/bar-chart.cbl"]

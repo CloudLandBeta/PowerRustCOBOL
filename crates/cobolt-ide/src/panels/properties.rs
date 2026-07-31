@@ -6916,6 +6916,16 @@ impl PropertiesPanel {
                             .push(("TitleVisible".into(), v.to_string()));
                     }
                 });
+                // 038 R3 — play the PROJECT's window effects, or open/close
+                // instantly. Forms never choose effects, only this on/off.
+                property_row(ui, tr.lbl_window_effects, |ui| {
+                    let mut v = form.window_effects;
+                    if ui.checkbox(&mut v, "").changed() {
+                        action
+                            .form_props
+                            .push(("WindowEffects".into(), v.to_string()));
+                    }
+                });
 
                 // ── Appearance ────────────────────────────────────────────────────────
                 section_header(ui, tr.sec_appearance);

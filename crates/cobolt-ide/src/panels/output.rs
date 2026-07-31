@@ -127,10 +127,32 @@ impl OutputPanel {
         self.scroll_to_bottom = true;
     }
 
-    /// Clear all output.
+    /// Clear all output. This is the explicit "Clear" the developer asks for.
     pub fn clear(&mut self) {
         self.lines.clear();
         self.scroll_to_bottom = false;
+    }
+
+    /// Clear the RUN log — program output, diagnostics, status separators and
+    /// runtime errors — and keep the assistant's conversation.
+    ///
+    /// Starting a run used to clear the whole pane, which wiped the agent
+    /// trace: the developer would ask Grace for something, run the form to see
+    /// the result, and lose the request, the plan, the review findings and the
+    /// generated code they were still reading (operator report, 2026-07-30).
+    /// The two streams share one pane, so a run only clears its own half.
+    pub fn clear_run_output(&mut self) {
+        self.lines.retain(|line| {
+            matches!(
+                line,
+                OutputLine::Reasoning(_)
+                    | OutputLine::AiInfo(_)
+                    | OutputLine::AiDetail(_)
+                    | OutputLine::AiError(_)
+                    | OutputLine::AiQuestion(_)
+            )
+        });
+        self.scroll_to_bottom = true;
     }
 
     /// Render the output panel at the bottom.
@@ -335,5 +357,43 @@ impl OutputLine {
             OutputLine::AiError(s) => format!("ai error: {s}"),
             OutputLine::AiQuestion(s) => format!("ai: {s}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Operator report (2026-07-30): running a form wiped the assistant's
+    /// whole conversation. The run log and the agent trace share one pane, so
+    /// starting a run must clear only its own half — the request, the plan,
+    /// the review findings and the generated code the developer is still
+    /// reading have to survive.
+    #[test]
+    fn a_run_clears_its_own_log_and_keeps_the_assistant_trace() {
+        let mut out = OutputPanel::new();
+        out.push_ai_line(crate::llm::AiLogKind::Info, "=== AGENT REQUEST · Grace ===");
+        out.push_ai_line(crate::llm::AiLogKind::Detail, "Grace · tokens: 5946 in");
+        out.push_ai_line(crate::llm::AiLogKind::Question, "Qual formulário?");
+        out.push_ai_line(crate::llm::AiLogKind::Error, "provider timeout");
+        out.push_ai_line(crate::llm::AiLogKind::Reasoning, "thinking…");
+        out.push_status("── Running form textboxes-form.cfrm ──");
+        out.push_line("DISPLAY output");
+        out.push_msg(&RunMsg::Error("runtime error".into()));
+
+        out.clear_run_output();
+        let text = out.all_text();
+        assert!(text.contains("AGENT REQUEST"), "agent trace must survive");
+        assert!(text.contains("tokens: 5946 in"));
+        assert!(text.contains("Qual formulário?"));
+        assert!(text.contains("provider timeout"));
+        assert!(text.contains("thinking"));
+        assert!(!text.contains("Running form"), "run status must be cleared");
+        assert!(!text.contains("DISPLAY output"), "run output must be cleared");
+        assert!(!text.contains("runtime error"), "run errors must be cleared");
+
+        // The explicit Clear button still wipes everything.
+        out.clear();
+        assert!(out.all_text().is_empty());
     }
 }

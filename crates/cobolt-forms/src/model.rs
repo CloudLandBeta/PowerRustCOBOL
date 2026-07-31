@@ -4096,6 +4096,11 @@ pub struct Form {
     pub full_screen: bool,
     /// Show the native title bar; false = chromeless window (R15).
     pub title_visible: bool,
+
+    // ── 038 Window effects ──────────────────────────────────────────────────
+    /// Play the PROJECT's window entrance/exit effects (spec 038 R3). Forms
+    /// never choose effects — only this on/off; false opens/closes instantly.
+    pub window_effects: bool,
 }
 
 impl Form {
@@ -4149,6 +4154,7 @@ impl Form {
             window_state: WindowState::default(),
             full_screen: false,
             title_visible: true,
+            window_effects: true,
         };
         form.seed_repository_if_empty();
         form

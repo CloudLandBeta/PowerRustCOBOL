@@ -8,6 +8,328 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.47.0] — 2026-07-30
+
+### Added
+
+- **Alibaba (Model Studio) is now a model provider.** Alibaba Cloud's
+  DashScope serves the Qwen family on the OpenAI wire under
+  `/compatible-mode/v1`, so it works with the existing bearer-token auth and
+  model refresh. The shipped endpoint is the international (Singapore) host,
+  `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`; inside mainland
+  China switch the model profile to `https://dashscope.aliyuncs.com/...`.
+
+### Fixed
+
+- **Running a form no longer wipes the assistant's conversation.** The run
+  log and the agent trace share one pane, and starting a run cleared the
+  whole thing — the request, the plan, the review findings and the generated
+  code the developer was still reading all vanished. A run (and a build, a
+  check, a debug session) now clears only its own half; the explicit **Clear**
+  button still wipes everything.
+
+### Changed
+
+- **The Knowledge Base now documents what an event handler actually
+  receives.** Almost every event delivers nothing: the dispatcher calls a
+  handler with no arguments, so its `LINKAGE SECTION` is empty. The single
+  payload in the platform is `CONTROL-ARRAY-INDEX`, and only for a control
+  inside a repeating group. In particular **no event carries a key code** —
+  the assistant was declaring a `KEY-CODE` linkage item that nothing
+  populates — and a specific key has its own event: `onEnterPressed` for
+  ENTER, `onEscapePressed` for ESC, since `onKeyDown` fires for any key and
+  says nothing about which one.
+
+## [PowerRustCOBOL 1.46.3] — 2026-07-30
+
+### Fixed
+
+- **Keyboard event handlers were rejected in an unwinnable loop.** A handler
+  that binds its event payload — `PROCEDURE DIVISION USING KEY-CODE.`, the
+  only way to write one — failed the change-set validator with "Code must
+  include PROCEDURE DIVISION.", an instruction it had already followed. The
+  agent resubmitted the same code, was rejected again, and the workflow burnt
+  its whole correction budget creating nothing. The check matched the header
+  line for exact equality; it now accepts a header carrying a phrase or an
+  inline `*>` comment, and the message names the accepted form.
+
+### Changed
+
+- **Matrix rain glyphs are 50% larger** (13 px → 19.5 px). The row pitch and
+  the band each falling line owns scale with the glyph, so bigger characters
+  neither crowd the one above them nor overlap the line beside them.
+
+## [PowerRustCOBOL 1.46.2] — 2026-07-30
+
+### Changed
+
+- **Matrix rain: lines fall in from the top, over a see-through window.** The
+  effect no longer opens with lines already halfway down the screen — every
+  line enters from above the top edge. The black world is gone with them:
+  the form is now painted only down to each line's tail, so ground no tail
+  has passed over is simply never painted and the window stays **completely
+  transparent** there (the desktop shows through). That also lets the Matrix
+  entrance join the see-through, title-bar-less window treatment.
+- **Matrix rain: faster, and staggered by milliseconds.** Lines fall half
+  again as fast, and they arrive on a real clock: the first ones 25 ms apart,
+  then as many as the window fits, each 10–25 ms behind the last, at their
+  own speeds (±15%). Every line still lands on the bottom edge before the
+  animation ends, and on a long animation the stagger stretches to fill the
+  time rather than leaving the form revealed but still waiting.
+
+## [PowerRustCOBOL 1.46.1] — 2026-07-30
+
+### Changed
+
+- **The system Knowledge Base now states the COBOL naming rules.** Both
+  `rustcobol_extensions.md` (a new *Naming rules* section) and the Form
+  Controls Reference explain that a control id becomes a COBOL user-defined
+  word in the generated program, so it may hold only letters, digits and
+  hyphens, may not begin or end with a hyphen, and must never contain an
+  underscore — with the failure spelled out (`WS-TEXTBOX_1-TEXT` is read as a
+  word, an error token and a number, and the control loses its storage). The
+  same rule is stated for every WORKING-STORAGE item and paragraph name a
+  handler declares, so the assistant stops proposing ids like `textbox_1`.
+  The `deploy_control` operation's own schema now carries the rule too, which
+  reaches the model even when the KB chunk is not retrieved.
+
+## [PowerRustCOBOL 1.46.0] — 2026-07-30
+
+### Added
+
+- **Window effects play with no chrome, and over the desktop.** A window that
+  has an entrance effect now opens with **no title bar** — nothing sits still
+  while the animation runs — and the bar arrives together with the finished
+  form (only if the form was designed to show one). Exits drop the chrome the
+  same way. On top of that, the effects that merely move, scale or fade the
+  form's own face (fade, zoom, the four slides, expand-from-title-bar, genie)
+  open a **see-through window**, so the form animates loose on the desktop
+  instead of over a window-coloured rectangle; a fade now dims the face's own
+  opacity rather than veiling it with the background colour. Two consequences
+  worth knowing: on such a window the form's **`transparency` property finally
+  reaches the desktop** (it never could before — the window was opaque), and
+  the macOS drop shadow is off for that window's life, since it would outline
+  the "invisible" window and winit only offers that switch at creation.
+  The mask effects (radar, iris, blinds, checkerboard) and the Matrix rain
+  keep an opaque window: they hide the form by painting over it, and
+  "transparent" cannot erase pixels already painted.
+
+### Fixed
+
+- **Control ids with underscores generated broken COBOL.** A control named
+  `textbox_1` emitted `WS-textbox_1-TEXT`, which the lexer read as an
+  identifier, an error token for `_`, and then a number — so the compiler
+  reported "skipping unknown data clause" and the control ended up with **no
+  storage at all**. Control ids are now normalised into valid COBOL words
+  (every non-alphanumeric character becomes a hyphen, runs collapse, the ends
+  are trimmed) everywhere they reach the generated source: control data
+  groups, IndexedFile and SQL data items, and the paragraph names those
+  controls' facades define and PERFORM. The id's own case is preserved, and a
+  control's default caption still carries its literal id inside quotes.
+
+## [PowerRustCOBOL 1.45.7] — 2026-07-30
+
+### Fixed
+
+- **The TextBox caret is now always legible.** egui drew it from the ambient
+  visuals, so on a dark BackgroundColor — or a dark form seen through Liquid
+  Glass — the caret was dark on dark and effectively invisible. It now
+  measures the field's real surface (the developer's BackgroundColor over the
+  form's backdrop, or the active glass style's own surface) and keeps the
+  text colour while that already clears WCAG AA contrast, flipping to black
+  or white otherwise. Whatever the field colour, the caret clears AA.
+
+## [PowerRustCOBOL 1.45.6] — 2026-07-30
+
+### Added
+
+- **A resized window keeps the form and stretches the background.** Maximize
+  a running form, or drag its border out, and the controls stay exactly where
+  and how big they were designed — but the **gradient (or background image)
+  now covers the whole window** instead of stopping at the form's edge.
+  Dragging the window *smaller* than the form does not crop the background:
+  it stays at the form's size and the form scrolls inside it. Applies to the
+  run form, the form running inside the IDE, and compiled applications; the
+  designer canvas and the Preview keep the backdrop at the form's own size so
+  the designed extent stays visible while editing.
+
+### Fixed
+
+- **Window effects revealed a form without its background.** The static face
+  the effects animate painted the solid colour only, so a form with a
+  gradient or a background image was revealed bare and then jumped to its
+  real background the instant the animation ended — very visible under the
+  Matrix entrance. Backdrop painting now lives in one engine function that
+  the live render AND the effect face both call, so the reveal shows the
+  finished form. The same face also stopped scaling controls against the form
+  size, which stretched them on a window bigger than the form and snapped
+  them back when the animation finished.
+
+## [PowerRustCOBOL 1.45.5] — 2026-07-30
+
+### Fixed
+
+- **Matrix rain: the zoom is gone, the end of trail does the whole job.**
+  The camera fly-through has been removed. What remains is the reveal the
+  effect was always meant to have: the form's content never appears all at
+  once — each column's **end of trail**, the faint top glyph of its falling
+  line, descends over the window and progressively uncovers whatever stood
+  behind it. What the tail has passed is revealed; what lies below it is
+  still the black world, which is where the rain falls, so a line simply
+  runs out of dark to fall through instead of ever crossing into uncovered
+  ground. Columns keep their own speeds (±15%) and start delays, so the
+  reveal is ragged rather than a single sweep, and every tail lands on the
+  bottom edge by the end — the form is complete exactly when the last
+  character leaves the window. Each column now runs three falling lines
+  instead of one, so the dark stays properly rained-on while it lasts.
+
+## [PowerRustCOBOL 1.45.4] — 2026-07-30
+
+### Fixed
+
+- **The Matrix reveal now follows the end of the trail.** The form no longer
+  appears a strip at a time: from the halfway point each column runs one
+  revealing line whose **end of trail** — the topmost, faintest glyph —
+  walks down the window and progressively uncovers whatever sat behind it.
+  Everything above that tail stands revealed; everything below is still the
+  black world, which is where the rain falls, so a line entering uncovered
+  ground simply has no dark left to fall through. The tail lands on the
+  bottom edge at each column's own deadline, so the form is complete exactly
+  when the last character leaves the window. The camera keeps coming in
+  (glyphs, their spacing and the column pitch all grow, accelerating to 5×),
+  and the black strips travel and widen with it, so magnification alone can
+  never uncover anything — only the descending tail can.
+- **Matrix-rain now ignores the easing setting.** Its choreography defines
+  its own pacing; with the default ease-out on top, the "halfway point" fell
+  at 29% of the wall clock and the easing cancelled the camera's
+  acceleration. Every other effect still eases exactly as before.
+
+## [PowerRustCOBOL 1.45.3] — 2026-07-30
+
+### Fixed
+
+- **The run form drew katakana as empty boxes.** The run-form process (and
+  compiled applications) never installed a font set, so they had egui's
+  Latin-only defaults while the IDE had the broad-Latin + CJK system
+  fallbacks — the Matrix rain looked right in the settings preview and fell
+  as tofu boxes in the real window. Both now install the same base font set
+  the IDE uses. As a belt-and-braces measure the rain probes its own font
+  first and falls back to **digits** on any host with no katakana, so it can
+  never show boxes again.
+- **Matrix fly-through, final choreography.** The form no longer fades in
+  during the first half: it stays completely hidden behind the black world
+  until the camera starts moving at the halfway point. The characters are
+  **never faded out** — they keep full brightness and leave only by flying
+  out of the window. Each column now uncovers *its own strip* of the form as
+  it rushes off screen, so every element is revealed by the passage of a
+  line of characters: the outer strips first, the ones dead ahead last, and
+  the whole form exactly when the final column leaves the frame. Columns
+  dead ahead of the camera are nudged off the axis so none can stay on
+  screen, and the magnified glyph sizes are quantised onto a short capped
+  ladder so a 35× zoom cannot blow up the font atlas mid-animation.
+
+## [PowerRustCOBOL 1.45.2] — 2026-07-30
+
+### Fixed
+
+- **MatrixRain became a camera fly-through.** The rain no longer wipes or
+  fades away: it keeps falling continuously (wall-clock driven) for the
+  whole animation while the form **fades in behind it** through a thinning
+  black veil. From the halfway point the "camera" flies forward — glyph
+  columns zoom toward the observer with **speed proportional to elapsed
+  time** (accelerating, scale ∝ z²), each column at its own depth, until
+  the camera passes **between** the rows and only the fully-revealed form
+  remains at the end. MatrixRain now owns its duration band, **1500–4000
+  ms** (other effects keep 100–3000 ms); the settings duration field, the
+  preview, spawn-arg parsing and the runtime all clamp into the selected
+  effect's own bounds, and new projects default to a 2000 ms entrance.
+
+## [PowerRustCOBOL 1.45.1] — 2026-07-30
+
+### Fixed
+
+- **MatrixRain got its proper choreography.** The window now starts fully
+  BLACK — on any theme — and each falling line of characters wipes the
+  blackness away, revealing the form above its trail; below each column's
+  head the cover stays black, the glyphs vanish crossing the bottom edge,
+  and the form is complete exactly when the last character disappears.
+  Columns fall **individually** (the old per-column seeding made neighbours
+  fall in visible pairs; a full-avalanche hash now decorrelates them) at
+  **varied speeds, −15% to +15%** around nominal, normalised so every
+  column still finishes by the animation's end. Glyphs mutate naturally
+  while falling (choice keyed to the cell being crossed).
+
+## [PowerRustCOBOL 1.45.0] — 2026-07-30
+
+### Added
+
+- **Project window entrance & exit effects (spec 038).** Configure once per
+  project (settings → Appearance): an entrance and an exit effect, each
+  with duration (100–3000 ms) and easing, applied to every form. The
+  catalogue: fade, dBASE-style zoom, slides, expand-from-title-bar, radar
+  wipe, iris wipe, venetian blinds, checkerboard, **Matrix falling code**
+  (classic katakana/digit glyphs — the default entrance for NEW projects)
+  and a genie approximation. Effects animate the form's static face through
+  the shared designer painter, so the look matches the designer exactly and
+  the form is interactive the moment the entrance ends. Forms carry a
+  single `WindowEffects` opt-out checkbox; control load-time animations
+  start right after the entrance finishes; an optional project setting
+  replays the entrance on restore-after-minimize (visual only, no events).
+  Exit effects play after the FormState veto check — a refused close plays
+  nothing — and the actual close (onClose, once) happens when the animation
+  completes; STOP RUN closes take the same choreography. Machine-wide
+  kill-switch in Help → Debug Settings ("Disable window effects",
+  `PRC_NO_WINDOW_FX=1` for bare `rcrun run-form`); a live preview button in
+  the settings plays entrance → hold → exit over a sample card. Older
+  projects load with effects off and behave exactly as before.
+
+## [PowerRustCOBOL 1.44.4] — 2026-07-30
+
+### Fixed
+
+- **Build no longer dies on project names with dots.** The generated build
+  crate took the project name almost verbatim, so `PowerDemo3.project`
+  produced an invalid Cargo package name (`powerdemo3.project`) and cargo
+  aborted with "invalid character `.` in package name". The name is now
+  sanitized: lowercased, `.project` suffix dropped, anything outside
+  `[a-z0-9_-]` replaced by `_` (`PowerDemo3.project` → `powerdemo3`).
+- **Build details reveal as a feed.** The details window shows one new line
+  every 250 ms instead of dumping the whole log at once, and keeps
+  auto-scrolling while the view sits at the bottom (scrolling up pauses the
+  follow, back to bottom resumes it).
+
+## [PowerRustCOBOL 1.44.3] — 2026-07-30
+
+### Added
+
+- **Build-details window.** The Building dialog gains a "Details…" button
+  opening the full build log: every phase milestone (theme foreground),
+  the compiler's supplementary counts and sizes (dimmed — these previously
+  reached stderr only in verbose builds), success in green and errors in
+  red, high-contrast in light and dark themes. The window opens centered,
+  is freely movable and resizable, offers Copy and Save… (plain text), and
+  **opens automatically when a build fails**.
+
+## [PowerRustCOBOL 1.44.2] — 2026-07-30
+
+### Fixed
+
+- **Run starts the main form, not "whatever was in the editor".** With a
+  project open (every project is a desktop project today), the Run button
+  launched the editor's active COBOL source — or the project's entry
+  program — in the console runner. It now resolves the MAIN form (repairing
+  the exactly-one invariant if needed) and launches it as a standalone
+  `rcrun run-form` window: an open designer's live state wins, a closed
+  main form is loaded from disk after the usual regenerate-all pass.
+  Single-file mode (no project) still runs the editor's source.
+- **Build progress narrates its real phases.** The Building dialog now
+  reports tokenizing, parsing, semantic analysis, form/generated-code
+  collection, solution packaging, compiling and binary copy as distinct
+  steps instead of one coarse "Parsing & analysing…".
+- **Both progress modals (Build, KB reindex) gained a Hide button** — the
+  dialog can be dismissed while the work continues in the background; the
+  result still lands in the Output panel. (Label translated ×6.)
+
 ## [PowerRustCOBOL 1.44.1] — 2026-07-30
 
 ### Fixed

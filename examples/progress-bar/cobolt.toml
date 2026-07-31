@@ -1,8 +1,0 @@
-[project]
-name = "ProgressBar Test"
-version = "1.0.0"
-main = "generated/progress-bar.cbl"
-
-[files]
-forms = ["forms/progress-bar.cfrm"]
-generated = ["generated/progress-bar.cbl"]

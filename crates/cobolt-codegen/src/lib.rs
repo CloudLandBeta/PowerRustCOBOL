@@ -71,6 +71,33 @@ pub use indexed::{generate_indexed, generate_indexed_fd, generate_indexed_select
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/// Turn a control id into a valid COBOL user-defined word.
+///
+/// A COBOL word may only hold letters, digits and hyphens, and may neither
+/// begin nor end with a hyphen. Control ids are free-form — the designer and
+/// the assistant both happily produce `textbox_1` or `label_result` — and
+/// injecting one verbatim used to emit `WS-TEXTBOX_1-TEXT`, which the lexer
+/// reads as `WS-TEXTBOX`, an error token for `_`, then `1`. The whole data
+/// item was skipped ("skipping unknown data clause"), so the control had no
+/// storage at all. Every character that is not a letter or digit therefore
+/// becomes a hyphen, runs of hyphens collapse, and the ends are trimmed.
+///
+/// The id's own case is kept — COBOL words are case-insensitive, so there is
+/// nothing to gain from shouting, and the generated source keeps reading like
+/// the form the developer designed. The `WS-` prefix the callers add
+/// guarantees the leading alphabetic character a data-name needs.
+pub fn cobol_word(id: &str) -> String {
+    let mut out = String::with_capacity(id.len());
+    for ch in id.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_owned()
+}
+
 /// Generate a complete COBOL source skeleton from `form`.
 ///
 /// Returns a `String` containing fixed-format COBOL source code.
@@ -271,7 +298,7 @@ fn write_data_division(out: &mut String, form: &Form) {
         .iter()
         .filter(|c| c.control_type == ControlType::RestClient)
     {
-        let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let base = ctrl
             .get_prop("BaseURL")
             .map(|v| v.as_str().to_owned())
@@ -313,7 +340,7 @@ fn write_data_division(out: &mut String, form: &Form) {
         .filter(|c| c.control_type == ControlType::DataGrid)
     {
         if datagrid_csv_export_enabled(ctrl) {
-            let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
+            let pfx = format!("WS-{}", cobol_word(&ctrl.id));
             out.push_str(&format!(
                 "      *>── DataGrid {} CSV export ──────────────────────────\n",
                 ctrl.id
@@ -362,7 +389,7 @@ fn write_data_division(out: &mut String, form: &Form) {
         .iter()
         .filter(|c| c.control_type == ControlType::SqlDatabase)
     {
-        let pfx = format!("WS-{}", ctrl.id.to_ascii_uppercase());
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let cs = ctrl
             .get_prop("ConnectionString")
             .map(|v| v.as_str().to_owned())
@@ -392,7 +419,7 @@ fn write_data_division(out: &mut String, form: &Form) {
         .iter()
         .filter(|c| c.control_type == ControlType::Timer)
     {
-        let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let iv = ctrl
             .get_prop("Interval")
             .map(|v| v.as_i64())
@@ -430,7 +457,7 @@ fn write_data_division(out: &mut String, form: &Form) {
         .iter()
         .filter(|c| chart_types.contains(&c.control_type))
     {
-        let pfx = format!("WS-{}", ctrl.id.to_ascii_uppercase().replace('-', "-"));
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let ds = ctrl
             .get_prop("DataSource")
             .map(|v| v.as_str().to_owned())
@@ -502,7 +529,7 @@ fn write_data_division(out: &mut String, form: &Form) {
 
 /// Write a `01 WS-<ID>.` group for one control.
 fn write_control_group(out: &mut String, ctrl: &Control) {
-    let prefix = format!("WS-{}", ctrl.id.replace('-', "-"));
+    let prefix = format!("WS-{}", cobol_word(&ctrl.id));
     out.push_str(&format!("       01 {}.\n", prefix));
 
     // Caption / Text property (if present)
@@ -592,7 +619,7 @@ fn write_procedure_division(out: &mut String, form: &Form, user_lines: &mut Vec<
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
     {
-        out.push_str(&format!("           PERFORM {}-OPEN\n", ctrl.id));
+        out.push_str(&format!("           PERFORM {}-OPEN\n", cobol_word(&ctrl.id)));
     }
 
     // Call OnLoad nested program
@@ -616,7 +643,7 @@ fn write_procedure_division(out: &mut String, form: &Form, user_lines: &mut Vec<
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
     {
-        out.push_str(&format!("           PERFORM {}-CLOSE\n", ctrl.id));
+        out.push_str(&format!("           PERFORM {}-CLOSE\n", cobol_word(&ctrl.id)));
     }
 
     out.push_str("           STOP RUN.\n");
@@ -692,7 +719,7 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
         {
             continue;
         }
-        let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let para = ctrl
             .get_prop("CSVParagraph")
             .map(|v| v.as_str().to_owned())
@@ -1065,8 +1092,11 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         .iter()
         .filter(|c| c.control_type == ControlType::SqlDatabase)
     {
-        let id = ctrl.id.as_str();
-        let pfx = format!("WS-{}", id.to_ascii_uppercase());
+        // Paragraph and data names are COBOL words: an id like `sql_db` must
+        // not reach the source verbatim (the `_` would break the whole item).
+        let id = cobol_word(&ctrl.id);
+        let id = id.as_str();
+        let pfx = format!("WS-{}", cobol_word(id));
         // Backend label derived from the Driver property (sqlite / postgres /
         // mysql). The runtime actually routes on the connection-string scheme,
         // so this only affects the generated comments.
@@ -1246,7 +1276,10 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile)
     {
-        let id = ctrl.id.as_str();
+        // Paragraph and data names are COBOL words: an id like `sql_db` must
+        // not reach the source verbatim (the `_` would break the whole item).
+        let id = cobol_word(&ctrl.id);
+        let id = id.as_str();
         let file = indexed_control_file_name(ctrl);
         let record = prop_string(ctrl, "RecordName")
             .filter(|s| !s.trim().is_empty())
@@ -1257,7 +1290,7 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
             .unwrap_or_else(|| format!("{record}-KEY"));
         let status_item = prop_string(ctrl, "StatusDataItem")
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| format!("WS-{}-STATUS", id.to_ascii_uppercase()));
+            .unwrap_or_else(|| format!("WS-{}-STATUS", cobol_word(id)));
         let open_mode = prop_string(ctrl, "OpenMode").unwrap_or_else(|| "INPUT".into());
         let operator = prop_string(ctrl, "OperatorName").unwrap_or_default();
         let cobol_open_mode = if open_mode.eq_ignore_ascii_case("I-O") {
@@ -1432,17 +1465,17 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
 
     for ctrl in charts {
         let id = &ctrl.id;
-        let ws = format!("WS-{}", id);
+        let ws = format!("WS-{}", cobol_word(id));
         let ds = ctrl
             .get_prop("DataSource")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("WS-{}-TABLE", id));
+            .unwrap_or_else(|| format!("WS-{}-TABLE", cobol_word(id)));
         let cnt = ctrl
             .get_prop("DataCount")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("WS-{}-COUNT", id));
+            .unwrap_or_else(|| format!("WS-{}-COUNT", cobol_word(id)));
 
         // ── SET-TABLE ────────────────────────────────────────────────────────
         out.push_str(&format!("       {id}-SET-TABLE.\n"));
@@ -1501,7 +1534,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile)
     {
-        let pfx = format!("WS-{}", ctrl.id.to_ascii_uppercase());
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
         let selected = ctrl
             .get_prop("IndexedFile")
             .map(|v| v.as_str().to_owned())
@@ -1741,7 +1774,7 @@ fn write_event_loop(out: &mut String, form: &Form) {
                     }) {
                         out.push_str(&format!(
                             "                               PERFORM {}-CLOSE\n",
-                            ctrl.id
+                            cobol_word(&ctrl.id)
                         ));
                     }
                 }
@@ -1888,6 +1921,53 @@ mod tests {
         form.controls.push(btn);
 
         form
+    }
+
+    /// Operator report (2026-07-30): controls named `textbox_1` / `label_result`
+    /// (the assistant names them that way) emitted `WS-textbox_1-TEXT`, which
+    /// the lexer read as an identifier, an error token for `_`, then a number —
+    /// so every one of those data items was skipped and the control had no
+    /// storage. Ids must become valid COBOL words before they reach the source.
+    #[test]
+    fn control_ids_become_valid_cobol_words() {
+        // The reported case: underscores are the killer.
+        assert_eq!(cobol_word("textbox_1"), "textbox-1");
+        assert_eq!(cobol_word("label_result"), "label-result");
+        // Already-valid ids are untouched, case and all.
+        assert_eq!(cobol_word("BTN-OK"), "BTN-OK");
+        assert_eq!(cobol_word("CustomerFile"), "CustomerFile");
+        // Anything else that is not a letter or digit also becomes a hyphen,
+        // runs collapse, and a COBOL word may not start or end with one.
+        assert_eq!(cobol_word("my box.value"), "my-box-value");
+        assert_eq!(cobol_word("__a__b__"), "a-b");
+        assert_eq!(cobol_word("_leading"), "leading");
+        assert_eq!(cobol_word("trailing_"), "trailing");
+
+        // End to end: a form whose controls carry underscores generates data
+        // items and paragraph references that hold no invalid character.
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        form.controls
+            .push(Control::new("textbox_1", ControlType::TextBox, 10, 10));
+        form.controls
+            .push(Control::new("label_result", ControlType::Label, 10, 60));
+        let src = generate(&form);
+        assert!(src.contains("01 WS-textbox-1."), "group name normalised");
+        assert!(src.contains("WS-textbox-1-TEXT"), "field name normalised");
+        assert!(src.contains("WS-label-result-TEXT"), "label field");
+        // The only place a raw id may still show is inside a quoted literal
+        // (a control's default caption) — never as a name the lexer must read.
+        for line in src.lines() {
+            let outside_quotes: String = line
+                .split('\'')
+                .step_by(2)
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(
+                !outside_quotes.contains('_'),
+                "underscore reached a COBOL name: {line}"
+            );
+        }
+        println!("cobol_word: textbox_1 → {}", cobol_word("textbox_1"));
     }
 
     #[test]

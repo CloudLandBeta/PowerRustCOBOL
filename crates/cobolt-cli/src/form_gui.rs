@@ -265,6 +265,38 @@ fn write_diagnostics_dump(project: &str, form: &cobolt_forms::Form) {
     }
 }
 
+/// 038 — resolve the `--fx-entrance/--fx-exit/--fx-restore` args. `killed`
+/// (the `PRC_NO_WINDOW_FX=1` kill-switch) zeroes everything regardless of
+/// what the args say, so any caller can force instant windows.
+fn parse_fx_args(
+    args: &[String],
+    killed: bool,
+) -> (
+    cobolt_forms::window_fx::FxSpec,
+    cobolt_forms::window_fx::FxSpec,
+    bool,
+) {
+    if killed {
+        return (
+            cobolt_forms::window_fx::FxSpec::default(),
+            cobolt_forms::window_fx::FxSpec::default(),
+            false,
+        );
+    }
+    let fx_arg = |name: &str| -> cobolt_forms::window_fx::FxSpec {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .map(|v| cobolt_forms::window_fx::FxSpec::parse(v))
+            .unwrap_or_default()
+    };
+    (
+        fx_arg("--fx-entrance"),
+        fx_arg("--fx-exit"),
+        args.iter().any(|a| a == "--fx-restore"),
+    )
+}
+
 pub fn cmd_run_form(args: &[String]) {
     let (cfrm_path, cbl_path) = match (args.first(), args.get(1)) {
         (Some(a), Some(b)) => (PathBuf::from(a), PathBuf::from(b)),
@@ -299,6 +331,13 @@ pub fn cmd_run_form(args: &[String]) {
         .position(|a| a == "--diagnostics-dump")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // 038 — window effects, resolved by the IDE (project × form opt-out ×
+    // kill-switch). `PRC_NO_WINDOW_FX=1` overrides even explicit args so any
+    // caller (automation, CI) can force instant windows.
+    let fx_killed = std::env::var("PRC_NO_WINDOW_FX")
+        .map(|v| v.trim() == "1")
+        .unwrap_or(false);
+    let (fx_entrance, fx_exit, fx_restore) = parse_fx_args(args, fx_killed);
 
     // ── Load the form layout ──────────────────────────────────────────────────
     let form = match cobolt_forms::load_form(&cfrm_path) {
@@ -543,6 +582,13 @@ pub fn cmd_run_form(args: &[String]) {
     // ── GUI event loop (own process — the IDE stays idle) ─────────────────────
     let (fw, fh) = (form.width as f32, form.height as f32);
     let title = form.title.clone();
+    // 038 — a window that plays an entrance drops its chrome for the duration,
+    // so nothing sits still while the effect animates. Effects that only move,
+    // scale or fade the form's own face additionally get a SEE-THROUGH window,
+    // so the form plays loose on the desktop; the mask effects and MatrixRain
+    // paint over the whole window by design and keep an opaque one.
+    let fx_hide_chrome = fx_entrance.is_active();
+    let fx_transparent = fx_entrance.is_active() && fx_entrance.effect.plays_over_desktop();
     let app = FormApp {
         form_name: form.name.clone(),
         theme_pack,
@@ -580,6 +626,24 @@ pub fn cmd_run_form(args: &[String]) {
         closed_tx,
         form_object,
         fullscreen_actual: form.full_screen,
+        fx_entrance,
+        fx_exit,
+        fx_restore,
+        fx_entrance_start: None,
+        fx_entrance_done: !fx_entrance.is_active(),
+        fx_exit_start: None,
+        fx_seed: {
+            // Deterministic per window: name + size (stable across restarts).
+            let mut h = 0x811C_9DC5_u32;
+            for b in form.name.bytes() {
+                h = (h ^ b as u32).wrapping_mul(0x0100_0193);
+            }
+            h ^ form.width ^ form.height.rotate_left(16)
+        },
+        minimized_actual: form.window_state == cobolt_forms::model::WindowState::Minimized,
+        fx_transparent,
+        fx_chrome_pending: fx_hide_chrome && form.title_visible,
+        fx_chrome_hidden_for_exit: false,
     };
 
     let mut viewport = egui::ViewportBuilder::default()
@@ -594,11 +658,22 @@ pub fn cmd_run_form(args: &[String]) {
         // frame viewport command — winit has no pre-minimized builder).
         .with_minimize_button(form.can_minimize)
         .with_maximize_button(form.can_maximize)
-        .with_decorations(form.title_visible)
+        // 038 — while an entrance plays, the window wears no chrome: the title
+        // bar would be the one fixed, un-animated element on screen. It is
+        // switched back on the frame the animation ends (see `restore_chrome`).
+        .with_decorations(form.title_visible && !fx_hide_chrome)
         .with_fullscreen(form.full_screen)
         .with_maximized(
             form.window_state == cobolt_forms::model::WindowState::Maximized,
         );
+    if fx_transparent {
+        // The effect plays over the DESKTOP: the surface must carry alpha, and
+        // that can only be decided at creation. macOS still draws a drop
+        // shadow around a transparent window, which would outline the
+        // "invisible" window and give the trick away — and winit only offers
+        // that switch at creation too, so it is off for this window's life.
+        viewport = viewport.with_transparent(true).with_has_shadow(false);
+    }
     // R9 — the MAIN form's TaskbarIcon outranks the project icon; other forms
     // keep the project icon (their windows are taskbar-less once opened via
     // OpenForm*, spec 037 R8).
@@ -621,7 +696,15 @@ pub fn cmd_run_form(args: &[String]) {
     let _ = eframe::run_native(
         &title,
         native_options,
-        Box::new(move |_cc| Ok(Box::new(app) as Box<dyn eframe::App>)),
+        Box::new(move |cc| {
+            // Same base font set the IDE installs: egui's defaults plus the
+            // broad-Latin and CJK system fallbacks. Without them this process
+            // has Latin only, so katakana (MatrixRain) and CJK captions drew
+            // as tofu boxes here while the IDE preview showed them correctly.
+            cc.egui_ctx
+                .set_fonts(cobolt_forms::fonts::base_font_definitions());
+            Ok(Box::new(app) as Box<dyn eframe::App>)
+        }),
     );
 
     // Surface a runtime error (if any) after the window closes.
@@ -700,6 +783,37 @@ struct FormApp {
     /// fires only on real transitions (R14/AC8). Seeded with the designed
     /// value so opening fullscreen-by-design is not a "change".
     fullscreen_actual: bool,
+
+    // ── 038 window effects ───────────────────────────────────────────────────
+    /// Project entrance/exit effects, resolved by the IDE into spawn args
+    /// (Default = no effect). The kill-switch env zeroes both at parse time.
+    fx_entrance: cobolt_forms::window_fx::FxSpec,
+    fx_exit: cobolt_forms::window_fx::FxSpec,
+    /// Replay the entrance when the window is restored after minimize (R9).
+    fx_restore: bool,
+    /// The window was created SEE-THROUGH so its entrance could play over the
+    /// desktop (only effects that move/scale/fade the face — see
+    /// `WindowEffect::plays_over_desktop`). The form's own `transparency` then
+    /// reaches the desktop for the window's whole life, as designed.
+    fx_transparent: bool,
+    /// The title bar is designed to be visible but is currently OFF so the
+    /// entrance plays with no fixed chrome; it is switched back on the frame
+    /// the animation ends.
+    fx_chrome_pending: bool,
+    /// One-shot: the chrome was taken off for the EXIT animation.
+    fx_chrome_hidden_for_exit: bool,
+    /// When the current entrance playback started (first frame, or restore).
+    fx_entrance_start: Option<std::time::Instant>,
+    /// True once the entrance finished — gates the control load animations
+    /// (R8) and hands the frame back to the live UI.
+    fx_entrance_done: bool,
+    /// When the exit playback started; the actual close fires at its end.
+    fx_exit_start: Option<std::time::Instant>,
+    /// Deterministic MatrixRain seed (form name + size).
+    fx_seed: u32,
+    /// Last ACTUAL minimized state from ViewportInfo — the restore replay
+    /// triggers on the true→false edge only (R9).
+    minimized_actual: bool,
 }
 
 impl FormApp {
@@ -739,11 +853,22 @@ impl FormApp {
                     }
                     HostAction::CloseWindow { handle } => {
                         if handle == ROOT_HANDLE {
-                            if !self.quit_sent {
-                                self.quit_sent = true;
-                                let _ = self.ev_tx.send(FormEvent::quit());
+                            // 038 R10 — an allowed close plays the exit effect
+                            // first; the playback block performs the real
+                            // close when the animation completes. Vetoes never
+                            // reach this arm, so a refusal plays nothing.
+                            if self.fx_exit.is_active() && !self.quit_sent {
+                                if self.fx_exit_start.is_none() {
+                                    self.fx_exit_start =
+                                        Some(std::time::Instant::now());
+                                }
+                            } else {
+                                if !self.quit_sent {
+                                    self.quit_sent = true;
+                                    let _ = self.ev_tx.send(FormEvent::quit());
+                                }
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     }
                     HostAction::FocusWindow { handle } => {
@@ -913,7 +1038,137 @@ impl FormApp {
     }
 }
 
+impl FormApp {
+    /// The form's background, resolved once and shared by the live render and
+    /// by the static face the window effects animate — so an entrance reveals
+    /// the form WITH its gradient / background image instead of jumping to it
+    /// when the animation ends.
+    fn backdrop(&self, ctx: &egui::Context) -> cobolt_forms::render::Backdrop {
+        // Background image texture (cached in egui memory by path).
+        let image = if self.bg_image.trim().is_empty() {
+            None
+        } else {
+            let path = self.bg_image.clone();
+            let id = egui::Id::new(("run_form_bg", path.as_str()));
+            let cached = ctx.memory(|m| m.data.get_temp::<Option<egui::TextureHandle>>(id));
+            let tex = match cached {
+                Some(t) => t,
+                None => {
+                    let loaded = cobolt_forms::paint::load_image_texture(ctx, &path);
+                    ctx.memory_mut(|m| m.data.insert_temp(id, loaded.clone()));
+                    loaded
+                }
+            };
+            tex.map(|t| (t.id(), t.size_vec2()))
+        };
+        cobolt_forms::render::Backdrop {
+            color_hex: self.bg_hex.clone(),
+            transparency: self.transparency,
+            gradient_enabled: self.bg_gradient_enabled,
+            gradient_start_hex: self.bg_gradient_start.clone(),
+            gradient_end_hex: self.bg_gradient_end.clone(),
+            gradient_direction: self.bg_gradient_direction.clone(),
+            image,
+            image_mode: self.bg_mode,
+            use_theme_background: self.use_theme_background,
+            // The gradient / background image follows the WINDOW: it stretches
+            // over the whole thing when the user maximizes or drags it bigger,
+            // and stays form-sized when the window is dragged smaller. The
+            // controls keep their designed size either way.
+            window_size: Some(ctx.content_rect().size()),
+        }
+    }
+
+    /// 038 — paint one effect frame: the form's STATIC face (background +
+    /// every visible control via the shared `draw_control` pipeline, scaled
+    /// into whatever geometry the effect chooses) transformed by progress
+    /// `t`. Pixel parity with the designer comes free — same painter.
+    fn paint_fx_frame(
+        &self,
+        root_ui: &egui::Ui,
+        effect: cobolt_forms::window_fx::WindowEffect,
+        duration_ms: u32,
+        t: f32,
+    ) {
+        let rect = root_ui.ctx().content_rect();
+        let painter = root_ui
+            .painter()
+            .clone()
+            .with_clip_rect(rect)
+            .with_layer_id(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("window_fx"),
+            ));
+        let bg = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
+        let backdrop = self.backdrop(root_ui.ctx());
+        let controls = &self.controls;
+        let time = self.start.elapsed().as_secs_f64();
+        cobolt_forms::window_fx::paint_window_fx(
+            &painter,
+            rect,
+            bg,
+            t,
+            effect,
+            self.fx_seed,
+            time,
+            self.fx_transparent,
+            duration_ms,
+            &mut |p, target| Self::paint_face(p, target, rect, controls, &backdrop),
+        );
+    }
+
+    /// The static face the effects animate: exactly the picture the live UI
+    /// hands back — the full backdrop (colour, gradient, theme art or image)
+    /// stretched over the window, and every visible control at its DESIGNED
+    /// size — mapped from the untransformed `base` rect into whatever
+    /// geometry the effect chose. Scaling the controls against the form size
+    /// instead would blow them up on a window bigger than the form and snap
+    /// them back the moment the animation ended.
+    fn paint_face(
+        painter: &egui::Painter,
+        target: egui::Rect,
+        base: egui::Rect,
+        controls: &[cobolt_forms::Control],
+        backdrop: &cobolt_forms::render::Backdrop,
+    ) {
+        cobolt_forms::render::paint_backdrop(painter, target, backdrop);
+        let sx = target.width() / base.width().max(1.0);
+        let sy = target.height() / base.height().max(1.0);
+        for c in controls.iter().filter(|c| c.visible) {
+            let mut scaled = c.clone();
+            scaled.rect.x = (c.rect.x as f32 * sx).round() as i32;
+            scaled.rect.y = (c.rect.y as f32 * sy).round() as i32;
+            scaled.rect.w = ((c.rect.w as f32 * sx).round() as i32).max(1);
+            scaled.rect.h = ((c.rect.h as f32 * sy).round() as i32).max(1);
+            cobolt_forms::paint::draw_control(
+                painter,
+                target.min,
+                &scaled,
+                false,
+                true,
+                1.0,
+                1.0,
+                None,
+            );
+        }
+    }
+}
+
 impl eframe::App for FormApp {
+    /// What the framebuffer is cleared to before anything is painted. On a
+    /// see-through window (038 — an entrance that plays over the desktop)
+    /// this is fully transparent: the form's own backdrop supplies whatever
+    /// opacity it was designed with, and everything it does not paint stays
+    /// desktop. Otherwise it is the form's own background colour, so no
+    /// stray frame of eframe's default grey can show through an effect.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if self.fx_transparent {
+            egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+        } else {
+            cobolt_forms::render::backdrop_color(&self.bg_hex, 0).to_normalized_gamma_f32()
+        }
+    }
+
     fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Form windows render through Context-level panels; only the Context
         // is needed per frame.
@@ -937,14 +1192,25 @@ impl eframe::App for FormApp {
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
 
-        // Program ended (STOP RUN / runtime error) → close the window.
+        // Program ended (STOP RUN / runtime error) → close the window — via
+        // the exit effect when one is configured (038 R10, plan D6: one close
+        // choreography regardless of why the window closes).
         if self.finished.load(Ordering::Relaxed) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
+            if self.fx_exit.is_active() && self.fx_exit_start.is_none() {
+                self.fx_exit_start = Some(std::time::Instant::now());
+            }
+            if self.fx_exit_start.is_none() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+            // An exit is playing — fall through to its playback block below.
         }
         // Window close button → ONE close path through the supervisor (037
         // R17): a Waiting form vetoes the close (CancelClose + the
-        // onCloseRejected event); a Ready form quits as before.
+        // onCloseRejected event); a Ready form quits as before. The OS close
+        // is ALSO cancelled when an exit effect is about to play — the
+        // playback block performs the real close when the animation ends
+        // (038 R10; the veto fires FIRST, so a refused close plays nothing).
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_sent {
             let acts = self
                 .supervisor
@@ -956,7 +1222,7 @@ impl eframe::App for FormApp {
                         if handle == cobolt_runtime::form_host::ROOT_HANDLE
                 )
             });
-            if !closing {
+            if !closing || (self.fx_exit.is_active() && self.fx_exit_start.is_none()) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
             self.apply_host_actions(ctx, acts);
@@ -971,6 +1237,37 @@ impl eframe::App for FormApp {
         for req in reqs {
             let acts = self.supervisor.handle_request(req);
             self.apply_host_actions(ctx, acts);
+        }
+
+        // 038 R10/R11 — exit playback: once armed (allowed close or program
+        // end), the window paints only the receding face and performs the
+        // REAL close when t reaches 0. onClose still fires exactly once, at
+        // the actual close (R13 — the quit event is what dispatches it).
+        if let Some(started) = self.fx_exit_start {
+            // The chrome steps aside for the exit too, so the form recedes
+            // without a title bar hanging behind it (the window is closing —
+            // there is nothing to restore afterwards).
+            if self.fx_exit.is_active() && !self.fx_chrome_hidden_for_exit {
+                self.fx_chrome_hidden_for_exit = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+            }
+            let dur = self.fx_exit.duration_ms.max(1) as f64 / 1000.0;
+            let t_lin = 1.0 - (started.elapsed().as_secs_f64() / dur).min(1.0);
+            if t_lin <= 0.0 {
+                if !self.quit_sent {
+                    self.quit_sent = true;
+                    let _ = self.ev_tx.send(FormEvent::quit());
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                let t = self
+                    .fx_exit
+                    .effect
+                    .progress(self.fx_exit.easing, t_lin as f32);
+                self.paint_fx_frame(root_ui, self.fx_exit.effect, self.fx_exit.duration_ms, t);
+                ctx.request_repaint();
+            }
+            return;
         }
 
         // 037 R14 — onFullScreenChanged fires on ACTUAL transitions only,
@@ -990,11 +1287,25 @@ impl eframe::App for FormApp {
             self.send_event(FormEvent::new(form, "onFullScreenChanged"));
         }
 
+        // 038 R9 — restore-after-minimize replays the ENTRANCE visuals only:
+        // no form events, no control-animation replay (`anim_started` stays
+        // true). Edge-triggered on the observed minimized transition.
+        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        if minimized != self.minimized_actual {
+            let was = self.minimized_actual;
+            self.minimized_actual = minimized;
+            if was && !minimized && self.fx_restore && self.fx_entrance.is_active() {
+                self.fx_entrance_done = false;
+                self.fx_entrance_start = None;
+            }
+        }
+
         // ── Animation clock ──────────────────────────────────────────────────
-        // Load-time animations start with the window; everything after is driven
-        // by triggers below. `tick` returns true while something is moving, which
-        // keeps the frame scheduler awake at the end of this method.
-        if !self.anim_started {
+        // Load-time animations start once the WINDOW has fully materialised:
+        // the entrance effect completes first, then the controls come alive
+        // (038 R8). Without an entrance the gate opens on the first frame,
+        // exactly as before.
+        if !self.anim_started && self.fx_entrance_done {
             self.anim_started = true;
             self.anim.start_form_load(&self.controls);
         }
@@ -1095,26 +1406,39 @@ impl eframe::App for FormApp {
             self.send_event(FormEvent::new(&name, "onActivate"));
         }
 
-        // Background image texture (cached in egui memory by path).
-        let backdrop_image = if self.bg_image.trim().is_empty() {
-            None
-        } else {
-            let path = self.bg_image.clone();
-            let id = egui::Id::new(("run_form_bg", path.as_str()));
-            let cached = ctx.memory(|m| m.data.get_temp::<Option<egui::TextureHandle>>(id));
-            let tex = match cached {
-                Some(t) => t,
-                None => {
-                    let loaded = cobolt_forms::paint::load_image_texture(ctx, &path);
-                    ctx.memory_mut(|m| m.data.insert_temp(id, loaded.clone()));
-                    loaded
-                }
-            };
-            tex.map(|t| (t.id(), t.size_vec2()))
-        };
-
         let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
         let form_size = self.form_size;
+
+        // 038 R7 — entrance playback: until the effect completes, paint the
+        // animated STATIC face instead of the live UI (plan D1). Everything
+        // interpreter-side above keeps flowing (state drains, onLoad — R13);
+        // only the widgets wait. The form is interactive the moment the
+        // effect ends.
+        if !self.fx_entrance_done {
+            let started = *self
+                .fx_entrance_start
+                .get_or_insert_with(std::time::Instant::now);
+            let dur = self.fx_entrance.duration_ms.max(1) as f64 / 1000.0;
+            let t_lin = (started.elapsed().as_secs_f64() / dur).min(1.0);
+            if t_lin >= 1.0 {
+                self.fx_entrance_done = true; // live UI takes over this frame
+                // The window wears its chrome again, arriving together with
+                // the finished form (038 — the title bar was off so nothing
+                // stood still while the effect played).
+                if self.fx_chrome_pending {
+                    self.fx_chrome_pending = false;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+                }
+            } else {
+                let t = self
+                    .fx_entrance
+                    .effect
+                    .progress(self.fx_entrance.easing, t_lin as f32);
+                self.paint_fx_frame(root_ui, self.fx_entrance.effect, self.fx_entrance.duration_ms, t);
+                ctx.request_repaint();
+                return;
+            }
+        }
 
         // Render the whole form through the unified engine (one renderer for
         // the designer, preview, running form, compiled binary — and this).
@@ -1125,20 +1449,19 @@ impl eframe::App for FormApp {
                 anim: &self.anim,
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
-            let backdrop = cobolt_forms::render::Backdrop {
-                color_hex: self.bg_hex.clone(),
-                transparency: self.transparency,
-                gradient_enabled: self.bg_gradient_enabled,
-                gradient_start_hex: self.bg_gradient_start.clone(),
-                gradient_end_hex: self.bg_gradient_end.clone(),
-                gradient_direction: self.bg_gradient_direction.clone(),
-                image: backdrop_image,
-                image_mode: self.bg_mode,
-                use_theme_background: self.use_theme_background,
-            };
+            let backdrop = self.backdrop(ctx);
             let mut out = cobolt_forms::render::RenderOutput::default();
+            // On a see-through window the panel must NOT fill: the engine
+            // paints the same backdrop across the whole window a moment
+            // later, and painting a translucent colour twice would double the
+            // form's designed opacity against the desktop.
+            let panel_fill = if self.fx_transparent {
+                egui::Color32::TRANSPARENT
+            } else {
+                bg_fill
+            };
             egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(bg_fill))
+                .frame(egui::Frame::NONE.fill(panel_fill))
                 .show(root_ui, |ui| {
                     // Floating scrollbars overlay the content instead of
                     // reserving a gutter, so no light track strip shows on the
@@ -1279,6 +1602,46 @@ impl eframe::App for FormApp {
 mod tests {
     use super::*;
     use cobolt_forms::{Control, ControlType};
+
+    /// 038 T6 — the `--fx-*` args round-trip through the parser, and the
+    /// kill-switch zeroes them regardless of what the args say.
+    #[test]
+    fn fx_args_parse_and_kill_switch() {
+        use cobolt_forms::window_fx::{Easing, WindowEffect};
+        let args: Vec<String> = [
+            "form.cfrm",
+            "gen.cbl",
+            "--fx-entrance",
+            "matrix-rain:2000:ease-out",
+            "--fx-exit",
+            "fade:400:ease-in",
+            "--fx-restore",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let (ent, exit, restore) = parse_fx_args(&args, false);
+        assert_eq!(ent.effect, WindowEffect::MatrixRain);
+        assert_eq!(ent.duration_ms, 2000);
+        assert_eq!(ent.easing, Easing::EaseOut);
+        assert_eq!(exit.effect, WindowEffect::Fade);
+        assert_eq!(exit.easing, Easing::EaseIn);
+        assert!(restore);
+        println!(
+            "fx args: entrance={} exit={} restore={restore}",
+            ent.format(),
+            exit.format()
+        );
+
+        // Kill-switch: everything zeroed, args ignored.
+        let (kent, kexit, krestore) = parse_fx_args(&args, true);
+        assert!(!kent.is_active() && !kexit.is_active() && !krestore);
+        // No args at all ⇒ inactive defaults.
+        let (nent, nexit, nrestore) = parse_fx_args(&["a".to_string()], false);
+        assert!(!nent.is_active() && !nexit.is_active() && !nrestore);
+        println!("fx args killed/absent ⇒ inactive");
+    }
 
     /// A repeating-group card member the interpreter writes to before the id
     /// exists in `state` must stay VISIBLE. With a derived `Default` the entry

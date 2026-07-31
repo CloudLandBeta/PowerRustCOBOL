@@ -427,6 +427,21 @@ pub struct CoboltApp {
     kb_reindex_rx: Option<std::sync::mpsc::Receiver<KbReindexMsg>>,
     /// Latest reindex phase for the modal bar: (fraction 0..1, "n/m — subject").
     kb_reindex_phase: (f32, String),
+    /// Hide flags for the two background-progress modals: the work continues,
+    /// only the dialog is dismissed (reset when a new run starts).
+    build_modal_hidden: bool,
+    kb_reindex_modal_hidden: bool,
+    /// Full log of the current/last build (phases, details, result), colored
+    /// per line in the details window. Cleared when a build starts.
+    build_log: Vec<(BuildLogKind, String)>,
+    /// The "Build details" window (resizable, movable, centered by default).
+    /// Auto-opens when a build fails.
+    build_details_open: bool,
+    /// Ticker state: how many `build_log` lines are revealed so far, and when
+    /// the last one appeared — one line every 250 ms so the log reads as a
+    /// feed instead of dumping all at once.
+    build_log_shown: usize,
+    build_log_last_reveal: Option<std::time::Instant>,
     /// Streamed build-phase progress (fraction + message) for the Building modal.
     pending_build_progress: Option<std::sync::mpsc::Receiver<cobolt_compiler::BuildProgress>>,
     /// Latest build phase: (fraction 0..1, message).
@@ -453,6 +468,8 @@ enum FileRequest {
     PackageProject,
     AddFile(FileKind),
     NewForm(Box<cobolt_forms::Form>),
+    /// Save the build-details log (payload: the plain-text log).
+    SaveBuildLog(String),
     /// Pick a background image for the IDE appearance settings.
     PickBackgroundImage,
     /// Pick a project icon image for Run Form / packaged app windows.
@@ -659,6 +676,19 @@ struct IndexedGridState {
 /// Inline form/control inspector shown in the Main Pane (from the project tree).
 /// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
 /// machinery without opening a designer window.
+/// One line of the build-details log, colored by what it reports.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BuildLogKind {
+    /// A phase milestone ("Parsing main.cbl…") — theme foreground.
+    Phase,
+    /// A supplementary detail (counts, sizes) — dimmed.
+    Detail,
+    /// Successful completion — green.
+    Success,
+    /// A build error — red.
+    Error,
+}
+
 /// Messages from the manual KB-reindex worker (File menu) to the UI thread.
 enum KbReindexMsg {
     /// Embedding progress for the modal's determinate bar: fraction 0..1 and
@@ -1005,6 +1035,12 @@ impl CoboltApp {
             pending_build_rx: None,
             kb_reindex_rx: None,
             kb_reindex_phase: (0.0, String::new()),
+            build_modal_hidden: false,
+            kb_reindex_modal_hidden: false,
+            build_log: Vec::new(),
+            build_details_open: false,
+            build_log_shown: 0,
+            build_log_last_reveal: None,
             pending_build_progress: None,
             build_phase: (0.0, String::new()),
             pending_file: None,
@@ -1204,20 +1240,24 @@ impl CoboltApp {
         }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
-        // Prefer the file in the editor; otherwise fall back to the open
-        // project's main program, so Run always does something visible.
-        let target = self
+        // A project is a DESKTOP project (the only kind today): Run starts the
+        // MAIN form — never a bare source file (spec 037 R5).
+        if self.cobolt_project.is_some() {
+            self.run_project_main_form();
+            return;
+        }
+        // Single-file mode: run the editor's COBOL source in the console runner.
+        let Some((path, source)) = self
             .editor
             .active_source()
             .map(|(p, s)| (p.clone(), s.to_owned()))
-            .or_else(|| self.project_main_source());
-        let Some((path, source)) = target else {
-            self.output.clear();
+        else {
+            self.output.clear_run_output();
             self.output
                 .push_status("Open a COBOL file, or open a project, to run.");
             return;
         };
-        self.output.clear();
+        self.output.clear_run_output();
         self.output.push_status(format!(
             "── Running {} ──",
             path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
@@ -1226,30 +1266,52 @@ impl CoboltApp {
         self.runner.start(path.display().to_string(), source);
     }
 
-    /// The open project's main program as `(abs_path, source)`, if any.
-    ///
-    /// Prefers the declared `[project].main`; for a form-centric project whose
-    /// main was never hand-written, falls back to the first generated form
-    /// program (then any ordinary source) that exists on disk — so Run always
-    /// has something to execute.
-    fn project_main_source(&self) -> Option<(PathBuf, String)> {
-        let proj = self.cobolt_project.as_ref()?;
-        let root = self.project_path.as_ref()?.parent()?;
-        let exists = |rel: &str| !rel.is_empty() && root.join(rel).is_file();
-
-        let main_rel = if exists(&proj.project.main) {
-            proj.project.main.clone()
-        } else {
-            proj.files
-                .generated
-                .iter()
-                .chain(proj.files.sources.iter())
-                .find(|rel| exists(rel))
-                .cloned()?
+    /// Run the open (desktop) project: resolve the MAIN form — repairing the
+    /// exactly-one invariant if needed — and launch it as a standalone
+    /// `rcrun run-form` process. An open designer's live state wins; a closed
+    /// main form is loaded from disk (its `.cbl` was just regenerated by
+    /// `do_run`'s `regenerate_all_forms`).
+    fn run_project_main_form(&mut self) {
+        let Some(dir) = self.project_dir() else {
+            return;
         };
-        let main_abs = root.join(&main_rel);
-        let src = std::fs::read_to_string(&main_abs).ok()?;
-        Some((main_abs, src))
+        let forms: Vec<String> = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.files.forms.clone())
+            .unwrap_or_default();
+        if forms.is_empty() {
+            self.output.clear_run_output();
+            self.output.push_status(
+                "A desktop project needs at least one form — create one to Run.",
+            );
+            return;
+        }
+        let holder = match crate::main_form::normalize_main_form(&dir, &forms) {
+            Ok(outcome) => outcome.holder().map(|s| s.to_owned()),
+            Err(e) => {
+                self.output.push_status(format!("Run: {e}"));
+                None
+            }
+        };
+        let Some(rel) = holder else {
+            self.output
+                .push_status("Run: the project has no main form.");
+            return;
+        };
+        let abs = dir.join(&rel);
+        // Open in a designer → its Run Form path (saves dirty state first).
+        if let Some(idx) = self.designers.iter().position(|(p, _)| *p == abs) {
+            self.do_run_form(idx);
+            return;
+        }
+        match load_form(&abs) {
+            Ok(form) => self.spawn_form_run(abs, form, false),
+            Err(e) => {
+                self.output
+                    .push_status(format!("Run: could not load the main form {rel}: {e}"));
+            }
+        }
     }
 
     fn do_stop(&mut self) {
@@ -1275,7 +1337,7 @@ impl CoboltApp {
         let path = path.clone();
         let source = src.to_owned();
 
-        self.output.clear();
+        self.output.clear_run_output();
         self.output.push_status(format!(
             "── Debug {} ──",
             path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
@@ -1366,8 +1428,15 @@ impl CoboltApp {
 
         let form_path = self.designers[idx].0.clone();
         let form = self.designers[idx].1.form.clone();
+        self.spawn_form_run(form_path, form, debug);
+    }
 
-        self.output.clear();
+    /// Launch `form` (already saved, with its `.cbl` regenerated) as a
+    /// standalone `rcrun run-form` process. Shared tail of the designer Run
+    /// Form button and the project Run button (which launches the MAIN form,
+    /// open in a designer or not — spec 037 R5).
+    fn spawn_form_run(&mut self, form_path: PathBuf, form: Form, debug: bool) {
+        self.output.clear_run_output();
         self.output.push_status(format!(
             "── {} form {} ──",
             if debug { "Debugging" } else { "Running" },
@@ -1437,6 +1506,13 @@ impl CoboltApp {
                 .filter(|_| self.debug.any_enabled())
                 .map(|p| p.project.name.clone()),
         };
+        // 038 — window effects: project settings × the form's opt-out × the
+        // kill-switch, resolved IDE-side so the child needs no project file.
+        let fx = crate::form_runtime::resolve_fx_args(
+            self.cobolt_project.as_ref(),
+            form.window_effects,
+            self.debug.no_window_fx,
+        );
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
@@ -1445,6 +1521,7 @@ impl CoboltApp {
             project_icon.as_deref(),
             debug,
             &diagnostics,
+            fx.as_ref(),
         ) {
             Ok(run) => {
                 if debug {
@@ -1747,7 +1824,7 @@ impl CoboltApp {
         };
         let path = path.clone();
         let source = src.to_owned();
-        self.output.clear();
+        self.output.clear_run_output();
         self.output.push_status(format!(
             "── Checking {} ──",
             path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
@@ -2195,7 +2272,7 @@ impl CoboltApp {
         // and pop a modal. The build is not attempted until they are fixed.
         let bad_forms = self.revalidate_all_forms();
         if !bad_forms.is_empty() {
-            self.output.clear();
+            self.output.clear_run_output();
             self.output
                 .push_status("── Build blocked: fix these code errors first ──");
             for (path, msg) in &bad_forms {
@@ -2210,7 +2287,7 @@ impl CoboltApp {
             return;
         }
 
-        self.output.clear();
+        self.output.clear_run_output();
         self.output
             .push_status("── Building binary …  (this may take a minute) ──");
 
@@ -2232,6 +2309,11 @@ impl CoboltApp {
         self.pending_build_rx = Some(rx);
         self.pending_build_progress = Some(prx);
         self.build_phase = (0.0, "Starting…".to_string());
+        self.build_modal_hidden = false;
+        self.build_log.clear();
+        self.build_details_open = false;
+        self.build_log_shown = 0;
+        self.build_log_last_reveal = None;
     }
 
     /// File → Reindex Knowledge Bases: run the same incremental sync a Grace
@@ -2267,6 +2349,7 @@ impl CoboltApp {
         });
         self.kb_reindex_rx = Some(rx);
         self.kb_reindex_phase = (0.0, String::new());
+        self.kb_reindex_modal_hidden = false;
     }
 
     /// Memory key for a form's dev-agent conversation.
@@ -6369,6 +6452,7 @@ impl CoboltApp {
                             test_status.as_deref(),
                             has_debug,
                             &prompt_known_controls,
+                            self.debug.no_window_fx,
                         );
                     });
                     ui.add_space(bottom_res);
@@ -7690,6 +7774,29 @@ impl CoboltApp {
         if self.pending_build_rx.is_none() {
             return;
         }
+        // Drain any phase updates that arrived since the last frame — even
+        // while the modal is hidden, so re-showing (next build) is current.
+        // Every line is also captured for the Build-details window: phases
+        // as milestones, `detail` lines as dimmed supplements.
+        let mut latest = None;
+        if let Some(prx) = &self.pending_build_progress {
+            while let Ok(p) = prx.try_recv() {
+                if p.detail {
+                    self.build_log.push((BuildLogKind::Detail, p.message));
+                } else {
+                    self.build_log
+                        .push((BuildLogKind::Phase, p.message.clone()));
+                    latest = Some(p);
+                }
+            }
+        }
+        if let Some(p) = latest {
+            self.build_phase = (p.fraction, p.message);
+        }
+        ctx.request_repaint(); // keep polling while the build runs
+        if self.build_modal_hidden {
+            return; // dismissed — the build continues, result goes to Output
+        }
         // Dim the rest of the IDE so the build reads as modal.
         let screen = ctx.content_rect();
         ctx.layer_painter(egui::LayerId::new(
@@ -7697,19 +7804,7 @@ impl CoboltApp {
             egui::Id::new("building_dim"),
         ))
         .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
-
-        // Drain any phase updates that arrived since the last frame.
-        let mut latest = None;
-        if let Some(prx) = &self.pending_build_progress {
-            while let Ok(p) = prx.try_recv() {
-                latest = Some(p);
-            }
-        }
-        if let Some(p) = latest {
-            self.build_phase = (p.fraction, p.message);
-        }
         let (frac, msg) = (self.build_phase.0, self.build_phase.1.clone());
-        ctx.request_repaint(); // keep polling while the build runs
 
         egui::Window::new("Building…")
             .id(egui::Id::new("building_modal"))
@@ -7735,16 +7830,115 @@ impl CoboltApp {
                     };
                     ui.label(egui::RichText::new(label).size(13.0));
                 });
+                ui.add_space(6.0);
+                // Dismiss the dialog (the build keeps running; the result
+                // still lands in the Output panel), or open the live log.
+                ui.horizontal(|ui| {
+                    let tr = self.lang.tr();
+                    if ui.button(tr.modal_hide).clicked() {
+                        self.build_modal_hidden = true;
+                    }
+                    if ui.button(tr.build_details_btn).clicked() {
+                        self.build_details_open = true;
+                    }
+                });
                 ui.add_space(4.0);
             });
+    }
+
+    /// The Build-details window: the full build log, one colored line per
+    /// entry — phases in the theme foreground, supplements dimmed, success
+    /// green, errors red. Resizable and freely movable; opens centered.
+    /// Auto-opens when a build fails; Copy/Save export the plain text.
+    fn show_build_details_window(&mut self, ctx: &Context) {
+        if !self.build_details_open {
+            return;
+        }
+        let tr = self.lang.tr();
+        // Ticker: reveal one more line every 250 ms while lines are pending,
+        // so the log reads as a feed. `stick_to_bottom` keeps the view
+        // following the newest line whenever the user is at the bottom.
+        if self.build_log_shown < self.build_log.len() {
+            let now = std::time::Instant::now();
+            let due = self
+                .build_log_last_reveal
+                .map(|t| now.duration_since(t).as_millis() >= 250)
+                .unwrap_or(true);
+            if due {
+                self.build_log_shown += 1;
+                self.build_log_last_reveal = Some(now);
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+        let mut open = true;
+        let mut copy = false;
+        let mut save = false;
+        egui::Window::new(tr.build_details_title)
+            .id(egui::Id::new("build_details_window"))
+            .open(&mut open)
+            .resizable(true)
+            .default_size([640.0, 400.0])
+            // Centered on first open; the user drags it anywhere after.
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button(tr.clipboard_copy).clicked() {
+                        copy = true;
+                    }
+                    if ui.button(tr.build_details_save).clicked() {
+                        save = true;
+                    }
+                });
+                ui.separator();
+                // High-contrast per theme: neutral lines take the theme's
+                // strong/weak text colors; success/error use fixed colors
+                // readable on light and dark faces alike.
+                let strong = ui.visuals().strong_text_color();
+                let weak = ui.visuals().weak_text_color();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for (kind, line) in self.build_log.iter().take(self.build_log_shown) {
+                            let color = match kind {
+                                BuildLogKind::Phase => strong,
+                                BuildLogKind::Detail => weak,
+                                BuildLogKind::Success => Color32::from_rgb(60, 190, 100),
+                                BuildLogKind::Error => Color32::from_rgb(235, 80, 80),
+                            };
+                            ui.label(
+                                egui::RichText::new(line).monospace().color(color),
+                            );
+                        }
+                    });
+            });
+        self.build_details_open = open;
+        if copy || save {
+            let text: String = self
+                .build_log
+                .iter()
+                .map(|(_, l)| l.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            if copy {
+                ctx.copy_text(text.clone());
+            }
+            if save {
+                self.begin_file_dialog(
+                    FileRequest::SaveBuildLog(text),
+                    crate::file_dialog::DialogSpec::save().filter("Text", &["txt"]),
+                );
+            }
+        }
     }
 
     /// Progress modal for File → Reindex Knowledge Bases: same shape as the
     /// Building modal — dimmed background, determinate bar, spinner + the
     /// current "n/m — subject" label. Shown while the worker runs.
     fn show_kb_reindex_modal(&mut self, ctx: &Context) {
-        if self.kb_reindex_rx.is_none() {
-            return;
+        if self.kb_reindex_rx.is_none() || self.kb_reindex_modal_hidden {
+            return; // hidden: the reindex continues, summary goes to Output
         }
         let tr = self.lang.tr();
         // Dim the rest of the IDE so the reindex reads as modal (same idiom
@@ -7782,6 +7976,12 @@ impl CoboltApp {
                         msg.as_str()
                     };
                     ui.label(egui::RichText::new(label).size(13.0));
+                });
+                ui.add_space(6.0);
+                ui.vertical_centered(|ui| {
+                    if ui.button(tr.modal_hide).clicked() {
+                        self.kb_reindex_modal_hidden = true;
+                    }
                 });
                 ui.add_space(4.0);
             });
@@ -8224,6 +8424,16 @@ impl CoboltApp {
                     path.display()
                 )),
             },
+            FileRequest::SaveBuildLog(text) => {
+                match std::fs::write(&path, &text) {
+                    Ok(()) => self
+                        .output
+                        .push_status(format!("Build log saved → {}", path.display())),
+                    Err(e) => self
+                        .output
+                        .push_status(format!("Build log save failed: {e}")),
+                }
+            }
             FileRequest::SaveBenchmarkPdf(report) => {
                 let path = ensure_pdf_extension(path);
                 let metrics = Self::llm_benchmark_metrics(&report)
@@ -8839,18 +9049,24 @@ impl eframe::App for CoboltApp {
         if let Some(rx) = &self.pending_build_rx {
             match rx.try_recv() {
                 Ok(Ok(result)) => {
-                    self.output.push_status(format!(
+                    let line = format!(
                         "✅ Build complete!  Binary → {}   ({} source(s), {} form(s), {} bytes AST)",
                         result.binary_path.display(),
                         result.source_count,
                         result.form_count,
                         result.ast_bytes,
-                    ));
+                    );
+                    self.output.push_status(line.clone());
+                    self.build_log.push((BuildLogKind::Success, line));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                 }
                 Ok(Err(e)) => {
                     self.output.push_status(format!("❌ Build failed: {e}"));
+                    self.build_log
+                        .push((BuildLogKind::Error, format!("Build failed: {e}")));
+                    // Errors are what the details window exists for — open it.
+                    self.build_details_open = true;
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                 }
@@ -8928,6 +9144,7 @@ impl eframe::App for CoboltApp {
         // "Building…" progress modal (closes right before the result is shown).
         self.show_building_modal(ctx);
         self.show_kb_reindex_modal(ctx);
+        self.show_build_details_window(ctx);
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
         self.show_form_error(ctx);
         // Duplicate COBOL ID / Validation alert — modal.
@@ -9998,6 +10215,10 @@ impl CoboltApp {
                 image,
                 image_mode: d.form.bg_image_mode,
                 use_theme_background: d.form.use_theme_background,
+                // Preview panel: the backdrop stays pinned to the FORM, so the
+                // designed extent is still visible while editing. Only a real
+                // window (run form, compiled binary) stretches it.
+                window_size: None,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls
@@ -10612,6 +10833,10 @@ impl CoboltApp {
         };
 
         let mut output = cobolt_forms::render::RenderOutput::default();
+        // The run panel IS this form's window: its gradient / background image
+        // stretches over the whole panel when that is bigger than the form, and
+        // stays form-sized when the panel is smaller.
+        let panel_size = panel_ui.max_rect().size();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(bg_color))
             .show(panel_ui, |ui| {
@@ -10654,6 +10879,7 @@ impl CoboltApp {
                                 image,
                                 image_mode: bg_mode,
                                 use_theme_background,
+                                window_size: Some(panel_size),
                             },
                         };
                         output = cobolt_forms::render::render_form(ui, &input);

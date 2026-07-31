@@ -776,6 +776,16 @@ pub const PROVIDERS: &[Provider] = &[
         default_endpoint: "https://api.deepseek.com/v1",
     },
     Provider {
+        id: "alibaba",
+        label: "Alibaba (Model Studio)",
+        // Alibaba Cloud Model Studio (DashScope) serves the Qwen family on the
+        // OpenAI wire under `/compatible-mode/v1`. This is the INTERNATIONAL
+        // (Singapore) host; inside mainland China the same paths live under
+        // `https://dashscope.aliyuncs.com/compatible-mode/v1` — switch the
+        // endpoint on the model profile to use it.
+        default_endpoint: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    },
+    Provider {
         id: "xai",
         label: "xAI",
         default_endpoint: "https://api.x.ai/v1",
@@ -3686,9 +3696,13 @@ fn model_list_headers(provider_id: &str, api_key: &str) -> Vec<(&'static str, St
 
 fn model_list_url(provider_id: &str, endpoint: &str) -> String {
     let ep = endpoint.trim().trim_end_matches('/').to_string();
-    // HuggingFace's router and Groq speak the OpenAI wire, so all three share
-    // the "/models under the API root" rule.
-    if provider_id == "openai" || provider_id == "huggingface" || provider_id == "groq" {
+    // HuggingFace's router, Groq and Alibaba's compatible mode all speak the
+    // OpenAI wire, so they share the "/models under the API root" rule.
+    if provider_id == "openai"
+        || provider_id == "huggingface"
+        || provider_id == "groq"
+        || provider_id == "alibaba"
+    {
         for suffix in ["/chat/completions", "/responses"] {
             if let Some(root) = ep.strip_suffix(suffix) {
                 return format!("{}/models", root.trim_end_matches('/'));
@@ -4481,6 +4495,39 @@ mod tests {
             model_list_url("groq", "https://api.groq.com/openai/v1/chat/completions"),
             "https://api.groq.com/openai/v1/models"
         );
+    }
+
+    /// Alibaba Cloud Model Studio (DashScope) serves the Qwen family on the
+    /// OpenAI wire under `/compatible-mode/v1`, so it lists models the same
+    /// way. The shipped default is the INTERNATIONAL host; the mainland-China
+    /// one differs only by hostname and must resolve identically.
+    #[test]
+    fn alibaba_speaks_the_openai_wire() {
+        assert_eq!(
+            Provider::from_id("alibaba").unwrap().default_endpoint(),
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        );
+        assert_eq!(
+            model_list_url("alibaba", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models"
+        );
+        assert_eq!(
+            model_list_url(
+                "alibaba",
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+            ),
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models"
+        );
+        assert_eq!(
+            model_list_url("alibaba", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/models"
+        );
+        // A DashScope key is a bearer token — not Anthropic's `x-api-key`,
+        // and with none of Anthropic's extra headers.
+        let headers = model_list_headers("alibaba", "sk-test");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].0, "Authorization");
+        assert_eq!(headers[0].1, "Bearer sk-test");
     }
 
     /// A stored profile still pointing at the dead HuggingFace host is

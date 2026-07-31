@@ -1,8 +1,0 @@
-[project]
-name = "PieChart Test"
-version = "1.0.0"
-main = "generated/pie-chart.cbl"
-
-[files]
-forms = ["forms/pie-chart.cfrm"]
-generated = ["generated/pie-chart.cbl"]

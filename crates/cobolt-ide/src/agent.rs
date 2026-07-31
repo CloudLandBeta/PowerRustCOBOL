@@ -34,6 +34,10 @@ pub enum AgentOp {
     #[serde(alias = "add_control")]
     DeployControl {
         control_type: String,
+        /// Control id. It becomes a COBOL word in the generated program
+        /// (`WS-<id>-TEXT`, `<id>-OPEN`), so it may hold ONLY letters, digits
+        /// and hyphens and may neither begin nor end with a hyphen:
+        /// `TEXTBOX-1`, never `TEXTBOX_1`. Omit to let the designer name it.
         #[serde(default, alias = "control_id")]
         id: Option<String>,
         #[serde(default)]
@@ -212,6 +216,8 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "windowstate"
             | "fullscreen"
             | "titlevisible"
+            // 038 window effects opt-out
+            | "windoweffects"
     )
 }
 
@@ -353,23 +359,39 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
 /// the footer, but the editable body must keep the three divisions so the model
 /// cannot silently drop DATA/ENVIRONMENT during a round-trip.
 pub(crate) fn handler_body_shape_error(code: &str) -> Option<String> {
-    let has_line = |needle: &str| code.lines().any(|l| l.trim().eq_ignore_ascii_case(needle));
-    if !has_line("ENVIRONMENT DIVISION.") {
+    // A division header may carry a phrase — `PROCEDURE DIVISION USING
+    // KEY-CODE.` is how every event with a payload is written — and may end
+    // with an inline `*>` comment. Matching the whole line for equality
+    // rejected those handlers with "Code must include PROCEDURE DIVISION.",
+    // an instruction the agent had already followed: it rewrote the same
+    // code, was rejected again, and the workflow burned its correction
+    // budget without ever creating anything (operator report, 2026-07-30).
+    let has_line = |division: &str| {
+        code.lines().any(|l| {
+            let text = l.split("*>").next().unwrap_or("").trim().to_ascii_uppercase();
+            text.starts_with(division) && text.ends_with('.')
+        })
+    };
+    if !has_line("ENVIRONMENT DIVISION") {
         return Some(
             "Code must start from the nested-program body and include \
              ENVIRONMENT DIVISION."
                 .to_string(),
         );
     }
-    if !has_line("DATA DIVISION.") {
+    if !has_line("DATA DIVISION") {
         return Some(
             "Code must include DATA DIVISION.; do not return a PROCEDURE-only \
              fragment."
                 .to_string(),
         );
     }
-    if !has_line("PROCEDURE DIVISION.") {
-        return Some("Code must include PROCEDURE DIVISION.".to_string());
+    if !has_line("PROCEDURE DIVISION") {
+        return Some(
+            "Code must include PROCEDURE DIVISION. (a USING phrase is fine: \
+             `PROCEDURE DIVISION USING KEY-CODE.`)"
+                .to_string(),
+        );
     }
     None
 }
@@ -1457,6 +1479,34 @@ mod tests {
             "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.\n"
         )
         .is_some_and(|m| m.contains("DATA DIVISION")));
+    }
+
+    /// Operator report (2026-07-30): a keyboard handler binding its event
+    /// payload — `PROCEDURE DIVISION USING KEY-CODE.` — was rejected with
+    /// "Code must include PROCEDURE DIVISION.", an instruction it had already
+    /// followed. The agent resubmitted the same code three times and the
+    /// workflow burned its correction budget creating nothing. A division
+    /// header may carry a phrase and an inline comment.
+    #[test]
+    fn division_headers_may_carry_a_phrase_or_a_comment() {
+        let with_using = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       LINKAGE SECTION.\n       01  KEY-CODE   PIC S9(4) COMP-5.\n\n       PROCEDURE DIVISION USING KEY-CODE.\n           CONTINUE.\n";
+        assert!(
+            handler_body_shape_error(with_using).is_none(),
+            "USING phrase must be accepted: {:?}",
+            handler_body_shape_error(with_using)
+        );
+        let with_comment = "       ENVIRONMENT DIVISION.\n       DATA DIVISION. *> sem itens\n       PROCEDURE DIVISION.\n           CONTINUE.\n";
+        assert!(
+            handler_body_shape_error(with_comment).is_none(),
+            "inline comment must be accepted: {:?}",
+            handler_body_shape_error(with_comment)
+        );
+        // A genuinely missing header is still caught, and the message now
+        // shows the accepted phrase form.
+        assert!(handler_body_shape_error(
+            "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n           CONTINUE.\n"
+        )
+        .is_some_and(|m| m.contains("PROCEDURE DIVISION") && m.contains("USING")));
     }
 
     /// The workflow lint gate (spec: Grace correction loop) must catch exactly

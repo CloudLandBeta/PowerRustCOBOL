@@ -123,6 +123,15 @@ pub struct Backdrop {
     /// theme pack provides a background, the pack's art replaces the form's own
     /// background image — exactly as on the designer canvas.
     pub use_theme_background: bool,
+    /// The host window's client size, when the backdrop belongs to a real
+    /// window the user can maximize or drag bigger. The backdrop then covers
+    /// `max(form_size, window_size)` on each axis: the gradient or background
+    /// image stretches across the WHOLE window when it is enlarged, while the
+    /// controls stay at their designed size — and a window dragged SMALLER
+    /// than the form keeps a form-sized backdrop rather than shrinking with
+    /// the window. `None` (designer canvas, previews) pins the backdrop to
+    /// the form, so the designed extent stays visible while editing.
+    pub window_size: Option<Vec2>,
 }
 
 impl Default for Backdrop {
@@ -137,6 +146,7 @@ impl Default for Backdrop {
             image: None,
             image_mode: BgImageMode::Fit,
             use_theme_background: false,
+            window_size: None,
         }
     }
 }
@@ -192,6 +202,90 @@ pub struct RenderOutput {
     /// Each control's on-screen rect, so the designer can position its overlay
     /// (selection handles, badges, drop hints) without re-deriving geometry.
     pub control_rects: HashMap<String, Rect>,
+}
+
+/// The size the backdrop covers: the form's own size, stretched to the host
+/// window on each axis where the window is BIGGER (maximized, or the border
+/// dragged out — the gradient or background image then fills the whole
+/// window while the controls keep their designed size), and never smaller
+/// than the form (a window dragged in keeps a form-sized backdrop, which the
+/// form scrolls inside). `None` — the designer canvas and previews — pins the
+/// backdrop to the form so its designed extent stays visible while editing.
+pub fn backdrop_size(form_size: Vec2, window_size: Option<Vec2>) -> Vec2 {
+    window_size.map_or(form_size, |w| form_size.max(w))
+}
+
+/// What the backdrop pass painted, so the caller can reuse it — the
+/// corner-notch mask repaints the very same background behind a rounded
+/// container's children (spec 017).
+pub struct BackdropPaint {
+    /// The resolved solid background colour.
+    pub bg: Color32,
+    /// Gradient endpoint colours, when the form has one.
+    pub gradient: Option<(Color32, Color32)>,
+    /// True when the theme pack's art replaced the form's own image.
+    pub themed: bool,
+    /// The form's background image and the rect it was drawn into.
+    pub image: Option<(egui::TextureId, Rect)>,
+    /// Image alpha derived from the form's transparency.
+    pub image_alpha: u8,
+}
+
+/// Paint a form's background into `rect`: solid colour, then the gradient,
+/// then the theme pack's art or the form's own image.
+///
+/// ONE implementation, so every surface shows the same backdrop — the
+/// designer, the preview, the running form, a compiled binary AND the static
+/// face a window effect animates. The effect face used to paint the solid
+/// colour only, so a form with a gradient or a background image was revealed
+/// bare and then jumped to its real background the moment the animation
+/// handed over to the live UI (operator report, 2026-07-30).
+pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) -> BackdropPaint {
+    let bg = backdrop_color(&backdrop.color_hex, backdrop.transparency);
+    painter.rect_filled(rect, 0.0, bg);
+
+    let gradient = if backdrop.gradient_enabled {
+        let start = backdrop_gradient_color(&backdrop.gradient_start_hex, backdrop.transparency);
+        let end = backdrop_gradient_color(&backdrop.gradient_end_hex, backdrop.transparency);
+        painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
+            rect,
+            start,
+            end,
+            &backdrop.gradient_direction,
+            egui::CornerRadius::ZERO,
+        )));
+        Some((start, end))
+    } else {
+        None
+    };
+
+    let alpha_mul = (100 - backdrop.transparency.min(100)) as f32 / 100.0;
+    let image_alpha = (alpha_mul * 255.0) as u8;
+    // Themed background (007 R8): when the form opts in and the active pack
+    // provides one, the pack's art replaces the form's own image. Same call,
+    // same order and same "themed wins" rule as the designer canvas.
+    let themed = crate::paint::draw_theme_background(
+        painter,
+        rect,
+        backdrop.use_theme_background,
+        alpha_mul,
+    );
+    let image = backdrop.image.filter(|_| !themed).map(|(tex, tsize)| {
+        let dest = image_dest(rect, tsize, backdrop.image_mode);
+        let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        painter
+            .with_clip_rect(rect)
+            .image(tex, dest, uv, Color32::from_white_alpha(image_alpha));
+        (tex, dest)
+    });
+
+    BackdropPaint {
+        bg,
+        gradient,
+        themed,
+        image,
+        image_alpha,
+    }
 }
 
 /// Resolve the form background colour, applying the shared rule used on every
@@ -1078,60 +1172,27 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let origin = ui.min_rect().min;
     let painter = ui.painter().clone();
 
-    // ── Backdrop: solid colour, then optional image. ──────────────────────────
+    // ── Backdrop: solid colour, gradient, theme art or image. ─────────────────
     let form_rect = Rect::from_min_size(origin, input.form_size);
-    let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
-
-    painter.rect_filled(form_rect, 0.0, bg);
-    let backdrop_gradient = if input.backdrop.gradient_enabled {
-        let start = backdrop_gradient_color(
-            &input.backdrop.gradient_start_hex,
-            input.backdrop.transparency,
-        );
-        let end = backdrop_gradient_color(
-            &input.backdrop.gradient_end_hex,
-            input.backdrop.transparency,
-        );
-        painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
-            form_rect,
-            start,
-            end,
-            &input.backdrop.gradient_direction,
-            egui::CornerRadius::ZERO,
-        )));
-        Some((start, end))
-    } else {
-        None
-    };
+    // The backdrop covers the form, and stretches to the host window when the
+    // user maximizes it or drags it bigger — the controls keep their designed
+    // size, only the background follows the window. A window dragged SMALLER
+    // than the form keeps the form-sized backdrop (the form scrolls inside
+    // it) rather than cropping the background to the window.
+    let backdrop_rect = Rect::from_min_size(
+        origin,
+        backdrop_size(input.form_size, input.backdrop.window_size),
+    );
+    let painted = paint_backdrop(&painter, backdrop_rect, &input.backdrop);
+    let bg = painted.bg;
+    let backdrop_gradient = painted.gradient;
+    let backdrop_img_alpha = painted.image_alpha;
+    let backdrop_img = painted.image;
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
     // would leave rectangular child bleed visible. Use the effective one-pass
     // colour over the panel fill instead.
     let notch_bg = crate::paint::composite_premultiplied_over(bg, ui.visuals().panel_fill);
-    let backdrop_alpha_mul = (100 - input.backdrop.transparency.min(100)) as f32 / 100.0;
-    let backdrop_img_alpha = (backdrop_alpha_mul * 255.0) as u8;
-    // ── Themed background (007 R8) ────────────────────────────────────────────
-    // When the form opts in and the active pack provides one, the pack's art
-    // replaces the form's own background image. Same call, same order and same
-    // "themed wins" rule as the designer canvas, so the preview, the run form
-    // and a compiled binary all land on the backdrop the developer designed.
-    // The corner-notch mask keeps using `notch_bg` (as the canvas does) rather
-    // than the theme texture — a tiled pack background has no single dest rect.
-    let themed_bg =
-        crate::paint::draw_theme_background(&painter, form_rect, input.backdrop.use_theme_background, backdrop_alpha_mul);
-    // Backdrop image, also remembered (texture + screen dest) so the corner-notch
-    // mask can repaint it behind a rounded container's children (spec 017).
-    let backdrop_img: Option<(egui::TextureId, Rect)> = input.backdrop.image.filter(|_| !themed_bg).map(|(tex, tsize)| {
-        let dest = image_dest(form_rect, tsize, input.backdrop.image_mode);
-        let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        painter.with_clip_rect(form_rect).image(
-            tex,
-            dest,
-            uv,
-            Color32::from_white_alpha(backdrop_img_alpha),
-        );
-        (tex, dest)
-    });
     // ── Controls: designer order, clipped + faded by container ancestry. ──────
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
@@ -1371,6 +1432,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                 input.glass,
                 alpha,
                 enabled,
+                notch_bg,
                 &mut out,
                 &mut open_combos,
             );
@@ -1417,7 +1479,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         backdrop_gradient.map(|(start, end)| {
             let panel = ui.visuals().panel_fill;
             (
-                form_rect,
+                backdrop_rect,
                 crate::paint::composite_premultiplied_over(start, panel),
                 crate::paint::composite_premultiplied_over(end, panel),
                 input.backdrop.gradient_direction.as_str(),
@@ -2811,6 +2873,10 @@ fn render_interactive(
     glass: bool,
     alpha: f32,
     enabled: bool,
+    // The form's effective (opaque) backdrop colour — what a translucent glass
+    // control shows through, so colours that must stay legible on the face can
+    // be measured against what the eye actually sees.
+    form_bg: Color32,
     out: &mut RenderOutput,
     open_combos: &mut Vec<(String, Vec<String>, Rect, String)>,
 ) {
@@ -2955,6 +3021,13 @@ fn render_interactive(
             // glass themes).
             let hint_text = sv(ctrl, "HintText");
             let hint_col = txt_col.gamma_multiply(0.55);
+            // The caret must stay visible whatever the field sits on: egui
+            // draws it from the ambient visuals, which left it dark-on-dark on
+            // a dark BackgroundColor or a dark form seen through glass.
+            let caret_col = paint::caret_color(
+                paint::control_surface_tone(ui.ctx(), ctrl, form_bg),
+                txt_col,
+            );
             // TextAlignment / VerticalAlignment, matching the designer face.
             // Justified lays out left in the editor — egui's TextEdit cannot
             // justify editable text; the static designer face previews it.
@@ -3038,6 +3111,7 @@ fn render_interactive(
                 // instead of overflowing — the box keeps its designed height.
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(edit_rect);
+                    ui.visuals_mut().text_cursor.stroke.color = caret_col;
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .max_height(edit_rect.height())
@@ -3066,6 +3140,7 @@ fn render_interactive(
                 // of spilling out, and vertically centre the single line of text.
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(screen.intersect(ui.clip_rect()));
+                    ui.visuals_mut().text_cursor.stroke.color = caret_col;
                     ui.put(
                         single_rect,
                         egui::TextEdit::singleline(&mut buf)
@@ -6314,6 +6389,35 @@ mod tests {
         });
     }
 
+    /// Operator rule (2026-07-30): the form keeps the size its author gave
+    /// it, but its gradient / background image follows the WINDOW — over the
+    /// whole thing when the user maximizes or drags it bigger, and never
+    /// cropped below the form when the window is dragged smaller. Editing
+    /// surfaces (no window) keep the backdrop pinned to the form.
+    #[test]
+    fn backdrop_follows_the_window_but_never_shrinks_below_the_form() {
+        let form = Vec2::new(800.0, 600.0);
+        // No host window (designer canvas, preview): pinned to the form.
+        assert_eq!(backdrop_size(form, None), form);
+        // Maximized / dragged bigger: the backdrop fills the window.
+        let big = Vec2::new(1920.0, 1080.0);
+        assert_eq!(backdrop_size(form, Some(big)), big);
+        // Dragged smaller: clamped at the form, so the background is not
+        // cropped to the window — the form scrolls inside it.
+        assert_eq!(backdrop_size(form, Some(Vec2::new(400.0, 300.0))), form);
+        // Mixed axes are handled independently.
+        assert_eq!(
+            backdrop_size(form, Some(Vec2::new(1600.0, 300.0))),
+            Vec2::new(1600.0, 600.0)
+        );
+        println!(
+            "backdrop: form {form:?}, maximized ⇒ {:?}, shrunk ⇒ {:?}, mixed ⇒ {:?}",
+            backdrop_size(form, Some(big)),
+            backdrop_size(form, Some(Vec2::new(400.0, 300.0))),
+            backdrop_size(form, Some(Vec2::new(1600.0, 300.0)))
+        );
+    }
+
     #[test]
     fn render_form_static_smoke() {
         // Headless: a form with a Panel ⊃ Button renders without panic and reports
@@ -7563,6 +7667,7 @@ mod shape_dump {
                             image: None,
                             image_mode: Default::default(),
                             use_theme_background: false,
+                            window_size: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7630,6 +7735,7 @@ mod shape_dump {
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                             use_theme_background: false,
+                            window_size: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7701,6 +7807,7 @@ mod shape_dump {
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                             use_theme_background: false,
+                            window_size: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7772,6 +7879,7 @@ mod shape_dump {
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                             use_theme_background: false,
+                            window_size: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -7991,6 +8099,7 @@ mod shape_dump {
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                             use_theme_background: false,
+                            window_size: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -8169,6 +8278,7 @@ mod shape_dump {
                             image: None,
                             image_mode: Default::default(),
                             use_theme_background: false,
+                            window_size: None,
                         },
                     };
                     let _ = render_form(ui, &rin);

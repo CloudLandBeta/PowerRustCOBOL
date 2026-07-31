@@ -1,8 +1,0 @@
-[project]
-name = "Slider Test"
-version = "1.0.0"
-main = "generated/slider.cbl"
-
-[files]
-forms = ["forms/slider.cfrm"]
-generated = ["generated/slider.cbl"]

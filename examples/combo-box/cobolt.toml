@@ -1,8 +1,0 @@
-[project]
-name = "ComboBox Test"
-version = "1.0.0"
-main = "generated/combo-box.cbl"
-
-[files]
-forms = ["forms/combo-box.cfrm"]
-generated = ["generated/combo-box.cbl"]

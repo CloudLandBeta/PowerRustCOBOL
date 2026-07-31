@@ -1,8 +1,0 @@
-[project]
-name = "ScatterChart Test"
-version = "1.0.0"
-main = "generated/scatter-chart.cbl"
-
-[files]
-forms = ["forms/scatter-chart.cfrm"]
-generated = ["generated/scatter-chart.cbl"]

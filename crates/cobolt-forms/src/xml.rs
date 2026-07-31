@@ -167,6 +167,8 @@ enum OwnedEvent {
         window_state: crate::model::WindowState,
         full_screen: bool,
         title_visible: bool,
+        // 038 Window effects opt-out
+        window_effects: bool,
     },
     ControlStart(AttrPairs),
     PropertyStart(String), // property name
@@ -265,6 +267,9 @@ fn next_owned<R: std::io::BufRead>(
                     let title_visible = get_attr(e, b"title-visible")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
+                    let window_effects = get_attr(e, b"window-effects")?
+                        .map(|v| v != "false" && v != "0")
+                        .unwrap_or(true);
 
                     Ok(OwnedEvent::FormStart {
                         name,
@@ -292,6 +297,7 @@ fn next_owned<R: std::io::BufRead>(
                         window_state,
                         full_screen,
                         title_visible,
+                        window_effects,
                     })
                 }
                 b"Control" => {
@@ -422,6 +428,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 window_state,
                 full_screen,
                 title_visible,
+                window_effects,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -446,6 +453,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.window_state = window_state;
                 f.full_screen = full_screen;
                 f.title_visible = title_visible;
+                f.window_effects = window_effects;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -1091,6 +1099,10 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
         if !form.title_visible {
             elem.push_attribute(("title-visible", "false"));
         }
+        // 038 — the effects opt-out, additive like the 037 attributes.
+        if !form.window_effects {
+            elem.push_attribute(("window-effects", "false"));
+        }
         w.write_event(Event::Start(elem))?;
 
         // ── <working-storage> ─────────────────────────────────────────────────
@@ -1623,6 +1635,38 @@ Actor Caption:string</Property>
             loaded.title_visible
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn window_effects_optout_round_trips_038() {
+        // false survives save→load; absent ⇒ true; the default-valued attr
+        // is never written (additive contract, same as 037).
+        let mut form = sample_form();
+        form.window_effects = false;
+        let path = std::env::temp_dir().join("cobolt_test_window_effects_038.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        assert!(!loaded.window_effects, "false round-trips");
+        let _ = std::fs::remove_file(&path);
+
+        let plain = load_form_from_str(
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="F" title="F" width="640" height="480" background="#FFFFFF"></Form>"##,
+        )
+        .expect("load");
+        assert!(plain.window_effects, "absent ⇒ true");
+        let path2 = std::env::temp_dir().join("cobolt_test_window_effects_default_038.cfrm");
+        save_form(&plain, &path2).expect("save");
+        let saved = std::fs::read_to_string(&path2).expect("read");
+        assert!(
+            !saved.contains("window-effects"),
+            "default true must not be written"
+        );
+        let _ = std::fs::remove_file(&path2);
+        println!(
+            "038 opt-out: false round-trips = {}, absent ⇒ {}",
+            !loaded.window_effects, plain.window_effects
+        );
     }
 
     #[test]

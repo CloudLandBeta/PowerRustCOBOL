@@ -1,8 +1,0 @@
-[project]
-name = "Shape Test"
-version = "1.0.0"
-main = "generated/shape.cbl"
-
-[files]
-forms = ["forms/shape.cfrm"]
-generated = ["generated/shape.cbl"]

@@ -501,6 +501,60 @@ until the model arrives — nothing is thrown away. Whenever records do need
 conversation shows a **progress bar** (`Indexing Knowledge Base (n of m
 records)`) so a long index never looks stuck.
 
+## Window effects
+
+Every project can give its windows a signature **entrance and exit effect**,
+configured once in the project settings (Appearance section) and applied to
+**all** the project's forms: pick an effect, a duration (100–3000 ms; the
+Matrix rain uses its own 1500–4000 ms band) and an easing for each
+direction. The catalogue ranges from classic transitions — fade, a
+dBASE-style box **zoom**, slides, expand-from-title-bar — through masked
+reveals (**radar wipe**, iris, venetian blinds, checkerboard) to the
+**Matrix falling code** rain (classic katakana and digit glyphs falling in
+from above the top edge over a completely see-through window; each line's
+end of trail — the faint top glyph — walks down its band and progressively
+uncovers what stands behind it, so the form is complete exactly when the
+last character leaves. Lines arrive on a real clock, the first ones 25 ms
+apart and the rest 10–25 ms behind each other at their own speeds; this one
+effect ignores the easing setting and runs on linear time) and a
+genie-style squash. New projects start with the Matrix
+entrance and no exit effect; projects created before this feature keep
+instant windows until you choose otherwise.
+
+While an entrance or exit effect runs, the window wears **no title bar**, so
+nothing stands still while the animation plays; the bar arrives together with
+the finished form (and only if that form was designed to show one). The
+effects that simply move, scale or fade the form's own face — fade, zoom, the
+slides, expand-from-title-bar and genie — go further and open a **see-through
+window**, so the form animates loose on the desktop, and so does the Matrix
+rain (it paints the form only down to each falling line's tail, so untouched
+ground is never painted at all). On those windows the form's **Transparency**
+property also reaches the desktop for real, and macOS draws no drop shadow
+around the window (it would outline the invisible window, and the platform
+only offers that switch when the window is created). Only the masked reveals
+keep an opaque window: they hide the form by painting covers over it, which
+nothing transparent can undo.
+
+Forms never pick their own effect — one look per project — but any form can
+**opt out** with the `WindowEffects` checkbox in its Form properties (a modal
+alert can appear instantly while the rest of the app animates). The entrance
+plays on a window's first opening; enable **"Play entrance when restored"**
+to also replay it when the user restores a minimized window (a visual replay
+only — no form events fire). Control load-time animations wait for the
+entrance to finish, so the window materialises first and the controls come
+alive immediately after; the COBOL `onLoad` timing is unchanged. An exit
+effect plays before the window actually closes — but a form in `Waiting`
+FormState refuses the close *before* any animation, so a vetoed close plays
+nothing, and `onClose` still fires exactly once at the real close.
+
+Two practical notes. Effects paint inside the window: with the native title
+bar visible, the animation covers the content area; a chromeless form
+(`TitleVisible` off) with transparency gives an effect the whole window
+rectangle. And a machine-wide kill-switch lives in **Help → Debug Settings →
+"Disable window effects"** — instant windows everywhere without touching any
+project, for motion sensitivity, weak GPUs, or automation
+(`PRC_NO_WINDOW_FX=1` does the same for a bare `rcrun run-form`).
+
 **Embedding device.** One policy covers the System KB and every project KB,
 for indexing and searches alike: when a supported GPU is available the
 embedder uses it at **full speed** — Metal on macOS, CUDA on NVIDIA
@@ -848,6 +902,17 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 > preview = a value map, run = `CtrlState`, binary = compiled state). The result:
 > the same form + state always produces the same pixels — what you style on the
 > canvas is exactly what runs.
+
+> **A resized window keeps the form, stretches the background.** When the user
+> maximizes a running form or drags its border out, the controls stay exactly
+> where and how big you designed them — only the **background** follows the
+> window, so the gradient (or the background image) covers the whole thing
+> instead of stopping at the form's edge. Dragging the window *smaller* than
+> the form does not crop the background: it stays at the form's size, and the
+> form scrolls inside it. The designer canvas and the Preview always show the
+> backdrop at the form's size, so the designed extent stays visible while you
+> edit. Window entrance effects animate this same picture, background
+> included.
 
 > **Run Form isolation (performance).** To keep the IDE responsive and avoid CPU
 > spikes while a form is running (especially with timers, loops, or heavy

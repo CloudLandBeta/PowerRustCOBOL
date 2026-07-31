@@ -822,6 +822,40 @@ fn sibling_rcrun(exe: &std::path::Path) -> PathBuf {
     exe.with_file_name(format!("rcrun{}", std::env::consts::EXE_SUFFIX))
 }
 
+/// Window-effect spawn args (spec 038, plan D2): the IDE resolves project
+/// settings × the form's opt-out × the kill-switch BEFORE spawning, so the
+/// child stays project-file-agnostic. `entrance`/`exit` are
+/// `FxSpec::format()` triples (`id:ms:easing`).
+pub struct FormFxArgs {
+    pub entrance: String,
+    pub exit: String,
+    pub restore: bool,
+}
+
+/// Resolve the effect spawn args from project settings × the form's opt-out
+/// × the machine kill-switch (038 R3/R14, plan D2). `None` when nothing
+/// would play — the child then receives no `--fx-*` args at all.
+pub fn resolve_fx_args(
+    project: Option<&crate::project_model::CoboltProject>,
+    form_effects_on: bool,
+    kill_switch: bool,
+) -> Option<FormFxArgs> {
+    let p = project?;
+    if !form_effects_on || kill_switch {
+        return None;
+    }
+    let entrance = p.entrance_fx();
+    let exit = p.exit_fx();
+    if !entrance.is_active() && !exit.is_active() {
+        return None;
+    }
+    Some(FormFxArgs {
+        entrance: entrance.format(),
+        exit: exit.format(),
+        restore: p.forms.entrance_on_restore,
+    })
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -833,6 +867,7 @@ impl ExternalFormRun {
         project_icon: Option<&std::path::Path>,
         debug: bool,
         diagnostics: &RunDiagnostics,
+        fx: Option<&FormFxArgs>,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = sibling_rcrun(&exe);
@@ -845,6 +880,14 @@ impl ExternalFormRun {
             }
             if let Some(icon) = project_icon {
                 cmd.arg("--icon").arg(icon);
+            }
+            // 038 — window effects, already resolved by the IDE.
+            if let Some(fx) = fx {
+                cmd.arg("--fx-entrance").arg(&fx.entrance);
+                cmd.arg("--fx-exit").arg(&fx.exit);
+                if fx.restore {
+                    cmd.arg("--fx-restore");
+                }
             }
             if debug {
                 cmd.arg("--debug");
@@ -1013,6 +1056,32 @@ mod form_codegen_roundtrip_tests {
     use cobolt_semantic::analyze;
     use std::sync::mpsc;
     use std::thread;
+
+    /// 038 T5 — fx spawn args resolve from project × form opt-out ×
+    /// kill-switch, and are omitted entirely when nothing would play.
+    #[test]
+    fn fx_spawn_args_resolution_matrix() {
+        let project = crate::project_model::CoboltProject::new("Fx", "src/main.cbl");
+        // New project ⇒ matrix-rain entrance ⇒ args present.
+        let args = super::resolve_fx_args(Some(&project), true, false)
+            .expect("effects on, kill-switch off ⇒ Some");
+        assert!(args.entrance.starts_with("matrix-rain:2000:"), "{}", args.entrance);
+        assert!(args.exit.starts_with("none:"), "{}", args.exit);
+        assert!(!args.restore);
+        println!("fx args: entrance={} exit={} restore={}", args.entrance, args.exit, args.restore);
+
+        // Form opted out ⇒ None; kill-switch on ⇒ None; no project ⇒ None.
+        assert!(super::resolve_fx_args(Some(&project), false, false).is_none());
+        assert!(super::resolve_fx_args(Some(&project), true, true).is_none());
+        assert!(super::resolve_fx_args(None, true, false).is_none());
+
+        // Both effects inactive ⇒ None even with everything enabled.
+        let mut quiet = crate::project_model::CoboltProject::new("Q", "src/main.cbl");
+        quiet.forms.entrance_effect.clear();
+        quiet.forms.exit_effect.clear();
+        assert!(super::resolve_fx_args(Some(&quiet), true, false).is_none());
+        println!("fx args suppressed: opt-out, kill-switch, no-project, all-none");
+    }
 
     #[test]
     fn generated_form_with_handler_parses_and_dispatches() {

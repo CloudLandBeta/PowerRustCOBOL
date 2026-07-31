@@ -48,6 +48,14 @@ pub struct SettingsDraft {
     pub bg_opacity: u8,
     /// Default **form** theme id (spec 007); empty ⇒ Liquid Glass.
     pub form_theme_id: String,
+    // ── Window effects (spec 038, project-level) ──
+    pub fx_entrance_effect: String,
+    pub fx_entrance_ms: u32,
+    pub fx_entrance_easing: String,
+    pub fx_exit_effect: String,
+    pub fx_exit_ms: u32,
+    pub fx_exit_easing: String,
+    pub fx_restore: bool,
     // ── Runtime ──
     pub fixed_format: bool,
     // ── Run-Form inspector ──
@@ -117,6 +125,13 @@ impl SettingsDraft {
             project_icon: p.ide.project_icon.clone(),
             bg_opacity: p.ide.background_opacity,
             form_theme_id: p.forms.theme.clone(),
+            fx_entrance_effect: p.forms.entrance_effect.clone(),
+            fx_entrance_ms: p.forms.entrance_ms,
+            fx_entrance_easing: p.forms.entrance_easing.clone(),
+            fx_exit_effect: p.forms.exit_effect.clone(),
+            fx_exit_ms: p.forms.exit_ms,
+            fx_exit_easing: p.forms.exit_easing.clone(),
+            fx_restore: p.forms.entrance_on_restore,
             fixed_format: p.runtime.fixed_format,
             insp_dump_enabled: p.ide.inspector_dump_enabled,
             insp_dump_path: p.ide.inspector_dump_path.clone(),
@@ -157,6 +172,13 @@ impl SettingsDraft {
         p.ide.project_icon = self.project_icon.clone();
         p.ide.background_opacity = self.bg_opacity;
         p.forms.theme = self.form_theme_id.clone();
+        p.forms.entrance_effect = self.fx_entrance_effect.clone();
+        p.forms.entrance_ms = self.fx_entrance_ms;
+        p.forms.entrance_easing = self.fx_entrance_easing.clone();
+        p.forms.exit_effect = self.fx_exit_effect.clone();
+        p.forms.exit_ms = self.fx_exit_ms;
+        p.forms.exit_easing = self.fx_exit_easing.clone();
+        p.forms.entrance_on_restore = self.fx_restore;
         p.runtime.fixed_format = self.fixed_format;
         p.ide.inspector_dump_enabled = self.insp_dump_enabled;
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
@@ -307,6 +329,9 @@ pub struct SettingsForm {
     pub available_models: Vec<String>,
     pub available_reviewer_models: Vec<String>,
     reviewer_same_model_error: bool,
+    /// 038 R6 — when Some, the effect preview is playing; the value is the
+    /// `ctx.input(|i| i.time)` second it started (entrance → hold → exit).
+    fx_preview_started: Option<f64>,
 }
 
 impl SettingsForm {
@@ -326,6 +351,7 @@ impl SettingsForm {
             available_models: Vec::new(),
             available_reviewer_models: Vec::new(),
             reviewer_same_model_error: false,
+            fx_preview_started: None,
         }
     }
 
@@ -398,6 +424,7 @@ impl SettingsForm {
         test_status: Option<&str>,
         has_debug: bool,
         known_controls: &[KnownControl],
+        fx_disabled: bool,
     ) -> SettingsFormAction {
         let mut action = SettingsFormAction::default();
         self.cobol_proficiency_prompt_editor.known_controls = known_controls.to_vec();
@@ -807,6 +834,254 @@ impl SettingsForm {
                         // packs (cobalt-steel, …) need more fidelity work before they are
                         // offered. The model field (`forms.theme`) and the theme engine are
                         // retained, so re-enabling is just restoring this row.
+
+                        // ── Window effects (spec 038) — project-level, all forms ──────
+                        {
+                            use cobolt_forms::window_fx::{Easing, FxSpec, WindowEffect};
+                            let mut fx_row = |label: &str,
+                                              effect_id: &mut String,
+                                              ms: &mut u32,
+                                              easing_id: &mut String,
+                                              salt: &str,
+                                              ui: &mut Ui| {
+                                ui.horizontal_top(|ui| {
+                                    let left_rect = ui
+                                        .allocate_exact_size(
+                                            egui::vec2(splitter, 0.0),
+                                            egui::Sense::hover(),
+                                        )
+                                        .0;
+                                    ui.scope_builder(
+                                        egui::UiBuilder::new().max_rect(left_rect),
+                                        |ui| {
+                                            ui.style_mut().wrap_mode =
+                                                Some(egui::TextWrapMode::Truncate);
+                                            ui.set_min_width(splitter);
+                                            ui.add_space(property_indent);
+                                            ui.add(egui::Label::new(label).truncate());
+                                        },
+                                    );
+                                    ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                                    ui.add_space(gap_after_resizer);
+                                    let right_w = ui.available_width();
+                                    ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                        ui.horizontal(|ui| {
+                                            let cur = WindowEffect::from_str(effect_id);
+                                            egui::ComboBox::from_id_salt(("fx_effect", salt))
+                                                .selected_text(cur.as_str())
+                                                .width(150.0)
+                                                .show_ui(ui, |ui| {
+                                                    for e in WindowEffect::ALL {
+                                                        if ui
+                                                            .selectable_label(
+                                                                cur == e,
+                                                                e.as_str(),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            *effect_id =
+                                                                e.as_str().to_owned();
+                                                            // Effects own their duration
+                                                            // bounds (matrix-rain runs
+                                                            // 1500–4000 ms).
+                                                            let (mn, mx) =
+                                                                e.duration_bounds();
+                                                            *ms = (*ms).clamp(mn, mx);
+                                                        }
+                                                    }
+                                                });
+                                            let (min_ms, max_ms) = cur.duration_bounds();
+                                            ui.add(
+                                                egui::DragValue::new(ms)
+                                                    .range(min_ms..=max_ms)
+                                                    .suffix(" ms"),
+                                            );
+                                            let cur_e = Easing::from_str(easing_id);
+                                            egui::ComboBox::from_id_salt(("fx_easing", salt))
+                                                .selected_text(cur_e.as_str())
+                                                .width(110.0)
+                                                .show_ui(ui, |ui| {
+                                                    for e in [
+                                                        Easing::Linear,
+                                                        Easing::EaseIn,
+                                                        Easing::EaseOut,
+                                                        Easing::EaseInOut,
+                                                    ] {
+                                                        if ui
+                                                            .selectable_label(
+                                                                cur_e == e,
+                                                                e.as_str(),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            *easing_id =
+                                                                e.as_str().to_owned();
+                                                        }
+                                                    }
+                                                });
+                                        });
+                                    });
+                                });
+                            };
+                            fx_row(
+                                tr.set_fx_entrance,
+                                &mut self.draft.fx_entrance_effect,
+                                &mut self.draft.fx_entrance_ms,
+                                &mut self.draft.fx_entrance_easing,
+                                "ent",
+                                ui,
+                            );
+                            fx_row(
+                                tr.set_fx_exit,
+                                &mut self.draft.fx_exit_effect,
+                                &mut self.draft.fx_exit_ms,
+                                &mut self.draft.fx_exit_easing,
+                                "exit",
+                                ui,
+                            );
+                            // Restore replay + Preview on one row.
+                            ui.horizontal_top(|ui| {
+                                let left_rect = ui
+                                    .allocate_exact_size(
+                                        egui::vec2(splitter, 0.0),
+                                        egui::Sense::hover(),
+                                    )
+                                    .0;
+                                ui.scope_builder(
+                                    egui::UiBuilder::new().max_rect(left_rect),
+                                    |ui| {
+                                        ui.style_mut().wrap_mode =
+                                            Some(egui::TextWrapMode::Truncate);
+                                        ui.set_min_width(splitter);
+                                        ui.add_space(property_indent);
+                                        ui.add(
+                                            egui::Label::new(tr.set_fx_restore).truncate(),
+                                        );
+                                    },
+                                );
+                                ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                                ui.add_space(gap_after_resizer);
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut self.draft.fx_restore, "");
+                                    let resp = ui.add_enabled(
+                                        !fx_disabled,
+                                        egui::Button::new(tr.set_fx_preview),
+                                    );
+                                    if fx_disabled {
+                                        resp.on_disabled_hover_text(tr.set_fx_disabled_hint);
+                                    } else if resp.clicked() {
+                                        self.fx_preview_started =
+                                            Some(ui.ctx().input(|i| i.time));
+                                    }
+                                });
+                            });
+                            // Preview canvas: entrance → short hold → exit, over a
+                            // placeholder card face (same window_fx engine as the host).
+                            if let Some(started) = self.fx_preview_started {
+                                // Clamp into each effect's bounds so a draft loaded
+                                // from an out-of-band project previews what will run.
+                                let ent_effect =
+                                    WindowEffect::from_str(&self.draft.fx_entrance_effect);
+                                let (ent_mn, ent_mx) = ent_effect.duration_bounds();
+                                let ent = FxSpec {
+                                    effect: ent_effect,
+                                    duration_ms: self.draft.fx_entrance_ms.clamp(ent_mn, ent_mx),
+                                    easing: Easing::from_str(&self.draft.fx_entrance_easing),
+                                };
+                                let exit_effect =
+                                    WindowEffect::from_str(&self.draft.fx_exit_effect);
+                                let (exit_mn, exit_mx) = exit_effect.duration_bounds();
+                                let exit = FxSpec {
+                                    effect: exit_effect,
+                                    duration_ms: self.draft.fx_exit_ms.clamp(exit_mn, exit_mx),
+                                    easing: Easing::from_str(&self.draft.fx_exit_easing),
+                                };
+                                let now = ui.ctx().input(|i| i.time);
+                                let el = now - started;
+                                let ent_d = ent.duration_ms.max(1) as f64 / 1000.0;
+                                let hold = 0.4_f64;
+                                let exit_d = exit.duration_ms.max(1) as f64 / 1000.0;
+                                let phase = if ent.is_active() && el < ent_d {
+                                    Some((
+                                        ent.effect,
+                                        ent.effect.progress(ent.easing, (el / ent_d) as f32),
+                                    ))
+                                } else if el < ent_d + hold {
+                                    Some((WindowEffect::None, 1.0))
+                                } else if exit.is_active() && el < ent_d + hold + exit_d {
+                                    let back = 1.0 - ((el - ent_d - hold) / exit_d) as f32;
+                                    Some((exit.effect, exit.effect.progress(exit.easing, back)))
+                                } else {
+                                    None
+                                };
+                                match phase {
+                                    None => self.fx_preview_started = None,
+                                    Some((effect, t)) => {
+                                        let (rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(
+                                                (content_w - splitter - 40.0).clamp(220.0, 460.0),
+                                                150.0,
+                                            ),
+                                            egui::Sense::hover(),
+                                        );
+                                        let painter = ui.painter().with_clip_rect(rect);
+                                        let card_bg = egui::Color32::from_rgb(46, 52, 64);
+                                        cobolt_forms::window_fx::paint_window_fx(
+                                            &painter,
+                                            rect,
+                                            card_bg,
+                                            t,
+                                            effect,
+                                            0xC0FFEE,
+                                            now,
+                                            // The preview card sits on the
+                                            // settings pane, not on a
+                                            // see-through window.
+                                            false,
+                                            if matches!(phase, Some((e, _)) if e == exit.effect) {
+                                                exit.duration_ms
+                                            } else {
+                                                ent.duration_ms
+                                            },
+                                            &mut |p, r| {
+                                                p.rect_filled(r, 4.0, card_bg);
+                                                let title = egui::Rect::from_min_size(
+                                                    r.min,
+                                                    egui::vec2(r.width(), r.height() * 0.14),
+                                                );
+                                                p.rect_filled(
+                                                    title,
+                                                    4.0,
+                                                    egui::Color32::from_rgb(59, 66, 82),
+                                                );
+                                                let btn = egui::Rect::from_center_size(
+                                                    r.center() + egui::vec2(0.0, r.height() * 0.2),
+                                                    egui::vec2(r.width() * 0.3, r.height() * 0.16),
+                                                );
+                                                p.rect_filled(
+                                                    btn,
+                                                    4.0,
+                                                    egui::Color32::from_rgb(94, 129, 172),
+                                                );
+                                                p.rect_filled(
+                                                    egui::Rect::from_center_size(
+                                                        r.center()
+                                                            - egui::vec2(0.0, r.height() * 0.12),
+                                                        egui::vec2(
+                                                            r.width() * 0.6,
+                                                            r.height() * 0.1,
+                                                        ),
+                                                    ),
+                                                    3.0,
+                                                    egui::Color32::from_rgb(76, 86, 106),
+                                                );
+                                            },
+                                        );
+                                        ui.ctx().request_repaint();
+                                    }
+                                }
+                            }
+                        }
 
                         // Background image (the button row + shown path is the "value")
                         ui.horizontal_top(|ui| {

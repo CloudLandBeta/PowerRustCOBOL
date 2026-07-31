@@ -52,3 +52,8 @@ pub mod render;
 
 #[cfg(feature = "render")]
 pub mod fonts;
+
+// Window entrance/exit effects (spec 038). Needs egui types only, so it is
+// gated with the other render modules.
+#[cfg(feature = "render")]
+pub mod window_fx;

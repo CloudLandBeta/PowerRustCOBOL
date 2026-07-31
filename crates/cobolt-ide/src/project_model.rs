@@ -241,12 +241,71 @@ pub struct UserControlEntry {
 /// Per-project form appearance settings (spec 007). Distinct from [`IdeSettings`]
 /// (which themes the IDE chrome); this is the default **form** theme applied to
 /// the developer's designed forms, persisted in `cobolt.toml` under `[forms]`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormsConfig {
     /// Default form-theme id (a `cobolt_forms::theme` catalog id). Empty / absent
     /// ⇒ Liquid Glass, so existing projects render exactly as before (R3, R9).
     #[serde(default)]
     pub theme: String,
+
+    // ── 038 Window effects — PROJECT-level, applied to every form ──────────
+    /// Entrance effect id (`cobolt_forms::window_fx::WindowEffect` id).
+    /// Empty/absent ⇒ None, so pre-038 projects are unchanged (038 R5).
+    #[serde(default, rename = "entrance-effect")]
+    pub entrance_effect: String,
+    #[serde(default = "FormsConfig::default_entrance_ms", rename = "entrance-ms")]
+    pub entrance_ms: u32,
+    #[serde(default, rename = "entrance-easing")]
+    pub entrance_easing: String,
+    /// Exit effect id; empty/absent ⇒ None.
+    #[serde(default, rename = "exit-effect")]
+    pub exit_effect: String,
+    #[serde(default = "FormsConfig::default_exit_ms", rename = "exit-ms")]
+    pub exit_ms: u32,
+    #[serde(default, rename = "exit-easing")]
+    pub exit_easing: String,
+    /// Replay the entrance when a window is restored after minimize (038 R2).
+    #[serde(default, rename = "entrance-on-restore")]
+    pub entrance_on_restore: bool,
+}
+
+impl FormsConfig {
+    fn default_entrance_ms() -> u32 {
+        600
+    }
+    fn default_exit_ms() -> u32 {
+        400
+    }
+
+    /// The defaults a NEWLY CREATED project starts with (038 R5): Matrix
+    /// entrance, no exit effect, no restore replay. Deliberately different
+    /// from [`Default`], which is the serde fallback for projects whose
+    /// `cobolt.toml` predates 038 and therefore must stay effect-free.
+    pub fn new_project_defaults() -> Self {
+        Self {
+            entrance_effect: "matrix-rain".into(),
+            // Matrix-rain has its own 1500–4000 ms band (fly-through).
+            entrance_ms: 2000,
+            ..Self::default()
+        }
+    }
+}
+
+/// Serde fallback for a missing `[forms]` section or missing fields: NO
+/// effects, so pre-038 projects behave exactly as before (038 R5).
+impl Default for FormsConfig {
+    fn default() -> Self {
+        Self {
+            theme: String::new(),
+            entrance_effect: String::new(),
+            entrance_ms: Self::default_entrance_ms(),
+            entrance_easing: String::new(),
+            exit_effect: String::new(),
+            exit_ms: Self::default_exit_ms(),
+            exit_easing: String::new(),
+            entrance_on_restore: false,
+        }
+    }
 }
 
 impl CoboltProject {
@@ -258,6 +317,37 @@ impl CoboltProject {
             None
         } else {
             Some(t)
+        }
+    }
+
+    /// The project's window ENTRANCE effect as a typed spec (038 R1).
+    /// Durations clamp into the EFFECT's own bounds (matrix-rain runs
+    /// 1500–4000 ms, everything else 100–3000 ms).
+    pub fn entrance_fx(&self) -> cobolt_forms::window_fx::FxSpec {
+        use cobolt_forms::window_fx::{Easing, FxSpec, WindowEffect};
+        let effect = WindowEffect::from_str(&self.forms.entrance_effect);
+        let (min_ms, max_ms) = effect.duration_bounds();
+        FxSpec {
+            effect,
+            duration_ms: self.forms.entrance_ms.clamp(min_ms, max_ms),
+            easing: Easing::from_str(&self.forms.entrance_easing),
+        }
+    }
+
+    /// The project's window EXIT effect as a typed spec (038 R1).
+    pub fn exit_fx(&self) -> cobolt_forms::window_fx::FxSpec {
+        use cobolt_forms::window_fx::{Easing, FxSpec, WindowEffect};
+        let effect = WindowEffect::from_str(&self.forms.exit_effect);
+        let (min_ms, max_ms) = effect.duration_bounds();
+        FxSpec {
+            effect,
+            duration_ms: self.forms.exit_ms.clamp(min_ms, max_ms),
+            // Exits default to ease-in (accelerating away) when unset.
+            easing: if self.forms.exit_easing.trim().is_empty() {
+                cobolt_forms::window_fx::Easing::EaseIn
+            } else {
+                Easing::from_str(&self.forms.exit_easing)
+            },
         }
     }
 }
@@ -434,7 +524,7 @@ impl CoboltProject {
             files: ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
             ide: IdeSettings::default(),
-            forms: FormsConfig::default(),
+            forms: FormsConfig::new_project_defaults(),
             ai: ProjectAiSettings::new(),
             user_controls: Vec::new(),
         }
@@ -1015,6 +1105,84 @@ mod tests {
 
     fn proj() -> CoboltProject {
         CoboltProject::new("T", "src/main.cbl")
+    }
+
+    /// 038 — window-effect settings: pre-038 toml ⇒ no effects; a NEW project
+    /// starts with the Matrix entrance; explicit values round-trip.
+    #[test]
+    fn forms_config_effects_defaults_and_round_trip() {
+        use cobolt_forms::window_fx::{Easing, WindowEffect};
+
+        // Pre-038 file: [forms] with only a theme (or absent entirely).
+        let old: CoboltProject = toml::from_str(
+            r#"
+[project]
+name = "Legacy"
+version = "1.0.0"
+main = "src/main.cbl"
+"#,
+        )
+        .unwrap();
+        assert_eq!(old.entrance_fx().effect, WindowEffect::None);
+        assert_eq!(old.exit_fx().effect, WindowEffect::None);
+        assert!(!old.forms.entrance_on_restore);
+        println!(
+            "pre-038 toml: entrance={} exit={} restore={}",
+            old.entrance_fx().effect.as_str(),
+            old.exit_fx().effect.as_str(),
+            old.forms.entrance_on_restore
+        );
+
+        // New project: Matrix entrance by default (038 R5), inside the
+        // matrix-rain 1500–4000 ms band.
+        let fresh = proj();
+        assert_eq!(fresh.entrance_fx().effect, WindowEffect::MatrixRain);
+        assert_eq!(fresh.entrance_fx().duration_ms, 2000);
+        assert_eq!(fresh.exit_fx().effect, WindowEffect::None);
+        // A stored out-of-band duration clamps into the EFFECT's own bounds.
+        let mut banded = proj();
+        banded.forms.entrance_ms = 600;
+        assert_eq!(banded.entrance_fx().duration_ms, 1500, "matrix min");
+        println!(
+            "new project: entrance={} ({}ms), exit={}",
+            fresh.entrance_fx().effect.as_str(),
+            fresh.entrance_fx().duration_ms,
+            fresh.exit_fx().effect.as_str()
+        );
+
+        // Explicit values parse; exit easing falls back to ease-in when unset.
+        let cfg: CoboltProject = toml::from_str(
+            r#"
+[project]
+name = "Fx"
+version = "1.0.0"
+main = "src/main.cbl"
+
+[forms]
+entrance-effect = "radar-wipe"
+entrance-ms = 900
+entrance-easing = "ease-in-out"
+exit-effect = "fade"
+entrance-on-restore = true
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.entrance_fx().effect, WindowEffect::RadarWipe);
+        assert_eq!(cfg.entrance_fx().duration_ms, 900);
+        assert_eq!(cfg.entrance_fx().easing, Easing::EaseInOut);
+        assert_eq!(cfg.exit_fx().effect, WindowEffect::Fade);
+        assert_eq!(cfg.exit_fx().easing, Easing::EaseIn, "exit default easing");
+        assert!(cfg.forms.entrance_on_restore);
+        println!(
+            "explicit: entrance={}:{}:{} exit={}:{}:{} restore={}",
+            cfg.entrance_fx().effect.as_str(),
+            cfg.entrance_fx().duration_ms,
+            cfg.entrance_fx().easing.as_str(),
+            cfg.exit_fx().effect.as_str(),
+            cfg.exit_fx().duration_ms,
+            cfg.exit_fx().easing.as_str(),
+            cfg.forms.entrance_on_restore
+        );
     }
 
     #[test]

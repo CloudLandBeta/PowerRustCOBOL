@@ -1,8 +1,0 @@
-[project]
-name = "Timer Test"
-version = "1.0.0"
-main = "generated/timer.cbl"
-
-[files]
-forms = ["forms/timer.cfrm"]
-generated = ["generated/timer.cbl"]

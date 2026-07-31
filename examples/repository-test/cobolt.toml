@@ -1,8 +1,0 @@
-[project]
-name = "Repository FFI Test"
-version = "1.0.0"
-main = "generated/repository-test.cbl"
-
-[files]
-forms = ["forms/repository-test.cfrm"]
-generated = ["generated/repository-test.cbl"]

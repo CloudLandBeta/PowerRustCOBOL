@@ -1,8 +1,0 @@
-[project]
-name = "TreeView Test"
-version = "1.0.0"
-main = "generated/tree-view.cbl"
-
-[files]
-forms = ["forms/tree-view.cfrm"]
-generated = ["generated/tree-view.cbl"]

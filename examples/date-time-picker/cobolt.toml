@@ -1,8 +1,0 @@
-[project]
-name = "DateTimePicker Test"
-version = "1.0.0"
-main = "generated/date-time-picker.cbl"
-
-[files]
-forms = ["forms/date-time-picker.cfrm"]
-generated = ["generated/date-time-picker.cbl"]

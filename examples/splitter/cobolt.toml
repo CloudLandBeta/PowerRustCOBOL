@@ -1,8 +1,0 @@
-[project]
-name = "Splitter Test"
-version = "1.0.0"
-main = "generated/splitter.cbl"
-
-[files]
-forms = ["forms/splitter.cfrm"]
-generated = ["generated/splitter.cbl"]

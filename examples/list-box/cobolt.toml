@@ -1,8 +1,0 @@
-[project]
-name = "ListBox Test"
-version = "1.0.0"
-main = "generated/list-box.cbl"
-
-[files]
-forms = ["forms/list-box.cfrm"]
-generated = ["generated/list-box.cbl"]

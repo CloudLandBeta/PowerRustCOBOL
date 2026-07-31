@@ -3859,6 +3859,10 @@ impl DesignerPanel {
                 self.form.title_visible = value != "false" && value != "0";
                 self.dirty = true;
             }
+            "WindowEffects" => {
+                self.form.window_effects = value != "false" && value != "0";
+                self.dirty = true;
+            }
 
             _ => {}
         }
@@ -3896,6 +3900,7 @@ impl DesignerPanel {
             "WindowState" => Some(self.form.window_state.as_str().to_string()),
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
+            "WindowEffects" => Some(bool_str(self.form.window_effects)),
             _ => None,
         }
     }
@@ -9263,6 +9268,7 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "WindowState",
     "FullScreen",
     "TitleVisible",
+    "WindowEffects",
 ];
 
 /// The spelling under which `key` is already stored on `ctrl`, or `key` itself
@@ -12504,6 +12510,8 @@ mod property_key_case_tests {
             // 037 main form & window lifecycle
             "mainform", "taskbaricon", "canminimize", "canmaximize", "windowstate",
             "fullscreen", "titlevisible",
+            // 038 window effects opt-out
+            "windoweffects",
         ] {
             assert!(
                 canonical_form_prop_key(word).is_some(),

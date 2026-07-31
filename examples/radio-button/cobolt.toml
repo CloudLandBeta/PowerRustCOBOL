@@ -1,8 +1,0 @@
-[project]
-name = "RadioButton Test"
-version = "1.0.0"
-main = "generated/radio-button.cbl"
-
-[files]
-forms = ["forms/radio-button.cfrm"]
-generated = ["generated/radio-button.cbl"]

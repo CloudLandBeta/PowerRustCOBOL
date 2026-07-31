@@ -149,6 +149,30 @@ struct ProjectFiles {
 struct FormsConfig {
     #[serde(default)]
     theme: String,
+    // 038 window-effect settings — accepted here so the packaged binary's
+    // manifest parse round-trips them; consumed once the packaged host
+    // reaches 037/038 parity (tracked work item).
+    #[allow(dead_code)]
+    #[serde(default, rename = "entrance-effect")]
+    entrance_effect: String,
+    #[allow(dead_code)]
+    #[serde(default, rename = "entrance-ms")]
+    entrance_ms: u32,
+    #[allow(dead_code)]
+    #[serde(default, rename = "entrance-easing")]
+    entrance_easing: String,
+    #[allow(dead_code)]
+    #[serde(default, rename = "exit-effect")]
+    exit_effect: String,
+    #[allow(dead_code)]
+    #[serde(default, rename = "exit-ms")]
+    exit_ms: u32,
+    #[allow(dead_code)]
+    #[serde(default, rename = "exit-easing")]
+    exit_easing: String,
+    #[allow(dead_code)]
+    #[serde(default, rename = "entrance-on-restore")]
+    entrance_on_restore: bool,
 }
 
 #[derive(Deserialize)]
@@ -188,10 +212,14 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
 /// A build progress update, for driving a UI progress bar.
 #[derive(Clone, Debug)]
 pub struct BuildProgress {
-    /// Completion in `0.0..=1.0`.
+    /// Completion in `0.0..=1.0`. Negative for `detail` lines, which carry
+    /// no position of their own.
     pub fraction: f32,
     /// Short, human-readable description of the current phase.
     pub message: String,
+    /// `true` for a supplementary log detail (file counts, sizes) that
+    /// belongs in a build log, not on the progress bar.
+    pub detail: bool,
 }
 
 /// Options controlling the build.
@@ -287,15 +315,48 @@ pub fn build_single_file(
     build_core(proj, project_dir, opts)
 }
 
+/// The generated crate/binary name from the project name. Cargo package
+/// names allow only ASCII alphanumerics, `-` and `_`; project names carry
+/// spaces, the `.project` suffix, and arbitrary punctuation (a literal `.`
+/// aborted the whole build with "invalid character in package name").
+fn sanitize_package_name(project_name: &str) -> String {
+    let lowered = project_name.trim().to_ascii_lowercase();
+    let base = lowered.strip_suffix(".project").unwrap_or(&lowered);
+    let name: String = base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if name.chars().any(|c| c.is_ascii_alphanumeric()) {
+        name
+    } else {
+        "app".to_string()
+    }
+}
+
 /// Shared build pipeline used by both [`build_project`] and [`build_single_file`].
 fn build_core(
     proj: CoboltProject,
     project_dir: PathBuf,
     opts: &BuildOptions,
 ) -> Result<BuildResult, CompilerError> {
+    // Detail lines (file counts, sizes) stream to the UI too, flagged so
+    // they land in the build-details log rather than on the progress bar.
     let log = |msg: &str| {
         if opts.verbose {
             eprintln!("{msg}");
+        }
+        if let Some(tx) = &opts.progress {
+            let _ = tx.send(BuildProgress {
+                fraction: -1.0,
+                message: msg.trim().to_string(),
+                detail: true,
+            });
         }
     };
     // Emit a phase milestone: log it (verbose) and stream it to any UI progress bar.
@@ -307,6 +368,7 @@ fn build_core(
             let _ = tx.send(BuildProgress {
                 fraction,
                 message: msg.to_string(),
+                detail: false,
             });
         }
     };
@@ -320,7 +382,7 @@ fn build_core(
     // whose whole purpose is project material (diagrams, requirements, data
     // models). Existing copies under `<project>/Knowledge Base/` are left
     // alone: they are the developer's files to remove.
-    let bin_name = proj.project.name.to_ascii_lowercase().replace(' ', "_");
+    let bin_name = sanitize_package_name(&proj.project.name);
 
     // ── 2. Collect all source files ───────────────────────────────────────────
     report(0.10, "Collecting source files…");
@@ -347,7 +409,6 @@ fn build_core(
     log(&format!("   {} source file(s)", sources.len()));
 
     // ── 3. Parse + semantic-check every source ────────────────────────────────
-    report(0.25, "Parsing & analysing…");
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
     use cobolt_semantic::{analyze, Severity};
@@ -356,8 +417,10 @@ fn build_core(
     // Additional sources are currently compiled independently and merged via
     // their nested-program lists — a full multi-file linker is future work.
     let (main_rel, main_src) = &sources[0];
+    report(0.18, &format!("Tokenizing {main_rel}…"));
     let fmt = detect_format(main_src);
     let tokens = tokenize(main_src, fmt);
+    report(0.24, &format!("Parsing {main_rel}…"));
     let parse_result = parse(tokens);
 
     for d in &parse_result.diagnostics {
@@ -374,6 +437,7 @@ fn build_core(
         message: "Parse produced no program".into(),
     })?;
 
+    report(0.30, "Semantic analysis…");
     let sem = analyze(&program);
     for d in &sem.diagnostics {
         if d.severity == Severity::Error {
@@ -400,7 +464,7 @@ fn build_core(
     ));
 
     // ── 5. Collect form files ─────────────────────────────────────────────────
-    report(0.42, "Collecting forms…");
+    report(0.42, "Collecting forms & generated code…");
     let mut forms: Vec<(String, Vec<u8>)> = Vec::new(); // (id, raw_xml_bytes)
 
     for rel in &proj.files.forms {
@@ -459,7 +523,7 @@ fn build_core(
     log(&format!("🏠 Workspace root: {}", workspace_root.display()));
 
     // ── 7. Create build staging directory ────────────────────────────────────
-    report(0.50, "Preparing build project…");
+    report(0.50, "Packaging solution…");
     let build_dir = std::env::temp_dir().join(format!("cobolt-build-{}", &bin_name));
     let assets_dir = build_dir.join("assets");
     let forms_dir = assets_dir.join("forms");
@@ -1112,7 +1176,13 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     let _ = eframe::run_native(
         &title,
         native_options,
-        Box::new(move |_cc| Ok(Box::new(app) as Box<dyn eframe::App>)),
+        Box::new(move |cc| {
+            // Broad-Latin + CJK system fallbacks, as the IDE installs: with
+            // egui's Latin-only defaults a katakana or CJK caption would draw
+            // as tofu boxes in the compiled application.
+            cc.egui_ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+            Ok(Box::new(app) as Box<dyn eframe::App>)
+        }),
     );
 }
 
@@ -1257,6 +1327,11 @@ impl eframe::App for FormApp {
                 image: backdrop_image,
                 image_mode: self.bg_mode,
                 use_theme_background: self.use_theme_background,
+                // The gradient / background image follows the WINDOW: it
+                // stretches over the whole thing when the user maximizes or
+                // drags it bigger, and stays form-sized when the window is
+                // dragged smaller. The controls keep their designed size.
+                window_size: Some(ctx.content_rect().size()),
             };
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
@@ -1511,6 +1586,26 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 - **Enumerated properties** accept only their listed values EXACTLY as spelled (e.g. `Orientation` is `Horizontal` or `Vertical`); an unrecognised value falls back to the default without an error.
 - **Property names**: setting a misspelled property silently creates a new, unused property — never guess names; use the ones in the Form Controls Reference.
 - **Charts**: feed data with `Chart::AddPoint(label, value)` / `Chart::Clear()` / `Chart::Refresh()`, with `PERFORM <id>-ADD-POINT` / `<id>-SET-TABLE` paragraphs, or with `CALL "COBOL-CHART-ADD-POINT" USING "<id>" label value` — or bind a COBOL table via the `DataSource`/`DataCount` properties. Do NOT invent working-storage tables for charts.
+
+## Event payloads — what a handler actually receives (LINKAGE)
+
+Almost every event delivers **nothing**. The generated dispatcher calls a handler as `CALL "<paragraph>"` with no arguments, so the handler's `LINKAGE SECTION` is empty and its header is a plain `PROCEDURE DIVISION.` with no `USING`.
+
+- **There is exactly ONE event payload in the platform**: `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the card that fired, and ONLY for a control inside a repeating group. That handler is called `USING CONTROL-ARRAY-INDEX` and writes `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.`.
+- **No event carries a key code, a mouse button, a coordinate, a modifier or a character.** Do NOT declare an item such as `KEY-CODE` and do NOT write `PROCEDURE DIVISION USING KEY-CODE.` — nothing populates it, and the dispatcher passes no argument to bind it to.
+- **A specific key has its own event.** For "do X when the user presses ENTER" bind `onEnterPressed`; for ESC bind `onEscapePressed`. `onKeyDown` / `onKeyUp` / `onKeyPress` fire for ANY key and tell you nothing about which one, so testing a key inside them is impossible.
+- To know what the user typed, read the control's own text: `MOVE MY-BOX::Text TO WS-VALUE`. `onTextChanged` (alias `onChange`) fires after each edit.
+
+## Naming rules — control ids and every COBOL word you write
+Control ids are not just labels: each one becomes part of a COBOL **user-defined word** in the generated program. A control `SAVE-BTN` gets the storage group `WS-SAVE-BTN` with `WS-SAVE-BTN-TEXT`, `-VISIBLE`, `-ENABLED` (editable controls also get `-VALUE`), and file/database controls get paragraphs such as `SAVE-BTN-OPEN` / `SAVE-BTN-CONNECT`.
+
+A COBOL word may contain **only letters (`A-Z`, `a-z`), digits (`0-9`) and hyphens (`-`)**. It may not begin or end with a hyphen, and a data-name must contain at least one letter.
+
+- **Never put `_` (underscore), `.`, spaces, `/`, `#` or accented characters in a control id.** `TEXTBOX_1` is not a COBOL word; `TEXTBOX-1` is. An underscore is the most common mistake: the lexer reads `WS-TEXTBOX_1-TEXT` as the word `WS-TEXTBOX`, then an error token, then a number — the whole data item is discarded and the control ends up with no storage at all.
+- The same rule applies to every name YOU declare: WORKING-STORAGE data items, level-01/05 group and field names, paragraph names, and `CALL`/`PERFORM` targets. Use `WS-ROW-COUNT`, never `ws_row_count`.
+- Prefer short, hyphenated, meaningful ids: `CUST-NAME-TXT`, `TOTAL-LBL`, `SAVE-BTN`, `GRID-1`.
+- Digits are fine anywhere except as the whole name: `TEXTBOX-1`, `COL-2-HDR`.
+- The generator does normalise an invalid id (each character that is not a letter or digit becomes a hyphen, runs collapse, the ends are trimmed), so a legacy `textbox_1` still compiles — as `WS-textbox-1` — but then the id in the designer and the name in the COBOL no longer match. Create valid ids in the first place.
 
 ## Event Handler Division Structure
 - Every developer-editable event-handler body must start from the program Divisions and contain:
@@ -2296,14 +2391,21 @@ fn controls_reference_doc() -> String {
          All properties are OPTIONAL — a control works with its defaults; set only what the \
          request needs. Property names are case-insensitive at runtime but SHOULD be written \
          exactly as listed. Setting a misspelled property silently creates a new, ignored \
-         property — it is never an error, so spelling matters.\n\n",
+         property — it is never an error, so spelling matters.\n\n\
+         **Control ids are COBOL words.** Each id becomes part of the generated program's \
+         data-names and paragraph names (`WS-<id>-TEXT`, `<id>-OPEN`), so it may contain ONLY \
+         letters, digits and hyphens, and may neither begin nor end with a hyphen. Write \
+         `TEXTBOX-1`, never `TEXTBOX_1`: an underscore is not a COBOL character, and a name \
+         carrying one is discarded by the compiler along with the control's whole storage. \
+         The same rule governs every WORKING-STORAGE item and paragraph name a handler \
+         declares.\n\n",
     );
 
     // ── Shared sections ──────────────────────────────────────────────────────
     doc.push_str("## Universal properties (every control)\n\n");
     doc.push_str("Layout fields (settable like any property):\n\n");
     for (sig, dom, desc) in [
-        ("Name", "String — control identifier", "The control id (assigned by the designer; treat as read-only)."),
+        ("Name", "String — control identifier", "The control id (assigned by the designer; treat as read-only). It becomes a COBOL word in the generated program (`WS-<id>-TEXT`, `<id>-OPEN`), so it may hold ONLY letters, digits and hyphens — `TEXTBOX-1`, never `TEXTBOX_1`."),
         ("Visible", "Boolean — `1`/`0`", "Whether the control is drawn."),
         ("Enabled", "Boolean — `1`/`0`", "Whether the control accepts input."),
         ("X", "Integer — pixels from the form's left edge", "Horizontal position."),
@@ -2353,8 +2455,17 @@ fn controls_reference_doc() -> String {
         doc.push_str(&format!("- `{ev}` — {desc}\n"));
     }
     doc.push_str(
-        "\nEvent handlers carry no parameters (repeating-group members receive \
-         `CONTROL-ARRAY-INDEX`, the 1-based index of the card that fired).\n\n",
+        "\nEvent handlers carry NO parameters. The dispatcher calls a handler as \
+         `CALL \"<paragraph>\"` with no arguments, so its `LINKAGE SECTION` is empty and its \
+         header is a plain `PROCEDURE DIVISION.`. The single exception is a control inside a \
+         REPEATING GROUP, which is called `USING CONTROL-ARRAY-INDEX` (`PIC S9(4) COMP-5`, the \
+         1-based index of the card that fired) and writes \
+         `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.`.\n\n\
+         In particular **no event delivers a key code**: never declare `KEY-CODE` or write \
+         `PROCEDURE DIVISION USING KEY-CODE.` — nothing populates it. `onKeyDown`, `onKeyUp` \
+         and `onKeyPress` fire for ANY key and say nothing about which one, so a specific key \
+         has its own event: bind `onEnterPressed` for ENTER and `onEscapePressed` for ESC. To \
+         see what was typed, read the control's own text (`MOVE MY-BOX::Text TO WS-VALUE`).\n\n",
     );
 
     // ── The form itself ──────────────────────────────────────────────────────
@@ -2366,6 +2477,14 @@ fn controls_reference_doc() -> String {
          `transparency` (0-100, 0 = opaque), `background_image` (path) with scale mode, \
          and `GlassStyle` (exactly one of `\"Classic\"`, `\"Enhanced\"`, \
          `\"Neumorphic Light\"`, `\"Neumorphic Dark\"`).\n\n",
+    );
+    doc.push_str(
+        "A running window the user maximizes or drags BIGGER keeps its controls at the \
+         designed size and stretches only the BACKGROUND — the gradient, or the background \
+         image, covers the whole window instead of stopping at the form's edge. A window \
+         dragged SMALLER than the form keeps a form-sized background (the form scrolls \
+         inside it) rather than cropping it to the window. The designer canvas and the \
+         preview always show the backdrop at the form's own size.\n\n",
     );
     doc.push_str("Form events (bind a handler in the designer; `onLoad` / `onClose` are pre-stubbed):\n\n");
     for (group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {
@@ -2428,7 +2547,49 @@ fn controls_reference_doc() -> String {
          except when the MAIN form closes, which closes every form and exits the application. \
          A modal Sync child blocks the caller's input AND its COBOL flow until the child \
          closes (the RETURNING handle is then already NULL). `me` window methods: \
-         `SetWindowState`, `SetFullScreen`, `SetTitleVisible`, `Focus`, `Close`.\n\n---\n\n",
+         `SetWindowState`, `SetFullScreen`, `SetTitleVisible`, `Focus`, `Close`.\n\n",
+    );
+
+    // ── 038 — project window entrance/exit effects ───────────────────────────
+    doc.push_str("### Window effects (spec 038)\n\n");
+    doc.push_str(
+        "Window entrance/exit effects are configured ONCE PER PROJECT (project settings → \
+         Appearance) and apply to every form: an entrance effect, an exit effect, each with a \
+         duration (100–3000 ms; `matrix-rain` uses its own 1500–4000 ms band) and an easing \
+         (`linear` | `ease-in` | `ease-out` | `ease-in-out`). The effect catalogue: `none`, \
+         `fade`, `zoom` (dBASE-style box zoom), `slide-left/right/top/bottom`, \
+         `expand-title-bar`, `radar-wipe`, `iris-wipe`, `blinds`, `checkerboard`, \
+         `matrix-rain` (katakana/digit glyph lines falling in from above the top edge over a \
+         see-through window; each line's END OF TRAIL — the faint top glyph — walks down its \
+         band and progressively uncovers what stands behind it, so the form is complete \
+         exactly when the last character leaves; lines arrive 25 ms apart at first, then \
+         10-25 ms behind each other; this effect ignores the easing setting and runs on \
+         linear time), `genie` \
+         (squash-and-bend approximation). New projects default to a `matrix-rain` entrance \
+         and no exit effect.\n\n",
+    );
+    doc.push_str(
+        "While an effect runs the window wears NO title bar (nothing stands still during the \
+         animation); it arrives with the finished form, and only if that form shows one. The \
+         face-only effects (`fade`, `zoom`, the slides, `expand-title-bar`, `genie`) and \
+         `matrix-rain` also open a SEE-THROUGH window, so the form animates over the desktop \
+         — on those windows the form's `transparency` reaches the desktop for real. Only the \
+         masked reveals (`radar-wipe`, `iris-wipe`, `blinds`, `checkerboard`) keep an opaque \
+         window: they hide the form by painting covers over it, which nothing transparent \
+         can undo.\n\n",
+    );
+    doc.push_str(
+        "Per-form control: the Boolean designer attribute `WindowEffects` (default true) — \
+         false opens/closes that form instantly while the rest of the project animates. Forms \
+         never choose WHICH effect; only the project does. The entrance plays on the window's \
+         first opening; the project option `entrance-on-restore` additionally replays it when \
+         a window is restored after being minimized (no form events fire on a restore \
+         replay). Control load-time animations start immediately AFTER the entrance effect \
+         finishes; the COBOL `onLoad` event timing is unchanged. An exit effect delays the \
+         actual close until the animation completes — `FormState` vetoes fire BEFORE the \
+         animation, so a refused close plays nothing, and `onClose` still fires exactly once. \
+         Machine-wide kill-switch: Help → Debug Settings → \"Disable window effects\" \
+         (`PRC_NO_WINDOW_FX=1` for a bare `rcrun run-form`).\n\n---\n\n",
     );
 
     // ── Per-control sections ─────────────────────────────────────────────────
@@ -2802,6 +2963,25 @@ mod resolve_main_tests {
             "<Form name=\"{name}\" title=\"{name}\" width=\"400\" height=\"300\"{attr}></Form>"
         )
         .into_bytes()
+    }
+
+    /// The generated crate name is always a valid Cargo package name —
+    /// a literal `.` (the ".project" suffix) aborted the build (1.44.x).
+    #[test]
+    fn package_name_sanitizes_dots_spaces_and_suffix() {
+        let cases = [
+            ("PowerDemo3.project", "powerdemo3"),
+            ("My App", "my_app"),
+            ("hola.mundo", "hola_mundo"),
+            ("Ünïcode Ñame", "_n_code__ame"),
+            ("***", "app"),
+            ("  Spaced.PROJECT  ", "spaced"),
+        ];
+        for (input, expected) in cases {
+            let got = sanitize_package_name(input);
+            assert_eq!(got, expected, "{input:?}");
+            println!("package name: {input:?} → {got:?}");
+        }
     }
 
     #[test]

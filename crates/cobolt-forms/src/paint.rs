@@ -2622,21 +2622,7 @@ pub fn draw_control(
     // the colour is painted as a solid, opacity-aware layer under the styled
     // face (spec 019's DataGrid underlay, generalised), and a Label gains a
     // face at all instead of staying frameless.
-    let user_bg: Option<Color32> = ctrl
-        .get_prop("BackgroundColor")
-        .map(|v| v.as_str().to_owned())
-        .filter(|raw| !raw.trim().is_empty())
-        .map(|raw| parse_color(&raw))
-        .filter(|c| c.a() > 0)
-        .filter(|c| {
-            [
-                crate::model::DEFAULT_BACKGROUND_COLOR,
-                crate::model::NEUMORPHIC_SURFACE_COLOR,
-                crate::model::NEUMORPHIC_DARK_SURFACE_COLOR,
-            ]
-            .iter()
-            .all(|default_hex| parse_color(default_hex) != *c)
-        });
+    let user_bg: Option<Color32> = user_background_color(ctrl);
 
     // A PictureBox with ShowFrame = false draws no card/background/border —
     // only the image (so transparent PNG areas reveal what's behind).
@@ -6303,6 +6289,96 @@ pub fn composite_premultiplied_over(fg: Color32, bg: Color32) -> Color32 {
     )
 }
 
+/// WCAG relative luminance of a colour, 0.0 (black) … 1.0 (white).
+pub fn relative_luminance(c: Color32) -> f32 {
+    let lin = |v: u8| {
+        let s = v as f32 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+}
+
+/// WCAG contrast ratio between two colours, 1.0 (identical) … 21.0 (black on
+/// white). AA text wants 4.5; a caret is a thin bar, so it needs at least as
+/// much to stay findable.
+pub fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+    let (la, lb) = (relative_luminance(a), relative_luminance(b));
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+/// The BackgroundColor the developer explicitly chose for a control, if any.
+/// The universal seeded default and the values the Neumorphic style appliers
+/// stamp on every control all mean "not chosen" — the renderer-wide "still on
+/// the default means the user has not picked" convention.
+pub fn user_background_color(ctrl: &Control) -> Option<Color32> {
+    ctrl.get_prop("BackgroundColor")
+        .map(|v| v.as_str().to_owned())
+        .filter(|raw| !raw.trim().is_empty())
+        .map(|raw| parse_color(&raw))
+        .filter(|c| c.a() > 0)
+        .filter(|c| {
+            [
+                crate::model::DEFAULT_BACKGROUND_COLOR,
+                crate::model::NEUMORPHIC_SURFACE_COLOR,
+                crate::model::NEUMORPHIC_DARK_SURFACE_COLOR,
+            ]
+            .iter()
+            .all(|default_hex| parse_color(default_hex) != *c)
+        })
+}
+
+/// The tone a control's content actually sits on, as an opaque colour: the
+/// developer's own BackgroundColor when set (composited over `under` if it is
+/// translucent), otherwise the surface the active glass style paints — the
+/// Neumorphic surfaces are solid, while Classic/Enhanced frost lets `under`
+/// (the form's backdrop) show through. Used to pick colours that must stay
+/// legible on the face, whatever theme and background the developer chose.
+pub fn control_surface_tone(ctx: &egui::Context, ctrl: &Control, under: Color32) -> Color32 {
+    let opaque_under = Color32::from_rgb(under.r(), under.g(), under.b());
+    if let Some(c) = user_background_color(ctrl) {
+        return composite_premultiplied_over(c, opaque_under);
+    }
+    match active_glass_style(ctx) {
+        crate::model::GlassStyle::Neumorphic => parse_color(crate::model::NEUMORPHIC_SURFACE_COLOR),
+        crate::model::GlassStyle::NeumorphicDark => {
+            parse_color(crate::model::NEUMORPHIC_DARK_SURFACE_COLOR)
+        }
+        // Liquid Glass is a translucent frost: what the eye reads is mostly
+        // whatever the form paints behind the field.
+        crate::model::GlassStyle::Classic | crate::model::GlassStyle::Enhanced => {
+            composite_premultiplied_over(Color32::from_white_alpha(38), opaque_under)
+        }
+    }
+}
+
+/// A text caret colour that is always legible in a field whose background is
+/// `surface`: the field's own text colour while that already clears WCAG AA
+/// (so the caret normally matches the text, as every desktop toolkit draws
+/// it), and otherwise near-black or near-white — whichever the surface calls
+/// for. egui's caret comes from the ambient visuals, which on a dark field
+/// (or a dark form under Liquid Glass) left it dark-on-dark.
+pub fn caret_color(surface: Color32, text: Color32) -> Color32 {
+    const AA: f32 = 4.5;
+    if contrast_ratio(text, surface) >= AA {
+        return text;
+    }
+    // Otherwise the pole that reads better. It has to be pure black/white and
+    // chosen by ratio, not by a luminance threshold: on a mid grey the near
+    // poles fall short (white on #808080 is 3.5:1), while the better of pure
+    // black and pure white clears AA on ANY colour — the worst possible
+    // surface still yields ~4.6:1.
+    if contrast_ratio(Color32::BLACK, surface) >= contrast_ratio(Color32::WHITE, surface) {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
+}
+
 /// Decode the transient `_ContainerClip` prop the render engine seeds on a
 /// PictureBox face that lives inside a rounded GroupBox/Panel. Returns the
 /// container's screen-space **content** rect, its corner radius, and a per-corner
@@ -7708,6 +7784,54 @@ mod theme_render_tests {
         let mut z = big(ControlType::Button);
         z.set_prop("CornerRadius", PropValue::Int(0));
         assert_eq!(corner_radius(&z), 0.0);
+    }
+
+    #[test]
+    /// Operator rule (2026-07-30): the TextBox caret must ALWAYS read against
+    /// the field it sits in. It keeps the text colour while that already
+    /// clears WCAG AA, and flips to near-black / near-white when it would not.
+    #[test]
+    fn caret_always_contrasts_with_the_field() {
+        let dark_field = Color32::from_rgb(24, 26, 40);
+        let light_field = Color32::from_rgb(240, 240, 240);
+        // Dark text in a dark field would vanish — the caret goes light.
+        let caret = caret_color(dark_field, Color32::from_rgb(40, 40, 40));
+        assert!(
+            contrast_ratio(caret, dark_field) >= 4.5,
+            "caret {caret:?} unreadable on a dark field"
+        );
+        assert!(relative_luminance(caret) > 0.5, "dark field ⇒ light caret");
+        // Light text in a light field flips the other way.
+        let caret = caret_color(light_field, Color32::from_rgb(225, 225, 225));
+        assert!(contrast_ratio(caret, light_field) >= 4.5);
+        assert!(relative_luminance(caret) < 0.5, "light field ⇒ dark caret");
+        // Text that already reads is kept, so the caret matches the text as
+        // every desktop toolkit draws it.
+        let text = Color32::from_rgb(20, 20, 20);
+        assert_eq!(caret_color(light_field, text), text);
+        // Whatever the field, the result always clears AA.
+        for bg in [
+            Color32::BLACK,
+            Color32::WHITE,
+            Color32::from_rgb(128, 128, 128),
+            Color32::from_rgb(20, 22, 45),
+            parse_color(crate::model::NEUMORPHIC_DARK_SURFACE_COLOR),
+            parse_color(crate::model::NEUMORPHIC_SURFACE_COLOR),
+        ] {
+            for text in [Color32::BLACK, Color32::WHITE, Color32::DARK_GRAY] {
+                let c = caret_color(bg, text);
+                assert!(
+                    contrast_ratio(c, bg) >= 4.5,
+                    "caret {c:?} on {bg:?} is only {:.1}:1",
+                    contrast_ratio(c, bg)
+                );
+            }
+        }
+        println!(
+            "caret: dark field ⇒ {:?}, light field ⇒ {:?}, AA held on every sampled field",
+            caret_color(dark_field, Color32::from_rgb(40, 40, 40)),
+            caret_color(light_field, Color32::from_rgb(225, 225, 225))
+        );
     }
 
     #[test]

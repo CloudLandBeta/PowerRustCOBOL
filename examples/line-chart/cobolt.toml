@@ -1,8 +1,0 @@
-[project]
-name = "LineChart Test"
-version = "1.0.0"
-main = "generated/line-chart.cbl"
-
-[files]
-forms = ["forms/line-chart.cfrm"]
-generated = ["generated/line-chart.cbl"]
