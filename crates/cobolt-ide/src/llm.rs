@@ -2643,8 +2643,10 @@ No credit must be awarded for attractive presentation, confident explanations, e
 For a review round, END your review with exactly one fenced JSON block:
 
 ```json
-{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>"}
+{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>", "defective_ops": ["<operation reference>", "..."]}
 ```
+
+`defective_ops` names the operations your findings belong to, exactly as the submission names them: `generate_event_handler txt8.onChange`, `deploy_control TextBox txt3`, `set_property TOTAL-LABEL.ForegroundColor`, `create_procedure VALIDATE-INPUT`. KEEP WHAT IS CORRECT: every operation you do NOT name is kept verbatim and is never sent through the model again, so the specialist rewrites only what you rejected instead of reprocessing the whole task — a specialist asked to resubmit everything routinely rewrites operations nobody complained about. Name every operation you found a defect in, and only those. Leave the list empty ONLY when the defect is not attributable to particular operations (the submission is malformed as a whole, or its very structure is wrong); an empty list costs a full rewrite.
 
 For the FINAL assessment, END with exactly one fenced JSON block:
 
@@ -3061,8 +3063,10 @@ No credit should be awarded for confident presentation, excessive explanation, s
 For a review round, END your review with exactly one fenced JSON block:
 
 ```json
-{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>"}
+{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>", "defective_ops": ["<operation reference>", "..."]}
 ```
+
+`defective_ops` names the operations your findings belong to, exactly as the submission names them: `generate_event_handler txt8.onChange`, `deploy_control TextBox txt3`, `set_property TOTAL-LABEL.ForegroundColor`, `create_procedure VALIDATE-INPUT`. KEEP WHAT IS CORRECT: every operation you do NOT name is kept verbatim and is never sent through the model again, so the specialist rewrites only what you rejected instead of reprocessing the whole task — a specialist asked to resubmit everything routinely rewrites operations nobody complained about. Name every operation you found a defect in, and only those. Leave the list empty ONLY when the defect is not attributable to particular operations (the submission is malformed as a whole, or its very structure is wrong); an empty list costs a full rewrite.
 
 For the FINAL assessment, END with exactly one fenced JSON block:
 
@@ -3169,8 +3173,10 @@ No credit should be awarded for confident presentation, excessive explanation, s
 For a review round, END your review with exactly one fenced JSON block:
 
 ```json
-{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>"}
+{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>", "defective_ops": ["<operation reference>", "..."]}
 ```
+
+`defective_ops` names the operations your findings belong to, exactly as the submission names them: `generate_event_handler txt8.onChange`, `deploy_control TextBox txt3`, `set_property TOTAL-LABEL.ForegroundColor`, `create_procedure VALIDATE-INPUT`. KEEP WHAT IS CORRECT: every operation you do NOT name is kept verbatim and is never sent through the model again, so the specialist rewrites only what you rejected instead of reprocessing the whole task — a specialist asked to resubmit everything routinely rewrites operations nobody complained about. Name every operation you found a defect in, and only those. Leave the list empty ONLY when the defect is not attributable to particular operations (the submission is malformed as a whole, or its very structure is wrong); an empty list costs a full rewrite.
 
 For the FINAL assessment, END with exactly one fenced JSON block:
 
@@ -3240,8 +3246,10 @@ No credit should be awarded for confident presentation, excessive explanation, s
 For a first or repeated review round, END your review with exactly one fenced JSON block:
 
 ```json
-{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>"}
+{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>", "defective_ops": ["<operation reference>", "..."]}
 ```
+
+`defective_ops` names the operations your findings belong to, exactly as the submission names them (`generate_event_handler txt8.onChange`, `deploy_control TextBox txt3`). Every operation you do NOT name is kept verbatim and never passes through the model again, so the specialist rewrites only what you rejected. Leave the list empty only when the defect belongs to no particular operation.
 
 For the FINAL assessment (after the revision round), END with exactly one fenced JSON block using the SAME metrics schema the primary prompt defines for its dashboard scores, with your own uncompromising values, plus:
 

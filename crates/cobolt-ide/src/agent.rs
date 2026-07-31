@@ -273,6 +273,90 @@ fn op_ref(op: &AgentOp) -> String {
     }
 }
 
+/// Split a defective change-set submission into the operations that stand and
+/// the ones to redo, each serialized as its own change-set block.
+///
+/// `defect_refs` are the operation references a Pedantic reviewer attributed
+/// its findings to (matched case-insensitively against [`op_ref`], and
+/// tolerating a reviewer that names only the control — `txt8` matches
+/// `generate_event_handler txt8.onChange`). When it is empty the machine
+/// validator decides, since it can PROVE which operations are bad.
+///
+/// `None` when the submission has no parseable change-set, or when the split
+/// would be degenerate (nothing defective, or nothing left to keep) — the
+/// caller then falls back to asking for a full replacement.
+pub fn split_change_set_submission(
+    agent: &str,
+    submission: &str,
+    defect_refs: &[String],
+) -> Option<(String, String, usize, usize)> {
+    if !crate::agents_db::produces_form_change_set(agent) {
+        return None;
+    }
+    let cs = parse_change_set(submission).ok()?;
+    let attributed = |op: &AgentOp| -> bool {
+        let r = op_ref(op).to_ascii_lowercase();
+        defect_refs.iter().any(|d| {
+            let d = d.trim().to_ascii_lowercase();
+            !d.is_empty() && (r.contains(&d) || d.contains(&r))
+        })
+    };
+    let (defective, accepted): (Vec<&AgentOp>, Vec<&AgentOp>) = cs.operations.iter().partition(
+        |op| {
+            if defect_refs.is_empty() {
+                op_form_free_error(op).is_some()
+            } else {
+                attributed(op)
+            }
+        },
+    );
+    if defective.is_empty() || accepted.is_empty() {
+        return None;
+    }
+    Some((
+        change_set_block(&accepted)?,
+        change_set_block(&defective)?,
+        accepted.len(),
+        defective.len(),
+    ))
+}
+
+/// Merge a scoped correction back onto the kept operations: a corrected
+/// operation SUPERSEDES the accepted one it targets (so a specialist that
+/// ignored the "only the corrected ones" instruction and resubmitted
+/// everything still merges cleanly), and a corrected `deploy_control` goes
+/// first, since later operations may reference the control it creates.
+pub fn merge_change_sets(accepted: &str, corrected_reply: &str) -> Option<String> {
+    let kept = parse_change_set(accepted).ok()?;
+    let fixed = parse_change_set(corrected_reply).ok()?;
+    if fixed.operations.is_empty() {
+        return None;
+    }
+    let superseded = |op: &AgentOp| -> bool {
+        let r = op_ref(op);
+        fixed.operations.iter().any(|f| op_ref(f) == r)
+    };
+    let mut merged: Vec<&AgentOp> = fixed
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AgentOp::DeployControl { .. }))
+        .collect();
+    merged.extend(kept.operations.iter().filter(|op| !superseded(op)));
+    merged.extend(
+        fixed
+            .operations
+            .iter()
+            .filter(|op| !matches!(op, AgentOp::DeployControl { .. })),
+    );
+    change_set_block(&merged)
+}
+
+/// Serialize operations as the fenced change-set block the apply path reads.
+fn change_set_block(ops: &[&AgentOp]) -> Option<String> {
+    let json = serde_json::to_string_pretty(&serde_json::json!({ "operations": ops })).ok()?;
+    Some(format!("```json\n{json}\n```"))
+}
+
 /// Machine validation of a specialist's change-set submission for the Grace
 /// workflow lint gate. Runs only the **Form-independent** checks (see
 /// [`op_form_free_error`]): those can never false-positive against a designer
@@ -1543,6 +1627,90 @@ mod tests {
         let errors = lint_change_set_submission("Form Designer Agent", bad_deploy)
             .expect("unknown control type must be flagged");
         assert!(errors.contains("HoloPanel"), "{errors}");
+    }
+
+    /// Operator rule (2026-07-30): a correction round must fix ONLY what was
+    /// found wrong and KEEP what was right. A specialist told to resubmit
+    /// everything rewrites operations nobody complained about — observed
+    /// live, where three malformed handlers were flagged and the model
+    /// silently reimplemented a fourth, correct one on the way past.
+    #[test]
+    fn a_correction_keeps_the_accepted_operations_and_scopes_the_rest() {
+        let body = |s: &str| {
+            format!(
+                "       ENVIRONMENT DIVISION.\\n       DATA DIVISION.\\n       PROCEDURE DIVISION.\\n           {s}"
+            )
+        };
+        let submission = format!(
+            "prose\n```json\n{{\"operations\":[\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A1\",\"event\":\"onClick\",\"code\":\"{good}\"}},\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A2\",\"event\":\"onClick\",\"code\":\"CONTINUE.\"}},\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A3\",\"event\":\"onClick\",\"code\":\"{good}\"}}]}}\n```",
+            good = body("CONTINUE.")
+        );
+
+        // Machine validation attributes the defect itself: only A2 goes back.
+        let (accepted, defective, kept, redo) =
+            split_change_set_submission("Form Designer Agent", &submission, &[])
+                .expect("a mixed change-set must be scoped");
+        assert_eq!((kept, redo), (2, 1));
+        assert!(defective.contains("A2") && !defective.contains("A1"));
+        assert!(accepted.contains("A1") && accepted.contains("A3") && !accepted.contains("A2"));
+
+        // A Pedantic reviewer can attribute it instead, naming the operation
+        // loosely (just the control) — the match still lands.
+        let (_, defective, kept, redo) = split_change_set_submission(
+            "Form Designer Agent",
+            &submission,
+            &["a3".to_string()],
+        )
+        .expect("reviewer-attributed defects must be scoped");
+        assert_eq!((kept, redo), (2, 1));
+        assert!(defective.contains("A3") && !defective.contains("A1"));
+
+        // The corrected operation is spliced back onto the kept ones.
+        let corrected = format!(
+            "fixed\n```json\n{{\"operations\":[\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A2\",\"event\":\"onClick\",\"code\":\"{good}\"}}]}}\n```",
+            good = body("MOVE 1 TO WS-X.")
+        );
+        let (accepted, _, _, _) =
+            split_change_set_submission("Form Designer Agent", &submission, &[]).unwrap();
+        let merged = merge_change_sets(&accepted, &corrected).expect("merge");
+        let cs = parse_change_set(&merged).expect("merged set parses");
+        assert_eq!(cs.operations.len(), 3, "every operation survives the merge");
+        assert!(merged.contains("MOVE 1 TO WS-X"), "the fix landed");
+        assert!(
+            lint_change_set_submission("Form Designer Agent", &merged).is_none(),
+            "the merged set passes the gate"
+        );
+
+        // A specialist that ignores the instruction and resubmits everything
+        // still merges: its version supersedes, nothing is duplicated.
+        let full_resubmit = format!(
+            "```json\n{{\"operations\":[\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A1\",\"event\":\"onClick\",\"code\":\"{good}\"}},\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A2\",\"event\":\"onClick\",\"code\":\"{good}\"}},\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"A3\",\"event\":\"onClick\",\"code\":\"{good}\"}}]}}\n```",
+            good = body("CONTINUE.")
+        );
+        let merged = merge_change_sets(&accepted, &full_resubmit).expect("merge");
+        assert_eq!(parse_change_set(&merged).unwrap().operations.len(), 3);
+
+        // Nothing to keep, or nothing wrong ⇒ no scoping, and the engine asks
+        // for a full replacement exactly as before.
+        let all_bad = "```json\n{\"operations\":[\
+            {\"op\":\"generate_event_handler\",\"control_id\":\"B1\",\"event\":\"onClick\",\"code\":\"CONTINUE.\"}]}\n```";
+        assert!(split_change_set_submission("Form Designer Agent", all_bad, &[]).is_none());
+        let all_good = format!(
+            "```json\n{{\"operations\":[\
+             {{\"op\":\"generate_event_handler\",\"control_id\":\"B1\",\"event\":\"onClick\",\"code\":\"{good}\"}}]}}\n```",
+            good = body("CONTINUE.")
+        );
+        assert!(split_change_set_submission("Form Designer Agent", &all_good, &[]).is_none());
+        // And an agent that produces no change-set is never scoped.
+        assert!(split_change_set_submission("Documentation Agent", &submission, &[]).is_none());
+        println!("correction scoping: 3 operations, 1 defective, 2 kept, merged back to 3");
     }
 
     /// The gate never speaks for agents whose output is not a change-set, for

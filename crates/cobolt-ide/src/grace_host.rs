@@ -888,7 +888,7 @@ const VERBOSE_PEDANTIC_REPORT_DIRECTIVE: &str = "\n\nVERBOSE MODE IS ACTIVE. Reg
 /// extractor to transcribe — never to improvise.
 const PLAN_EXTRACT_PREAMBLE: &str = "The provided text is an agent's workflow-planning response whose plan JSON could not be parsed. Extract the workflow plan it describes EXACTLY: workflow_id and every task with id, agent, objective, context, reviewer (null when none), depends_on, and acceptance. Copy agent and reviewer names verbatim from the text — never invent, rename, merge, or drop tasks.";
 
-const VERDICT_EXTRACT_PREAMBLE: &str = "The provided text is a Pedantic reviewer's round verdict whose verdict JSON could not be parsed. Extract the verdict EXACTLY as the review states it: pedantic_verdict is \"acceptable\" only when the review approves the submission without requiring corrections, otherwise \"defects\"; correction_request carries the requested corrections verbatim (empty when acceptable). Never soften, add, or drop defects.";
+const VERDICT_EXTRACT_PREAMBLE: &str = "The provided text is a Pedantic reviewer's round verdict whose verdict JSON could not be parsed. Extract the verdict EXACTLY as the review states it: pedantic_verdict is \"acceptable\" only when the review approves the submission without requiring corrections, otherwise \"defects\"; correction_request carries the requested corrections verbatim (empty when acceptable); defective_ops lists the operations the review attributed its findings to, exactly as the review names them (an empty array when it named none). Never soften, add, or drop defects.";
 
 const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a form specialist's submission (Form Designer or COBOL Event Handler Script Agent) whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure — with identifiers, property names, values, and code copied verbatim. A submission that presents an operation as prose or a bullet list (for example \"Operation: generate_event_handler, control_id: X, event: onClick\" followed by a fenced code block) still specifies that operation: extract it, taking the handler body verbatim from the code block. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
 
@@ -1071,6 +1071,41 @@ impl AgentInvoker for DbAgentInvoker {
             format!("{agent}: change-set failed machine validation —\n{errors}"),
         );
         Some(errors)
+    }
+
+    /// Keep what passed, send back only what failed (spec: correction loop).
+    fn scope_correction(
+        &mut self,
+        agent: &str,
+        submission: &str,
+        defect_refs: &[String],
+    ) -> Option<cobolt_agents::grace::CorrectionScope> {
+        let (accepted, defective, accepted_count, defective_count) =
+            crate::agent::split_change_set_submission(agent, submission, defect_refs)?;
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Detail,
+            format!(
+                "{agent}: correction scoped to {defective_count} operation(s); \
+                 {accepted_count} kept as accepted"
+            ),
+        );
+        Some(cobolt_agents::grace::CorrectionScope {
+            accepted,
+            defective,
+            accepted_count,
+            defective_count,
+        })
+    }
+
+    fn merge_correction(&mut self, agent: &str, accepted: &str, corrected: &str) -> Option<String> {
+        let merged = crate::agent::merge_change_sets(accepted, corrected);
+        if merged.is_none() {
+            crate::llm::push_ai_log(
+                crate::llm::AiLogKind::Detail,
+                format!("{agent}: scoped correction could not be merged; using the reply as sent"),
+            );
+        }
+        merged
     }
 
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {

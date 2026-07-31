@@ -89,12 +89,38 @@ pub struct ReviewVerdict {
     /// The numbered correction list when defects were found; empty otherwise.
     #[serde(default)]
     pub correction_request: String,
+    /// The operations the defects belong to, named as the submission names
+    /// them (`generate_event_handler txt8.onChange`, `deploy_control txt3`).
+    ///
+    /// When the reviewer fills this in, the engine sends back ONLY those
+    /// operations: everything it approved is kept verbatim and never passes
+    /// through the model again. Empty means "not attributed" and the whole
+    /// submission is redone, which is what always used to happen — and it
+    /// churned correct work, since a specialist asked to resubmit everything
+    /// routinely rewrites operations nobody complained about.
+    #[serde(default)]
+    pub defective_ops: Vec<String>,
 }
 
 impl ReviewVerdict {
     pub fn has_defects(&self) -> bool {
         !self.pedantic_verdict.eq_ignore_ascii_case("acceptable")
     }
+}
+
+/// A defective submission split in two, so a correction round rewrites only
+/// what was actually wrong (see [`AgentInvoker::scope_correction`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorrectionScope {
+    /// The operations that stand, as a change-set JSON block. Kept by the
+    /// engine, never sent to the model, merged back when the fix returns.
+    pub accepted: String,
+    /// The operations to redo, as a change-set JSON block — the only thing
+    /// the specialist is shown and asked to rewrite.
+    pub defective: String,
+    /// How many operations are on each side, for the correction prompt.
+    pub accepted_count: usize,
+    pub defective_count: usize,
 }
 
 /// Full audit trail for one task.
@@ -222,6 +248,36 @@ pub trait AgentInvoker {
     /// "this agent's output is not machine-checkable at all").
     fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
         let _ = (agent, submission);
+        None
+    }
+
+    /// Split a defective submission into the part the host still accepts and
+    /// the part the specialist must redo.
+    ///
+    /// `defect_refs` are the operations a Pedantic reviewer attributed its
+    /// findings to; empty means the host should work out the defective
+    /// operations itself (the machine validator can — it proved them).
+    /// `None` means the submission cannot be scoped, and the engine falls
+    /// back to asking for a full replacement.
+    ///
+    /// The point is not to save tokens. A specialist told to resubmit
+    /// everything rewrites operations nobody complained about — observed
+    /// live: three malformed handlers were flagged and the model silently
+    /// reimplemented a fourth, correct one on the way past.
+    fn scope_correction(
+        &mut self,
+        agent: &str,
+        submission: &str,
+        defect_refs: &[String],
+    ) -> Option<CorrectionScope> {
+        let _ = (agent, submission, defect_refs);
+        None
+    }
+
+    /// Merge a scoped correction back onto the operations that were kept.
+    /// `None` means the merge failed and the reply must stand on its own.
+    fn merge_correction(&mut self, agent: &str, accepted: &str, corrected: &str) -> Option<String> {
+        let _ = (agent, accepted, corrected);
         None
     }
 
@@ -385,9 +441,21 @@ pub fn parse_verdict(reply: &str) -> Result<ReviewVerdict, String> {
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
+    let defective_ops = v
+        .get("defective_ops")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(ReviewVerdict {
         pedantic_verdict: verdict,
         correction_request,
+        defective_ops,
     })
 }
 
@@ -695,13 +763,31 @@ impl GraceEngine {
                 id: spec.id.clone(),
                 round: round + 1,
             });
-            let fix_user = format!(
-                "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== PEDANTIC CORRECTION REQUEST ===\n{req}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
-                id = spec.id,
-                obj = spec.objective,
-                req = if correction.trim().is_empty() { review.as_str() } else { correction.as_str() },
-            );
-            submission = match invoker.invoke_task(
+            let req = if correction.trim().is_empty() {
+                review.as_str()
+            } else {
+                correction.as_str()
+            };
+            // When the reviewer attributed its findings to operations, only
+            // those come back: the rest is kept exactly as approved.
+            let scope =
+                invoker.scope_correction(&spec.agent, &submission, &verdict.defective_ops);
+            let fix_user = match &scope {
+                Some(s) => format!(
+                    "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== ALREADY ACCEPTED — DO NOT RESUBMIT ===\n{accepted_count} operation(s) of your previous change-set passed review and are kept exactly as they are. Do not repeat them, do not restate them, do not rewrite them.\n\n=== THE {defective_count} OPERATION(S) TO CORRECT ===\n{defective}\n\n=== PEDANTIC CORRECTION REQUEST ===\n{req}\n\nReturn ONLY the corrected operation(s) in your change-set block — the complete body of each one, but nothing else. They are merged back onto the accepted work.",
+                    id = spec.id,
+                    obj = spec.objective,
+                    accepted_count = s.accepted_count,
+                    defective_count = s.defective_count,
+                    defective = s.defective,
+                ),
+                None => format!(
+                    "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== PEDANTIC CORRECTION REQUEST ===\n{req}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
+                    id = spec.id,
+                    obj = spec.objective,
+                ),
+            };
+            let reply = match invoker.invoke_task(
                 &spec.agent,
                 &system_for(&spec.agent),
                 &fix_user,
@@ -718,6 +804,16 @@ impl GraceEngine {
                     });
                     return;
                 }
+            };
+            // Splice the corrected operations back onto the kept ones. A
+            // specialist that ignored the instruction and resubmitted
+            // everything is handled too: a corrected operation supersedes the
+            // accepted one it targets.
+            submission = match &scope {
+                Some(s) => invoker
+                    .merge_correction(&spec.agent, &s.accepted, &reply)
+                    .unwrap_or(reply),
+                None => reply,
             };
             rec.submissions.push(submission.clone());
             rec.states.push(TaskState::Revalidating);
@@ -814,12 +910,25 @@ impl GraceEngine {
                 id: spec.id.clone(),
                 round: *rounds_used,
             });
-            let fix_user = format!(
-                "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== MACHINE VALIDATION — THE IDE REJECTED OPERATIONS IN YOUR CHANGE-SET ===\nThe IDE's change-set validator proved the following defects. These operations would be discarded at apply time, creating NOTHING:\n{errors}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
-                id = spec.id,
-                obj = spec.objective,
-            );
-            submission = match invoker.invoke_task(
+            // The validator PROVED which operations are bad, so only those go
+            // back; everything it did not flag is kept exactly as submitted.
+            let scope = invoker.scope_correction(&spec.agent, &submission, &[]);
+            let fix_user = match &scope {
+                Some(s) => format!(
+                    "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== ALREADY ACCEPTED — DO NOT RESUBMIT ===\n{accepted_count} operation(s) of your change-set passed machine validation and are kept exactly as they are. Do not repeat them, do not restate them, do not rewrite them.\n\n=== THE {defective_count} OPERATION(S) TO CORRECT ===\n{defective}\n\n=== MACHINE VALIDATION — THE IDE REJECTED THESE OPERATIONS ===\nThe IDE's change-set validator proved the following defects. These operations would be discarded at apply time, creating NOTHING:\n{errors}\n\nReturn ONLY the corrected operation(s) in your change-set block — the complete body of each one, but nothing else. They are merged back onto the accepted work.",
+                    id = spec.id,
+                    obj = spec.objective,
+                    accepted_count = s.accepted_count,
+                    defective_count = s.defective_count,
+                    defective = s.defective,
+                ),
+                None => format!(
+                    "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== MACHINE VALIDATION — THE IDE REJECTED OPERATIONS IN YOUR CHANGE-SET ===\nThe IDE's change-set validator proved the following defects. These operations would be discarded at apply time, creating NOTHING:\n{errors}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
+                    id = spec.id,
+                    obj = spec.objective,
+                ),
+            };
+            let reply = match invoker.invoke_task(
                 &spec.agent,
                 &system_for(&spec.agent),
                 &fix_user,
@@ -837,6 +946,12 @@ impl GraceEngine {
                     });
                     return None;
                 }
+            };
+            submission = match &scope {
+                Some(s) => invoker
+                    .merge_correction(&spec.agent, &s.accepted, &reply)
+                    .unwrap_or(reply),
+                None => reply,
             };
             rec.submissions.push(submission.clone());
             rec.states.push(TaskState::Revalidating);
@@ -984,6 +1099,105 @@ mod tests {
                 acceptance: "COBOL-85 clean".into(),
             },
         ]
+    }
+
+    /// Operator rule (2026-07-30): a reviewer that attributes its findings to
+    /// operations must have the rest KEPT — the specialist is shown only the
+    /// defective operations and never gets the chance to rewrite the approved
+    /// ones, and the correction is merged back onto them.
+    #[test]
+    fn an_attributed_review_scopes_the_correction_and_keeps_the_rest() {
+        struct ScopingMock {
+            calls: Vec<(String, String)>,
+            script: Vec<(&'static str, &'static str)>,
+            scoped: bool,
+            merged: bool,
+        }
+        impl AgentInvoker for ScopingMock {
+            fn invoke(&mut self, agent: &str, _s: &str, user: &str) -> Result<String, String> {
+                self.calls.push((agent.to_string(), user.to_string()));
+                let i = self.calls.len() - 1;
+                let (expect, reply) = self.script[i];
+                assert_eq!(agent, expect, "call #{i} routed to the wrong agent");
+                Ok(reply.to_string())
+            }
+            fn scope_correction(
+                &mut self,
+                _agent: &str,
+                _submission: &str,
+                defect_refs: &[String],
+            ) -> Option<CorrectionScope> {
+                assert_eq!(defect_refs, ["generate_event_handler A2.onClick"]);
+                self.scoped = true;
+                Some(CorrectionScope {
+                    accepted: "{\"operations\":[A1,A3]}".into(),
+                    defective: "{\"operations\":[A2]}".into(),
+                    accepted_count: 2,
+                    defective_count: 1,
+                })
+            }
+            fn merge_correction(
+                &mut self,
+                _agent: &str,
+                accepted: &str,
+                corrected: &str,
+            ) -> Option<String> {
+                self.merged = true;
+                Some(format!("MERGED[{accepted}|{corrected}]"))
+            }
+        }
+
+        let mut mock = ScopingMock {
+            calls: Vec::new(),
+            scoped: false,
+            merged: false,
+            script: vec![
+                ("Form Designer Agent", "three handlers"),
+                (
+                    "Form Designer Agent Pedantic Reviewer",
+                    "A2 is a stub.\n```json\n{\"pedantic_verdict\": \"defects\", \"correction_request\": \"1. A2 has no body\", \"defective_ops\": [\"generate_event_handler A2.onClick\"]}\n```",
+                ),
+                ("Form Designer Agent", "only A2, fixed"),
+                (
+                    "Form Designer Agent Pedantic Reviewer",
+                    "clean.\n```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
+                ),
+            ],
+        };
+        let plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: "Form Designer Agent".into(),
+            objective: "three handlers".into(),
+            context: String::new(),
+            reviewer: Some("Form Designer Agent Pedantic Reviewer".into()),
+            depends_on: vec![],
+            acceptance: "all three exist".into(),
+        }];
+        let rec = GraceEngine::default().run("wf-scope", &plan, &mut mock, &|_| "sys".into());
+
+        assert!(mock.scoped, "the review's attribution must scope the fix");
+        assert!(mock.merged, "the fix must be merged onto the kept work");
+        let fix_prompt = &mock.calls[2].1;
+        assert!(
+            fix_prompt.contains("ALREADY ACCEPTED — DO NOT RESUBMIT")
+                && fix_prompt.contains("2 operation(s)"),
+            "the specialist must be told what is kept: {fix_prompt}"
+        );
+        assert!(
+            fix_prompt.contains("{\"operations\":[A2]}")
+                && !fix_prompt.contains("{\"operations\":[A1,A3]}"),
+            "only the defective operation may be shown: {fix_prompt}"
+        );
+        assert!(
+            !fix_prompt.contains("a full replacement"),
+            "a scoped correction must not ask for a full replacement"
+        );
+        assert_eq!(rec.tasks[0].final_state, TaskState::Approved);
+        assert!(
+            rec.tasks[0].submissions.last().unwrap().starts_with("MERGED["),
+            "the approved submission is the merged one"
+        );
+        println!("scoped correction: 1 defective operation resent, 2 kept, merged and approved");
     }
 
     /// AC5 (spec 029): design → review(defect) → correct → approve, then the

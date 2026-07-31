@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.47.1] — 2026-07-30
+
+### Changed
+
+- **A correction round now fixes only what was wrong and keeps what was
+  right.** Until now every rejection — from the Pedantic reviewer or from
+  machine validation — sent the specialist its whole submission back with
+  "submit the COMPLETE result again, a full replacement". That reprocessed
+  correct work to fix a defect that was often tiny, and it was not harmless:
+  a specialist asked to redo everything rewrites operations nobody
+  complained about (observed live, where three malformed handlers were
+  flagged and the model silently reimplemented a fourth, correct one).
+  The reviewer's verdict now carries **`defective_ops`**, naming the
+  operations its findings belong to; machine validation attributes them by
+  itself, since it proves them. The engine keeps every operation that was
+  not named, shows the specialist only the defective ones — with an explicit
+  "already accepted, do not resubmit" list — and splices the correction back
+  onto the kept work. A specialist that ignores the instruction and
+  resubmits everything still merges cleanly: its version supersedes the one
+  it targets, and nothing is duplicated. When the defect belongs to no
+  particular operation (or nothing would be left to keep), the old
+  full-replacement round is used exactly as before.
+
 ## [PowerRustCOBOL 1.47.0] — 2026-07-30
 
 ### Added
