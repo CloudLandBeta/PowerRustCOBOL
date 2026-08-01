@@ -154,6 +154,145 @@ fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_for
     }
 }
 
+/// Seed `_Binding*` props for DataGrid, databound repeating GroupBoxes
+/// (ControlArray) and standalone scalar controls (spec 039 R21), so
+/// `RefreshBinding()` has what it needs at runtime. Mirrors the IDE's
+/// `form_runtime::append_data_binding_seed_props` exactly — this crate keeps
+/// its own copy rather than a shared dependency, same as `CtrlState` and
+/// `flatten_controls` above (see this file's header comment).
+fn append_data_binding_seed_props(
+    form: &cobolt_forms::Form,
+    control_id: &str,
+    props: &mut Vec<(String, String)>,
+) {
+    let binding = form.data_bindings.iter().find(|binding| {
+        match &binding.target {
+            cobolt_forms::BindingTargetDescriptor::DataGrid {
+                control_id: target_id,
+            } => target_id.eq_ignore_ascii_case(control_id),
+            cobolt_forms::BindingTargetDescriptor::ControlArray { array_id, .. } => {
+                array_id.eq_ignore_ascii_case(control_id)
+                    || form.controls.iter().any(|c| {
+                        c.id.eq_ignore_ascii_case(control_id)
+                            && c.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+                    })
+            }
+            cobolt_forms::BindingTargetDescriptor::ScalarControl {
+                control_id: target_id,
+            } => target_id.eq_ignore_ascii_case(control_id),
+            cobolt_forms::BindingTargetDescriptor::MarkerCollection {
+                control_id: target_id,
+            } => target_id.eq_ignore_ascii_case(control_id),
+            cobolt_forms::BindingTargetDescriptor::Chart { .. }
+            | cobolt_forms::BindingTargetDescriptor::ComboBox { .. }
+            | cobolt_forms::BindingTargetDescriptor::ListBox { .. } => false,
+        }
+    });
+    let Some(binding) = binding else {
+        return;
+    };
+    let cobolt_forms::BindingSourceDescriptor::CobolTable { fields, .. } = &binding.source else {
+        return;
+    };
+    props.push(("_BindingKind".into(), "CobolTable".into()));
+    props.push((
+        "_BindingFields".into(),
+        fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ));
+    if matches!(
+        &binding.target,
+        cobolt_forms::BindingTargetDescriptor::ControlArray { .. }
+    ) {
+        props.push(("_BindingArray".into(), "1".into()));
+        let maps: Vec<String> = binding
+            .mappings
+            .iter()
+            .filter_map(|m| {
+                if let cobolt_forms::BindingTargetPath::ControlProperty {
+                    control_id: member,
+                    property_name: prop,
+                    ..
+                } = &m.target
+                {
+                    Some(format!("{}\t{}\t{}", m.source_field, member, prop))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !maps.is_empty() {
+            props.push(("_BindingMappings".into(), maps.join("\n")));
+        }
+    }
+    if let cobolt_forms::BindingTargetDescriptor::ScalarControl { .. } = &binding.target {
+        if let Some(scalar_field) = binding
+            .mappings
+            .iter()
+            .find(|m| matches!(&m.target, cobolt_forms::BindingTargetPath::ScalarValue { .. }))
+            .map(|m| m.source_field.clone())
+        {
+            let property = form
+                .find_control(control_id)
+                .and_then(|c| c.scalar_binding_property())
+                .unwrap_or("Value");
+            props.push(("_BindingScalarField".into(), scalar_field));
+            props.push(("_BindingScalarProperty".into(), property.to_owned()));
+        }
+    }
+    if let cobolt_forms::BindingTargetDescriptor::MarkerCollection { .. } = &binding.target {
+        // Spec 039 T13/R22: seed one source field per marker attribute (in a
+        // fixed order — refresh_marker_binding in interpreter.rs reads them
+        // positionally).
+        if let Some(spec) = marker_binding_seed(binding) {
+            props.push(("_BindingMarkerFields".into(), spec));
+        }
+    }
+}
+
+/// Build the `_BindingMarkerFields` seed value (`id\tlat\tlng\tlabel\tinfo`,
+/// any entry empty except lat/lng — enforced by the Guardian before a binding
+/// can be saved) from a `MarkerCollection` binding's field mappings. Mirrors
+/// `form_runtime::marker_binding_seed`.
+fn marker_binding_seed(binding: &cobolt_forms::DataBindingDef) -> Option<String> {
+    let field_for = |target: cobolt_forms::MapMarkerField| -> String {
+        binding
+            .mappings
+            .iter()
+            .find_map(|m| match &m.target {
+                cobolt_forms::BindingTargetPath::MarkerField { field, .. } if *field == target => {
+                    Some(m.source_field.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let lat = field_for(cobolt_forms::MapMarkerField::Lat);
+    let lng = field_for(cobolt_forms::MapMarkerField::Lng);
+    if lat.is_empty() || lng.is_empty() {
+        return None;
+    }
+    let id = field_for(cobolt_forms::MapMarkerField::Id);
+    let label = field_for(cobolt_forms::MapMarkerField::Label);
+    let info = field_for(cobolt_forms::MapMarkerField::Info);
+    Some(format!("{id}\t{lat}\t{lng}\t{label}\t{info}"))
+}
+
+/// Env var the IDE sets on the `rcrun run-form` child when the project has a
+/// Google Maps API key configured (spec 039 T12/R23) — resolved IDE-side from
+/// `LlmConfig.api_keys`, never written to the `.cfrm`/`.cbl`/project file, so
+/// a Maps control's key never lands on disk or in generated COBOL. Kept in
+/// sync with `cobolt-ide/src/form_runtime.rs`'s constant of the same name.
+const GOOGLE_MAPS_API_KEY_ENV: &str = "COBOLT_GOOGLE_MAPS_API_KEY";
+
+/// Env var for a resolved Google Custom Search API key (spec 039 T15/R30) —
+/// same discipline as `GOOGLE_MAPS_API_KEY_ENV` above. Kept in sync with
+/// `cobolt-ide/src/form_runtime.rs`'s constant of the same name.
+const GOOGLE_SEARCH_API_KEY_ENV: &str = "COBOLT_GOOGLE_SEARCH_API_KEY";
+
 /// What a COBOL animation verb asked for. The interpreter turns `PLAY ANIMATION`,
 /// `STOP-ANIMATION` and `PAUSE` into writes of these pseudo-properties on the
 /// control object, which reach the GUI as ordinary state updates.
@@ -434,6 +573,12 @@ pub fn cmd_run_form(args: &[String]) {
     // Seed the interpreter's visual-object registry with every control's
     // designed properties, so property references and method getters return
     // the configured values before any setter runs (same as the IDE runtime).
+    let maps_api_key = std::env::var(GOOGLE_MAPS_API_KEY_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let search_api_key = std::env::var(GOOGLE_SEARCH_API_KEY_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty());
     let seed: Vec<(String, String, Vec<(String, String)>)> = flat
         .iter()
         .map(|c| {
@@ -451,6 +596,17 @@ pub fn cmd_run_form(args: &[String]) {
             props.push(("Width".into(), c.rect.w.to_string()));
             props.push(("Height".into(), c.rect.h.to_string()));
             props.push(("TabOrder".into(), c.tab_order.to_string()));
+            append_data_binding_seed_props(&form, &c.id, &mut props);
+            if c.control_type == cobolt_forms::ControlType::Maps {
+                if let Some(key) = &maps_api_key {
+                    props.push(("_ResolvedMapsApiKey".into(), key.clone()));
+                }
+            }
+            if c.control_type == cobolt_forms::ControlType::WebSearch {
+                if let Some(key) = &search_api_key {
+                    props.push(("_ResolvedSearchApiKey".into(), key.clone()));
+                }
+            }
             (c.id.clone(), c.control_type.as_str().to_string(), props)
         })
         .collect();
@@ -1637,6 +1793,38 @@ impl eframe::App for FormApp {
                 };
                 self.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
                 interacted = true;
+            }
+
+            // FileDropZone click → native picker (spec 039 T4). `cobolt-forms`
+            // has no native-dialog dependency by design (see render.rs's
+            // `RenderOutput::file_picker_requests` doc comment) — this host
+            // owns it, exactly like the IDE's own embedded runtime does in
+            // `cobolt-ide/src/app.rs`. Reuses the same non-blocking dialog
+            // pattern as that file's `file_dialog.rs` (an own copy — see this
+            // crate's `file_dialog.rs` doc comment for why).
+            for id in &output.file_picker_requests {
+                let key = format!("filedropzone:{id}");
+                crate::file_dialog::begin(ctx, &key, crate::file_dialog::DialogSpec::open());
+            }
+            let file_drop_zone_ids: Vec<String> = self
+                .controls
+                .iter()
+                .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::FileDropZone))
+                .map(|c| c.id.clone())
+                .collect();
+            for id in file_drop_zone_ids {
+                let key = format!("filedropzone:{id}");
+                if let Some(Some(path)) = crate::file_dialog::take(&key) {
+                    let val = path.display().to_string();
+                    self.state_entry_mut(&id).set("DroppedFiles", val.clone());
+                    let _ = self.input_tx.send(StateUpdate::new(
+                        id.clone(),
+                        "DroppedFiles".to_owned(),
+                        val,
+                    ));
+                    self.send_event(FormEvent::new(id, "onFilesDropped".to_owned()));
+                    interacted = true;
+                }
             }
         }
 

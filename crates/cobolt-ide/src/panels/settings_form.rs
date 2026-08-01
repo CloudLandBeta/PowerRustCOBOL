@@ -82,6 +82,14 @@ pub struct SettingsDraft {
     pub llm_reviewer_endpoint: String,
     pub llm_reviewer_model: String,
     pub llm_reviewer_api_key: String,
+    // ── Integrations (spec 039): Maps + Web Search ──
+    /// google_maps crate API key — Directions/Geocoding/Places/Distance-
+    /// Matrix only, never the OpenStreetMap basemap tiles (which need none).
+    pub maps_api_key: String,
+    /// Google Custom Search JSON API key.
+    pub custom_search_api_key: String,
+    /// Google Custom Search Engine id ("cx") — not a secret (R31/R32).
+    pub custom_search_engine_id: String,
 }
 
 impl SettingsDraft {
@@ -153,6 +161,17 @@ impl SettingsDraft {
             llm_reviewer_endpoint: llm.reviewer_endpoint.clone(),
             llm_reviewer_model: llm.reviewer_model.clone(),
             llm_reviewer_api_key: llm.reviewer_config().api_key,
+            maps_api_key: llm
+                .api_keys
+                .get(crate::llm::GOOGLE_MAPS_API_KEY_SLOT)
+                .cloned()
+                .unwrap_or_default(),
+            custom_search_api_key: llm
+                .api_keys
+                .get(crate::llm::GOOGLE_CUSTOM_SEARCH_API_KEY_SLOT)
+                .cloned()
+                .unwrap_or_default(),
+            custom_search_engine_id: p.integrations.google_search_engine_id.clone(),
         }
     }
 
@@ -239,6 +258,22 @@ impl SettingsDraft {
         } else {
             crate::llm::default_inspection_port()
         };
+        // Spec 039: same "only overwrite a non-empty edit" rule the LLM key
+        // field above uses — leaving the box blank never clears a
+        // previously-stored key by accident.
+        if !self.maps_api_key.trim().is_empty() {
+            llm.store_api_key(
+                crate::llm::GOOGLE_MAPS_API_KEY_SLOT.to_owned(),
+                &self.maps_api_key,
+            );
+        }
+        if !self.custom_search_api_key.trim().is_empty() {
+            llm.store_api_key(
+                crate::llm::GOOGLE_CUSTOM_SEARCH_API_KEY_SLOT.to_owned(),
+                &self.custom_search_api_key,
+            );
+        }
+        p.integrations.google_search_engine_id = self.custom_search_engine_id.clone();
     }
 }
 
@@ -1904,6 +1939,108 @@ impl SettingsForm {
                                         .range(1024..=65535),
                                 )
                                 .on_hover_text(tr.ai_inspection_hint);
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
+                        // --- Integrations section (spec 039): Maps + Web Search
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                section(ui, tr.set_sec_integrations, &theme);
+                            });
+                        });
+
+                        // google_maps API key (Directions/Geocoding/Places/
+                        // Distance-Matrix — never the OSM basemap tiles).
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_maps_api_key).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.draft.maps_api_key)
+                                        .password(true)
+                                        .hint_text(tr.settings_maps_api_key_hint)
+                                        .desired_width(w),
+                                );
+                            });
+                        });
+
+                        // Google Custom Search API key.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_search_api_key).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.draft.custom_search_api_key)
+                                        .password(true)
+                                        .hint_text(tr.settings_search_api_key_hint)
+                                        .desired_width(w),
+                                );
+                            });
+                        });
+
+                        // Custom Search Engine id ("cx") — not a secret.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_search_engine_id).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                ui.add(
+                                    egui::TextEdit::singleline(
+                                        &mut self.draft.custom_search_engine_id,
+                                    )
+                                    .desired_width(w),
+                                );
                             });
                         });
 

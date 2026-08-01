@@ -1266,7 +1266,14 @@ pub(crate) fn build_project_tree_context(
     out.push_str(
         "Use this inventory to discover project resources before proposing changes. \
          For CRUD forms over indexed files, inspect the INDEXED FILES section first. \
-         If the request matches multiple resources, ask the user which one to use.\n",
+         If the request matches multiple resources, ask the user which one to use. \
+         Each section below (FORMS, INDEXED FILES, COMMON COBOL SOURCES, GENERATED COBOL, \
+         ASSETS, DOCUMENTATION) is its canonical top-level folder, already listed \
+         RECURSIVELY — every entry is a full path, so a resource nested inside a \
+         subfolder (e.g. a form under \"forms/Common/\") is listed exactly like one \
+         at the top level. Match a named resource against the FULL path of every \
+         entry, not just its first path component, and never conclude a resource \
+         is missing merely because it is not directly under the top-level folder.\n",
     );
 
     let Some(project) = project else {

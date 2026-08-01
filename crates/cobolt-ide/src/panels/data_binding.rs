@@ -223,6 +223,97 @@ pub fn default_mappings_for_target(
                 )
             })
             .collect(),
+        BindingTargetDescriptor::ScalarControl { control_id } => {
+            // Prefer a numeric/decimal field for Knob/Gauge's Value, a
+            // boolean field for Switch's Checked — falling back to `first`
+            // when the source has neither, same "best guess, still
+            // editable" spirit as ComboBox/ListBox's `unwrap_or(first)`
+            // above.
+            let value = fields
+                .iter()
+                .find(|field| {
+                    matches!(
+                        field.data_type,
+                        BindingDataType::Integer
+                            | BindingDataType::Decimal
+                            | BindingDataType::Boolean
+                    )
+                })
+                .unwrap_or(first);
+            vec![FieldMapping::new(
+                value.name.clone(),
+                BindingTargetPath::ScalarValue {
+                    control_id: control_id.clone(),
+                },
+            )]
+        }
+        BindingTargetDescriptor::MarkerCollection { control_id } => {
+            // Best guess by field name (spec 039 R22), same "still editable"
+            // spirit as ComboBox/ScalarControl above: lat/lng/label are
+            // required by the Guardian, so a name match beats a positional
+            // guess whenever one exists, falling back to the first unused
+            // numeric fields for lat/lng and the first unused text field for
+            // label when no name hints anything.
+            let by_name = |needles: &[&str]| -> Option<&BindingField> {
+                fields.iter().find(|f| {
+                    let upper = f.name.to_ascii_uppercase();
+                    needles.iter().any(|n| upper.contains(n))
+                })
+            };
+            let numeric = |f: &&BindingField| {
+                matches!(
+                    f.data_type,
+                    BindingDataType::Integer | BindingDataType::Decimal
+                )
+            };
+            let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let lat = by_name(&["LAT"]).or_else(|| fields.iter().find(numeric));
+            if let Some(f) = lat {
+                used.insert(f.name.to_ascii_uppercase());
+            }
+            let lng = by_name(&["LNG", "LON"]).or_else(|| {
+                fields
+                    .iter()
+                    .filter(numeric)
+                    .find(|f| !used.contains(&f.name.to_ascii_uppercase()))
+            });
+            if let Some(f) = lng {
+                used.insert(f.name.to_ascii_uppercase());
+            }
+            let label = by_name(&["LABEL", "NAME", "TITLE", "ADDRESS"]).or_else(|| {
+                fields
+                    .iter()
+                    .find(|f| !used.contains(&f.name.to_ascii_uppercase()))
+            });
+            if let Some(f) = label {
+                used.insert(f.name.to_ascii_uppercase());
+            }
+            let id = by_name(&["ID"]);
+            let info = by_name(&["INFO", "DESC"]);
+
+            let mut mappings = Vec::new();
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for (field, marker_field) in [
+                (lat, cobolt_forms::MapMarkerField::Lat),
+                (lng, cobolt_forms::MapMarkerField::Lng),
+                (label, cobolt_forms::MapMarkerField::Label),
+                (id, cobolt_forms::MapMarkerField::Id),
+                (info, cobolt_forms::MapMarkerField::Info),
+            ] {
+                if let Some(field) = field {
+                    if seen.insert(field.name.to_ascii_uppercase()) {
+                        mappings.push(FieldMapping::new(
+                            field.name.clone(),
+                            BindingTargetPath::MarkerField {
+                                control_id: control_id.clone(),
+                                field: marker_field,
+                            },
+                        ));
+                    }
+                }
+            }
+            mappings
+        }
     }
 }
 
@@ -355,6 +446,43 @@ mod tests {
     }
 
     #[test]
+    fn data_binding_properties_show_standalone_knob_gauge_switch_hide_file_drop_zone() {
+        // R21/R25: Knob/Gauge/Switch become approved standalone targets;
+        // FileDropZone deliberately stays hidden — no code changes needed
+        // to get this for free once `ControlType::approved_binding_target_
+        // kind()` knows about the three scalar types, since this whole
+        // function is already generic over it.
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let knob = Control::new("KNOB-1", ControlType::Knob, 0, 0);
+        let gauge = Control::new("GAUGE-1", ControlType::Gauge, 0, 100);
+        let switch = Control::new("SWITCH-1", ControlType::Switch, 0, 200);
+        let dropzone = Control::new("FDZ-1", ControlType::FileDropZone, 0, 300);
+        form.controls = vec![
+            knob.clone(),
+            gauge.clone(),
+            switch.clone(),
+            dropzone.clone(),
+        ];
+
+        for c in [&knob, &gauge, &switch] {
+            assert!(
+                matches!(
+                    visibility_for_control(&form, c),
+                    DataBindingVisibility::ApprovedTarget(
+                        ApprovedBindingTargetKind::ScalarControl
+                    )
+                ),
+                "{:?} should be an approved standalone target",
+                c.control_type
+            );
+        }
+        assert_eq!(
+            visibility_for_control(&form, &dropzone),
+            DataBindingVisibility::Hidden
+        );
+    }
+
+    #[test]
     fn data_binding_properties_show_array_member_mapping_context_only() {
         let mut form = Form::new("MAIN", "Main", 800, 600);
         let mut group = Control::new("ROWS", ControlType::GroupBox, 0, 0);
@@ -460,6 +588,70 @@ mod tests {
             &mapping.target,
             BindingTargetPath::ControlProperty { property_name, .. } if property_name == "Checked"
         )));
+    }
+
+    #[test]
+    fn data_binding_editor_maps_marker_collection_by_field_name() {
+        // Spec 039 T13/R22: lat/lng/label are guessed from field names when
+        // available (PLACE-LAT/PLACE-LNG/PLACE-NAME here), same "best guess,
+        // still editable" spirit as the ScalarControl heuristic.
+        let fields = vec![
+            BindingField::new("PLACE-ID", BindingDataType::Text).key(),
+            BindingField::new("PLACE-LAT", BindingDataType::Decimal).required(),
+            BindingField::new("PLACE-LNG", BindingDataType::Decimal).required(),
+            BindingField::new("PLACE-NAME", BindingDataType::Text).required(),
+            BindingField::new("PLACE-INFO", BindingDataType::Text),
+        ];
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new("MAP-1", ControlType::Maps, 0, 0));
+
+        let target = form.binding_target_descriptor_for_control("MAP-1").unwrap();
+        let mappings = default_mappings_for_target(&form, &target, &fields);
+
+        let field_for = |marker_field: cobolt_forms::MapMarkerField| {
+            mappings.iter().find_map(|m| match &m.target {
+                BindingTargetPath::MarkerField { field, .. } if *field == marker_field => {
+                    Some(m.source_field.as_str())
+                }
+                _ => None,
+            })
+        };
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Lat), Some("PLACE-LAT"));
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Lng), Some("PLACE-LNG"));
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Label), Some("PLACE-NAME"));
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Id), Some("PLACE-ID"));
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Info), Some("PLACE-INFO"));
+    }
+
+    #[test]
+    fn data_binding_editor_maps_marker_collection_falls_back_without_name_hints() {
+        // No field looks like lat/lng/label by name — falls back to the
+        // first two numeric fields (in order) for lat/lng and the first
+        // remaining field for label, never panicking or leaving lat/lng
+        // unmapped (the Guardian would reject that, but the editor should
+        // still offer its best guess).
+        let fields = vec![
+            BindingField::new("A", BindingDataType::Decimal).required(),
+            BindingField::new("B", BindingDataType::Decimal).required(),
+            BindingField::new("C", BindingDataType::Text).required(),
+        ];
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new("MAP-1", ControlType::Maps, 0, 0));
+
+        let target = form.binding_target_descriptor_for_control("MAP-1").unwrap();
+        let mappings = default_mappings_for_target(&form, &target, &fields);
+
+        let field_for = |marker_field: cobolt_forms::MapMarkerField| {
+            mappings.iter().find_map(|m| match &m.target {
+                BindingTargetPath::MarkerField { field, .. } if *field == marker_field => {
+                    Some(m.source_field.as_str())
+                }
+                _ => None,
+            })
+        };
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Lat), Some("A"));
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Lng), Some("B"));
+        assert_eq!(field_for(cobolt_forms::MapMarkerField::Label), Some("C"));
     }
 
     #[test]

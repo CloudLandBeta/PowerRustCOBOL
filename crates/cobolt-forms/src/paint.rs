@@ -2490,6 +2490,289 @@ pub fn draw_control(
         return;
     }
 
+    // ── Knob / Gauge / Switch / FileDropZone (spec 039) ────────────────────────
+    //
+    // These four render as REAL egui-elegance widgets on the interactive
+    // surfaces (render_form → render_interactive, which has a live `Ui`).
+    // `draw_control` only ever gets a bare `Painter` — no `Ui` — because it
+    // is also the designer canvas's static-face renderer (`render_faces`),
+    // which has no live widget tree at all. A crate `Widget` cannot run
+    // without a `Ui`, so the designer canvas gets a simplified, hand-painted
+    // proxy here instead of the real widget: recognisable and value-accurate,
+    // not a pixel match for egui-elegance's own (considerably more elaborate)
+    // paint job — that fidelity is what the real widget is for, and the
+    // designer canvas only ever needs to communicate "this is a Knob, its
+    // value is 42" at a glance, the same way every other custom-painted
+    // control's static face here is a simplified stand-in for its live self.
+    if matches!(
+        ctrl.control_type,
+        CT::Knob | CT::Gauge | CT::Switch | CT::FileDropZone
+    ) {
+        // Approximate egui-elegance's fixed Accent palette (theme.rs) — a
+        // hand-picked visual match, not an import (that palette is private
+        // to the crate's Theme type, which needs a live `Ui`/`Context` to
+        // resolve dark/light variants; the designer canvas has neither).
+        let accent_color = |name: &str| -> Color32 {
+            match name {
+                "Green" => Color32::from_rgb(46, 125, 50),
+                "Red" => Color32::from_rgb(198, 40, 40),
+                "Purple" => Color32::from_rgb(106, 27, 154),
+                "Amber" => Color32::from_rgb(245, 124, 0),
+                "Sky" => Color32::from_rgb(2, 136, 209),
+                _ => Color32::from_rgb(0, 120, 215), // Blue (default)
+            }
+        };
+        // A 270° arc (Knob's own sweep) or a full circle (Gauge Radial/Donut),
+        // filled from the start up to `frac` (0..1) of `sweep_deg`, plus the
+        // unfilled remainder as a dim track. `start_deg`/`sweep_deg` follow
+        // egui's angle convention (0 = east, clockwise with +y down).
+        let draw_ring = |painter: &egui::Painter,
+                          center: Pos2,
+                          radius: f32,
+                          stroke_w: f32,
+                          start_deg: f32,
+                          sweep_deg: f32,
+                          frac: f32,
+                          fill: Color32,
+                          track: Color32| {
+            let segments = 48.max((sweep_deg.abs() / 4.0) as usize);
+            let pt = |deg: f32| -> Pos2 {
+                let a = deg.to_radians();
+                Pos2::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+            };
+            let track_pts: Vec<Pos2> = (0..=segments)
+                .map(|i| pt(start_deg + sweep_deg * (i as f32 / segments as f32)))
+                .collect();
+            painter.add(egui::Shape::line(track_pts, Stroke::new(stroke_w, track)));
+            if frac > 0.001 {
+                let fill_sweep = sweep_deg * frac.clamp(0.0, 1.0);
+                let fill_segments = 48.max((fill_sweep.abs() / 4.0) as usize).max(1);
+                let fill_pts: Vec<Pos2> = (0..=fill_segments)
+                    .map(|i| pt(start_deg + fill_sweep * (i as f32 / fill_segments as f32)))
+                    .collect();
+                painter.add(egui::Shape::line(fill_pts, Stroke::new(stroke_w, fill)));
+            }
+        };
+
+        match ctrl.control_type {
+            CT::Knob => {
+                let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
+                let max_v = ctrl
+                    .get_prop("Maximum")
+                    .map(|v| v.as_i64())
+                    .unwrap_or(100)
+                    .max(min_v as i64 + 1) as f32;
+                let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
+                let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
+                let accent = alpha_color(accent_color(
+                    &ctrl
+                        .get_prop("Accent")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_else(|| "Blue".into()),
+                ));
+                let track = alpha_color(Color32::from_gray(140));
+                let center = rect.center();
+                let radius = (rect.width().min(rect.height()) * 0.5 - 4.0).max(6.0);
+                // Knob's own 270° sweep, centred at the bottom (135°..405°,
+                // i.e. start at south-west, clockwise to south-east).
+                draw_ring(painter, center, radius, radius * 0.18, 135.0, 270.0, frac, accent, track);
+                let show_value = ctrl
+                    .get_prop("ShowValue")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(true);
+                if show_value {
+                    painter.text(
+                        center,
+                        egui::Align2::CENTER_CENTER,
+                        format!("{val:.0}"),
+                        egui::FontId::proportional((radius * 0.5).max(9.0)),
+                        Color32::from_rgba_premultiplied(230, 230, 230, a),
+                    );
+                }
+            }
+            CT::Gauge => {
+                let style = ctrl
+                    .get_prop("GaugeStyle")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_else(|| "Radial".into());
+                let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
+                let max_v = ctrl
+                    .get_prop("Maximum")
+                    .map(|v| v.as_i64())
+                    .unwrap_or(100)
+                    .max(min_v as i64 + 1) as f32;
+                let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
+                let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
+                let color_prop = ctrl
+                    .get_prop("Color")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                let fill = alpha_color(if color_prop.is_empty() {
+                    accent_color("Blue")
+                } else {
+                    parse_color(&color_prop)
+                });
+                let track = alpha_color(Color32::from_gray(140));
+                match style.as_str() {
+                    "Linear" => {
+                        let h = ctrl
+                            .get_prop("BarHeight")
+                            .map(|v| v.as_i64() as f32)
+                            .unwrap_or(14.0)
+                            .min(rect.height());
+                        let bar =
+                            egui::Rect::from_center_size(rect.center(), Vec2::new(rect.width() - 4.0, h));
+                        let r = h * 0.5;
+                        painter.rect_filled(bar, r, track);
+                        let filled = egui::Rect::from_min_size(
+                            bar.min,
+                            Vec2::new(bar.width() * frac, bar.height()),
+                        );
+                        if frac > 0.001 {
+                            painter.rect_filled(filled, r, fill);
+                        }
+                    }
+                    "Donut" => {
+                        let center = rect.center();
+                        let radius = (rect.width().min(rect.height()) * 0.5 - 4.0).max(6.0);
+                        let stroke_w = ctrl
+                            .get_prop("StrokeWidth")
+                            .map(|v| v.as_i64() as f32)
+                            .unwrap_or(8.0);
+                        draw_ring(painter, center, radius, stroke_w, -90.0, 360.0, frac, fill, track);
+                    }
+                    _ => {
+                        // Radial: a half-circle speedometer, sweeping the top.
+                        let center = Pos2::new(rect.center().x, rect.bottom() - 6.0);
+                        let radius = (rect.width() * 0.5 - 4.0).min(rect.height() - 10.0).max(6.0);
+                        draw_ring(painter, center, radius, radius * 0.18, 180.0, 180.0, frac, fill, track);
+                    }
+                }
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{val:.0}"),
+                    egui::FontId::proportional((rect.height() * 0.22).clamp(9.0, 18.0)),
+                    Color32::from_rgba_premultiplied(230, 230, 230, a),
+                );
+            }
+            CT::Switch => {
+                let checked = ctrl
+                    .get_prop("Checked")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false);
+                let accent = alpha_color(accent_color(
+                    &ctrl
+                        .get_prop("Accent")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_else(|| "Blue".into()),
+                ));
+                let off = alpha_color(Color32::from_gray(110));
+                let track_h = rect.height().min(18.0);
+                let track = egui::Rect::from_center_size(
+                    rect.center(),
+                    Vec2::new((rect.width()).min(32.0), track_h),
+                );
+                let r = track_h * 0.5;
+                painter.rect_filled(track, r, if checked { accent } else { off });
+                let knob_d = track_h - 4.0;
+                let knob_x = if checked {
+                    track.max.x - r
+                } else {
+                    track.min.x + r
+                };
+                painter.circle_filled(
+                    Pos2::new(knob_x, track.center().y),
+                    knob_d * 0.5,
+                    Color32::from_rgba_premultiplied(a, a, a, a),
+                );
+            }
+            _ /* FileDropZone */ => {
+                let stroke = Stroke::new(1.5, Color32::from_rgba_premultiplied(140, 140, 140, a));
+                // A dashed rounded-rect border — egui has no built-in dashed
+                // rect stroke, so it is a handful of short segments per edge.
+                let r = rect.shrink(2.0);
+                let dash = 6.0_f32;
+                let gap = 4.0_f32;
+                let mut edge = |p0: Pos2, p1: Pos2| {
+                    let len = p0.distance(p1);
+                    let dir = (p1 - p0) / len.max(0.001);
+                    let mut d = 0.0_f32;
+                    while d < len {
+                        let seg_end = (d + dash).min(len);
+                        painter.line_segment([p0 + dir * d, p0 + dir * seg_end], stroke);
+                        d += dash + gap;
+                    }
+                };
+                edge(r.left_top(), r.right_top());
+                edge(r.right_top(), r.right_bottom());
+                edge(r.right_bottom(), r.left_bottom());
+                edge(r.left_bottom(), r.left_top());
+                let hint = ctrl
+                    .get_prop("Hint")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                let label = if hint.is_empty() {
+                    "Drop files here".to_owned()
+                } else {
+                    hint
+                };
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    Color32::from_rgba_premultiplied(180, 180, 180, a),
+                );
+            }
+        }
+        return;
+    }
+
+    // ── Maps (spec 039 T9) ──────────────────────────────────────────────────
+    // Same shared `map_tiles::paint_map` the interactive path (render.rs)
+    // uses — a `Painter` carries its own `Context` (`Painter::ctx()`), which
+    // is all texture upload needs, so the designer canvas's static face
+    // shows the SAME real OSM tiles the running form does, not a simplified
+    // proxy like Knob/Gauge/Switch/FileDropZone's static faces above (those
+    // stand in for a live *widget*; a basemap has no such off-the-shelf
+    // widget to substitute for in the first place).
+    if matches!(ctrl.control_type, CT::Maps) {
+        let center_lat: f64 = ctrl
+            .get_prop("CenterLat")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0.0);
+        let center_lng: f64 = ctrl
+            .get_prop("CenterLng")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0.0);
+        let zoom = ctrl
+            .get_prop("Zoom")
+            .map(|v| v.as_i64())
+            .unwrap_or(2)
+            .clamp(crate::map_tiles::MIN_ZOOM as i64, crate::map_tiles::MAX_ZOOM as i64)
+            as u8;
+        let markers_raw = ctrl
+            .get_prop("Markers")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let records = crate::parse_map_markers(&markers_raw);
+        let markers: Vec<crate::map_tiles::MapMarker> = records
+            .iter()
+            .map(|m| crate::map_tiles::MapMarker {
+                lat: m.lat,
+                lng: m.lng,
+                label: &m.label,
+            })
+            .collect();
+        crate::map_tiles::paint_map(painter, rect, center_lat, center_lng, zoom, &markers, None);
+        return;
+    }
+
     // ── ProgressBar ───────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::ProgressBar) {
         // In Neumorphic mode draw the dual-shadow halo BEFORE the bar's own artwork.
@@ -2996,17 +3279,12 @@ pub fn draw_control(
 
     // Label text — Caption is on Label, Button, CheckBox, RadioButton.
     let label: String = match ctrl.control_type {
-        CT::CheckBox => {
-            let checked = ctrl
-                .get_prop("Checked")
-                .map(|v| v.as_bool())
-                .unwrap_or(false);
-            let cap = ctrl
-                .get_prop("Caption")
-                .map(|v| v.as_str().to_owned())
-                .unwrap_or_else(|| ctrl.id.clone());
-            format!("{} {cap}", if checked { "[✓]" } else { "[ ]" })
-        }
+        // The check glyph is a real drawn square + checkmark (below), not
+        // text — the caption is JUST the caption here.
+        CT::CheckBox => ctrl
+            .get_prop("Caption")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| ctrl.id.clone()),
         CT::RadioButton => {
             let checked = ctrl
                 .get_prop("Checked")
@@ -3212,6 +3490,70 @@ pub fn draw_control(
     } else {
         label
     };
+
+    // ── CheckBox: a real drawn box + checkmark, not "[ ]"/"[✓]" bracket text.
+    // Runs OUTSIDE the `!label.is_empty()` gate below because the box must
+    // show even when the developer left Caption empty. `checkbox_text_rect`
+    // narrows the caption's own layout area so text never overlaps the box.
+    let mut checkbox_text_rect = rect;
+    if matches!(ctrl.control_type, CT::CheckBox) {
+        let checked = ctrl
+            .get_prop("Checked")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
+        let box_fsize = ctrl_font_size(ctrl);
+        let box_d = (box_fsize * 1.25).clamp(12.0, (rect.height() - 4.0).max(10.0));
+        let box_round = (box_d * 0.22).clamp(2.0, 5.0);
+        let pad = 4.0_f32.min(rect.width() * 0.08);
+        let gap = 6.0_f32.min(rect.width() * 0.08);
+        let right_aligned = ctrl
+            .get_prop("CheckAlignment")
+            .map(|v| v.as_str().eq_ignore_ascii_case("Right"))
+            .unwrap_or(false);
+        let box_x = if right_aligned {
+            rect.right() - pad - box_d
+        } else {
+            rect.left() + pad
+        };
+        let box_rect = egui::Rect::from_min_size(
+            egui::pos2(box_x, rect.center().y - box_d / 2.0),
+            Vec2::splat(box_d),
+        );
+        // Same theme dispatch (Classic / Enhanced / Neumorphic Light /
+        // Neumorphic Dark) every other control's face already uses, so the
+        // check glyph always matches the active GlassStyle instead of being
+        // flat monospace brackets regardless of theme.
+        draw_glass_auto(painter, box_rect, fill, box_round, false, alpha_mul);
+        if checked {
+            let check_color = ctrl
+                .get_prop("CheckColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(0, 120, 215));
+            let cc = alpha_color(check_color);
+            // CheckSize: 0-100, percentage of the box the checkmark fills.
+            let check_pct = ctrl
+                .get_prop("CheckSize")
+                .map(|v| v.as_i64())
+                .unwrap_or(70)
+                .clamp(10, 100) as f32
+                / 100.0;
+            let stroke_w = (box_d * 0.16 * check_pct).clamp(1.5, 6.0);
+            let pt = |ux: f32, uy: f32| -> Pos2 {
+                Pos2::new(
+                    box_rect.center().x + (ux - 0.5) * box_d * check_pct,
+                    box_rect.center().y + (uy - 0.5) * box_d * check_pct,
+                )
+            };
+            let stroke = Stroke::new(stroke_w, cc);
+            painter.line_segment([pt(0.18, 0.52), pt(0.42, 0.76)], stroke);
+            painter.line_segment([pt(0.42, 0.76), pt(0.84, 0.22)], stroke);
+        }
+        checkbox_text_rect = if right_aligned {
+            egui::Rect::from_min_max(rect.min, egui::pos2(box_rect.left() - gap, rect.max.y))
+        } else {
+            egui::Rect::from_min_max(egui::pos2(box_rect.right() + gap, rect.min.y), rect.max)
+        };
+    }
 
     if !label.is_empty() {
         let txt_color =
@@ -3441,6 +3783,40 @@ pub fn draw_control(
                 let clipped = painter.with_clip_rect(rect);
                 paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
             }
+        } else if matches!(ctrl.control_type, CT::CheckBox) {
+            // Caption sits in the space left after the check glyph (drawn
+            // below, outside this `!label.is_empty()` gate), wrapped, clipped,
+            // and shrunk exactly like TextBox's single-line box — so a long
+            // caption never bleeds past the control's own border instead of
+            // overflowing it (developer-reported bug: text used to spill past
+            // the frame).
+            let pad = 3.0_f32.min(checkbox_text_rect.width() * 0.2);
+            let inner_w = (checkbox_text_rect.width() - 2.0 * pad).max(1.0);
+            let min_font = 6.0_f32;
+            let mut fit = fsize.max(min_font);
+            let layout = |size: f32| {
+                painter.layout_job(styled_text_job(
+                    painter,
+                    ctrl,
+                    &label,
+                    &font_name,
+                    size,
+                    txt_color,
+                    inner_w,
+                    egui::Align::LEFT,
+                ))
+            };
+            let mut galley = layout(fit);
+            while galley.size().y > checkbox_text_rect.height() && fit > min_font {
+                fit = (fit - 1.0).max(min_font);
+                galley = layout(fit);
+            }
+            let text_pos = egui::pos2(
+                checkbox_text_rect.left() + pad,
+                checkbox_text_rect.center().y - galley.size().y / 2.0,
+            );
+            let clipped = painter.with_clip_rect(checkbox_text_rect);
+            paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
         } else {
             let galley = painter.layout_job(styled_text_job(
                 painter,
@@ -4560,7 +4936,7 @@ pub fn glass_combo_header(
     );
     painter.text(
         Pos2::new(rect.max.x - 13.0, rect.center().y),
-        Align2::CENTER_CENTER,
+        egui::Align2::CENTER_CENTER,
         if is_open { "▲" } else { "▼" },
         FontId::proportional(9.0),
         Color32::from_rgba_premultiplied(160, 190, 255, 200),
@@ -8375,5 +8751,175 @@ mod theme_render_tests {
                  (dash: {dash}, solid: {solid})"
             );
         }
+    }
+
+    // ── Spec 039 T3: Knob/Gauge/Switch/FileDropZone static-preview paint ───
+
+    fn leaf_count_for(ctrl: &crate::model::Control) -> usize {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
+                });
+        });
+        fn leaves(s: &egui::Shape) -> usize {
+            match s {
+                egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
+                _ => 1,
+            }
+        }
+        full.shapes.iter().map(|cs| leaves(&cs.shape)).sum()
+    }
+
+    #[test]
+    fn knob_gauge_switch_file_drop_zone_static_preview_paints_without_panicking() {
+        use crate::model::{Control, ControlType};
+        let cases: &[(ControlType, &[(&str, &str)])] = &[
+            (ControlType::Knob, &[("Value", "42")][..]),
+            (
+                ControlType::Gauge,
+                &[("GaugeStyle", "Radial"), ("Value", "70")][..],
+            ),
+            (
+                ControlType::Gauge,
+                &[("GaugeStyle", "Linear"), ("Value", "30")][..],
+            ),
+            (
+                ControlType::Gauge,
+                &[("GaugeStyle", "Donut"), ("Value", "55")][..],
+            ),
+            (ControlType::Switch, &[("Checked", "true")][..]),
+            (ControlType::FileDropZone, &[("Hint", "CSV or XLSX")][..]),
+        ];
+        for (ct, props) in cases {
+            let mut c = Control::new("C1", ct.clone(), 0, 0);
+            c.rect = crate::model::Rect::new(20, 20, 100, 80);
+            for &(k, v) in *props {
+                c.set_prop(k, PropValue::String(v.into()));
+            }
+            let leaves = leaf_count_for(&c);
+            assert!(leaves > 0, "{ct:?} with {props:?} painted no geometry at all");
+        }
+    }
+
+    #[test]
+    fn maps_static_preview_paints_a_backdrop_without_panicking() {
+        // `map_tiles::request_tile` spawns a real background thread that
+        // makes a real HTTP request to tile.openstreetmap.org — this test
+        // does NOT wait for it (the tile stays "Loading", drawn as the
+        // plain grey backdrop, until a later frame polls it), so it stays
+        // fast and deterministic regardless of network conditions; it only
+        // proves the synchronous paint path — request kick-off, backdrop
+        // fill, no panic — never blocks or depends on the download itself.
+        use crate::model::{Control, ControlType};
+        let mut c = Control::new("MAP-1", ControlType::Maps, 0, 0);
+        c.rect = crate::model::Rect::new(0, 0, 320, 240);
+        c.set_prop("CenterLat", PropValue::String("40.7128".into()));
+        c.set_prop("CenterLng", PropValue::String("-74.0060".into()));
+        c.set_prop("Zoom", PropValue::Int(10));
+        let leaves = leaf_count_for(&c);
+        assert!(leaves > 0, "Maps painted no geometry at all (not even the backdrop)");
+    }
+
+    #[test]
+    fn knob_fill_arc_grows_with_value() {
+        use crate::model::{Control, ControlType};
+
+        // The track and fill arcs are each a single `Shape::Path` holding
+        // many points internally — a `Shape::Vec`-recursing leaf counter
+        // (as used elsewhere in this file) sees ONE opaque leaf per path
+        // regardless of how many points are in it, so it cannot see this
+        // change. Sum the actual point counts across every `Shape::Path`
+        // instead — `draw_ring`'s fill segment count scales with the swept
+        // angle, so a fuller knob really does produce more points.
+        fn total_path_points(ctrl: &crate::model::Control) -> usize {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
+                    });
+            });
+            fn count(s: &egui::Shape, total: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| count(s, total)),
+                    egui::Shape::Path(p) => *total += p.points.len(),
+                    _ => {}
+                }
+            }
+            let mut total = 0;
+            for cs in &full.shapes {
+                count(&cs.shape, &mut total);
+            }
+            total
+        }
+
+        let mut low = Control::new("K1", ControlType::Knob, 0, 0);
+        low.rect = crate::model::Rect::new(0, 0, 100, 100);
+        low.set_prop("Minimum", PropValue::Int(0));
+        low.set_prop("Maximum", PropValue::Int(100));
+        low.set_prop("Value", PropValue::Int(1));
+        low.set_prop("ShowValue", PropValue::Bool(false));
+
+        let mut high = low.clone();
+        high.set_prop("Value", PropValue::Int(99));
+
+        assert!(
+            total_path_points(&high) > total_path_points(&low),
+            "a higher Value must sweep a longer fill arc (more points), not \
+             the same track-only ring ({} vs {})",
+            total_path_points(&high),
+            total_path_points(&low),
+        );
+    }
+
+    #[test]
+    fn switch_thumb_moves_from_off_side_to_on_side() {
+        use crate::model::{Control, ControlType};
+        let mut off = Control::new("S1", ControlType::Switch, 0, 0);
+        off.rect = crate::model::Rect::new(0, 0, 60, 30);
+        off.set_prop("Checked", PropValue::Bool(false));
+        let mut on = off.clone();
+        on.set_prop("Checked", PropValue::Bool(true));
+
+        // Both states paint the same shape COUNT (track + thumb either way);
+        // what differs is the thumb's x position, which the leaf-count check
+        // can't see — assert on the actual painted position instead.
+        fn thumb_center_x(ctrl: &crate::model::Control) -> f32 {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
+                    });
+            });
+            // The thumb is the only filled circle this control paints.
+            fn find_circle_x(s: &egui::Shape, out: &mut Option<f32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| find_circle_x(s, out)),
+                    egui::Shape::Circle(c) => *out = Some(c.center.x),
+                    _ => {}
+                }
+            }
+            let mut x = None;
+            for cs in &full.shapes {
+                find_circle_x(&cs.shape, &mut x);
+            }
+            x.expect("Switch must paint a circular thumb")
+        }
+        assert!(
+            thumb_center_x(&on) > thumb_center_x(&off),
+            "Checked=true must paint the thumb on the right, not the left"
+        );
     }
 }

@@ -55,6 +55,23 @@ pub struct CoboltProject {
     /// Project-scoped reusable composite controls (spec 020).
     #[serde(default, rename = "user-controls")]
     pub user_controls: Vec<UserControlDef>,
+    /// Project-scoped third-party integration settings (spec 039) — the
+    /// non-secret half only; the google_maps and Custom Search API keys
+    /// stay in the machine-local secret store like every other credential
+    /// (R31), never here.
+    #[serde(default)]
+    pub integrations: ProjectIntegrationSettings,
+}
+
+/// Non-secret configuration for the spec 039 Maps/WebSearch controls'
+/// external services. `search_engine_id` (Custom Search's "cx" value) is
+/// not a credential — Google's own docs treat it as a public identifier,
+/// scoped by the API key that accompanies each request — so it round-trips
+/// in `cobolt.toml` like any other project setting.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectIntegrationSettings {
+    #[serde(default)]
+    pub google_search_engine_id: String,
 }
 
 /// AI configuration that belongs to one project and is persisted in
@@ -527,6 +544,7 @@ impl CoboltProject {
             forms: FormsConfig::new_project_defaults(),
             ai: ProjectAiSettings::new(),
             user_controls: Vec::new(),
+            integrations: ProjectIntegrationSettings::default(),
         }
     }
 
@@ -885,6 +903,201 @@ impl FileKind {
 
     // Visual icons are drawn with vectors in the project tree (see panels/project.rs).
     // Emoji versions removed for portability across OSes and font configurations.
+}
+
+// ── Recursive resource discovery ────────────────────────────────────────────
+//
+// Every project resource type has exactly one canonical top-level folder
+// (`Category::root_subdir`), and the developer is free to nest subfolders
+// under it (`forms/Common/textboxes-form.cfrm` is exactly as valid as
+// `forms/textboxes-form.cfrm`). A lookup that only checks the top level of
+// that folder — or that trusts a possibly-stale in-memory file list instead
+// of the real folder on disk — silently fails to find a resource sitting
+// right there in the project tree. These helpers always re-walk the actual
+// folder, at any depth, and match leniently enough to survive a small typo
+// in the name being searched for (operator, 2026-08-01).
+
+/// Recursively collect every file under `project_dir/category.root_subdir()`,
+/// as project-relative paths using `/` separators, at any nesting depth.
+/// Returns an empty list if the folder does not exist.
+pub fn recursive_category_files(project_dir: &Path, category: Category) -> Vec<String> {
+    let root = project_dir.join(category.root_subdir());
+    let mut out = Vec::new();
+    collect_files_recursive(project_dir, &root, &mut out);
+    out.sort();
+    out
+}
+
+fn collect_files_recursive(project_dir: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files_recursive(project_dir, &path, out);
+        } else if let Ok(rel) = path.strip_prefix(project_dir) {
+            out.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+/// Best-effort match of `needle` (free text — a developer request or a
+/// delegated task's objective — that names a resource somewhere inside it)
+/// against `candidates` (project-relative paths, typically from
+/// [`recursive_category_files`]). Never assumes the resource sits directly
+/// under the top-level folder: every candidate, at any depth, is considered
+/// equally. Tried in order, cheapest and most exact first:
+///
+/// 1. the candidate's full relative path appears verbatim in `needle` (case-insensitive);
+/// 2. the candidate's bare file name appears verbatim in `needle` (case-insensitive);
+/// 3. a whitespace-delimited token of `needle`, normalized (lowercased, with
+///    `-`/`_`/`.`/`/` and other punctuation stripped), is within a small edit
+///    distance of the candidate's own normalized path or file name — enough
+///    to survive one missing/extra/substituted character (e.g. a developer
+///    typing "texboxes-form.cfrm" for "textboxes-form.cfrm").
+///
+/// Returns the single closest candidate, or `None` if nothing clears the bar.
+pub fn best_resource_match<'a>(needle: &str, candidates: &'a [String]) -> Option<&'a str> {
+    let needle_lower = needle.to_ascii_lowercase();
+
+    if let Some(hit) = candidates
+        .iter()
+        .find(|c| needle_lower.contains(&c.to_ascii_lowercase()))
+    {
+        return Some(hit.as_str());
+    }
+
+    if let Some(hit) = candidates.iter().find(|c| {
+        Path::new(c.as_str())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|name| needle_lower.contains(&name.to_ascii_lowercase()))
+    }) {
+        return Some(hit.as_str());
+    }
+
+    let tokens: Vec<String> = needle_lower
+        .split_whitespace()
+        .map(normalize_resource_name)
+        .filter(|t| t.len() >= 5)
+        .collect();
+    let mut best: Option<(&str, usize)> = None;
+    for candidate in candidates {
+        let path_norm = normalize_resource_name(candidate);
+        let name_norm = Path::new(candidate.as_str())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(normalize_resource_name)
+            .unwrap_or_default();
+        for token in &tokens {
+            for norm in [path_norm.as_str(), name_norm.as_str()] {
+                if norm.is_empty() {
+                    continue;
+                }
+                let distance = levenshtein_distance(token, norm);
+                let threshold = (norm.len().max(token.len()) / 6).max(1).min(2);
+                if distance <= threshold
+                    && best.as_ref().is_none_or(|(_, best_distance)| distance < *best_distance)
+                {
+                    best = Some((candidate.as_str(), distance));
+                }
+            }
+        }
+    }
+    best.map(|(path, _)| path)
+}
+
+/// Lowercase, alphanumeric-only rendering of `s` (drops `-`, `_`, `.`, `/`,
+/// spaces, …), so `"texboxes-form.cfrm"` and `"forms/TextBoxes Form.cfrm"`
+/// compare on the same footing.
+fn normalize_resource_name(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// Classic iterative Levenshtein edit distance (insertions, deletions,
+/// substitutions, each one step), computed in O(a·b) time and O(b) space.
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        curr[0] = i;
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
+#[cfg(test)]
+mod resource_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn recursive_walk_finds_forms_nested_under_a_subfolder() {
+        let dir = std::env::temp_dir().join(format!(
+            "cobolt-resource-discovery-test-{}",
+            std::process::id()
+        ));
+        let forms_common = dir.join("forms").join("Common");
+        std::fs::create_dir_all(&forms_common).unwrap();
+        std::fs::write(forms_common.join("textboxes-form.cfrm"), "<Form/>").unwrap();
+        std::fs::write(forms_common.join("buttons-form.cfrm"), "<Form/>").unwrap();
+
+        let found = recursive_category_files(&dir, Category::Forms);
+        assert_eq!(
+            found,
+            vec![
+                "forms/Common/buttons-form.cfrm".to_string(),
+                "forms/Common/textboxes-form.cfrm".to_string(),
+            ]
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn best_match_finds_exact_nested_path() {
+        let candidates = vec![
+            "forms/Common/buttons-form.cfrm".to_string(),
+            "forms/Common/textboxes-form.cfrm".to_string(),
+        ];
+        let objective =
+            "Inspect the form at forms/Common/textboxes-form.cfrm and identify all controls.";
+        assert_eq!(
+            best_resource_match(objective, &candidates),
+            Some("forms/Common/textboxes-form.cfrm")
+        );
+    }
+
+    #[test]
+    fn best_match_survives_a_missing_letter_typo() {
+        let candidates = vec![
+            "forms/Common/buttons-form.cfrm".to_string(),
+            "forms/Common/textboxes-form.cfrm".to_string(),
+        ];
+        // Developer typed "texboxes-form.cfrm" — missing the second "t".
+        let objective =
+            "Inspect the form at forms/Common/texboxes-form.cfrm and identify all controls.";
+        assert_eq!(
+            best_resource_match(objective, &candidates),
+            Some("forms/Common/textboxes-form.cfrm")
+        );
+    }
+
+    #[test]
+    fn best_match_returns_none_when_nothing_is_close() {
+        let candidates = vec!["forms/Common/buttons-form.cfrm".to_string()];
+        let objective = "Inspect the checkboxes form and identify all controls.";
+        assert_eq!(best_resource_match(objective, &candidates), None);
+    }
 }
 
 // ── Load / Save ───────────────────────────────────────────────────────────────
@@ -1259,6 +1472,49 @@ entrance-on-restore = true
         let loaded: CoboltProject = toml::from_str(&text).unwrap();
         assert_eq!(loaded.ai.schema_version, 1);
         assert_eq!(loaded.ai.model_profiles[0].model, "gpt-5");
+    }
+
+    #[test]
+    fn project_integrations_round_trip_the_search_engine_id_never_the_keys() {
+        // Spec 039 R31/AC10: the google_maps and Custom Search API keys live
+        // only in the machine-local secret store (never in `cobolt.toml`);
+        // `google_search_engine_id` is NOT a secret and round-trips like any
+        // other project setting.
+        let mut p = proj();
+        p.integrations.google_search_engine_id = "017576662512468239146:omuauf_lfve".into();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.store_api_key(
+            crate::llm::GOOGLE_MAPS_API_KEY_SLOT.to_owned(),
+            "never-write-this-maps-secret",
+        );
+        llm.store_api_key(
+            crate::llm::GOOGLE_CUSTOM_SEARCH_API_KEY_SLOT.to_owned(),
+            "never-write-this-search-secret",
+        );
+
+        let text = toml::to_string_pretty(&p).unwrap();
+        assert!(text.contains("017576662512468239146:omuauf_lfve"));
+        assert!(!text.contains("never-write-this-maps-secret"));
+        assert!(!text.contains("never-write-this-search-secret"));
+        assert!(!text.contains("api_key"));
+
+        let loaded: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(
+            loaded.integrations.google_search_engine_id,
+            "017576662512468239146:omuauf_lfve"
+        );
+
+        // The keys are exactly where they should be: resolvable from the
+        // secret store by the well-known slot, nowhere near the project file.
+        assert_eq!(
+            llm.api_keys.get(crate::llm::GOOGLE_MAPS_API_KEY_SLOT),
+            Some(&"never-write-this-maps-secret".to_owned())
+        );
+        assert_eq!(
+            llm.api_keys
+                .get(crate::llm::GOOGLE_CUSTOM_SEARCH_API_KEY_SLOT),
+            Some(&"never-write-this-search-secret".to_owned())
+        );
     }
 
     #[test]

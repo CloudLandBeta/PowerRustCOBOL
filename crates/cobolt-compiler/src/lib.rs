@@ -927,6 +927,8 @@ cobolt-media    = {{ path = "{cp}/cobolt-media" }}
 eframe          = {{ version = "0.35", features = ["default_fonts"] }}
 egui            = "0.35"
 egui_extras     = {{ version = "0.35", features = ["image"] }}
+rfd             = "0.14"
+pollster        = "0.3"
 "#
         ));
     }
@@ -1031,6 +1033,63 @@ fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_for
     for c in controls {
         out.push(c.clone());
         flatten_controls(&c.children, out);
+    }
+}
+
+/// Non-blocking native file dialogs (spec 039 T4) — a synchronous
+/// `rfd::FileDialog::pick_file()` nests the OS event loop and winit 0.35
+/// aborts the process with "tried to handle event while another event is
+/// currently being handled". `rfd::AsyncFileDialog` runs on a worker thread
+/// instead and delivers its result through a keyed inbox the UI polls on
+/// later frames. Same pattern as the IDE's own `file_dialog.rs`, inlined
+/// here since a compiled binary is one generated `main.rs`, not a crate
+/// with its own module files.
+mod file_dialog {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::mpsc::{Receiver, TryRecvError};
+    use std::sync::{Mutex, OnceLock};
+
+    type Pending = HashMap<String, Receiver<Option<PathBuf>>>;
+
+    fn pending() -> &'static Mutex<Pending> {
+        static P: OnceLock<Mutex<Pending>> = OnceLock::new();
+        P.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn is_open(key: &str) -> bool {
+        pending().lock().unwrap().contains_key(key)
+    }
+
+    /// Begin an "open file" dialog under `key`. A no-op if one is already
+    /// open under that key. Poll `take` on later frames for the result.
+    pub fn begin(ctx: &egui::Context, key: &str) {
+        if is_open(key) {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let handle = pollster::block_on(rfd::AsyncFileDialog::new().pick_file());
+            let _ = tx.send(handle.map(|h| h.path().to_path_buf()));
+            ctx.request_repaint();
+        });
+        pending().lock().unwrap().insert(key.to_owned(), rx);
+    }
+
+    /// `Some(Some(path))` picked, `Some(None)` cancelled, `None` still open.
+    pub fn take(key: &str) -> Option<Option<PathBuf>> {
+        let mut map = pending().lock().unwrap();
+        let result = match map.get(key) {
+            Some(rx) => match rx.try_recv() {
+                Ok(result) => Some(result),
+                Err(TryRecvError::Empty) => return None,
+                Err(TryRecvError::Disconnected) => Some(None),
+            },
+            None => return None,
+        };
+        map.remove(key);
+        result
     }
 }
 
@@ -1400,6 +1459,29 @@ impl eframe::App for FormApp {
             for ev in output.events {
                 let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(ev.ctrl_id, ev.event));
                 interacted = true;
+            }
+
+            // FileDropZone click -> native picker (spec 039 T4). The render
+            // engine has no native-dialog dependency by design; this host
+            // owns it.
+            for id in &output.file_picker_requests {
+                file_dialog::begin(ctx, &format!("filedropzone:{id}"));
+            }
+            let file_drop_zone_ids: Vec<String> = self.controls.iter()
+                .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::FileDropZone))
+                .map(|c| c.id.clone())
+                .collect();
+            for id in file_drop_zone_ids {
+                let key = format!("filedropzone:{id}");
+                if let Some(Some(path)) = file_dialog::take(&key) {
+                    let val = path.display().to_string();
+                    self.state.entry(id.clone()).or_default().set("DroppedFiles", val.clone());
+                    let _ = self.input_tx.send(
+                        cobolt_runtime::StateUpdate::new(id.clone(), "DroppedFiles".to_owned(), val));
+                    let _ = self.ev_tx.send(
+                        cobolt_runtime::FormEvent::new(id, "onFilesDropped".to_owned()));
+                    interacted = true;
+                }
             }
         }
 
@@ -1856,6 +1938,7 @@ fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "GroupName" => ("free text", "RadioButtons sharing a GroupName are mutually exclusive."),
         "CheckAlignment" => ("`Left` | `Right`", "Side of the caption the check/radio glyph sits on."),
         "CheckColor" => (COLOR_DOMAIN, "Color of the check/radio mark."),
+        "CheckSize" => ("0-100", "Percentage of the check glyph's own box the checkmark stroke fills."),
 
         // ── Images / animation ──
         "ImagePath" => ("project-relative or absolute image path", "Image file to display."),
@@ -2092,6 +2175,53 @@ fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "IconPadding" => ("pixels ≥ 0", "Gap between icon and caption."),
         "IconSize" => ("pixels, one of: `16` `32` `48` `64` `80` `96` `128`", "Icon edge length."),
 
+        // ── Knob / Gauge / Switch (spec 039) ──
+        "Size" => ("one of: `Small` | `Medium` | `Large`", "Knob dial size."),
+        "Accent" => ("one of: `Blue` | `Green` | `Red` | `Purple` | `Amber` | `Sky`", "Theme accent color (Knob/Switch); an unrecognised value falls back to `Blue`."),
+        "Bipolar" => (BOOL_DOMAIN, "Knob fill grows from the center (both directions) instead of from Minimum."),
+        "DefaultValue" => ("integer within Minimum..Maximum", "Value a double-click/reset returns the Knob to."),
+        "Label" => ("free text or empty", "Caption drawn under the Knob."),
+        "GaugeStyle" => ("one of: `Radial` | `Linear` | `Donut`", "Which egui-elegance widget renders the Gauge."),
+        "Color" => ("hex color string or empty", "Gauge fill color; empty uses the active theme's accent."),
+        "WarningThreshold" => ("integer within Minimum..Maximum, or empty", "Value at which the Gauge switches to its warning zone color. Empty = zone coloring off; both this and CriticalThreshold must be set together."),
+        "CriticalThreshold" => ("integer within Minimum..Maximum, or empty", "Value at which the Gauge switches to its critical zone color (see WarningThreshold)."),
+        "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix appended to the Gauge's numeric readout (Radial/Donut only — Linear has no unit-text API)."),
+        "ShowNeedle" => (BOOL_DOMAIN, "Draws the Radial Gauge's needle."),
+        "ShowScale" => (BOOL_DOMAIN, "Draws the Radial Gauge's tick scale."),
+        "BarHeight" => ("pixels > 0", "Linear Gauge bar thickness."),
+        "ShowThumb" => (BOOL_DOMAIN, "Draws the Linear Gauge's end-of-fill thumb marker."),
+        "StrokeWidth" => ("pixels > 0", "Donut Gauge ring thickness."),
+
+        // ── FileDropZone (spec 039) ──
+        "Hint" => ("free text", "Placeholder text shown inside the empty drop zone."),
+        "DroppedFiles" => (
+            "newline-separated absolute paths (runtime-only, never a design-time default)",
+            "Files dropped or picked since the last read — one absolute path per line.",
+        ),
+
+        // ── Maps (spec 039) ──
+        "CenterLat" => ("decimal degrees as a string, e.g. `\"48.8566\"`", "Map center latitude."),
+        "CenterLng" => ("decimal degrees as a string, e.g. `\"2.3522\"`", "Map center longitude."),
+        "Zoom" => ("integer, typically 0-20", "OpenStreetMap zoom level (higher = closer)."),
+        "Markers" => (
+            "one marker per line, TAB-separated: `id\\tlat\\tlng\\tlabel\\tinfo`",
+            "Pins drawn on the map. Prefer the AddMarker/RemoveMarker methods over hand-formatting this.",
+        ),
+        "ApiKeySource" => (
+            "reserved — currently unused",
+            "Declared but not read by any runtime or codegen path today. The google_maps API key is resolved entirely from the project's Google Maps credential slot (Settings → Integrations), never from a control property — do not rely on this property for anything.",
+        ),
+        "SelectedMarkerId" => ("marker id string or empty (runtime-only)", "Id of the marker the user last clicked, delivered with onMarkerClick."),
+
+        // ── WebSearch (spec 039) ──
+        "SearchEngineId" => ("Google Programmable Search Engine `cx` value", "Which Custom Search engine to query — a plain, non-secret id, not the API key."),
+        "Query" => ("free text", "Search query text. Set this before INVOKE 'Search'."),
+        "NumResults" => ("integer 1-10", "Results requested per search — the Custom Search API's own per-request cap; values outside 1-10 are clamped."),
+        "SafeSearch" => (
+            "one of: `Off` | `Medium` | `High`",
+            "SafeSearch filtering level. The Custom Search API itself only has two levels (`off`/`active`); `Medium` and `High` both map to `active`.",
+        ),
+
         _ => return None,
     })
 }
@@ -2148,6 +2278,11 @@ fn event_reference(name: &str) -> &'static str {
         "onConnectError" => "the database connection failed",
         "onQueryError" => "the SQL statement failed",
         "onRowFetched" => "Fetch() advanced to a row",
+        "onFilesDropped" => "one or more files were dropped or picked (read `DroppedFiles`)",
+        "onMapClick" => "the map background was clicked (not a marker) — the primary event",
+        "onMarkerClick" => "a marker was clicked (`SelectedMarkerId` holds its id)",
+        "onBoundsChanged" => "the map was panned or zoomed (`CenterLat`/`CenterLng`/`Zoom` updated)",
+        "onResultsReceived" => "classification label for WebSearch's completion (the runtime actually fires the uniform onComplete/onError below — see the WebSearch section)",
         _ => "",
     }
 }
@@ -2190,6 +2325,12 @@ fn control_purpose(name: &str) -> &'static str {
         "AreaChart" => "Filled area chart.",
         "ScatterChart" => "Scatter/bubble chart.",
         "DonutChart" => "Donut chart.",
+        "Knob" => "Rotary dial that sets a numeric Value within Minimum..Maximum by dragging.",
+        "Gauge" => "Read-only KPI display (Radial | Linear | Donut) — never changed by user interaction.",
+        "Switch" => "Boolean on/off visual toggle.",
+        "FileDropZone" => "Non-visual: accepts files via drag-and-drop or a native file-picker click.",
+        "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix).",
+        "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient).",
         _ => "",
     }
 }
@@ -2249,7 +2390,19 @@ fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         }
         "TextBox" => text_methods,
         "ListBox" | "ComboBox" | "ToolBar" | "StatusBar" => items_methods,
-        "ProgressBar" | "Slider" | "NumericUpDown" | "DateTimePicker" => value_methods,
+        "ProgressBar" | "Slider" | "NumericUpDown" | "DateTimePicker" | "Knob" => value_methods,
+        "Gauge" => vec![
+            ("SetValue(value: Integer)", "Set the current value (Gauge is read-only via the UI, R10 — this is the only way to change it)."),
+            ("GetValue() → Integer", "Read the current value."),
+        ],
+        "Switch" => vec![
+            ("IsChecked() → Boolean (0/1)", "Read the checked state."),
+            (
+                "SetChecked(value: Boolean)",
+                "Set the checked state (`1`/`0`, also accepts true/false/yes/on).",
+            ),
+            ("Toggle()", "Flip the checked state."),
+        ],
         "DataGrid" => vec![
             ("GetRowCount() → Integer", "Number of data rows."),
             ("GetCellValue(row: Integer, column: Integer) → String", "Read one cell (0-based indices)."),
@@ -2319,6 +2472,28 @@ fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ));
             v
         }
+        "Maps" => vec![
+            ("Geocode(address: String) → String", "Look up an address; returns `lat\\tlng\\tformatted_address`. Fails \"not configured\" with no google_maps key set (R33)."),
+            ("ReverseGeocode(lat: String, lng: String) → String", "Look up coordinates; returns the formatted address."),
+            ("Directions(origin: String, destination: String) → String", "Route between two addresses; returns `distance_text\\tduration_text\\troute_summary`."),
+            ("DistanceMatrix(origin: String, destination: String) → String", "Distance/time between two addresses; returns `distance_text\\tduration_text`."),
+            ("PlacesSearch(query: String, radiusMeters: String) → String", "Text search for places; returns one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
+            (
+                "AddMarker(id: String, lat: String, lng: String, label: String, info: String)",
+                "Append one pin to Markers (ergonomic alternative to hand-formatting the TAB-separated property)."
+            ),
+            ("RemoveMarker(id: String)", "Remove the marker whose id matches, if any."),
+        ],
+        "WebSearch" => vec![
+            ("Search()", "Run a Custom Search using the current SearchEngineId/Query/NumResults/SafeSearch. Async mode: returns immediately, raw JSON lands in ResponseBody + onComplete. Sync mode: returns the raw JSON body. Fails \"not configured\" with no Custom Search key set (R33)."),
+            ("ResultCount() → Integer", "Number of result items in the last response (parses ResponseBody fresh each call)."),
+            ("TopTitle() → String", "First result's title, or empty before any search."),
+            ("TopSnippet() → String", "First result's snippet, or empty before any search."),
+            ("TopLink() → String", "First result's URL, or empty before any search."),
+            ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; an out-of-range index returns empty, never an error."),
+            ("Cancel()", "Cancel the in-flight search."),
+            ("IsBusy() → Boolean (0/1)", "A search is in flight."),
+        ],
         _ => Vec::new(),
     }
 }
@@ -2351,6 +2526,15 @@ Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueField
         "GroupBox" => "\
 ### Repeating groups (control arrays)\n\
 With `IsRepeatingGroup = 1` the GroupBox becomes a card template: set `ItemCount` (or bind `DataSource`) and address instance members as `Member(index)::Property` (1-based index). Handlers on members receive `CONTROL-ARRAY-INDEX`.\n",
+        "FileDropZone" => "\
+### Usage (no INVOKE methods — it is purely a UI gesture)\n\
+There is no method to open the picker or read a drop programmatically. The user drags a file onto the control OR clicks it to open the native file picker; either way the platform populates `DroppedFiles` (newline-separated absolute paths) and fires `onFilesDropped`. Read the paths with `MOVE FDZ-1::DroppedFiles TO WS-PATHS`.\n",
+        "Maps" => "\
+### Usage — basemap vs. data verbs, and the API key\n\
+The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) needs **no API key at all**. Only the five data methods (`Geocode`, `ReverseGeocode`, `Directions`, `DistanceMatrix`, `PlacesSearch`) call the real Google Maps API and need a project-level `google-maps` credential (Settings → Integrations) — with none configured they fail immediately with `LastError` = \"not configured\" and fire `onError`, never a crash, never a network call (R33). The key itself never appears in any property, generated `.cbl`, or the `.cfrm`.\n",
+        "WebSearch" => "\
+### Usage — the generated paragraph vs. `INVOKE 'Search'`\n\
+Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFORM SEARCH-1-SEARCH`) that builds a Custom Search URL and calls `COBOL-HTTP-GET` directly — but it does PLAIN, UNENCODED string concatenation: a multi-word `Query` truncates at its first space, and it never includes the API key (so it 401s against the real API on its own). **Use `INVOKE <id> 'Search'` instead** — it percent-encodes the query and resolves the credential-store key automatically; the paragraph exists only as a low-level fallback. Same \"not configured\" contract as Maps: no `google-custom-search` key configured (Settings → Integrations) fails immediately with `onError`, no request sent (R33).\n",
         _ => "",
     }
 }
@@ -2393,6 +2577,12 @@ fn controls_reference_doc() -> String {
         cobolt_forms::ControlType::AreaChart,
         cobolt_forms::ControlType::ScatterChart,
         cobolt_forms::ControlType::DonutChart,
+        cobolt_forms::ControlType::Knob,
+        cobolt_forms::ControlType::Gauge,
+        cobolt_forms::ControlType::Switch,
+        cobolt_forms::ControlType::FileDropZone,
+        cobolt_forms::ControlType::Maps,
+        cobolt_forms::ControlType::WebSearch,
     ];
 
     let mut doc = String::new();
@@ -2909,6 +3099,57 @@ fn methods_reference_doc() -> String {
                 ("Close()", "Close the connection."),
             ],
         ),
+        (
+            "Knob",
+            "Same value-controls contract as ProgressBar/Slider above (SetValue/GetValue/Increment/Decrement/Reset all apply).",
+            &[],
+        ),
+        (
+            "Gauge",
+            "Read-only via the UI (R10) — SetValue/GetValue are the only way to change it, no drag, no Increment/Decrement/Reset.",
+            &[
+                ("SetValue(value: Integer)", "Set the current value."),
+                ("GetValue() → Integer", "Read the current value."),
+            ],
+        ),
+        (
+            "Switch",
+            "Same check-controls contract as CheckBox/RadioButton above, minus `Select()` (no radio group).",
+            &[
+                ("IsChecked() → Boolean (0/1)", "Read the checked state."),
+                ("SetChecked(value: Boolean)", "Write the checked state."),
+                ("Toggle()", "Flip the checked state."),
+            ],
+        ),
+        (
+            "FileDropZone",
+            "No inline methods at all — it is a pure UI gesture (drag-and-drop or a native-picker click), never invoked from COBOL.",
+            &[],
+        ),
+        (
+            "Maps",
+            "The OSM basemap needs no API key; only the five data methods below call the real Google Maps API and need a `google-maps` project credential (Settings → Integrations) — with none configured they fail immediately with `onError` (R33), never a crash or network call.",
+            &[
+                ("Geocode(address: String) → String", "Returns `lat\\tlng\\tformatted_address`."),
+                ("ReverseGeocode(lat: String, lng: String) → String", "Returns the formatted address."),
+                ("Directions(origin: String, destination: String) → String", "Returns `distance_text\\tduration_text\\troute_summary`."),
+                ("DistanceMatrix(origin: String, destination: String) → String", "Returns `distance_text\\tduration_text`."),
+                ("PlacesSearch(query: String, radiusMeters: String) → String", "Returns one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
+                ("AddMarker(id, lat, lng, label, info: String)", "Append one pin to `Markers`."),
+                ("RemoveMarker(id: String)", "Remove the marker with that id."),
+            ],
+        ),
+        (
+            "WebSearch",
+            "Async by default, same `Mode`/`Busy`/`onComplete`/`onError` contract as RestClient above. Needs a `google-custom-search` project credential (Settings → Integrations) — with none configured `Search()` fails immediately with `onError` (R33). Prefer `Search()` over the generated `<id>-SEARCH` paragraph, which has no URL-encoding and no key.",
+            &[
+                ("Search()", "Run a search using SearchEngineId/Query/NumResults/SafeSearch. Async: returns immediately, raw JSON in `ResponseBody`. Sync: returns the raw JSON."),
+                ("ResultCount() → Integer", "Result items in the last response."),
+                ("TopTitle() / TopSnippet() / TopLink() → String", "First result's fields, empty before any search."),
+                ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; out-of-range → empty."),
+                ("Cancel() / IsBusy() → Boolean", "Async control."),
+            ],
+        ),
     ];
 
     for (title, note, methods) in sections {
@@ -3056,6 +3297,64 @@ mod resolve_main_tests {
     }
 
     #[test]
+    fn generated_binary_source_actually_compiles() {
+        // Every other test in this file only asserts on SUBSTRINGS of the
+        // generated `main.rs` — none of them catch a real Rust syntax/type
+        // error in the template itself (exactly the class of bug the
+        // FileDropZone native-picker wiring had: present and correct in
+        // `cobolt-ide`'s and `cobolt-cli`'s copies, silently absent from
+        // this one, spec 039). This test writes the generated
+        // Cargo.toml + main.rs to a real scratch crate and actually
+        // compiles it with `cargo build`, reusing the workspace's own
+        // `target/` dir so it does not recompile the whole dependency
+        // tree from scratch.
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("cobolt-compiler sits at <workspace>/crates/cobolt-compiler")
+            .to_path_buf();
+        let crates_path = workspace_root.join("crates");
+        assert!(
+            crates_path.join("cobolt-ast").is_dir(),
+            "expected {crates_path:?} to contain the workspace's cobolt-* crates"
+        );
+
+        let dir = temp_dir("gencompile");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        // `PROGRAM_AST` is embedded unconditionally (outside the has_forms
+        // branch) — the actual bytes are irrelevant to a compile-only check.
+        std::fs::write(dir.join("assets/program.bin"), b"placeholder").unwrap();
+
+        // `has_forms = true` includes the FileDropZone / render-loop code
+        // this test exists to exercise; `form_ids: &[]` needs no real
+        // `.cfrm`/`assets/forms` on disk (the FORMS const is empty either
+        // way, so no `include_bytes!` path has to resolve).
+        let main_rs = generate_main_rs("GenCompileCheck", "0.1.0", true, &[], &[], "");
+        let cargo_toml =
+            generate_cargo_toml("gencompilecheck", "0.1.0", &crates_path, true);
+        std::fs::write(dir.join("src/main.rs"), &main_rs).unwrap();
+        std::fs::write(dir.join("Cargo.toml"), &cargo_toml).unwrap();
+
+        let mut cmd = std::process::Command::new("cargo");
+        cmd.arg("build")
+            .current_dir(&dir)
+            // Share the workspace's target dir so dependencies already
+            // built for the workspace (eframe, egui, cobolt-forms, …)
+            // are reused instead of rebuilt from scratch.
+            .env("CARGO_TARGET_DIR", workspace_root.join("target"));
+        let output = cmd.output().expect("failed to run cargo build");
+
+        assert!(
+            output.status.success(),
+            "generated main.rs failed to compile:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn staging_copies_the_manifest_and_only_the_art_it_references() {
         let dir = temp_dir("themestage");
         let pack = dir.join("themes").join("demo-pack");
@@ -3137,6 +3436,71 @@ mod resolve_main_tests {
             resolve_main(&p, &dir).as_deref(),
             Some("generated/power-demo-1.cbl")
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn spec_039_six_controls_are_fully_published_in_the_system_kb() {
+        // Spec 039 T17/R3/AC12: Maps/Knob/Gauge/Switch/FileDropZone/WebSearch
+        // must appear in BOTH published KB documents — the per-control
+        // reference (`form_designer_controls.md`, properties + events +
+        // methods) and the closed-vocabulary method reference
+        // (`control_methods_reference.md`).
+        let dir = temp_dir("spec039kb");
+        assert!(publish_system_documentation(&dir).is_ok());
+        let kb = dir.join("Knowledge Base");
+
+        let form_controls_doc = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
+        for ct in [
+            cobolt_forms::ControlType::Knob,
+            cobolt_forms::ControlType::Gauge,
+            cobolt_forms::ControlType::Switch,
+            cobolt_forms::ControlType::FileDropZone,
+            cobolt_forms::ControlType::Maps,
+            cobolt_forms::ControlType::WebSearch,
+        ] {
+            let name = ct.as_str();
+            assert!(
+                form_controls_doc.contains(&format!("## Control: {name}")),
+                "{name} section missing from form_designer_controls.md"
+            );
+        }
+        // A representative property, event, and method from each control,
+        // proving the tables are populated, not just the section headers.
+        for needle in [
+            "Bipolar",              // Knob property
+            "GaugeStyle",           // Gauge property
+            "onFilesDropped",       // FileDropZone event
+            "CenterLat",            // Maps property
+            "onMarkerClick",        // Maps event
+            "AddMarker",            // Maps method
+            "SearchEngineId",       // WebSearch property
+            "onResultsReceived",    // WebSearch primary event
+            "GetResult(index: Integer)", // WebSearch method
+        ] {
+            assert!(
+                form_controls_doc.contains(needle),
+                "form_designer_controls.md missing expected content: {needle}"
+            );
+        }
+
+        let methods_doc = fs::read_to_string(kb.join("control_methods_reference.md")).unwrap();
+        for needle in [
+            "## Knob",
+            "## Gauge",
+            "## Switch",
+            "## FileDropZone",
+            "## Maps",
+            "## WebSearch",
+            "Geocode(address: String)",
+            "Search()",
+        ] {
+            assert!(
+                methods_doc.contains(needle),
+                "control_methods_reference.md missing expected content: {needle}"
+            );
+        }
+
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -3236,6 +3600,12 @@ mod resolve_main_tests {
             cobolt_forms::ControlType::AreaChart,
             cobolt_forms::ControlType::ScatterChart,
             cobolt_forms::ControlType::DonutChart,
+            cobolt_forms::ControlType::Knob,
+            cobolt_forms::ControlType::Gauge,
+            cobolt_forms::ControlType::Switch,
+            cobolt_forms::ControlType::FileDropZone,
+            cobolt_forms::ControlType::Maps,
+            cobolt_forms::ControlType::WebSearch,
         ];
         for ct in all {
             let type_name = ct.as_str().to_owned();

@@ -41,6 +41,31 @@
 //! file needing to re-guess egui's chrome pixel-for-pixel ever again. Reading
 //! it here is safe precisely because it is read AFTER layout, purely to
 //! position a non-allocating decoration — never fed back into a child's size.
+//!
+//! Two more fixes, from the operator's next report, the day after: bounding a
+//! block's *layout* (`set_min_size` + `set_max_size`, as the original/editor
+//! blocks already did) is not the same as bounding its *paint*. `egui::Ui`
+//! will happily let a child paint past its own `max_rect` — nothing about
+//! `set_max_size` clips a pixel; the clipping those two blocks actually rely
+//! on comes from `ScrollArea`'s own internal clip rect, which in turn floors
+//! itself at *last frame's* measured content size so a shrinking drag never
+//! flashes a clipped-too-soon frame. That is the right call for a drag, but
+//! it means the very first frame a block's content is bigger than it has
+//! ever been (a longer paste, a first-ever open, a font bump) can paint past
+//! its own box before the next frame's bookkeeping catches up. So both boxes
+//! now also call `ui.shrink_clip_rect` on their own bounds directly, right
+//! after `set_max_size` — a clip computed fresh from this frame's own state
+//! (`text_w`/`original_h`/`editor_h`), never from any egui-internal memory of
+//! a previous frame, so there is no lag for it to have. The hint label got
+//! the same box-plus-clip treatment, for the same reason, plus a widened
+//! budget (`HINT_ROWS`, now two lines instead of one): a one-line budget for
+//! a label whose actual height nothing bounded was the second place this
+//! file quietly let content, not state, decide a size — narrower window
+//! widths or a longer future translation could make that label wrap, and
+//! nothing budgeted room for the second line. Together these closed the gap
+//! the label, the Submit/Cancel row and the window's own grip were seen
+//! rendering through, past the window's own visible border (operator report,
+//! 2026-08-01).
 
 use crate::i18n::Tr;
 use crate::prompt_polish::{locate, Note};
@@ -70,6 +95,28 @@ const GRIP: f32 = 14.0;
 /// the window's height can never disagree about what a row costs.
 pub fn row_height(font: f32) -> f32 {
     font * 1.35
+}
+
+/// Rows reserved for the "still open to more than one reading" hint label,
+/// whether or not it is shown this frame. Two, not one: at the window's
+/// default width the current English text fits on one line (see
+/// `hint_rows_budgets_enough_for_every_language`, which checks every
+/// language at the NARROWEST width a developer can drag the window's own
+/// grip to), but nothing bounded the label's height before this fix, so a
+/// narrower drag, a future longer translation, or a different font
+/// substitution wrapping it to a second line had no room budgeted for it —
+/// budgeting only one row here was one of the places this file quietly let
+/// content, not state, decide a size. See `show()` for the bounded, clipped
+/// box this budget now backs, exactly like the original/editor blocks below
+/// it (operator report, 2026-08-01).
+const HINT_ROWS: f32 = 2.0;
+
+/// Height of the hint label's own reserved box. A small "small"-text estimate
+/// (11.5pt), the same one `window_size` below already used for the original
+/// and revised headings, so the two never disagree about what that text
+/// style costs.
+fn hint_h() -> f32 {
+    HINT_ROWS * row_height(11.5) + 4.0
 }
 
 /// What the developer decided.
@@ -163,7 +210,7 @@ pub fn window_size(font: f32, rows: f32, width: f32) -> egui::Vec2 {
             + 30.0 // the "review_revised" row, with the A+/A- buttons
             + editor_h
             + 4.0 // the explicit `ui.add_space(4.0)` before the hint
-            + row_height(11.5) // budget for the hint label, shown or not
+            + hint_h() // the hint's own bounded box, reserved shown or not
             + 6.0 // the explicit `ui.add_space(6.0)` before the button row
             + 30.0, // the Submit/Cancel row
     )
@@ -260,6 +307,12 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                 ui.allocate_ui(egui::vec2(text_w, original_h), |ui| {
                     ui.set_min_size(egui::vec2(text_w, original_h));
                     ui.set_max_size(egui::vec2(text_w, original_h));
+                    // Bound the PAINT, not just the layout — see the module
+                    // doc comment above for why `set_max_size` alone isn't
+                    // enough. Computed fresh from `original_h` this frame, so
+                    // there is no previous-frame memory for it to lag behind.
+                    let bounds = ui.max_rect();
+                    ui.shrink_clip_rect(bounds);
                     egui::ScrollArea::vertical()
                         .id_salt("review_original_scroll")
                         .auto_shrink([false, false])
@@ -330,6 +383,14 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                     .allocate_ui(egui::vec2(text_w, editor_h), |ui| {
                         ui.set_min_size(egui::vec2(text_w, editor_h));
                         ui.set_max_size(egui::vec2(text_w, editor_h));
+                        // Bound the PAINT, not just the layout — see the
+                        // module doc comment above for why `set_max_size`
+                        // alone isn't enough. Computed fresh from `editor_h`
+                        // this frame, so there is no previous-frame memory
+                        // for it to lag behind — the fix for the operator's
+                        // "10-11 lines, no scrollbar" report (2026-08-01).
+                        let bounds = ui.max_rect();
+                        ui.shrink_clip_rect(bounds);
                         egui::ScrollArea::vertical()
                             .id_salt("review_revised_scroll")
                             .auto_shrink([false, false])
@@ -388,13 +449,28 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                 }
 
                 ui.add_space(4.0);
-                if !highlights.is_empty() {
-                    ui.label(
-                        egui::RichText::new(tr.review_hint)
-                            .small()
-                            .color(egui::Color32::from_gray(150)),
-                    );
-                }
+                // The hint's own bounded, clipped box — reserved at the same
+                // `hint_h()` height regardless of whether a highlight is
+                // present, so the window's height never depends on that
+                // either (it used to, by a few pixels, whenever `highlights`
+                // toggled empty/non-empty — a minor version of the same
+                // content-dependence this file exists to forbid). Clipped so
+                // a translation that wraps to a third line is cut, not left
+                // to spill into the button row below (operator report,
+                // 2026-08-01).
+                ui.allocate_ui(egui::vec2(text_w, hint_h()), |ui| {
+                    ui.set_min_size(egui::vec2(text_w, hint_h()));
+                    ui.set_max_size(egui::vec2(text_w, hint_h()));
+                    let bounds = ui.max_rect();
+                    ui.shrink_clip_rect(bounds);
+                    if !highlights.is_empty() {
+                        ui.label(
+                            egui::RichText::new(tr.review_hint)
+                                .small()
+                                .color(egui::Color32::from_gray(150)),
+                        );
+                    }
+                });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui
@@ -745,6 +821,149 @@ mod tests {
             "a {state_delta}px change in `state.width` produced a {rendered_delta}px \
              change in the rendered window ({narrow} -> {wide}) — the columns are not \
              tracking `state.width` one-to-one"
+        );
+    }
+
+    /// `HINT_ROWS` must actually cover what the real, translated hint text
+    /// needs — in every language, not just English. Measures the string the
+    /// same way `show()`'s label will lay it out: wrapped to the text
+    /// column's real width (`DEFAULT_WIDTH` minus the image column and the
+    /// gap), at the "small" text style's real font, through egui's own
+    /// layouter rather than this file's `row_height` estimate. If a future
+    /// translation grows past two lines, this fails here — loudly, at the
+    /// budget's own definition — instead of as a silent gap between the
+    /// window's seed and what the label actually paints.
+    #[test]
+    fn hint_rows_budgets_enough_for_every_language() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        // The narrowest width a developer can drag the window's own grip to
+        // — the worst case for wrapping, and the one this budget must hold
+        // for, not just the roomier default.
+        let text_w = MIN_WIDTH - MIN_WIDTH * GRACE_SHARE - COL_GAP;
+
+        // `Context::fonts`/`fonts_mut` need at least one `run` to have primed
+        // the font atlas — an empty pass, same as every other test here does
+        // via `ctx.run_ui`, before any layout measurement is possible.
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 1200.0),
+        ));
+        let _ = ctx.run_ui(input, |_ui| {});
+
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            let job = egui::text::LayoutJob::simple(
+                tr.review_hint.to_string(),
+                egui::FontId::proportional(11.5 * 0.82), // egui's own `.small()` scale
+                egui::Color32::WHITE,
+                text_w,
+            );
+            let galley = ctx.fonts_mut(|f| f.layout_job(job));
+            assert!(
+                galley.rect.height() <= hint_h(),
+                "{:?}'s review_hint (\"{}\") needs {}px, more than the {}px \
+                 `HINT_ROWS` budgets — raise `HINT_ROWS` or the window's own \
+                 grip will fall through the gap again",
+                lang,
+                tr.review_hint,
+                galley.rect.height(),
+                hint_h(),
+            );
+        }
+    }
+
+    /// The exact mechanism the fix relies on, isolated from `show()`
+    /// entirely: `ui.shrink_clip_rect` bounds a `Ui`'s own clip to AT MOST
+    /// the rect it is given, no matter how large the PARENT's clip already
+    /// was — the parent's huge clip here stands in for whatever an
+    /// egui-internal `Resize`/`Window` might, on some frame, still believe
+    /// its content needs (that internal bookkeeping is what `ScrollArea` and
+    /// `Window` themselves lean on — see the module doc comment — and is
+    /// exactly the thing this file no longer trusts alone). If this
+    /// assertion fails, `shrink_clip_rect` stopped doing what the original,
+    /// editor and hint blocks in `show()` now rely on it for.
+    #[test]
+    fn shrink_clip_rect_bounds_paint_regardless_of_the_parents_own_clip() {
+        egui::__run_test_ui(|ui| {
+            ui.set_clip_rect(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(4000.0, 4000.0),
+            ));
+
+            let boxed = egui::vec2(200.0, 80.0);
+            ui.allocate_ui(boxed, |ui| {
+                ui.set_min_size(boxed);
+                ui.set_max_size(boxed);
+                let bounds = ui.max_rect();
+                ui.shrink_clip_rect(bounds);
+                assert!(
+                    ui.clip_rect().height() <= boxed.y + 0.5,
+                    "shrink_clip_rect left the child's clip at {:?} — taller \
+                     than its own {}px box — even though it was given that \
+                     box directly; the parent's clip was deliberately huge \
+                     ({:?}) to prove the child does not inherit it",
+                    ui.clip_rect(),
+                    boxed.y,
+                    ui.clip_rect(),
+                );
+            });
+        });
+    }
+
+    /// The operator's exact report, reproduced end to end: a revision long
+    /// enough to need the editor's own scrollbar, including one passage that
+    /// on its own wraps across two lines inside the editor's column, plus a
+    /// note that makes the hint label visible. Checked on the window's very
+    /// FIRST frame (`run` is called exactly once): the operator's screenshot
+    /// was of a modal that had just opened, not one dragged or edited, and a
+    /// later frame's own bookkeeping could paper over exactly the gap this
+    /// test exists to catch. Before this fix, `window_size()` budgeted only
+    /// one line for the hint (see `HINT_ROWS`'s doc comment) and neither
+    /// bounded block clipped its own paint — only its layout — so this first
+    /// frame had nowhere to fall back to and nothing to stop the excess from
+    /// painting past the window's own visible frame.
+    #[test]
+    fn a_wrapped_highlight_and_a_visible_hint_do_not_spill_past_the_window() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let tr = crate::i18n::Language::English.tr();
+        let id = egui::Id::new("grace_prompt_review");
+
+        // Long enough that, at ten rows, the editor needs its own
+        // scrollbar — the "10-11 lines, no scrollbar" shape from the report.
+        let quote = "a passage flagged by Grace that is on its own long \
+                     enough to wrap across two full lines inside the \
+                     editor's own column";
+        let revised = "word ".repeat(80) + quote + &" more words after it".repeat(40);
+        let notes = vec![Note {
+            quote: quote.to_string(),
+            why: "reads two ways".to_string(),
+        }];
+        let mut state = PromptReview::new("orig".into(), revised, notes);
+
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 1200.0),
+        ));
+        let _ = ctx.run_ui(input, |ui| {
+            let ctx = ui.ctx().clone();
+            let _ = show(&ctx, &tr, &mut state);
+        });
+
+        let rendered = ctx.memory(|m| m.area_rect(id)).expect("window rendered");
+        let seed = window_size(state.font, state.rows, state.width);
+
+        assert!(
+            rendered.height() <= seed.y + 20.0,
+            "the window rendered {}px tall on its very first frame — more \
+             than its own seed ({}px) plus slack accounts for — the hint \
+             label, the Submit/Cancel row or the window's own grip spilled \
+             past the window's visible frame, exactly the operator's report",
+            rendered.height(),
+            seed.y,
         );
     }
 }

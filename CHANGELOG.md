@@ -1,5 +1,213 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.54.2] — 2026-08-01
+
+### Fixed
+
+- **Grace's "Review the request before it runs" modal no longer spills its
+  own content past its bottom border.** The revision editor's text, the
+  hint label, and the Submit/Cancel row could render below the window's
+  visible frame instead of staying inside it: `set_min_size`/`set_max_size`
+  bound layout but never painting, and egui's own `ScrollArea`/`Resize`
+  internals floor their clip rect at the *previous* frame's content size —
+  so the very first frame a block's content was bigger than it had ever
+  been in that window (a first open, a longer paste, a font bump) had
+  nothing to floor against and painted straight past the box. Both the
+  read-only original block and the revision editor now clip explicitly to
+  their own state-sized rect regardless of any prior-frame memory, and the
+  hint label — previously an unbounded, unclipped `ui.label` even though
+  the window's own size seed budgeted exactly one line for it — is now
+  reserved and clipped to its own two-row box.
+
+## [PowerRustCOBOL 1.54.1] — 2026-08-01
+
+### Fixed
+
+- **The OS-native secret store added in 1.53.1 is temporarily disabled.**
+  There is no Settings UI yet to let the developer inspect, rotate, or
+  clear a key once it lands in the Keychain / Credential Manager / Secret
+  Service, and this is pre-release with no installed base to worry about
+  migrating — every API key now always goes through the existing plaintext
+  `llm_config.json` fallback until release-candidate 1.90.0 ships a proper
+  secrets-management UI. Nothing was removed; a single kill switch
+  (`secrets::NATIVE_STORE_DISABLED`) short-circuits the native store, ready
+  to flip back once that UI exists.
+
+## [PowerRustCOBOL 1.54.0] — 2026-08-01
+
+### Added
+
+- **CheckBox gains a `CheckSize` property** (0–100%, default 70), controlling
+  how much of the check glyph's own box the checkmark stroke fills —
+  alongside the existing `CheckColor`/`CheckAlignment`, which were present
+  on every CheckBox but never actually wired into rendering until now.
+
+### Fixed
+
+- **CheckBox no longer draws its checked state as literal `"[ ]"`/`"[✓]"`
+  bracket text.** It now draws a real square using the same themed
+  face-painting every other control uses, so it automatically matches
+  Classic, Enhanced, Neumorphic Light, and Neumorphic Dark — and a
+  checkmark stroke, coloured and sized by `CheckColor`/`CheckSize`, drawn on
+  top when checked. The caption text is now laid out beside the box and
+  clipped/shrunk-to-fit exactly like TextBox, instead of using the
+  unclipped centered-text fallback every other unstyled control shares,
+  which let a long caption bleed past the control's own frame.
+
+## [PowerRustCOBOL 1.53.6] — 2026-08-01
+
+### Fixed
+
+- **A clarifying question from Grace now gets the same highlighted red
+  balloon in every prompt editor**, not just the project-wide Grace chat
+  and the RAD Form Designer's own chat. The COBOL Event Handler script
+  editor's chat and the standalone COBOL code editor's chat were logging
+  Grace's raw reply as a single plain balloon and calling a dead no-op
+  stub instead of splitting the context from the question — both now use
+  the same `split_developer_questions` treatment as the other two
+  surfaces. Removed the unused `ai_question` stub these two paths were
+  calling instead.
+
+## [PowerRustCOBOL 1.53.5] — 2026-08-01
+
+### Fixed
+
+- **Shift+Enter in the RAD Form Designer's Grace prompt box now inserts a
+  newline instead of submitting the prompt.** The editor was detecting
+  Enter with `consume_key`, which matches "logically" and ignores extra
+  Shift/Alt modifiers — so Shift+Enter was read as plain Enter and
+  submitted. It now matches the raw event's modifiers exactly, mirroring
+  the project-wide Grace chat's own (already-correct) Enter handling.
+
+## [PowerRustCOBOL 1.53.4] — 2026-08-01
+
+### Fixed
+
+- **The Web Search control can now actually be dragged onto a form**, same
+  gap as Maps in 1.53.3: announced in 1.53.0, but never registered in the
+  toolbox. It now has a `ToolEntry` in the Non-Visual category (alongside
+  RestClient, Timer, SqlDatabase, IndexedFile) and a magnifying-glass icon.
+  All six controls promised in 1.53.0 — Knob, Gauge, Switch, FileDropZone,
+  Maps, Web Search — are now actually usable from the RAD designer.
+
+## [PowerRustCOBOL 1.53.3] — 2026-08-01
+
+### Fixed
+
+- **The Maps control can now actually be dragged onto a form.** 1.53.0
+  announced Maps as one of six new Form Designer controls, but its toolbox
+  registration and icon were deferred — the data model, codegen, and runtime
+  were all ready, yet the control never appeared in the RAD designer's
+  toolbox at all. It now has a `ToolEntry` in the Graphics category and a
+  hand-drawn map-viewport-with-pin icon. Web Search (the other control from
+  that pair) remains deferred — it is non-visual, with no canvas presence to
+  design a toolbox icon for in the same sense.
+
+## [PowerRustCOBOL 1.53.2] — 2026-08-01
+
+### Fixed
+
+- **Grace's project-wide chatbot now resolves a named form (or other
+  resource) nested inside a subfolder, instead of silently delegating an
+  empty control inventory.** A request typed with no form open in the
+  designer — e.g. "generate a report of every control in the textboxes
+  form" — used to reach the Form Designer / Event Handler specialist with a
+  `CONTROLS: (none)` block that wasn't even real: a marker-matching bug made
+  `control_inventory_excerpt` latch onto the literal text `CONTROLS:` buried
+  inside the unrelated `PROJECT USER CONTROLS:` section of the project-tree
+  context, instead of correctly reporting that no form-specific data was
+  present. Both issues are fixed:
+  - The marker match is now anchored to the start of a line, so it can no
+    longer collide with an unrelated section that happens to contain the
+    same substring.
+  - When no form is open, a Form Designer / Event Handler task now resolves
+    the form NAMED IN ITS OWN OBJECTIVE by recursively searching the
+    project's `forms` folder — at any subfolder depth, tolerant of a small
+    typo (e.g. "texboxes-form.cfrm" still finds "textboxes-form.cfrm") — and
+    loads the real file from disk instead of relying on whatever form
+    happens to be open in the designer.
+  - Grace's own system prompt and the `PROJECT TREE INVENTORY` she (and
+    every specialist) reads on every request now state explicitly that each
+    of the six top-level resource folders (Forms, Indexed Files, Common
+    Code, Generated Code, Assets, Knowledge Base) is listed recursively —
+    every entry is a full path — so a resource nested in a subfolder must
+    never be treated as missing or ambiguous just because it isn't directly
+    under the top-level folder.
+
+## [PowerRustCOBOL 1.53.1] — 2026-08-01
+
+### Fixed
+
+- **API keys now use the operating system's own credential store, not a
+  plaintext JSON file.** Every machine-local secret (LLM provider keys, the
+  Google Maps key, the Custom Search key) tries the platform's native store
+  first and only falls back to the existing plaintext `llm_config.json` when
+  none is reachable — the exact prior behaviour is preserved as the accepted
+  fallback, not silently dropped:
+  - **macOS** — Keychain Services (`Security.framework`), a generic
+    password item per credential.
+  - **Windows 10+** — Credential Manager (`advapi32.dll`), backed by DPAPI.
+  - **Linux** — the Secret Service D-Bus API (GNOME Keyring / KWallet) via
+    the standard `secret-tool` CLI; environments with no Secret Service
+    session (headless, minimal installs, SSH) fall back to plaintext, same
+    as before.
+  - All three reached with **zero new crate dependencies** — hand-written
+    FFI on macOS/Windows, a subprocess call on Linux — keeping the
+    dependency tree exactly as lean as it was.
+  - A key already sitting in plaintext from before this change migrates to
+    the native store (and is scrubbed from the JSON file) the next time it
+    is saved; nothing is migrated forcibly or in the background.
+  - The on-disk JSON file gains one new, non-secret field —
+    `natively_stored_slots`, which slot *names* (not values) moved to the
+    native store — so a corrupted primary file still recovers correctly
+    from the `.bak` backup.
+
+## [PowerRustCOBOL 1.53.0] — 2026-08-01
+
+### Added
+
+- **Six new Form Designer controls: Knob, Gauge, Switch, FileDropZone, Maps,
+  and Web Search.**
+  - **Knob** — a rotary dial the user drags to set a numeric `Value` within
+    `Minimum..Maximum`, with `Step`, `DefaultValue`, `Size` (Small/Medium/
+    Large), `Accent` colour, `Bipolar` fill, and an optional `Label` caption.
+  - **Gauge** — a read-only KPI display in Radial, Linear, or Donut style,
+    with automatic warning/critical zone colouring when both thresholds are
+    set. Never changes from user interaction — only from your own COBOL.
+  - **Switch** — a boolean on/off visual toggle (`Checked` + `Accent`).
+  - **FileDropZone** — accepts files by drag-and-drop or a native
+    file-picker click; dropped paths land in `DroppedFiles` and fire
+    `onFilesDropped`. A pure UI gesture — there is no COBOL method to open
+    it programmatically.
+  - **Maps** — an embedded, pannable/zoomable OpenStreetMap view (no API key
+    needed for the basemap) with optional Google Maps-backed `Geocode`/
+    `ReverseGeocode`/`Directions`/`DistanceMatrix`/`PlacesSearch` and a
+    `Markers` pin collection (`AddMarker`/`RemoveMarker`).
+  - **Web Search** — a non-visual Google Custom Search JSON API client with
+    the same async lifecycle as RestClient (`Mode`/`Busy`/`onComplete`/
+    `onError`), `Search()`, and `ResultCount`/`TopTitle`/`TopSnippet`/
+    `TopLink`/`GetResult(n)` accessors — designed to pair with an AI Agent
+    to summarise results into a TextBox.
+  - **Data binding.** Knob, Gauge, and Switch can bind directly to one
+    source field as standalone scalar targets — no repeating group needed,
+    unlike DataGrid/Chart/array targets. Maps can bind its `Markers`
+    collection to a source with lat/lng/label fields mapped, populating
+    pins the same way a bound DataGrid populates rows. Web Search responses
+    classify under the existing REST API binding-source kind.
+  - **Credentials.** The Google Maps and Google Custom Search API keys (plus
+    the Custom Search Engine id) are configured once per project in
+    Settings → Integrations — machine-local only, never written to
+    `cobolt.toml`, a `.cfrm` file, or any generated `.cbl`, the same
+    discipline the AI assistant's own provider keys already follow. A
+    project with no key configured shows the credential-gated
+    methods/verbs in a clear "not configured" state (`LastError` +
+    `onError`) rather than crashing or attempting a network call.
+  - **Known limitation.** The credential-aware path (`INVOKE 'Search'`,
+    `Geocode`/`Directions`/etc.) is fully wired for both a designer Run and
+    an interpreted `rcrun run-form`; a genuinely standalone binary produced
+    by `rcrun build` does not yet have its own path to resolve these two
+    keys — a documented gap for a future pass, not a silent one.
+
 ## [PowerRustCOBOL 1.52.0] — 2026-07-31
 
 ### Added

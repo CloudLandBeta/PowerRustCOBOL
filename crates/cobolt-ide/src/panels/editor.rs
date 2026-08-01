@@ -2523,23 +2523,41 @@ impl EditorPanel {
     ) -> Option<String> {
         match resp {
             crate::llm::LlmResponse::Ok(reply) => {
-                let log = self.ai_history.entry(path.clone()).or_default();
-                log.push(crate::llm::ChatTurn::assistant(&reply));
-                Self::persist_history(project_root, path, log);
-
                 match crate::llm::extract_code(&reply) {
                     Some(code) if !read_only => {
+                        let log = self.ai_history.entry(path.clone()).or_default();
+                        log.push(crate::llm::ChatTurn::assistant(&reply));
+                        Self::persist_history(project_root, path, log);
                         self.ai_status = Some(tr.ai_updated.to_string());
                         Some(code)
                     }
                     Some(_) => {
+                        let log = self.ai_history.entry(path.clone()).or_default();
+                        log.push(crate::llm::ChatTurn::assistant(&reply));
+                        Self::persist_history(project_root, path, log);
                         self.ai_status = Some(tr.ai_read_only.to_string());
                         None
                     }
                     None => {
-                        // No code block ⇒ the model answered / asked a question.
-                        // Surface it prominently in the log, never in the buffer.
-                        crate::llm::ai_question(reply.trim());
+                        // No code block ⇒ Grace answered in prose or asked a
+                        // clarifying question. Split it the same way the RAD
+                        // designer's own prompt box does, so a question gets its
+                        // own highlighted balloon instead of blending into a
+                        // plain reply.
+                        let (context, questions) =
+                            crate::grace_host::split_developer_questions(&reply);
+                        let log = self.ai_history.entry(path.clone()).or_default();
+                        if questions.is_empty() {
+                            log.push(crate::llm::ChatTurn::assistant(&reply));
+                        } else {
+                            if !context.trim().is_empty() {
+                                log.push(crate::llm::ChatTurn::assistant(context));
+                            }
+                            for q in questions {
+                                log.push(crate::llm::ChatTurn::question(q));
+                            }
+                        }
+                        Self::persist_history(project_root, path, log);
                         self.ai_status = None; // Treat as a valid conversational turn
                         None
                     }

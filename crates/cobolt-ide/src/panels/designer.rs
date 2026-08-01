@@ -4705,10 +4705,26 @@ impl DesignerPanel {
                                                                 ac_dismiss = true;
                                                             }
                                                         } else {
-                                                            enter_send = i.consume_key(
-                                                                egui::Modifiers::NONE,
-                                                                egui::Key::Enter,
-                                                            );
+                                                            // NOT consume_key: it matches
+                                                            // "logically" and ignores extra
+                                                            // Shift/Alt, so Shift+Enter was
+                                                            // being swallowed as plain Enter
+                                                            // and submitting instead of
+                                                            // inserting a newline. Match the
+                                                            // event's modifiers exactly.
+                                                            i.events.retain(|event| {
+                                                                let plain_enter = matches!(
+                                                                    event,
+                                                                    egui::Event::Key {
+                                                                        key: egui::Key::Enter,
+                                                                        pressed: true,
+                                                                        modifiers,
+                                                                        ..
+                                                                    } if modifiers.is_none()
+                                                                );
+                                                                enter_send |= plain_enter;
+                                                                !plain_enter
+                                                            });
                                                         }
                                                     });
                                                 }
@@ -7705,14 +7721,15 @@ impl DesignerPanel {
         if let Some(resp) = ai_reply {
             match resp {
                 crate::llm::LlmResponse::Ok(reply) => {
-                    // Always record the assistant's turn (even when its code is
-                    // rejected, so the fix round-trip has the full context).
-                    if let Some(m) = self.event_modal.as_mut() {
-                        m.ai_history.push(crate::llm::ChatTurn::assistant(&reply));
-                        save_event_history(project_root, &program_id, &m.ai_history);
-                    }
                     match crate::llm::extract_code(&reply) {
                         Some(code) => {
+                            // Always record the assistant's turn (even when its
+                            // code is rejected, so the fix round-trip has the
+                            // full context).
+                            if let Some(m) = self.event_modal.as_mut() {
+                                m.ai_history.push(crate::llm::ChatTurn::assistant(&reply));
+                                save_event_history(project_root, &program_id, &m.ai_history);
+                            }
                             // Validate the returned handler BEFORE it replaces the
                             // developer's code: parse ENVIRONMENT / DATA / PROCEDURE
                             // (IDENTIFICATION is IDE-owned and supplied by the
@@ -7824,10 +7841,26 @@ impl DesignerPanel {
                             }
                         }
                         None => {
-                            // No code block ⇒ the model answered / asked a question.
-                            // Surface it prominently in the log, never in the editor.
-                            crate::llm::ai_question(reply.trim());
+                            // No code block ⇒ Grace answered in prose or asked a
+                            // clarifying question. Split it the same way the RAD
+                            // designer's own prompt box does, so a question gets
+                            // its own highlighted balloon instead of blending
+                            // into a plain reply.
+                            let (context, questions) =
+                                crate::grace_host::split_developer_questions(&reply);
                             if let Some(m) = self.event_modal.as_mut() {
+                                if questions.is_empty() {
+                                    m.ai_history.push(crate::llm::ChatTurn::assistant(&reply));
+                                } else {
+                                    if !context.trim().is_empty() {
+                                        m.ai_history
+                                            .push(crate::llm::ChatTurn::assistant(context));
+                                    }
+                                    for q in questions {
+                                        m.ai_history.push(crate::llm::ChatTurn::question(q));
+                                    }
+                                }
+                                save_event_history(project_root, &program_id, &m.ai_history);
                                 m.ai_status = Some(tr.ai_no_code.to_string());
                             }
                         }
@@ -9440,6 +9473,12 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::AreaChart => "AreaChart",
         CT::ScatterChart => "ScatterChart",
         CT::DonutChart => "DonutChart",
+        CT::Knob => "Knob",
+        CT::Gauge => "Gauge",
+        CT::Switch => "Switch",
+        CT::FileDropZone => "FileDropZone",
+        CT::Maps => "Maps",
+        CT::WebSearch => "WebSearch",
         CT::Custom { .. } => "Control",
     }
 }

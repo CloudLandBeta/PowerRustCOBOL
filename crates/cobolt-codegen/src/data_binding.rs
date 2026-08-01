@@ -89,7 +89,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
             binding.id,
             target_label(&binding.target)
         ));
-        write_binding_refresh_seed(out, binding);
+        write_binding_refresh_seed(out, form, binding);
         out.push_str(&format!(
             "           CALL \"COBOL-BINDING-POPULATE\" USING \"{}\" {}-STATUS\n",
             binding.id, pfx
@@ -138,7 +138,18 @@ fn sorted_mappings(binding: &DataBindingDef) -> Vec<&cobolt_forms::FieldMapping>
     binding.sorted_mapping_refs()
 }
 
-fn write_binding_refresh_seed(out: &mut String, binding: &DataBindingDef) {
+fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindingDef) {
+    match &binding.target {
+        BindingTargetDescriptor::ScalarControl { control_id } => {
+            write_scalar_binding_seed(out, form, control_id, binding);
+            return;
+        }
+        BindingTargetDescriptor::MarkerCollection { control_id } => {
+            write_marker_binding_seed(out, control_id, binding);
+            return;
+        }
+        _ => {}
+    }
     let (control_id, is_array) = match &binding.target {
         BindingTargetDescriptor::DataGrid { control_id } => (control_id.as_str(), false),
         BindingTargetDescriptor::ControlArray { array_id, .. } => (array_id.as_str(), true),
@@ -200,6 +211,79 @@ fn write_binding_refresh_seed(out: &mut String, binding: &DataBindingDef) {
     }
 }
 
+/// Spec 039 T13 (and, retroactively, T6's `ScalarControl`): seed
+/// `_BindingScalarField`/`_BindingScalarProperty` via generated COBOL
+/// `INVOKE 'SetProperty'` calls, same shape as the DataGrid/ControlArray
+/// seeding above — this is what makes a genuinely standalone `rcrun build`
+/// binary's Knob/Gauge/Switch binding refresh on load, not just an
+/// interpreted `rcrun run-form` (which also seeds it Rust-side, in
+/// `cobolt-cli/src/form_gui.rs` — redundant with this but harmless, since
+/// both write the same value).
+fn write_scalar_binding_seed(out: &mut String, form: &Form, control_id: &str, binding: &DataBindingDef) {
+    if !matches!(&binding.source, BindingSourceDescriptor::CobolTable { .. }) {
+        return;
+    }
+    let Some(scalar_field) = binding.mappings.iter().find_map(|m| {
+        matches!(&m.target, BindingTargetPath::ScalarValue { .. }).then(|| m.source_field.as_str())
+    }) else {
+        return;
+    };
+    let property = form
+        .find_control(control_id)
+        .and_then(|c| c.scalar_binding_property())
+        .unwrap_or("Value");
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingScalarField\" BY CONTENT \"{scalar_field}\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingScalarProperty\" BY CONTENT \"{property}\"\n"
+    ));
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
+}
+
+/// Spec 039 T13/R22: seed `_BindingMarkerFields` (positional
+/// `id\tlat\tlng\tlabel\tinfo`) via generated COBOL, mirroring
+/// `write_scalar_binding_seed` above. A binding missing lat or lng (the
+/// Guardian should already have blocked this before Build/Run/Debug ever
+/// reach codegen) emits nothing rather than a field spec `refresh_marker_
+/// binding` would treat as "not bound".
+fn write_marker_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    if !matches!(&binding.source, BindingSourceDescriptor::CobolTable { .. }) {
+        return;
+    }
+    let field_for = |field: cobolt_forms::MapMarkerField| -> String {
+        binding
+            .mappings
+            .iter()
+            .find_map(|m| match &m.target {
+                BindingTargetPath::MarkerField { field: f, .. } if *f == field => {
+                    Some(m.source_field.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let lat = field_for(cobolt_forms::MapMarkerField::Lat);
+    let lng = field_for(cobolt_forms::MapMarkerField::Lng);
+    if lat.is_empty() || lng.is_empty() {
+        return;
+    }
+    let id = field_for(cobolt_forms::MapMarkerField::Id);
+    let label = field_for(cobolt_forms::MapMarkerField::Label);
+    let info = field_for(cobolt_forms::MapMarkerField::Info);
+    let spec = format!("{id}\t{lat}\t{lng}\t{label}\t{info}");
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingMarkerFields\" BY CONTENT \"{spec}\"\n"
+    ));
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
+}
+
 fn binding_prefix(id: &str) -> String {
     let normalized: String = id
         .chars()
@@ -243,6 +327,12 @@ fn target_label(target: &BindingTargetDescriptor) -> String {
         BindingTargetDescriptor::ControlArray { array_id, .. } => {
             format!("ControlArray:{array_id}")
         }
+        BindingTargetDescriptor::ScalarControl { control_id } => {
+            format!("ScalarControl:{control_id}")
+        }
+        BindingTargetDescriptor::MarkerCollection { control_id } => {
+            format!("MarkerCollection:{control_id}")
+        }
     }
 }
 
@@ -268,5 +358,9 @@ fn target_path_label(target: &BindingTargetPath) -> String {
             property_name,
             ..
         } => format!("{control_id}.{property_name}"),
+        BindingTargetPath::ScalarValue { control_id } => format!("{control_id}.Value"),
+        BindingTargetPath::MarkerField { control_id, field } => {
+            format!("{control_id}.{}", field.as_str())
+        }
     }
 }

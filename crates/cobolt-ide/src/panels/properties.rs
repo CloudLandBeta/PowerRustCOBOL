@@ -4887,6 +4887,17 @@ impl PropertiesPanel {
                     &["Left", "Center", "Right"],
                 );
                 color_row(ui, id, "CheckColor", ctrl, action);
+                int_prop_row(
+                    ui,
+                    id,
+                    "CheckSize",
+                    "Check size",
+                    ctrl,
+                    action,
+                    10..=100,
+                    Some("%"),
+                    70,
+                );
                 if matches!(ctrl.control_type, ControlType::RadioButton) {
                     let cur = ctrl
                         .get_prop("GroupName")
@@ -5093,6 +5104,263 @@ impl PropertiesPanel {
                 // Slider colours are the standard Appearance Back color (track
                 // body) and Fore color (knob). The legacy Track/Thumb/Fill colour
                 // pickers are gone — the renderer never used them.
+                ui.add_space(4.0);
+            }
+
+            // ── Knob (spec 039) ─────────────────────────────────────────────
+            // Properties match egui-elegance's real `Knob` builder API exactly
+            // (Size preset + a fixed theme Accent) — no arbitrary track
+            // thickness/colour/gradient, since the widget has no such API
+            // (plan.md §4 Decision 4).
+            ControlType::Knob => {
+                section_header(ui, "Basic properties");
+                int_prop_row(
+                    ui,
+                    id,
+                    "Minimum",
+                    "Min",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Maximum",
+                    "Max",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    100,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Value",
+                    "Value",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(ui, id, "Step", "Step", ctrl, action, 1..=9999, None, 1);
+                int_prop_row(
+                    ui,
+                    id,
+                    "DefaultValue",
+                    "Default (reset) value",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                combo_row_inline(ui, id, "Size", ctrl, action, &["Small", "Medium", "Large"]);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Accent",
+                    ctrl,
+                    action,
+                    &["Blue", "Green", "Red", "Purple", "Amber", "Sky"],
+                );
+                bool_row_inline(ui, id, "Bipolar", "Bipolar (fill from centre)", ctrl, action);
+                bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
+                {
+                    let cur = ctrl
+                        .get_prop("Label")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "Label",
+                        &cur,
+                        "Label:",
+                        "",
+                        action,
+                    );
+                }
+                ui.add_space(4.0);
+            }
+
+            // ── Gauge (spec 039) ────────────────────────────────────────────
+            // Read-only (R10) — no interaction properties. GaugeStyle picks
+            // the underlying egui-elegance widget (RadialGauge/LinearGauge/
+            // ProgressRing); style-specific rows only make sense for their
+            // own style, but are shown regardless (harmless when unused —
+            // same convention as Slider's Orientation-specific rows above).
+            ControlType::Gauge => {
+                section_header(ui, "Basic properties");
+                combo_row_inline(
+                    ui,
+                    id,
+                    "GaugeStyle",
+                    ctrl,
+                    action,
+                    &["Radial", "Linear", "Donut"],
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Minimum",
+                    "Min",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Maximum",
+                    "Max",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    100,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Value",
+                    "Value",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                {
+                    let cur = ctrl
+                        .get_prop("WarningThreshold")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "WarningThreshold",
+                        &cur,
+                        "Warning at (0..1):",
+                        "e.g. 0.6 — blank disables zones",
+                        action,
+                    );
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("CriticalThreshold")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "CriticalThreshold",
+                        &cur,
+                        "Critical at (0..1):",
+                        "e.g. 0.85 — blank disables zones",
+                        action,
+                    );
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("Unit")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "Unit", &cur, "Unit:", "", action);
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("Text")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "Text",
+                        &cur,
+                        "Text override:",
+                        "blank = the widget's own readout",
+                        action,
+                    );
+                }
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Radial style").small().weak());
+                bool_row_inline(ui, id, "ShowNeedle", "Show needle", ctrl, action);
+                bool_row_inline(ui, id, "ShowScale", "Show scale", ctrl, action);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Linear style").small().weak());
+                int_prop_row(ui, id, "BarHeight", "Bar height", ctrl, action, 6..=200, None, 14);
+                bool_row_inline(ui, id, "ShowThumb", "Show thumb", ctrl, action);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Donut style").small().weak());
+                int_prop_row(
+                    ui,
+                    id,
+                    "StrokeWidth",
+                    "Stroke width",
+                    ctrl,
+                    action,
+                    1..=200,
+                    None,
+                    8,
+                );
+                ui.add_space(4.0);
+                color_row(ui, id, "Color", ctrl, action);
+            }
+
+            // ── Switch (spec 039) ───────────────────────────────────────────
+            ControlType::Switch => {
+                section_header(ui, "Basic properties");
+                bool_row_inline(ui, id, "Checked", "Checked", ctrl, action);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Accent",
+                    ctrl,
+                    action,
+                    &["Blue", "Green", "Red", "Purple", "Amber", "Sky"],
+                );
+                ui.add_space(4.0);
+            }
+
+            // ── FileDropZone (spec 039) ─────────────────────────────────────
+            ControlType::FileDropZone => {
+                section_header(ui, "Basic properties");
+                {
+                    let cur = ctrl
+                        .get_prop("Hint")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "Hint",
+                        &cur,
+                        "Hint:",
+                        "e.g. CSV or XLSX, up to 10 MB",
+                        action,
+                    );
+                }
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(
+                        "DroppedFiles is populated at runtime by a drop or the \
+                         native file picker — not a design-time property.",
+                    )
+                    .small()
+                    .weak(),
+                );
                 ui.add_space(4.0);
             }
 

@@ -1080,6 +1080,10 @@ impl AgentsDb {
     /// V1: before the event-ownership planning rule (no placeholder wiring).
     /// V2: before the knowledge-store correction (the System KB was described
     /// as published into the project).
+    /// V3: before the project-resource-discovery correction (no rule tying the
+    /// six top-level resource folders to the already-recursive PROJECT TREE
+    /// INVENTORY, so a resource nested under a subfolder could be delegated
+    /// with an empty context once its path didn't match top-level-relative).
     fn ensure_grace_prompt_current(&mut self) -> bool {
         let current = self.load_prompt(GRACE);
         let stale = prompt_is_unmodified_legacy(
@@ -1090,6 +1094,10 @@ impl AgentsDb {
             &current,
             crate::llm::GRACE_KNOWLEDGE_STORES_MARKER,
             crate::llm::LEGACY_GRACE_PROMPT_V2,
+        ) || prompt_is_unmodified_legacy(
+            &current,
+            crate::llm::GRACE_RESOURCE_DISCOVERY_MARKER,
+            crate::llm::LEGACY_GRACE_PROMPT_V3,
         );
         if !stale {
             return false;
@@ -2911,6 +2919,39 @@ mod tests {
 
         // An edited prompt carrying the stale claim is still the developer's.
         let edited = format!("House rule: plan in Portuguese.\n\n{}", crate::llm::LEGACY_GRACE_PROMPT_V2);
+        db.save_prompt(GRACE, &edited).unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(db.load_prompt(GRACE), edited);
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The generation before the project-resource-discovery correction: no
+    /// rule tying the six top-level resource folders to the (already
+    /// recursive) PROJECT TREE INVENTORY, so Grace had no stated reason to
+    /// keep checking a resource's FULL listed path before treating it as
+    /// missing — a form nested under a subfolder like `forms/Common/` could
+    /// be delegated to a specialist with no control data at all. A project
+    /// still holding that exact old default must be upgraded on open.
+    #[test]
+    fn project_open_upgrades_the_pre_resource_discovery_prompt() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        db.save_prompt(GRACE, crate::llm::LEGACY_GRACE_PROMPT_V3)
+            .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+        let grace = db.load_prompt(GRACE);
+        assert!(grace.contains(crate::llm::GRACE_RESOURCE_DISCOVERY_MARKER));
+        assert!(grace.contains("Project Resource Discovery"));
+        // The earlier rules survive the newer upgrade.
+        assert!(grace.contains(crate::llm::GRACE_EVENT_OWNERSHIP_MARKER));
+        assert!(grace.contains(crate::llm::GRACE_KNOWLEDGE_STORES_MARKER));
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+
+        // An edited prompt carrying the stale text is still the developer's.
+        let edited = format!("House rule: plan in Portuguese.\n\n{}", crate::llm::LEGACY_GRACE_PROMPT_V3);
         db.save_prompt(GRACE, &edited).unwrap();
         db.ensure_fixed_agents(&llm);
         assert_eq!(db.load_prompt(GRACE), edited);

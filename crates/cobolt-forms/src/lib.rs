@@ -32,11 +32,12 @@ pub mod theme_pack;
 pub mod xml;
 
 pub use model::{
-    ApprovedBindingTargetKind, BindingChartKind, BindingDataType, BindingField, BindingMode,
-    BindingSourceDescriptor, BindingSourceKind, BindingSourceMetadata, BindingTargetDescriptor,
-    BindingTargetPath, BindingUpdateMetadata, BindingValidationSnapshot, Control, ControlType,
-    DataBindingDef, DataGridAdvanced, DataGridColumn, DataGridFilter, EventBinding, FieldMapping,
-    Form, GlassStyle, GuardianFinding, GuardianSeverity, MappingCompatibility, PropValue, Rect,
+    parse_map_markers, serialize_map_markers, ApprovedBindingTargetKind, BindingChartKind,
+    BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingSourceKind,
+    BindingSourceMetadata, BindingTargetDescriptor, BindingTargetPath, BindingUpdateMetadata,
+    BindingValidationSnapshot, Control, ControlType, DataBindingDef, DataGridAdvanced,
+    DataGridColumn, DataGridFilter, EventBinding, FieldMapping, Form, GlassStyle, GuardianFinding,
+    GuardianSeverity, MapMarkerField, MapMarkerRecord, MappingCompatibility, PropValue, Rect,
     DATAGRID_ADVANCED_PROP, DATA_BINDING_SCHEMA_VERSION,
 };
 pub use xml::{load_form, load_form_from_str, save_form, FormError};
@@ -57,3 +58,7 @@ pub mod fonts;
 // gated with the other render modules.
 #[cfg(feature = "render")]
 pub mod window_fx;
+
+// Hand-rolled OpenStreetMap tile rendering for the Maps control (spec 039).
+#[cfg(feature = "render")]
+pub mod map_tiles;

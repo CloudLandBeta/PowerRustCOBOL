@@ -1339,7 +1339,9 @@ fn rename_binding_control_refs(binding: &mut DataBindingDef, old: &str, new: &st
         BindingTargetDescriptor::DataGrid { control_id }
         | BindingTargetDescriptor::Chart { control_id, .. }
         | BindingTargetDescriptor::ComboBox { control_id }
-        | BindingTargetDescriptor::ListBox { control_id } => ren(control_id),
+        | BindingTargetDescriptor::ListBox { control_id }
+        | BindingTargetDescriptor::ScalarControl { control_id }
+        | BindingTargetDescriptor::MarkerCollection { control_id } => ren(control_id),
         BindingTargetDescriptor::ControlArray {
             array_id,
             member_control_ids,
@@ -1357,7 +1359,9 @@ fn rename_binding_control_refs(binding: &mut DataBindingDef, old: &str, new: &st
             | BindingTargetPath::ChartValueSeries { control_id, .. }
             | BindingTargetPath::ChartSeriesLabel { control_id, .. }
             | BindingTargetPath::ListDisplayItem { control_id }
-            | BindingTargetPath::ListValue { control_id } => ren(control_id),
+            | BindingTargetPath::ListValue { control_id }
+            | BindingTargetPath::ScalarValue { control_id }
+            | BindingTargetPath::MarkerField { control_id, .. } => ren(control_id),
             BindingTargetPath::ControlProperty {
                 array_id,
                 control_id,
@@ -1590,6 +1594,13 @@ pub enum ApprovedBindingTargetKind {
     ComboBox,
     ListBox,
     ControlArray,
+    /// A standalone Knob/Gauge/Switch (spec 039 R21) — no control array
+    /// required, unlike every target above spec 022 originally approved.
+    ScalarControl,
+    /// A `Maps` control's `Markers` collection (spec 039 R22) — one source
+    /// field per marker attribute (lat, lng, label, and optionally id/info),
+    /// the same shape as `DataGrid` binding `Rows`/`Columns`.
+    MarkerCollection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1611,6 +1622,19 @@ pub enum BindingTargetDescriptor {
         array_id: String,
         member_control_ids: Vec<String>,
     },
+    /// A standalone Knob/Gauge/Switch (spec 039 R21) — binds one source
+    /// field to the control's own scalar `Value` (Knob/Gauge) or `Checked`
+    /// (Switch); which property depends on `control_id`'s `ControlType` at
+    /// resolution time, not on this descriptor (mirrors how `Chart`'s
+    /// `chart_kind` is carried but `DataGrid`/`ComboBox`/`ListBox` derive
+    /// their shape from the control itself).
+    ScalarControl {
+        control_id: String,
+    },
+    /// A `Maps` control's `Markers` collection (spec 039 R22).
+    MarkerCollection {
+        control_id: String,
+    },
 }
 
 impl BindingTargetDescriptor {
@@ -1619,7 +1643,9 @@ impl BindingTargetDescriptor {
             BindingTargetDescriptor::DataGrid { control_id }
             | BindingTargetDescriptor::Chart { control_id, .. }
             | BindingTargetDescriptor::ComboBox { control_id }
-            | BindingTargetDescriptor::ListBox { control_id } => control_id,
+            | BindingTargetDescriptor::ListBox { control_id }
+            | BindingTargetDescriptor::ScalarControl { control_id }
+            | BindingTargetDescriptor::MarkerCollection { control_id } => control_id,
             BindingTargetDescriptor::ControlArray { array_id, .. } => array_id,
         }
     }
@@ -1653,6 +1679,18 @@ pub enum BindingTargetPath {
         control_id: String,
         property_name: String,
     },
+    /// A standalone Knob/Gauge/Switch's own scalar property (spec 039 R21)
+    /// — `Value` for Knob/Gauge, `Checked` for Switch, resolved from
+    /// `control_id`'s `ControlType` at apply time.
+    ScalarValue {
+        control_id: String,
+    },
+    /// One marker attribute of a `Maps` control (spec 039 R22) — `field`
+    /// says which (`Lat`/`Lng`/`Label` required, `Id`/`Info` optional).
+    MarkerField {
+        control_id: String,
+        field: MapMarkerField,
+    },
 }
 
 impl BindingTargetPath {
@@ -1682,6 +1720,12 @@ impl BindingTargetPath {
                 control_id,
                 property_name,
             } => format!("array:{array_id}:{control_id}:{property_name}"),
+            BindingTargetPath::ScalarValue { control_id } => {
+                format!("scalar:{control_id}")
+            }
+            BindingTargetPath::MarkerField { control_id, field } => {
+                format!("marker:{control_id}:{}", field.as_str())
+            }
         }
     }
 }
@@ -1815,6 +1859,87 @@ impl DataBindingDef {
     }
 }
 
+// ── Maps marker model (spec 039) ────────────────────────────────────────────
+
+/// A `Maps` control's marker attribute a data-binding mapping can target
+/// (spec 039 T13/R22) — `Lat`/`Lng`/`Label` are required by the Guardian,
+/// `Id`/`Info` are optional (an unmapped `Id` falls back to the row index,
+/// an unmapped `Info` to an empty string).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MapMarkerField {
+    Id,
+    Lat,
+    Lng,
+    Label,
+    Info,
+}
+
+impl MapMarkerField {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MapMarkerField::Id => "Id",
+            MapMarkerField::Lat => "Lat",
+            MapMarkerField::Lng => "Lng",
+            MapMarkerField::Label => "Label",
+            MapMarkerField::Info => "Info",
+        }
+    }
+
+    pub const ALL: [MapMarkerField; 5] = [
+        MapMarkerField::Id,
+        MapMarkerField::Lat,
+        MapMarkerField::Lng,
+        MapMarkerField::Label,
+        MapMarkerField::Info,
+    ];
+}
+
+/// One marker in a `Maps` control's `Markers` property. Stored as one line
+/// per marker, tab-separated (`id\tlat\tlng\tlabel\tinfo`) — the same
+/// convention other multi-row properties already use (e.g. DataGrid's
+/// `Rows`), rather than a new `PropValue` variant just for this.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapMarkerRecord {
+    pub id: String,
+    pub lat: f64,
+    pub lng: f64,
+    pub label: String,
+    pub info: String,
+}
+
+/// Parse a `Markers` property's raw text. A malformed line (not enough
+/// fields, or a lat/lng that fails to parse) is skipped rather than
+/// aborting the whole list — one bad row from a partially-typed edit or a
+/// bad data-bound value should not blank the rest of the map.
+pub fn parse_map_markers(raw: &str) -> Vec<MapMarkerRecord> {
+    raw.lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(5, '\t');
+            let id = parts.next()?.to_owned();
+            let lat: f64 = parts.next()?.trim().parse().ok()?;
+            let lng: f64 = parts.next()?.trim().parse().ok()?;
+            let label = parts.next().unwrap_or("").to_owned();
+            let info = parts.next().unwrap_or("").to_owned();
+            Some(MapMarkerRecord {
+                id,
+                lat,
+                lng,
+                label,
+                info,
+            })
+        })
+        .collect()
+}
+
+/// The inverse of [`parse_map_markers`].
+pub fn serialize_map_markers(markers: &[MapMarkerRecord]) -> String {
+    markers
+        .iter()
+        .map(|m| format!("{}\t{}\t{}\t{}\t{}", m.id, m.lat, m.lng, m.label, m.info))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 // ── ControlType ───────────────────────────────────────────────────────────────
 
 /// The type of a visual (or non-visual) control.
@@ -1859,6 +1984,19 @@ pub enum ControlType {
     AreaChart,    // Stacked or overlapping area chart
     ScatterChart, // Scatter / bubble plot
     DonutChart,   // Donut (ring) chart
+    // Batch 039 (spec 039), phase 1: Knob/Gauge/Switch/FileDropZone.
+    // Maps and WebSearch join this enum in later 039 tasks (T8, T14).
+    Knob,         // Rotary dial setting a numeric Value within Minimum..Maximum
+    Gauge,        // Read-only KPI display: Radial | Linear | Donut (GaugeStyle)
+    Switch,       // Boolean On/Off visual toggle
+    FileDropZone, // Drag-and-drop / click-to-browse file intake (non-visual result)
+    // Batch 039, phase 2 (T8): embedded, pannable/zoomable OpenStreetMap
+    // view + google_maps-backed location data (Directions/Geocoding/
+    // Places/Distance-Matrix).
+    Maps,
+    // Batch 039, phase 3 (T14): non-visual Google Custom Search JSON API
+    // client — INVOKE 'SEARCH' (T15), same async lifecycle as RestClient.
+    WebSearch,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -1917,6 +2055,10 @@ impl ControlType {
             ControlType::DataGrid => Some(ApprovedBindingTargetKind::DataGrid),
             ControlType::ComboBox => Some(ApprovedBindingTargetKind::ComboBox),
             ControlType::ListBox => Some(ApprovedBindingTargetKind::ListBox),
+            ControlType::Knob | ControlType::Gauge | ControlType::Switch => {
+                Some(ApprovedBindingTargetKind::ScalarControl)
+            }
+            ControlType::Maps => Some(ApprovedBindingTargetKind::MarkerCollection),
             _ => self
                 .chart_binding_kind()
                 .map(ApprovedBindingTargetKind::Chart),
@@ -1960,6 +2102,12 @@ impl ControlType {
             ControlType::AreaChart => "AreaChart",
             ControlType::ScatterChart => "ScatterChart",
             ControlType::DonutChart => "DonutChart",
+            ControlType::Knob => "Knob",
+            ControlType::Gauge => "Gauge",
+            ControlType::Switch => "Switch",
+            ControlType::FileDropZone => "FileDropZone",
+            ControlType::Maps => "Maps",
+            ControlType::WebSearch => "WebSearch",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -2004,6 +2152,12 @@ impl ControlType {
             "AreaChart" => ControlType::AreaChart,
             "ScatterChart" => ControlType::ScatterChart,
             "DonutChart" => ControlType::DonutChart,
+            "Knob" => ControlType::Knob,
+            "Gauge" => ControlType::Gauge,
+            "Switch" => ControlType::Switch,
+            "FileDropZone" => ControlType::FileDropZone,
+            "Maps" => ControlType::Maps,
+            "WebSearch" => ControlType::WebSearch,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -2057,6 +2211,12 @@ impl ControlType {
             ControlType::AreaChart => (320, 220),
             ControlType::ScatterChart => (320, 220),
             ControlType::DonutChart => (240, 240),
+            ControlType::Knob => (80, 96),
+            ControlType::Gauge => (140, 90),
+            ControlType::Switch => (52, 28),
+            ControlType::FileDropZone => (220, 100),
+            ControlType::Maps => (320, 240),
+            ControlType::WebSearch => (56, 56),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -2084,6 +2244,14 @@ impl ControlType {
             | ControlType::AreaChart
             | ControlType::ScatterChart
             | ControlType::DonutChart => "onDataChanged",
+            ControlType::Knob => "onChange",
+            ControlType::Switch => "onClick",
+            ControlType::FileDropZone => "onFilesDropped",
+            ControlType::Maps => "onMapClick",
+            ControlType::WebSearch => "onResultsReceived",
+            // Gauge is read-only (no interactive primary event, R10); the
+            // catch-all below applies but is functionally inert since
+            // Gauge's supported_events() never lists onClick.
             _ => "onClick",
         }
     }
@@ -2177,7 +2345,102 @@ impl ControlType {
                 "onEnabledChanged",
                 "onLoad",
             ],
-            ControlType::CheckBox | ControlType::RadioButton => &[
+            // Gauge is a read-only display (R10) — the same baseline as
+            // Label: no focus/keyboard, since it never accepts input.
+            ControlType::Gauge => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+            ],
+            ControlType::FileDropZone => &[
+                "onFilesDropped",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+            ],
+            ControlType::Maps => &[
+                "onMapClick",
+                "onMarkerClick",
+                "onBoundsChanged",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+            ],
+            // Spec 039 T14: same uniform async lifecycle as RestClient
+            // (onError/onTimeout double as the async error/timeout events),
+            // plus the primary `onResultsReceived` — unlike RestClient's
+            // `supported_events()`, which omits its own primary event, T14's
+            // task text calls for the primary to appear here explicitly.
+            ControlType::WebSearch => &[
+                "onResultsReceived",
+                "onError",
+                "onTimeout",
+                "onComplete",
+                "onCancelled",
+            ],
+            ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch => &[
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -2278,7 +2541,10 @@ impl ControlType {
                 "onDropDown",
                 "onDropDownClosed",
             ],
-            ControlType::DateTimePicker | ControlType::NumericUpDown | ControlType::Slider => &[
+            ControlType::DateTimePicker
+            | ControlType::NumericUpDown
+            | ControlType::Slider
+            | ControlType::Knob => &[
                 "onChange",
                 "onValueChanged",
                 "onClick",
@@ -2650,6 +2916,7 @@ impl ControlType {
                 | ControlType::RestClient
                 | ControlType::SqlDatabase
                 | ControlType::IndexedFile
+                | ControlType::WebSearch
         )
     }
 }
@@ -2964,6 +3231,9 @@ impl Control {
                 props.insert("GroupName".into(), PropValue::String("".into()));
                 props.insert("CheckAlignment".into(), PropValue::String("Left".into()));
                 props.insert("CheckColor".into(), PropValue::String("#0078D7".into()));
+                // 0-100: how much of the check glyph's own box the checkmark
+                // stroke fills.
+                props.insert("CheckSize".into(), PropValue::Int(70));
             }
             ControlType::PictureBox => {
                 props.insert("ImagePath".into(), PropValue::String("".into()));
@@ -3307,6 +3577,72 @@ impl Control {
                 props.insert("ShowValue".into(), PropValue::Bool(false)); // label current value
                 props.insert("DataItem".into(), PropValue::String("".into()));
             }
+            // Knob (spec 039): egui-elegance's `Knob` widget — Size preset
+            // and a fixed theme Accent are the widget's real customisation
+            // surface (no arbitrary thickness/colour/gradient — see
+            // spec.md's Overview scope note and plan.md §4 Decision 4).
+            ControlType::Knob => {
+                props.insert("Minimum".into(), PropValue::Int(0));
+                props.insert("Maximum".into(), PropValue::Int(100));
+                props.insert("Value".into(), PropValue::Int(0));
+                props.insert("Step".into(), PropValue::Int(1));
+                props.insert("Size".into(), PropValue::String("Medium".into())); // Small | Medium | Large
+                props.insert("Accent".into(), PropValue::String("Blue".into()));
+                props.insert("Bipolar".into(), PropValue::Bool(false));
+                props.insert("ShowValue".into(), PropValue::Bool(true));
+                props.insert("DefaultValue".into(), PropValue::Int(0));
+                props.insert("Label".into(), PropValue::String("".into()));
+            }
+            // Gauge (spec 039): egui-elegance's RadialGauge/LinearGauge/
+            // ProgressRing, selected by GaugeStyle. Read-only (R10) — no
+            // drag/click ever changes Value. WarningThreshold/
+            // CriticalThreshold drive GaugeZones auto-colouring when both
+            // are set (spec.md R8; plan.md §4 Decision 4's "free feature").
+            ControlType::Gauge => {
+                props.insert("GaugeStyle".into(), PropValue::String("Radial".into())); // Radial | Linear | Donut
+                props.insert("Minimum".into(), PropValue::Int(0));
+                props.insert("Maximum".into(), PropValue::Int(100));
+                props.insert("Value".into(), PropValue::Int(0));
+                props.insert("Color".into(), PropValue::String("".into())); // empty = theme accent
+                props.insert("WarningThreshold".into(), PropValue::String("".into())); // empty = zones off
+                props.insert("CriticalThreshold".into(), PropValue::String("".into()));
+                props.insert("Unit".into(), PropValue::String("".into()));
+                props.insert("Text".into(), PropValue::String("".into())); // empty = widget's own readout
+                // Radial-only
+                props.insert("ShowNeedle".into(), PropValue::Bool(true));
+                props.insert("ShowScale".into(), PropValue::Bool(true));
+                // Linear-only
+                props.insert("BarHeight".into(), PropValue::Int(14));
+                props.insert("ShowThumb".into(), PropValue::Bool(true));
+                // Donut-only
+                props.insert("StrokeWidth".into(), PropValue::Int(8));
+            }
+            // Switch (spec 039): egui-elegance's `Switch` widget — Checked
+            // + a fixed theme Accent only (no arbitrary OnColor/OffColor;
+            // the widget has no such properties — plan.md §4 Decision 4).
+            ControlType::Switch => {
+                props.insert("Checked".into(), PropValue::Bool(false));
+                props.insert("Accent".into(), PropValue::String("Blue".into()));
+            }
+            // FileDropZone (spec 039): egui-elegance's `FileDropZone`.
+            // DroppedFiles is runtime-only (populated by a drop or the
+            // native picker, R14/R15) — not a designer-editable default.
+            ControlType::FileDropZone => {
+                props.insert("Hint".into(), PropValue::String("".into()));
+            }
+            // Maps (spec 039 T8): the OpenStreetMap basemap needs no key at
+            // all (R33) — `ApiKeySource` only gates the google_maps-backed
+            // Directions/Geocoding/Places/Distance-Matrix calls (R17, R20).
+            // `Markers` is a serialized list (id/lat/lng/label/info — see
+            // plan.md §3), not a `PropValue` variant of its own, matching
+            // how DataGrid's advanced column metadata is already stored.
+            ControlType::Maps => {
+                props.insert("CenterLat".into(), PropValue::String("0".into()));
+                props.insert("CenterLng".into(), PropValue::String("0".into()));
+                props.insert("Zoom".into(), PropValue::Int(2));
+                props.insert("Markers".into(), PropValue::String("".into()));
+                props.insert("ApiKeySource".into(), PropValue::String("".into()));
+            }
             ControlType::RestClient => {
                 props.insert(
                     "BaseURL".into(),
@@ -3328,6 +3664,21 @@ impl Control {
                 // restores blocking same-statement results. Busy is a runtime
                 // flag; TimeoutMs is the async operation timeout (0 falls back to
                 // TimeoutSeconds).
+                props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(30000));
+            }
+            // WebSearch (spec 039 T14): Google Custom Search JSON API client.
+            // No key property here — like Maps (R31/R33), the resolved
+            // "google-custom-search" key (T7) is a runtime-only seed
+            // property, never a design-time literal (R30).
+            ControlType::WebSearch => {
+                props.insert("SearchEngineId".into(), PropValue::String("".into()));
+                props.insert("Query".into(), PropValue::String("".into()));
+                props.insert("NumResults".into(), PropValue::Int(10));
+                props.insert("SafeSearch".into(), PropValue::String("Off".into())); // Off | Medium | High
+                // Async I/O (spec 032): same Mode/Busy/TimeoutMs shape as
+                // RestClient above.
                 props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
                 props.insert("Busy".into(), PropValue::Bool(false));
                 props.insert("TimeoutMs".into(), PropValue::Int(30000));
@@ -3477,7 +3828,9 @@ impl Control {
             | ControlType::RadioButton
             | ControlType::GroupBox
             | ControlType::Panel
-            | ControlType::TabControl => Some(0),
+            | ControlType::TabControl
+            | ControlType::Switch
+            | ControlType::FileDropZone => Some(0),
             _ => None,
         };
         if let Some(d) = corner_default {
@@ -3575,6 +3928,31 @@ impl Control {
                         .collect(),
                 })
             }
+            ApprovedBindingTargetKind::ScalarControl => {
+                Some(BindingTargetDescriptor::ScalarControl {
+                    control_id: self.id.clone(),
+                })
+            }
+            ApprovedBindingTargetKind::MarkerCollection => {
+                Some(BindingTargetDescriptor::MarkerCollection {
+                    control_id: self.id.clone(),
+                })
+            }
+        }
+    }
+
+    /// The property a `ScalarControl` binding writes to: `Value` for
+    /// Knob/Gauge, `Checked` for Switch. `None` for any other control type
+    /// (spec 039 R21) — a caller checking this first is how a Guardian
+    /// validation or an apply step tells "not a scalar target" from "a
+    /// scalar target with no known property," which should never happen for
+    /// an approved `ScalarControl` kind but is safer to make explicit than
+    /// to default silently to one property name.
+    pub fn scalar_binding_property(&self) -> Option<&'static str> {
+        match self.control_type {
+            ControlType::Knob | ControlType::Gauge => Some("Value"),
+            ControlType::Switch => Some("Checked"),
+            _ => None,
         }
     }
 
@@ -3884,6 +4262,8 @@ impl ControlType {
                 | ControlType::NumericUpDown
                 | ControlType::TreeView
                 | ControlType::Slider
+                | ControlType::Knob
+                | ControlType::Switch
         )
     }
 
@@ -4419,7 +4799,9 @@ impl Form {
             BindingTargetDescriptor::DataGrid { control_id: c }
             | BindingTargetDescriptor::Chart { control_id: c, .. }
             | BindingTargetDescriptor::ComboBox { control_id: c }
-            | BindingTargetDescriptor::ListBox { control_id: c } => {
+            | BindingTargetDescriptor::ListBox { control_id: c }
+            | BindingTargetDescriptor::ScalarControl { control_id: c }
+            | BindingTargetDescriptor::MarkerCollection { control_id: c } => {
                 c.eq_ignore_ascii_case(control_id)
             }
             BindingTargetDescriptor::ControlArray { array_id: a, .. } => array_id
@@ -4707,7 +5089,9 @@ impl Form {
                 BindingTargetDescriptor::DataGrid { control_id }
                 | BindingTargetDescriptor::Chart { control_id, .. }
                 | BindingTargetDescriptor::ComboBox { control_id }
-                | BindingTargetDescriptor::ListBox { control_id } => has_ctrl(control_id),
+                | BindingTargetDescriptor::ListBox { control_id }
+                | BindingTargetDescriptor::ScalarControl { control_id }
+                | BindingTargetDescriptor::MarkerCollection { control_id } => has_ctrl(control_id),
                 BindingTargetDescriptor::ControlArray { array_id, .. } => has_array(array_id),
             };
             let source_ok = match &binding.source {
@@ -4737,6 +5121,8 @@ impl Form {
                 | BindingTargetPath::ChartSeriesLabel { control_id, .. }
                 | BindingTargetPath::ListDisplayItem { control_id }
                 | BindingTargetPath::ListValue { control_id }
+                | BindingTargetPath::ScalarValue { control_id }
+                | BindingTargetPath::MarkerField { control_id, .. }
                 | BindingTargetPath::ControlProperty { control_id, .. } => has_ctrl(control_id),
             });
             removed += before - binding.mappings.len();
@@ -5453,6 +5839,8 @@ mod tests {
             ControlType::NumericUpDown,
             ControlType::TreeView,
             ControlType::Slider,
+            ControlType::Knob,
+            ControlType::Switch,
         ] {
             let c = Control::new("Input", t, 0, 0);
             assert_eq!(c.get_prop("ForegroundColor").unwrap().as_str(), "#000000");
@@ -6470,5 +6858,181 @@ mod tests {
         assert!(ctrl.get_prop("AgentURL").is_some());
         assert!(ctrl.get_prop("AgentModel").is_some());
         assert!(ctrl.get_prop("SystemPrompt").is_some());
+    }
+
+    // ── Spec 039 T2: Knob/Gauge/Switch/FileDropZone ────────────────────────
+
+    #[test]
+    fn knob_gauge_switch_file_drop_zone_round_trip_through_as_str_and_from_str() {
+        for t in [
+            ControlType::Knob,
+            ControlType::Gauge,
+            ControlType::Switch,
+            ControlType::FileDropZone,
+        ] {
+            let s = t.as_str();
+            assert_eq!(ControlType::from_str(s), t, "{s} did not round-trip");
+        }
+        assert_eq!(ControlType::Knob.as_str(), "Knob");
+        assert_eq!(ControlType::Gauge.as_str(), "Gauge");
+        assert_eq!(ControlType::Switch.as_str(), "Switch");
+        assert_eq!(ControlType::FileDropZone.as_str(), "FileDropZone");
+    }
+
+    #[test]
+    fn knob_defaults_match_egui_elegance_real_surface() {
+        let c = Control::new("KNB-1", ControlType::Knob, 0, 0);
+        assert_eq!(c.get_prop("Minimum").unwrap().as_i64(), 0);
+        assert_eq!(c.get_prop("Maximum").unwrap().as_i64(), 100);
+        assert_eq!(c.get_prop("Value").unwrap().as_i64(), 0);
+        assert_eq!(c.get_prop("Step").unwrap().as_i64(), 1);
+        assert_eq!(c.get_prop("Size").unwrap().as_str(), "Medium");
+        assert_eq!(c.get_prop("Accent").unwrap().as_str(), "Blue");
+        assert!(!c.get_prop("Bipolar").unwrap().as_bool());
+        assert!(c.get_prop("ShowValue").unwrap().as_bool());
+        assert_eq!(c.get_prop("DefaultValue").unwrap().as_i64(), 0);
+        assert!(c.get_prop("Label").is_some());
+        // The original ask's track-thickness/inner-track-colour/gradient
+        // properties are deliberately absent — egui-elegance's Knob widget
+        // has no such API (plan.md §4 Decision 4).
+        assert!(c.get_prop("TrackThickness").is_none());
+        assert!(c.get_prop("InnerTrackColor").is_none());
+        assert!(c.get_prop("InnerTrackColorEffect").is_none());
+    }
+
+    #[test]
+    fn gauge_defaults_cover_all_three_styles_and_stays_non_interactive() {
+        let c = Control::new("GAU-1", ControlType::Gauge, 0, 0);
+        assert_eq!(c.get_prop("GaugeStyle").unwrap().as_str(), "Radial");
+        assert_eq!(c.get_prop("Minimum").unwrap().as_i64(), 0);
+        assert_eq!(c.get_prop("Maximum").unwrap().as_i64(), 100);
+        assert_eq!(c.get_prop("Value").unwrap().as_i64(), 0);
+        assert!(c.get_prop("WarningThreshold").unwrap().as_str().is_empty());
+        assert!(c.get_prop("CriticalThreshold").unwrap().as_str().is_empty());
+        // Radial-only
+        assert!(c.get_prop("ShowNeedle").unwrap().as_bool());
+        assert!(c.get_prop("ShowScale").unwrap().as_bool());
+        // Linear-only
+        assert_eq!(c.get_prop("BarHeight").unwrap().as_i64(), 14);
+        assert!(c.get_prop("ShowThumb").unwrap().as_bool());
+        // Donut-only
+        assert_eq!(c.get_prop("StrokeWidth").unwrap().as_i64(), 8);
+        // R10: Gauge's primary_event is never a click-driven value change —
+        // it is not in Gauge's own supported_events(), so the fallback
+        // primary_event() value is functionally inert.
+        assert!(
+            !ControlType::Gauge
+                .supported_events()
+                .contains(&"onValueChanged")
+        );
+    }
+
+    #[test]
+    fn switch_defaults_have_checked_and_accent_only() {
+        let c = Control::new("SWT-1", ControlType::Switch, 0, 0);
+        assert!(!c.get_prop("Checked").unwrap().as_bool());
+        assert_eq!(c.get_prop("Accent").unwrap().as_str(), "Blue");
+        // No OnColor/OffColor — egui-elegance's Switch has no such API.
+        assert!(c.get_prop("OnColor").is_none());
+        assert!(c.get_prop("OffColor").is_none());
+    }
+
+    #[test]
+    fn file_drop_zone_defaults_have_hint_and_no_design_time_dropped_files() {
+        let c = Control::new("FDZ-1", ControlType::FileDropZone, 0, 0);
+        assert!(c.get_prop("Hint").unwrap().as_str().is_empty());
+        // DroppedFiles is runtime-only (R13/R14) — never a designer default.
+        assert!(c.get_prop("DroppedFiles").is_none());
+    }
+
+    #[test]
+    fn knob_switch_file_drop_zone_default_sizes_are_reasonable() {
+        assert_eq!(ControlType::Knob.default_size(), (80, 96));
+        assert_eq!(ControlType::Gauge.default_size(), (140, 90));
+        assert_eq!(ControlType::Switch.default_size(), (52, 28));
+        assert_eq!(ControlType::FileDropZone.default_size(), (220, 100));
+    }
+
+    #[test]
+    fn knob_primary_event_is_on_change_switch_and_file_drop_zone_have_their_own() {
+        assert_eq!(ControlType::Knob.primary_event(), "onChange");
+        assert_eq!(ControlType::Switch.primary_event(), "onClick");
+        assert_eq!(ControlType::FileDropZone.primary_event(), "onFilesDropped");
+    }
+
+    // ── Spec 039 T8: Maps scaffolding ───────────────────────────────────────
+
+    #[test]
+    fn maps_round_trips_through_as_str_and_from_str() {
+        assert_eq!(ControlType::Maps.as_str(), "Maps");
+        assert_eq!(ControlType::from_str("Maps"), ControlType::Maps);
+    }
+
+    #[test]
+    fn maps_default_properties_need_no_api_key_for_the_basemap() {
+        let c = Control::new("MAP-1", ControlType::Maps, 0, 0);
+        assert_eq!(c.get_prop("CenterLat").unwrap().as_str(), "0");
+        assert_eq!(c.get_prop("CenterLng").unwrap().as_str(), "0");
+        assert_eq!(c.get_prop("Zoom").unwrap().as_i64(), 2);
+        assert!(c.get_prop("Markers").unwrap().as_str().is_empty());
+        // R33: ApiKeySource is present but starts empty — the OSM basemap
+        // renders with no key at all; only Directions/Geocoding/Places
+        // calls need one, resolved from the project secret store, not this
+        // property carrying a literal (R17/R31).
+        assert!(c.get_prop("ApiKeySource").unwrap().as_str().is_empty());
+    }
+
+    #[test]
+    fn maps_default_size_and_events() {
+        assert_eq!(ControlType::Maps.default_size(), (320, 240));
+        assert_eq!(ControlType::Maps.primary_event(), "onMapClick");
+        let events = ControlType::Maps.supported_events();
+        for want in ["onMapClick", "onMarkerClick", "onBoundsChanged"] {
+            assert!(events.contains(&want), "Maps missing {want}: {events:?}");
+        }
+    }
+
+    // ── Spec 039 T14: WebSearch scaffolding ─────────────────────────────────
+
+    #[test]
+    fn web_search_round_trips_through_as_str_and_from_str() {
+        assert_eq!(ControlType::WebSearch.as_str(), "WebSearch");
+        assert_eq!(ControlType::from_str("WebSearch"), ControlType::WebSearch);
+    }
+
+    #[test]
+    fn web_search_is_non_visual_like_rest_client() {
+        assert!(ControlType::WebSearch.is_non_visual());
+    }
+
+    #[test]
+    fn web_search_default_properties_carry_no_api_key() {
+        let c = Control::new("SEARCH-1", ControlType::WebSearch, 0, 0);
+        assert!(c.get_prop("SearchEngineId").unwrap().as_str().is_empty());
+        assert!(c.get_prop("Query").unwrap().as_str().is_empty());
+        assert_eq!(c.get_prop("NumResults").unwrap().as_i64(), 10);
+        assert_eq!(c.get_prop("SafeSearch").unwrap().as_str(), "Off");
+        assert_eq!(c.get_prop("Mode").unwrap().as_str(), "Async");
+        assert!(!c.get_prop("Busy").unwrap().as_bool());
+        assert_eq!(c.get_prop("TimeoutMs").unwrap().as_i64(), 30000);
+        // R30/R31: no key property here at all — resolved runtime-only,
+        // same discipline as Maps's ApiKeySource.
+        assert!(c.get_prop("ApiKeySource").is_none());
+    }
+
+    #[test]
+    fn web_search_default_size_primary_and_supported_events() {
+        assert_eq!(ControlType::WebSearch.default_size(), (56, 56));
+        assert_eq!(ControlType::WebSearch.primary_event(), "onResultsReceived");
+        let events = ControlType::WebSearch.supported_events();
+        for want in [
+            "onResultsReceived",
+            "onError",
+            "onTimeout",
+            "onComplete",
+            "onCancelled",
+        ] {
+            assert!(events.contains(&want), "WebSearch missing {want}: {events:?}");
+        }
     }
 }

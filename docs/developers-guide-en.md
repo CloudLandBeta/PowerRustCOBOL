@@ -954,7 +954,8 @@ non-visual ones are services.
 
 **Common / input**
 : Label, Button, TextBox, CheckBox, RadioButton, ComboBox, ListBox,
-  NumericUpDown, DateTimePicker, Slider, ProgressBar, PictureBox.
+  NumericUpDown, DateTimePicker, Slider, ProgressBar, PictureBox, **Switch**,
+  **Knob**, **Gauge**, **FileDropZone**.
 
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
@@ -965,7 +966,7 @@ non-visual ones are services.
 : DataGrid, TreeView.
 
 **Graphics / media**
-: Line, Shape, Animator.
+: Line, Shape, Animator, **Maps**.
 
 **Charts**
 : BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.
@@ -986,7 +987,8 @@ non-visual ones are services.
   (Catmull-Rom curve).
 
 **Non-visual services**
-: Timer, AgentObject (AI agent), RestClient, SqlDatabase.
+: Timer, AgentObject (AI agent), RestClient, SqlDatabase, **WebSearch**
+  (Google Custom Search).
 
 > **Note.** A `Custom` control type exists as an extension point for
 > bespoke/vendor controls; treat it as advanced.
@@ -1210,6 +1212,64 @@ background/foreground).
 When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the
 properties pane for the complete set.
+
+#### Knob, Gauge, and Switch
+
+**Knob** is a rotary dial the user drags to set a numeric `Value` within
+`Minimum..Maximum` (default 0-100). Properties: `Step` (increment for
+`Increment()`/`Decrement()`), `DefaultValue` (what a reset returns to),
+`Size` (`Small` / `Medium` / `Large`), `Accent` (`Blue` / `Green` / `Red` /
+`Purple` / `Amber` / `Sky`), `Bipolar` (the fill grows from the centre
+outward instead of from `Minimum`), `ShowValue` (draws the numeric readout),
+and `Label` (a caption under the dial). Its primary event is `onChange`
+(also `onValueChanged`), fired as the user drags. Methods: `SetValue()` /
+`GetValue()` / `Increment()` / `Decrement()` / `Reset()` — the same
+value-control contract as `Slider`/`NumericUpDown`.
+
+**Gauge** is a **read-only** KPI display — it never changes from user
+interaction, only from your own COBOL (`SetValue()` or `SET Gauge1::Value TO
+…`). `GaugeStyle` picks the underlying look: `Radial` (needle + scale, plus
+`ShowNeedle`/`ShowScale`), `Linear` (a horizontal bar, plus `BarHeight`/
+`ShowThumb`), or `Donut` (a ring, plus `StrokeWidth`). `Color` overrides the
+fill (empty = theme accent); `Unit` appends a suffix to the numeric readout
+(e.g. `"%"`, `"rpm"` — Radial/Donut only); `Text` overrides the whole
+readout string. Set **both** `WarningThreshold` and `CriticalThreshold` to
+turn on automatic zone colouring — the fill recolours as `Value` crosses
+each threshold; leave either empty to keep zones off.
+
+**Switch** is a boolean on/off toggle: `Checked` (Boolean) and `Accent`
+(same six-colour set as Knob). Its primary event is `onClick`; methods are
+`IsChecked()` / `SetChecked()` / `Toggle()` — the same check-control
+contract as `CheckBox`, minus `Select()` (there is no radio-group concept
+for a Switch).
+
+All three are **data-bindable as standalone scalar targets** — unlike the
+DataGrid/Chart/ComboBox/array targets above, a lone Knob, Gauge, or Switch
+can bind directly to one source field with no repeating group needed. The
+bound field drives `Value` (Knob/Gauge) or `Checked` (Switch) automatically
+whenever the binding refreshes.
+
+#### FileDropZone
+
+**FileDropZone** is a non-visual-in-spirit but visibly-rendered drop target:
+the user drags files onto it, or clicks it to open the platform's native
+file picker. Either way, the paths land in `DroppedFiles` — one absolute
+path per line — and `onFilesDropped` fires. Its only design-time property
+is `Hint` (placeholder text shown while empty).
+
+There is **no COBOL method** to open the picker or read a drop
+programmatically — it is purely a UI gesture. Read the result the normal
+way once the event fires:
+
+```cobol
+       FDZ-1--ONFILESDROPPED.
+           MOVE FDZ-1::DroppedFiles TO WS-PATHS
+      *>   WS-PATHS is newline-separated; UNSTRING or SEARCH it as usual.
+```
+
+`FileDropZone` is deliberately **not** a Data Binding Guardian target — its
+output is event-shaped (populated by user action), not a value a bound
+source drives.
 
 #### User Controls
 
@@ -2331,6 +2391,123 @@ The control surface, on `RestClient`, `SqlDatabase`, and `IndexedFile` alike:
 > control's `Mode` to `Sync` to keep the original same-statement result, or
 > move the read into an `onComplete` handler. The `COBOL-HTTP-*` CALL surface
 > is unchanged and always synchronous.
+
+### Maps (location & directions)
+
+The **Maps** control is an embedded, pannable/zoomable **OpenStreetMap**
+view, optionally backed by the real Google Maps API for directions,
+geocoding, places, and distance data. The basemap and the data API are
+independent halves with different credential needs:
+
+- **The basemap needs no API key at all.** `CenterLat` / `CenterLng` /
+  `Zoom` position the view; the user pans and scrolls the wheel to zoom
+  interactively, firing `onBoundsChanged` (and updating those three
+  properties) when they do.
+- **Markers** are pins on the map: one line per marker in the `Markers`
+  property, TAB-separated (`id`⇥`lat`⇥`lng`⇥`label`⇥`info`). Prefer
+  `AddMarker(id, lat, lng, label, info)` / `RemoveMarker(id)` over
+  hand-formatting that string yourself. Clicking the basemap fires
+  `onMapClick` (the primary event); clicking a marker fires `onMarkerClick`
+  and sets `SelectedMarkerId`.
+- **The five data methods below call the real Google Maps API** and need a
+  **Google Maps API key** configured once for the whole project (see *Data
+  & credentials* below). With no key configured, each one fails immediately
+  — `LastError` explains it, `onError` fires — never a crash and never a
+  silent network attempt:
+
+```cobol
+       WS-1-BTN--ONCLICK.
+           MOVE Map1::Geocode("1600 Amphitheatre Parkway, Mountain View")
+             TO WS-GEOCODE-RESULT
+      *>   WS-GEOCODE-RESULT = "lat<TAB>lng<TAB>formatted address"
+           UNSTRING WS-GEOCODE-RESULT DELIMITED BY X"09"
+               INTO WS-LAT WS-LNG WS-ADDRESS.
+```
+
+| Method | Returns |
+|---|---|
+| `Geocode(address)` | `lat`⇥`lng`⇥`formatted_address` |
+| `ReverseGeocode(lat, lng)` | the formatted address |
+| `Directions(origin, destination)` | `distance_text`⇥`duration_text`⇥`route_summary` |
+| `DistanceMatrix(origin, destination)` | `distance_text`⇥`duration_text` |
+| `PlacesSearch(query, radiusMeters)` | one `place_id`⇥`name`⇥`address`⇥`lat`⇥`lng` line per result |
+
+**Data binding.** A Maps control can be a standalone binding target: bind
+its `Markers` collection to a source with `Lat`/`Lng`/`Label` fields mapped
+(all three required by the Guardian; `Id`/`Info` are optional) and each
+bound row becomes one marker, refreshed the same way a bound DataGrid
+refreshes its `Rows`.
+
+### Web Search (Google Custom Search)
+
+The **WebSearch** control is a non-visual client for the **Google Custom
+Search JSON API** — the same async lifecycle as `RestClient` (`Mode`,
+`Busy`, `onComplete`/`onError`/`onCancelled`/`onTimeout`, plus its own
+`onResultsReceived` as primary event). Set `SearchEngineId` (the Custom
+Search "cx" value — a plain id, not a secret), `Query`, `NumResults`
+(1-10), and `SafeSearch` (`Off` / `Medium` / `High` — the real API only has
+two levels, so `Medium` and `High` both request the stricter one), then
+call `Search()`:
+
+```cobol
+       SEARCH-1--ONCOMPLETE.
+           MOVE SEARCH-1::TopTitle   TO WS-TITLE
+           MOVE SEARCH-1::TopSnippet TO WS-SNIPPET
+           MOVE SEARCH-1::TopLink    TO WS-LINK
+      *>   or walk every result:
+           MOVE SEARCH-1::ResultCount TO WS-N
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               MOVE SEARCH-1::GetResult(WS-I) TO WS-RESULT-LINE
+      *>       WS-RESULT-LINE = "title<TAB>snippet<TAB>link"
+           END-PERFORM.
+```
+
+Like Maps, `Search()` needs a project-level **Custom Search API key** (see
+below) — with none configured it fails immediately with `onError`, no
+request sent. A `WebSearch` control also gets a generated `<id>-SEARCH`
+paragraph (`PERFORM SEARCH-1-SEARCH`) as a low-level fallback, but it does
+plain, **unencoded** string concatenation (a multi-word `Query` truncates
+at its first space) and never carries the key — **prefer `Search()`**,
+which percent-encodes the query and resolves the credential automatically.
+
+**Combining with an AI Agent.** A common pattern: run a search, then ask an
+`AgentObject` to summarise the results into a multiline TextBox:
+
+```cobol
+       SEARCH-1--ONCOMPLETE.
+           MOVE SPACES TO WS-SUMMARY-PROMPT
+           STRING "Summarise these search results in three bullet points: "
+                  SEARCH-1::TopTitle " — " SEARCH-1::TopSnippet
+             INTO WS-SUMMARY-PROMPT
+           MOVE Agent1::Ask(WS-SUMMARY-PROMPT) TO Summary-Box::Text.
+```
+
+`WebSearch` is classified as a `RestApi`-kind binding **source** (the same
+kind `RestClient` uses — there is no separate `WebSearch` source kind), so
+its response can feed a DataGrid/Chart/ComboBox/array binding the same way
+a RestClient response can.
+
+### Data & credentials
+
+The **google_maps** key (Maps' Directions/Geocoding/Places/Distance-Matrix
+methods) and the **Custom Search** key + **Search Engine id** (WebSearch)
+are configured once per project, in the **Integrations** section of
+project Settings (click the project tree's top node → *Integrations*) —
+the same machine-local pattern already used for AI provider keys (see *The
+AI assistant* above):
+
+| Field | Meaning |
+|---|---|
+| **Google Maps API key** | Used by Maps' five data methods. The OSM basemap itself needs no key at all. |
+| **Custom Search API key** | Used by `WebSearch`'s `Search()`. |
+| **Search Engine id (cx)** | Which Custom Search engine to query — a plain, non-secret id, entered separately from the key. |
+
+Both keys are **machine-local, never written to `cobolt.toml`, the `.cfrm`
+form file, or any generated `.cbl`** — the same discipline the AI
+assistant's own API key already follows. Running a form seeds the resolved
+key into the interpreter as a runtime-only value; it never becomes literal
+generated-source text, so it cannot leak through a shared `.cbl` file
+(Build and Run compile the exact same generated source).
 
 ### Driving the IDE with an AI agent (MCP)
 

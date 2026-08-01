@@ -68,6 +68,31 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::DateTimePicker,
         category: "Common",
     },
+    ToolEntry {
+        label: "Switch",
+        ct: ControlType::Switch,
+        category: "Common",
+    },
+    ToolEntry {
+        label: "FileDropZone",
+        ct: ControlType::FileDropZone,
+        category: "Common",
+    },
+    ToolEntry {
+        label: "Knob",
+        ct: ControlType::Knob,
+        category: "Common",
+    },
+    ToolEntry {
+        label: "Gauge",
+        ct: ControlType::Gauge,
+        category: "Common",
+    },
+    ToolEntry {
+        label: "Maps",
+        ct: ControlType::Maps,
+        category: "Common",
+    },
     // ── Containers ─────────────────────────────────────────────────────────────
     ToolEntry {
         label: "GroupBox",
@@ -171,6 +196,11 @@ const TOOLS: &[ToolEntry] = &[
     ToolEntry {
         label: "IndexedFile",
         ct: ControlType::IndexedFile,
+        category: "NonVisual",
+    },
+    ToolEntry {
+        label: "WebSearch",
+        ct: ControlType::WebSearch,
         category: "NonVisual",
     },
     // ── Charts ─────────────────────────────────────────────────────────────────
@@ -911,6 +941,68 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 }
             }
         }
+        ControlType::Switch => {
+            // A pill track with the thumb filled toward the right (on) side —
+            // the same silhouette as the runtime widget's own on-state.
+            let track = egui::Rect::from_center_size(c, Vec2::new(r * 2.4, r * 1.2));
+            let radius = track.height() * 0.5;
+            painter.rect_stroke(track, radius, s, egui::StrokeKind::Middle);
+            painter.circle_filled(
+                Pos2::new(track.max.x - radius, track.center().y),
+                radius - 1.4,
+                color,
+            );
+        }
+        ControlType::FileDropZone => {
+            // A dashed box (drop target) with a downward arrow landing on a
+            // tray — the universal "drop/upload here" motif.
+            let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.2));
+            let dash = 3.0_f32;
+            let gap = 2.2_f32;
+            let mut dashed_edge = |p0: Pos2, p1: Pos2| {
+                let len = p0.distance(p1);
+                let dir = (p1 - p0) / len.max(0.001);
+                let mut d = 0.0_f32;
+                while d < len {
+                    let seg_end = (d + dash).min(len);
+                    painter.line_segment([p0 + dir * d, p0 + dir * seg_end], th);
+                    d += dash + gap;
+                }
+            };
+            dashed_edge(b.left_top(), b.right_top());
+            dashed_edge(b.right_top(), b.right_bottom());
+            dashed_edge(b.right_bottom(), b.left_bottom());
+            dashed_edge(b.left_bottom(), b.left_top());
+            let ax = c.x;
+            let arrow_top = b.min.y + b.height() * 0.18;
+            let arrow_bottom = c.y + b.height() * 0.10;
+            painter.line_segment(
+                [Pos2::new(ax, arrow_top), Pos2::new(ax, arrow_bottom)],
+                s,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(ax - r * 0.32, arrow_bottom - r * 0.30),
+                    Pos2::new(ax, arrow_bottom),
+                ],
+                s,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(ax + r * 0.32, arrow_bottom - r * 0.30),
+                    Pos2::new(ax, arrow_bottom),
+                ],
+                s,
+            );
+            let tray_y = b.max.y - b.height() * 0.16;
+            painter.line_segment(
+                [
+                    Pos2::new(b.min.x + b.width() * 0.18, tray_y),
+                    Pos2::new(b.max.x - b.width() * 0.18, tray_y),
+                ],
+                s,
+            );
+        }
 
         // ── Containers ─────────────────────────────────────────────────────────
         ControlType::GroupBox => {
@@ -1135,6 +1227,71 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 painter.line_segment([Pos2::new(tx, c.y + 2.5), Pos2::new(tx, c.y + 4.5)], th);
             }
         }
+        ControlType::Knob => {
+            // A full dial rim, a filled indicator tick pointing to a
+            // two-o'clock value, and the 270° arc's own opening at the
+            // bottom — recognisable at a glance next to Slider/Gauge.
+            painter.circle_stroke(c, r * 1.0, s);
+            let a = (-45.0_f32).to_radians(); // 2 o'clock, egui's 0=east/+y=down
+            let (sa, ca) = a.sin_cos();
+            painter.line_segment(
+                [
+                    Pos2::new(c.x + ca * r * 0.25, c.y + sa * r * 0.25),
+                    Pos2::new(c.x + ca * r * 0.95, c.y + sa * r * 0.95),
+                ],
+                s,
+            );
+            painter.circle_filled(c, r * 0.18, dim);
+            for deg in [135.0_f32, -135.0] {
+                let a = deg.to_radians();
+                let (sa, ca) = a.sin_cos();
+                painter.line_segment(
+                    [
+                        Pos2::new(c.x + ca * r * 1.05, c.y + sa * r * 1.05),
+                        Pos2::new(c.x + ca * r * 1.3, c.y + sa * r * 1.3),
+                    ],
+                    th,
+                );
+            }
+        }
+        ControlType::Gauge => {
+            // A half-circle speedometer arc with a centred needle — visually
+            // distinct from Knob's full dial (open bottom vs. half circle).
+            let top = c - Vec2::new(0.0, r * 0.15);
+            let radius = r * 1.05;
+            let segments = 24;
+            let pts: Vec<Pos2> = (0..=segments)
+                .map(|i| {
+                    let a = std::f32::consts::PI * (1.0 - i as f32 / segments as f32);
+                    Pos2::new(top.x + radius * a.cos(), top.y - radius * a.sin())
+                })
+                .collect();
+            painter.add(egui::Shape::line(pts, s));
+            let na = (-55.0_f32).to_radians();
+            let (sa, ca) = na.sin_cos();
+            painter.line_segment(
+                [top, Pos2::new(top.x + ca * radius * 0.8, top.y + sa * radius * 0.8)],
+                s,
+            );
+            painter.circle_filled(top, 1.6, color);
+        }
+        ControlType::Maps => {
+            // A rounded map-viewport frame with a location pin at its centre —
+            // distinct from PictureBox's photo motif (mountains + sun).
+            let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.2));
+            painter.rect_stroke(b, r * 0.25, s, egui::StrokeKind::Middle);
+            let pin_r = r * 0.42;
+            let pin_center = Pos2::new(c.x, b.min.y + b.height() * 0.20 + pin_r);
+            painter.circle_stroke(pin_center, pin_r, s);
+            painter.circle_filled(pin_center, pin_r * 0.4, dim);
+            let tip = Pos2::new(c.x, b.max.y - b.height() * 0.14);
+            for dx in [-pin_r * 0.55, pin_r * 0.55] {
+                painter.line_segment(
+                    [Pos2::new(pin_center.x + dx, pin_center.y + pin_r * 0.75), tip],
+                    s,
+                );
+            }
+        }
         ControlType::Line => {
             painter.line_segment(
                 [
@@ -1280,6 +1437,18 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                     Pos2::new(c.x + lw * 0.3, c.y + r * 1.0),
                 ],
                 th,
+            );
+        }
+        ControlType::WebSearch => {
+            // The universal magnifying-glass search glyph — distinct from
+            // RestClient's globe-and-connectors motif.
+            let lens_r = r * 0.72;
+            let lens_c = Pos2::new(c.x - r * 0.18, c.y - r * 0.18);
+            painter.circle_stroke(lens_c, lens_r, s);
+            let dir = Vec2::new(1.0, 1.0).normalized();
+            painter.line_segment(
+                [lens_c + dir * lens_r * 0.95, lens_c + dir * lens_r * 1.9],
+                Stroke::new(1.6, color),
             );
         }
         ControlType::SqlDatabase => {

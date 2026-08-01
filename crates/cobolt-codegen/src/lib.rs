@@ -334,6 +334,43 @@ fn write_data_division(out: &mut String, form: &Form) {
         out.push('\n');
     }
 
+    // ── Per-WebSearch instance fields (spec 039 T14) ─────────────────────
+    // Modelled on the RestClient block above. No key field here — the
+    // resolved "google-custom-search" key (T7) is a runtime-only seed
+    // property (R30/R31), never a design-time literal.
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::WebSearch)
+    {
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
+        let engine_id = ctrl
+            .get_prop("SearchEngineId")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let num_results = ctrl.get_prop("NumResults").map(|v| v.as_i64()).unwrap_or(10);
+        let safe_search = ctrl
+            .get_prop("SafeSearch")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Off".into());
+        out.push_str(&format!(
+            "      *>── Web Search: {} ──────────────────────────────────\n",
+            ctrl.id
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-SEARCH-ENGINE-ID PIC X(64)  VALUE '{engine_id}'.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-QUERY            PIC X(512) VALUE SPACES.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-NUM-RESULTS      PIC 9(2)   VALUE {num_results}.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-SAFE-SEARCH      PIC X(6)   VALUE '{safe_search}'.\n"
+        ));
+        out.push('\n');
+    }
+
     // ── DataGrid CSV fields ───────────────────────────────────────────────
     for ctrl in all_controls
         .iter()
@@ -592,6 +629,120 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
         ));
     }
 
+    // Knob (spec 039): same shape as Slider — a plain scalar value control,
+    // no INVOKE-capable behaviour, so no separate WORKING-STORAGE block or
+    // call-stub generator, only these per-instance fields.
+    if matches!(ctrl.control_type, ControlType::Knob) {
+        let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
+        let min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
+        let max = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
+        let step = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(1);
+        let default_v = ctrl
+            .get_prop("DefaultValue")
+            .map(|v| v.as_i64())
+            .unwrap_or(0);
+        out.push_str(&format!(
+            "          05 {prefix}-VALUE      PIC S9(9) VALUE {val}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-MINIMUM    PIC S9(9) VALUE {min}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-MAXIMUM    PIC S9(9) VALUE {max}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-STEP       PIC S9(9) VALUE {step}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-DEFAULT    PIC S9(9) VALUE {default_v}.\n"
+        ));
+    }
+
+    // Gauge (spec 039): read-only display (R10) — Value/Minimum/Maximum plus
+    // the style that picked which egui-elegance widget renders it.
+    if matches!(ctrl.control_type, ControlType::Gauge) {
+        let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
+        let min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
+        let max = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
+        let style = ctrl
+            .get_prop("GaugeStyle")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Radial".into());
+        out.push_str(&format!(
+            "          05 {prefix}-VALUE      PIC S9(9) VALUE {val}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-MINIMUM    PIC S9(9) VALUE {min}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-MAXIMUM    PIC S9(9) VALUE {max}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-STYLE      PIC X(10)  VALUE '{style}'.\n"
+        ));
+    }
+
+    // Switch (spec 039): a single boolean flag, same PIC 9 shape CheckBox's
+    // own -VALUE field already uses for its checked state.
+    if matches!(ctrl.control_type, ControlType::Switch) {
+        let checked = ctrl
+            .get_prop("Checked")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
+        out.push_str(&format!(
+            "          05 {}-CHECKED    PIC 9      VALUE {}.\n",
+            prefix,
+            if checked { 1 } else { 0 }
+        ));
+    }
+
+    // FileDropZone (spec 039): DroppedFiles is a newline-joined path list at
+    // the model layer (a plain property, like every other control's data),
+    // but COBOL has no line-splitting primitive as ergonomic as an indexed
+    // table — so this is the one new control in this batch that gets a
+    // small dedicated block: a count plus a fixed-size OCCURS table, filled
+    // by the runtime's SETFILES-style bridge (interpreter.rs) whenever
+    // DroppedFiles changes, not by this static VALUE clause (it always
+    // starts empty — DroppedFiles is runtime-only, never a design-time
+    // default, per R13).
+    if matches!(ctrl.control_type, ControlType::FileDropZone) {
+        out.push_str(&format!(
+            "          05 {prefix}-FILE-COUNT PIC S9(4) VALUE 0.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-FILE-PATH  PIC X(1024) OCCURS 20 TIMES\n"
+        ));
+        out.push_str("                                      VALUE SPACES.\n");
+    }
+
+    // Maps (spec 039 T12): CenterLat/CenterLng/Zoom design-time defaults.
+    // No API-key field here at all — R31/R33: the resolved google_maps key
+    // never becomes literal generated-source text on the interpreted-Run
+    // path (`form_runtime.rs` seeds it as a runtime-only property instead,
+    // never written to any .cbl); a standalone compiled binary's own path
+    // to the key is a known, documented gap (plan.md §5 risk), not solved
+    // by this codegen block.
+    if matches!(ctrl.control_type, ControlType::Maps) {
+        let lat = ctrl
+            .get_prop("CenterLat")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "0".into());
+        let lng = ctrl
+            .get_prop("CenterLng")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "0".into());
+        let zoom = ctrl.get_prop("Zoom").map(|v| v.as_i64()).unwrap_or(2);
+        out.push_str(&format!(
+            "          05 {prefix}-CENTER-LAT PIC X(32)  VALUE '{lat}'.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-CENTER-LNG PIC X(32)  VALUE '{lng}'.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-ZOOM       PIC S9(4)  VALUE {zoom}.\n"
+        ));
+    }
+
     out.push('\n');
 }
 
@@ -656,6 +807,7 @@ fn write_procedure_division(out: &mut String, form: &Form, user_lines: &mut Vec<
     write_timer_stubs(out, &all_controls);
     write_csv_export_stubs(out, &all_controls);
     write_rest_client_stubs(out, &all_controls);
+    write_web_search_stubs(out, &all_controls);
     write_sql_stubs(out, &all_controls);
     write_indexed_file_stubs(out, &all_controls);
     write_agent_stubs(out, &all_controls);
@@ -1078,6 +1230,89 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
                 anim.name
             ));
         }
+    }
+}
+
+// ── WebSearch stub generator (spec 039 T14) ──────────────────────────────────
+//
+// Generates a `<id>-SEARCH` paragraph that builds a Google Custom Search
+// JSON API URL (cx/q/num/safe, deliberately no `key=` — the credential-aware
+// search is `INVOKE <id> 'SEARCH'`, T15) and calls the same `COBOL-HTTP-GET`
+// intrinsic `write_rest_client_stubs` above uses. Modelled directly on that
+// function's `<id>-GET` paragraph.
+
+fn write_web_search_stubs(out: &mut String, all_controls: &[&Control]) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::WebSearch)
+    {
+        let pfx = format!("WS-{}", cobol_word(&ctrl.id));
+        let para_search = format!("{}-SEARCH", ctrl.id);
+        let resp_para = format!("{}-ON-RESULTS", ctrl.id);
+        let err_para = format!("{}-ON-ERROR", ctrl.id);
+
+        out.push_str(&format!("       {}.\n", para_search));
+        out.push_str(&format!(
+            "      *>    Google Custom Search via {} — MOVE your query text to {pfx}-QUERY\n",
+            ctrl.id
+        ));
+        out.push_str(
+            "      *>    before calling. This paragraph does a plain, unencoded STRING\n",
+        );
+        out.push_str(
+            "      *>    concatenation (no key, no percent-encoding — a multi-word query\n",
+        );
+        out.push_str(&format!(
+            "      *>    truncates at its first space). For a correct, credential-aware\n      *>    search use INVOKE {} 'SEARCH' instead.\n",
+            ctrl.id
+        ));
+        out.push_str("           MOVE SPACES TO WS-REQUEST-URL\n");
+        out.push_str("           STRING 'https://www.googleapis.com/customsearch/v1?cx='\n");
+        out.push_str(&format!(
+            "                  {pfx}-SEARCH-ENGINE-ID DELIMITED BY SPACE\n"
+        ));
+        out.push_str("                  '&q=' DELIMITED BY SIZE\n");
+        out.push_str(&format!("                  {pfx}-QUERY DELIMITED BY SPACE\n"));
+        out.push_str("                  '&num=' DELIMITED BY SIZE\n");
+        out.push_str(&format!(
+            "                  {pfx}-NUM-RESULTS DELIMITED BY SIZE\n"
+        ));
+        out.push_str("                  '&safe=' DELIMITED BY SIZE\n");
+        out.push_str(&format!(
+            "                  {pfx}-SAFE-SEARCH DELIMITED BY SPACE\n"
+        ));
+        out.push_str("               INTO WS-REQUEST-URL\n");
+        out.push_str("           END-STRING\n");
+        out.push_str("           CALL \"COBOL-HTTP-GET\"\n");
+        out.push_str("               USING WS-REQUEST-URL\n");
+        out.push_str("                     WS-HTTP-RESPONSE\n");
+        out.push_str("                     WS-HTTP-STATUS\n");
+        out.push_str("           END-CALL\n");
+        out.push_str("           EVALUATE TRUE\n");
+        out.push_str("               WHEN WS-HTTP-STATUS >= 200\n");
+        out.push_str("                AND WS-HTTP-STATUS <= 299\n");
+        out.push_str(&format!("                   PERFORM {}\n", resp_para));
+        out.push_str("               WHEN OTHER\n");
+        out.push_str(&format!("                   PERFORM {}\n", err_para));
+        out.push_str("           END-EVALUATE.\n");
+        out.push('\n');
+
+        write_stub_paragraph(
+            out,
+            &resp_para,
+            &format!(
+                "{} results handler — WS-HTTP-RESPONSE contains the raw JSON body",
+                ctrl.id
+            ),
+        );
+        write_stub_paragraph(
+            out,
+            &err_para,
+            &format!(
+                "{} error handler — WS-HTTP-STATUS contains the error code (0 = network failure)",
+                ctrl.id
+            ),
+        );
     }
 }
 
@@ -1976,6 +2211,131 @@ mod tests {
         assert!(src.contains("PROGRAM-ID. MAIN-FORM."), "missing PROGRAM-ID");
     }
 
+    // ── Spec 039 T5: Knob/Gauge/Switch/FileDropZone codegen ────────────────
+
+    #[test]
+    fn knob_gauge_switch_file_drop_zone_emit_working_storage_fields() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+
+        let mut knob = Control::new("KNB-1", ControlType::Knob, 10, 10);
+        knob.set_prop("Value", PropValue::Int(42));
+        knob.set_prop("Minimum", PropValue::Int(0));
+        knob.set_prop("Maximum", PropValue::Int(100));
+        knob.set_prop("Step", PropValue::Int(1));
+        knob.set_prop("DefaultValue", PropValue::Int(0));
+        form.controls.push(knob);
+
+        let mut gauge = Control::new("GAU-1", ControlType::Gauge, 10, 60);
+        gauge.set_prop("Value", PropValue::Int(70));
+        gauge.set_prop("GaugeStyle", PropValue::String("Donut".into()));
+        form.controls.push(gauge);
+
+        let mut switch = Control::new("SWT-1", ControlType::Switch, 10, 110);
+        switch.set_prop("Checked", PropValue::Bool(true));
+        form.controls.push(switch);
+
+        form.controls
+            .push(Control::new("FDZ-1", ControlType::FileDropZone, 10, 160));
+
+        let src = generate(&form);
+        assert!(src.contains("01 WS-KNB-1."), "Knob group missing");
+        assert!(src.contains("WS-KNB-1-VALUE      PIC S9(9) VALUE 42."));
+        assert!(src.contains("WS-KNB-1-STEP"));
+        assert!(src.contains("WS-KNB-1-DEFAULT"));
+
+        assert!(src.contains("01 WS-GAU-1."), "Gauge group missing");
+        assert!(src.contains("WS-GAU-1-VALUE      PIC S9(9) VALUE 70."));
+        assert!(src.contains("WS-GAU-1-STYLE      PIC X(10)  VALUE 'Donut'."));
+
+        assert!(src.contains("01 WS-SWT-1."), "Switch group missing");
+        assert!(src.contains("WS-SWT-1-CHECKED    PIC 9      VALUE 1."));
+
+        assert!(src.contains("01 WS-FDZ-1."), "FileDropZone group missing");
+        assert!(src.contains("WS-FDZ-1-FILE-COUNT PIC S9(4) VALUE 0."));
+        assert!(src.contains("WS-FDZ-1-FILE-PATH  PIC X(1024) OCCURS 20 TIMES"));
+
+        // The developer banner is preserved for every generated program,
+        // batch of new controls or not (tech.md hard constraint).
+        assert!(src.contains("PowerRustCOBOL"), "developer banner missing");
+    }
+
+    #[test]
+    fn a_form_without_the_new_controls_carries_none_of_their_fields() {
+        // Regression guard on the additive-only claim (plan.md §3): a form
+        // with none of the six spec-039 controls must not gain any of their
+        // WORKING-STORAGE shape just because the generator now knows how to
+        // emit it.
+        let src = generate(&make_form());
+        for needle in [
+            "-STEP",
+            "-DEFAULT",
+            "-STYLE",
+            "-CHECKED",
+            "-FILE-COUNT",
+            "-FILE-PATH",
+            "-CENTER-LAT",
+            "-CENTER-LNG",
+            "-SEARCH-ENGINE-ID",
+        ] {
+            assert!(!src.contains(needle), "unexpected field marker: {needle}");
+        }
+    }
+
+    #[test]
+    fn maps_emits_center_and_zoom_but_never_an_api_key_literal() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut map = Control::new("MAP-1", ControlType::Maps, 10, 10);
+        map.set_prop("CenterLat", PropValue::String("48.8566".into()));
+        map.set_prop("CenterLng", PropValue::String("2.3522".into()));
+        map.set_prop("Zoom", PropValue::Int(12));
+        form.controls.push(map);
+
+        let src = generate(&form);
+        assert!(src.contains("01 WS-MAP-1."), "Maps group missing");
+        assert!(src.contains("WS-MAP-1-CENTER-LAT PIC X(32)  VALUE '48.8566'."));
+        assert!(src.contains("WS-MAP-1-CENTER-LNG PIC X(32)  VALUE '2.3522'."));
+        assert!(src.contains("WS-MAP-1-ZOOM       PIC S9(4)  VALUE 12."));
+        // R31/R33: the resolved google_maps key is never generated-source
+        // text — the Run path seeds it as a runtime-only property instead.
+        assert!(!src.to_lowercase().contains("apikey"));
+        assert!(!src.to_lowercase().contains("api-key"));
+    }
+
+    #[test]
+    fn web_search_emits_instance_fields_and_search_paragraph() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut search = Control::new("SEARCH-1", ControlType::WebSearch, 10, 10);
+        search.set_prop("SearchEngineId", PropValue::String("abc123".into()));
+        search.set_prop("NumResults", PropValue::Int(5));
+        search.set_prop("SafeSearch", PropValue::String("Medium".into()));
+        form.controls.push(search);
+
+        let src = generate(&form);
+
+        assert!(src.contains(
+            "01 WS-SEARCH-1-SEARCH-ENGINE-ID PIC X(64)  VALUE 'abc123'."
+        ));
+        assert!(src.contains("01 WS-SEARCH-1-QUERY            PIC X(512) VALUE SPACES."));
+        assert!(src.contains("01 WS-SEARCH-1-NUM-RESULTS      PIC 9(2)   VALUE 5."));
+        assert!(src.contains("01 WS-SEARCH-1-SAFE-SEARCH      PIC X(6)   VALUE 'Medium'."));
+
+        assert!(src.contains("SEARCH-1-SEARCH."));
+        assert!(src.contains("STRING 'https://www.googleapis.com/customsearch/v1?cx='"));
+        assert!(src.contains("WS-SEARCH-1-SEARCH-ENGINE-ID DELIMITED BY SPACE"));
+        assert!(src.contains("WS-SEARCH-1-QUERY DELIMITED BY SPACE"));
+        assert!(src.contains("WS-SEARCH-1-NUM-RESULTS DELIMITED BY SIZE"));
+        assert!(src.contains("WS-SEARCH-1-SAFE-SEARCH DELIMITED BY SPACE"));
+        assert!(src.contains("INTO WS-REQUEST-URL"));
+        assert!(src.contains("CALL \"COBOL-HTTP-GET\""));
+        assert!(src.contains("SEARCH-1-ON-RESULTS."));
+        assert!(src.contains("SEARCH-1-ON-ERROR."));
+        // R30/R31: no API key anywhere in generated source — INVOKE 'SEARCH'
+        // (T15) is the credential-aware path, not this static paragraph.
+        assert!(!src.to_lowercase().contains("apikey"));
+        assert!(!src.to_lowercase().contains("api-key"));
+        assert!(!src.contains("&key="));
+    }
+
     #[test]
     fn user_line_map_covers_authored_handler_body_only() {
         // A handler WITH real user code + one with none.
@@ -2533,6 +2893,191 @@ mod tests {
         assert!(src.contains(
             "INVOKE GRID-1 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"ID,NAME,AMOUNT\""
         ));
+    }
+
+    #[test]
+    fn data_binding_codegen_seeds_scalar_control_refresh_identity_for_cobol_tables() {
+        // Spec 039 T13 (retroactively completing T6): a standalone Knob's
+        // binding must reach a genuinely standalone `rcrun build` binary,
+        // not just an interpreted `rcrun run-form` — this is the codegen
+        // half of that (the Rust-side seeding in `cobolt-cli/src/
+        // form_gui.rs` covers the interpreted path).
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("KNOB-1", ControlType::Knob, 0, 0));
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-KNOB",
+            "Knob",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "READING-TABLE".into(),
+                occurs_item: "READING-ROW".into(),
+                fields: vec![cobolt_forms::BindingField::new(
+                    "READING-VALUE",
+                    cobolt_forms::BindingDataType::Decimal,
+                )
+                .required()],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::ScalarControl {
+                control_id: "KNOB-1".into(),
+            },
+        ).with_mappings(vec![cobolt_forms::FieldMapping::new(
+            "READING-VALUE",
+            BindingTargetPath::ScalarValue {
+                control_id: "KNOB-1".into(),
+            },
+        )]));
+
+        let src = generate(&form);
+
+        assert!(src.contains(
+            "INVOKE KNOB-1 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\""
+        ));
+        assert!(src.contains(
+            "INVOKE KNOB-1 'SetProperty' USING BY CONTENT \"_BindingScalarField\" BY CONTENT \"READING-VALUE\""
+        ));
+        assert!(src.contains(
+            "INVOKE KNOB-1 'SetProperty' USING BY CONTENT \"_BindingScalarProperty\" BY CONTENT \"Value\""
+        ));
+        assert!(src.contains("INVOKE KNOB-1 'RefreshBinding'"));
+    }
+
+    #[test]
+    fn data_binding_codegen_seeds_switch_scalar_property_as_checked() {
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("SWITCH-1", ControlType::Switch, 0, 0));
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-SWITCH",
+            "Switch",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "ALARM-TABLE".into(),
+                occurs_item: "ALARM-ROW".into(),
+                fields: vec![cobolt_forms::BindingField::new(
+                    "ALARM-ON",
+                    cobolt_forms::BindingDataType::Boolean,
+                )
+                .required()],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::ScalarControl {
+                control_id: "SWITCH-1".into(),
+            },
+        ).with_mappings(vec![cobolt_forms::FieldMapping::new(
+            "ALARM-ON",
+            BindingTargetPath::ScalarValue {
+                control_id: "SWITCH-1".into(),
+            },
+        )]));
+
+        let src = generate(&form);
+
+        assert!(src.contains(
+            "INVOKE SWITCH-1 'SetProperty' USING BY CONTENT \"_BindingScalarProperty\" BY CONTENT \"Checked\""
+        ));
+    }
+
+    #[test]
+    fn data_binding_codegen_seeds_marker_collection_fields_for_cobol_tables() {
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("MAP-1", ControlType::Maps, 0, 0));
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-MARKERS",
+            "Markers",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "PLACE-TABLE".into(),
+                occurs_item: "PLACE-ROW".into(),
+                fields: vec![
+                    cobolt_forms::BindingField::new(
+                        "PLACE-LAT",
+                        cobolt_forms::BindingDataType::Decimal,
+                    )
+                    .required(),
+                    cobolt_forms::BindingField::new(
+                        "PLACE-LNG",
+                        cobolt_forms::BindingDataType::Decimal,
+                    )
+                    .required(),
+                    cobolt_forms::BindingField::new(
+                        "PLACE-NAME",
+                        cobolt_forms::BindingDataType::Text,
+                    )
+                    .required(),
+                ],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::MarkerCollection {
+                control_id: "MAP-1".into(),
+            },
+        ).with_mappings(vec![
+            cobolt_forms::FieldMapping::new(
+                "PLACE-LAT",
+                BindingTargetPath::MarkerField {
+                    control_id: "MAP-1".into(),
+                    field: cobolt_forms::MapMarkerField::Lat,
+                },
+            ),
+            cobolt_forms::FieldMapping::new(
+                "PLACE-LNG",
+                BindingTargetPath::MarkerField {
+                    control_id: "MAP-1".into(),
+                    field: cobolt_forms::MapMarkerField::Lng,
+                },
+            ),
+            cobolt_forms::FieldMapping::new(
+                "PLACE-NAME",
+                BindingTargetPath::MarkerField {
+                    control_id: "MAP-1".into(),
+                    field: cobolt_forms::MapMarkerField::Label,
+                },
+            ),
+        ]));
+
+        let src = generate(&form);
+
+        assert!(src.contains(
+            "INVOKE MAP-1 'SetProperty' USING BY CONTENT \"_BindingMarkerFields\" BY CONTENT \"\tPLACE-LAT\tPLACE-LNG\tPLACE-NAME\t\""
+        ));
+        assert!(src.contains("INVOKE MAP-1 'RefreshBinding'"));
+    }
+
+    #[test]
+    fn data_binding_codegen_omits_marker_seed_when_lat_or_lng_unmapped() {
+        // The Guardian should already block this before Build/Run/Debug, but
+        // codegen must not emit a half-formed seed either — no lat/lng means
+        // no INVOKE at all, never a spec with an empty required slot.
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("MAP-1", ControlType::Maps, 0, 0));
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-MARKERS",
+            "Markers",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "PLACE-TABLE".into(),
+                occurs_item: "PLACE-ROW".into(),
+                fields: vec![cobolt_forms::BindingField::new(
+                    "PLACE-LAT",
+                    cobolt_forms::BindingDataType::Decimal,
+                )
+                .required()],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::MarkerCollection {
+                control_id: "MAP-1".into(),
+            },
+        ).with_mappings(vec![cobolt_forms::FieldMapping::new(
+            "PLACE-LAT",
+            BindingTargetPath::MarkerField {
+                control_id: "MAP-1".into(),
+                field: cobolt_forms::MapMarkerField::Lat,
+            },
+        )]));
+
+        let src = generate(&form);
+
+        assert!(!src.contains("_BindingMarkerFields"));
+        assert!(!src.contains("INVOKE MAP-1 'RefreshBinding'"));
     }
 
     #[test]

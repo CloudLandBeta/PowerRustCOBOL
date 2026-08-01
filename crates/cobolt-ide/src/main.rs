@@ -42,6 +42,7 @@ pub mod prompt_polish;
 mod project_fs;
 mod project_model;
 mod runner;
+pub mod secrets;
 mod target_select;
 pub mod theme;
 pub mod theme_ui;

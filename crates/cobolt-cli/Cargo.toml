@@ -45,3 +45,11 @@ egui         = "0.35"
 eframe       = { version = "0.35", features = ["default_fonts"] }
 egui_extras  = { version = "0.35", features = ["image"] }
 image        = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
+
+# Native file dialogs for a running form's FileDropZone click-to-browse path
+# (spec 039 T4) — opened asynchronously, same reason as the IDE's own copy in
+# cobolt-ide/src/file_dialog.rs: a synchronous dialog nests the OS event loop,
+# which aborts winit 0.30 with "tried to handle event while another event is
+# currently being handled".
+rfd      = "0.14"
+pollster = "0.3"

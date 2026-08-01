@@ -1536,6 +1536,16 @@ impl CoboltApp {
             form.window_effects,
             self.debug.no_window_fx,
         );
+        // Credentials resolved IDE-side (spec 039 T12/T15) — the Maps and
+        // Custom Search API keys reach the child only via its environment,
+        // never the .cfrm/.cbl.
+        let secrets: Vec<(&'static str, String)> =
+            crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
+                .into_iter()
+                .chain(crate::form_runtime::resolve_search_api_key_secret(
+                    &form, &self.llm,
+                ))
+                .collect();
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
@@ -1545,6 +1555,7 @@ impl CoboltApp {
             debug,
             &diagnostics,
             fx.as_ref(),
+            &secrets,
         ) {
             Ok(run) => {
                 if debug {
@@ -11002,6 +11013,33 @@ impl CoboltApp {
                     (ev.ctrl_id.clone(), 0)
                 };
                 rt.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
+            }
+
+            // FileDropZone click → native picker (spec 039 T4). `cobolt-forms`
+            // has no native-dialog dependency by design (see render.rs's
+            // `RenderOutput::file_picker_requests` doc comment) — the host
+            // owns this. Reuses the existing non-blocking dialog
+            // infrastructure (`file_dialog.rs`) rather than a raw
+            // `rfd::FileDialog::pick_file()`, which would nest winit's event
+            // loop and abort the process (see that module's own doc comment).
+            for id in &output.file_picker_requests {
+                let key = format!("filedropzone:{id}");
+                crate::file_dialog::begin(&panel_ui.ctx(), &key, crate::file_dialog::DialogSpec::open());
+            }
+            for c in controls.iter().filter(|c| {
+                matches!(c.control_type, cobolt_forms::ControlType::FileDropZone)
+            }) {
+                let key = format!("filedropzone:{}", c.id);
+                if let Some(Some(path)) = crate::file_dialog::take(&key) {
+                    let val = path.display().to_string();
+                    rt.ctrl_state
+                        .entry(c.id.clone())
+                        .or_default()
+                        .props
+                        .insert("DroppedFiles".to_owned(), val.clone());
+                    rt.send_input(&c.id, "DroppedFiles", &val);
+                    rt.send_event(FormEvent::new(c.id.clone(), "onFilesDropped".to_owned()));
+                }
             }
         }
 

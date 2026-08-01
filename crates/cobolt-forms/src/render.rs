@@ -202,6 +202,13 @@ pub struct RenderOutput {
     /// Each control's on-screen rect, so the designer can position its overlay
     /// (selection handles, badges, drop hints) without re-deriving geometry.
     pub control_rects: HashMap<String, Rect>,
+    /// Control ids whose `FileDropZone` was clicked (not dragged) this frame
+    /// (spec 039 T4). `cobolt-forms` has no native-dialog dependency by
+    /// design — the host (`cobolt-ide`) is expected to open a picker for
+    /// each id here and feed the chosen paths back as an ordinary
+    /// `DroppedFiles` prop write, the same channel the OS drag-drop path
+    /// already uses.
+    pub file_picker_requests: Vec<String>,
 }
 
 /// The size the backdrop covers: the form's own size, stretched to the host
@@ -3304,6 +3311,334 @@ fn render_interactive(
                     out.events.push(UiEvent::ev(id, "onValueChanged"));
                 }
                 ui.data_mut(|d| d.insert_temp(slider_dirty_id, false));
+            }
+        }
+        // ── Knob / Gauge / Switch / FileDropZone (spec 039) ─────────────────
+        //
+        // Unlike Slider/NumericUpDown, these are REAL egui-elegance widgets:
+        // `Widget::ui` draws AND handles interaction in one call, so there is
+        // no need to hand-roll drag math here — `ui.put(screen, widget)`
+        // (the same idiom already used for `egui::DragValue` under
+        // `CT::NumericUpDown` below) places it at the control's exact rect
+        // and returns a standard `Response` whose `.changed()` reports
+        // whether the bound value moved this frame, exactly like any other
+        // egui widget.
+        CT::Knob => {
+            use elegance::{Accent, Knob, KnobSize};
+
+            let min_v: f64 = sv(ctrl, "Minimum").parse().unwrap_or(0.0);
+            let max_v: f64 = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0).max(min_v + 1.0);
+            let step: f64 = sv(ctrl, "Step").parse::<f64>().unwrap_or(1.0).max(0.0001);
+            let mut val: f64 = sv(ctrl, "Value").parse().unwrap_or(min_v).clamp(min_v, max_v);
+            let default_v: f64 = sv(ctrl, "DefaultValue").parse().unwrap_or(min_v);
+            let size = match sv(ctrl, "Size").as_str() {
+                "Small" => KnobSize::Small,
+                "Large" => KnobSize::Large,
+                _ => KnobSize::Medium,
+            };
+            let accent = match sv(ctrl, "Accent").as_str() {
+                "Green" => Accent::Green,
+                "Red" => Accent::Red,
+                "Purple" => Accent::Purple,
+                "Amber" => Accent::Amber,
+                "Sky" => Accent::Sky,
+                _ => Accent::Blue,
+            };
+            let bipolar = matches!(sv(ctrl, "Bipolar").as_str(), "1" | "true");
+            let show_value = matches!(sv(ctrl, "ShowValue").as_str(), "1" | "true");
+            let label = sv(ctrl, "Label");
+
+            let mut knob = Knob::new(&mut val, min_v..=max_v)
+                .size(size)
+                .accent(accent)
+                .step(step)
+                .default(default_v)
+                .show_value(show_value)
+                .enabled(enabled);
+            if bipolar {
+                knob = knob.bipolar();
+            }
+            if !label.is_empty() {
+                knob = knob.label(label);
+            }
+            let resp = ui.put(screen, knob);
+            focus_keyboard_events(ui, &resp, id, out, &bound);
+            if resp.changed() && enabled {
+                let s = format!("{val}");
+                out.prop_updates
+                    .push((id.to_owned(), "Value".to_owned(), s.clone()));
+                out.events.push(UiEvent::change(id, &s));
+                out.events.push(UiEvent::ev(id, "onValueChanged"));
+            }
+        }
+        CT::Gauge => {
+            use elegance::{GaugeZones, LinearGauge, ProgressRing, RadialGauge};
+
+            let min_v: f32 = sv(ctrl, "Minimum").parse().unwrap_or(0.0);
+            let max_v: f32 = sv(ctrl, "Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
+            let val: f32 = sv(ctrl, "Value").parse().unwrap_or(min_v);
+            let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
+            let color_prop = sv(ctrl, "Color");
+            let color = if color_prop.is_empty() {
+                None
+            } else {
+                Some(paint::parse_color(&color_prop))
+            };
+            let warn = sv(ctrl, "WarningThreshold").parse::<f32>().ok();
+            let crit = sv(ctrl, "CriticalThreshold").parse::<f32>().ok();
+            let zones = match (warn, crit) {
+                (Some(w), Some(c)) => Some(GaugeZones::new(w, c)),
+                _ => None,
+            };
+            let unit = sv(ctrl, "Unit");
+            let text = sv(ctrl, "Text");
+
+            // Read-only (R10): the widget is placed for painting only — its
+            // Response is never inspected for interaction, and nothing in
+            // this arm can write Value.
+            match sv(ctrl, "GaugeStyle").as_str() {
+                "Linear" => {
+                    let mut g = LinearGauge::new(frac)
+                        .desired_width(screen.width())
+                        .height(sv(ctrl, "BarHeight").parse().unwrap_or(14.0));
+                    if let Some(c) = color {
+                        g = g.color(c);
+                    }
+                    if let Some(z) = zones {
+                        g = g.zones(z);
+                    }
+                    // LinearGauge has no `.unit()` — only Radial/ProgressRing
+                    // do (confirmed against the crate's real API, plan.md §4
+                    // Decision 4). `unit` is simply not applied here.
+                    let _ = &unit;
+                    if matches!(sv(ctrl, "ShowThumb").as_str(), "1" | "true") {
+                        g = g.thumb(true);
+                    }
+                    ui.put(screen, g);
+                }
+                "Donut" => {
+                    let mut g = ProgressRing::new(frac)
+                        .size(screen.width().min(screen.height()))
+                        .stroke_width(sv(ctrl, "StrokeWidth").parse().unwrap_or(8.0));
+                    if let Some(c) = color {
+                        g = g.color(c);
+                    }
+                    if let Some(z) = zones {
+                        g = g.zones(z);
+                    }
+                    if !unit.is_empty() {
+                        g = g.unit(unit);
+                    }
+                    if !text.is_empty() {
+                        g = g.text(text);
+                    }
+                    ui.put(screen, g);
+                }
+                _ => {
+                    let mut g = RadialGauge::new(frac).size(screen.width().min(screen.height()));
+                    if let Some(c) = color {
+                        g = g.color(c);
+                    }
+                    if let Some(z) = zones {
+                        g = g.zones(z);
+                    }
+                    if !unit.is_empty() {
+                        g = g.unit(unit);
+                    }
+                    if !text.is_empty() {
+                        g = g.text(text);
+                    }
+                    g = g.needle(matches!(sv(ctrl, "ShowNeedle").as_str(), "1" | "true"));
+                    g = g.show_scale(matches!(sv(ctrl, "ShowScale").as_str(), "1" | "true"));
+                    ui.put(screen, g);
+                }
+            }
+        }
+        CT::Switch => {
+            use elegance::{Accent, Switch};
+
+            let mut checked = matches!(sv(ctrl, "Checked").as_str(), "1" | "true");
+            let accent = match sv(ctrl, "Accent").as_str() {
+                "Green" => Accent::Green,
+                "Red" => Accent::Red,
+                "Purple" => Accent::Purple,
+                "Amber" => Accent::Amber,
+                "Sky" => Accent::Sky,
+                _ => Accent::Blue,
+            };
+            let switch = Switch::new(&mut checked, "")
+                .accent(accent)
+                .enabled(enabled);
+            let resp = ui.put(screen, switch);
+            focus_keyboard_events(ui, &resp, id, out, &bound);
+            if resp.changed() && enabled {
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "Checked".to_owned(),
+                    checked.to_string(),
+                ));
+                out.events.push(UiEvent::ev(id, "onClick"));
+            }
+        }
+        CT::FileDropZone => {
+            use elegance::FileDropZone as EFileDropZone;
+
+            let hint = sv(ctrl, "Hint");
+            let mut zone = EFileDropZone::new()
+                .min_height(screen.height())
+                .enabled(enabled);
+            if !hint.is_empty() {
+                zone = zone.hint(hint);
+            }
+            let drop_resp = ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+                zone.show(ui)
+            });
+            let fdz = drop_resp.inner;
+            focus_keyboard_events(ui, &fdz.response, id, out, &bound);
+            if !fdz.dropped_files.is_empty() && enabled {
+                // The OS drag-drop path needs no native dialog (egui's own
+                // input already carries the dropped paths) — populate
+                // DroppedFiles and fire onFilesDropped right here. The
+                // click-to-browse path (rfd, a native dialog) is cross-crate
+                // plumbing `cobolt-forms` cannot own on its own (no `rfd`
+                // dependency here by design — see spec 039 T4) and is wired
+                // at the `cobolt-ide` host level instead.
+                let paths: Vec<String> = fdz
+                    .dropped_files
+                    .iter()
+                    .filter_map(|f| f.path.as_ref())
+                    .map(|p| p.display().to_string())
+                    .collect();
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "DroppedFiles".to_owned(),
+                    paths.join("\n"),
+                ));
+                out.events.push(UiEvent::ev(id, "onFilesDropped"));
+            } else if fdz.response.clicked() && enabled {
+                // Click, not a drop — the host owns opening a native picker
+                // (T4). Not gated on `dropped_files` being non-empty above,
+                // since a click and a drop are mutually exclusive per frame.
+                out.file_picker_requests.push(id.to_owned());
+            }
+        }
+        // ── Maps (spec 039 T9) ───────────────────────────────────────────────
+        //
+        // No off-the-shelf widget (T1's finding) — pan/zoom are computed
+        // here from raw pointer/scroll input, exactly the way Slider
+        // computes its own drag math above, and the shared
+        // `map_tiles::paint_map` (also used by the designer canvas's static
+        // face, `paint.rs`) draws the result.
+        CT::Maps => {
+            use crate::map_tiles;
+
+            let center_lat: f64 = sv(ctrl, "CenterLat").parse().unwrap_or(0.0);
+            let center_lng: f64 = sv(ctrl, "CenterLng").parse().unwrap_or(0.0);
+            let zoom_i = sv(ctrl, "Zoom").parse::<i64>().unwrap_or(2);
+            let zoom = zoom_i.clamp(
+                map_tiles::MIN_ZOOM as i64,
+                map_tiles::MAX_ZOOM as i64,
+            ) as u8;
+
+            let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
+
+            let mut new_center = (center_lat, center_lng);
+            let mut new_zoom = zoom;
+            let mut bounds_changed = false;
+
+            if resp.dragged() && enabled {
+                let delta = resp.drag_delta();
+                if delta != egui::Vec2::ZERO {
+                    new_center = map_tiles::offset_to_lat_lng(
+                        -delta.x,
+                        -delta.y,
+                        new_center.0,
+                        new_center.1,
+                        zoom,
+                    );
+                    bounds_changed = true;
+                }
+            }
+            if resp.hovered() && enabled {
+                let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                if scroll.abs() > 0.5 {
+                    let zoomed = if scroll > 0.0 {
+                        zoom.saturating_add(1)
+                    } else {
+                        zoom.saturating_sub(1)
+                    };
+                    new_zoom = zoomed.clamp(map_tiles::MIN_ZOOM, map_tiles::MAX_ZOOM);
+                    bounds_changed = bounds_changed || new_zoom != zoom;
+                }
+            }
+            if resp.double_clicked() && enabled {
+                if let Some(pos) = ui.ctx().pointer_latest_pos() {
+                    let off = pos - screen.center();
+                    new_center = map_tiles::offset_to_lat_lng(
+                        off.x, off.y, new_center.0, new_center.1, zoom,
+                    );
+                    new_zoom = (zoom + 1).min(map_tiles::MAX_ZOOM);
+                    bounds_changed = true;
+                }
+            }
+
+            if bounds_changed {
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "CenterLat".to_owned(),
+                    new_center.0.to_string(),
+                ));
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "CenterLng".to_owned(),
+                    new_center.1.to_string(),
+                ));
+                out.prop_updates
+                    .push((id.to_owned(), "Zoom".to_owned(), new_zoom.to_string()));
+                out.events.push(UiEvent::ev(id, "onBoundsChanged"));
+            }
+
+            let markers_raw = sv(ctrl, "Markers");
+            let records = crate::parse_map_markers(&markers_raw);
+            let markers: Vec<map_tiles::MapMarker> = records
+                .iter()
+                .map(|m| map_tiles::MapMarker {
+                    lat: m.lat,
+                    lng: m.lng,
+                    label: &m.label,
+                })
+                .collect();
+            let click_pos = if resp.clicked() {
+                ui.ctx().pointer_interact_pos()
+            } else {
+                None
+            };
+            let hit = map_tiles::paint_map(
+                &painter,
+                screen,
+                new_center.0,
+                new_center.1,
+                new_zoom,
+                &markers,
+                click_pos,
+            );
+            if let Some(idx) = hit {
+                // Marker identity is exposed via a property, the same way
+                // repeating-group instance data reaches COBOL through
+                // CONTROL-ARRAY-INDEX rather than the event's own target id
+                // — markers are not full Controls with their own event
+                // routing.
+                if let Some(m) = records.get(idx) {
+                    out.prop_updates.push((
+                        id.to_owned(),
+                        "SelectedMarkerId".to_owned(),
+                        m.id.clone(),
+                    ));
+                }
+                out.events.push(UiEvent::ev(id, "onMarkerClick"));
+            } else if resp.clicked() && enabled {
+                out.events.push(UiEvent::ev(id, "onMapClick"));
             }
         }
         CT::NumericUpDown => {
@@ -7018,6 +7353,323 @@ mod tests {
                 .and_then(|m| m.get("Value"))
                 .map(String::as_str),
             Some("1")
+        );
+    }
+
+    // ── Spec 039 T3: Knob/Gauge/Switch/FileDropZone interactive render ─────
+
+    #[test]
+    fn engine_switch_click_toggles_checked() {
+        let c = [ctrlp(
+            "Swt",
+            ControlType::Switch,
+            0,
+            0,
+            52,
+            28,
+            &[("Checked", "false")],
+        )];
+        let p = pos2(26.0, 14.0);
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+            ],
+        );
+        let n = names(&evs);
+        assert!(n.contains(&"onClick"), "Switch: no onClick; got {n:?}");
+        assert_eq!(
+            map.get("Swt")
+                .and_then(|m| m.get("Checked"))
+                .map(String::as_str),
+            Some("true"),
+            "Switch: Checked did not flip to true"
+        );
+    }
+
+    #[test]
+    fn engine_knob_drag_changes_value() {
+        let c = [ctrlp(
+            "Knb",
+            ControlType::Knob,
+            0,
+            0,
+            120,
+            120,
+            &[
+                ("Minimum", "0"),
+                ("Maximum", "100"),
+                ("Value", "50"),
+                ("Step", "1"),
+                ("ShowValue", "false"),
+            ],
+        )];
+        // The dial is egui-elegance's own fixed-size allocation inside the
+        // rect `ui.put` gave it — press near the control's top-left, where
+        // the dial (no label row, since Label is unset) starts, then drag
+        // up-and-right, which the widget's own documented interaction
+        // (knob.rs) increases the value for, regardless of exact press
+        // offset within the dial's circle.
+        let start = pos2(20.0, 20.0);
+        let dragged = pos2(50.0, -10.0); // up-and-right relative motion
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(start), press(start)]),
+                (2.0, vec![Event::PointerMoved(dragged)]),
+                (3.0, vec![Event::PointerMoved(dragged), release(dragged)]),
+            ],
+        );
+        let n = names(&evs);
+        assert!(
+            n.contains(&"onChange") || n.contains(&"onValueChanged"),
+            "Knob: no onChange/onValueChanged; got {n:?}"
+        );
+        let val: f64 = map
+            .get("Knb")
+            .and_then(|m| m.get("Value"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(f64::NAN);
+        assert!(
+            val > 50.0,
+            "Knob: dragging up-and-right must increase Value past 50 (got {val})"
+        );
+    }
+
+    #[test]
+    fn engine_gauge_ignores_click_and_drag_in_every_style() {
+        for style in ["Radial", "Linear", "Donut"] {
+            let c = [ctrlp(
+                "Gau",
+                ControlType::Gauge,
+                0,
+                0,
+                140,
+                90,
+                &[
+                    ("GaugeStyle", style),
+                    ("Minimum", "0"),
+                    ("Maximum", "100"),
+                    ("Value", "50"),
+                ],
+            )];
+            let start = pos2(70.0, 45.0);
+            let dragged = pos2(120.0, 10.0);
+            let (evs, map) = drive(
+                &c,
+                vec![
+                    (0.0, vec![]),
+                    (1.0, vec![Event::PointerMoved(start), press(start)]),
+                    (2.0, vec![Event::PointerMoved(dragged)]),
+                    (3.0, vec![Event::PointerMoved(dragged), release(dragged)]),
+                ],
+            );
+            assert!(
+                map.get("Gau").and_then(|m| m.get("Value")).is_none(),
+                "Gauge ({style}): a click+drag must never write Value (R10); \
+                 events: {:?}",
+                names(&evs)
+            );
+        }
+    }
+
+    #[test]
+    fn engine_maps_drag_pans_center_and_fires_bounds_changed() {
+        let c = [ctrlp(
+            "Map1",
+            ControlType::Maps,
+            0,
+            0,
+            320,
+            240,
+            &[
+                ("CenterLat", "40.0"),
+                ("CenterLng", "-74.0"),
+                ("Zoom", "10"),
+            ],
+        )];
+        let start = pos2(160.0, 120.0);
+        let dragged = pos2(220.0, 150.0); // drag right+down
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(start), press(start)]),
+                (2.0, vec![Event::PointerMoved(dragged)]),
+                (3.0, vec![Event::PointerMoved(dragged), release(dragged)]),
+            ],
+        );
+        let n = names(&evs);
+        assert!(
+            n.contains(&"onBoundsChanged"),
+            "Maps: no onBoundsChanged after a drag; got {n:?}"
+        );
+        let new_lat: f64 = map
+            .get("Map1")
+            .and_then(|m| m.get("CenterLat"))
+            .and_then(|v| v.parse().ok())
+            .expect("CenterLat should have been updated");
+        let new_lng: f64 = map
+            .get("Map1")
+            .and_then(|m| m.get("CenterLng"))
+            .and_then(|v| v.parse().ok())
+            .expect("CenterLng should have been updated");
+        // Dragging the map to the right+down pans the VIEW right+down,
+        // which means the centre coordinate itself moves the opposite way
+        // (west and north) — same convention every drag-to-pan map uses.
+        assert!(new_lng < -74.0, "dragging right must decrease longitude (west), got {new_lng}");
+        assert!(new_lat > 40.0, "dragging down must increase latitude (north), got {new_lat}");
+    }
+
+    #[test]
+    fn engine_maps_scroll_changes_zoom_only_while_hovered() {
+        let c = [ctrlp(
+            "Map1",
+            ControlType::Maps,
+            0,
+            0,
+            320,
+            240,
+            &[
+                ("CenterLat", "40.0"),
+                ("CenterLng", "-74.0"),
+                ("Zoom", "10"),
+            ],
+        )];
+        let p = pos2(160.0, 120.0);
+        let (_, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (
+                    1.0,
+                    vec![
+                        Event::PointerMoved(p),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: egui::vec2(0.0, 40.0),
+                            modifiers: Modifiers::default(),
+                            phase: egui::TouchPhase::Move,
+                        },
+                    ],
+                ),
+            ],
+        );
+        let zoom: i64 = map
+            .get("Map1")
+            .and_then(|m| m.get("Zoom"))
+            .and_then(|v| v.parse().ok())
+            .expect("Zoom should have been updated while hovered");
+        assert_eq!(zoom, 11, "scrolling up while hovered must zoom in by one level");
+    }
+
+    #[test]
+    fn engine_maps_marker_click_sets_selected_marker_id_and_fires_on_marker_click() {
+        // A marker placed exactly at the map's centre, so a click at the
+        // control's centre pixel is guaranteed to land on it regardless of
+        // the projection's exact pixel math.
+        let markers = "PIN-1\t40.0\t-74.0\tHQ\tHeadquarters";
+        let c = [ctrlp(
+            "Map1",
+            ControlType::Maps,
+            0,
+            0,
+            320,
+            240,
+            &[
+                ("CenterLat", "40.0"),
+                ("CenterLng", "-74.0"),
+                ("Zoom", "10"),
+                ("Markers", markers),
+            ],
+        )];
+        let p = pos2(160.0, 120.0); // control centre == marker position
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+            ],
+        );
+        let n = names(&evs);
+        assert!(
+            n.contains(&"onMarkerClick"),
+            "Maps: clicking a marker must fire onMarkerClick; got {n:?}"
+        );
+        assert!(
+            !n.contains(&"onMapClick"),
+            "a marker hit must not ALSO fire onMapClick; got {n:?}"
+        );
+        assert_eq!(
+            map.get("Map1")
+                .and_then(|m| m.get("SelectedMarkerId"))
+                .map(String::as_str),
+            Some("PIN-1")
+        );
+    }
+
+    #[test]
+    fn engine_file_drop_zone_click_requests_a_native_picker() {
+        // `drive()` discards `RenderOutput::file_picker_requests` (only
+        // `events`/prop overrides matter to every other test), so this test
+        // runs the render loop directly rather than extending `drive()`'s
+        // signature for one caller.
+        let c = [ctrlp(
+            "Fdz",
+            ControlType::FileDropZone,
+            0,
+            0,
+            220,
+            100,
+            &[("Hint", "")],
+        )];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let st = MapState(&overrides);
+        let p = pos2(110.0, 50.0); // centre of the 220×100 control
+        let requests: RefCell<Vec<String>> = RefCell::new(Vec::new());
+
+        for (i, evs) in [vec![], vec![Event::PointerMoved(p), press(p)], vec![
+            Event::PointerMoved(p),
+            release(p),
+        ]]
+        .into_iter()
+        .enumerate()
+        {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            input.events = evs;
+            let _ = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let inp = RenderInput {
+                            controls: &c,
+                            state: &st,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        let out = render_form(ui, &inp);
+                        requests.borrow_mut().extend(out.file_picker_requests);
+                    });
+            });
+        }
+        assert!(
+            requests.borrow().iter().any(|id| id == "Fdz"),
+            "FileDropZone: a plain click must request a native picker; got {:?}",
+            requests.borrow()
         );
     }
 

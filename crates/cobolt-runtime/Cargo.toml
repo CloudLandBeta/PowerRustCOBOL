@@ -35,6 +35,20 @@ redb            = { version = "2.2" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
 ureq            = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"] }  # native-tls, not rustls (ring compiles C)
 native-tls      = "0.2"   # the connector ureq needs handed to it; see http_runtime::tls_connector
+# Maps control (spec 039 T11): Directions/Geocoding/Places/Distance-Matrix
+# only — never the OSM basemap tiles (cobolt-forms fetches those directly).
+# This crate is `reqwest`+async, unlike the rest of this crate's blocking
+# `ureq`-based I/O; its calls run on a background worker thread that
+# privately owns a small `tokio::Runtime` (plan.md §4 Decision 5) so the
+# interpreter's own event loop never becomes async.
+google_maps = { version = "3.10.0", default-features = false, features = [
+  "reqwest",
+  "geocoding",
+  "directions",
+  "places",
+  "distance_matrix",
+] }
+tokio       = { workspace = true }
 
 [dev-dependencies]
 cobolt-codegen    = { path = "../cobolt-codegen" }

@@ -2256,8 +2256,10 @@ pub fn run_grace_workflow_with_control(
     // context field), so a form-design task delegated at the level of "reorganise
     // the six charts into a 2×3 grid" reaches the specialist with an empty CONTEXT
     // and nothing to resolve control ids or geometry against. The host owns the
-    // mapping: inject the compact inventory from the surface context.
-    inject_task_context(context, &mut plan);
+    // mapping: inject the compact inventory from the surface context — falling
+    // back to resolving the task's own named form from disk (project-wide chat,
+    // no form open) when the surface context has none.
+    inject_task_context_with_project(context, &mut plan, Some(project_dir));
     // Typographic rule: action items are listed with their T# bullet, with a
     // blank line between the paragraph and the list.
     let mut planned = format!("Grace planned {} task(s) [{}]:\n", plan.len(), workflow_id);
@@ -2473,6 +2475,20 @@ pub(crate) fn inject_task_context_for_test(context: &str, plan: &mut [TaskSpec])
 }
 
 fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
+    inject_task_context_with_project(context, plan, None)
+}
+
+/// As [`inject_task_context`], but with `project_dir` so a Form Designer /
+/// Event Handler task can resolve its OWN target form from disk when the
+/// surface context carries no live form data at all — e.g. the project-wide
+/// chat, which is not bound to any one open form. Without this, such a task
+/// silently got nothing to work from even when its objective named an exact,
+/// real, on-disk form (operator, 2026-08-01).
+fn inject_task_context_with_project(
+    context: &str,
+    plan: &mut [TaskSpec],
+    project_dir: Option<&Path>,
+) {
     let inventory = control_inventory_excerpt(context);
     let api = control_api_excerpt(context);
     let handlers = event_handlers_excerpt(context);
@@ -2490,7 +2506,34 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
         if !task.context.trim().is_empty() {
             continue; // Grace's own explicit context wins.
         }
-        if task.agent == crate::agents_db::FORM_DESIGNER {
+        let is_designer = task.agent == crate::agents_db::FORM_DESIGNER;
+        let is_event_handler = task.agent == crate::agents_db::EVENT_HANDLER;
+        if !is_designer && !is_event_handler {
+            continue;
+        }
+        // No form-specific data in the shared surface context (no form is open
+        // in the designer) — resolve the form NAMED IN THIS TASK'S OWN
+        // OBJECTIVE instead, by recursively searching the project's `forms`
+        // folder (any subfolder, at any depth — see
+        // `project_model::recursive_category_files`) for the closest match.
+        // Falls back to the shared (empty) values when nothing resolves, so
+        // an unrelated or vague task degrades exactly as before.
+        let resolved_context = if inventory.trim().is_empty() {
+            resolve_task_form_context(project_dir, &task.objective)
+        } else {
+            None
+        };
+        let (task_context, task_inventory, task_api, task_handlers): (&str, String, String, String) =
+            match &resolved_context {
+                Some(full) => (
+                    full.as_str(),
+                    control_inventory_excerpt(full),
+                    control_api_excerpt(full),
+                    event_handlers_excerpt(full),
+                ),
+                None => (context, inventory.clone(), api.clone(), handlers.clone()),
+            };
+        if is_designer {
             // The designer resolves ids + geometry against the layout inventory,
             // and its prompt forbids any property key not listed under FORM
             // PROPERTIES / PROPERTY KEYS BY TYPE — so it must be given those
@@ -2499,10 +2542,10 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             // only the types this task can actually touch: those already on the
             // form, and any named in the objective (a control it is about to
             // deploy is not on the form yet).
-            let mut ctx = inventory.clone();
+            let mut ctx = task_inventory.clone();
             for block in [
-                form_properties_excerpt(context),
-                property_keys_excerpt(context, &inventory, &objectives, "this task"),
+                form_properties_excerpt(task_context),
+                property_keys_excerpt(task_context, &task_inventory, &objectives, "this task"),
                 // A property write that must reflect existing behavior — a
                 // caption describing what a handler does, a color matching
                 // another control's effect — needs that behavior to be
@@ -2510,7 +2553,7 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
                 // control got the SAME caption, because the developer's
                 // example (or the task instruction itself) was the only text
                 // available to copy (operator, 2026-07-31).
-                handlers.clone(),
+                task_handlers.clone(),
             ] {
                 if block.is_empty() {
                     continue;
@@ -2523,7 +2566,7 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             if !ctx.trim().is_empty() {
                 task.context = ctx;
             }
-        } else if task.agent == crate::agents_db::EVENT_HANDLER {
+        } else {
             // The event agent must bind to real control ids/events AND call real
             // methods on them (e.g. `PictureBox-2::PlayAnimation()`). Without the
             // per-control API it invents method names (`Animate`, `StartAnimation`)
@@ -2535,12 +2578,12 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             // it to extend, match, or avoid conflicting with one — its prompt
             // names all these, so withholding any one leaves it obeying a list
             // it cannot see.
-            let mut ctx = inventory.clone();
+            let mut ctx = task_inventory.clone();
             for block in [
-                events_excerpt(context, &inventory, &objectives, "this task"),
-                api.clone(),
-                procedures_excerpt(context),
-                handlers.clone(),
+                events_excerpt(task_context, &task_inventory, &objectives, "this task"),
+                task_api.clone(),
+                procedures_excerpt(task_context),
+                task_handlers.clone(),
             ] {
                 if block.is_empty() {
                     continue;
@@ -2555,6 +2598,23 @@ fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
             }
         }
     }
+}
+
+/// Resolve the form named in a delegated task's own objective text (e.g.
+/// "Inspect the form at forms/Common/textboxes-form.cfrm…") by recursively
+/// searching the project's `forms` folder — at any subfolder depth, tolerant
+/// of a small typo — and return the full per-form context block
+/// (`agent::build_context`) built from the actual file on disk. `None` when
+/// there is no project directory, no forms folder, or nothing in it is a
+/// close enough match to the objective.
+fn resolve_task_form_context(project_dir: Option<&Path>, objective: &str) -> Option<String> {
+    let dir = project_dir?;
+    let candidates =
+        crate::project_model::recursive_category_files(dir, crate::project_model::Category::Forms);
+    let matched = crate::project_model::best_resource_match(objective, &candidates)?;
+    let abs = dir.join(matched);
+    let form = cobolt_forms::xml::load_form(&abs).ok()?;
+    Some(crate::agent::build_context(&form))
 }
 
 /// The surface context as Grace should see it for PLANNING: identical to the
@@ -2604,11 +2664,23 @@ fn planning_surface_context(context: &str, request: &str) -> String {
 /// through the CONTROLS inventory, stopping before the verbose per-type property,
 /// event, and API dumps. Empty when the inventory markers are absent (e.g. a run
 /// with no surface context), so injection then no-ops.
+///
+/// The marker is matched only at the START OF A LINE (`\nCONTROLS:`), never as a
+/// bare substring: `build_project_tree_context` (the context for the project-wide
+/// chat with no form open) emits its own `PROJECT USER CONTROLS:` section, whose
+/// tail also contains the literal text `CONTROLS:`. A bare `context.find("CONTROLS:")`
+/// matched THAT occurrence mid-word — cutting `PROJECT USER CONTROLS:\n  (none)`
+/// down to `CONTROLS:\n  (none)` — and every Form Designer / Event Handler task then
+/// received that fragment as if it were a real (empty) control inventory, instead of
+/// this function correctly reporting that no form-specific data is present at all
+/// (operator, 2026-08-01).
 fn control_inventory_excerpt(context: &str) -> String {
-    let Some(controls_at) = context.find("CONTROLS:") else {
+    let Some(controls_at) = line_start_marker(context, "CONTROLS:") else {
         return String::new();
     };
-    let start = context.find("FORM:").filter(|f| *f < controls_at).unwrap_or(controls_at);
+    let start = line_start_marker(context, "FORM:")
+        .filter(|f| *f < controls_at)
+        .unwrap_or(controls_at);
     let end = context[controls_at..]
         .find("PROPERTY KEYS BY TYPE")
         .map(|rel| controls_at + rel)
@@ -2628,9 +2700,22 @@ fn form_properties_excerpt(context: &str) -> String {
     let rest = &context[at..];
     let end = rest
         .find("AVAILABLE CONTROL TYPES")
-        .or_else(|| rest.find("CONTROLS:"))
+        .or_else(|| line_start_marker(rest, "CONTROLS:"))
         .unwrap_or(rest.len());
     rest[..end].trim_end().to_string()
+}
+
+/// Find `marker` only where it starts a line (immediately after `\n`, or at the
+/// very start of `haystack`), returning the byte offset of the marker itself.
+/// A bare `str::find` would also match a marker occurring mid-line — e.g. the
+/// literal text `CONTROLS:` inside `PROJECT USER CONTROLS:` — which silently
+/// produces a garbage slice instead of correctly reporting "not present".
+fn line_start_marker(haystack: &str, marker: &str) -> Option<usize> {
+    if haystack.starts_with(marker) {
+        return Some(0);
+    }
+    let needle = format!("\n{marker}");
+    haystack.find(&needle).map(|at| at + 1)
 }
 
 /// Slice `PROPERTY KEYS BY TYPE` down to the control types this task can touch:
@@ -2745,6 +2830,27 @@ fn type_aliases(ty: &str) -> &'static [&'static str] {
         "GroupBox" => &["caixa de grupo", "agrupamento", "grupo de controles"],
         "ProgressBar" => &["barra de progresso", "barra de progreso"],
         "DateTimePicker" => &["seletor de data", "selector de fecha", "campo de data"],
+        "Knob" => &["knob", "botão giratório", "botao giratorio", "perilla", "dial"],
+        "Gauge" => &["gauge", "medidor", "indicador", "velocímetro", "velocimetro"],
+        "Switch" => &["switch", "interruptor", "chave", "alternador", "toggle"],
+        "FileDropZone" => &[
+            "file drop zone",
+            "drop zone",
+            "área de soltar arquivos",
+            "area de soltar arquivos",
+            "zona de soltar archivos",
+            "soltar arquivo",
+        ],
+        "Maps" => &["mapa", "map", "google maps", "mapa interativo"],
+        "WebSearch" => &[
+            "web search",
+            "busca na web",
+            "pesquisa na web",
+            "búsqueda web",
+            "busqueda web",
+            "google search",
+            "pesquisa google",
+        ],
         _ => &[],
     }
 }
@@ -3567,6 +3673,17 @@ mod tests {
         // An alias must not drag in a type the request never mentions.
         assert!(!names_type("adicione 15 caixas de texto", "DataGrid"));
         assert!(!names_type("adicione 15 caixas de texto", "TreeView"));
+        // Spec 039: Knob/Gauge/Switch/FileDropZone everyday words.
+        assert!(names_type("um botão giratório para o volume", "Knob"));
+        assert!(names_type("add a knob to set the threshold", "Knob"));
+        assert!(names_type("um medidor de CPU no topo", "Gauge"));
+        assert!(names_type("um interruptor para ativar o modo escuro", "Switch"));
+        assert!(names_type("una zona de soltar archivos", "FileDropZone"));
+        assert!(names_type("a file drop zone for uploads", "FileDropZone"));
+        assert!(names_type("adicione um mapa com os enderecos", "Maps"));
+        assert!(names_type("add a Maps control", "Maps"));
+        assert!(names_type("adicione uma busca na web", "WebSearch"));
+        assert!(names_type("add a web search control", "WebSearch"));
     }
 
     /// The same slice, end to end: the events legend must survive a plural.
@@ -4836,6 +4953,78 @@ mod tests {
         );
         // Grace-filled context is untouched.
         assert_eq!(plan[2].context, "Grace's own exact identifiers");
+    }
+
+    /// The literal bug reported live: the project-wide chat (no form open) has
+    /// a `PROJECT USER CONTROLS:` section in its surface context, whose tail
+    /// also contains the bare substring `CONTROLS:`. Before the
+    /// `line_start_marker` fix, `control_inventory_excerpt` matched THAT
+    /// occurrence and produced the fragment `CONTROLS:\n  (none)` — which then
+    /// got reported to the specialist as if it were a real (empty) control
+    /// inventory for the form actually named in the task's objective.
+    #[test]
+    fn project_wide_surface_context_never_leaks_a_fake_controls_block() {
+        let context = "PROJECT TREE INVENTORY\n\
+             PROJECT: PowerDemo3 version 1.0.0 main src/main.cbl\n\
+             FORMS:\n  - forms/Common/textboxes-form.cfrm\n\
+             PROJECT USER CONTROLS:\n  (none)\n";
+        assert_eq!(control_inventory_excerpt(context), "");
+    }
+
+    /// End-to-end reproduction of the reported failure: the project-wide chat
+    /// delegates a Form Designer task naming a form (with a small typo) that
+    /// lives in a SUBFOLDER of `forms/`, with no form open in the designer
+    /// (so the shared surface context carries no CONTROLS data at all). The
+    /// task must still receive the REAL control inventory, resolved by
+    /// recursively searching the project's `forms` folder and loading the
+    /// actual `.cfrm` file — not silently nothing, and not the
+    /// `PROJECT USER CONTROLS:` collision fragment.
+    #[test]
+    fn form_task_resolves_its_own_named_form_when_no_form_is_open() {
+        let dir = std::env::temp_dir().join(format!(
+            "cobolt-inject-task-context-test-{}",
+            std::process::id()
+        ));
+        let forms_common = dir.join("forms").join("Common");
+        std::fs::create_dir_all(&forms_common).unwrap();
+        std::fs::write(
+            forms_common.join("textboxes-form.cfrm"),
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TEXTBOXES-FORM" title="Textbox Demo" width="776" height="566">
+  <Control id="txt1" type="TextBox" x="64" y="87" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  </Control>
+</Form>"#,
+        )
+        .unwrap();
+
+        let context = "PROJECT TREE INVENTORY\n\
+             PROJECT: PowerDemo3 version 1.0.0 main src/main.cbl\n\
+             FORMS:\n  - forms/Common/textboxes-form.cfrm\n\
+             PROJECT USER CONTROLS:\n  (none)\n";
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::FORM_DESIGNER.into(),
+            // Note the typo the developer actually made: "texboxes", not "textboxes".
+            objective: "Inspect the form at forms/Common/texboxes-form.cfrm and identify all controls.".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+
+        inject_task_context_with_project(context, &mut plan, Some(&dir));
+
+        assert!(
+            plan[0].context.contains("txt1"),
+            "expected the real control from the resolved form, got: {}",
+            plan[0].context
+        );
+        assert!(
+            !plan[0].context.contains("PROJECT USER CONTROLS"),
+            "must never leak the project-tree's own control-array section"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// Grace routes work; she does not need all 34 types' property keys and

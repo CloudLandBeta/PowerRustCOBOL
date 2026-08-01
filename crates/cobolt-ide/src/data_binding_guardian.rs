@@ -359,6 +359,61 @@ fn validate_target(form: &Form, binding: &DataBindingDef, findings: &mut Vec<Gua
                 missing_target(findings, binding, array_id);
             }
         }
+        BindingTargetDescriptor::ScalarControl { control_id } => {
+            let Some(control) = form.find_control(control_id) else {
+                missing_target(findings, binding, control_id);
+                return;
+            };
+            if !matches!(
+                control.approved_binding_target_kind(),
+                Some(cobolt_forms::ApprovedBindingTargetKind::ScalarControl)
+            ) {
+                unsupported_target(findings, binding, control_id);
+            }
+        }
+        BindingTargetDescriptor::MarkerCollection { control_id } => {
+            let Some(control) = form.find_control(control_id) else {
+                missing_target(findings, binding, control_id);
+                return;
+            };
+            if !matches!(
+                control.approved_binding_target_kind(),
+                Some(cobolt_forms::ApprovedBindingTargetKind::MarkerCollection)
+            ) {
+                unsupported_target(findings, binding, control_id);
+                return;
+            }
+            // R22: the mapped fields must cover lat/lng/label.
+            let mapped: std::collections::HashSet<cobolt_forms::MapMarkerField> = binding
+                .mappings
+                .iter()
+                .filter_map(|m| match &m.target {
+                    BindingTargetPath::MarkerField { field, .. } => Some(*field),
+                    _ => None,
+                })
+                .collect();
+            let required = [
+                cobolt_forms::MapMarkerField::Lat,
+                cobolt_forms::MapMarkerField::Lng,
+                cobolt_forms::MapMarkerField::Label,
+            ];
+            let missing: Vec<&str> = required
+                .iter()
+                .filter(|f| !mapped.contains(f))
+                .map(|f| f.as_str())
+                .collect();
+            if !missing.is_empty() {
+                blocker(
+                    findings,
+                    binding,
+                    "missing-marker-fields",
+                    format!(
+                        "Maps binding is missing required marker field(s): {}",
+                        missing.join(", ")
+                    ),
+                );
+            }
+        }
     }
 }
 
@@ -673,6 +728,8 @@ fn target_control_id(target: &BindingTargetPath) -> Option<&str> {
         | BindingTargetPath::ChartSeriesLabel { control_id, .. }
         | BindingTargetPath::ListDisplayItem { control_id }
         | BindingTargetPath::ListValue { control_id }
+        | BindingTargetPath::ScalarValue { control_id }
+        | BindingTargetPath::MarkerField { control_id, .. }
         | BindingTargetPath::ControlProperty { control_id, .. } => Some(control_id),
     }
 }
@@ -778,7 +835,8 @@ mod tests {
     use cobolt_forms::{
         BindingDataType, BindingField, BindingSourceDescriptor, BindingSourceMetadata,
         BindingTargetDescriptor, BindingTargetPath, BindingUpdateMetadata, Control, ControlType,
-        DataGridColumn, EventBinding, FieldMapping, PropValue, Rect, DATAGRID_ADVANCED_PROP,
+        DataGridColumn, EventBinding, FieldMapping, MapMarkerField, PropValue, Rect,
+        DATAGRID_ADVANCED_PROP,
     };
 
     type ControlSnapshot = Vec<(
@@ -1008,6 +1066,171 @@ mod tests {
         assert!(findings.is_empty(), "{findings:?}");
     }
 
+    // ── Spec 039 T6: ScalarControl (Knob/Gauge/Switch) binding target ──────
+
+    fn scalar_binding(control_id: &str, source_field_type: BindingDataType) -> DataBindingDef {
+        DataBindingDef::new(
+            "BIND-SCALAR",
+            "Scalar",
+            BindingSourceDescriptor::IndexedFile {
+                definition_path: "data/readings.cidx".into(),
+                record_name: "READING-REC".into(),
+                fields: vec![BindingField::new("READING-VALUE", source_field_type).required()],
+                key_field: None,
+                writable: false,
+            },
+            BindingTargetDescriptor::ScalarControl {
+                control_id: control_id.into(),
+            },
+        )
+        .with_mappings(vec![FieldMapping::new(
+            "READING-VALUE",
+            BindingTargetPath::ScalarValue {
+                control_id: control_id.into(),
+            },
+        )])
+    }
+
+    #[test]
+    fn data_binding_guardian_accepts_a_standalone_knob_gauge_switch_target() {
+        for ct in [ControlType::Knob, ControlType::Gauge, ControlType::Switch] {
+            let mut form = Form::new("MAIN", "Main", 800, 600);
+            form.add_control(Control::new("SCALAR-1", ct.clone(), 0, 0));
+            form.data_bindings
+                .push(scalar_binding("SCALAR-1", BindingDataType::Integer));
+            let findings = validate_form_bindings(&form);
+            assert!(findings.is_empty(), "{ct:?}: {findings:?}");
+        }
+    }
+
+    #[test]
+    fn data_binding_guardian_rejects_a_file_drop_zone_as_a_binding_target() {
+        // R25: FileDropZone is deliberately NOT an approved target — its
+        // DroppedFiles is event-shaped output, not a displayed value a
+        // source drives. `approved_binding_target_kind()` returns `None`
+        // for it, so a `ScalarControl` descriptor pointed at one must be
+        // rejected as unsupported, the same as any other non-approved type.
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new(
+            "FDZ-1",
+            ControlType::FileDropZone,
+            0,
+            0,
+        ));
+        form.data_bindings
+            .push(scalar_binding("FDZ-1", BindingDataType::Text));
+        let findings = validate_form_bindings(&form);
+        assert!(
+            !findings.is_empty(),
+            "FileDropZone must never be accepted as a binding target"
+        );
+    }
+
+    #[test]
+    fn data_binding_guardian_rejects_a_missing_scalar_control_target() {
+        let form = Form::new("MAIN", "Main", 800, 600);
+        // No SCALAR-1 control added — the binding points at nothing.
+        let mut form = form;
+        form.data_bindings
+            .push(scalar_binding("SCALAR-1", BindingDataType::Integer));
+        let findings = validate_form_bindings(&form);
+        assert!(
+            !findings.is_empty(),
+            "a ScalarControl binding to a nonexistent control must be rejected"
+        );
+    }
+
+    // ── Spec 039 T13: MarkerCollection (Maps) binding target ───────────────
+
+    fn marker_binding(control_id: &str, fields: &[(&str, MapMarkerField)]) -> DataBindingDef {
+        let source_fields: Vec<BindingField> = fields
+            .iter()
+            .map(|(name, _)| BindingField::new(*name, BindingDataType::Text).required())
+            .collect();
+        let mappings: Vec<FieldMapping> = fields
+            .iter()
+            .map(|(name, marker_field)| {
+                FieldMapping::new(
+                    *name,
+                    BindingTargetPath::MarkerField {
+                        control_id: control_id.into(),
+                        field: *marker_field,
+                    },
+                )
+            })
+            .collect();
+        DataBindingDef::new(
+            "BIND-MARKERS",
+            "Markers",
+            BindingSourceDescriptor::IndexedFile {
+                definition_path: "data/places.cidx".into(),
+                record_name: "PLACE-REC".into(),
+                fields: source_fields,
+                key_field: None,
+                writable: false,
+            },
+            BindingTargetDescriptor::MarkerCollection {
+                control_id: control_id.into(),
+            },
+        )
+        .with_mappings(mappings)
+    }
+
+    #[test]
+    fn data_binding_guardian_accepts_a_maps_control_bound_to_lat_lng_label() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new("MAP-1", ControlType::Maps, 0, 0));
+        form.data_bindings.push(marker_binding(
+            "MAP-1",
+            &[
+                ("PLACE-LAT", MapMarkerField::Lat),
+                ("PLACE-LNG", MapMarkerField::Lng),
+                ("PLACE-NAME", MapMarkerField::Label),
+            ],
+        ));
+        let findings = validate_form_bindings(&form);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn data_binding_guardian_rejects_a_maps_binding_missing_a_required_marker_field() {
+        // R22: lat/lng/label are all required — mapping only lat/lng (no
+        // label) must be rejected, not silently accepted with a blank label.
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new("MAP-1", ControlType::Maps, 0, 0));
+        form.data_bindings.push(marker_binding(
+            "MAP-1",
+            &[
+                ("PLACE-LAT", MapMarkerField::Lat),
+                ("PLACE-LNG", MapMarkerField::Lng),
+            ],
+        ));
+        let findings = validate_form_bindings(&form);
+        assert!(
+            findings.iter().any(|f| f.code == "missing-marker-fields"),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn data_binding_guardian_rejects_a_text_box_as_a_marker_collection_target() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new("TXT-1", ControlType::TextBox, 0, 0));
+        form.data_bindings.push(marker_binding(
+            "TXT-1",
+            &[
+                ("PLACE-LAT", MapMarkerField::Lat),
+                ("PLACE-LNG", MapMarkerField::Lng),
+                ("PLACE-NAME", MapMarkerField::Label),
+            ],
+        ));
+        let findings = validate_form_bindings(&form);
+        assert!(
+            !findings.is_empty(),
+            "a non-Maps control must never be accepted as a MarkerCollection target"
+        );
+    }
+
     #[test]
     fn data_binding_guardian_rest_agent_accepts_rest_read_only_offline() {
         let mut form = Form::new("MAIN", "Main", 800, 600);
@@ -1034,6 +1257,53 @@ mod tests {
             },
         )]);
         assert_eq!(binding.mode, BindingMode::ReadOnly);
+        form.data_bindings.push(binding);
+
+        let findings = validate_form_bindings(&form);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    // ── Spec 039 T16: WebSearch classified under the existing RestApi
+    // BindingSourceKind — no new enum variant (plan.md Decision 2:
+    // `BindingSourceDescriptor::RestApi` "already models 'a REST API
+    // response,' with no assumption that it came specifically from a
+    // RestClient control"). This is deliberately the SAME test as
+    // `data_binding_guardian_rest_agent_accepts_rest_read_only_offline`
+    // above, just pointed at a real `WebSearch` control instead of a bare
+    // placeholder id — proving the existing generic `RestApi` path already
+    // accepts it with zero code changes, not a parallel new code path.
+
+    #[test]
+    fn data_binding_guardian_accepts_a_web_search_control_as_a_rest_api_source() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.add_control(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+        form.add_control(Control::new("SEARCH-1", ControlType::WebSearch, 0, 200));
+        let binding = DataBindingDef::new(
+            "REST-SEARCH-RESULTS",
+            "Search Results",
+            BindingSourceDescriptor::RestApi {
+                source_control_id: "SEARCH-1".into(),
+                endpoint_name: "SEARCH".into(),
+                response_data_item: "SEARCH-RESPONSE".into(),
+                fields: fields(),
+                update: None,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".into(),
+            },
+        )
+        .with_mappings(vec![FieldMapping::new(
+            "CUSTOMER-NAME",
+            BindingTargetPath::GridColumn {
+                control_id: "GRID-1".into(),
+                column_id: "NAME".into(),
+            },
+        )]);
+        assert_eq!(
+            binding.source.kind(),
+            cobolt_forms::BindingSourceKind::RestApi,
+            "a WebSearch-sourced binding must classify as RestApi, not a new kind"
+        );
         form.data_bindings.push(binding);
 
         let findings = validate_form_bindings(&form);

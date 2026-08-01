@@ -96,6 +96,27 @@ fn databind_trace_write(args: std::fmt::Arguments<'_>) {
     }
 }
 
+/// Percent-encode a query-string value per RFC 3986 (unreserved characters —
+/// ALPHA / DIGIT / `-` / `.` / `_` / `~` — pass through, everything else
+/// becomes `%XX`). Spec 039 T15: the WebSearch `SEARCH` verb's own query,
+/// search-engine id, and resolved API key all flow through this — none of
+/// this project's existing HTTP helpers (`ureq`, `http_runtime::HttpClient`)
+/// build a URL from parts, so a multi-word query would otherwise truncate at
+/// its first unescaped space (the same limitation the generated `<id>-
+/// SEARCH` COBOL paragraph's own comment documents, T14).
+fn percent_encode_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// Append one line to `/tmp/databinding.log`, but only while the databind trace
 /// diagnostic is on — these sites run per row per refresh, and the ungated
 /// writes they replace grew the file without bound.
@@ -1238,6 +1259,97 @@ impl Interpreter {
 
         // Async verbs have no meaningful same-statement return value.
         CobolValue::from_str("", 0)
+    }
+
+    /// Spawn a background `google_maps` operation (spec 039 T11) — the
+    /// Maps control's Geocode/ReverseGeocode/Directions/DistanceMatrix/
+    /// PlacesSearch verbs. Mirrors [`Self::spawn_rest_op`] exactly (same
+    /// `async_pending`/`async_generations`/`async_result_tx` bookkeeping,
+    /// same `AsyncOpResult` delivery — `drain_async_ops` needs no changes
+    /// at all to handle this) with one difference: `google_maps` is
+    /// `reqwest`+async, so the worker thread privately builds a small
+    /// `tokio::Runtime` and `.block_on()`s the call inside it (plan.md §4
+    /// Decision 5) — the interpreter's own event loop stays fully
+    /// synchronous; only this one background thread ever touches tokio.
+    ///
+    /// The API key is read from `_ResolvedMapsApiKey`, a runtime-only
+    /// property the host seeds at Run/Build time (T12) — never a literal
+    /// on the control (R31).
+    fn spawn_maps_op(&mut self, obj: &str, verb: &str, args: Vec<String>) -> CobolValue {
+        if self.async_pending.contains_key(obj) {
+            return CobolValue::from_str("", 0); // one in-flight op per control
+        }
+        let api_key = self.obj_get(obj, "_ResolvedMapsApiKey");
+        if api_key.trim().is_empty() {
+            // R33: "not configured" — fail synchronously with no worker
+            // thread at all, rather than a network call that would 400.
+            self.obj_set(obj, "LastError", "Maps API key not configured".into());
+            self.async_dispatch_queue
+                .push_back((obj.to_string(), "onError".to_string()));
+            return CobolValue::from_str("", 0);
+        }
+        let timeout_ms = self.rest_timeout_ms(obj);
+        let generation = {
+            let gen = self
+                .async_generations
+                .entry(obj.to_string())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        self.obj_set(obj, "Busy", "1".into());
+        self.async_pending.insert(
+            obj.to_string(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms,
+            },
+        );
+
+        let tx = self.async_result_tx.clone();
+        let ctrl_id = obj.to_string();
+        let verb = verb.to_owned();
+        std::thread::spawn(move || {
+            let outcome = match crate::maps_bridge::run(&api_key, &verb, &args) {
+                Ok(body) => crate::async_op::AsyncOutcome::HttpSuccess { body, status: 200 },
+                Err(message) => crate::async_op::AsyncOutcome::HttpError { message },
+            };
+            let _ = tx.send(crate::async_op::AsyncOpResult {
+                ctrl_id,
+                generation,
+                outcome,
+            });
+        });
+
+        CobolValue::from_str("", 0)
+    }
+
+    /// Parse a WebSearch control's `ResponseBody` (the raw Google Custom
+    /// Search JSON API response) into `(title, snippet, link)` tuples, one
+    /// per result item (spec 039 T15/R29). An empty or malformed body (not
+    /// yet searched, or an error body) yields an empty Vec rather than an
+    /// error — the same "absent data reads as nothing, not a crash"
+    /// tolerance `refresh_marker_binding` already applies to a bad row.
+    fn web_search_items(&self, obj: &str) -> Vec<(String, String, String)> {
+        let body = self.obj_get(obj, "ResponseBody");
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body) else {
+            return Vec::new();
+        };
+        let Some(items) = parsed.get("items").and_then(|v| v.as_array()) else {
+            return Vec::new();
+        };
+        items
+            .iter()
+            .map(|item| {
+                let field = |k: &str| {
+                    item.get(k)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                (field("title"), field("snippet"), field("link"))
+            })
+            .collect()
     }
 
     /// Queue a control lifecycle event for dispatch on the next
@@ -5206,6 +5318,18 @@ impl Interpreter {
         {
             return 0;
         }
+        // Spec 039 R21: a standalone Knob/Gauge/Switch, seeded with a single
+        // field + target property instead of `_BindingArray`/table Rows.
+        let scalar_field = self.obj_get(control_id, "_BindingScalarField");
+        if !scalar_field.trim().is_empty() {
+            return self.refresh_scalar_binding(control_id, scalar_field.trim());
+        }
+        // Spec 039 T13/R22: a Maps control's Markers collection, seeded with
+        // one source field per marker attribute instead of `_BindingArray`/
+        // table Rows or a single scalar field.
+        if !self.obj_get(control_id, "_BindingMarkerFields").trim().is_empty() {
+            return self.refresh_marker_binding(control_id);
+        }
         // Prefer explicit array flag (seeded for ControlArray) or IsRepeatingGroup
         let is_array = self.obj_get(control_id, "_BindingArray") == "1"
             || self.obj_get(control_id, "IsRepeatingGroup") == "1";
@@ -5214,6 +5338,102 @@ impl Interpreter {
         }
         // default to datagrid logic
         self.refresh_datagrid_binding(control_id)
+    }
+
+    /// Read the WS table fields seeded in `_BindingMarkerFields`
+    /// (`id\tlat\tlng\tlabel\tinfo`, any entry may be empty except lat/lng)
+    /// and rebuild the Maps control's `Markers` property from them — one
+    /// marker per populated row, same row-count-driven shape as
+    /// `refresh_datagrid_binding`. A row with an unparseable/empty lat or
+    /// lng is skipped (mirrors `cobolt_forms::parse_map_markers`'s "one bad
+    /// row shouldn't blank the rest of the map" tolerance); an empty id
+    /// falls back to the 1-based row number.
+    fn refresh_marker_binding(&mut self, control_id: &str) -> usize {
+        let spec = self.obj_get(control_id, "_BindingMarkerFields");
+        let mut parts = spec.split('\t');
+        let id_field = parts.next().unwrap_or("").trim().to_owned();
+        let lat_field = parts.next().unwrap_or("").trim().to_owned();
+        let lng_field = parts.next().unwrap_or("").trim().to_owned();
+        let label_field = parts.next().unwrap_or("").trim().to_owned();
+        let info_field = parts.next().unwrap_or("").trim().to_owned();
+        if lat_field.is_empty() || lng_field.is_empty() {
+            return 0;
+        }
+
+        let row_count = [&lat_field, &lng_field]
+            .into_iter()
+            .filter_map(|field| self.env.symbol(field))
+            .filter_map(|symbol| symbol.dims.last().copied())
+            .max()
+            .unwrap_or(0);
+        if row_count == 0 {
+            self.obj_set(control_id, "Markers", String::new());
+            return 0;
+        }
+
+        let read = |env: &crate::environment::CobolEnvironment, field: &str, row: usize| -> String {
+            if field.is_empty() {
+                return String::new();
+            }
+            let key = crate::environment::subscript_key(field, &[row as i64]);
+            env.get(&key)
+                .map(|value| value.as_display_string().trim().to_owned())
+                .unwrap_or_default()
+        };
+
+        let mut lines = Vec::new();
+        for row in 1..=row_count {
+            let lat = read(&self.env, &lat_field, row);
+            let lng = read(&self.env, &lng_field, row);
+            if lat.parse::<f64>().is_err() || lng.parse::<f64>().is_err() {
+                continue;
+            }
+            let id = {
+                let raw = read(&self.env, &id_field, row);
+                if raw.is_empty() { row.to_string() } else { raw }
+            };
+            let label = read(&self.env, &label_field, row);
+            let info = read(&self.env, &info_field, row);
+            lines.push(format!("{id}\t{lat}\t{lng}\t{label}\t{info}"));
+        }
+        let count = lines.len();
+        self.obj_set(control_id, "Markers", lines.join("\n"));
+        count
+    }
+
+    /// Read a single (non-indexed, or first-row-if-a-table) WS field's
+    /// current value and write it into the target Knob/Gauge's `Value` or
+    /// Switch's `Checked` (`_BindingScalarProperty`, seeded by
+    /// `form_runtime.rs`). Returns `1` when a value was written, `0`
+    /// otherwise — mirrors `refresh_datagrid_binding`'s row-count-as-signal
+    /// convention (a Boolean would be a new, one-off return shape).
+    fn refresh_scalar_binding(&mut self, control_id: &str, field: &str) -> usize {
+        let property = self.obj_get(control_id, "_BindingScalarProperty");
+        let property = if property.trim().is_empty() {
+            "Value".to_owned()
+        } else {
+            property
+        };
+        let Some(symbol) = self.env.symbol(field) else {
+            return 0;
+        };
+        let value = if let Some(&last_dim) = symbol.dims.last() {
+            // A table field: the scalar target takes its first populated row.
+            if last_dim == 0 {
+                return 0;
+            }
+            let key = crate::environment::subscript_key(field, &[1]);
+            self.env.get(&key)
+        } else {
+            self.env.get(field)
+        };
+        let Some(value) = value else {
+            return 0;
+        };
+        let text = value.as_display_string().trim().to_owned();
+        tracing::debug!(target: "databinding", "RUN-FORM scalar binding {} <- {}={}", control_id, field, text);
+        self.obj_set(control_id, &property, text);
+        1
     }
 
     fn refresh_control_array_binding(&mut self, group_id: &str) -> usize {
@@ -6504,7 +6724,22 @@ impl Interpreter {
                 }
                 none
             }
-            "GETRESULT" => val(self.obj_get(obj, "Result")),
+            // Pre-existing generic accessor (`Result` property) for a
+            // no-argument call; spec 039 T15/R29 adds WebSearch's indexed
+            // `INVOKE <id> 'GetResult' USING <n>` on the same method name —
+            // an argument present means "indexed WebSearch result", absent
+            // preserves the original behaviour for every other caller.
+            "GETRESULT" if args.is_empty() => val(self.obj_get(obj, "Result")),
+            "GETRESULT" => {
+                let n: usize = arg(0).trim().parse().unwrap_or(0);
+                let items = self.web_search_items(obj);
+                if n >= 1 && n <= items.len() {
+                    let (title, snippet, link) = &items[n - 1];
+                    val(format!("{title}\t{snippet}\t{link}"))
+                } else {
+                    val(String::new())
+                }
+            }
             "SETTITLE" => {
                 self.obj_set(obj, "Title", arg(0));
                 none
@@ -6572,6 +6807,122 @@ impl Interpreter {
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
                 }
+            }
+            // ── WebSearch (spec 039 T15): Google Custom Search JSON API ──
+            // Reuses `spawn_rest_op`/the plain `ureq` transport (unlike Maps,
+            // which needed the async `google_maps` crate + its own worker) —
+            // a Custom Search call is a plain signed GET.
+            "SEARCH" => {
+                let api_key = self.obj_get(obj, "_ResolvedSearchApiKey");
+                if api_key.trim().is_empty() {
+                    // R33: "not configured" — fail synchronously, no request.
+                    self.obj_set(obj, "LastError", "Web Search API key not configured".into());
+                    self.async_dispatch_queue
+                        .push_back((obj.to_string(), "onError".to_string()));
+                    return CobolValue::from_str("", 0);
+                }
+                let cx = self.obj_get(obj, "SearchEngineId");
+                let q = self.obj_get(obj, "Query");
+                let num = self
+                    .obj_get(obj, "NumResults")
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap_or(10)
+                    .clamp(1, 10); // the Custom Search API's own per-request cap
+                // The API's `safe` param is two-valued ("off"/"active"); our
+                // friendlier Off/Medium/High property (T14) collapses Medium
+                // and High to the API's single "active" level.
+                let safe = if self.obj_get(obj, "SafeSearch").eq_ignore_ascii_case("off") {
+                    "off"
+                } else {
+                    "active"
+                };
+                let url = format!(
+                    "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}&num={num}&safe={safe}",
+                    percent_encode_query(&api_key),
+                    percent_encode_query(&cx),
+                    percent_encode_query(&q),
+                );
+                if self.rest_is_async(obj) {
+                    self.spawn_rest_op(obj, "GET", url, String::new())
+                } else {
+                    let (b, st) = self.http.get(&url);
+                    self.obj_set(obj, "ResponseBody", b.clone());
+                    self.obj_set(obj, "StatusCode", st.to_string());
+                    val(b)
+                }
+            }
+            // R29: read-only accessors over `ResponseBody`'s raw JSON,
+            // computed fresh on each call rather than cached in separate
+            // properties eagerly populated on completion — there is no
+            // per-control-type hook in the generic async delivery path
+            // (`drain_async_ops`/`obj_set`, shared with RestClient), and
+            // adding one just for this would be a bigger, riskier change
+            // than parsing `ResponseBody` (already a plain property) each
+            // time one of these is invoked.
+            "RESULTCOUNT" => val(self.web_search_items(obj).len().to_string()),
+            "TOPTITLE" => val(
+                self.web_search_items(obj)
+                    .first()
+                    .map(|r| r.0.clone())
+                    .unwrap_or_default(),
+            ),
+            "TOPSNIPPET" => val(
+                self.web_search_items(obj)
+                    .first()
+                    .map(|r| r.1.clone())
+                    .unwrap_or_default(),
+            ),
+            "TOPLINK" => val(
+                self.web_search_items(obj)
+                    .first()
+                    .map(|r| r.2.clone())
+                    .unwrap_or_default(),
+            ),
+            // ── Maps (spec 039 T11): Directions/Geocoding/Places/
+            // Distance-Matrix, backed by the `google_maps` crate — always
+            // async (the tokio-runtime spin-up cost makes a same-statement
+            // Sync variant not worth offering, unlike RestClient's GET/POST).
+            "GEOCODE" => self.spawn_maps_op(obj, "GEOCODE", vec![arg(0)]),
+            "REVERSEGEOCODE" => self.spawn_maps_op(obj, "REVERSEGEOCODE", vec![arg(0), arg(1)]),
+            "DIRECTIONS" => self.spawn_maps_op(obj, "DIRECTIONS", vec![arg(0), arg(1)]),
+            "DISTANCEMATRIX" => {
+                self.spawn_maps_op(obj, "DISTANCEMATRIX", vec![arg(0), arg(1)])
+            }
+            "PLACESSEARCH" => self.spawn_maps_op(obj, "PLACESSEARCH", vec![arg(0), arg(1)]),
+            // Markers accessors (R18) — the property write path
+            // (`SET <mapid>::Markers TO ...`) already works generically
+            // (Markers is a plain string property like any other), these
+            // are the ergonomic alternative so a developer doesn't have to
+            // hand-format the tab/newline-separated shape themselves. Not
+            // duplicated here as a shared parser with `cobolt_forms::
+            // parse_map_markers` — `cobolt-runtime` does not depend on
+            // `cobolt-forms` outside tests, and the shape is one line of
+            // string formatting, not worth a cross-crate dependency for.
+            "ADDMARKER" => {
+                let (id, lat, lng, label, info) = (arg(0), arg(1), arg(2), arg(3), arg(4));
+                let line = format!("{id}\t{lat}\t{lng}\t{label}\t{info}");
+                let existing = self.obj_get(obj, "Markers");
+                let updated = if existing.trim().is_empty() {
+                    line
+                } else {
+                    format!("{existing}\n{line}")
+                };
+                self.obj_set(obj, "Markers", updated);
+                none
+            }
+            "REMOVEMARKER" => {
+                let target_id = arg(0);
+                let existing = self.obj_get(obj, "Markers");
+                let updated: String = existing
+                    .lines()
+                    .filter(|line| {
+                        line.split('\t').next().unwrap_or("") != target_id.as_str()
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.obj_set(obj, "Markers", updated);
+                none
             }
             "CALL" => {
                 let verb = arg(0).to_ascii_uppercase();
@@ -8290,6 +8641,623 @@ MAIN.
             rows,
             "1\tLeonardo DiCaprio\t30000000.00\n2\tJoe Pesci\t12000000.00"
         );
+    }
+
+    #[test]
+    fn scalar_control_refresh_binding_writes_value_from_cobol_field() {
+        // Spec 039 R21/T6: a standalone Knob bound to a plain (non-table) WS
+        // field — the field's current value becomes the Knob's Value the
+        // same way `refresh_datagrid_binding` (above) populates Rows, via
+        // the `_BindingScalarField`/`_BindingScalarProperty` seeded props
+        // `form_runtime.rs` writes for a `ScalarControl` target.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. KNOB-REFRESH.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-TEMPERATURE PIC 9(3) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "TempKnob".to_owned(),
+            "Knob".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingScalarField".to_owned(), "WS-TEMPERATURE".to_owned()),
+                ("_BindingScalarProperty".to_owned(), "Value".to_owned()),
+            ],
+        )]);
+        interp.env.set_str("WS-TEMPERATURE", "072");
+
+        assert_eq!(interp.refresh_binding("TempKnob"), 1);
+        let value = state_rx
+            .try_iter()
+            .filter(|update| update.ctrl_id == "TempKnob" && update.prop == "Value")
+            .map(|update| update.value)
+            .last()
+            .expect("refresh_binding should publish Value");
+        // Numeric display drops the picture's leading zero padding (72, not
+        // 072) — this test only cares that the field's real value (72)
+        // reached the control, not COBOL's own numeric-edit formatting.
+        assert_eq!(value, "72");
+    }
+
+    #[test]
+    fn switch_control_refresh_binding_writes_checked_property_not_value() {
+        // A Switch's seeded property name is Checked, not Value (R21) — the
+        // scalar refresh writes wherever `_BindingScalarProperty` says, not
+        // a hardcoded "Value".
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SWITCH-REFRESH.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-ALARM-ON PIC 9 VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "AlarmSwitch".to_owned(),
+            "Switch".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingScalarField".to_owned(), "WS-ALARM-ON".to_owned()),
+                ("_BindingScalarProperty".to_owned(), "Checked".to_owned()),
+            ],
+        )]);
+        interp.env.set_str("WS-ALARM-ON", "1");
+
+        assert_eq!(interp.refresh_binding("AlarmSwitch"), 1);
+        let updates: Vec<_> = state_rx
+            .try_iter()
+            .filter(|update| update.ctrl_id == "AlarmSwitch")
+            .collect();
+        assert!(
+            updates.iter().any(|u| u.prop == "Checked" && u.value == "1"),
+            "expected a Checked update, got {updates:?}"
+        );
+        assert!(
+            !updates.iter().any(|u| u.prop == "Value"),
+            "must not write Value for a Switch target, got {updates:?}"
+        );
+    }
+
+    #[test]
+    fn maps_marker_refresh_binding_populates_markers_from_cobol_table() {
+        // Spec 039 T13/R22: a Maps control bound to a CobolTable source with
+        // lat/lng/label(/id/info) mapped fields — mirrors
+        // `datagrid_refresh_binding_updates_rows_from_cobol_table` above,
+        // but the seeded shape is `_BindingMarkerFields` (positional
+        // id\tlat\tlng\tlabel\tinfo), not `_BindingFields`.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAP-REFRESH.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-PLACE-TABLE.
+   05 WS-PLACE-ROW OCCURS 2 TIMES.
+      10 PLACE-ID    PIC X(10).
+      10 PLACE-LAT   PIC S9(3)V9(4).
+      10 PLACE-LNG   PIC S9(3)V9(4).
+      10 PLACE-NAME  PIC X(40).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "Map1".to_owned(),
+            "Maps".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                (
+                    "_BindingMarkerFields".to_owned(),
+                    "PLACE-ID\tPLACE-LAT\tPLACE-LNG\tPLACE-NAME\t".to_owned(),
+                ),
+            ],
+        )]);
+        interp.env.set_str("PLACE-ID(1)", "HQ");
+        interp.env.set_str("PLACE-LAT(1)", "040.7128");
+        interp.env.set_str("PLACE-LNG(1)", "-074.0060");
+        interp.env.set_str("PLACE-NAME(1)", "Headquarters");
+        interp.env.set_str("PLACE-ID(2)", "OFC");
+        interp.env.set_str("PLACE-LAT(2)", "034.0522");
+        interp.env.set_str("PLACE-LNG(2)", "-118.2437");
+        interp.env.set_str("PLACE-NAME(2)", "Office");
+
+        assert_eq!(interp.refresh_binding("Map1"), 2);
+        let markers = state_rx
+            .try_iter()
+            .filter(|update| update.ctrl_id == "Map1" && update.prop == "Markers")
+            .map(|update| update.value)
+            .last()
+            .expect("refresh_binding should publish Markers");
+        // `as_display_string()` on a `PIC S9(3)V9(4)` field drops the
+        // leading-zero padding (40.7128, not 040.7128) the same way the
+        // plain `PIC 9(3)` field does in
+        // `scalar_control_refresh_binding_writes_value_from_cobol_field`
+        // above — this test only cares that the field's real numeric value
+        // reached `Markers`, not COBOL's own zero-padding.
+        assert_eq!(
+            markers,
+            "HQ\t40.7128\t-74.0060\tHeadquarters\t\nOFC\t34.0522\t-118.2437\tOffice\t"
+        );
+    }
+
+    #[test]
+    fn maps_marker_refresh_binding_skips_a_row_with_unparseable_lat() {
+        // A bad row from a partially-typed edit shouldn't blank the rest of
+        // the map — same tolerance `cobolt_forms::parse_map_markers` already
+        // has for a malformed `Markers` line.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAP-REFRESH-BAD-ROW.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-PLACE-TABLE.
+   05 WS-PLACE-ROW OCCURS 2 TIMES.
+      10 PLACE-LAT   PIC X(10).
+      10 PLACE-LNG   PIC S9(3)V9(4).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "Map1".to_owned(),
+            "Maps".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                (
+                    "_BindingMarkerFields".to_owned(),
+                    "\tPLACE-LAT\tPLACE-LNG\t\t".to_owned(),
+                ),
+            ],
+        )]);
+        interp.env.set_str("PLACE-LAT(1)", "NOT-A-NUMBER");
+        interp.env.set_str("PLACE-LNG(1)", "-074.0060");
+        interp.env.set_str("PLACE-LAT(2)", "034.0522");
+        interp.env.set_str("PLACE-LNG(2)", "-118.2437");
+
+        assert_eq!(interp.refresh_binding("Map1"), 1);
+        assert_eq!(
+            interp.obj_get("Map1", "Markers"),
+            "2\t034.0522\t-118.2437\t\t"
+        );
+    }
+
+    // ── Spec 039 T11: Maps data bridge (google_maps + tokio worker) ────────
+
+    #[test]
+    fn maps_op_without_a_configured_key_fails_synchronously_no_worker_spawned() {
+        // R33: "not configured" is a synchronous, no-network-call failure —
+        // confirmed here by the ABSENCE of a pending op (a real spawn would
+        // have inserted one) and an immediate onError, not by waiting on
+        // any thread.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAPS-NOKEY.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([("Map1".to_owned(), "Maps".to_owned(), vec![])]);
+        // No `_ResolvedMapsApiKey` seeded at all.
+
+        let result = interp.exec_method("Map1", "GEOCODE", &[CobolValue::from_str("Paris", 5)]);
+        let _ = result;
+        assert!(
+            !interp.async_pending.contains_key("Map1"),
+            "no worker should have been spawned with no API key configured"
+        );
+        assert_eq!(
+            interp.async_dispatch_queue.back(),
+            Some(&("Map1".to_owned(), "onError".to_owned())),
+            "a missing key must queue onError immediately"
+        );
+        assert!(
+            interp.obj_get("Map1", "LastError").to_lowercase().contains("not configured"),
+            "LastError should explain the key is missing, got {:?}",
+            interp.obj_get("Map1", "LastError")
+        );
+    }
+
+    #[test]
+    fn maps_op_delivered_result_updates_response_body_and_fires_on_complete() {
+        // Proves the delivery HALF of the bridge — `drain_async_ops`
+        // applying an `AsyncOpResult` — without a real network call: a
+        // real `spawn_maps_op` worker thread would send exactly this
+        // shape over `async_result_tx` once `maps_bridge::run` returns
+        // (tested independently — this is deliberately a stub result, the
+        // same boundary `datagrid_refresh_binding_updates_rows_from_cobol_
+        // table` above draws around `refresh_binding` vs. real COBOL
+        // table population).
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAPS-DELIVER.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "Map1".to_owned(),
+            "Maps".to_owned(),
+            vec![("_ResolvedMapsApiKey".to_owned(), "test-key".to_owned())],
+        )]);
+
+        // Same call path a real GEOCODE would take, up to the point of
+        // actually spawning the worker thread and touching the network.
+        let generation = {
+            let gen = interp
+                .async_generations
+                .entry("Map1".to_owned())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        interp.async_pending.insert(
+            "Map1".to_owned(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms: 0,
+            },
+        );
+        interp
+            .async_result_tx
+            .send(crate::async_op::AsyncOpResult {
+                ctrl_id: "Map1".to_owned(),
+                generation,
+                outcome: crate::async_op::AsyncOutcome::HttpSuccess {
+                    body: "48.8566\t2.3522\tParis, France".to_owned(),
+                    status: 200,
+                },
+            })
+            .unwrap();
+
+        interp.drain_async_ops();
+
+        assert!(
+            !interp.async_pending.contains_key("Map1"),
+            "the pending op should be cleared once its result is applied"
+        );
+        assert_eq!(
+            interp.async_dispatch_queue.back(),
+            Some(&("Map1".to_owned(), "onComplete".to_owned()))
+        );
+        let updates: Vec<_> = state_rx
+            .try_iter()
+            .filter(|u| u.ctrl_id == "Map1")
+            .collect();
+        assert!(
+            updates
+                .iter()
+                .any(|u| u.prop == "ResponseBody" && u.value == "48.8566\t2.3522\tParis, France"),
+            "expected the geocode result in ResponseBody, got {updates:?}"
+        );
+    }
+
+    #[test]
+    fn maps_add_marker_appends_and_remove_marker_filters_by_id() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAPS-MARKERS.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([("Map1".to_owned(), "Maps".to_owned(), vec![])]);
+
+        interp.exec_method(
+            "Map1",
+            "AddMarker",
+            &[
+                CobolValue::from_str("PIN-1", 5),
+                CobolValue::from_str("40.7128", 7),
+                CobolValue::from_str("-74.0060", 8),
+                CobolValue::from_str("HQ", 2),
+                CobolValue::from_str("Headquarters", 12),
+            ],
+        );
+        assert_eq!(
+            interp.obj_get("Map1", "Markers"),
+            "PIN-1\t40.7128\t-74.0060\tHQ\tHeadquarters"
+        );
+
+        interp.exec_method(
+            "Map1",
+            "AddMarker",
+            &[
+                CobolValue::from_str("PIN-2", 5),
+                CobolValue::from_str("34.0522", 7),
+                CobolValue::from_str("-118.2437", 9),
+                CobolValue::from_str("Office", 6),
+                CobolValue::from_str("", 0),
+            ],
+        );
+        assert_eq!(
+            interp.obj_get("Map1", "Markers"),
+            "PIN-1\t40.7128\t-74.0060\tHQ\tHeadquarters\nPIN-2\t34.0522\t-118.2437\tOffice\t"
+        );
+
+        interp.exec_method(
+            "Map1",
+            "RemoveMarker",
+            &[CobolValue::from_str("PIN-1", 5)],
+        );
+        assert_eq!(
+            interp.obj_get("Map1", "Markers"),
+            "PIN-2\t34.0522\t-118.2437\tOffice\t"
+        );
+    }
+
+    // ── Spec 039 T15: WebSearch runtime + credentials ───────────────────────
+
+    #[test]
+    fn web_search_op_without_a_configured_key_fails_synchronously_no_worker_spawned() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SEARCH-NOKEY.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([("Search1".to_owned(), "WebSearch".to_owned(), vec![])]);
+        // No `_ResolvedSearchApiKey` seeded at all.
+
+        let _ = interp.exec_method("Search1", "SEARCH", &[]);
+        assert!(
+            !interp.async_pending.contains_key("Search1"),
+            "no worker should have been spawned with no API key configured"
+        );
+        assert_eq!(
+            interp.async_dispatch_queue.back(),
+            Some(&("Search1".to_owned(), "onError".to_owned())),
+            "a missing key must queue onError immediately"
+        );
+        assert!(
+            interp
+                .obj_get("Search1", "LastError")
+                .to_lowercase()
+                .contains("not configured"),
+            "LastError should explain the key is missing, got {:?}",
+            interp.obj_get("Search1", "LastError")
+        );
+    }
+
+    #[test]
+    fn web_search_invoke_under_async_mode_sets_busy_and_spawns_a_worker() {
+        // Mirrors the existing async RestClient GET coverage (spec 032) —
+        // proves SEARCH goes through the SAME `spawn_rest_op` gate (Busy=1,
+        // one in-flight op recorded, empty same-statement return), not a
+        // separate, untested path.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SEARCH-ASYNC.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "Search1".to_owned(),
+            "WebSearch".to_owned(),
+            vec![
+                ("_ResolvedSearchApiKey".to_owned(), "test-key".to_owned()),
+                ("Mode".to_owned(), "Async".to_owned()),
+                ("SearchEngineId".to_owned(), "cx-123".to_owned()),
+                ("Query".to_owned(), "best pizza".to_owned()),
+            ],
+        )]);
+
+        let result = interp.exec_method("Search1", "SEARCH", &[]);
+        assert_eq!(result.as_display_string(), "");
+        assert!(
+            interp.async_pending.contains_key("Search1"),
+            "SEARCH under Async mode should record a pending op"
+        );
+        assert_eq!(interp.obj_get("Search1", "Busy"), "1");
+    }
+
+    #[test]
+    fn web_search_delivered_result_updates_response_body_and_fires_on_complete() {
+        // Same delivery-half boundary as `maps_op_delivered_result_updates_
+        // response_body_and_fires_on_complete` above — SEARCH reuses the
+        // fully generic `spawn_rest_op`/`drain_async_ops` path (unlike Maps,
+        // which needed its own bridge), so this also doubles as regression
+        // coverage that reuse didn't change RestClient's own behaviour.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SEARCH-DELIVER.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "Search1".to_owned(),
+            "WebSearch".to_owned(),
+            vec![("_ResolvedSearchApiKey".to_owned(), "test-key".to_owned())],
+        )]);
+
+        let generation = {
+            let gen = interp
+                .async_generations
+                .entry("Search1".to_owned())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        interp.async_pending.insert(
+            "Search1".to_owned(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms: 0,
+            },
+        );
+        let body = r#"{"items":[{"title":"Best Pizza","snippet":"Great pies.","link":"https://example.com/1"}]}"#;
+        interp
+            .async_result_tx
+            .send(crate::async_op::AsyncOpResult {
+                ctrl_id: "Search1".to_owned(),
+                generation,
+                outcome: crate::async_op::AsyncOutcome::HttpSuccess {
+                    body: body.to_owned(),
+                    status: 200,
+                },
+            })
+            .unwrap();
+
+        interp.drain_async_ops();
+
+        assert_eq!(
+            interp.async_dispatch_queue.back(),
+            Some(&("Search1".to_owned(), "onComplete".to_owned()))
+        );
+        let updates: Vec<_> = state_rx
+            .try_iter()
+            .filter(|u| u.ctrl_id == "Search1")
+            .collect();
+        assert!(
+            updates
+                .iter()
+                .any(|u| u.prop == "ResponseBody" && u.value == body),
+            "expected the raw JSON body in ResponseBody, got {updates:?}"
+        );
+    }
+
+    #[test]
+    fn web_search_accessors_parse_result_count_top_result_and_indexed_result() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SEARCH-ACCESSORS.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        let body = r#"{"items":[
+            {"title":"Best Pizza","snippet":"Great pies.","link":"https://example.com/1"},
+            {"title":"Second Best Pizza","snippet":"Also good.","link":"https://example.com/2"}
+        ]}"#;
+        interp.seed_objects([(
+            "Search1".to_owned(),
+            "WebSearch".to_owned(),
+            vec![("ResponseBody".to_owned(), body.to_owned())],
+        )]);
+
+        assert_eq!(
+            interp
+                .exec_method("Search1", "ResultCount", &[])
+                .as_display_string(),
+            "2"
+        );
+        assert_eq!(
+            interp
+                .exec_method("Search1", "TopTitle", &[])
+                .as_display_string(),
+            "Best Pizza"
+        );
+        assert_eq!(
+            interp
+                .exec_method("Search1", "TopSnippet", &[])
+                .as_display_string(),
+            "Great pies."
+        );
+        assert_eq!(
+            interp
+                .exec_method("Search1", "TopLink", &[])
+                .as_display_string(),
+            "https://example.com/1"
+        );
+        assert_eq!(
+            interp
+                .exec_method("Search1", "GetResult", &[CobolValue::from_str("2", 1)])
+                .as_display_string(),
+            "Second Best Pizza\tAlso good.\thttps://example.com/2"
+        );
+        // Out-of-range index reads as empty, not a crash.
+        assert_eq!(
+            interp
+                .exec_method("Search1", "GetResult", &[CobolValue::from_str("99", 2)])
+                .as_display_string(),
+            ""
+        );
+    }
+
+    #[test]
+    fn web_search_accessors_read_as_empty_before_any_search() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SEARCH-EMPTY.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([("Search1".to_owned(), "WebSearch".to_owned(), vec![])]);
+
+        assert_eq!(
+            interp
+                .exec_method("Search1", "ResultCount", &[])
+                .as_display_string(),
+            "0"
+        );
+        assert_eq!(
+            interp
+                .exec_method("Search1", "TopTitle", &[])
+                .as_display_string(),
+            ""
+        );
+    }
+
+    #[test]
+    fn percent_encode_query_escapes_spaces_and_reserved_characters() {
+        assert_eq!(percent_encode_query("best pizza"), "best%20pizza");
+        assert_eq!(percent_encode_query("a&b=c"), "a%26b%3Dc");
+        assert_eq!(percent_encode_query("safe-word_2024.txt~"), "safe-word_2024.txt~");
     }
 
     #[test]

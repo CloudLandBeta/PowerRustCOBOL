@@ -694,7 +694,17 @@ fn append_data_binding_seed_props(
                             && c.explicit_control_array_id().as_deref() == Some(array_id.as_str())
                     })
             }
-            _ => false,
+            // Spec 039 R21: a standalone Knob/Gauge/Switch.
+            BindingTargetDescriptor::ScalarControl {
+                control_id: target_id,
+            } => target_id.eq_ignore_ascii_case(control_id),
+            // Spec 039 R22: a Maps control's Markers collection.
+            BindingTargetDescriptor::MarkerCollection {
+                control_id: target_id,
+            } => target_id.eq_ignore_ascii_case(control_id),
+            BindingTargetDescriptor::Chart { .. }
+            | BindingTargetDescriptor::ComboBox { .. }
+            | BindingTargetDescriptor::ListBox { .. } => false,
         }
     });
     let Some(binding) = binding else {
@@ -739,6 +749,62 @@ fn append_data_binding_seed_props(
             props.push(("_BindingMappings".into(), maps.join("\n")));
         }
     }
+    if let BindingTargetDescriptor::ScalarControl { .. } = &binding.target {
+        // Spec 039 R21: seed the single mapped field + which property it
+        // writes (Value for Knob/Gauge, Checked for Switch), mirroring the
+        // ControlArray seeding above — `refresh_binding` (interpreter.rs)
+        // reads these the same way it already reads `_BindingArray`/
+        // `_BindingFields` for the DataGrid/ControlArray case.
+        if let Some(scalar_field) = binding
+            .mappings
+            .iter()
+            .find(|m| matches!(&m.target, cobolt_forms::BindingTargetPath::ScalarValue { .. }))
+            .map(|m| m.source_field.clone())
+        {
+            let property = form
+                .find_control(control_id)
+                .and_then(|c| c.scalar_binding_property())
+                .unwrap_or("Value");
+            props.push(("_BindingScalarField".into(), scalar_field));
+            props.push(("_BindingScalarProperty".into(), property.to_owned()));
+        }
+    }
+    if let BindingTargetDescriptor::MarkerCollection { .. } = &binding.target {
+        // Spec 039 T13/R22: seed one source field per marker attribute (in a
+        // fixed order — refresh_marker_binding in interpreter.rs reads them
+        // positionally), same sibling relationship to the DataGrid/
+        // ScalarControl seeding above.
+        if let Some(spec) = marker_binding_seed(binding) {
+            props.push(("_BindingMarkerFields".into(), spec));
+        }
+    }
+}
+
+/// Build the `_BindingMarkerFields` seed value (`id\tlat\tlng\tlabel\tinfo`,
+/// any entry empty except lat/lng — enforced by the Guardian before a binding
+/// can be saved) from a `MarkerCollection` binding's field mappings.
+fn marker_binding_seed(binding: &cobolt_forms::DataBindingDef) -> Option<String> {
+    let field_for = |target: cobolt_forms::MapMarkerField| -> String {
+        binding
+            .mappings
+            .iter()
+            .find_map(|m| match &m.target {
+                cobolt_forms::BindingTargetPath::MarkerField { field, .. } if *field == target => {
+                    Some(m.source_field.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let lat = field_for(cobolt_forms::MapMarkerField::Lat);
+    let lng = field_for(cobolt_forms::MapMarkerField::Lng);
+    if lat.is_empty() || lng.is_empty() {
+        return None;
+    }
+    let id = field_for(cobolt_forms::MapMarkerField::Id);
+    let label = field_for(cobolt_forms::MapMarkerField::Label);
+    let info = field_for(cobolt_forms::MapMarkerField::Info);
+    Some(format!("{id}\t{lat}\t{lng}\t{label}\t{info}"))
 }
 
 /// Flatten nested control tree into a flat Vec (pre-order).
@@ -856,6 +922,52 @@ pub fn resolve_fx_args(
     })
 }
 
+/// `rcrun run-form`'s env var name for a resolved Google Maps API key (spec
+/// 039 T12/R23) — kept in sync with `cobolt-cli/src/form_gui.rs`'s constant
+/// of the same name, since the two crates don't share this module.
+pub const GOOGLE_MAPS_API_KEY_ENV: &str = "COBOLT_GOOGLE_MAPS_API_KEY";
+
+/// `Some((env var, key))` when `form` has at least one Maps control and the
+/// project has a Google Maps API key configured — the secret the IDE passes
+/// to the `rcrun run-form` child's environment, never to disk.
+pub fn resolve_maps_api_key_secret(
+    form: &Form,
+    llm: &crate::llm::LlmConfig,
+) -> Option<(&'static str, String)> {
+    let key = llm.api_keys.get(crate::llm::GOOGLE_MAPS_API_KEY_SLOT)?;
+    if key.trim().is_empty() {
+        return None;
+    }
+    let has_maps = collect_controls(&form.controls)
+        .iter()
+        .any(|c| c.control_type == cobolt_forms::ControlType::Maps);
+    has_maps.then(|| (GOOGLE_MAPS_API_KEY_ENV, key.clone()))
+}
+
+/// `rcrun run-form`'s env var name for a resolved Google Custom Search API
+/// key (spec 039 T15/R30) — kept in sync with `cobolt-cli/src/form_gui.rs`'s
+/// constant of the same name.
+pub const GOOGLE_SEARCH_API_KEY_ENV: &str = "COBOLT_GOOGLE_SEARCH_API_KEY";
+
+/// `Some((env var, key))` when `form` has at least one WebSearch control and
+/// the project has a Google Custom Search API key configured. Mirrors
+/// `resolve_maps_api_key_secret` above.
+pub fn resolve_search_api_key_secret(
+    form: &Form,
+    llm: &crate::llm::LlmConfig,
+) -> Option<(&'static str, String)> {
+    let key = llm
+        .api_keys
+        .get(crate::llm::GOOGLE_CUSTOM_SEARCH_API_KEY_SLOT)?;
+    if key.trim().is_empty() {
+        return None;
+    }
+    let has_web_search = collect_controls(&form.controls)
+        .iter()
+        .any(|c| c.control_type == cobolt_forms::ControlType::WebSearch);
+    has_web_search.then(|| (GOOGLE_SEARCH_API_KEY_ENV, key.clone()))
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -868,6 +980,7 @@ impl ExternalFormRun {
         debug: bool,
         diagnostics: &RunDiagnostics,
         fx: Option<&FormFxArgs>,
+        secrets: &[(&'static str, String)],
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = sibling_rcrun(&exe);
@@ -896,6 +1009,12 @@ impl ExternalFormRun {
             // booleans are set explicitly (including "0") so the setting is
             // authoritative over any value inherited from the IDE's own env.
             for (name, value) in &diagnostics.env {
+                cmd.env(name, value);
+            }
+            // Credentials resolved IDE-side (e.g. the Maps API key, spec 039
+            // T12/R23) — never written to the `.cfrm`/`.cbl`/project file, so
+            // they only ever exist in this child's environment.
+            for (name, value) in secrets {
                 cmd.env(name, value);
             }
             // When ANY diagnostic is on, ask the child to write the per-control
