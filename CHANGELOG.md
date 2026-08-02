@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.6] — 2026-08-02
+
+### Fixed
+
+- **A `PERFORM`/`GO TO` naming a procedure that is not in its own program is now
+  a compiler ERROR.** Procedure names in COBOL-85 are strictly program-local —
+  there is no `GLOBAL` for them — so a name that is not declared in the program
+  performing it can never resolve, in any run. That is not a warning. The
+  diagnostic now says so: *"'X' is not a paragraph or section of this program.
+  PERFORM and GO TO reach only procedures declared in the same program; a
+  paragraph of that name elsewhere in the compilation unit is not visible
+  here."*
+- **`cobolt-semantic` now analyzes contained programs.** It previously walked
+  only the outer program, which in a RAD project is the one place agents never
+  write: every event handler and every common procedure is a contained program,
+  so all of their code went entirely unchecked. Each nested program is analyzed
+  in its own right, against its own symbol table, because a name resolves
+  against the program that declares it and not against the compilation unit.
+- Those two together — and only together — close the second known limit
+  recorded in 1.55.4. The compile-check gate now proves a dangling `PERFORM`
+  and attributes it to the operation carrying it, before a review round is
+  spent. It is the exact defect that deadlocked a live workflow for three
+  rounds, with the reviewer demanding `PERFORM` for a common procedure that
+  only `CALL` can reach.
+- Corrects the description used in 1.55.4/1.55.5. Calling it "a `PERFORM` whose
+  target lives in another program" implied `PERFORM` has cross-program reach
+  being tolerated; it has none. The defect is a name absent from its own
+  program, and where a paragraph of that name happens to live is irrelevant.
+
 ## [PowerRustCOBOL 1.55.5] — 2026-08-02
 
 ### Fixed

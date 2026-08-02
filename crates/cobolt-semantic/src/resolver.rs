@@ -551,10 +551,21 @@ impl<'a> ResolveCtx<'a> {
         }
     }
 
+    /// A `PERFORM`/`GO TO` target must be a paragraph or section of the SAME
+    /// program. Procedure names are never visible outside the program that
+    /// declares them — COBOL-85 has no `GLOBAL` for them — so a name that is not
+    /// here cannot be reached from here, whatever else the compilation unit
+    /// contains. There is no run in which it resolves, which makes it an error
+    /// and not a warning.
     fn check_procedure(&mut self, name: &str, span: cobolt_lexer::Span) {
         if !self.symbols.has_procedure(name) {
-            self.warn(
-                format!("paragraph or section '{name}' is not defined"),
+            self.error(
+                format!(
+                    "'{name}' is not a paragraph or section of this program. \
+                     PERFORM and GO TO reach only procedures declared in the \
+                     same program; a paragraph of that name elsewhere in the \
+                     compilation unit is not visible here."
+                ),
                 span,
             );
         }

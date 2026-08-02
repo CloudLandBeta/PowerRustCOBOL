@@ -148,6 +148,23 @@ pub fn analyze(program: &Program) -> SemanticResult {
     // Pass 4: EXEC RUST binding resolution.
     exec_rust::resolve_bindings(program, &symbols, &mut diagnostics);
 
+    // Pass 5: every contained program, analyzed in its own right.
+    //
+    // Each nested program owns its DATA DIVISION and its PROCEDURE DIVISION, so
+    // it needs its own symbol table — a name is resolved against the program
+    // that declares it, not against the compilation unit. Without this the
+    // outer program was the only thing ever analyzed, and in a RAD project that
+    // is the one place agents never write: every event handler and every common
+    // procedure is a contained program, so all of their code went unchecked
+    // (measured 2026-08-02, and it is why a PERFORM with no target survived
+    // three correction rounds).
+    //
+    // Diagnostics from a contained program are appended to the same list: they
+    // carry their own spans, and the caller reports against the whole source.
+    for nested in &program.nested_programs {
+        diagnostics.extend(analyze(nested).diagnostics);
+    }
+
     SemanticResult {
         diagnostics,
         symbols,
