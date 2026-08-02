@@ -1656,7 +1656,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
   - Example: `RestClient-1::Post("https://api.example.com/api/save", request_body).`
 - **DO NOT** use `CALL` or legacy `INVOKE` for UI control properties or methods. Use the inline double-colon (`::`) syntax directly.
 - The method vocabulary is **closed** — only the methods listed in the Control Methods Reference exist. A `::name(arg)` with an unrecognised name is treated as a PROPERTY WRITE of `name`, not a method call, so inventing a method silently does nothing useful.
-- **IndexedFile controls have no `::` methods** — drive them with the generated paragraphs (`PERFORM <id>-OPEN`, `<id>-READ-NEXT`, …) and the COBOL verbs `WRITE`/`REWRITE`/`DELETE`.
+- **IndexedFile controls have no `::` methods** — drive them with the generated paragraphs (`PERFORM <id>-OPEN`, `<id>-READ-NEXT`, …) and the COBOL verbs `WRITE`/`REWRITE`/`DELETE`. Those paragraphs are emitted in the OUTER program, so they are `PERFORM`-able from the form's own procedure code — see *Nested programs* below for what that means inside an event handler.
 - A method that returns a value can be used inline (`MOVE C::GetText() TO WS-X`) or with `RETURNING`.
 
 ## Value Conventions (types and domains)
@@ -1700,6 +1700,24 @@ A COBOL word may contain **only letters (`A-Z`, `a-z`), digits (`0-9`) and hyphe
              *> (Statements here)
   ```
 - Do not write `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or `END PROGRAM` in the handler body; these are automatically managed by the IDE scaffold.
+
+## Nested programs — where `PERFORM` reaches, and where it does not
+The generated source is a COBOL-85 **nest**: the form is the outer (main) program, and every event handler and every common procedure is a separate nested program inside it. That structure decides how one piece of code reaches another, and getting it wrong is the most common way a handler that reads correctly still fails.
+
+- `PERFORM` transfers control to a **paragraph or section of the SAME program**. It never crosses a program boundary. A `PERFORM` naming anything outside the body it sits in has no target, and that body is rejected.
+- A **common procedure** is a nested program, not a paragraph of yours. Reach it with `CALL "ITS-NAME"` — `CALL "UPDATE-TOTAL".`, `CALL "RECALC" USING WS-QTY WS-PRICE.` — never `PERFORM UPDATE-TOTAL`.
+- Use `PERFORM` for paragraphs you declared yourself, inside the body you are writing.
+- The generated infrastructure paragraphs (`<id>-OPEN`, `<id>-READ-NEXT`, `<id>-COMMIT`, and the timer, chart, CSV-export and data-binding helpers) are emitted at OUTER program scope. They are `PERFORM`-able from the form's own procedure code, not from inside an event handler, which is a nested program of its own.
+
+## `SPECIAL-NAMES` and the decimal separator
+`SPECIAL-NAMES` belongs to the FORM, the main program of the nest. Its `ENVIRONMENT DIVISION` → `CONFIGURATION SECTION` → `SPECIAL-NAMES` paragraph is edited on the form itself (COBOL Structure panel) and is the ONLY place `DECIMAL-POINT IS COMMA` may be declared. A handler or common procedure that declares `SPECIAL-NAMES` (or a `CONFIGURATION SECTION`) is redeclaring it inside a nested program and is rejected — a nested body's `ENVIRONMENT DIVISION.` line stands alone, with nothing under it.
+
+What the form declares governs the whole nest. With `DECIMAL-POINT IS COMMA` in force, the roles of `.` and `,` are exchanged in `PICTURE` character-strings and in numeric literals:
+
+- an edited money item is `PIC ZZZ.ZZ9,99`, and the value 1234,56 prints as `1.234,56`;
+- a numeric literal carries a comma — `MOVE 7,49 TO WS-PRICE`.
+
+Without the clause, `.` is the decimal point and `,` groups digits, the usual way round. Comma-formatted currency is obtained by putting the clause on the FORM — never by declaring it inside a handler to compensate.
 "##;
     std::fs::write(kb_dir.join("rustcobol_extensions.md"), rc_ext)?;
 
@@ -1867,7 +1885,7 @@ const BOOL_DOMAIN: &str = "`1` (true) or `0` (false)";
 
 /// Curated `(value domain, description)` for a property name. Applies to every
 /// control that seeds the name; the type and default are derived mechanically.
-fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
+pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         // ── Universal appearance ──
         "BackgroundColor" => (COLOR_DOMAIN, "Fill color behind the control's content."),

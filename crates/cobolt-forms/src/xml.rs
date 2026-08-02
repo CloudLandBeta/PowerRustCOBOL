@@ -528,6 +528,23 @@ fn seed_missing_props(form: &mut Form) {
             }
         }
         match c.control_type {
+            // Border keys arrived after these controls shipped. Without the
+            // backfill an existing .cfrm keeps no border property at all, and
+            // `border_rows` — which shows a row only when the key is present —
+            // would leave the pane rows hidden forever while `draw_control`
+            // went on painting its "Single"/1px fallback box.
+            ControlType::CheckBox | ControlType::RadioButton => {
+                let defaults: &[(&str, PropValue)] = &[
+                    ("BorderStyle", PropValue::String("None".into())),
+                    ("BorderColor", PropValue::String("#8C8CA0".into())),
+                    ("BorderWidth", PropValue::Int(1)),
+                ];
+                for (key, value) in defaults {
+                    if c.get_prop(*key).is_none() {
+                        c.set_prop(*key, value.clone());
+                    }
+                }
+            }
             ControlType::GroupBox => {
                 if c.get_prop("CaptionEnabled").is_none() {
                     c.set_prop("CaptionEnabled", PropValue::Bool(true));
@@ -1500,6 +1517,46 @@ Actor Caption:string</Property>
         assert_eq!(advanced.columns.len(), 2);
         assert_eq!(advanced.columns[0].title, "Actor Id");
         assert_eq!(advanced.columns[1].source_name, "Actor Caption");
+    }
+
+    /// A checkbox saved before the border keys existed carries none of them,
+    /// and `border_rows` shows a row only for a key that is present — so
+    /// without this backfill the pane would stay empty on every existing form
+    /// while `draw_control` kept painting its "Single" fallback box. An
+    /// explicit value the developer already chose is never overwritten.
+    #[test]
+    fn legacy_checkbox_gains_border_properties_on_load() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#FFFFFF">
+  <Control id="chkBurger1" type="CheckBox" x="20" y="20" w="150" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Big Mac - 7,49</Property>
+  </Control>
+  <Control id="rdoPaid" type="RadioButton" x="20" y="60" w="150" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="BorderStyle">Sunken</Property>
+  </Control>
+</Form>"##;
+
+        let loaded = load_form_from_str(xml).expect("load legacy checkbox form");
+
+        let chk = loaded.find_control("chkBurger1").expect("checkbox");
+        assert_eq!(chk.get_prop("BorderStyle").map(PropValue::as_str), Some("None"));
+        assert_eq!(
+            chk.get_prop("BorderColor").map(PropValue::as_str),
+            Some("#8C8CA0")
+        );
+        assert_eq!(chk.get_prop("BorderWidth").expect("BorderWidth").as_i64(), 1);
+        // The caption it already had is untouched.
+        assert_eq!(
+            chk.get_prop("Caption").map(PropValue::as_str),
+            Some("Big Mac - 7,49")
+        );
+
+        let rdo = loaded.find_control("rdoPaid").expect("radio button");
+        assert_eq!(
+            rdo.get_prop("BorderStyle").map(PropValue::as_str),
+            Some("Sunken"),
+            "an explicit choice must survive the backfill"
+        );
     }
 
     #[test]

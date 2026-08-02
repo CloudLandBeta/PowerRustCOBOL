@@ -4914,6 +4914,7 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
 

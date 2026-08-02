@@ -1759,6 +1759,13 @@ impl DesignerPanel {
     pub fn apply_agent_change_set(&mut self, cs: &crate::agent::AgentChangeSet) -> usize {
         use crate::agent::AgentOp;
         let status = crate::agent::validate(cs, &self.form);
+        // Agent-placed geometry goes on the grid the same way a dragged control
+        // does, and a coordinate the change-set repeats stays one coordinate —
+        // so a column the agent aligned is still aligned once snapped. Geometry
+        // does not affect validation, so `status` is still row-for-row.
+        let normalized =
+            crate::agent::normalize_geometry(cs, self.form.grid_size as i32, self.form.snap_to_grid);
+        let cs = &normalized;
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut reserved: HashSet<String> =
             self.form.controls.iter().map(|c| c.id.clone()).collect();
@@ -1824,9 +1831,16 @@ impl DesignerPanel {
                     reserved.insert(cid.clone());
                     // Geometry: honour X/Y/Width/Height when given, else stagger a
                     // sensible default so the developer can rearrange it (R13).
-                    let gx = json_prop_i32(properties, "X").unwrap_or(20);
-                    let gy = json_prop_i32(properties, "Y")
-                        .unwrap_or(20 + 28 * (self.form.controls.len() + added) as i32);
+                    // Present coordinates were already snapped (and lane-aligned)
+                    // by `normalize_geometry`; the fallback stagger is a
+                    // placement too, so it lands on the grid as well.
+                    let gp = self.form.grid_size as i32;
+                    let sn = self.form.snap_to_grid;
+                    let on_grid = |v: i32| if sn { crate::agent::snap_nearest(v, gp) } else { v };
+                    let gx = json_prop_i32(properties, "X").unwrap_or_else(|| on_grid(20));
+                    let gy = json_prop_i32(properties, "Y").unwrap_or_else(|| {
+                        on_grid(20 + 28 * (self.form.controls.len() + added) as i32)
+                    });
                     let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
                     if self.form.glass_style.is_neumorphic() {
                         c.apply_glass_style_defaults(self.form.glass_style);
@@ -12348,7 +12362,7 @@ mod text_align_tests {
         d.apply_agent_change_set(&again);
         assert_eq!(d.form.controls.len(), 2, "no clones: the ids were reused");
         let t1 = d.form.find_control("TXT-1").unwrap();
-        assert_eq!(t1.rect.x, 70, "the redeploy moved the control it named");
+        assert_eq!(t1.rect.x, 72, "the redeploy moved the control it named");
         assert_eq!(
             t1.get_prop("ForegroundColor").unwrap().as_str(),
             "#FF0000",
@@ -12492,6 +12506,87 @@ mod text_align_tests {
         assert!(d.form.find_control("SAVE").is_some(), "redo re-applies");
     }
 
+    /// End to end through the real applier: a column the agent placed off-grid
+    /// lands on the grid AND stays a column. Snapping each coordinate on its
+    /// own would put `X=19` on 16 and `X=21` on 24 — the column the developer
+    /// asked for, 8px crooked (operator, 2026-08-01).
+    #[test]
+    fn agent_placed_columns_are_snapped_without_losing_their_alignment() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        assert!(d.form.snap_to_grid, "the grid is on by default");
+        let g = d.form.grid_size as i32;
+
+        let deploy = |id: &str, x: i32, y: i32| AgentOp::DeployControl {
+            control_type: "CheckBox".into(),
+            id: Some(id.into()),
+            parent_id: None,
+            parent: None,
+            properties: serde_json::json!({ "X": x, "Y": y, "Width": 150 })
+                .as_object()
+                .cloned()
+                .unwrap(),
+        };
+        let cs = AgentChangeSet {
+            operations: vec![
+                deploy("CHK-1", 19, 20),
+                deploy("CHK-2", 21, 50),
+                deploy("CHK-3", 20, 80),
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let xs: Vec<i32> = ["CHK-1", "CHK-2", "CHK-3"]
+            .iter()
+            .map(|id| d.form.find_control(id).expect("deployed").rect.x)
+            .collect();
+        assert_eq!(xs[0] % g, 0, "the first control opens the lane on the grid");
+        assert!(
+            xs.iter().all(|x| *x == xs[0]),
+            "the column must survive snapping: {xs:?}"
+        );
+        // Rows are translated as a run, so the 30px pitch the agent asked for
+        // survives to the pixel and only the first row sits on a grid point.
+        let ys: Vec<i32> = ["CHK-1", "CHK-2", "CHK-3"]
+            .iter()
+            .map(|id| d.form.find_control(id).expect("deployed").rect.y)
+            .collect();
+        assert_eq!(ys[0] % g, 0, "the first row lands on the grid");
+        assert_eq!(ys[1] - ys[0], 30, "row pitch preserved: {ys:?}");
+        assert_eq!(ys[2] - ys[1], 30, "row pitch preserved: {ys:?}");
+    }
+
+    /// With the grid switched off nothing quantises, so the agent's own
+    /// placement stands exactly as written.
+    #[test]
+    fn a_disabled_grid_leaves_agent_placement_alone() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form.snap_to_grid = false;
+        d.form
+            .controls
+            .push(Control::new("L1", ControlType::Label, 0, 0));
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "L1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(19),
+                },
+                AgentOp::SetProperty {
+                    control_id: "L1".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(13),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+        let c = d.form.find_control("L1").unwrap();
+        assert_eq!((c.rect.x, c.rect.y), (19, 13));
+    }
+
     #[test]
     fn moving_a_container_carries_its_children() {
         use crate::agent::{AgentChangeSet, AgentOp};
@@ -12529,11 +12624,13 @@ mod text_align_tests {
         let pos = |d: &DesignerPanel, id: &str| {
             d.form.find_control(id).map(|c| (c.rect.x, c.rect.y))
         };
-        assert_eq!(pos(&d, "P1"), Some((60, 40)), "panel moved to target");
+        // The agent asked for (60,40); 60 is not on the 8px grid, so the panel
+        // lands on the nearest point (64) and the carry delta is (54,30).
+        assert_eq!(pos(&d, "P1"), Some((64, 40)), "panel moved to target");
         assert_eq!(
             pos(&d, "C1"),
-            Some((70, 50)),
-            "child carried by the same (50,30) delta, keeping its place inside"
+            Some((74, 50)),
+            "child carried by the same (54,30) delta, keeping its place inside"
         );
         assert_eq!(
             pos(&d, "O1"),
@@ -12589,7 +12686,7 @@ mod text_align_tests {
         let c = d.form.find_control("C1").unwrap();
         assert_eq!(
             (c.rect.x, c.rect.y),
-            (5, 5),
+            (9, 8),
             "explicitly repositioned child is not double-shifted by its container"
         );
     }
@@ -13015,8 +13112,8 @@ mod text_align_tests {
         let button = d.form.find_control("Button-1").expect("button deployed");
         assert_eq!(button.parent.as_deref(), Some("TabControl-1"));
         assert_eq!(button.tab, Some(0));
-        assert_eq!(button.rect.x, 120);
-        assert_eq!(button.rect.y, 150);
+        assert_eq!(button.rect.x, 120, "already on the 8px grid");
+        assert_eq!(button.rect.y, 152, "150 snaps to the nearest grid point");
     }
 
     /// "change the form theme to neumorphic dark" end to end: the change-set an
@@ -13161,11 +13258,12 @@ mod move_anim_tests {
         assert!(n > 0);
         // R5/AC3: the model holds the FINAL coordinates the instant it applies.
         let c = &d.form.controls[0];
-        assert_eq!((c.rect.x, c.rect.y), (300, 120));
+        // 300 snaps to the nearest grid point; 120 is already on it.
+        assert_eq!((c.rect.x, c.rect.y), (304, 120));
         // …and the move is armed for animation.
         assert_eq!(d.move_anims.len(), 1);
         assert_eq!(d.move_anims[0].id, id);
-        assert_eq!(d.move_anims[0].to, egui::pos2(300.0, 120.0));
+        assert_eq!(d.move_anims[0].to, egui::pos2(304.0, 120.0));
         assert!(d.move_anim_start.is_none(), "start is stamped on first paint");
     }
 }

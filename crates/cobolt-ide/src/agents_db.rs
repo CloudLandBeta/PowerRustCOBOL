@@ -335,6 +335,33 @@ fn prompt_predates_handler_preservation_rule(name: &str, prompt: &str) -> bool {
     false
 }
 
+/// True when the Event Handler pair carries the language contract but not the
+/// two rules that settle where a clause lives and how a procedure is reached.
+/// Without them neither side could be right. The agent declared `SPECIAL-NAMES.
+/// DECIMAL-POINT IS COMMA` inside a nested handler to obtain comma currency —
+/// the clause belongs to the FORM, the main program of the nesting — and the
+/// reviewer's checklist made BOTH ways of reaching a common procedure fatal, so
+/// the two alternated `PERFORM UPDATE-X` and `CALL "UPDATE-X"` until the
+/// correction budget ran out (operator trace, 2026-08-01: three rounds, no
+/// convergence). Only an UNMODIFIED old default is replaced.
+fn prompt_predates_procedure_scope_rule(name: &str, prompt: &str) -> bool {
+    if name == EVENT_HANDLER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::EVENT_HANDLER_PROCEDURE_SCOPE_MARKER,
+            crate::llm::LEGACY_EVENT_HANDLER_PROMPT_V3,
+        );
+    }
+    if name == PEDANTIC_EVENT_HANDLER_REVIEWER {
+        return prompt_is_unmodified_legacy(
+            prompt,
+            crate::llm::PEDANTIC_EVENT_PROCEDURE_SCOPE_MARKER,
+            crate::llm::LEGACY_PEDANTIC_EVENT_PROMPT_V3,
+        );
+    }
+    false
+}
+
 fn prompt_carries_broken_form_style_guidance(prompt: &str) -> bool {
     // A corrected prompt always names the real property. Stale ones never do —
     // they only ever spoke of `Theme`. This keeps the corrected defaults from
@@ -1623,6 +1650,7 @@ impl AgentsDb {
             || prompt_predates_event_ownership_rule(name, &current_prompt)
             || prompt_predates_event_visibility_rule(name, &current_prompt)
             || prompt_predates_handler_preservation_rule(name, &current_prompt)
+            || prompt_predates_procedure_scope_rule(name, &current_prompt)
             || prompt_carries_broken_form_style_guidance(&current_prompt)
         {
             default_prompt.to_string()
@@ -3068,6 +3096,56 @@ mod tests {
             db.load_prompt(EVENT_HANDLER),
             "House rule: prefer COMPUTE over MOVE for arithmetic."
         );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// A project already carrying the language-contract revision still had no
+    /// rule saying that `DECIMAL-POINT IS COMMA` lives on the FORM, nor that
+    /// `PERFORM` cannot leave the program it sits in. Storing that revision
+    /// must not be mistaken for being current.
+    #[test]
+    fn project_open_upgrades_the_pre_procedure_scope_prompt() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        db.save_prompt(EVENT_HANDLER, crate::llm::LEGACY_EVENT_HANDLER_PROMPT_V3)
+            .unwrap();
+        db.save_prompt(
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+            crate::llm::LEGACY_PEDANTIC_EVENT_PROMPT_V3,
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+
+        let handler = db.load_prompt(EVENT_HANDLER);
+        assert!(handler.contains(crate::llm::EVENT_HANDLER_PROCEDURE_SCOPE_MARKER));
+        assert!(handler.contains("DECIMAL-POINT IS COMMA"));
+        // Every earlier correction survives the newer upgrade.
+        assert!(handler.contains(crate::llm::EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER));
+        assert!(handler.contains(crate::llm::EVENT_HANDLER_PRESERVATION_MARKER));
+
+        // The reviewer must stop demanding the swap that has no legal answer.
+        let reviewer = db.load_prompt(PEDANTIC_EVENT_HANDLER_REVIEWER);
+        assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_PROCEDURE_SCOPE_MARKER));
+        assert!(reviewer.contains("Four false positives"));
+        assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_LANGUAGE_CONTRACT_MARKER));
+        assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_PRESERVATION_MARKER));
+
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "upgrade is idempotent");
+        for (name, default) in [
+            (EVENT_HANDLER, crate::llm::DEFAULT_EVENT_HANDLER_PROMPT),
+            (
+                PEDANTIC_EVENT_HANDLER_REVIEWER,
+                crate::llm::DEFAULT_PEDANTIC_EVENT_PROMPT,
+            ),
+        ] {
+            assert!(
+                !prompt_predates_procedure_scope_rule(name, default),
+                "{name}'s shipped default must not look stale to its own detector"
+            );
+        }
         let _ = std::fs::remove_dir_all(proj);
     }
 

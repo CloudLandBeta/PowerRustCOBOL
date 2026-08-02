@@ -547,6 +547,123 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
     }
 }
 
+// ── Grid & alignment normalisation ───────────────────────────────────────────
+
+/// Snap `v` to the NEAREST multiple of `grid_px`, half-steps rounded away from
+/// zero so the step stays symmetric either side of the origin. `grid_px <= 0`
+/// leaves the value alone.
+pub fn snap_nearest(v: i32, grid_px: i32) -> i32 {
+    if grid_px <= 0 {
+        return v;
+    }
+    let half = grid_px / 2;
+    if v >= 0 {
+        ((v + half) / grid_px) * grid_px
+    } else {
+        -(((-v + half) / grid_px) * grid_px)
+    }
+}
+
+/// Read a coordinate the agent wrote as a number or as a numeric string —
+/// matching what the applier's own `json_prop_i32` accepts, so this normalises
+/// exactly the values that go on to take effect.
+fn coord(v: &serde_json::Value) -> Option<i32> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+        .map(|n| n as i32)
+}
+
+/// One axis of a change-set's placement, resolved in two steps.
+///
+/// **Lanes** collapse coordinates that were meant to be one: the first control
+/// to use a coordinate opens a lane, and anything within `tol` of it is that
+/// same position, not a near-miss. This is what keeps a column a column.
+///
+/// **One delta** then moves every lane together. It is the shift that puts the
+/// FIRST lane exactly on the grid, so the run is translated rather than
+/// quantised: every distance the agent asked for — row pitch, column gap — is
+/// preserved to the pixel, and the later lanes sit wherever that leaves them.
+#[derive(Default)]
+struct Axis {
+    /// Raw lane anchors, in the order the change-set opened them.
+    lanes: Vec<i32>,
+    /// Shift derived from the first anchor; every coordinate takes this one.
+    delta: Option<i32>,
+}
+
+impl Axis {
+    fn place(&mut self, raw: i32, grid_px: i32, tol: i32) -> i32 {
+        let anchor = match self.lanes.iter().copied().find(|a| (raw - a).abs() <= tol) {
+            Some(a) => a,
+            None => {
+                self.lanes.push(raw);
+                raw
+            }
+        };
+        let delta = *self
+            .delta
+            .get_or_insert_with(|| snap_nearest(anchor, grid_px) - anchor);
+        anchor + delta
+    }
+}
+
+/// Put agent-placed geometry on the designer grid without breaking an
+/// alignment the agent asked for.
+///
+/// Two things go wrong when agent geometry is quantised coordinate by
+/// coordinate, and this fixes both by never quantising more than once per axis.
+///
+/// **Alignments split.** `X=19` and `X=21` are 2px apart before snapping and a
+/// whole cell apart after, so the column the agent asked for comes out crooked.
+/// Coordinates within half a cell of each other are therefore one lane — one
+/// position, not a near-miss.
+///
+/// **Even spacing goes lumpy.** A 30px row pitch cannot be expressed on an 8px
+/// grid, so snapping each row lands them 24, 32, 32 apart. Instead the run is
+/// TRANSLATED: the shift that puts the first lane exactly on the grid is
+/// applied to every lane, so a 30px pitch stays 30px and a 180px column gap
+/// stays 180px.
+///
+/// The trade this makes, deliberately: only the first placement of each axis
+/// lands on a grid point. Later ones sit wherever the requested distance from
+/// it puts them, and a coordinate that was already on the grid can be carried
+/// off it — that is the cost of keeping the agent's own spacing exact.
+///
+/// With the grid off (`snap_enabled` false) nothing moves at all.
+pub fn normalize_geometry(cs: &AgentChangeSet, grid_px: i32, snap_enabled: bool) -> AgentChangeSet {
+    let mut out = cs.clone();
+    if !snap_enabled || grid_px <= 0 {
+        return out;
+    }
+    let tol = (grid_px / 2).max(1);
+    // [X, Y].
+    let mut axes: [Axis; 2] = [Axis::default(), Axis::default()];
+    for op in &mut out.operations {
+        match op {
+            AgentOp::DeployControl { properties, .. } => {
+                for (axis, key) in [(0usize, "X"), (1usize, "Y")] {
+                    let Some(raw) = properties.get(key).and_then(coord) else {
+                        continue;
+                    };
+                    let placed = axes[axis].place(raw, grid_px, tol);
+                    properties.insert(key.to_string(), serde_json::Value::from(placed));
+                }
+            }
+            AgentOp::SetProperty { key, value, .. } => {
+                let axis = match key.as_str() {
+                    "X" => 0usize,
+                    "Y" => 1,
+                    _ => continue,
+                };
+                let Some(raw) = coord(value) else { continue };
+                *value = serde_json::Value::from(axes[axis].place(raw, grid_px, tol));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Ensure an agent-authored handler/procedure is the IDE-owned nested-program body,
 /// not a partial fragment. The generator supplies IDENTIFICATION/PROGRAM-ID and
 /// the footer, but the editable body must keep the three divisions so the model
@@ -1135,6 +1252,24 @@ pub fn build_context(form: &Form) -> String {
     for t in &all_types {
         out.push_str(&format!("  {}: {}\n", t, property_names_for(t).join(", ")));
     }
+    // A bare name in the listing above tells the model a property EXISTS,
+    // never what values are legal to set it to — the same gap GlassStyle and
+    // StartPosition were already special-cased for above. `property_reference`
+    // is the curated domain table cobolt-compiler already keeps for its own
+    // generated docs; a property name means the same domain on every control
+    // that has it, so this is listed once, not per type (operator, 2026-08-01:
+    // Grace correctly flagged BorderStyle's context as listing the property
+    // but not its supported values).
+    let mut prop_names = std::collections::BTreeSet::new();
+    for t in &all_types {
+        prop_names.extend(property_names_for(t));
+    }
+    out.push_str("PROPERTY VALUE DOMAINS (same property name = same legal values on every control type that has it):\n");
+    for name in &prop_names {
+        if let Some((domain, _)) = cobolt_compiler::property_reference(name) {
+            out.push_str(&format!("  {name}: {domain}\n"));
+        }
+    }
     out.push_str("EVENTS BY TYPE (for all available controls):\n");
     for t in &all_types {
         let evs = ControlType::from_str(t).supported_events().join(", ");
@@ -1498,6 +1633,148 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `(X, Y)` of a deploy op, as the applier would read them back.
+    fn xy(op: &AgentOp) -> (Option<i64>, Option<i64>) {
+        match op {
+            AgentOp::DeployControl { properties, .. } => (
+                properties.get("X").and_then(|v| v.as_i64()),
+                properties.get("Y").and_then(|v| v.as_i64()),
+            ),
+            _ => (None, None),
+        }
+    }
+
+    fn deploys(json: &str) -> AgentChangeSet {
+        parse_change_set(json).expect("change-set parses")
+    }
+
+    #[test]
+    fn snap_nearest_rounds_to_the_closer_grid_point() {
+        assert_eq!(snap_nearest(19, 8), 16);
+        assert_eq!(snap_nearest(21, 8), 24);
+        assert_eq!(snap_nearest(24, 8), 24, "an on-grid value must not move");
+        assert_eq!(snap_nearest(0, 8), 0);
+        // Symmetric either side of the origin.
+        assert_eq!(snap_nearest(-19, 8), -16);
+        assert_eq!(snap_nearest(-21, 8), -24);
+        // A disabled/degenerate grid leaves the value alone.
+        assert_eq!(snap_nearest(19, 0), 19);
+    }
+
+    /// The shape that prompted the rule: a column of checkboxes the agent
+    /// placed off-grid. Each column lands on a grid point AND stays a column.
+    #[test]
+    fn agent_columns_land_on_the_grid_and_stay_aligned() {
+        let cs = deploys(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"CheckBox","id":"B1","properties":{"X":19,"Y":20}},
+  {"op":"deploy_control","control_type":"CheckBox","id":"B2","properties":{"X":21,"Y":50}},
+  {"op":"deploy_control","control_type":"CheckBox","id":"B3","properties":{"X":20,"Y":80}},
+  {"op":"deploy_control","control_type":"CheckBox","id":"D1","properties":{"X":380,"Y":20}}
+]}"#,
+        );
+        let out = normalize_geometry(&cs, 8, true);
+
+        // X=19 opens the lane and fixes the axis shift (-3); 21 and 20 are within
+        // half a cell of it, so all three are that one column. The far column
+        // takes the same shift, keeping the 361px gap the agent asked for.
+        let xs: Vec<Option<i64>> = out.operations.iter().map(|op| xy(op).0).collect();
+        assert_eq!(xs, vec![Some(16), Some(16), Some(16), Some(377)]);
+        assert_eq!(xs[0].unwrap() % 8, 0, "the first placement is on the grid");
+
+        // Rows are translated, not quantised: the 30px pitch survives intact and
+        // the second column still shares the first column's rows.
+        let ys: Vec<Option<i64>> = out.operations.iter().map(|op| xy(op).1).collect();
+        assert_eq!(ys, vec![Some(24), Some(54), Some(84), Some(24)]);
+        assert_eq!(ys[0].unwrap() % 8, 0, "the first row is on the grid");
+    }
+
+    /// Without the lane, `19` and `21` — 2px apart, straddling a cell edge —
+    /// snap to 16 and 24 and the column the agent asked for is 8px crooked.
+    #[test]
+    fn a_lane_holds_coordinates_that_would_otherwise_snap_apart() {
+        let cs = deploys(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"Label","id":"A","properties":{"X":19,"Y":10}},
+  {"op":"deploy_control","control_type":"Label","id":"B","properties":{"X":21,"Y":40}}
+]}"#,
+        );
+        assert_ne!(
+            snap_nearest(19, 8),
+            snap_nearest(21, 8),
+            "the hazard this closes must be real"
+        );
+        let out = normalize_geometry(&cs, 8, true);
+        assert_eq!(xy(&out.operations[0]).0, xy(&out.operations[1]).0);
+    }
+
+    /// A column a whole cell away is a different column, not a stray pixel.
+    #[test]
+    fn distinct_columns_keep_their_own_lanes() {
+        let cs = deploys(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"Label","id":"A","properties":{"X":20,"Y":10}},
+  {"op":"deploy_control","control_type":"Label","id":"B","properties":{"X":200,"Y":10}},
+  {"op":"deploy_control","control_type":"Label","id":"C","properties":{"X":380,"Y":10}}
+]}"#,
+        );
+        let out = normalize_geometry(&cs, 8, true);
+        let xs: Vec<Option<i64>> = out.operations.iter().map(|op| xy(op).0).collect();
+        // One shift (+4) for the axis: the 180px gaps the agent asked for are
+        // still 180px, and only the first column lands on a grid point.
+        assert_eq!(xs, vec![Some(24), Some(204), Some(384)]);
+    }
+
+    /// `set_property` moves an existing control and is snapped the same way,
+    /// sharing lanes with the deploys around it.
+    #[test]
+    fn set_property_moves_are_snapped_too() {
+        let cs = deploys(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"Label","id":"A","properties":{"X":19,"Y":10}},
+  {"op":"set_property","control_id":"OLD","key":"X","value":22},
+  {"op":"set_property","control_id":"OLD","key":"Caption","value":"untouched"}
+]}"#,
+        );
+        let out = normalize_geometry(&cs, 8, true);
+        match &out.operations[1] {
+            AgentOp::SetProperty { value, .. } => assert_eq!(value.as_i64(), Some(16)),
+            other => panic!("expected set_property, got {other:?}"),
+        }
+        match &out.operations[2] {
+            AgentOp::SetProperty { value, .. } => assert_eq!(value.as_str(), Some("untouched")),
+            other => panic!("expected set_property, got {other:?}"),
+        }
+    }
+
+    /// Grid off: nothing quantises, so nothing can split an alignment and the
+    /// agent's own placement is left exactly as written.
+    #[test]
+    fn a_disabled_grid_leaves_placement_untouched() {
+        let json = r#"{"operations":[
+  {"op":"deploy_control","control_type":"Label","id":"A","properties":{"X":19,"Y":13}},
+  {"op":"deploy_control","control_type":"Label","id":"B","properties":{"X":19,"Y":41}}
+]}"#;
+        let cs = deploys(json);
+        let out = normalize_geometry(&cs, 8, false);
+        assert_eq!(out, cs, "a disabled grid must be a no-op");
+        // The alignment the agent defined still holds on its own.
+        assert_eq!(xy(&out.operations[0]).0, xy(&out.operations[1]).0);
+    }
+
+    /// The agent may write a coordinate as a numeric string; the applier
+    /// accepts that, so normalisation has to see it too.
+    #[test]
+    fn string_coordinates_are_snapped() {
+        let cs = deploys(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"Label","id":"A","properties":{"X":"19","Y":"21"}}
+]}"#,
+        );
+        let out = normalize_geometry(&cs, 8, true);
+        assert_eq!(xy(&out.operations[0]), (Some(16), Some(24)));
+    }
 
     /// The agent cannot pick a style it cannot see. CONTEXT must carry the
     /// current form-level values and the exact legal GlassStyle spellings.
@@ -2083,6 +2360,27 @@ mod tests {
         assert!(ctx.contains("dropshadow"));
         assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
+    }
+
+    /// A property listed by bare name only told the model it EXISTS, never
+    /// what values are legal to set it to — Grace flagged exactly this during
+    /// a prompt review: the context named `BorderStyle` as a TextBox property
+    /// but did not say what values it accepts (operator, 2026-08-01). Anchored
+    /// on `BorderStyle` specifically, since `border_rows` in
+    /// `panels/properties.rs` and `draw_control_border` in
+    /// `cobolt-forms::paint` are the ground truth this domain has to match:
+    /// `None` | `Single` | `Fixed3D` | `Raised` | `Sunken`.
+    #[test]
+    fn context_lists_property_value_domains() {
+        let ctx = build_context(&form_with_label());
+        assert!(
+            ctx.contains("PROPERTY VALUE DOMAINS"),
+            "missing domains section: {ctx}"
+        );
+        assert!(
+            ctx.contains("BorderStyle: one of: `None` | `Single` | `Fixed3D` | `Raised` | `Sunken`"),
+            "BorderStyle domain not listed: {ctx}"
+        );
     }
 
     /// The exact question this closes: "what entrance effect does the project

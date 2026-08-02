@@ -3234,6 +3234,16 @@ impl Control {
                 // 0-100: how much of the check glyph's own box the checkmark
                 // stroke fills.
                 props.insert("CheckSize".into(), PropValue::Int(70));
+                // The frame around the WHOLE control, not the check glyph — the
+                // glyph is drawn by the CheckBox branch of `draw_control` and is
+                // governed by CheckColor/CheckSize. `None` like Label, the
+                // closest analogue: a checkbox is a glyph plus a caption, not a
+                // surface. Absent these keys `draw_control` fell back to
+                // "Single"/1px and boxed every checkbox with nothing able to
+                // turn it off (operator, 2026-08-01).
+                props.insert("BorderStyle".into(), PropValue::String("None".into()));
+                props.insert("BorderColor".into(), PropValue::String("#8C8CA0".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
             }
             ControlType::PictureBox => {
                 props.insert("ImagePath".into(), PropValue::String("".into()));
@@ -5810,6 +5820,29 @@ mod tests {
             let p = property_names_for(t);
             assert!(!p.is_empty(), "{t} has no properties");
             assert!(p.windows(2).all(|w| w[0] <= w[1]), "{t} not sorted");
+        }
+    }
+
+    /// `draw_control` falls back to `"Single"`/1px when a control carries no
+    /// `BorderStyle`, and CheckBox is not in the frameless skip-list — so with
+    /// no border keys of its own every checkbox was boxed in a grey rectangle
+    /// the developer could not reach (operator, 2026-08-01). The keys must
+    /// exist, and default to `None` so the fallback box is gone.
+    #[test]
+    fn checkbox_and_radio_button_expose_border_properties() {
+        for t in ["CheckBox", "RadioButton"] {
+            let names = property_names_for(t);
+            for key in ["BorderStyle", "BorderColor", "BorderWidth"] {
+                assert!(names.contains(&key.to_string()), "{t} is missing {key}");
+            }
+            let ctrl = Control::new("_", ControlType::from_str(t), 0, 0);
+            assert_eq!(
+                ctrl.get_prop("BorderStyle").unwrap().as_str(),
+                "None",
+                "{t} must not draw a frame by default"
+            );
+            // The check glyph keeps its own, separate colour.
+            assert_eq!(ctrl.get_prop("CheckColor").unwrap().as_str(), "#0078D7");
         }
     }
 
