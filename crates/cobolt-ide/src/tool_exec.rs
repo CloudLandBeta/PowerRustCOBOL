@@ -392,8 +392,15 @@ impl AgentInvoker for ToolExecutingInvoker<'_> {
     // Machine validation is a transport concern like typed extraction:
     // delegate so the engine's lint gate reaches the wrapped invoker's
     // change-set validator through this decorator.
-    fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
-        self.inner.lint_submission(agent, submission)
+    fn lint_submission(
+        &mut self,
+        agent: &str,
+        submission: &str,
+        objective: &str,
+        dependency_outputs: &str,
+    ) -> Option<String> {
+        self.inner
+            .lint_submission(agent, submission, objective, dependency_outputs)
     }
 
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {

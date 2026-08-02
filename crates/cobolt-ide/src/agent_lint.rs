@@ -338,6 +338,53 @@ mod tests {
         assert!(live.cobol_structure.special_names.trim().is_empty());
     }
 
+    /// MEASURED, not assumed: the analyzer does NOT currently reject a
+    /// `PERFORM` whose target is in another program — the exact question that
+    /// deadlocked the observed workflow, and the one I expected the gate to
+    /// settle. It does not. Until `cobolt-semantic` resolves paragraph targets
+    /// per program, this stays with the contract and the reviewer.
+    ///
+    /// The test pins today's behaviour deliberately: when the analyzer gains
+    /// the check, this fails and is flipped to the positive assertion, which is
+    /// the moment the gate starts earning its keep on the correction loop.
+    #[test]
+    fn a_dangling_perform_is_not_yet_proven_by_the_analyzer() {
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"CheckBox","id":"CHK-1","properties":{}},
+  {"op":"create_procedure","name":"UPDATE-RECEIPT","code":"       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE."},
+  {"op":"generate_event_handler","control_id":"CHK-1","event":"onCheckedChanged","code":"       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           PERFORM UPDATE-RECEIPT."}
+]}"#,
+        )
+        .unwrap();
+        assert!(
+            compile_defects(&form(), &[], &cs).is_empty(),
+            "documents the current limit — flip this when the analyzer resolves \
+             PERFORM targets per program"
+        );
+    }
+
+    /// A limit worth stating rather than discovering later: a comma numeric
+    /// literal with no `DECIMAL-POINT IS COMMA` in force does NOT fail to
+    /// compile. `VALUE 8,49` lexes as `8` followed by a separator comma, so the
+    /// item silently takes the value 8. The gate proves what the toolchain
+    /// proves; a silently-wrong value is not in that set and still needs the
+    /// contract rule and the reviewer.
+    #[test]
+    fn a_comma_literal_is_silently_truncated_not_a_compile_error() {
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"CheckBox","id":"CHK-1","properties":{}},
+  {"op":"generate_event_handler","control_id":"CHK-1","event":"onCheckedChanged","code":"       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-PRICE  PIC 9(5)V99 VALUE 8,49.\n\n       PROCEDURE DIVISION.\n           CONTINUE."}
+]}"#,
+        )
+        .unwrap();
+        assert!(
+            compile_defects(&form(), &[], &cs).is_empty(),
+            "documents a real blind spot: the compiler does not reject this"
+        );
+    }
+
     /// `set_form_structure` reaches the probe, so a change-set that adds
     /// `DECIMAL-POINT IS COMMA` is judged with the clause in force.
     #[test]

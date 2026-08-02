@@ -1112,15 +1112,37 @@ impl AgentInvoker for DbAgentInvoker {
     /// of the IDE's change-set validator, run over every change-set-producing
     /// submission BEFORE its Pedantic review. Whatever this flags is exactly
     /// what `apply_agent_change_set` would silently skip at apply time.
-    fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
-        let errors = crate::agent::lint_change_set_submission(agent, submission)?;
+    fn lint_submission(
+        &mut self,
+        agent: &str,
+        submission: &str,
+        objective: &str,
+        dependency_outputs: &str,
+    ) -> Option<String> {
+        // Structural first: it is cheap, and a body that fails it cannot be
+        // parsed anyway, so compiling would only produce cascade noise.
+        if let Some(errors) = crate::agent::lint_change_set_submission(agent, submission) {
+            crate::llm::push_ai_log(
+                crate::llm::AiLogKind::Info,
+                format!("{agent}: change-set failed machine validation —\n{errors}"),
+            );
+            return Some(errors);
+        }
+        let errors = compile_check(
+            &self.project_dir,
+            agent,
+            submission,
+            objective,
+            dependency_outputs,
+        )?;
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Info,
-            format!("{agent}: change-set failed machine validation —\n{errors}"),
+            format!("{agent}: change-set failed to compile —\n{errors}"),
         );
         Some(errors)
     }
 
+    /// Unused shim kept adjacent to the trait impl; the real body is the free
     /// Keep what passed, send back only what failed (spec: correction loop).
     fn scope_correction(
         &mut self,
@@ -2607,6 +2629,66 @@ fn inject_task_context_with_project(
 /// (`agent::build_context`) built from the actual file on disk. `None` when
 /// there is no project directory, no forms folder, or nothing in it is a
 /// close enough match to the objective.
+/// The form a delegated task targets, loaded from disk — the same resolution
+/// [`resolve_task_form_context`] uses, returning the model instead of its
+/// rendered context so the compile-check gate can build a probe from it.
+fn resolve_task_form(project_dir: Option<&Path>, objective: &str) -> Option<cobolt_forms::Form> {
+    let dir = project_dir?;
+    let candidates =
+        crate::project_model::recursive_category_files(dir, crate::project_model::Category::Forms);
+    let matched = crate::project_model::best_resource_match(objective, &candidates)?;
+    cobolt_forms::xml::load_form(&dir.join(matched)).ok()
+}
+
+/// Compile the change-set against the form the task targets and return the hard
+/// errors, numbered exactly like the structural validator's so `lint_gate` and
+/// its correction prompts need no change.
+///
+/// Silent when the form cannot be resolved, when the agent produces no
+/// change-set, or when the submission does not parse: none of those is evidence
+/// of a COBOL defect, and inventing one would burn a correction round on
+/// nothing — the failure mode this gate exists to remove.
+fn compile_check(
+    project_dir: &Path,
+    agent: &str,
+    submission: &str,
+    objective: &str,
+    dependency_outputs: &str,
+) -> Option<String> {
+    if !crate::agents_db::produces_form_change_set(agent) {
+        return None;
+    }
+    let cs = crate::agent::parse_change_set(submission).ok()?;
+    let form = resolve_task_form(Some(project_dir), objective)?;
+    let deps = dependency_change_sets(dependency_outputs);
+    let defects = crate::agent_lint::compile_defects(&form, &deps, &cs);
+    if defects.is_empty() {
+        return None;
+    }
+    Some(
+        defects
+            .iter()
+            .enumerate()
+            .map(|(i, d)| match &d.op {
+                Some(op) => format!("{}. {op}: {}", i + 1, d.message),
+                None => format!("{}. {}", i + 1, d.message),
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// Every change-set the approved upstream tasks produced, in order. Their work
+/// is not on disk yet when a dependent task is validated, so without them the
+/// probe would report each control an earlier task created as missing.
+fn dependency_change_sets(dependency_outputs: &str) -> Vec<crate::agent::AgentChangeSet> {
+    dependency_outputs
+        .split("APPROVED OUTPUT:")
+        .skip(1)
+        .filter_map(|chunk| crate::agent::parse_change_set(chunk).ok())
+        .collect()
+}
+
 fn resolve_task_form_context(project_dir: Option<&Path>, objective: &str) -> Option<String> {
     let dir = project_dir?;
     let candidates =

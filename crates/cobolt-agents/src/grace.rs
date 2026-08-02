@@ -246,8 +246,18 @@ pub trait AgentInvoker {
     /// those exact errors, like a Pedantic rejection but without spending a
     /// review call. `None` means nothing machine-checkable is wrong (including
     /// "this agent's output is not machine-checkable at all").
-    fn lint_submission(&mut self, agent: &str, submission: &str) -> Option<String> {
-        let _ = (agent, submission);
+    /// `objective` and `dependency_outputs` let a host resolve the resource the
+    /// task targets and the approved upstream work, so a deterministic check
+    /// can judge the submission against what the change-set will really
+    /// produce — not against the submission text alone.
+    fn lint_submission(
+        &mut self,
+        agent: &str,
+        submission: &str,
+        objective: &str,
+        dependency_outputs: &str,
+    ) -> Option<String> {
+        let _ = (agent, submission, objective, dependency_outputs);
         None
     }
 
@@ -877,7 +887,12 @@ impl GraceEngine {
         let spec = rec.spec.clone();
         let reviewed = spec.reviewer.is_some();
         loop {
-            let Some(errors) = invoker.lint_submission(&spec.agent, &submission) else {
+            let Some(errors) = invoker.lint_submission(
+                &spec.agent,
+                &submission,
+                &spec.objective,
+                dependency_outputs,
+            ) else {
                 return Some(submission);
             };
             rec.reviews.push(ReviewRound {
@@ -1258,7 +1273,13 @@ mod tests {
             assert_eq!(agent, expect, "call #{i} routed to the wrong agent");
             Ok(reply.to_string())
         }
-        fn lint_submission(&mut self, _agent: &str, submission: &str) -> Option<String> {
+        fn lint_submission(
+            &mut self,
+            _agent: &str,
+            submission: &str,
+            _objective: &str,
+            _dependency_outputs: &str,
+        ) -> Option<String> {
             submission.contains("PLACEHOLDER").then(|| {
                 "1. generate_event_handler LBL-01.onHoverEnter: Code must start from the \
                  nested-program body and include ENVIRONMENT DIVISION."
