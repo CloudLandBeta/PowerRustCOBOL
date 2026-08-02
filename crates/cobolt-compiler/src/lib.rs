@@ -1656,7 +1656,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
   - Example: `RestClient-1::Post("https://api.example.com/api/save", request_body).`
 - **DO NOT** use `CALL` or legacy `INVOKE` for UI control properties or methods. Use the inline double-colon (`::`) syntax directly.
 - The method vocabulary is **closed** — only the methods listed in the Control Methods Reference exist. A `::name(arg)` with an unrecognised name is treated as a PROPERTY WRITE of `name`, not a method call, so inventing a method silently does nothing useful.
-- **IndexedFile controls have no `::` methods** — drive them with the generated paragraphs (`PERFORM <id>-OPEN`, `<id>-READ-NEXT`, …) and the COBOL verbs `WRITE`/`REWRITE`/`DELETE`. Those paragraphs are emitted in the OUTER program, so they are `PERFORM`-able from the form's own procedure code — see *Nested programs* below for what that means inside an event handler.
+- **IndexedFile controls have no `::` methods**, and their generated helpers (`<id>-OPEN`, `<id>-READ-NEXT`, …) are paragraphs of the OUTER program. A handler is a nested program, so it cannot `PERFORM` them: the compiler rejects it with "'<id>-OPEN' is not a paragraph or section of this program". **There is currently no supported way to drive an IndexedFile control from an event handler** — do not emit `PERFORM <id>-OPEN` in a handler and do not invent `<id>::Open()`, which is not a method this platform has. Use `SqlDatabase` (which does have `::` methods) when a handler must reach stored data.
 - A method that returns a value can be used inline (`MOVE C::GetText() TO WS-X`) or with `RETURNING`.
 
 ## Value Conventions (types and domains)
@@ -1671,7 +1671,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 
 ## Event payloads — what a handler actually receives (LINKAGE)
 
-Almost every event delivers **nothing**. The generated dispatcher calls a handler as `CALL "<paragraph>"` with no arguments, so the handler's `LINKAGE SECTION` is empty and its header is a plain `PROCEDURE DIVISION.` with no `USING`.
+Almost every event delivers **nothing**. The generated dispatcher calls a handler as `CALL "<handler-program>"` with no arguments, so the handler's `LINKAGE SECTION` is empty and its header is a plain `PROCEDURE DIVISION.` with no `USING`.
 
 - **There is exactly ONE event payload in the platform**: `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the card that fired, and ONLY for a control inside a repeating group. That handler is called `USING CONTROL-ARRAY-INDEX` and writes `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.`.
 - **No event carries a key code, a mouse button, a coordinate, a modifier or a character.** Do NOT declare an item such as `KEY-CODE` and do NOT write `PROCEDURE DIVISION USING KEY-CODE.` — nothing populates it, and the dispatcher passes no argument to bind it to.
@@ -1699,7 +1699,8 @@ A COBOL word may contain **only letters (`A-Z`, `a-z`), digits (`0-9`) and hyphe
          PROCEDURE DIVISION.
              *> (Statements here)
   ```
-- Do not write `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or `END PROGRAM` in the handler body; these are automatically managed by the IDE scaffold.
+- Do not write `IDENTIFICATION DIVISION`, `PROGRAM-ID`, or `END PROGRAM` in the handler body; the IDE scaffold manages the program wrapper.
+- `GOBACK` **is** yours to write, and it is an ordinary statement. The scaffold appends a closing one, but that lands after everything you wrote — so a body that declares its own paragraphs must end its main flow with `GOBACK.` before the first of them, or control falls through and runs that paragraph a second time.
 
 ## Nested programs — where `PERFORM` reaches, and where it does not
 The generated source is a COBOL-85 **nest**: the form is the outer (main) program, and every event handler and every common procedure is a separate nested program inside it. That structure decides how one piece of code reaches another, and getting it wrong is the most common way a handler that reads correctly still fails.

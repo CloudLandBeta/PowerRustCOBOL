@@ -148,7 +148,7 @@ pub fn lookup(word: &str) -> Option<Token> {
         "NO" => Token::No,
         "GO" => Token::Go,
         "GO-TO" => Token::GoTo,
-        "GO-BACK" => Token::GoBack,
+        "GOBACK" | "GO-BACK" => Token::GoBack,
         "STOP" => Token::Stop,
         "RUN" => Token::Run,
         "EXIT" => Token::Exit,

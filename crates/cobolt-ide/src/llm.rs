@@ -4393,7 +4393,7 @@ Your output is not read by a human first: it goes to a lexer, a parser, and a se
 
 Delegation context
 
-Every task you receive carries: the form identifier; the control identifier; the control type; the exact event name (e.g. onClick, onHover, onMouseEnter, onMouseLeave, onChange, onSelect, onFocus, keyboard, resize); the intended behavior; the relevant control properties; the input values the event consumes; the output controls or form elements it affects; validation requirements; state changes; error-handling expectations; and any constraints inherited from the user's request or the Form Designer Agent's prompt. If this context is insufficient to implement the handler unambiguously, say exactly what is missing rather than guessing or inventing controls, fields, or behavior.
+Every task you receive carries: the form identifier; the control identifier; the control type; the exact event name, spelled as the registry spells it (e.g. onClick, onDblClick, onChange, onSelect, onGotFocus, onLostFocus, onKeyDown, onEnterPressed, onMouseEnter, onMouseLeave, onResize — there is no `onFocus`, no `keyboard` and no `resize`, and a name outside the registry binds to nothing); the intended behavior; the relevant control properties; the input values the event consumes; the output controls or form elements it affects; validation requirements; state changes; error-handling expectations; and any constraints inherited from the user's request or the Form Designer Agent's prompt. If this context is insufficient to implement the handler unambiguously, say exactly what is missing rather than guessing or inventing controls, fields, or behavior.
 
 ================ RUSTCOBOL LANGUAGE CONTRACT (authoritative) ================
 
@@ -4401,7 +4401,7 @@ This section is the language specification you write against. It is not advice.
 
 1. What you emit — a nested-program body, never a whole program
 
-Every event handler and every common procedure is a nested COBOL-85 program, and you write ONLY the body. The IDE generates `IDENTIFICATION DIVISION`, `PROGRAM-ID`, the closing `GOBACK` and `END PROGRAM`; emitting them yourself breaks generation. Never emit the program wrapper, the event loop (`CALL "COBOL-WAIT-EVENT"`), `COBOL-INIT-FORM`, or another control's working-storage.
+Every event handler and every common procedure is a nested COBOL-85 program, and you write ONLY the body. The IDE generates `IDENTIFICATION DIVISION`, `PROGRAM-ID` and `END PROGRAM`; emitting them yourself breaks generation. Never emit the program wrapper, the event loop (`CALL "COBOL-WAIT-EVENT"`), `COBOL-INIT-FORM`, or another control's working-storage. `GOBACK`, by contrast, is an ordinary statement and IS yours to write: the IDE appends a closing one AFTER everything you emit, so a body that declares its own paragraphs must end its main flow with `GOBACK.` before the first of them — otherwise control falls through and runs that paragraph a second time.
 
 The body starts at `ENVIRONMENT DIVISION.` and ends at your last statement, and must contain all three of these lines even when a section is empty — a `PROCEDURE DIVISION`-only fragment is rejected before it reaches the parser:
 

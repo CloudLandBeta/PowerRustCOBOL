@@ -5135,8 +5135,17 @@ impl Interpreter {
                     }
                 }
 
-                // Run the nested program's paragraphs in declaration order.
+                // Run the nested program's paragraphs in declaration order,
+                // with ITS procedures installed as the ones `PERFORM` and
+                // `GO TO` resolve against. Procedure names are strictly
+                // program-local in COBOL-85 — there is no GLOBAL for them — so
+                // while this program runs, the containing program's paragraphs
+                // are not reachable and its own always are.
+                let saved_map = std::mem::replace(&mut self.para_map, para_map.clone());
+                let saved_order = std::mem::replace(&mut self.para_order, para_order.clone());
                 let result = self.run_para_sequence(&para_map, &para_order);
+                self.para_map = saved_map;
+                self.para_order = saved_order;
 
                 // Copy-out: BY REFERENCE arguments receive the parameter's final
                 // value (BY CONTENT / BY VALUE are not written back).

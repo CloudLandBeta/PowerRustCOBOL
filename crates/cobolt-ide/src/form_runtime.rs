@@ -1251,6 +1251,44 @@ mod form_codegen_roundtrip_tests {
         );
     }
 
+    /// The generated IndexedFile helpers live at OUTER-program scope, so a
+    /// handler — a nested program — cannot `PERFORM` them. This is the shape
+    /// the Knowledge Base used to document, and it stopped compiling in 1.55.6
+    /// when the analyzer began recursing into contained programs. Locked in as
+    /// a test so the constraint is visible: whoever makes IndexedFile reachable
+    /// from a handler (nested COMMON programs, or `::` methods) will see this
+    /// fail and can retire it deliberately.
+    #[test]
+    fn indexedfile_paragraphs_are_not_reachable_from_a_handler() {
+        let mut form = Form::new("MAIN-FORM", "Demo", 640, 480);
+        let mut ixf = Control::new("IXF-1", ControlType::IndexedFile, 0, 0);
+        ixf.set_prop("IndexedFile", PropValue::String("CUSTOMERS".into()));
+        form.controls.push(ixf);
+
+        let mut btn = Control::new("Button-1", ControlType::Button, 10, 10);
+        let mut ev = EventBinding::for_control("Button-1", "onClick");
+        ev.code = "\
+       ENVIRONMENT DIVISION.\n\
+       DATA DIVISION.\n\
+       WORKING-STORAGE SECTION.\n\n\
+       PROCEDURE DIVISION.\n\
+           PERFORM IXF-1-OPEN."
+            .into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+
+        let src = cobolt_codegen::generate(&form);
+        let pr = parse(tokenize(&src, SourceFormat::Free));
+        let program = pr.program.expect("no program");
+        let sem = analyze(&program);
+        let serrs: Vec<String> = sem.errors().map(|d| d.message.clone()).collect();
+        assert!(
+            serrs.iter().any(|m| m.contains("IXF-1-OPEN")
+                && m.contains("not a paragraph or section of this program")),
+            "expected the cross-program PERFORM to be rejected, got {serrs:#?}"
+        );
+    }
+
     #[test]
     fn runtime_uppercase_property_update_overwrites_designed_caption() {
         let mut label = Control::new("label-5", ControlType::Label, 10, 10);

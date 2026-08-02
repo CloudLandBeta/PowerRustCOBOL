@@ -772,14 +772,17 @@ pub(crate) fn handler_body_shape_error(code: &str) -> Option<String> {
                 .to_string(),
         );
     }
-    // The scaffold is the IDE's, and a body that writes it too produces a
-    // program the parser rejects. Observed live: a procedure ended with its
-    // own `GOBACK.`, the generator appended the closing `GOBACK.` after it,
-    // and every launch of the form died on "paragraph 'GOBACK' is declared
-    // more than once" — a body-authored line the reviewer had approved, and
-    // which survived the developer deleting every control (operator,
-    // 2026-07-31). Both prompts already forbid this; the gate is what makes
-    // the ban hold when a model or a reviewer overlooks it.
+    // The program wrapper is the IDE's: a body that writes it too declares a
+    // second program inside the nest and the parser rejects it.
+    //
+    // `GOBACK` is NOT part of that ban. It is an ordinary COBOL-85 statement
+    // and the only way to end a handler's main flow before the paragraphs it
+    // declares for its own `PERFORM`s — without one, control falls through and
+    // runs them a second time. It used to be banned because the lexer had no
+    // `GOBACK` keyword, so a lone `GOBACK.` was read as a paragraph name and
+    // collided with the generated closing one ("paragraph 'GOBACK' is declared
+    // more than once", operator 2026-07-31). The keyword exists now, so the
+    // collision cannot happen and the statement is legitimate.
     for line in code.lines() {
         let text = line
             .split("*>")
@@ -789,25 +792,16 @@ pub(crate) fn handler_body_shape_error(code: &str) -> Option<String> {
             .trim_end_matches('.')
             .trim()
             .to_ascii_uppercase();
-        // `GOBACK` only as a statement of its own — that is the line the
-        // parser reads as a paragraph name, and matching it exactly keeps a
-        // literal such as `MOVE "GOBACK" TO WS-X` out of the gate. The
-        // wrappers are caught by their opening words, which carry a name.
-        let word = if text == "GOBACK" {
-            Some("GOBACK")
-        } else {
-            ["IDENTIFICATION DIVISION", "PROGRAM-ID", "END PROGRAM"]
-                .into_iter()
-                .find(|w| text.starts_with(w))
-        };
+        // The wrappers are caught by their opening words, which carry a name.
+        let word = ["IDENTIFICATION DIVISION", "PROGRAM-ID", "END PROGRAM"]
+            .into_iter()
+            .find(|w| text.starts_with(w));
         if let Some(word) = word {
             return Some(format!(
                 "Remove `{word}` from the body: the IDE generates IDENTIFICATION \
                  DIVISION, PROGRAM-ID, the closing GOBACK and END PROGRAM around \
-                 it. A body that writes them too yields a duplicate — a second \
-                 `GOBACK.` is read as a second paragraph of that name, and the \
-                 form fails to launch with \"paragraph 'GOBACK' is declared more \
-                 than once\"."
+                 it. A body that writes them too declares a second program inside \
+                 the nest, and the form no longer compiles."
             ));
         }
     }
@@ -1050,12 +1044,18 @@ Expected shape:
 Use inline control access:
 
 ```cobol
-       SET Button-1::Text TO "Save".
+       SET Button-1::Caption TO "Save".
        SET Panel-1::ShadowEnabled TO 1.
-       Button-1::Refresh().
+       TextBox-1::SetFocus().
 ```
 
-Do not use `CALL` for form/control methods or properties. Keep `CALL` only for real runtime/library procedures that have no inline method equivalent.
+Do not use `CALL` for a control's properties or methods — those are reached with `::` only.
+
+`CALL` is, however, how one program reaches another, and every handler is a program. The form is the OUTERMOST program of a COBOL-85 nest; each event handler and each common procedure is a separate nested program inside it:
+
+- A common procedure (`create_procedure`) is a nested program, NOT a paragraph of your body. Invoke it with `CALL "ITS-NAME"` — `CALL "VALIDATE-INPUT".`, `CALL "RECALC-TOTAL" USING WS-QTY WS-PRICE.`. `PERFORM` can never reach it.
+- `PERFORM` reaches only a paragraph or section declared in the SAME body you are writing. A `PERFORM` naming anything outside it is a compile error.
+- End your main flow with `GOBACK.` before any paragraph you declare, or control falls through and runs that paragraph a second time.
 "#;
 
 const RUSTCOBOL_SKILL: &str = r#"# PowerRustCOBOL Extensions Skill
@@ -1066,7 +1066,16 @@ PowerRustCOBOL extends COBOL-85 with inline form/control access:
 - Set a property with `SET <control>::<property> TO <value>`.
 - Invoke a method with `<control>::<method>(<parameters>)`.
 
-Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, paragraph structure, and existing user code.
+## What a handler is, and how code reaches other code
+
+A form is one compilation unit: the form itself is the OUTERMOST program, and every event handler and every common procedure is a separate NESTED program inside it. That structure decides which verb reaches what.
+
+- `CALL "NAME"` is the only way to reach another program — that includes every common procedure created with `create_procedure`. Write `CALL "UPDATE-TOTAL".` or `CALL "RECALC" USING WS-QTY WS-PRICE.`.
+- `PERFORM` reaches only a paragraph or section declared in the same body you are writing, and never crosses a program boundary. A `PERFORM` naming a procedure of another program is a compile error, not a style preference.
+- The generated infrastructure paragraphs (`<id>-OPEN`, `<id>-READ-NEXT`, the timer, chart, CSV-export and data-binding helpers) live in the OUTER program, so form-level code may `PERFORM` them but a handler may not. From a handler, use the control's `::` methods.
+- Do not use `CALL` for a control's own properties or methods — `::` is the only form for those.
+
+Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, the paragraphs a body declares for its own `PERFORM`s, and existing user code.
 "#;
 
 /// Base IDE `agentic_ai` directory (always loaded).
@@ -2280,12 +2289,8 @@ mod tests {
         .is_some_and(|m| m.contains("DATA DIVISION")));
     }
 
-    /// Operator report (2026-07-31): a common procedure ended with its own
-    /// `GOBACK.`; the generator appended the closing `GOBACK.` right after it,
-    /// and the form could no longer be launched — "paragraph 'GOBACK' is
-    /// declared more than once". The reviewer had called the submission
-    /// flawless, and deleting every control did not clear it, because a
-    /// procedure is form-level and outlives the controls it mentions.
+    /// The program wrapper belongs to the IDE: a body that writes it declares a
+    /// second program inside the nest and the form stops compiling.
     #[test]
     fn a_body_may_not_write_the_scaffold_the_ide_generates() {
         let body = |tail: &str| {
@@ -2295,8 +2300,6 @@ mod tests {
             )
         };
         for tail in [
-            "           GOBACK.\n",
-            "       GOBACK\n",
             "       END PROGRAM UPDATE-CONCATENATION.\n",
             "       IDENTIFICATION DIVISION.\n",
             "       PROGRAM-ID. UPDATE-CONCATENATION.\n",
@@ -2305,18 +2308,35 @@ mod tests {
                 .unwrap_or_else(|| panic!("the scaffold must be rejected: {tail:?}"));
             assert!(error.contains("the IDE generates"), "{error}");
         }
-        // The exact procedure that broke the form.
-        assert!(handler_body_shape_error(
-            "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-FULL-TEXT PIC X(2000).\n\n       PROCEDURE DIVISION.\n           MOVE SPACES TO WS-FULL-TEXT\n           MOVE WS-FULL-TEXT TO lblConcat::Caption.\n           GOBACK."
-        )
-        .is_some());
 
-        // …while a body that leaves the scaffold alone still passes, and a
-        // GOBACK inside a literal or a comment is not a scaffold line.
+        // …while a body that leaves the wrapper alone passes, and a GOBACK
+        // inside a literal or a comment is just text.
         assert!(handler_body_shape_error(&body("           CONTINUE.\n")).is_none());
         assert!(handler_body_shape_error(&body(
             "           MOVE \"GOBACK\" TO WS-VERB.\n           *> GOBACK is the IDE's.\n"
         ))
+        .is_none());
+    }
+
+    /// `GOBACK` is an ordinary statement, not scaffold. A handler that declares
+    /// paragraphs for its own `PERFORM`s must end its main flow with one, or
+    /// control falls through and runs them again — so the gate must let it
+    /// past. It was rejected only while the lexer lacked the keyword and a lone
+    /// `GOBACK.` was read as a duplicate paragraph name.
+    #[test]
+    fn a_body_may_end_its_main_flow_with_goback() {
+        let with_own_paragraph = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+             WORKING-STORAGE SECTION.\n       01 WS-N PIC 9(3) VALUE 0.\n\n       \
+             PROCEDURE DIVISION.\n           PERFORM CHECK-RANGE.\n           GOBACK.\n       \
+             CHECK-RANGE.\n           ADD 1 TO WS-N.\n";
+        assert!(
+            handler_body_shape_error(with_own_paragraph).is_none(),
+            "a GOBACK ending the main flow is valid COBOL-85, not scaffold"
+        );
+        assert!(handler_body_shape_error(
+            "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+             PROCEDURE DIVISION.\n           MOVE SPACES TO WS-X.\n           GOBACK.\n"
+        )
         .is_none());
     }
 

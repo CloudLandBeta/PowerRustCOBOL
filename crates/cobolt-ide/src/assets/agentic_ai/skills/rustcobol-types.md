@@ -197,7 +197,7 @@ syntax). Match the **value type** to the property:
   do not invent them. Most events deliver none → empty LINKAGE, plain
   `PROCEDURE DIVISION.`
 - Repeating-group (array) member handlers receive the 1-based firing index as
-  **`CONTROL-ARRAY-INDEX PIC S9(9) COMP-5`** — declare/reference it exactly with
+  **`CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`** — declare/reference it exactly with
   that picture and usage.
 
 ---

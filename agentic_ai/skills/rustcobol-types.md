@@ -197,7 +197,7 @@ syntax). Match the **value type** to the property:
   do not invent them. Most events deliver none → empty LINKAGE, plain
   `PROCEDURE DIVISION.`
 - Repeating-group (array) member handlers receive the 1-based firing index as
-  **`CONTROL-ARRAY-INDEX PIC S9(9) COMP-5`** — declare/reference it exactly with
+  **`CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`** — declare/reference it exactly with
   that picture and usage.
 
 ---
@@ -209,7 +209,8 @@ extension**, or **not supported**. Emit standard forms by default; use an
 extension only when the request needs it, and never emit an unsupported one.
 
 **Supported extensions (beyond COBOL-85 — fine to use when needed):**
-- The **`::` control-property operator** and the GUI runtime CALLs (RustCOBOL GUI).
+- The **`::` control property/method operator** for GUI controls (RustCOBOL GUI).
+  The low-level GUI runtime `CALL`s exist but are not yours to write.
 - Handler/procedure bodies as **nested programs without `IDENTIFICATION`/
   `PROGRAM-ID`** (the IDE supplies them — see `rustcobol-extensions`).
 - **Floating point** `COMP-1`/`COMP-2`, and **`COMP-5`** (COBOL-2002/vendor).

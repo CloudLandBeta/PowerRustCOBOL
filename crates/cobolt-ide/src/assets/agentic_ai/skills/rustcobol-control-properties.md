@@ -80,14 +80,20 @@ not invent file-object properties. Use only these properties:
 - `StatusDataItem` — file-status item updated by generated paragraphs.
 - `OperatorName` — optional `REGISTERED USER` name for `OPEN`.
 
-Generated code exposes methods through the control object. Event handlers should
-use COBOL-2002-style inline method syntax:
-`<id>::Open(mode)`, `<id>::Start(key, value)`, `<id>::ReadInvalid()`,
-`<id>::ReadNext()`, `<id>::ReadPrevious()`, `<id>::ReadFirst()`,
-`<id>::ReadLast()`, `<id>::Write()`, `<id>::Rewrite()`, `<id>::Delete()`,
-`<id>::Commit()`, `<id>::Rollback()`, and `<id>::Close()`. Do not emit raw
-indexed-file boilerplate or `CALL` runtime helpers unless the user explicitly asks
-for low-level COBOL.
+Generated code exposes helper paragraphs named with the control id:
+`<id>-OPEN`, `<id>-START`, `<id>-READ-INVALID`, `<id>-READ-NEXT`,
+`<id>-READ-PREVIOUS`, `<id>-READ-FIRST`, `<id>-READ-LAST`, `<id>-WRITE`,
+`<id>-REWRITE`, `<id>-DELETE`, `<id>-COMMIT`, `<id>-ROLLBACK`, and
+`<id>-CLOSE`.
+
+**These paragraphs belong to the OUTER form program, and an event handler is a
+nested program — so a handler cannot reach them.** `PERFORM <id>-OPEN` inside a
+handler fails to compile ("'<id>-OPEN' is not a paragraph or section of this
+program"). There is also **no `<id>::Open()` method**: IndexedFile controls have
+no `::` methods at all, and an invented one is silently treated as a property
+write, so it does nothing. **Driving an IndexedFile from an event handler is not
+currently supported.** Do not emit either form, and say so plainly rather than
+generating code that cannot run.
 
 CRUD/grid recipe:
 1. Inspect `PROJECT TREE INVENTORY` and choose a registered `.cidx`; ask if more
@@ -99,16 +105,12 @@ CRUD/grid recipe:
    context when available; otherwise ask instead of guessing.
 4. Add TextBox/ComboBox/etc. controls for editable record fields and a DataGrid
    for browse/list views when useful.
-5. Wire buttons through EventBinder:
-   - New/Clear: clear bound controls / record fields.
-   - Save: move control values to record fields, then `<id>::Write()`.
-   - Update: move control values to record fields, then `<id>::Rewrite()`.
-   - Delete: set the key, then `<id>::Delete()`.
-   - Find: set the key, then `<id>::ReadInvalid()`.
-   - First/Previous/Next/Last: `<id>::ReadFirst()`,
-     `<id>::ReadPrevious()`, `<id>::ReadNext()`, `<id>::ReadLast()`.
-   - Commit/Rollback/Close: use `<id>::Commit()`, `<id>::Rollback()`, and
-     `<id>::Close()`.
+5. Button wiring: the CRUD verbs above run in the OUTER program and cannot be
+   invoked from a button handler (see the note above). `AutoOpen` and the
+   declarative data bindings still work, so a browse/grid form built on
+   bindings is fine; a Save/Update/Delete button is not implementable through
+   the IndexedFile control today. Tell the developer that instead of emitting a
+   handler that will not compile.
 
 ## Rule 3 — the shadow / Neumorphic property group (deep reference)
 

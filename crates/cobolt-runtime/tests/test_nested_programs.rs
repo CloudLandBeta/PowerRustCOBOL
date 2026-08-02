@@ -209,6 +209,166 @@ fn multiple_nested_programs_dispatch_independently() {
     assert_eq!(i.env.get_i64("WS-B").unwrap_or(0), 2);
 }
 
+/// PERFORM inside a nested program reaches the nested program's OWN
+/// paragraphs. This is the documented handler pattern ("use PERFORM for
+/// paragraphs you declared yourself, inside the body you are writing") and
+/// the exact locality the 1.55.6 semantic analyzer enforces at compile time.
+#[test]
+fn nested_program_performs_its_own_paragraph() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-VAL  PIC 9(3) VALUE 0 GLOBAL.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "HANDLER".
+           STOP RUN.
+       END PROGRAM OUTER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLER.
+       PROCEDURE DIVISION.
+       ENTRY-POINT.
+           PERFORM LOCAL-STEP.
+           PERFORM LOCAL-STEP.
+           GOBACK.
+       LOCAL-STEP.
+           ADD 7 TO WS-VAL.
+       END PROGRAM HANDLER.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    assert_eq!(
+        i.env.get_i64("WS-VAL").unwrap_or(0),
+        14,
+        "PERFORM LOCAL-STEP inside HANDLER must run HANDLER's own paragraph"
+    );
+}
+
+/// When the outer program and a nested program both declare a paragraph with
+/// the same name, PERFORM inside the nested program runs the NESTED one —
+/// procedure names are strictly program-local in COBOL-85.
+#[test]
+fn nested_perform_prefers_own_paragraph_over_outer_same_name() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-WHO  PIC X(6) VALUE SPACES GLOBAL.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "HANDLER".
+           STOP RUN.
+       SET-WHO.
+           MOVE "OUTER" TO WS-WHO.
+       END PROGRAM OUTER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLER.
+       PROCEDURE DIVISION.
+       ENTRY-POINT.
+           PERFORM SET-WHO.
+           GOBACK.
+       SET-WHO.
+           MOVE "INNER" TO WS-WHO.
+       END PROGRAM HANDLER.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    assert_eq!(
+        i.env.get_string("WS-WHO").unwrap_or_default().trim(),
+        "INNER",
+        "PERFORM SET-WHO inside HANDLER must run HANDLER's own SET-WHO"
+    );
+}
+
+/// A paragraph of the CONTAINING program is not reachable from a nested one.
+/// COBOL-85 has no GLOBAL for procedure names, and since 1.55.6 the semantic
+/// analyzer reports such a `PERFORM` as an error — the runtime must agree
+/// rather than quietly resolving it against the outer program.
+#[test]
+fn nested_perform_cannot_reach_a_containing_program_paragraph() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-HIT  PIC 9 VALUE 0 GLOBAL.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "HANDLER".
+           STOP RUN.
+       OUTER-ONLY.
+           MOVE 7 TO WS-HIT.
+       END PROGRAM OUTER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLER.
+       PROCEDURE DIVISION.
+       ENTRY-POINT.
+           PERFORM OUTER-ONLY.
+           GOBACK.
+       END PROGRAM HANDLER.
+    "#;
+
+    let mut i = interp(src);
+    let err = i.run().expect_err("cross-program PERFORM must not resolve");
+    assert!(
+        format!("{err:?}").contains("OUTER-ONLY"),
+        "expected an undefined-procedure error for OUTER-ONLY, got {err:?}"
+    );
+    assert_eq!(
+        i.env.get_i64("WS-HIT").unwrap_or(-1),
+        0,
+        "the containing program's paragraph must never have run"
+    );
+}
+
+/// `GOBACK` returns from the nested program. It is a STATEMENT — a lone
+/// `GOBACK.` used to lex as an identifier and be taken for a paragraph header,
+/// which silently let control fall through into whatever the handler declared
+/// after it.
+#[test]
+fn goback_returns_and_does_not_fall_through_to_trailing_paragraphs() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FELL  PIC 9 VALUE 0 GLOBAL.
+       01 WS-RAN   PIC 9 VALUE 0 GLOBAL.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "HANDLER".
+           STOP RUN.
+       END PROGRAM OUTER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLER.
+       PROCEDURE DIVISION.
+       ENTRY-POINT.
+           MOVE 1 TO WS-RAN.
+           GOBACK.
+       TRAILING-PARA.
+           MOVE 1 TO WS-FELL.
+       END PROGRAM HANDLER.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    assert_eq!(i.env.get_i64("WS-RAN").unwrap_or(0), 1, "handler must run");
+    assert_eq!(
+        i.env.get_i64("WS-FELL").unwrap_or(-1),
+        0,
+        "GOBACK must return instead of falling through to TRAILING-PARA"
+    );
+}
+
 /// A nested program with no END PROGRAM terminator (last nested program in the
 /// file) is still registered and callable.
 #[test]

@@ -1,5 +1,70 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.7] — 2026-08-02
+
+### Fixed
+
+- **`GOBACK` was never a statement.** The lexer had no `GOBACK` keyword at all —
+  only the rare hyphenated `GO-BACK` — so a lone `GOBACK.` lexed as an
+  identifier followed by a period, which is exactly the shape of a paragraph
+  header. Every `GOBACK.` codegen appends to every generated handler was being
+  parsed as an empty paragraph *named* `GOBACK`. Nothing returned; control
+  simply fell off the end of the program. It is a keyword now, and the parser
+  already knew what to do with the token. Two long-standing symptoms were this
+  bug wearing a costume: the "paragraph 'GOBACK' is declared more than once"
+  launch failure a developer hit when their body ended with its own `GOBACK.`,
+  and the standing rule forbidding `GOBACK` in a handler body. Both are gone.
+- **A handler that declares its own paragraphs no longer runs them twice.**
+  Without a real `GOBACK`, control fell through from the main flow straight
+  into whatever paragraphs the body declared for its own `PERFORM`s. Writing
+  `GOBACK.` before the first of them now ends the handler, so the pattern the
+  Knowledge Base has always recommended finally behaves as documented — and the
+  body-shape gate accepts it instead of rejecting it as scaffold.
+- **`PERFORM` inside a nested program resolved against the OUTER program.** The
+  interpreter built one paragraph map, from the form, and never swapped it when
+  `CALL` dispatched into a contained program. The consequences were precisely
+  inverted from the architecture: a handler could NOT `PERFORM` a paragraph it
+  had declared itself (`UndefinedParagraph`), while it COULD reach into the
+  form's paragraphs — the cross-program `PERFORM` that 1.55.6 had just made a
+  compile error. Each nested program now runs with its own procedures
+  installed, so the runtime agrees with the analyzer: own paragraphs resolve,
+  the containing program's do not.
+- **The agent instructions that caused a reviewer to reject correct code.** The
+  skill shipped in the IDE told agents "Do not assume it should be invoked with
+  `CALL`" and "Do not introduce `CALL` in handlers unless … a raw external
+  COBOL subprogram", illustrated with `PERFORM VALIDATE-INPUT.` That is the
+  dead proof-of-concept model, in which handlers were paragraphs of one flat
+  program, and it is what a pedantic reviewer recited when it called a correct
+  `CALL` to a `create_procedure` a "technical hallucination". The rule now
+  reads the way the platform actually works: a common procedure is a nested
+  program, `CALL "ITS-NAME"` is the only verb that reaches it, and `PERFORM` is
+  for paragraphs declared in the body being written. Corrected in both skill
+  copies, the shipped `RUSTCOBOL_SKILL`/`EVENT_HANDLER_SKILL` constants, the
+  Event Handler Agent prompt, and the specialist contract.
+- **IndexedFile CRUD from an event handler is documented as unsupported,
+  because it is.** The Knowledge Base taught `PERFORM <id>-OPEN` from a button
+  handler; those helpers are paragraphs of the outer form program, so since
+  1.55.6 that is a hard semantic error and the form refuses to launch. The
+  mirrored skill had drifted the other way and taught `<id>::Open()` /
+  `::ReadNext()`, which do not exist either — IndexedFile controls have no `::`
+  methods, and an unrecognised one is silently treated as a property write, so
+  it did nothing at all. Since a user cannot write form-level procedure code,
+  there is currently no location from which these helpers can be invoked. Both
+  copies, the system and assistant prompts, and the KB now say so plainly
+  instead of generating code that cannot compile or cannot run. A test pins the
+  constraint so that whoever makes IndexedFile reachable from a handler retires
+  it deliberately.
+- Smaller conformance fixes in the same sweep: the dispatcher is documented as
+  calling `CALL "<handler-program>"` rather than `CALL "<paragraph>"`;
+  `CONTROL-ARRAY-INDEX` is `PIC S9(4) COMP-5` in both `rustcobol-types` copies,
+  not `S9(9)`; the legacy `INVOKE Control "Prop"` examples are gone and the
+  `CALL "COBOL-SET-PROPERTY"` primitives are stated as a prohibition rather
+  than a preference; the Event Handler Agent's event-name examples list real
+  registry names (`onFocus`, `keyboard` and `resize` bind to nothing); and the
+  handler skill's example sets `Button-1::Caption`, not the `::Text` a Button
+  does not have. The frozen `LEGACY_*_PROMPT_V*` snapshots are left verbatim —
+  they are recognition fingerprints for the prompt-upgrade machinery.
+
 ## [PowerRustCOBOL 1.55.6] — 2026-08-02
 
 ### Fixed

@@ -69,9 +69,8 @@ Rules:
     ```
 - Include only the sections you use (an empty `WORKING-STORAGE` / `LINKAGE` may be
   dropped), but always end with a real `PROCEDURE DIVISION`.
-- A procedure (`create_procedure`) has the **same** body shape. Do not assume it
-  should be invoked with `CALL`; follow the invocation mechanism listed in the
-  IDE context, or ask when unclear.
+- A procedure (`create_procedure`) has the **same** body shape: it is a nested
+  program of its own, reached with `CALL "ITS-NAME"` and never with `PERFORM`.
 
 ## 2. Read/write properties and invoke methods with `::`
 
@@ -135,17 +134,20 @@ Ask the user for directions or leave a `*>` comment explaining the missing membe
   `GLOBAL` in the outer program; visible to every handler). Do not redeclare it
   locally; just reference the names the form already defines (given in context).
 
-## 4. Reusing common logic
+## 4. Calling a common procedure
 
-Prefer direct handler code or generated reusable procedures only when the IDE
-context makes their invocation form clear. Do not introduce `CALL` in handlers
-unless the user explicitly asks for a raw external COBOL subprogram call and
-provides its exact signature.
+Factor shared logic into a `create_procedure` and `CALL` it by name from handlers:
 
 ```cobol
-           PERFORM VALIDATE-INPUT.
-           PERFORM RECALC-TOTAL.
+           CALL "VALIDATE-INPUT".
+           CALL "RECALC-TOTAL" USING WS-QTY WS-PRICE.
 ```
+
+A common procedure is a nested PROGRAM, not a paragraph of your handler, so
+`CALL` is the only verb that reaches it — `PERFORM VALIDATE-INPUT` has no target
+and the body is rejected. Keep `PERFORM` for paragraphs you declare inside the
+body you are writing, and end the main flow with `GOBACK.` before the first of
+them so control does not fall through into it.
 
 Procedure names are UPPER-CASE with hyphens (`VALIDATE-INPUT`, `RECALC-TOTAL`).
 

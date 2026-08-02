@@ -68,8 +68,8 @@ Rules:
     ```
 - Include only the sections you use (an empty `WORKING-STORAGE` / `LINKAGE` may be
   dropped), but always end with a real `PROCEDURE DIVISION`.
-- A procedure (`create_procedure`) has the **same** shape; it is `CALL`-able by its
-  name.
+- A procedure (`create_procedure`) has the **same** shape: it is a nested program
+  of its own, reached with `CALL "ITS-NAME"` and never with `PERFORM`.
 
 ## 2. Read and write control properties with `::`
 
@@ -86,7 +86,6 @@ member operator, using the exact property name from the properties pane
            IF     TextBox-1::Text = SPACES
                DISPLAY "empty".
            MOVE   Button-1::"Caption" TO WS-NAME.      *> quoted name = identical
-           INVOKE Button-1 "Caption" RETURNING WS-NAME. *> INVOKE form
 ```
 
 **Write (SET)** — assign to `control-id::Property`:
@@ -94,7 +93,6 @@ member operator, using the exact property name from the properties pane
 ```cobol
            MOVE "Hello!" TO Button-1::Caption.
            SET  Button-1::"Caption" TO "Hello!".
-           INVOKE Button-1 "Caption" USING "Hello!".    *> INVOKE form (USING = set)
 ```
 
 - **Numeric** properties are algebraic: `IF Slider-1::Value > 50`,
@@ -104,8 +102,10 @@ member operator, using the exact property name from the properties pane
   `Name(CONTROL-ARRAY-INDEX)::Property`, e.g.
   `MOVE "#FFCC00" TO Row-Label(CONTROL-ARRAY-INDEX)::BackgroundColor`.
 
-Prefer `::` over the low-level `CALL "COBOL-SET-PROPERTY"` / `"COBOL-GET-PROPERTY"`
-runtime primitives (those exist but `::` is the idiomatic form).
+**Never use the `CALL` verb for a control.** `CALL "COBOL-SET-PROPERTY"` /
+`"COBOL-GET-PROPERTY"` and the other runtime primitives exist, but they are not
+yours to write, and legacy `INVOKE Control "Method" USING …` is not accepted
+either. `::` is the only form for a control's properties and methods.
 
 ## 3. State: shared vs local
 
@@ -122,6 +122,12 @@ Factor shared logic into a `create_procedure` and `CALL` it by name from handler
            CALL "VALIDATE-INPUT".
            CALL "RECALC-TOTAL" USING WS-QTY WS-PRICE.
 ```
+
+A common procedure is a nested PROGRAM, not a paragraph of your handler, so
+`CALL` is the only verb that reaches it — `PERFORM VALIDATE-INPUT` has no target
+and the body is rejected. Keep `PERFORM` for paragraphs you declare inside the
+body you are writing, and end the main flow with `GOBACK.` before the first of
+them so control does not fall through into it.
 
 Procedure names are UPPER-CASE with hyphens (`VALIDATE-INPUT`, `RECALC-TOTAL`).
 
