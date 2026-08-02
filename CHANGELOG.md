@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.2] — 2026-08-02
+
+### Added
+
+- **`set_form_structure`, a fifth change-set operation.** Agents can now write
+  the form's own raw-COBOL blocks — `SPECIAL-NAMES`, `REPOSITORY`,
+  `FILE-CONTROL`, `FILE SECTION`, `WORKING-STORAGE`. COBOL-85 reserves the
+  `CONFIGURATION SECTION` to the outermost program, so until now a request for
+  comma-decimal currency was unsatisfiable by any agent: nothing could write
+  `DECIMAL-POINT IS COMMA`, and the handlers' comma literals could never parse.
+  Block names are matched loosely (`special names` → `SPECIAL-NAMES`), a body
+  carrying its own division or `CONFIGURATION SECTION` header is rejected —
+  codegen owns those — and the whole change is one undoable step.
+- **Prompt revision stamps.** The IDE now records the digest of every shipped
+  default it writes, and replaces that file on a later release only while it is
+  still exactly what was written. Previously an upgrade could only recognise a
+  stored prompt byte-matching one of the legacy snapshots compiled into the
+  binary, so a project one revision off that chain was frozen for good — Grace's
+  and the Event Handler reviewer's prompts in a live project had each missed
+  several releases of corrections that way. A developer's own text is still
+  never touched: saving through the Agents Manager clears the stamp.
+
+### Fixed
+
+- **Grace had no model of COBOL-85 nested programs at all** — no mention of
+  `SPECIAL-NAMES`, of working-storage ownership, or of main-vs-nested programs
+  anywhere in her prompt. Both of her observed planning defects were the same
+  mistake: routing a main-program concern to an agent that only writes nested
+  bodies ("declare global data items in working-storage" → Form Designer;
+  "use `DECIMAL-POINT IS COMMA`" → event handler). She now carries the
+  ownership rules, the routing table, and the obligation to ASK when a
+  structure could legitimately live in either program.
+- **The nested-program file rules were stated wrongly** in the Event Handler
+  contract and the platform Knowledge Base. COBOL-85 restricts the
+  `CONFIGURATION SECTION` — not file handling. A nested program may declare its
+  own `INPUT-OUTPUT SECTION`, `FILE-CONTROL`, `SELECT`, `FD`/`SD` and record
+  descriptions; the previous text forbade all of it, contradicting the same
+  contract's own section on raw file handling in handlers.
+- **`GLOBAL` is not a working-storage-only clause.** It applies equally to
+  `FD`/`SD` entries and `01` record descriptions in the `FILE SECTION`, and a
+  `GLOBAL FD` is the better pattern for shared file data — every nested program
+  reads the record area directly, with no `MOVE` traffic to and from
+  working-storage.
+
 ## [PowerRustCOBOL 1.55.1] — 2026-08-01
 
 ### Fixed

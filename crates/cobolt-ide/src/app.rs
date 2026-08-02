@@ -861,6 +861,10 @@ fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, C
             format!("{} {name}", tr.agent_op_procedure),
             Color32::from_rgb(190, 150, 210),
         ),
+        AgentOp::SetFormStructure { block, .. } => (
+            format!("{} {block}", tr.agent_op_form_structure),
+            Color32::from_rgb(150, 200, 190),
+        ),
         AgentOp::Message { message } => (message.clone(), Color32::from_rgb(150, 150, 150)),
     }
 }

@@ -406,6 +406,15 @@ enum Cmd {
         old: String,
         new: String,
     },
+    /// One of the form's raw-COBOL structure blocks (SPECIAL-NAMES, REPOSITORY,
+    /// FILE-CONTROL, FILE SECTION, WORKING-STORAGE) — the outermost program's
+    /// own declarations, which only a `set_form_structure` operation or the
+    /// COBOL Structure panel can write.
+    SetFormStructure {
+        block: String,
+        old: String,
+        new: String,
+    },
     /// A GlassStyle switch. Applying a Neumorphic style bulldozes appearance
     /// defaults across EVERY control, so reverting the style enum alone would
     /// leave the bulldozed colours behind — undo restores the full pre-switch
@@ -1896,6 +1905,16 @@ impl DesignerPanel {
                         new: pv,
                     });
                 }
+                AgentOp::SetFormStructure { block, code } => {
+                    let old = crate::agent::form_structure_field(&mut self.form, block)
+                        .map(|s| s.clone())
+                        .unwrap_or_default();
+                    cmds.push(Cmd::SetFormStructure {
+                        block: block.clone(),
+                        old,
+                        new: crate::llm::normalize_comments(code),
+                    });
+                }
                 AgentOp::GenerateEventHandler {
                     control_id,
                     event,
@@ -2342,6 +2361,11 @@ impl DesignerPanel {
             Cmd::SetFormProp { key, new, .. } => {
                 self.set_form_prop_direct(key, new.clone());
             }
+            Cmd::SetFormStructure { block, new, .. } => {
+                if let Some(slot) = crate::agent::form_structure_field(&mut self.form, block) {
+                    *slot = new.clone();
+                }
+            }
             Cmd::SetGlassStyle { style, .. } => {
                 self.set_form_prop_direct("GlassStyle", style.clone());
             }
@@ -2510,6 +2534,11 @@ impl DesignerPanel {
             }
             Cmd::SetFormProp { key, old, .. } => {
                 self.set_form_prop_direct(key, old.clone());
+            }
+            Cmd::SetFormStructure { block, old, .. } => {
+                if let Some(slot) = crate::agent::form_structure_field(&mut self.form, block) {
+                    *slot = old.clone();
+                }
             }
             Cmd::SetGlassStyle { before, .. } => {
                 self.form.glass_style = before.glass_style;
@@ -12555,6 +12584,48 @@ mod text_align_tests {
         assert_eq!(ys[0] % g, 0, "the first row lands on the grid");
         assert_eq!(ys[1] - ys[0], 30, "row pitch preserved: {ys:?}");
         assert_eq!(ys[2] - ys[1], 30, "row pitch preserved: {ys:?}");
+    }
+
+    /// The gap this closes: `DECIMAL-POINT IS COMMA` is reserved to the
+    /// outermost program, and no operation could write it — so a request for
+    /// comma currency was unsatisfiable and the handlers' comma literals could
+    /// never parse (operator, 2026-08-02). It must reach generated COBOL, and
+    /// it must undo.
+    #[test]
+    fn set_form_structure_reaches_generated_cobol_and_undoes() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        assert!(
+            !cobolt_codegen::generate(&d.form).contains("DECIMAL-POINT IS COMMA"),
+            "precondition: the clause is not there yet"
+        );
+
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetFormStructure {
+                    block: "SPECIAL-NAMES".into(),
+                    code: "       DECIMAL-POINT IS COMMA.".into(),
+                },
+                AgentOp::SetFormStructure {
+                    block: "WORKING-STORAGE".into(),
+                    code: "       01  WS-TOTAL-PRICE  PIC 9(5)V99 GLOBAL VALUE 0.".into(),
+                },
+            ],
+            note: None,
+        };
+        assert_eq!(d.apply_agent_change_set(&cs), 2);
+
+        let src = cobolt_codegen::generate(&d.form);
+        assert!(src.contains("SPECIAL-NAMES."), "section header is codegen's");
+        assert!(src.contains("DECIMAL-POINT IS COMMA."));
+        assert!(src.contains("WS-TOTAL-PRICE"));
+        assert!(src.contains("GLOBAL"), "the GLOBAL clause survives verbatim");
+
+        // One change-set is one undoable step (spec 025 R6).
+        d.undo();
+        assert!(d.form.cobol_structure.special_names.trim().is_empty());
+        assert!(d.form.user_ws_source.trim().is_empty());
+        assert!(!cobolt_codegen::generate(&d.form).contains("DECIMAL-POINT IS COMMA"));
     }
 
     /// With the grid switched off nothing quantises, so the agent's own

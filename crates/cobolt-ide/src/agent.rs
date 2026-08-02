@@ -61,8 +61,47 @@ pub enum AgentOp {
     },
     /// Create a common (shared) procedure.
     CreateProcedure { name: String, code: String },
+    /// Write one of the form's raw-COBOL structure blocks — the five the COBOL
+    /// Structure panel edits. The form is the main program of the generated
+    /// nesting, so this is the ONLY way an agent can reach `SPECIAL-NAMES`
+    /// (`DECIMAL-POINT IS COMMA` lives here and nowhere else) or declare the
+    /// form-level GLOBAL working-storage its handlers share.
+    SetFormStructure { block: String, code: String },
     /// Return a conversational message to the user.
     Message { message: String },
+}
+
+/// The five raw-COBOL blocks a `set_form_structure` operation may target,
+/// matching the COBOL Structure panel's own sections. Returns the canonical
+/// spelling, or `None` when the name is not one of them.
+pub fn form_structure_block(name: &str) -> Option<&'static str> {
+    let key: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    Some(match key.as_str() {
+        "SPECIALNAMES" => "SPECIAL-NAMES",
+        "REPOSITORY" => "REPOSITORY",
+        "FILECONTROL" => "FILE-CONTROL",
+        "FILESECTION" => "FILE SECTION",
+        "WORKINGSTORAGE" => "WORKING-STORAGE",
+        _ => return None,
+    })
+}
+
+/// Read/write access to the `Form` field one structure block is stored in.
+/// `WORKING-STORAGE` is `Form::user_ws_source`; the other four live on
+/// `Form::cobol_structure`.
+pub fn form_structure_field<'a>(form: &'a mut Form, block: &str) -> Option<&'a mut String> {
+    Some(match form_structure_block(block)? {
+        "SPECIAL-NAMES" => &mut form.cobol_structure.special_names,
+        "REPOSITORY" => &mut form.cobol_structure.repository,
+        "FILE-CONTROL" => &mut form.cobol_structure.file_control,
+        "FILE SECTION" => &mut form.cobol_structure.file_section,
+        "WORKING-STORAGE" => &mut form.user_ws_source,
+        _ => return None,
+    })
 }
 
 /// A parsed agent reply: an ordered list of operations, plus an optional note used
@@ -358,6 +397,34 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
             }
             handler_body_shape_error(code)
         }
+        AgentOp::SetFormStructure { block, code } => {
+            if form_structure_block(block).is_none() {
+                return Some(format!(
+                    "'{block}' is not a form structure block. Use one of \
+                     SPECIAL-NAMES, REPOSITORY, FILE-CONTROL, FILE SECTION, \
+                     WORKING-STORAGE."
+                ));
+            }
+            // The block is woven into the form — the OUTERMOST program — so the
+            // division/section header belongs to codegen, not to the agent, in
+            // exactly the way a handler body's scaffold does.
+            let upper = code.to_ascii_uppercase();
+            for header in [
+                "IDENTIFICATION DIVISION",
+                "ENVIRONMENT DIVISION",
+                "DATA DIVISION",
+                "PROCEDURE DIVISION",
+                "CONFIGURATION SECTION",
+            ] {
+                if upper.contains(header) {
+                    return Some(format!(
+                        "Remove '{header}' — a structure block is woven into the \
+                         form's own division; write only the block's contents."
+                    ));
+                }
+            }
+            None
+        }
         AgentOp::SetProperty { .. } | AgentOp::Message { .. } => None,
     }
 }
@@ -378,6 +445,7 @@ fn op_ref(op: &AgentOp) -> String {
             control_id, event, ..
         } => format!("generate_event_handler {control_id}.{event}"),
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
+        AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
         AgentOp::Message { .. } => "message".into(),
     }
 }
@@ -543,6 +611,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
         }
         AgentOp::CreateProcedure { name: _, code } => op_form_free_error(op)
             .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg)),
+        AgentOp::SetFormStructure { .. } => op_form_free_error(op),
         AgentOp::Message { .. } => None,
     }
 }
@@ -1647,6 +1716,82 @@ mod tests {
 
     fn deploys(json: &str) -> AgentChangeSet {
         parse_change_set(json).expect("change-set parses")
+    }
+
+    /// `SPECIAL-NAMES` is reserved to the outermost program by COBOL-85, so
+    /// until this operation existed a request for comma currency could not be
+    /// satisfied by any agent (operator, 2026-08-02).
+    #[test]
+    fn set_form_structure_accepts_the_five_blocks_and_rejects_anything_else() {
+        for (spelling, canonical) in [
+            ("SPECIAL-NAMES", "SPECIAL-NAMES"),
+            ("special names", "SPECIAL-NAMES"),
+            ("SpecialNames", "SPECIAL-NAMES"),
+            ("REPOSITORY", "REPOSITORY"),
+            ("FILE-CONTROL", "FILE-CONTROL"),
+            ("FILE SECTION", "FILE SECTION"),
+            ("WORKING-STORAGE", "WORKING-STORAGE"),
+        ] {
+            assert_eq!(form_structure_block(spelling), Some(canonical), "{spelling}");
+        }
+        for bad in ["PROCEDURE DIVISION", "LOCAL-STORAGE", "SCREEN SECTION", ""] {
+            assert_eq!(form_structure_block(bad), None, "{bad} must be rejected");
+        }
+    }
+
+    /// Codegen owns the division and section headers; a block body carrying one
+    /// would weave a second header into the form's own division.
+    #[test]
+    fn set_form_structure_rejects_a_body_that_writes_its_own_scaffold() {
+        let ok = AgentOp::SetFormStructure {
+            block: "SPECIAL-NAMES".into(),
+            code: "       DECIMAL-POINT IS COMMA.".into(),
+        };
+        assert_eq!(op_form_free_error(&ok), None);
+
+        for scaffold in [
+            "       CONFIGURATION SECTION.\n       DECIMAL-POINT IS COMMA.",
+            "       ENVIRONMENT DIVISION.\n       DECIMAL-POINT IS COMMA.",
+            "       DATA DIVISION.\n       01 WS-X PIC 9.",
+        ] {
+            let op = AgentOp::SetFormStructure {
+                block: "SPECIAL-NAMES".into(),
+                code: scaffold.into(),
+            };
+            assert!(
+                op_form_free_error(&op).is_some(),
+                "scaffold must be rejected: {scaffold}"
+            );
+        }
+
+        let unknown = AgentOp::SetFormStructure {
+            block: "PROCEDURE DIVISION".into(),
+            code: "CONTINUE.".into(),
+        };
+        assert!(op_form_free_error(&unknown)
+            .unwrap()
+            .contains("not a form structure block"));
+    }
+
+    #[test]
+    fn set_form_structure_parses_and_names_itself_in_diagnostics() {
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"set_form_structure","block":"WORKING-STORAGE","code":"       01  WS-TOTAL PIC 9(5)V99 GLOBAL."}
+]}"#,
+        )
+        .expect("parses");
+        match &cs.operations[0] {
+            AgentOp::SetFormStructure { block, code } => {
+                assert_eq!(block, "WORKING-STORAGE");
+                assert!(code.contains("GLOBAL"));
+            }
+            other => panic!("expected set_form_structure, got {other:?}"),
+        }
+        assert_eq!(
+            op_ref(&cs.operations[0]),
+            "set_form_structure WORKING-STORAGE"
+        );
     }
 
     #[test]

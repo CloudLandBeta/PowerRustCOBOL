@@ -67,6 +67,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }  # no 
 # Serialization (project files)
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+# Prompt revision stamps (agents_db): identifies a prompt file the IDE wrote
+# itself, so shipped corrections reach it while a developer's edits are kept.
+sha2        = { workspace = true }
 bincode     = { workspace = true }
 toml        = { workspace = true }
 

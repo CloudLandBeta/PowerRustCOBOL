@@ -1709,8 +1709,31 @@ The generated source is a COBOL-85 **nest**: the form is the outer (main) progra
 - Use `PERFORM` for paragraphs you declared yourself, inside the body you are writing.
 - The generated infrastructure paragraphs (`<id>-OPEN`, `<id>-READ-NEXT`, `<id>-COMMIT`, and the timer, chart, CSV-export and data-binding helpers) are emitted at OUTER program scope. They are `PERFORM`-able from the form's own procedure code, not from inside an event handler, which is a nested program of its own.
 
+## Ownership in a COBOL-85 nest — what each program may declare
+Never assume a containing program's declarations are visible to a nested one. Only items declared `GLOBAL` are, and only because they are declared `GLOBAL`.
+
+**The one hard restriction is the `CONFIGURATION SECTION`.** COBOL-85 forbids a contained program from specifying one at all, so `SOURCE-COMPUTER`, `OBJECT-COMPUTER`, `SPECIAL-NAMES` and (this platform's) `REPOSITORY` may appear ONLY in the outermost program — the form — and they govern every program nested inside it.
+
+**Everything else about files and storage is per-program.** A nested program MAY declare its own `INPUT-OUTPUT SECTION`, `FILE-CONTROL`, `SELECT`, `FD`/`SD`, record descriptions, `WORKING-STORAGE` and `LINKAGE`. Those are legitimate in the form OR in a single handler; which is correct depends on intent, not on a rule, so a request that does not say where must be clarified rather than guessed.
+
+| Declaration | Owner | Written by |
+| --- | --- | --- |
+| `CONFIGURATION SECTION` — `SOURCE-COMPUTER`, `OBJECT-COMPUTER`, `SPECIAL-NAMES`, `REPOSITORY` | outermost program ONLY | `set_form_structure`, or the COBOL Structure panel |
+| `INPUT-OUTPUT SECTION`, `FILE-CONTROL`, `SELECT` | each program may own its own | `set_form_structure` for the form's; the body itself for a handler's |
+| `FILE SECTION`, `FD`/`SD`, record descriptions | each program may own its own | `set_form_structure` for the form's; the body itself for a handler's |
+| `WORKING-STORAGE`, `LINKAGE` | each program owns its own | `set_form_structure` for the form's; the body itself for locals |
+| `PROCEDURE DIVISION` | each program owns its own | the handler or common-procedure body |
+| `GLOBAL` items | containing program, visible to every nested program | declared in the FORM |
+| `EXTERNAL` items | the run unit | the form's `WORKING-STORAGE`, `EXTERNAL` clause |
+
+`GLOBAL` is **not** a working-storage-only clause. It applies to `01`/`77` items in `WORKING-STORAGE` and equally to `FD`/`SD` entries and `01` record descriptions in the `FILE SECTION`. A `GLOBAL FD` with a `GLOBAL` record description is the better pattern for shared file data: every nested program reads the record area directly, with no `MOVE` traffic between the `FD` and working-storage.
+
+`COMMON` is never requested — codegen marks every nested program `IS COMMON PROGRAM`, so a common procedure is always callable by its siblings. `INITIAL` is not emitted by this platform. `LOCAL-STORAGE` and `SCREEN SECTION` are parsed by the compiler but no operation writes them.
+
+Checklist before emitting a change-set: no nested program declares a `CONFIGURATION SECTION` or `SPECIAL-NAMES`; every nested program has its own `DATA DIVISION`; `GLOBAL` items are referenced, never duplicated; `EXTERNAL` items are treated as run-unit-wide; cross-program invocation is `CALL`, never `PERFORM`.
+
 ## `SPECIAL-NAMES` and the decimal separator
-`SPECIAL-NAMES` belongs to the FORM, the main program of the nest. Its `ENVIRONMENT DIVISION` → `CONFIGURATION SECTION` → `SPECIAL-NAMES` paragraph is edited on the form itself (COBOL Structure panel) and is the ONLY place `DECIMAL-POINT IS COMMA` may be declared. A handler or common procedure that declares `SPECIAL-NAMES` (or a `CONFIGURATION SECTION`) is redeclaring it inside a nested program and is rejected — a nested body's `ENVIRONMENT DIVISION.` line stands alone, with nothing under it.
+`SPECIAL-NAMES` belongs to the FORM, the main program of the nest. Its `ENVIRONMENT DIVISION` → `CONFIGURATION SECTION` → `SPECIAL-NAMES` paragraph is written with `set_form_structure` (or by hand in the COBOL Structure panel) and is the ONLY place `DECIMAL-POINT IS COMMA` may be declared. A handler or common procedure that declares `SPECIAL-NAMES` or a `CONFIGURATION SECTION` is redeclaring it inside a nested program and is rejected.
 
 What the form declares governs the whole nest. With `DECIMAL-POINT IS COMMA` in force, the roles of `.` and `,` are exchanged in `PICTURE` character-strings and in numeric literals:
 

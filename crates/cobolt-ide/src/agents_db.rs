@@ -814,10 +814,70 @@ impl AgentsDb {
         parts.join("\n\n")
     }
 
+    /// Write a prompt that is NOT a shipped default — the developer's own text
+    /// from the Agents Manager, or a prompt carried across an agent rename.
+    ///
+    /// Any revision stamp is removed: from here on the file is the developer's,
+    /// and no upgrade may touch it. This is the safe default, so a new call
+    /// site that forgets to think about stamping preserves the developer's work
+    /// rather than risking it.
     pub fn save_prompt(&self, name: &str, text: &str) -> Result<(), String> {
         std::fs::create_dir_all(self.dir(name)).map_err(|e| e.to_string())?;
-        std::fs::write(self.prompt_path(name), text).map_err(|e| e.to_string())
+        std::fs::write(self.prompt_path(name), text).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(self.prompt_stamp_path(name));
+        Ok(())
     }
+
+    /// Write a SHIPPED DEFAULT and stamp it, so a later release may replace it
+    /// while it is still untouched.
+    ///
+    /// Only ever called with text this binary generated. Stamping anything the
+    /// developer authored would let the next project open overwrite their work
+    /// — the Agents Manager saves through [`save_prompt`], which clears the
+    /// stamp for exactly that reason.
+    fn save_default_prompt(&self, name: &str, text: &str) -> Result<(), String> {
+        std::fs::create_dir_all(self.dir(name)).map_err(|e| e.to_string())?;
+        std::fs::write(self.prompt_path(name), text).map_err(|e| e.to_string())?;
+        let _ = std::fs::write(self.prompt_stamp_path(name), prompt_digest(text));
+        Ok(())
+    }
+
+    /// Sidecar holding the digest of the prompt text the IDE last wrote.
+    fn prompt_stamp_path(&self, name: &str) -> std::path::PathBuf {
+        self.dir(name).join(".prompt-revision")
+    }
+
+    /// True when the stored prompt is byte-for-byte what the IDE last wrote —
+    /// i.e. the developer has not edited it since.
+    ///
+    /// This is what makes a shipped prompt correction actually arrive. The
+    /// older mechanism ([`prompt_is_unmodified_legacy`]) can only recognise a
+    /// stored prompt that byte-matches one of the legacy snapshots compiled
+    /// into the binary, so every new revision needs a fresh snapshot and any
+    /// project one revision off the chain is frozen for good (operator,
+    /// 2026-08-02: a project whose Grace and reviewer prompts had missed
+    /// several releases). A stamp needs no snapshot and no chain.
+    ///
+    /// Absent stamp → `false`, so a project written by an older build falls
+    /// back to the legacy-snapshot path and nothing regresses.
+    fn prompt_is_unedited_since_we_wrote_it(&self, name: &str, current: &str) -> bool {
+        std::fs::read_to_string(self.prompt_stamp_path(name))
+            .map(|stamp| stamp.trim() == prompt_digest(current))
+            .unwrap_or(false)
+    }
+}
+
+/// Stable content digest of a prompt file. SHA-256 rather than a `Hash` impl
+/// because it is persisted: `DefaultHasher` is explicitly not stable across
+/// releases, which would make every upgrade look like a developer edit.
+fn prompt_digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(text.as_bytes());
+    format!("{:x}", h.finalize())
+}
+
+impl AgentsDb {
 
     /// Create a new agent: unique valid name, folder scaffold per spec 028
     /// R2, manifest + prompt written. Returns the new agent's id.
@@ -1038,7 +1098,7 @@ impl AgentsDb {
             let id = self.agents[index].id.clone();
             let current_prompt = self.load_prompt(reviewer_name);
             if current_prompt.trim().is_empty()
-                && self.save_prompt(reviewer_name, default_prompt).is_ok()
+                && self.save_default_prompt(reviewer_name, default_prompt).is_ok()
             {
                 changed = true;
             }
@@ -1126,11 +1186,16 @@ impl AgentsDb {
             crate::llm::GRACE_RESOURCE_DISCOVERY_MARKER,
             crate::llm::LEGACY_GRACE_PROMPT_V3,
         );
-        if !stale {
+        // The snapshot chain above only recognises the generations compiled
+        // into this binary. The stamp needs no snapshot: it says the file is
+        // still exactly what the IDE wrote, so a newer default may replace it.
+        let default = crate::llm::default_grace_prompt();
+        let ours_and_stale = self.prompt_is_unedited_since_we_wrote_it(GRACE, &current)
+            && current.trim() != default.trim();
+        if !stale && !ours_and_stale {
             return false;
         }
-        self.save_prompt(GRACE, &crate::llm::default_grace_prompt())
-            .is_ok()
+        self.save_default_prompt(GRACE, &default).is_ok()
     }
 
     pub fn ensure_grace_reviewer(&mut self, _llm: &crate::llm::LlmConfig) -> bool {
@@ -1644,7 +1709,14 @@ impl AgentsDb {
             && (current_prompt.trim() == llm.system_prompt.trim()
                 || current_prompt.trim() == crate::llm::DEFAULT_SYSTEM_PROMPT
                 || current_prompt.trim() == "You are the PowerRustCOBOL Form Designer Agent.");
+        // The stamp settles it without needing a snapshot for this revision:
+        // the file is exactly what we last wrote, so replacing it loses nothing
+        // the developer authored, and every shipped correction lands. The
+        // legacy predicates below stay for projects written before stamping.
+        let ours_and_stale = self.prompt_is_unedited_since_we_wrote_it(name, &current_prompt)
+            && current_prompt.trim() != default_prompt.trim();
         let repaired_prompt = if current_prompt.trim().is_empty()
+            || ours_and_stale
             || legacy_form_prompt
             || prompt_predates_language_contract(name, &current_prompt)
             || prompt_predates_event_ownership_rule(name, &current_prompt)
@@ -1658,8 +1730,19 @@ impl AgentsDb {
             canonical_prompt
         };
         let mut changed = false;
-        if repaired_prompt != current_prompt && self.save_prompt(name, &repaired_prompt).is_ok() {
-            changed = true;
+        if repaired_prompt != current_prompt {
+            // Stamp only when what we wrote IS the shipped default. The other
+            // branch is `canonical_prompt` — the developer's own text with
+            // renamed built-ins substituted — and stamping that would put their
+            // work at the mercy of the next release.
+            let written = if repaired_prompt == default_prompt {
+                self.save_default_prompt(name, &repaired_prompt)
+            } else {
+                self.save_prompt(name, &repaired_prompt)
+            };
+            if written.is_ok() {
+                changed = true;
+            }
         }
 
         let agent = &mut self.agents[index];
@@ -3096,6 +3179,60 @@ mod tests {
             db.load_prompt(EVENT_HANDLER),
             "House rule: prefer COMPUTE over MOVE for arithmetic."
         );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The chain of legacy snapshots only reaches a stored prompt that matches
+    /// one of them byte for byte, so a project one revision off the chain never
+    /// receives another correction — Grace's and the reviewer's prompts in the
+    /// operator's own project had missed several releases that way
+    /// (2026-08-02). A revision stamp settles it without a snapshot: the IDE
+    /// records what it wrote, and replaces the file only while it is still
+    /// exactly that.
+    #[test]
+    fn a_prompt_the_ide_wrote_receives_later_corrections() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        // Simulate a shipped revision the binary no longer carries: written by
+        // the IDE (so it gets stamped), and not equal to any known snapshot.
+        let superseded = format!(
+            "{}\n\nA clause from a revision that has since moved on.",
+            crate::llm::DEFAULT_GRACE_PROMPT
+        );
+        db.save_default_prompt(GRACE, &superseded).unwrap();
+        assert_eq!(db.load_prompt(GRACE), superseded);
+
+        assert!(db.ensure_fixed_agents(&llm) > 0, "the upgrade must fire");
+        assert_eq!(
+            db.load_prompt(GRACE),
+            crate::llm::DEFAULT_GRACE_PROMPT,
+            "an unedited prompt is brought up to the shipped revision"
+        );
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "and then holds steady");
+
+        // The developer's own edit is still sacred — it breaks the stamp, and
+        // nothing overwrites it however far the default moves on.
+        let mine = "House rule: always name the reviewer in the correction request.";
+        std::fs::write(db.prompt_path(GRACE), mine).unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(db.load_prompt(GRACE), mine, "a hand edit is never clobbered");
+
+        // And the same when the edit arrives through the Agents Manager, which
+        // saves with `save_prompt`. That path CLEARS the stamp — without that,
+        // stamping would have made every UI edit disposable at the next open,
+        // which is the opposite of what the mechanism is for.
+        db.save_default_prompt(GRACE, &superseded).unwrap();
+        db.save_prompt(GRACE, mine).unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(
+            db.load_prompt(GRACE),
+            mine,
+            "an edit saved through the UI must not be treated as ours"
+        );
+
         let _ = std::fs::remove_dir_all(proj);
     }
 
