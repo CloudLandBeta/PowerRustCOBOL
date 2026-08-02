@@ -94,6 +94,27 @@ impl Theme {
     }
 }
 
+/// Scale a colour's RGB toward black by `factor` (0.5 = half as bright),
+/// leaving alpha untouched.
+///
+/// For chrome that must read as a shade OF a surface rather than a colour of
+/// its own — a section header over the panel it divides, say. Deriving it keeps
+/// the relationship across every theme, which a fixed constant cannot: the one
+/// this replaced was so near black it punched a hole through the pane.
+///
+/// Alpha is preserved deliberately. Several themes make `bg_panel` translucent,
+/// and multiplying alpha too would fade the band out instead of darkening it.
+pub fn darken(color: Color32, factor: f32) -> Color32 {
+    let f = factor.clamp(0.0, 1.0);
+    let scale = |c: u8| (c as f32 * f).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgba_unmultiplied(
+        scale(color.r()),
+        scale(color.g()),
+        scale(color.b()),
+        color.a(),
+    )
+}
+
 /// A glass "card" frame for a panel surface: rounded corners, a subtle border,
 /// inner padding and an outer gap so panels read as separated floating cards
 /// over the background. `fill` should be the live `visuals.panel_fill` so it

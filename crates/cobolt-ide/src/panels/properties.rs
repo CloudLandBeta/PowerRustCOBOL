@@ -3052,7 +3052,7 @@ impl PropertiesPanel {
             });
         if let Some(ctrl) = ctrl {
             if ctrl.control_type == ControlType::DataGrid {
-                self.show_datagrid_editor_modal(ui.ctx(), ctrl, &mut action);
+                self.show_datagrid_editor_modal(ui.ctx(), ctrl, &mut action, tr);
             }
         }
         action
@@ -3884,6 +3884,7 @@ impl PropertiesPanel {
         ctx: &egui::Context,
         ctrl: &Control,
         action: &mut InspectorAction,
+        tr: &Tr,
     ) {
         let Some(open_id) = self.datagrid_editor.clone() else {
             return;
@@ -3907,7 +3908,7 @@ impl PropertiesPanel {
                     .id_salt(format!("datagrid_settings_scroll_{}", ctrl.id))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        section_header(ui, "Grid behavior");
+                        section_header(ui, tr.sec_grid_behavior);
                         egui::Grid::new(format!("dg_modal_behavior_{id}"))
                             .num_columns(2)
                             .spacing([8.0, 4.0])
@@ -3940,7 +3941,7 @@ impl PropertiesPanel {
                                 ui.end_row();
                             });
 
-                        section_header(ui, "Grid background");
+                        section_header(ui, tr.sec_grid_background);
                         egui::Grid::new(format!("dg_modal_bg_{id}"))
                             .num_columns(2)
                             .spacing([8.0, 4.0])
@@ -3970,7 +3971,7 @@ impl PropertiesPanel {
                                 // modal so there is a single source of truth.
                             });
 
-                        section_header(ui, "Columns");
+                        section_header(ui, tr.sec_columns);
                         let mut advanced = DataGridAdvanced::from_control(ctrl);
                         let mut changed_advanced = false;
                         if advanced.columns.is_empty() {
@@ -4185,7 +4186,7 @@ impl PropertiesPanel {
                             }
                         }
 
-                        section_header(ui, "CSV export");
+                        section_header(ui, tr.sec_csv_export);
                         egui::Grid::new(format!("dg_modal_csv_{id}"))
                             .num_columns(2)
                             .spacing([8.0, 4.0])
@@ -4481,7 +4482,7 @@ impl PropertiesPanel {
             if let Some(anim) = ctrl.animations.get(sel) {
                 let anim_id = format!("{id}-anim{sel}");
 
-                section_header(ui, "Animation");
+                section_header(ui, tr.sec_animation_edit);
                 let cur_name = anim.name.clone();
                 let bk = format!("{anim_id}-name");
                 let wid = egui::Id::new(&bk);
@@ -4684,7 +4685,7 @@ impl PropertiesPanel {
         match ctrl.control_type {
             // ── Button ────────────────────────────────────────────────────────
             ControlType::Button => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "IsDefault", "Default button", ctrl, action);
                 combo_row_inline(
                     ui,
@@ -4739,7 +4740,7 @@ impl PropertiesPanel {
 
             // ── Label ─────────────────────────────────────────────────────────
             ControlType::Label => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 combo_row_inline_labeled(
                     ui,
                     id,
@@ -4775,7 +4776,7 @@ impl PropertiesPanel {
 
             // ── TextBox ───────────────────────────────────────────────────────
             ControlType::TextBox => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
                         .get_prop("HintText")
@@ -4876,7 +4877,7 @@ impl PropertiesPanel {
 
             // ── CheckBox / RadioButton ────────────────────────────────────────
             ControlType::CheckBox | ControlType::RadioButton => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "Checked", "Checked (default)", ctrl, action);
                 combo_row_inline(
                     ui,
@@ -4920,7 +4921,7 @@ impl PropertiesPanel {
 
             // ── PictureBox ────────────────────────────────────────────────────
             ControlType::PictureBox => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(
                     ui,
@@ -4972,7 +4973,7 @@ impl PropertiesPanel {
 
             // ── Animator ──────────────────────────────────────────────────────
             ControlType::Animator => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 image_browse_row(ui, id, "Source", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(
                     ui,
@@ -5114,7 +5115,7 @@ impl PropertiesPanel {
             // thickness/colour/gradient, since the widget has no such API
             // (plan.md §4 Decision 4).
             ControlType::Knob => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
                     id,
@@ -5197,7 +5198,7 @@ impl PropertiesPanel {
             // own style, but are shown regardless (harmless when unused —
             // same convention as Slider's Orientation-specific rows above).
             ControlType::Gauge => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
                     id,
@@ -5321,7 +5322,7 @@ impl PropertiesPanel {
 
             // ── Switch (spec 039) ───────────────────────────────────────────
             ControlType::Switch => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "Checked", "Checked", ctrl, action);
                 combo_row_inline(
                     ui,
@@ -5336,7 +5337,7 @@ impl PropertiesPanel {
 
             // ── FileDropZone (spec 039) ─────────────────────────────────────
             ControlType::FileDropZone => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
                         .get_prop("Hint")
@@ -5367,7 +5368,7 @@ impl PropertiesPanel {
 
             // ── ProgressBar ───────────────────────────────────────────────────
             ControlType::ProgressBar => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
                     id,
@@ -5437,7 +5438,7 @@ impl PropertiesPanel {
 
             // ── TabControl ────────────────────────────────────────────────────
             ControlType::TabControl => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
                         .get_prop("Tabs")
@@ -5491,7 +5492,7 @@ impl PropertiesPanel {
 
             // ── Panel / GroupBox ──────────────────────────────────────────────
             ControlType::Panel | ControlType::GroupBox => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 // Auto-scroll overflowing children vs clip them (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
                 bool_row_inline(ui, id, "VScroll", "V-Scroll", ctrl, action);
@@ -5520,7 +5521,7 @@ impl PropertiesPanel {
                         action,
                     );
                     if is_rep {
-                        section_header(ui, "Repeating Group");
+                        section_header(ui, tr.sec_repeating_group);
                         let an = ctrl
                             .get_prop("ArrayName")
                             .map(|v| v.as_str().to_owned())
@@ -5619,7 +5620,7 @@ impl PropertiesPanel {
 
             // ── Line ─────────────────────────────────────────────────────────
             ControlType::Line => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 color_row(ui, id, "LineColor", ctrl, action);
                 int_prop_row(
                     ui,
@@ -5674,7 +5675,7 @@ impl PropertiesPanel {
 
             // ── DateTimePicker ────────────────────────────────────────────────
             ControlType::DateTimePicker => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
                         .get_prop("Value")
@@ -5754,7 +5755,7 @@ impl PropertiesPanel {
 
             // ── NumericUpDown ─────────────────────────────────────────────────
             ControlType::NumericUpDown => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
                     id,
@@ -5808,7 +5809,7 @@ impl PropertiesPanel {
 
             // ── TreeView ──────────────────────────────────────────────────────
             ControlType::TreeView => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
                         .get_prop("Items")
@@ -5849,7 +5850,7 @@ impl PropertiesPanel {
 
             // ── Splitter ──────────────────────────────────────────────────────
             ControlType::Splitter => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
                     id,
@@ -5886,7 +5887,7 @@ impl PropertiesPanel {
 
             // ── Timer ─────────────────────────────────────────────────────────
             ControlType::Timer => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
                     id,
@@ -5904,7 +5905,7 @@ impl PropertiesPanel {
 
             // ── Shape ─────────────────────────────────────────────────────────
             ControlType::Shape => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
                     id,
@@ -5948,12 +5949,12 @@ impl PropertiesPanel {
 
             // ── MenuBar ───────────────────────────────────────────────────────
             ControlType::MenuBar => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 if ui.button("Edit Menu...").clicked() {
                     action.open_menu_editor = Some(id.to_owned());
                 }
                 ui.add_space(4.0);
-                section_header(ui, "Colors");
+                section_header(ui, tr.sec_colors);
                 color_row(ui, id, "HighlightBgColor", ctrl, action);
                 color_row(ui, id, "HighlightFgColor", ctrl, action);
                 color_row(ui, id, "SelectedBgColor", ctrl, action);
@@ -5963,7 +5964,7 @@ impl PropertiesPanel {
 
             // ── ToolBar / StatusBar ──────────────────────────────────────────
             ControlType::ToolBar | ControlType::StatusBar => {
-                section_header(ui, "Items");
+                section_header(ui, tr.sec_items);
                 let cur = ctrl
                     .get_prop("Items")
                     .map(|v| v.as_str().to_owned())
@@ -5994,7 +5995,7 @@ impl PropertiesPanel {
 
             // ── Agent Object ──────────────────────────────────────────────────
             ControlType::AgentObject => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
                     id,
@@ -6081,7 +6082,7 @@ impl PropertiesPanel {
                     });
                 }
 
-                section_header(ui, "Behaviour");
+                section_header(ui, tr.sec_behaviour);
                 {
                     let cur = ctrl
                         .get_prop("SystemPrompt")
@@ -6144,7 +6145,7 @@ impl PropertiesPanel {
                 );
                 bool_row_inline(ui, id, "Stream", "Streaming mode", ctrl, action);
 
-                section_header(ui, "COBOL Integration");
+                section_header(ui, tr.sec_cobol_integration);
                 {
                     let cur = ctrl
                         .get_prop("TargetControls")
@@ -6182,7 +6183,7 @@ impl PropertiesPanel {
 
             // ── REST Client ───────────────────────────────────────────────────
             ControlType::RestClient => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
                         .get_prop("BaseURL")
@@ -6285,7 +6286,7 @@ impl PropertiesPanel {
                     });
                 }
 
-                section_header(ui, "COBOL Integration");
+                section_header(ui, tr.sec_cobol_integration);
                 {
                     let cur = ctrl
                         .get_prop("RequestDataItem")
@@ -6335,7 +6336,7 @@ impl PropertiesPanel {
                     );
                 }
                 // ── Async I/O (spec 032) ──
-                section_header(ui, "Async");
+                section_header(ui, tr.sec_async);
                 combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Async", "Sync"]);
                 int_row_inline(
                     ui,
@@ -6352,7 +6353,7 @@ impl PropertiesPanel {
 
             // ── SQL Database ──────────────────────────────────────────────────
             ControlType::SqlDatabase => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
                 combo_prop_row(
                     ui,
                     id,
@@ -6392,7 +6393,7 @@ impl PropertiesPanel {
                     5,
                 );
 
-                section_header(ui, "COBOL Integration");
+                section_header(ui, tr.sec_cobol_integration);
                 {
                     let cur = ctrl
                         .get_prop("ConnectionDataItem")
@@ -6426,7 +6427,7 @@ impl PropertiesPanel {
                     );
                 }
                 // ── Async I/O (spec 032) — Sync by default; opt into Async ──
-                section_header(ui, "Async");
+                section_header(ui, tr.sec_async);
                 combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
                 int_row_inline(
                     ui,
@@ -6443,7 +6444,7 @@ impl PropertiesPanel {
 
             // ── Indexed File ─────────────────────────────────────────────────
             ControlType::IndexedFile => {
-                section_header(ui, "Indexed file");
+                section_header(ui, tr.sec_indexed_file);
                 let current_file = ctrl
                     .get_prop("IndexedFile")
                     .map(|v| v.as_str().to_owned())
@@ -6501,7 +6502,7 @@ impl PropertiesPanel {
                 );
                 bool_row_inline(ui, id, "AutoOpen", "Open with form:", ctrl, action);
 
-                section_header(ui, "COBOL Integration");
+                section_header(ui, tr.sec_cobol_integration);
                 for (key, label, hint) in [
                     ("RecordName", "Record name:", "CUSTOMER-RECORD"),
                     ("KeyName", "Default key:", "CUSTOMER-ID"),
@@ -6521,7 +6522,7 @@ impl PropertiesPanel {
                     text_row_hint(ui, &mut self.text_bufs, id, key, &cur, label, hint, action);
                 }
                 // ── Async I/O (spec 032) — Sync by default; opt into Async ──
-                section_header(ui, "Async");
+                section_header(ui, tr.sec_async);
                 combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
                 int_row_inline(
                     ui,
@@ -6543,7 +6544,7 @@ impl PropertiesPanel {
             | ControlType::AreaChart
             | ControlType::ScatterChart
             | ControlType::DonutChart => {
-                section_header(ui, "Basic properties");
+                section_header(ui, tr.sec_basic);
 
                 // ── Visual ────────────────────────────────────────────────────
                 let cur_title = ctrl
@@ -6704,7 +6705,7 @@ impl PropertiesPanel {
                 }
 
                 // ── Data Binding ──────────────────────────────────────────────
-                section_header(ui, "🔗 Data Binding — COBOL Table");
+                section_header(ui, tr.sec_data_binding_table);
                 // `text_row_hint` is a self-contained full-width row (label +
                 // stretch field); it must NOT be wrapped in an egui::Grid, or every
                 // field packs onto one line and forces horizontal scrolling.
@@ -6786,7 +6787,7 @@ impl PropertiesPanel {
 
                 // ── Type-specific ─────────────────────────────────────────────
                 if matches!(ctrl.control_type, ControlType::BarChart) {
-                    section_header(ui, "Bar Chart Options");
+                    section_header(ui, tr.sec_bar_options);
                     bool_row_inline(ui, id, "Horizontal", "Horizontal bars", ctrl, action);
                     bool_row_inline(ui, id, "Stacked", "Stacked", ctrl, action);
                     int_prop_row(
@@ -6805,7 +6806,7 @@ impl PropertiesPanel {
                     ctrl.control_type,
                     ControlType::LineChart | ControlType::AreaChart
                 ) {
-                    section_header(ui, "Line / Area Options");
+                    section_header(ui, tr.sec_line_area_options);
                     bool_row_inline(ui, id, "Smooth", "Smooth curve", ctrl, action);
                     bool_row_inline(ui, id, "ShowPoints", "Show points", ctrl, action);
                     int_prop_row(
@@ -6838,7 +6839,7 @@ impl PropertiesPanel {
                     ctrl.control_type,
                     ControlType::PieChart | ControlType::DonutChart
                 ) {
-                    section_header(ui, "Pie / Donut Options");
+                    section_header(ui, tr.sec_pie_options);
                     bool_row_inline(ui, id, "ShowLabels", "Show labels", ctrl, action);
                     combo_prop_row(
                         ui,
@@ -6865,7 +6866,7 @@ impl PropertiesPanel {
                     }
                 }
                 if matches!(ctrl.control_type, ControlType::ScatterChart) {
-                    section_header(ui, "Scatter / Bubble Options");
+                    section_header(ui, tr.sec_scatter_options);
                     // Full-width row — outside the grid (see Data Binding note).
                     let bb = ctrl
                         .get_prop("BubbleField")
@@ -7003,7 +7004,7 @@ impl PropertiesPanel {
                 // ── COBOL Structure (spec 005) ────────────────────────────────────────
                 // List of sections + user procedures; clicking a row opens the popup
                 // editor for that single block.
-                section_header(ui, tr.cs_open);
+                section_header(ui, tr.sec_cobol_structure);
                 use super::cobol_structure::{section_text, CsTarget, SECTIONS};
                 for t in SECTIONS {
                     let kw = t.section_keyword().unwrap_or("");
@@ -7583,7 +7584,7 @@ impl PropertiesPanel {
                 }
             }
             InspectorTab::Animations => {
-                section_header(ui, "Animations");
+                section_header(ui, tr.sec_animations);
                 property_row(ui, "Form animations", |ui| {
                     ui.label(
                         RichText::new("No form-level animation properties").color(Color32::GRAY),
@@ -7863,11 +7864,12 @@ fn section_header(ui: &mut Ui, title: &str) {
     let width = ui.available_width().max(1.0);
     let height = ui.text_style_height(&egui::TextStyle::Button) + 10.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-    let fill = if theme.dark {
-        Color32::from_rgb(20, 24, 29)
-    } else {
-        Color32::from_rgb(56, 64, 76)
-    };
+    // Derived from the pane the header sits on, not a fixed colour: the old
+    // dark constant was so near black that it read as a hole punched through
+    // every theme. Half the panel's own channels keeps the header a shade OF
+    // the pane, so it follows a theme change instead of fighting it. Alpha is
+    // preserved — bg_panel is translucent in several themes.
+    let fill = crate::theme::darken(theme.bg_panel, 0.5);
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::ZERO, fill);
     ui.painter().text(

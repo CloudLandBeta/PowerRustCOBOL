@@ -1,5 +1,68 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.1] — 2026-08-01
+
+### Fixed
+
+- **The property pane's section headers are no longer a black bar.** The fill
+  was a fixed `rgb(20, 24, 29)` for every dark theme — so close to black that
+  the band read as a hole punched through the pane rather than a divider in
+  it, and it ignored the theme entirely. It is now derived from the pane it
+  sits on: `theme::darken(theme.bg_panel, 0.5)`, half the panel's own
+  channels with its alpha preserved (several themes make `bg_panel`
+  translucent, and scaling alpha too would have faded the band out instead of
+  darkening it).
+- **Most section headers were never translated.** 48 of them passed hardcoded
+  English — `"Basic properties"` alone appeared 25 times, alongside
+  `"Colors"`, `"Grid behavior"`, `"CSV export"`, `"COBOL Integration"`,
+  `"Async"`, the four chart option blocks and more — so they stayed English in
+  all six languages. Each now has a `Tr` key, translated across EN/ES/PT/JA/
+  ZH/FR. Control TYPE names (`ListBox`, `ComboBox`, `Slider`) stay verbatim:
+  they name a control in the toolbox, not a phrase.
+- **Two sections were missing their icon.** `Window` and `COBOL Structure`
+  rendered bare while every neighbour carried a glyph. Both now have one;
+  `COBOL Structure` gained its own key rather than borrowing `cs_open`, which
+  is also the COBOL Structure *window* title and stays plain.
+
+## [PowerRustCOBOL 1.55.0] — 2026-08-01
+
+### Fixed
+
+- **The COBOL event-handler correction loop could not converge.** A common
+  procedure created by `create_procedure` is a separate nested program, so
+  `PERFORM` — which reaches only a paragraph of the SAME program — cannot get
+  to it, and `CALL "ITS-NAME"` is the only way in. The reviewer's checklist
+  read `CALL` as the forbidden control-access form AND correctly caught
+  `PERFORM` as a target that is not in this body, leaving the specialist no
+  legal move; the loop burned its whole budget three rounds running. Both
+  rules are now in the RustCOBOL language contract, in the reviewer's
+  checklist and false-positive list, and in the platform Knowledge Base.
+- **`DECIMAL-POINT IS COMMA` is named as the form's alone.** It belongs to the
+  form's `SPECIAL-NAMES` — the main program of the nesting — so a handler that
+  declares it is redeclaring it in a nested program. With the clause in force
+  the roles of `.` and `,` are exchanged, making `PIC ZZZ.ZZ9,99` and
+  `MOVE 7,49` correct; the reviewer had been rejecting them as malformed.
+- **Stored prompt corrections never reached existing projects.** The upgrade
+  markers matched the revision a project already had saved, so no later
+  correction could ever apply. Both Event Handler prompts gained a V3 legacy
+  snapshot and their own marker.
+- **Every CheckBox drew a border nothing could switch off.** CheckBox and
+  RadioButton seeded no border properties at all, and `draw_control` falls
+  back to `"Single"`/1px when it cannot find them. They now expose
+  `BorderStyle`, `BorderColor` and `BorderWidth` in the property pane,
+  defaulting to `None` like Label; existing `.cfrm` files gain the keys on
+  load.
+
+### Added
+
+- **Agent-placed geometry goes through the designer grid**, applied once per
+  axis rather than once per control. Coordinates within half a cell are one
+  lane, so a column at `X=19/21/20` stays one column; the run is then
+  translated by the shift that puts the first lane on the grid, so a 30px row
+  pitch stays 30px instead of landing 24/32/32. Only the first placement of
+  each axis lands on a grid point — the deliberate trade for keeping the
+  agent's own spacing exact. With `SnapToGrid` off nothing moves.
+
 ## [PowerRustCOBOL 1.54.2] — 2026-08-01
 
 ### Fixed

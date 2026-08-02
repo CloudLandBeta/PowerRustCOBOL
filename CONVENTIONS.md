@@ -11,6 +11,27 @@ See the LICENSE file in the project root for full license information.
 Operational rules every agent on this repo must follow. (Architecture and crate
 layout live in `AGENTS.md`; this file is the do/don't list.)
 
+## PRIME DIRECTIVE — this project is Rust, and Rust only
+
+- **Never author or run code in any language other than Rust, for any
+  purpose.** No Python, no shell scripts, no Node, no awk/sed programs — not
+  in the repository, not as a "throwaway" helper in a scratch directory, not
+  to inspect, diff, count, generate or bulk-edit anything, not even once.
+- A mechanical, repetitive edit is **not** a licence to reach for a scripting
+  language. Do it with the editing tools, however tedious, or — when it
+  genuinely warrants automation — write it in Rust, as a test, an `examples/`
+  binary or a small crate, so it lives in the language the rest of the project
+  is reviewed in.
+- Invoking the toolchain (`cargo …`, `git …`, `ls`, `grep`) is using a tool,
+  not authoring code, and stays fine. Stringing those into a script — a
+  heredoc, a `python3 - <<EOF`, a multi-statement pipeline written to do a
+  job — is not.
+- The only non-Rust code that legitimately exists here is what the product
+  itself is made of: COBOL (the language served), and the markdown/TOML/XML
+  that configure and document it.
+- This rule outranks convenience and outranks speed. If a task looks like it
+  needs a script, say so and ask.
+
 ## Versioning — `crates/cobolt-ide/src/version.rs` (`x.y.z`)
 
 - **x** — a brand-new platform component (Web/WASM, Android, iOS, cloud backend). Reset y, z.
