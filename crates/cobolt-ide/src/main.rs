@@ -16,6 +16,7 @@
 
 pub mod agent;
 pub mod agent_actions;
+pub mod agent_lint;
 pub mod agent_ratings;
 pub mod agent_inspection;
 pub mod agents_db;

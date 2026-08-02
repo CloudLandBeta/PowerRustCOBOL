@@ -1,0 +1,355 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Compile-check a change-set before any Pedantic round is spent on it.
+//!
+//! The machine-validation gate ([`crate::agent::lint_change_set_submission`])
+//! already runs ahead of the reviewer, but it only checked STRUCTURE — control
+//! types, property keys, event names, the three division headers. It never
+//! parsed a line of COBOL, so everything the language actually decides was left
+//! to an LLM's opinion, and the reviewer spent rounds on it. In one observed
+//! workflow the reviewer raised six defects of which three were false (it
+//! demanded `PERFORM` where the contract mandates `CALL`, demanded a
+//! `SPECIAL-NAMES` paragraph the contract forbids in a nested body, and
+//! demanded removal of an `EXIT` that is in the verb list), while two real ones
+//! — comma literals with no `DECIMAL-POINT IS COMMA` in force, and `::Text` on
+//! a Label whose text property is `Caption` — passed every gate untouched.
+//!
+//! Every one of those is a question the toolchain answers exactly. This module
+//! asks it: apply the change-set to a COPY of the form, generate the `.cbl`
+//! codegen would really produce, then run the same lexer, parser and semantic
+//! analyzer the runner uses, and attribute each hard error back to the
+//! operation whose body contains it.
+//!
+//! **Nothing here touches disk or the live form.** The probe is a cloned
+//! [`Form`], `cobolt_codegen::generate*` returns a `String`, and neither
+//! `cobolt-parser` nor `cobolt-semantic` performs any I/O. A crash mid-check
+//! loses heap and nothing else. Validation deliberately runs on a bare `Form`
+//! rather than through a `DesignerPanel`: a panel owns save machinery
+//! (`cfrm_dir`, `dirty`, undo stacks), and while that is inert here today,
+//! validating on a `Form` makes this path structurally unable to persist
+//! anything, now or later.
+
+use cobolt_forms::model::{Control, ControlType, Form, PropValue};
+use cobolt_lexer::{tokenize, SourceFormat};
+
+use crate::agent::{AgentChangeSet, AgentOp};
+
+/// One proven defect: the operation it belongs to, and what the toolchain said.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompileDefect {
+    /// `op_ref`-style label, or `None` when the diagnostic landed in generated
+    /// scaffolding rather than in any operation's own body. An unattributed
+    /// defect must not be blamed on an arbitrary operation — the correction
+    /// scoper falls back to a full replacement instead.
+    pub op: Option<String>,
+    pub message: String,
+}
+
+/// Apply the semantic content of a change-set to `form`.
+///
+/// This reproduces what reaches GENERATED COBOL — controls and their ids and
+/// types, properties, handler bodies, procedures, form structure blocks — and
+/// deliberately not the designer's geometry behaviour (grid snapping, container
+/// carry, overlap nudging). `X`/`Y` cannot change whether a program compiles,
+/// and reproducing the panel here would couple validation to a type that owns
+/// save machinery.
+pub fn apply_for_probe(form: &mut Form, cs: &AgentChangeSet) {
+    for op in &cs.operations {
+        match op {
+            AgentOp::DeployControl {
+                control_type,
+                id,
+                parent_id,
+                parent,
+                properties,
+            } => {
+                let ct = ControlType::from_str(control_type);
+                let cid = id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{control_type}-probe{}", form.controls.len()));
+                // A redeploy of an existing id updates that control, exactly as
+                // the real applier does — otherwise the probe would see two
+                // controls where the form will hold one.
+                let existing = form
+                    .controls
+                    .iter()
+                    .position(|c| c.id.eq_ignore_ascii_case(&cid));
+                let idx = match existing {
+                    Some(i) => i,
+                    None => {
+                        form.controls.push(Control::new(cid.clone(), ct, 0, 0));
+                        form.controls.len() - 1
+                    }
+                };
+                if let Some(p) = parent.as_ref().or(parent_id.as_ref()) {
+                    form.controls[idx].parent = Some(p.clone());
+                }
+                for (k, v) in properties {
+                    if let Some(pv) = json_value_to_prop(v) {
+                        form.controls[idx].set_prop(k, pv);
+                    }
+                }
+            }
+            AgentOp::SetProperty {
+                control_id,
+                key,
+                value,
+            } => {
+                let Some(pv) = json_value_to_prop(value) else {
+                    continue;
+                };
+                if let Some(c) = form
+                    .controls
+                    .iter_mut()
+                    .find(|c| c.id.eq_ignore_ascii_case(control_id))
+                {
+                    c.set_prop(key, pv);
+                }
+            }
+            AgentOp::GenerateEventHandler {
+                control_id,
+                event,
+                code,
+            } => {
+                if let Some(c) = form
+                    .controls
+                    .iter_mut()
+                    .find(|c| c.id.eq_ignore_ascii_case(control_id))
+                {
+                    let body = crate::llm::normalize_comments(code);
+                    match c.events.iter_mut().find(|b| b.event.eq_ignore_ascii_case(event)) {
+                        Some(b) => b.code = body,
+                        None => c.events.push(cobolt_forms::model::EventBinding {
+                            event: event.clone(),
+                            paragraph: format!(
+                                "{}--{}",
+                                cobolt_codegen::cobol_word(&c.id),
+                                event.to_ascii_uppercase()
+                            ),
+                            code: body,
+                        }),
+                    }
+                }
+            }
+            AgentOp::CreateProcedure { name, code } => {
+                let body = crate::llm::normalize_comments(code);
+                match form
+                    .user_procedures
+                    .iter_mut()
+                    .find(|p| p.name.eq_ignore_ascii_case(name))
+                {
+                    Some(p) => p.code = body,
+                    None => form.user_procedures.push(cobolt_forms::model::UserProcedure {
+                        name: name.clone(),
+                        code: body,
+                    }),
+                }
+            }
+            AgentOp::SetFormStructure { block, code } => {
+                if let Some(slot) = crate::agent::form_structure_field(form, block) {
+                    *slot = crate::llm::normalize_comments(code);
+                }
+            }
+            AgentOp::Message { .. } => {}
+        }
+    }
+}
+
+fn json_value_to_prop(v: &serde_json::Value) -> Option<PropValue> {
+    match v {
+        serde_json::Value::String(s) => Some(PropValue::String(s.clone())),
+        serde_json::Value::Bool(b) => Some(PropValue::Bool(*b)),
+        serde_json::Value::Number(n) => n.as_i64().map(PropValue::Int),
+        _ => None,
+    }
+}
+
+/// Compile the form as it would stand after `dependencies` and then `cs`, and
+/// return every hard error the toolchain proves.
+///
+/// `dependencies` are the change-sets of approved upstream tasks, applied first.
+/// They matter: a task that only adds handlers runs while its controls still
+/// live in an earlier task's unapplied change-set, and validating it alone
+/// would report every control as missing.
+///
+/// Warnings are deliberately excluded. A warning is not proof, and a gate that
+/// spends a correction round on one is the false-positive tax this module
+/// exists to remove.
+pub fn compile_defects(
+    live: &Form,
+    dependencies: &[AgentChangeSet],
+    cs: &AgentChangeSet,
+) -> Vec<CompileDefect> {
+    let mut probe = live.clone();
+    for dep in dependencies {
+        apply_for_probe(&mut probe, dep);
+    }
+    apply_for_probe(&mut probe, cs);
+
+    let (source, user_lines) = cobolt_codegen::generate_with_user_lines(&probe);
+    let tokens = tokenize(&source, SourceFormat::detect(&source));
+    let parsed = cobolt_parser::parse(tokens);
+
+    let mut out: Vec<CompileDefect> = parsed
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == cobolt_parser::Severity::Error)
+        .map(|d| CompileDefect {
+            op: attribute(cs, &source, &user_lines, d.span.line),
+            message: d.message.clone(),
+        })
+        .collect();
+
+    // Semantic analysis only runs on a program the parser recovered; feeding it
+    // a half-parsed tree produces cascade errors that blame the wrong operation.
+    if out.is_empty() {
+        if let Some(program) = parsed.program {
+            let sem = cobolt_semantic::analyze(&program);
+            out.extend(
+                sem.diagnostics
+                    .iter()
+                    .filter(|d| d.severity == cobolt_semantic::Severity::Error)
+                    .map(|d| CompileDefect {
+                        op: attribute(cs, &source, &user_lines, d.span.line),
+                        message: d.message.clone(),
+                    }),
+            );
+        }
+    }
+    out
+}
+
+/// Map a 1-based line of the generated source back to the operation whose body
+/// occupies it.
+///
+/// `user_lines` are codegen's own ranges of developer-authored code, in emission
+/// order. A line outside every range is generated scaffolding and belongs to no
+/// operation.
+fn attribute(
+    cs: &AgentChangeSet,
+    source: &str,
+    user_lines: &[(u32, u32)],
+    line: u32,
+) -> Option<String> {
+    if !user_lines.iter().any(|(a, b)| line >= *a && line <= *b) {
+        return None;
+    }
+    // The enclosing nested program names itself: `PROGRAM-ID. BTN-OK--ONCLICK.`
+    // for a handler, `PROGRAM-ID. RECALC IS COMMON PROGRAM.` for a procedure.
+    let above: Vec<&str> = source.lines().take(line as usize).collect();
+    let prog = above.iter().rev().find_map(|l| {
+        let t = l.trim();
+        t.strip_prefix("PROGRAM-ID.")
+            .map(|rest| rest.trim().trim_end_matches('.').to_ascii_uppercase())
+    })?;
+    let prog_name = prog
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+
+    cs.operations.iter().find_map(|op| match op {
+        AgentOp::GenerateEventHandler {
+            control_id, event, ..
+        } => {
+            let expect = format!(
+                "{}--{}",
+                cobolt_codegen::cobol_word(control_id).to_ascii_uppercase(),
+                event.to_ascii_uppercase()
+            );
+            (expect == prog_name).then(|| format!("generate_event_handler {control_id}.{event}"))
+        }
+        AgentOp::CreateProcedure { name, .. } => {
+            (cobolt_codegen::cobol_word(name).to_ascii_uppercase() == prog_name)
+                .then(|| format!("create_procedure {name}"))
+        }
+        _ => None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::parse_change_set;
+
+    fn form() -> Form {
+        Form::new("CHECKBOXES-FORM", "Checkboxes", 640, 480)
+    }
+
+    /// A clean change-set must produce ZERO defects. A false positive here is
+    /// worse than the gap this closes, because it burns the correction budget
+    /// deterministically, every run.
+    #[test]
+    fn a_valid_change_set_is_silent() {
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"deploy_control","control_type":"CheckBox","id":"CHK-1","properties":{"Caption":"Big Mac"}},
+  {"op":"generate_event_handler","control_id":"CHK-1","event":"onCheckedChanged","code":"       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-N  PIC S9(4) COMP-5 VALUE 0.\n\n       PROCEDURE DIVISION.\n           ADD 1 TO WS-N."}
+]}"#,
+        )
+        .unwrap();
+        let defects = compile_defects(&form(), &[], &cs);
+        assert!(defects.is_empty(), "clean change-set flagged: {defects:?}");
+    }
+
+    /// The probe must see what earlier approved tasks created. Validating a
+    /// handler task alone would report its control as missing — which is what
+    /// the live workflow does today, running T2 with `CONTROLS: (none)`.
+    #[test]
+    fn dependencies_are_applied_before_the_submission() {
+        let deps = vec![parse_change_set(
+            r#"{"operations":[{"op":"deploy_control","control_type":"CheckBox","id":"CHK-1","properties":{}}]}"#,
+        )
+        .unwrap()];
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"generate_event_handler","control_id":"CHK-1","event":"onCheckedChanged","code":"       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE."}
+]}"#,
+        )
+        .unwrap();
+        assert!(
+            compile_defects(&form(), &deps, &cs).is_empty(),
+            "the dependency's control must be visible to the probe"
+        );
+    }
+
+    /// The probe is a clone: the live form is untouched, and nothing is written.
+    #[test]
+    fn the_live_form_is_never_mutated() {
+        let live = form();
+        let before = cobolt_codegen::generate(&live);
+        let cs = parse_change_set(
+            r#"{"operations":[{"op":"set_form_structure","block":"SPECIAL-NAMES","code":"       DECIMAL-POINT IS COMMA."}]}"#,
+        )
+        .unwrap();
+        let _ = compile_defects(&live, &[], &cs);
+        assert_eq!(
+            cobolt_codegen::generate(&live),
+            before,
+            "validation must not mutate the form it was handed"
+        );
+        assert!(live.cobol_structure.special_names.trim().is_empty());
+    }
+
+    /// `set_form_structure` reaches the probe, so a change-set that adds
+    /// `DECIMAL-POINT IS COMMA` is judged with the clause in force.
+    #[test]
+    fn form_structure_from_the_same_change_set_is_in_force() {
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"set_form_structure","block":"SPECIAL-NAMES","code":"       DECIMAL-POINT IS COMMA."}
+]}"#,
+        )
+        .unwrap();
+        let mut probe = form();
+        apply_for_probe(&mut probe, &cs);
+        assert!(cobolt_codegen::generate(&probe).contains("DECIMAL-POINT IS COMMA"));
+    }
+}
