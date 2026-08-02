@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.4] — 2026-08-02
+
+### Added
+
+- **A compile-check stage in the machine-validation gate.** A change-set is now
+  applied to a COPY of the target form, generated as the `.cbl` codegen would
+  really produce, and put through the same lexer, parser and semantic analyzer
+  the runner uses — before any Pedantic round is spent on it. Approved upstream
+  change-sets are applied first, because a handler task runs while its controls
+  still sit in an earlier task's unapplied work; without that the probe would
+  report every control as missing. Each hard error is attributed back to the
+  operation whose body contains it, via the enclosing `PROGRAM-ID` and the
+  per-body line ranges codegen already returns; a diagnostic in generated
+  scaffolding is left unattributed rather than blamed on an arbitrary
+  operation. Warnings are excluded — a warning is not proof, and a gate that
+  spends a correction round on one is the tax this exists to remove.
+- Validation runs on a bare cloned `Form`, never through a `DesignerPanel`. A
+  panel owns save machinery (`cfrm_dir`, `dirty`, undo stacks); a `Form` cannot
+  persist anything, so a crash mid-check loses heap and nothing else. Pinned by
+  tests: the live form is byte-identical after a run, and a clean change-set
+  yields zero defects.
+
+### Known limits
+
+- **The gate does not yet catch the two defects that motivated it**, and this
+  is measured rather than assumed. A comma numeric literal with no
+  `DECIMAL-POINT IS COMMA` in force does not fail to compile — `VALUE 8,49`
+  lexes as `8` followed by a separator comma, so the item silently takes the
+  value 8. And a `PERFORM` whose target lives in another program is reported by
+  `cobolt-semantic` as a **warning**, not an error, so the gate filters it out.
+  Both are pinned as tests asserting today's behaviour, each naming what would
+  have to change to flip it. Until then those two belong to the language
+  contract and the reviewer.
+
 ## [PowerRustCOBOL 1.55.3] — 2026-08-02
 
 ### Changed
