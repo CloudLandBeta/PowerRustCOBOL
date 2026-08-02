@@ -173,6 +173,18 @@ const CHROME_STROKE: f32 = 1.0;
 const CHROME_ITEM_SPACING: f32 = 8.0;
 const CHROME_HEADING_FONT: f32 = 25.0;
 
+/// The window's chrome to the LEFT and RIGHT of its content: the outer
+/// `Frame::window` margin and stroke, plus the body's own nested margin.
+///
+/// `window_size` is handed to `Window::fixed_size`, which sizes the window's
+/// OUTER footprint, while `state.width` is what the two COLUMNS inside are laid
+/// out at. Without this term the columns would be asked to fit an inner area
+/// narrower than themselves and would be clipped at the right edge. While the
+/// window still auto-sized, the omission was invisible — the window simply grew
+/// by the missing margins.
+pub const CHROME_SIDES: f32 =
+    2.0 * (CHROME_WINDOW_MARGIN + CHROME_STROKE) + 2.0 * CHROME_WINDOW_MARGIN;
+
 /// The window's size, from the three state numbers alone.
 ///
 /// This signature IS the guarantee the operator asked for: there is no
@@ -202,7 +214,7 @@ pub fn window_size(font: f32, rows: f32, width: f32) -> egui::Vec2 {
         + CHROME_ITEM_SPACING;
 
     egui::vec2(
-        width.clamp(MIN_WIDTH, MAX_WIDTH),
+        width.clamp(MIN_WIDTH, MAX_WIDTH) + CHROME_SIDES,
         window_chrome
             + row_height(11.5) // the "review_original" heading label
             + original_h
@@ -261,17 +273,24 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
         // egui's own resize is what inflates on its own; the grips below write
         // state instead, and the window is laid out from that state.
         //
-        // `default_size` — not `fixed_size` — because `fixed_size` sets the
-        // window's *outer* footprint (title bar, margins and stroke
-        // included) and egui's own doc comment on it warns the window "may
-        // still auto-resize" past that even with `resizable(false)`. `size`
-        // here is only ever a best-effort SEED (see `window_size`'s doc
-        // comment); the real anti-growth guarantee is that the content below
-        // is bounded by `state` alone, so wherever egui's real auto-size
-        // lands is itself state-bounded, and the window's own grip (at the
-        // end of this closure) is drawn at THAT actual corner.
+        // `fixed_size`, not `default_size`. A `default_size` is a SEED: egui
+        // applies it once and then keeps the window's own stored rect, so a
+        // rect that ever became larger than the state — an older build's
+        // inflation, a stored rect from a previous session — outlives every
+        // correction, and the state-sized content sits inside an oversized
+        // window with dead margins to its right and below it (operator
+        // screenshots, 2026-08-02). Restating the size every frame makes
+        // `state` the one authority for the window as well as its content, so
+        // the two cannot drift apart.
+        //
+        // egui's doc on `fixed_size` warns a window "may still auto-resize"
+        // past it, and that warning is about content that overflows the box.
+        // It cannot bite here: every block below is allocated at a size
+        // computed from `state` alone and clipped to it, so the content can
+        // never ask for more than the box. That bound — not the choice of
+        // sizing call — remains the real anti-growth guarantee.
         .resizable(false)
-        .default_size(size);
+        .fixed_size(size);
     if std::mem::take(&mut state.center_next_frame) {
         let c = ctx.content_rect().center();
         window = window.current_pos(c - size * 0.5);
@@ -663,17 +682,30 @@ mod tests {
 
     /// The window grip moves the width, within its own bounds, and the width
     /// never touches the height.
+    ///
+    /// The returned `x` is the window's OUTER footprint — the columns' own
+    /// `state.width` plus the chrome either side of them — because `show()`
+    /// hands this vector to `Window::fixed_size`. What matters is that it
+    /// tracks `state.width` one for one and is bounded by the same clamps.
     #[test]
     fn the_window_width_is_the_developers_and_is_bounded() {
         let f = DEFAULT_FONT;
         let narrow = window_size(f, MIN_ROWS, MIN_WIDTH);
         let wide = window_size(f, MIN_ROWS, MAX_WIDTH);
-        assert_eq!(narrow.x, MIN_WIDTH);
-        assert_eq!(wide.x, MAX_WIDTH);
+        assert_eq!(narrow.x, MIN_WIDTH + CHROME_SIDES);
+        assert_eq!(wide.x, MAX_WIDTH + CHROME_SIDES);
+        assert_eq!(
+            wide.x - narrow.x,
+            MAX_WIDTH - MIN_WIDTH,
+            "the columns' width must reach the window one for one"
+        );
         assert_eq!(narrow.y, wide.y, "width must not disturb height");
         // A drag past either end stops at the end.
-        assert_eq!(window_size(f, MIN_ROWS, 10.0).x, MIN_WIDTH);
-        assert_eq!(window_size(f, MIN_ROWS, 9_000.0).x, MAX_WIDTH);
+        assert_eq!(window_size(f, MIN_ROWS, 10.0).x, MIN_WIDTH + CHROME_SIDES);
+        assert_eq!(
+            window_size(f, MIN_ROWS, 9_000.0).x,
+            MAX_WIDTH + CHROME_SIDES
+        );
     }
 
     /// A bigger font makes the window taller — the developer asked for that by
@@ -821,6 +853,55 @@ mod tests {
             "a {state_delta}px change in `state.width` produced a {rendered_delta}px \
              change in the rendered window ({narrow} -> {wide}) — the columns are not \
              tracking `state.width` one-to-one"
+        );
+    }
+
+    /// The window must follow `state` back DOWN, not just up.
+    ///
+    /// `default_size` only seeds a window: egui then keeps its own stored
+    /// rect, so a rect that ever grew larger than the state outlived every
+    /// correction. The state-sized columns then sat inside an oversized
+    /// window with dead margin to their right and below them — the operator's
+    /// screenshots of 2026-08-02, where the two text blocks stopped well short
+    /// of the window's border. Rendering wide and then narrow on the SAME
+    /// context is what reproduces it: the second frame must resize the window.
+    #[test]
+    fn the_window_does_not_keep_a_rect_wider_than_its_state() {
+        let tr = crate::i18n::Language::English.tr();
+        let id = egui::Id::new("grace_prompt_review");
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let mut state = PromptReview::new("orig".into(), "rev".into(), vec![]);
+
+        let mut render = |state: &mut PromptReview| -> f32 {
+            for _ in 0..2 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(2400.0, 1600.0),
+                ));
+                let _ = ctx.run_ui(input, |ui| {
+                    let c = ui.ctx().clone();
+                    let _ = show(&c, &tr, state);
+                });
+            }
+            ctx.memory(|m| m.area_rect(id)).expect("window rendered").width()
+        };
+
+        state.width = MAX_WIDTH;
+        let wide = render(&mut state);
+        state.width = MIN_WIDTH;
+        let narrow = render(&mut state);
+
+        assert!(
+            (narrow - (MIN_WIDTH + CHROME_SIDES)).abs() < 2.0,
+            "after a wider frame the window kept {narrow}px instead of following \
+             state back down to {}px — the columns would sit inside dead margin",
+            MIN_WIDTH + CHROME_SIDES
+        );
+        assert!(
+            wide > narrow,
+            "the wide frame ({wide}) should have been wider than the narrow one ({narrow})"
         );
     }
 

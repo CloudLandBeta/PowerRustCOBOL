@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.9] — 2026-08-02
+
+### Fixed
+
+- **The prompt-review modal stopped following its own state.** Its size is
+  meant to come from three state numbers that only a grip drag or a font
+  button writes — but the window was given that size as a `default_size`, and
+  a default is a SEED: egui applies it once and then keeps the window's own
+  stored rect. A rect that ever grew wider than the state therefore outlived
+  every correction, and the state-sized columns sat inside an oversized window
+  with dead margin to their right and below them, the original prompt and the
+  revision editor both stopping well short of the border. The size is restated
+  every frame now (`fixed_size`), so `state` is the one authority for the
+  window as well as for its content and the two cannot drift apart. egui's
+  warning that a window "may still auto-resize" past a fixed size is about
+  content that overflows its box, which cannot happen here: every block is
+  allocated at a size computed from `state` alone and clipped to it.
+- **The window's width left no room for its own margins.** `window_size`
+  added the chrome above and below the content but nothing either side, so the
+  footprint handed to the window was exactly the columns' width. While the
+  window auto-sized this was invisible — it simply grew by the missing
+  margins — but once the size is authoritative the columns no longer fit the
+  inner area and are clipped at the right edge. Both sides are counted now.
+- A test renders the modal wide and then narrow on the same context, which is
+  what reproduces the stored-rect bug, and fails if the window keeps the wider
+  rect instead of following `state` back down.
+
 ## [PowerRustCOBOL 1.55.8] — 2026-08-02
 
 ### Fixed
