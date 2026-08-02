@@ -200,11 +200,6 @@ pub const CHROME_SIDES: f32 =
 /// rendered content's bounding rect, not on this estimate — see the module
 /// doc comment for why that is what actually keeps the window from growing.
 pub fn window_size(font: f32, rows: f32, width: f32) -> egui::Vec2 {
-    let row = row_height(font.clamp(MIN_FONT, MAX_FONT));
-    let rows = rows.clamp(MIN_ROWS, MAX_ROWS);
-    let editor_h = rows * row + 8.0;
-    let original_h = ORIGINAL_ROWS * row + 8.0;
-
     // Outer `Frame::window` margin + stroke, top and bottom, plus the body's
     // own nested `Frame::NONE` margin, top and bottom, plus the title bar
     // (a Heading-sized row) and the item spacing between it and the body.
@@ -215,17 +210,34 @@ pub fn window_size(font: f32, rows: f32, width: f32) -> egui::Vec2 {
 
     egui::vec2(
         width.clamp(MIN_WIDTH, MAX_WIDTH) + CHROME_SIDES,
-        window_chrome
-            + row_height(11.5) // the "review_original" heading label
-            + original_h
-            + 6.0 // the explicit `ui.add_space(6.0)` after the original block
-            + 30.0 // the "review_revised" row, with the A+/A- buttons
-            + editor_h
-            + 4.0 // the explicit `ui.add_space(4.0)` before the hint
-            + hint_h() // the hint's own bounded box, reserved shown or not
-            + 6.0 // the explicit `ui.add_space(6.0)` before the button row
-            + 30.0, // the Submit/Cancel row
+        window_chrome + column_height(font, rows),
     )
+}
+
+/// The text column's own height — everything [`window_size`] adds beyond the
+/// window's chrome, and the exact box `show()` partitions.
+///
+/// `show()` hands this to one `allocate_ui`, then lets `Panel::bottom` take the
+/// hint and the button row out of it and gives the editor whatever is left. So
+/// these terms no longer have to PREDICT the interior: they set how big the box
+/// is, and the split inside it is measured, not estimated. Only the editor's
+/// own term still says how tall the editor wants to be, which is what a grip
+/// drag and the font buttons are for.
+pub fn column_height(font: f32, rows: f32) -> f32 {
+    let row = row_height(font.clamp(MIN_FONT, MAX_FONT));
+    let rows = rows.clamp(MIN_ROWS, MAX_ROWS);
+    let editor_h = rows * row + 8.0;
+    let original_h = ORIGINAL_ROWS * row + 8.0;
+
+    row_height(11.5) // the "review_original" heading label
+        + original_h
+        + 6.0 // the explicit `ui.add_space(6.0)` after the original block
+        + 30.0 // the "review_revised" row, with the A+/A- buttons
+        + editor_h
+        + 4.0 // the space between the editor and the footer
+        + hint_h() // the hint's own bounded box, reserved shown or not
+        + 6.0 // the explicit `ui.add_space(6.0)` before the button row
+        + 30.0 // the Submit/Cancel row
 }
 
 /// A resize grip: the three-line corner mark, its hit area, and its cursor.
@@ -262,9 +274,14 @@ fn grip(ui: &egui::Ui, corner: egui::Pos2, id: &str, cursor: egui::CursorIcon) -
 /// Draw the modal. Returns the developer's decision on the frame they make it.
 pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<ReviewAction> {
     let row = row_height(state.font);
-    let editor_h = state.rows * row + 8.0;
     let original_h = ORIGINAL_ROWS * row + 8.0;
     let size = window_size(state.font, state.rows, state.width);
+    let col_h = column_height(state.font, state.rows);
+    // Whether the hint has anything to say, decided here so the footer can
+    // reserve its box before the editor is laid out. Emptiness only: the
+    // tooltip's byte ranges are still recomputed after `TextEdit` has applied
+    // this frame's edit, which is what keeps them ranges into the live string.
+    let hint_visible = !locate(&state.revised, &state.notes).is_empty();
 
     let mut action = None;
     let mut window = egui::Window::new(tr.review_title)
@@ -319,7 +336,64 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                     .max_width(img_w),
                 );
             });
-            ui.vertical(|ui| {
+            ui.allocate_ui(egui::vec2(text_w, col_h), |ui| {
+                ui.set_min_size(egui::vec2(text_w, col_h));
+                ui.set_max_size(egui::vec2(text_w, col_h));
+
+                // The footer claims its height out of the box FIRST, and the
+                // editor then takes what is left — measured, not predicted.
+                //
+                // Laying the column out top-to-bottom instead meant the
+                // editor's height was an estimate (`rows * font * 1.35 + 8`)
+                // that had to agree with what egui's real font metrics make a
+                // row cost. It does not: on the operator's machine the tenth
+                // row was sliced through the middle and the overflow ran on
+                // under the hint and the buttons (screen recording,
+                // 2026-08-02). A `Panel::bottom` cannot be overrun — whatever
+                // the rows really cost, the editor stops where the footer
+                // begins. This is the same partition `error_modal_body_ui`
+                // uses, for the same reason.
+                egui::Panel::bottom(ui.id().with("grace_review_footer"))
+                    .resizable(false)
+                    .show_separator_line(false)
+                    .frame(egui::Frame::NONE)
+                    .show(ui, |ui| {
+                        // The hint's own bounded, clipped box — reserved at
+                        // the same height whether or not a highlight is
+                        // present, so nothing here depends on the content.
+                        ui.allocate_ui(egui::vec2(text_w, hint_h()), |ui| {
+                            ui.set_min_size(egui::vec2(text_w, hint_h()));
+                            ui.set_max_size(egui::vec2(text_w, hint_h()));
+                            let bounds = ui.max_rect();
+                            ui.shrink_clip_rect(bounds);
+                            if hint_visible {
+                                ui.label(
+                                    egui::RichText::new(tr.review_hint)
+                                        .small()
+                                        .color(egui::Color32::from_gray(150)),
+                                );
+                            }
+                        });
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(
+                                    !state.revised.trim().is_empty(),
+                                    egui::Button::new(tr.review_submit),
+                                )
+                                .clicked()
+                            {
+                                action = Some(ReviewAction::Submit(state.revised.clone()));
+                            }
+                            if ui.button(tr.review_cancel).clicked() {
+                                action = Some(ReviewAction::Cancel);
+                            }
+                        });
+                    });
+
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ui, |ui| {
                 // ── The developer's own words, read-only ──────────────────
                 ui.label(egui::RichText::new(tr.review_original).small().strong());
                 let mut original = state.original.as_str();
@@ -398,6 +472,13 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                     ui.ctx().fonts_mut(|f| f.layout_job(job))
                 };
                 let rows = state.rows as usize;
+                // What the footer left. Inside a box this file forced to
+                // `col_h`, "what remains" is a bound, not the open-ended
+                // remainder of an auto-sizing parent — the distinction the
+                // module doc draws. Taking it measured is what keeps the
+                // editor from running under the footer when egui's real row
+                // height and this file's `row_height` estimate disagree.
+                let editor_h = ui.available_height();
                 let out = ui
                     .allocate_ui(egui::vec2(text_w, editor_h), |ui| {
                         ui.set_min_size(egui::vec2(text_w, editor_h));
@@ -467,44 +548,7 @@ pub fn show(ctx: &egui::Context, tr: &Tr, state: &mut PromptReview) -> Option<Re
                     state.rows = (state.rows + dy / row).clamp(MIN_ROWS, MAX_ROWS);
                 }
 
-                ui.add_space(4.0);
-                // The hint's own bounded, clipped box — reserved at the same
-                // `hint_h()` height regardless of whether a highlight is
-                // present, so the window's height never depends on that
-                // either (it used to, by a few pixels, whenever `highlights`
-                // toggled empty/non-empty — a minor version of the same
-                // content-dependence this file exists to forbid). Clipped so
-                // a translation that wraps to a third line is cut, not left
-                // to spill into the button row below (operator report,
-                // 2026-08-01).
-                ui.allocate_ui(egui::vec2(text_w, hint_h()), |ui| {
-                    ui.set_min_size(egui::vec2(text_w, hint_h()));
-                    ui.set_max_size(egui::vec2(text_w, hint_h()));
-                    let bounds = ui.max_rect();
-                    ui.shrink_clip_rect(bounds);
-                    if !highlights.is_empty() {
-                        ui.label(
-                            egui::RichText::new(tr.review_hint)
-                                .small()
-                                .color(egui::Color32::from_gray(150)),
-                        );
-                    }
-                });
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            !state.revised.trim().is_empty(),
-                            egui::Button::new(tr.review_submit),
-                        )
-                        .clicked()
-                    {
-                        action = Some(ReviewAction::Submit(state.revised.clone()));
-                    }
-                    if ui.button(tr.review_cancel).clicked() {
-                        action = Some(ReviewAction::Cancel);
-                    }
-                });
+                    });
             });
         });
 

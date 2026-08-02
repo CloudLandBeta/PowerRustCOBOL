@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.10] — 2026-08-02
+
+### Fixed
+
+- **The revision editor ran on under the footer.** Its height was an estimate
+  — `rows × font × 1.35 + 8` — that had to agree with what egui's real font
+  metrics make a row cost, and it does not: on the operator's machine the tenth
+  row opened sliced through the middle and the overflow continued under the
+  hint and the buttons (screen recording, 2026-08-02). The column is now one
+  box of a known height, `Panel::bottom` takes the hint and the button row out
+  of it first, and the editor is given what remains. Whatever the rows really
+  cost, the editor stops where the footer begins, because the split is measured
+  rather than predicted — the same partition `error_modal_body_ui` has used
+  since the egui 0.35 upgrade, for the same reason.
+- Taking the remainder is not the "size a child from available space" mistake
+  the module doc forbids: the box it is a remainder OF is forced to
+  `column_height` from `state` alone, so it is a bound, not the open-ended
+  space of an auto-sizing parent. The window still cannot grow because content
+  grew — `column_height` takes no argument through which content could speak.
+
 ## [PowerRustCOBOL 1.55.9] — 2026-08-02
 
 ### Fixed
