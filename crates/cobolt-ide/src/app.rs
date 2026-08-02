@@ -6441,6 +6441,14 @@ impl CoboltApp {
                     self.agent_preview = None;
                 }
             }
+            // "Check proficiency" on a model profile: benchmark that model on
+            // its own (no reviewer — the manager cleared it), with the report
+            // window opening over the manager exactly as it does elsewhere.
+            if let Some(cfg) = act.run_proficiency {
+                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+                self.llm_benchmark_config = Some(cfg.clone());
+                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+            }
             if act.semantic_download_requested && self.semantic_download.is_none() {
                 self.start_semantic_download();
             }

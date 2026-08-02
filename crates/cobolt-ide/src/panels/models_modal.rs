@@ -67,6 +67,9 @@ pub struct ModelsModalAction {
     /// User asked for the semantic search model — the app opens its blocking
     /// download modal.
     pub semantic_download_requested: bool,
+    /// "Check proficiency" on a profile: the resolved config to benchmark, with
+    /// no reviewer, so the run scores this model alone.
+    pub run_proficiency: Option<LlmConfig>,
 }
 
 /// Whether opening the manager on `profile` should fetch its model list without
@@ -297,6 +300,7 @@ impl ModelsModal {
                 .is_some_and(|p| profile_can_list_models(p, &self.key_buf));
         }
         let mut do_test = false;
+        let mut do_proficiency = false;
         let mut do_new = false;
         let mut do_duplicate = false;
         let mut do_delete = false;
@@ -697,6 +701,25 @@ impl ModelsModal {
                                     {
                                         do_test = true;
                                     }
+                                    // The COBOL proficiency check belongs to the
+                                    // MODEL, not to an agent: it scores what this
+                                    // model writes, so a developer comparing two
+                                    // models needs it here, once per profile,
+                                    // rather than reaching it through whichever
+                                    // agent happens to reference the profile.
+                                    if ui
+                                        .add_enabled(
+                                            !draft.model.trim().is_empty(),
+                                            egui::Button::new(format!(
+                                                "🎓 {}",
+                                                tr.agents_check_proficiency
+                                            )),
+                                        )
+                                        .on_hover_text(tr.models_proficiency_hint)
+                                        .clicked()
+                                    {
+                                        do_proficiency = true;
+                                    }
                                     if ui.button(tr.agent_clear_log).clicked() {
                                         do_clear = true;
                                     }
@@ -806,6 +829,20 @@ impl ModelsModal {
                 let mut cfg = p.resolve(llm);
                 cfg.api_key = self.key_buf.clone();
                 self.test_rx = Some(crate::llm::spawn_test(&cfg));
+            }
+        }
+        if do_proficiency {
+            if let Some(p) = self.draft_profile.as_ref() {
+                let mut cfg = p.resolve(llm);
+                cfg.api_key = self.key_buf.clone();
+                // Test THIS model on its own. A reviewer inherited from the
+                // global config would silently turn the run into the tandem
+                // benchmark and score two models as one — the opposite of what
+                // "check this profile" means.
+                cfg.reviewer_provider.clear();
+                cfg.reviewer_endpoint.clear();
+                cfg.reviewer_model.clear();
+                action.run_proficiency = Some(cfg);
             }
         }
         if do_semantic_download {

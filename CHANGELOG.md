@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.3] — 2026-08-02
+
+### Changed
+
+- **The COBOL proficiency check moved from the Agents Manager to the Models
+  Manager**, where it belongs: it scores what a MODEL writes, so it now sits
+  once per model profile, beside Test connection, and two models can be
+  compared directly. Previously it hung off each agent, which meant the same
+  model was benchmarked once per agent referencing it, and Grace — an
+  Orchestrator rather than a Specialist — could not be benchmarked at all
+  because the button was gated on `AgentKind::Specialist`.
+- The per-model run deliberately clears any inherited reviewer, so the result
+  scores that model alone rather than silently becoming the primary+reviewer
+  tandem benchmark.
+
 ## [PowerRustCOBOL 1.55.2] — 2026-08-02
 
 ### Added

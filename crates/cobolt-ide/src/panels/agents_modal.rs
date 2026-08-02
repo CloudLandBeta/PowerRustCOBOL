@@ -98,9 +98,6 @@ pub struct AgentsModal {
     /// `true` once anything changed (enables Apply).
     dirty: bool,
     seeded: usize,
-    /// Set by the detail pane's "Check proficiency" button; drained into the
-    /// returned action after the frame.
-    pending_proficiency: Option<LlmConfig>,
 }
 
 /// What the caller (app.rs) must do after a frame of the modal.
@@ -140,7 +137,6 @@ impl AgentsModal {
             error: None,
             dirty: seeded > 0,
             seeded,
-            pending_proficiency: None,
         };
         m.load_selected(llm);
         m
@@ -344,7 +340,6 @@ impl AgentsModal {
                 }
             });
         self.open &= open;
-        action.run_proficiency = self.pending_proficiency.take();
         action
     }
 
@@ -993,28 +988,14 @@ impl AgentsModal {
                                         }
                                     }
                                 });
-                            // Proficiency check beside the companion dropdown: shown
-                            // ONLY when a pedantic companion is chosen (the check is a
-                            // primary+reviewer tandem). Hidden when set to none.
-                            if agent.kind == AgentKind::Specialist
-                                && agent.companion.is_some()
-                            {
-                                let resolvable = agent
-                                    .model_profile
-                                    .as_ref()
-                                    .and_then(|id| llm.profile(id))
-                                    .is_some();
-                                if ui
-                                    .add_enabled(
-                                        resolvable,
-                                        egui::Button::new(format!("🎓 {}", tr.agents_check_proficiency)),
-                                    )
-                                    .on_hover_text(tr.agents_proficiency_reviewed)
-                                    .clicked()
-                                {
-                                    do_proficiency = true;
-                                }
-                            }
+                            // The COBOL proficiency check moved to the Models
+                            // Manager (1.55.3). It scores what a MODEL writes, so
+                            // it belongs to the profile, once, where two models can
+                            // be compared — not to whichever agents happen to
+                            // reference that profile, where the same model was
+                            // benchmarked repeatedly and Grace, being an
+                            // Orchestrator rather than a Specialist, could not be
+                            // benchmarked at all.
                         });
                         if let Some(p) = pick {
                             match self.db.set_companion(&agent.id, p.as_deref()) {
@@ -1047,14 +1028,6 @@ impl AgentsModal {
             self.seeded = 0;
         }
 
-        // "Check proficiency": persist the edited prompt/key, then resolve this
-        // agent's effective config (its profile + companion-as-reviewer) for the
-        // caller to run the benchmark (spec 031 R9).
-        if do_proficiency {
-            self.stash_selected(llm);
-            self.pending_proficiency =
-                crate::agents_db::agent_effective_config(&self.db, llm, &agent.name);
-        }
     }
 }
 
