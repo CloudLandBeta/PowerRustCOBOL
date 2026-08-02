@@ -15,6 +15,19 @@ See the LICENSE file in the project root for full license information.
 > product context, repo layout, and hard constraints, read `specs/steering/` and
 > `README.md`. For release history, see `CHANGELOG.md`.
 
+> **Superseded — event handling.** This draft binds each UI event to a
+> **paragraph** of one flat program, dispatched with `PERFORM` (see the event
+> loop, the `paragraph` fields, and the `<Event … paragraph="…"/>` form schema
+> below). That was the proof of concept, which predated support for nested
+> programs. It is **not** how the platform works: a form is the outermost
+> program of a COBOL-85 nest, every event handler and every common procedure is
+> a separate nested program, and the dispatcher reaches one with
+> `CALL "<handler-program>"`. `PERFORM` never crosses a program boundary and a
+> `PERFORM` naming a procedure of another program is a compile error. The text
+> below is kept verbatim as a record of the original design — read it as
+> history, never as guidance. Current behaviour is defined by the System
+> Knowledge Base that `cobolt-compiler` publishes.
+
 > **Project name:** **PowerRustCOBOL** (product) · **RustCOBOL** (language) · internal
 > crates use the `cobolt-*` prefix (build-only; never shown in the UI).  
 > **License:** Apache-2.0  

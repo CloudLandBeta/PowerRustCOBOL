@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.8] — 2026-08-02
+
+### Fixed
+
+- **A corrected skill now reaches the projects that need it.** The skills
+  injected into every agent request are seeded per project with
+  `write_if_missing`, so a project created before a correction kept the wrong
+  text for its whole life — including the sentence that told agents to keep
+  `CALL` "only for real runtime/library procedures", which is how a reviewer
+  came to reject a correct `CALL` to a common procedure. A skill file that
+  still matches a superseded default verbatim is now replaced on project open;
+  anything the developer edited is theirs and is never touched. This mirrors
+  how stored agent prompts are already upgraded.
+- **The shipped Knowledge Base said `CALL "<paragraph>"` in a second place.**
+  The controls reference described event dispatch that way in its universal
+  events section, so the phrase was still being retrieved and injected even
+  after the payload section was corrected. It reads `CALL "<handler-program>"`
+  now, and `chunked.data` was rebuilt so the shipped vector store matches.
+- The canonical English guide showed two handlers as paragraphs — a
+  `BTN-GREET--ONCLICK.` label driving controls through the low-level
+  `CALL "COBOL-GET-PROPERTY"` / `"COBOL-SET-PROPERTY"` primitives that the rest
+  of the documentation forbids, and an `FDZ-1--ONFILESDROPPED.` label. Both are
+  now handler bodies using `::`, in the nested-program shape the IDE generates.
+- The historical architecture plan is marked superseded where it matters. It is
+  the May 2026 proof-of-concept draft, and it binds each event to a paragraph
+  of one flat program dispatched with `PERFORM` — the origin of everything this
+  sweep has been removing. Its text is kept verbatim as a record, with a banner
+  saying so, and `cobolt-lexer` no longer points at it as "the full picture".
+
 ## [PowerRustCOBOL 1.55.7] — 2026-08-02
 
 ### Fixed

@@ -42,8 +42,11 @@
 //!    handles string/numeric literals and punctuation; a keyword lookup table
 //!    ([`keywords`] module) classifies identifier-shaped words.
 //!
-//! See the [architecture plan](../../Cobolt_Architecture_Plan.md) for the
-//! full picture.
+//! The [architecture plan](../../Cobolt_Architecture_Plan.md) records the
+//! original May 2026 design; parts of it — event handling above all — describe
+//! a proof of concept the platform has since left behind, so read it as
+//! history. Current behaviour lives in `specs/steering/` and in the System
+//! Knowledge Base that `cobolt-compiler` publishes.
 
 // ── Public modules ────────────────────────────────────────────────────────────
 

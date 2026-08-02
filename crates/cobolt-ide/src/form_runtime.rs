@@ -1349,4 +1349,71 @@ mod form_codegen_roundtrip_tests {
             "onClick handler did not run; DISPLAY output was {display:?}"
         );
     }
+
+    /// The handler pattern the Knowledge Base recommends, end to end: declare a
+    /// paragraph, `PERFORM` it, and end the main flow with `GOBACK.` before it.
+    ///
+    /// Both halves of this were broken until 1.55.7. `PERFORM` resolved against
+    /// the OUTER program, so a handler could not reach a paragraph it declared
+    /// itself; and `GOBACK` was not a keyword, so the terminator parsed as yet
+    /// another paragraph and control fell through and ran STEP again.
+    #[test]
+    fn handler_performs_its_own_paragraph_and_goback_stops_the_fall_through() {
+        let mut form = Form::new("MAIN-FORM", "Demo", 640, 480);
+        let mut btn = Control::new("Button-1", ControlType::Button, 10, 10);
+        let mut ev = EventBinding::for_control("Button-1", "onClick");
+        ev.code = "\
+       ENVIRONMENT DIVISION.\n\
+       DATA DIVISION.\n\
+       WORKING-STORAGE SECTION.\n\n\
+       PROCEDURE DIVISION.\n\
+           PERFORM SHOW-STEP.\n\
+           GOBACK.\n\
+       SHOW-STEP.\n\
+           DISPLAY \"STEP\"."
+            .into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+
+        let src = cobolt_codegen::generate(&form);
+        let pr = parse(tokenize(&src, SourceFormat::Free));
+        let perrs: Vec<_> = pr
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == PSev::Error)
+            .collect();
+        assert!(perrs.is_empty(), "parse errors:\n{perrs:#?}\n--- src ---\n{src}");
+
+        let program = pr.program.expect("no program recovered");
+        let sem = analyze(&program);
+        let serrs: Vec<_> = sem.errors().collect();
+        assert!(
+            serrs.is_empty(),
+            "a handler PERFORMing its own paragraph must analyze cleanly:\n{serrs:#?}"
+        );
+
+        let (event_tx, event_rx) = mpsc::channel::<FormEvent>();
+        let (state_tx, _state_rx) = mpsc::channel();
+        let (display_tx, display_rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let mut interp =
+                Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+            let _ = interp.run();
+        });
+
+        event_tx.send(FormEvent::click("Button-1")).unwrap();
+        event_tx.send(FormEvent::quit()).unwrap();
+        handle.join().expect("interpreter thread panicked");
+
+        let steps = display_rx
+            .try_iter()
+            .filter(|line| line.trim() == "STEP")
+            .count();
+        assert_eq!(
+            steps, 1,
+            "SHOW-STEP must run exactly once — 0 means PERFORM could not reach \
+             the handler's own paragraph, 2 means GOBACK failed to stop the \
+             fall-through into it"
+        );
+    }
 }

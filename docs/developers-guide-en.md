@@ -1262,7 +1262,7 @@ programmatically — it is purely a UI gesture. Read the result the normal
 way once the event fires:
 
 ```cobol
-       FDZ-1--ONFILESDROPPED.
+      *>   in the FDZ-1 onFilesDropped handler:
            MOVE FDZ-1::DroppedFiles TO WS-PATHS
       *>   WS-PATHS is newline-separated; UNSTRING or SEARCH it as usual.
 ```
@@ -1844,19 +1844,31 @@ syntax above:
 | `"COBOL-GET-PROPERTY"` | Read a control property into a data item. |
 | `"COBOL-SET-PROPERTY"` | Write a control property from a data item. |
 
-A typical handler that reads a text box and updates a label:
+A handler is a nested program, not a paragraph, and its body is what you write
+— the IDE supplies the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the
+`END PROGRAM` terminator. The same greeting handler, using `::`:
 
 ```cobol
-       BTN-GREET--ONCLICK.
-           CALL "COBOL-GET-PROPERTY"
-               USING "TXT-NAME" "Text" WS-NAME.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAME     PIC X(40).
+       01 WS-MESSAGE  PIC X(60).
+
+       PROCEDURE DIVISION.
+           MOVE TXT-NAME::Text TO WS-NAME.
            STRING "Hello, " DELIMITED BY SIZE
                   WS-NAME    DELIMITED BY SPACE
                   INTO WS-MESSAGE.
-           CALL "COBOL-SET-PROPERTY"
-               USING "LBL-OUT" "Caption" WS-MESSAGE.
+           SET LBL-OUT::Caption TO WS-MESSAGE.
            GOBACK.
 ```
+
+Written with the `CALL` primitives instead, the two property lines would read
+`CALL "COBOL-GET-PROPERTY" USING "TXT-NAME" "Text" WS-NAME` and
+`CALL "COBOL-SET-PROPERTY" USING "LBL-OUT" "Caption" WS-MESSAGE`. They still
+work, but `::` is the form to write — the agents are instructed never to emit
+these primitives for control access.
 
 Other built-in services available via `CALL` (covered in their sections):
 

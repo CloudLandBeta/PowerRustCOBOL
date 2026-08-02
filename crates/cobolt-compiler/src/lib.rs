@@ -2701,8 +2701,9 @@ fn controls_reference_doc() -> String {
         doc.push_str(&format!("- `{ev}` — {desc}\n"));
     }
     doc.push_str(
-        "\nEvent handlers carry NO parameters. The dispatcher calls a handler as \
-         `CALL \"<paragraph>\"` with no arguments, so its `LINKAGE SECTION` is empty and its \
+        "\nEvent handlers carry NO parameters. A handler is a nested program, and the \
+         dispatcher calls it as `CALL \"<handler-program>\"` with no arguments, so its \
+         `LINKAGE SECTION` is empty and its \
          header is a plain `PROCEDURE DIVISION.`. The single exception is a control inside a \
          REPEATING GROUP, which is called `USING CONTROL-ARRAY-INDEX` (`PIC S9(4) COMP-5`, the \
          1-based index of the card that fired) and writes \

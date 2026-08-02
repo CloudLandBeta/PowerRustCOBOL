@@ -1123,6 +1123,73 @@ fn write_if_missing(path: &Path, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
 
+/// Superseded `EVENT_HANDLER_SKILL` texts. The 1.55.6 one taught `CALL` as
+/// something reserved for "runtime/library procedures", which is how a reviewer
+/// came to reject a correct `CALL` to a common procedure as a hallucination.
+const LEGACY_EVENT_HANDLER_SKILLS: &[&str] = &[r#"# COBOL Event Handler Script Agent Skill
+
+Generate event-handler COBOL that is valid in the PowerRustCOBOL nested-program body edited by the IDE.
+
+Expected shape:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-VALUE PIC X(80).
+       PROCEDURE DIVISION.
+           *> code here
+```
+
+Use inline control access:
+
+```cobol
+       SET Button-1::Text TO "Save".
+       SET Panel-1::ShadowEnabled TO 1.
+       Button-1::Refresh().
+```
+
+Do not use `CALL` for form/control methods or properties. Keep `CALL` only for real runtime/library procedures that have no inline method equivalent.
+"#];
+
+/// Superseded `RUSTCOBOL_SKILL` texts — silent on the nest, so nothing told an
+/// agent which verb reaches a common procedure.
+const LEGACY_RUSTCOBOL_SKILLS: &[&str] = &[r#"# PowerRustCOBOL Extensions Skill
+
+PowerRustCOBOL extends COBOL-85 with inline form/control access:
+
+- Get a property with `<control>::<property>`.
+- Set a property with `SET <control>::<property> TO <value>`.
+- Invoke a method with `<control>::<method>(<parameters>)`.
+
+Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, paragraph structure, and existing user code.
+"#];
+
+/// Seed the file, and also replace it when it still holds a superseded default
+/// verbatim.
+///
+/// `write_if_missing` alone means a project created before a correction keeps
+/// the wrong text for the life of the project — and these skills are injected
+/// into every request, so a stale one keeps teaching the dead paragraph model
+/// no matter how many times the platform is fixed. A file that matches a
+/// superseded default exactly was never touched by the developer, so replacing
+/// it loses nothing; anything else is theirs and is left alone. This mirrors
+/// how stored agent PROMPTS are upgraded on project open (`agents_db`'s
+/// `prompt_is_unmodified_legacy`).
+fn write_or_refresh(path: &Path, content: &str, superseded: &[&str]) -> Result<(), String> {
+    match std::fs::read_to_string(path) {
+        Ok(existing) => {
+            let is_untouched_default = superseded.iter().any(|old| existing.trim() == old.trim());
+            if is_untouched_default && existing.trim() != content.trim() {
+                return std::fs::write(path, content)
+                    .map_err(|e| format!("Could not write {}: {e}", path.display()));
+            }
+            Ok(())
+        }
+        Err(_) => write_if_missing(path, content),
+    }
+}
+
 /// Create the project-local editable agent files if they do not exist yet.
 pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
     if project_dir.as_os_str().is_empty() {
@@ -1133,7 +1200,11 @@ pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
     let form_skills = form_dir.join(SKILLS_DIR);
     write_if_missing(&form_dir.join(PROMPT_FILE), &default_form_designer_prompt())?;
     write_if_missing(&form_dir.join(STEERING_FILE), FORM_DESIGNER_STEERING)?;
-    write_if_missing(&form_skills.join(RUSTCOBOL_SKILL_FILE), RUSTCOBOL_SKILL)?;
+    write_or_refresh(
+        &form_skills.join(RUSTCOBOL_SKILL_FILE),
+        RUSTCOBOL_SKILL,
+        LEGACY_RUSTCOBOL_SKILLS,
+    )?;
     write_if_missing(
         &form_skills.join(FORM_DESIGNER_SKILL_FILE),
         FORM_DESIGNER_SKILL,
@@ -1146,10 +1217,15 @@ pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
         &default_event_handler_prompt(),
     )?;
     write_if_missing(&event_dir.join(STEERING_FILE), EVENT_HANDLER_STEERING)?;
-    write_if_missing(&event_skills.join(RUSTCOBOL_SKILL_FILE), RUSTCOBOL_SKILL)?;
-    write_if_missing(
+    write_or_refresh(
+        &event_skills.join(RUSTCOBOL_SKILL_FILE),
+        RUSTCOBOL_SKILL,
+        LEGACY_RUSTCOBOL_SKILLS,
+    )?;
+    write_or_refresh(
         &event_skills.join(EVENT_HANDLER_SKILL_FILE),
         EVENT_HANDLER_SKILL,
+        LEGACY_EVENT_HANDLER_SKILLS,
     )?;
     Ok(())
 }
@@ -1711,6 +1787,53 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A project seeded before the correction still holds the skill that told
+    /// agents to keep `CALL` "only for real runtime/library procedures" — the
+    /// sentence behind a reviewer rejecting a correct `CALL` to a common
+    /// procedure. `write_if_missing` would leave it there for the life of the
+    /// project, so an untouched default has to be replaced on open.
+    #[test]
+    fn an_untouched_default_skill_is_refreshed_but_a_developer_edit_is_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "prc-skill-refresh-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // An untouched superseded default is replaced…
+        let stale = dir.join("event-handler.md");
+        std::fs::write(&stale, LEGACY_EVENT_HANDLER_SKILLS[0]).unwrap();
+        write_or_refresh(&stale, EVENT_HANDLER_SKILL, LEGACY_EVENT_HANDLER_SKILLS).unwrap();
+        let refreshed = std::fs::read_to_string(&stale).unwrap();
+        assert!(
+            refreshed.contains("CALL \"VALIDATE-INPUT\"") && refreshed.contains("nested program"),
+            "the superseded skill should have been replaced, got:\n{refreshed}"
+        );
+        assert!(
+            !refreshed.contains("only for real runtime/library procedures"),
+            "the sentence that caused the false rejection must be gone"
+        );
+
+        // …but anything the developer wrote is theirs and survives untouched.
+        let owned = dir.join("mine.md");
+        std::fs::write(&owned, "# My own skill\n\nHouse rules.\n").unwrap();
+        write_or_refresh(&owned, EVENT_HANDLER_SKILL, LEGACY_EVENT_HANDLER_SKILLS).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&owned).unwrap(),
+            "# My own skill\n\nHouse rules.\n",
+            "a developer-edited skill must never be overwritten"
+        );
+
+        // A missing file is still seeded.
+        let fresh = dir.join("new.md");
+        write_or_refresh(&fresh, RUSTCOBOL_SKILL, LEGACY_RUSTCOBOL_SKILLS).unwrap();
+        assert!(std::fs::read_to_string(&fresh).unwrap().contains("CALL \"NAME\""));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// `(X, Y)` of a deploy op, as the applier would read them back.
     fn xy(op: &AgentOp) -> (Option<i64>, Option<i64>) {
