@@ -215,7 +215,9 @@ pub fn compile_defects(
             out.extend(
                 sem.diagnostics
                     .iter()
-                    .filter(|d| d.severity == cobolt_semantic::Severity::Error)
+                    .filter(|d| {
+                        d.severity == cobolt_semantic::Severity::Error || admitted_warning(d)
+                    })
                     .map(|d| CompileDefect {
                         op: attribute(cs, &source, &user_lines, d.span.line),
                         message: d.message.clone(),
@@ -224,6 +226,28 @@ pub fn compile_defects(
         }
     }
     out
+}
+
+/// Warnings are excluded from this gate on principle — a warning is not proof,
+/// and spending a correction round on one is the tax the gate exists to remove.
+/// This is the single, deliberate exception.
+///
+/// `cobolt-semantic` classifies an unresolved `PERFORM`/`GO TO` target as a
+/// warning. For hand-written COBOL that is a defensible choice; for a change-set
+/// it is not. A `PERFORM` naming a paragraph that does not exist in the body it
+/// sits in cannot become right at runtime — it is the exact deadlock the
+/// reviewer created by demanding `PERFORM UPDATE-RECEIPT` for a common
+/// procedure, which is a SEPARATE nested program reachable only by `CALL`.
+/// Three correction rounds went on arguing about it. Admitting this one
+/// diagnostic settles it with a fact.
+///
+/// Kept deliberately narrow: matching the analyzer's own wording rather than
+/// promoting the severity crate-wide, which would change what `runner` refuses
+/// to execute and could reject COBOL that runs today.
+fn admitted_warning(d: &cobolt_semantic::SemanticDiagnostic) -> bool {
+    d.severity == cobolt_semantic::Severity::Warning
+        && d.message.contains("paragraph or section")
+        && d.message.contains("is not defined")
 }
 
 /// Map a 1-based line of the generated source back to the operation whose body
@@ -338,15 +362,23 @@ mod tests {
         assert!(live.cobol_structure.special_names.trim().is_empty());
     }
 
-    /// MEASURED, not assumed: the analyzer does NOT currently reject a
-    /// `PERFORM` whose target is in another program — the exact question that
-    /// deadlocked the observed workflow, and the one I expected the gate to
-    /// settle. It does not. Until `cobolt-semantic` resolves paragraph targets
-    /// per program, this stays with the contract and the reviewer.
+    /// MEASURED twice, and the second measurement moved the diagnosis.
     ///
-    /// The test pins today's behaviour deliberately: when the analyzer gains
-    /// the check, this fails and is flipped to the positive assertion, which is
-    /// the moment the gate starts earning its keep on the correction loop.
+    /// A dangling `PERFORM` is still not proven, but the reason is NOT the
+    /// severity: [`admitted_warning`] now accepts that warning as proof, and
+    /// this test still passes. `cobolt-semantic` never walks nested programs at
+    /// all — `analyze()` sees only the outer program — so a handler body, which
+    /// is exactly where every agent-written statement lives, is never
+    /// semantically analyzed. The severity was a symptom; the missing traversal
+    /// is the cause.
+    ///
+    /// So the gate's semantic layer covers the FORM's own code and nothing
+    /// else. Its parse layer does cover handler bodies — the whole generated
+    /// file is parsed in one pass — which is why the comma-literal defect is
+    /// caught and this one is not.
+    ///
+    /// Flip this when `cobolt-semantic` analyzes contained programs. That, not
+    /// the severity, is the change that makes the gate settle the deadlock.
     #[test]
     fn a_dangling_perform_is_not_yet_proven_by_the_analyzer() {
         let cs = parse_change_set(
