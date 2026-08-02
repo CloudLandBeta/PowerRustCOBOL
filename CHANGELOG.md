@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.55.5] — 2026-08-02
+
+### Fixed
+
+- **A comma decimal written without `DECIMAL-POINT IS COMMA` no longer passes
+  in silence.** `VALUE 8,49` with the clause absent was read as `8` followed by
+  a separator comma, so the item quietly took the value 8 and nothing said a
+  word. It is neither a valid numeric literal — the decimal point is `.`
+  without the clause — nor a valid separator comma, which COBOL-85 requires to
+  be followed by a space. The parser now raises an error naming the literal, the
+  clause, and where it belongs: the OUTERMOST program, which in a RAD project is
+  the form and never a nested handler or procedure.
+- The check is deliberately narrow: it fires only on the space-less
+  `<integer>,<integer>` adjacency, the exact shape that cannot mean anything
+  else. A comma followed by a space is still a separator and is untouched, as is
+  every `8.49`-style literal.
+- This flips the first of the two limits recorded in 1.55.4 — the compile-check
+  gate now proves this defect and attributes it to the operation carrying it,
+  before a review round is spent. The second (a `PERFORM` whose target is in
+  another program, reported by `cobolt-semantic` as a warning) still stands.
+
 ## [PowerRustCOBOL 1.55.4] — 2026-08-02
 
 ### Added

@@ -105,6 +105,29 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
                         return Some((Literal::Decimal(mantissa, scale), span));
                     }
                 }
+            } else if let (Token::Comma, Token::IntegerLiteral(frac)) =
+                (p.peek_at(1).clone(), p.peek_at(2).clone())
+            {
+                // The SAME adjacency, with the clause absent. `8,49` is then
+                // neither a numeric literal (the decimal point is `.` here) nor
+                // a separator comma (COBOL-85 requires a space after one), so
+                // it can only be a comma decimal written without declaring the
+                // convention. Taking the `8` and dropping `,49` silently gave
+                // the item a wrong value that nothing reported — say what is
+                // wrong and, above all, where to fix it.
+                let int_end = p.peek_span().end;
+                let comma_sp = p.peek_span_at(1);
+                let frac_sp = p.peek_span_at(2);
+                if comma_sp.start == int_end && frac_sp.start == comma_sp.end {
+                    p.emit_error(format!(
+                        "'{n},{frac}' reads as a comma decimal separator, but this \
+                         compilation unit does not declare it. A comma is only a \
+                         decimal point under `SPECIAL-NAMES. DECIMAL-POINT IS COMMA.`, \
+                         which COBOL-85 allows only in the OUTERMOST program — on the \
+                         form, not in a nested handler or procedure. Add it there, or \
+                         write the literal as '{n}.{frac}'."
+                    ));
+                }
             }
             p.advance();
             Some((Literal::Integer(n), span))

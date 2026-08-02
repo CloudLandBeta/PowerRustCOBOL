@@ -364,24 +364,39 @@ mod tests {
         );
     }
 
-    /// A limit worth stating rather than discovering later: a comma numeric
-    /// literal with no `DECIMAL-POINT IS COMMA` in force does NOT fail to
-    /// compile. `VALUE 8,49` lexes as `8` followed by a separator comma, so the
-    /// item silently takes the value 8. The gate proves what the toolchain
-    /// proves; a silently-wrong value is not in that set and still needs the
-    /// contract rule and the reviewer.
+    /// `VALUE 8,49` with no `DECIMAL-POINT IS COMMA` in force used to take the
+    /// value 8 in silence — neither a valid numeric literal (the decimal point
+    /// is `.` here) nor a valid separator comma (COBOL-85 wants a space after
+    /// one), and reported by nobody. The parser now names it and says where to
+    /// declare the convention, and the gate proves it before a review round is
+    /// spent.
     #[test]
-    fn a_comma_literal_is_silently_truncated_not_a_compile_error() {
-        let cs = parse_change_set(
-            r#"{"operations":[
+    fn a_comma_literal_without_the_clause_is_proven_wrong() {
+        let handler = r#"{"operations":[
   {"op":"deploy_control","control_type":"CheckBox","id":"CHK-1","properties":{}},
   {"op":"generate_event_handler","control_id":"CHK-1","event":"onCheckedChanged","code":"       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-PRICE  PIC 9(5)V99 VALUE 8,49.\n\n       PROCEDURE DIVISION.\n           CONTINUE."}
-]}"#,
-        )
-        .unwrap();
+]}"#;
+        let defects = compile_defects(&form(), &[], &parse_change_set(handler).unwrap());
+        assert!(!defects.is_empty(), "the comma literal must be caught");
         assert!(
-            compile_defects(&form(), &[], &cs).is_empty(),
-            "documents a real blind spot: the compiler does not reject this"
+            defects.iter().any(|d| d.message.contains("DECIMAL-POINT IS COMMA")),
+            "the diagnostic must point at the cause: {defects:?}"
+        );
+        assert!(
+            defects.iter().any(|d| d.op.as_deref()
+                == Some("generate_event_handler CHK-1.onCheckedChanged")),
+            "and at the operation carrying it: {defects:?}"
+        );
+
+        // And the SAME code is legal once the change-set declares the
+        // convention on the form — which is what `set_form_structure` is for.
+        let with_clause = handler.replace(
+            r#"{"operations":["#,
+            "{\"operations\":[\n  {\"op\":\"set_form_structure\",\"block\":\"SPECIAL-NAMES\",\"code\":\"       DECIMAL-POINT IS COMMA.\"},",
+        );
+        assert!(
+            compile_defects(&form(), &[], &parse_change_set(&with_clause).unwrap()).is_empty(),
+            "with the clause in force, 8,49 is a decimal literal"
         );
     }
 
