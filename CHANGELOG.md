@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.0] — 2026-08-02
+
+### Added
+
+- **Token counts while a model is working.** The "Thinking…" indicator now
+  carries an `↑input ↓output` reading, so a wait shows what it is costing
+  instead of only that it is happening. It appears on Grace's live action line
+  and thinking balloon, in the Grace chat and the main pane, and on the editor
+  and Form Designer assistant spinners. Hovering gives the exact figures.
+- **A process-wide token meter, fed by the one funnel every call passes
+  through.** `record_last_model_call`'s doc had claimed that funnel for a while,
+  but only the Grace workflow ever passed a token sink — the editor, the
+  designer, the prompt review, history compaction and the benchmark all
+  completed calls that nothing counted, which is why those surfaces had nothing
+  to show. Usage is now accumulated for every caller, sink or no sink, and the
+  Grace per-run footer keeps its own separate totals as before.
+
+### Note on what the number means
+
+Providers report usage when a call RETURNS, so this counts completed calls: a
+single request sits still and then jumps, while a Grace run — many calls —
+climbs steadily. It is not a per-token ticker, and showing one would mean
+counting streamed chunks and still not knowing the input until the call closed.
+
 ## [PowerRustCOBOL 1.55.10] — 2026-08-02
 
 ### Fixed

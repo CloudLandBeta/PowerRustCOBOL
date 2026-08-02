@@ -2687,12 +2687,17 @@ impl CoboltApp {
                             if grace_running {
                                 match &grace_current_action {
                                     Some(action) => crate::panels::editor::chat_current_action(
-                                        ui, action, tr, 13.0,
+                                        ui,
+                                        action,
+                                        tr,
+                                        13.0,
+                                        grace_tokens,
                                     ),
                                     None => crate::panels::editor::chat_thinking_indicator(
                                         ui,
                                         tr.ai_thinking,
                                         13.0,
+                                        grace_tokens,
                                     ),
                                 }
                                 if let Some((done, total, _)) = &grace_indexing {

@@ -1211,7 +1211,12 @@ pub(crate) fn looks_like_markdown(content: &str) -> bool {
 /// leave the visuals' "strong" text DARK while the chat backdrop is dark too,
 /// which rendered the indicator as an empty dark pill with an invisible
 /// spinner. What the balloons do to stay readable, the indicator does.
-pub(crate) fn chat_thinking_indicator(ui: &mut egui::Ui, label: &str, font_size: f32) {
+pub(crate) fn chat_thinking_indicator(
+    ui: &mut egui::Ui,
+    label: &str,
+    font_size: f32,
+    tokens: Option<(u64, u64)>,
+) {
     let fill = chat_bubble_fill(false);
     let fg = Color32::WHITE;
     ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
@@ -1228,9 +1233,44 @@ pub(crate) fn chat_thinking_indicator(ui: &mut egui::Ui, label: &str, font_size:
                         .strong()
                         .color(fg),
                 );
+                token_counter(ui, tokens, font_size, fg);
             });
     });
     ui.add_space(5.0);
+}
+
+/// The `↑in ↓out` counter shown while a model is working.
+///
+/// Drawn only when something has been counted, so a surface with no totals
+/// yet — the first call of a session, before the provider has reported any
+/// usage — shows the spinner alone rather than a misleading `↑0 ↓0`.
+///
+/// The same white the label uses, dimmed: it is a secondary reading beside the
+/// status text, and the balloon palette is hardcoded here for the reason the
+/// indicator's own doc gives — the glass themes make `ui.visuals()` unreliable
+/// against this backdrop.
+pub(crate) fn token_counter(
+    ui: &mut egui::Ui,
+    tokens: Option<(u64, u64)>,
+    font_size: f32,
+    fg: Color32,
+) {
+    let Some((input, output)) = tokens.filter(|(i, o)| *i > 0 || *o > 0) else {
+        return;
+    };
+    ui.add_space(8.0);
+    ui.label(
+        egui::RichText::new(format!(
+            "↑{} ↓{}",
+            crate::llm::compact_tokens(input),
+            crate::llm::compact_tokens(output)
+        ))
+        .size(font_size - 1.0)
+        .color(fg.gamma_multiply(0.75)),
+    )
+    .on_hover_text(format!(
+        "{input} input / {output} output tokens, counted as each model call returns"
+    ));
 }
 
 /// Spec 036 R1: the live current-action line — the same high-contrast
@@ -1243,8 +1283,9 @@ pub(crate) fn chat_current_action(
     action: &crate::agent_actions::AgentAction,
     tr: &crate::i18n::Tr,
     font_size: f32,
+    tokens: Option<(u64, u64)>,
 ) {
-    chat_thinking_indicator(ui, &action.display_line(tr), font_size);
+    chat_thinking_indicator(ui, &action.display_line(tr), font_size, tokens);
 }
 
 /// Live Knowledge Base indexing progress bar: shown while chunk records are
@@ -2279,6 +2320,16 @@ impl EditorPanel {
                         egui::RichText::new(msg)
                             .small()
                             .color(Color32::from_gray(170)),
+                    );
+                    // This surface runs one call at a time and keeps no
+                    // accumulator of its own, so it reads the process-wide
+                    // meter: the session's running total, which moves when
+                    // this request returns.
+                    token_counter(
+                        ui,
+                        Some(crate::llm::token_meter()),
+                        11.0,
+                        Color32::from_gray(170),
                     );
                 }
                 if history_len > 0 {

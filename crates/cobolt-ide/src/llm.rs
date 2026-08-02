@@ -1001,6 +1001,45 @@ pub fn last_model_call() -> Option<LastModelCall> {
     LAST_MODEL_CALL.lock().ok().and_then(|slot| slot.clone())
 }
 
+/// Cumulative `(input, output)` tokens across every model call this process has
+/// completed, from every surface — the editor, the designer, the prompt review,
+/// history compaction, the benchmark and the Grace workflow alike.
+///
+/// Fed at the one funnel all of them pass through ([`accumulate_tokens`]), so a
+/// new chat surface needs no plumbing of its own to show a token count.
+///
+/// It counts COMPLETED calls, because that is when a provider reports usage: a
+/// call in flight contributes nothing until it returns, and the figure then
+/// jumps rather than ticking. A Grace run makes many calls and so appears to
+/// climb steadily; a single editor request sits still and then moves once.
+static TOKEN_METER: LazyLock<Mutex<(u64, u64)>> = LazyLock::new(|| Mutex::new((0, 0)));
+
+fn add_to_token_meter(input: u64, output: u64) {
+    if let Ok(mut m) = TOKEN_METER.lock() {
+        m.0 += input;
+        m.1 += output;
+    }
+}
+
+/// The process-wide cumulative `(input, output)` token totals.
+pub fn token_meter() -> (u64, u64) {
+    TOKEN_METER.lock().map(|m| *m).unwrap_or((0, 0))
+}
+
+/// A token count for a status line: `1.2k` past a thousand, the plain number
+/// below it, so the indicator's width barely moves as the count climbs.
+pub fn compact_tokens(n: u64) -> String {
+    if n < 1000 {
+        return n.to_string();
+    }
+    let thousands = n as f64 / 1000.0;
+    if thousands < 100.0 {
+        format!("{thousands:.1}k")
+    } else {
+        format!("{}k", thousands.round() as u64)
+    }
+}
+
 /// Advertised context-window size for a model id, in tokens — a display
 /// heuristic for the chat footer's usage gauge, NOT a request limit. Matched
 /// on well-known model-name substrings; unknown models get the 128k that is
@@ -1354,12 +1393,11 @@ fn run_mesh_request(
 /// Parse a "tokens: N in / M out" (or "tokens: N in" / "tokens: N out") agent
 /// log line and add the counts to `sink`. Best-effort: unrecognised lines are
 /// ignored, so token totals degrade to 0 rather than breaking.
-fn accumulate_tokens(sink: &Option<std::sync::Arc<std::sync::Mutex<(u64, u64)>>>, line: &str) {
-    let Some(sink) = sink else { return };
+/// The `tokens: N in M out` trace line every provider path emits when a call
+/// returns, as `(input, output)`. `None` for any other line.
+fn parse_token_line(line: &str) -> Option<(u64, u64)> {
     let line = line.strip_prefix("Verbose: ").unwrap_or(line);
-    let Some(rest) = line.strip_prefix("tokens:") else {
-        return;
-    };
+    let rest = line.strip_prefix("tokens:")?;
     let toks: Vec<&str> = rest.split_whitespace().collect();
     let mut inp = 0u64;
     let mut out = 0u64;
@@ -1372,7 +1410,22 @@ fn accumulate_tokens(sink: &Option<std::sync::Arc<std::sync::Mutex<(u64, u64)>>>
             }
         }
     }
-    if (inp > 0 || out > 0) && sink.lock().map(|mut g| { g.0 += inp; g.1 += out; }).is_ok() {}
+    (inp > 0 || out > 0).then_some((inp, out))
+}
+
+fn accumulate_tokens(sink: &Option<std::sync::Arc<std::sync::Mutex<(u64, u64)>>>, line: &str) {
+    let Some((inp, out)) = parse_token_line(line) else {
+        return;
+    };
+    // Every caller of this funnel feeds the process-wide meter, whether or not
+    // it brought a sink of its own. Only the Grace workflow passes a sink, so
+    // before this the editor, the designer, the prompt review, compaction and
+    // the benchmark all completed calls that nothing counted — and their
+    // spinners had nothing to show.
+    add_to_token_meter(inp, out);
+    if let Some(sink) = sink {
+        if sink.lock().map(|mut g| { g.0 += inp; g.1 += out; }).is_ok() {}
+    }
 }
 
 fn truncate_for_log(s: &str, max: usize) -> String {
@@ -5757,6 +5810,49 @@ mod extract_code_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every caller of the request funnel feeds the process-wide meter, not
+    /// just the one that brings a sink. Before this, only the Grace workflow
+    /// passed a sink, so the editor, designer, prompt-review, compaction and
+    /// benchmark calls were counted nowhere and their spinners had nothing to
+    /// show.
+    #[test]
+    fn the_token_meter_counts_a_call_that_brought_no_sink_of_its_own() {
+        let (in0, out0) = token_meter();
+
+        // No sink — the editor/designer shape.
+        accumulate_tokens(&None, "tokens: 120 in 45 out");
+        assert_eq!(token_meter(), (in0 + 120, out0 + 45));
+
+        // With a sink — the Grace shape. Both the sink and the meter move, so
+        // the per-run footer and the process-wide counter stay consistent.
+        let sink = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64)));
+        accumulate_tokens(&Some(sink.clone()), "Verbose: tokens: 10 in 7 out");
+        assert_eq!(*sink.lock().unwrap(), (10, 7));
+        assert_eq!(token_meter(), (in0 + 130, out0 + 52));
+
+        // A line that is not a token report leaves both alone.
+        accumulate_tokens(&None, "agent · routing → Form Designer");
+        assert_eq!(token_meter(), (in0 + 130, out0 + 52));
+    }
+
+    /// The counter is a status line, so it must not shove the layout about as
+    /// the numbers climb.
+    #[test]
+    fn compact_tokens_stays_narrow() {
+        assert_eq!(compact_tokens(0), "0");
+        assert_eq!(compact_tokens(999), "999");
+        assert_eq!(compact_tokens(1_000), "1.0k");
+        assert_eq!(compact_tokens(12_400), "12.4k");
+        assert_eq!(compact_tokens(1_250_000), "1250k");
+        for n in [0, 1, 999, 1_000, 45_678, 9_999_999] {
+            assert!(
+                compact_tokens(n).len() <= 6,
+                "{n} rendered as {}",
+                compact_tokens(n)
+            );
+        }
+    }
 
     fn ollama_profile() -> ModelProfile {
         ModelProfile {

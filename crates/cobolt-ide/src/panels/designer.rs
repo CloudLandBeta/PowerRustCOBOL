@@ -4603,6 +4603,7 @@ impl DesignerPanel {
                                             ui,
                                             tr.ai_thinking,
                                             history_font_size,
+                                            Some(crate::llm::token_meter()),
                                         );
                                     }
                                     if follow_transcript {
@@ -8222,6 +8223,12 @@ impl DesignerPanel {
                                     egui::RichText::new(tr.ai_thinking)
                                         .small()
                                         .color(Color32::from_gray(170)),
+                                );
+                                crate::panels::editor::token_counter(
+                                    ui,
+                                    Some(crate::llm::token_meter()),
+                                    11.0,
+                                    Color32::from_gray(170),
                                 );
                             }
                         });

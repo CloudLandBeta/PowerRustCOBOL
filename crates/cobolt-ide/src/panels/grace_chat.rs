@@ -585,11 +585,13 @@ impl GraceChatPanel {
                                 action,
                                 tr,
                                 self.history_font_size,
+                                token_totals,
                             ),
                             None => crate::panels::editor::chat_thinking_indicator(
                                 ui,
                                 tr.ai_thinking,
                                 self.history_font_size,
+                                token_totals,
                             ),
                         }
                         // Chunk-embedding progress: a live bar while records
