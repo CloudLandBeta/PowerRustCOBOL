@@ -55,6 +55,13 @@ layout live in `AGENTS.md`; this file is the do/don't list.)
 
 ## Forum publishing — cobolforo.es (vBulletin 3.8.7)
 
+- **GOLDEN RULE #4 — publish ONLY from `main`.** A release post is an invitation
+  to download and try the build, and a reader must never have to work out which
+  branch carries what. Nothing is announced until it is merged to `main`; if the
+  work sits on `features` or `fixes`, merge first (asking when the merge is not
+  already sanctioned) and publish afterwards. A post describing work that is not
+  on `main` is wrong even when every word of it is accurate.
+
 - The board is **windows-1252**. Post via the **native browser submit**, not a UTF-8 `fetch`,
   and keep the body **plain ASCII**, or accented characters mojibake.
 - Subforums / prefixes:
