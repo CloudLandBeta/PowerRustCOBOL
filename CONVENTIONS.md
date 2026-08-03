@@ -42,6 +42,20 @@ layout live in `AGENTS.md`; this file is the do/don't list.)
 
 ## Git
 
+- **GOLDEN RULE #5 — branch by change type; `main` is never a workbench.**
+  Two long-lived working branches carry all work:
+  - `features` — new functionality.
+  - `fixes` — bug corrections.
+
+  Classify every new request *before* touching a file, `git checkout` the
+  matching branch, and **merge from `main` immediately after the switch** so the
+  work starts from the latest code — that merge comes before the first edit, not
+  after it. Nothing is implemented on `main`. Finish whatever change is in
+  flight before switching branches again. **Merge back into `main` only when
+  explicitly asked**; committing and pushing the working branch needs no such
+  request. A feature or fix is published only from `main`, and only after the
+  merge, commit and push have all succeeded (GOLDEN RULE #4).
+
 - **Do nothing irreversible/outward-facing unless explicitly asked.** "commit", "merge", "push", and "publish" are distinct — perform only what was requested.
 - Commit messages **must end with**:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
