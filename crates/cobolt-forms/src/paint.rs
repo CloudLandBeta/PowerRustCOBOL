@@ -1061,14 +1061,7 @@ pub fn draw_glass_neumorphic(
     // frost tint.  If a bg_underlay was explicitly set, prefer it; otherwise fall
     // back to `base`.  Default: warm neutral gray (#E0E0E0).
     let surface = bg_underlay.unwrap_or(base);
-    let sa = (am * 255.0) as u8;
-    let fill = Color32::from_rgba_premultiplied(
-        (surface.r() as f32 * am) as u8,
-        (surface.g() as f32 * am) as u8,
-        (surface.b() as f32 * am) as u8,
-        sa,
-    );
-    painter.rect_filled(rect, rnd, fill);
+    painter.rect_filled(rect, rnd, surface_fill(surface, am));
 
     if neumorphic_shadow_overlays(&params) {
         draw_neumorphic_overlay_shadow(painter, rect, rnd, &params, alpha_mul);
@@ -7567,6 +7560,31 @@ pub fn draw_glass_auto(
 /// (`bg_underlay`) as a solid, opacity-aware layer beneath the frost. Callers
 /// pass `Some` only when the user actually set a BackgroundColor, so default
 /// controls keep the fully translucent Liquid Glass look (spec 019).
+/// The premultiplied fill for a Neumorphic surface at overall alpha `am`,
+/// honouring the surface colour's OWN alpha.
+///
+/// The alpha used to be forced to `am * 255`, discarding `surface.a()`
+/// entirely. A `BackgroundColor` of `#00000000` has all three channels at zero
+/// and no alpha, so forcing it opaque painted a **solid black face** over the
+/// control — the reported "no gradient at 100 % and it goes black". It also
+/// meant a translucent background could never show anything through, because
+/// the surface was always laid down fully opaque.
+///
+/// `Color32` already stores premultiplied channels, so the fade scales all four
+/// components by the same factor — the only thing that was wrong was taking the
+/// alpha from `255` instead of from the surface. An opaque surface is therefore
+/// unaffected, which is why this changes nothing for a form that never set a
+/// translucent background.
+fn surface_fill(surface: Color32, am: f32) -> Color32 {
+    let m = am.clamp(0.0, 1.0);
+    Color32::from_rgba_premultiplied(
+        (surface.r() as f32 * m) as u8,
+        (surface.g() as f32 * m) as u8,
+        (surface.b() as f32 * m) as u8,
+        (surface.a() as f32 * m) as u8,
+    )
+}
+
 pub fn draw_glass_auto_bg(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -7818,6 +7836,72 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
         CT::StatusBar => "statusbar",
         CT::PictureBox => "picturebox",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod surface_fill_tests {
+    use super::*;
+
+    /// The reported bug. `#00000000` is "no background": all three channels
+    /// zero and no alpha. Forcing the alpha opaque turned that into a solid
+    /// black face over the control.
+    #[test]
+    fn a_fully_transparent_background_paints_nothing_not_black() {
+        let clear = Color32::from_rgba_unmultiplied(0, 0, 0, 0);
+        let out = surface_fill(clear, 1.0);
+        assert_eq!(out.a(), 0, "a transparent surface must stay transparent");
+        assert_eq!(out, Color32::TRANSPARENT, "and must not paint black: {out:?}");
+    }
+
+    /// Any colour at zero alpha is "not painted", whatever its channels say —
+    /// a transparent white must not come out as a white face either.
+    #[test]
+    fn zero_alpha_hides_the_surface_whatever_its_channels() {
+        for rgb in [(0, 0, 0), (255, 255, 255), (200, 30, 90)] {
+            let c = Color32::from_rgba_unmultiplied(rgb.0, rgb.1, rgb.2, 0);
+            assert_eq!(surface_fill(c, 1.0).a(), 0, "{rgb:?} leaked through");
+        }
+    }
+
+    /// The overwhelmingly common case — an opaque background — must render
+    /// exactly as before, or this fix would restyle every existing form.
+    #[test]
+    fn an_opaque_surface_is_unchanged() {
+        let solid = Color32::from_rgb(232, 237, 254);
+        let out = surface_fill(solid, 1.0);
+        assert_eq!((out.r(), out.g(), out.b(), out.a()), (232, 237, 254, 255));
+    }
+
+    /// A half-transparent surface shows half of what is behind it, and its
+    /// channels are premultiplied to match — egui expects premultiplied colour,
+    /// so scaling alpha alone would render it too bright.
+    #[test]
+    fn a_translucent_surface_is_premultiplied() {
+        let half = Color32::from_rgba_unmultiplied(200, 100, 50, 128);
+        let out = surface_fill(half, 1.0);
+        assert!((out.a() as i32 - 128).abs() <= 1, "alpha {}", out.a());
+        assert!((out.r() as i32 - 100).abs() <= 2, "red {}", out.r());
+        assert!((out.g() as i32 - 50).abs() <= 2, "green {}", out.g());
+    }
+
+    /// The control's own fade still applies on top, and the two compose: a
+    /// half-faded control with a half-transparent background shows a quarter.
+    #[test]
+    fn the_controls_fade_composes_with_the_surface_alpha() {
+        let solid = Color32::from_rgb(255, 255, 255);
+        assert!((surface_fill(solid, 0.5).a() as i32 - 127).abs() <= 1);
+
+        let half = Color32::from_rgba_unmultiplied(255, 255, 255, 128);
+        let out = surface_fill(half, 0.5);
+        assert!((out.a() as i32 - 64).abs() <= 2, "alpha {}", out.a());
+    }
+
+    /// A fully faded control paints nothing at all.
+    #[test]
+    fn zero_alpha_mul_paints_nothing() {
+        let solid = Color32::from_rgb(10, 20, 30);
+        assert_eq!(surface_fill(solid, 0.0).a(), 0);
     }
 }
 

@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.7] — 2026-08-03
+
+### Fixed
+
+- **A control with a transparent background painted solid black.** The
+  Neumorphic surface fill took its alpha from `255` rather than from the chosen
+  colour, so `BackgroundColor = #00000000` — all three channels zero and no
+  alpha — was laid down as a fully opaque black face. The same line is why a
+  translucent background never showed anything through: the surface was always
+  painted opaque, whatever alpha the developer picked. The fill now scales all
+  four components by the control's fade, alpha included. An opaque background is
+  bit-for-bit unchanged, so no existing form is restyled; Classic and Enhanced
+  were never affected, because they route the background through
+  `glass_base_underlay`, which already respected alpha.
+
 ## [PowerRustCOBOL 1.56.6] — 2026-08-03
 
 ### Fixed
