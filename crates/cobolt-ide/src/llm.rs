@@ -4652,14 +4652,15 @@ make an unimplemented verb legal or an undeclared name resolve. A rule below
 that changes STYLE overrides the contract; nothing below authorizes syntax the
 toolchain does not implement.
 
-Two conflicts it settles, so you and your reviewer never alternate between
-them:
+One conflict it settles, so you and your reviewer never alternate over it:
 
-- Use `COMP` for application data, not `COMP-5`. Clause 3's preference for
-  `COMP-5` is overridden by rule 14.
 - Application data belongs under a meaningful `01 <NAME> GLOBAL.` group record.
   An elementary `PIC` item declared directly at level `01` — as clause 1's
   skeleton shows — is exactly what rule 1 forbids for application data.
+
+`COMP-5` is NOT a conflict. Clause 3 offers it and rule 14 accepts it as a
+RustCOBOL extension; neither you nor your reviewer may treat it as an error.
+Use whichever computational usage suits the item.
 
 Rule 10's `EXIT PROGRAM` is NOT a conflict, and neither side may treat it as
 one. Clauses 1 and 4 of the contract name it as the correct way for a handler
@@ -4946,7 +4947,30 @@ The main execution section must call required initialization sections using `PER
 
 Every event handler is a separate contained program that runs again on each user action, so initialization placed in a control's handler re-runs on every click — a `MOVE 7,49 TO ITEM-PRICE (1)` in `onCheckedChanged` silently resets the data the rest of the form is accumulating. The form's `onLoad` handler runs once, when the form loads, which is the only place that establishes state for every other handler to rely on.
 
-So: put the `PERFORM INITIALIZE-…` calls in the FORM's `onLoad` handler, alongside the `INITIALIZE-… SECTION`s themselves. Every other handler assumes the data is already there and never initializes it. If a task asks you to implement a control's event and the data it needs has no initializer yet, say so and name the `onLoad` handler that must carry it — do not initialize from the control's handler to compensate.
+The initialization logic itself belongs in a **reusable common procedure of the form**, so more than one entry point can establish the same state; `onLoad` exists to invoke it:
+
+```text
+Form
+├── Common Procedure
+│   └── INITIALIZE-…
+│
+└── onLoad
+      invokes INITIALIZE-…
+```
+
+**`onLoad` reaches that common procedure with `CALL`, never `PERFORM`:**
+
+```cobol
+       MAIN SECTION.
+
+           CALL "INITIALIZE-MENU-DATA"
+
+           EXIT PROGRAM.
+```
+
+A common procedure of the form is a SEPARATE nested program, and clause 8 is the authority on what that means: `PERFORM` reaches only a paragraph or section of the program you are writing right now, so a `PERFORM` aimed at a common procedure has no target at all and the handler is rejected. `PERFORM` stays correct for a section you declared inside your own body — that is the only thing it can reach. Writing `PERFORM INITIALIZE-…` at a form procedure is the single most expensive mistake in this codebase; the specialist and its reviewer have burned entire correction budgets alternating over it.
+
+Every other handler assumes the data is already there and never initializes it. If a task asks you to implement a control's event and the data it needs has no initializer yet, say so and name the `onLoad` handler that must carry it — do not initialize from the control's handler to compensate.
 
 ## 11. Place initialization code in its own section
 **Why**
@@ -5032,9 +5056,10 @@ Favoring standard COBOL-85 maximizes portability across compilers and minimizes 
 Whenever is possible use RustCOBOL extensions in addition to:
 
 - use standard COBOL-85 syntax;
-- use `COMP` instead of nonstandard usages such as `COMP-5`;
 - avoid unsupported inline initialization syntax;
 - identify any required extension explicitly.
+
+`COMP-5` is an accepted RustCOBOL extension. It is not an error and must not be reported as one.
 
 ## 15. Validate the generated code
 **Why**
@@ -5656,7 +5681,7 @@ Eight false positives you must NOT raise, because each would reject correct work
 * Do not demand `PERFORM` where the submission wrote `CALL "NAME"` at a common procedure, and do not call that `CALL` a defect. `PERFORM` reaches only a paragraph of the SAME program; a common procedure is a separate nested program. `CALL` is the ONLY form that works there, so demanding the swap leaves the specialist no legal move — it has deadlocked this review before, round after round, until the correction budget ran out.
 * Do not judge a comma decimal separator by habit. When the form declares `DECIMAL-POINT IS COMMA` the roles of `.` and `,` are exchanged in `PICTURE` character-strings and in numeric literals, so `PIC ZZZ.ZZ9,99` and `MOVE 7,49 TO WS-PRICE` are correct, not malformed. You cannot see the form's `SPECIAL-NAMES` from your context either: a submission that writes the edited item and notes that the form must carry the clause has done the right thing, not a defect.
 * Do not call `EXIT PROGRAM` an unlisted verb. It is in the contract's statement list, and the code standard below REQUIRES it as the last statement of `MAIN SECTION`. It is how a called COBOL-85 program returns to its caller with the run unit intact and its own `WORKING-STORAGE` still holding its values. `STOP RUN` would be the defect; `EXIT PROGRAM` is the correct ending.
-* Do not demand `COMP-5` where the submission wrote `COMP`. The code standard below requires `COMP` for application data and overrides the contract's preference, so `COMP` is the compliant choice and swapping it back is the defect.
+* Do not report `COMP-5` as an error, and do not demand `COMP` in its place. `COMP-5` is an accepted RustCOBOL extension, stated as such by rule 14 of the code standard. Either usage is fine; neither is a defect, and a review round spent swapping one for the other is a round wasted.
 * Do not treat a section without paragraph-names as malformed. `MAIN SECTION.` followed directly by its sentences, and `INITIALIZE-… SECTION.` followed directly by its `MOVE`s, is legal COBOL-85 and is the structure the code standard mandates. A paragraph-name is not required between a section header and its statements.
 * Do not report a form-level item as undeclared because you cannot see it declared in the handler body. A `01 … GLOBAL` record in the FORM is visible to every program contained in it, subordinates included — that is what `GLOBAL` is for, and it is how shared application state reaches a handler at all. Redeclaring such an item locally would be the defect, because it makes a second, unrelated copy.
 
@@ -5681,6 +5706,36 @@ These are the standard's own acceptance conditions. Each is a defect when it fai
 * `MAIN SECTION` stays an orchestration plan — `PERFORM`s and the closing `EXIT PROGRAM` — with implementation detail moved into named sections.
 * The body ends with `EXIT PROGRAM`.
 * Examples from the standard are adapted to the actual domain, not copied verbatim.
+
+Review Mode — what to evaluate beyond syntax
+
+Reviewing is an engineering judgement, not a spell-check. Weigh COBOL-85 compatibility, RustCOBOL conventions, maintainability, readability, nested-program compatibility, data organization, initialization strategy, and how the code will age.
+
+* **Data organization.** Application data must sit beneath meaningful `01 … GLOBAL` records. Report isolated elementary `01` declarations.
+* **Initialization.** When operational tables and duplicated initialization structures coexist, report the duplication and recommend procedural initialization.
+* **Form initialization.** The architecture is: the form owns a reusable common procedure holding `INITIALIZE-…`, and `onLoad` invokes it with `CALL "INITIALIZE-…"`. Do NOT recommend putting initialization inside individual control handlers — they re-run on every user action. And do NOT ask for `PERFORM` there: a common procedure is a separate nested program, so `PERFORM` has no target and the handler is rejected. Demanding that swap is a defect in the REVIEW, not in the code, and it is how this pair has deadlocked before.
+* **Invalid table initialization.** Detect the shape below and explain that the `FILLER` entries occupy their own storage and therefore do not populate the `OCCURS` occurrences at all. Sketch the resulting memory layout when it helps.
+
+```cobol
+05 TABLE.
+   10 ITEM OCCURS 4 TIMES.
+      ...
+   10 FILLER VALUE ...
+```
+
+* **Literal types.** Report a numeric value written as an alphanumeric literal — `VALUE "5,99"` — and check that numeric literals and edited pictures follow the program's `SPECIAL-NAMES` decimal convention.
+* **Naming.** Report ambiguous identifiers that cost the next reader time.
+* **Indexes.** Where a subscript cannot go negative, recommend an unsigned subscript or `INDEXED BY`.
+
+Organize a review report as: Summary; Major Issues; Detailed Analysis; Recommended Architecture; Recommended Initialization Strategy; Recommended Improvements; Final Assessment. For every issue say why it is a problem, what it costs, and what to do instead, with a corrected snippet when that is clearer than prose. Do not rewrite the whole program unless you were asked to.
+
+Additionally verify, in review mode:
+
+* the form initializes its application data through a common procedure invoked by `onLoad`;
+* initialization data is not duplicated in the DATA DIVISION;
+* no `FILLER VALUE` declaration is being relied on to populate an `OCCURS` table;
+* numeric literals use the appropriate literal type;
+* your own comments distinguish a PROJECT CONVENTION from a COBOL LANGUAGE RULE — a developer must be able to tell which of the two they are being held to.
 
 Correction Process
 The Pedantic Agent must challenge the work directly, precisely, and objectively. It must not soften criticism, approve partially correct work without qualification, overlook defects for the sake of politeness, or infer compliance merely because the response appears confident or well formatted.
@@ -6512,6 +6567,17 @@ mod tests {
                 "the standard must settle {settled} explicitly"
             );
         }
+        // COMP-5 is settled by ACCEPTING it, not by overriding it. The standard
+        // once demanded COMP in its place; if that wording ever comes back it
+        // puts the specialist and its reviewer straight back into the loop.
+        assert!(
+            prompt[standard..].contains("`COMP-5` is an accepted RustCOBOL extension"),
+            "the standard must accept COMP-5, not forbid it"
+        );
+        assert!(
+            !prompt[standard..].contains("use `COMP` instead of nonstandard usages"),
+            "the old COMP-over-COMP-5 rule must be gone"
+        );
         // Initialization has exactly one home. A control's handler fires on
         // every user action, so a `PERFORM INITIALIZE-…` there resets the data
         // the rest of the form is accumulating — the standard must say so
@@ -6565,7 +6631,10 @@ mod tests {
         // ...and must not reject the shape the standard requires.
         for tolerated in [
             "Do not call `EXIT PROGRAM` an unlisted verb",
-            "Do not demand `COMP-5` where the submission wrote `COMP`",
+            // COMP-5 is an accepted RustCOBOL extension. The standard used to
+            // override the contract and demand COMP; it no longer does, and a
+            // reviewer swapping one for the other burns a round for nothing.
+            "Do not report `COMP-5` as an error",
             "Do not treat a section without paragraph-names as malformed",
             "Do not report a form-level item as undeclared",
         ] {

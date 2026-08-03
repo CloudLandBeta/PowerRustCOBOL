@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.57.0] — 2026-08-03
+
+### Added
+
+- **`Transparency` replaces `Opacity` on every control.** It runs the way the
+  word does: `0` is opaque, `100` means the control's own face is not painted
+  at all and the form — or whatever control sits beneath it — shows through in
+  full. `Opacity` named the inverse, so "make this see-through" meant reasoning
+  through a double negative every time.
+- **A CheckBox now defaults to fully transparent.** It is a tick and a caption,
+  not a card; a painted face behind it only fights whatever it was dropped onto.
+  Every other control still starts opaque.
+- Forms saved before the rename migrate as they load: the translation happens
+  while the file's own value is in hand, because `Control::new` has already
+  seeded a `Transparency` default and a migration running later could not tell a
+  seeded default from a value the developer chose — a control saved at
+  `Opacity = 40` would have come back fully opaque instead of 60 % transparent.
+  Nothing needs editing by hand, and a form saved by this build carries only the
+  new key.
+
+### Changed
+
+- **The COBOL code standard accepts `COMP-5`.** It previously required `COMP` in
+  its place and the reviewer enforced the swap — a round spent on a usage that
+  was never wrong. `COMP-5` is a RustCOBOL extension and is now stated as one,
+  so neither the specialist nor its reviewer may report it.
+- **The Pedantic reviewer gained a review mode**: what to evaluate beyond
+  syntax, the `FILLER VALUE` trap (those entries occupy their own storage and do
+  not populate an `OCCURS` table), numeric values written as alphanumeric
+  literals, ambiguous naming, unsigned subscripts, and a seven-part report
+  shape. It must now distinguish a project convention from a COBOL language rule
+  in its findings, so a developer can tell which of the two they are held to.
+- Form initialization is stated as one architecture, not a choice: the form owns
+  a reusable common procedure holding `INITIALIZE-…`, and `onLoad` invokes it
+  with `CALL`. A common procedure is a separate nested program, so a `PERFORM`
+  aimed at it has no target and the handler is rejected — that swap is the
+  deadlock which has cost whole correction budgets, and the reviewer is told not
+  to ask for it.
 ## [PowerRustCOBOL 1.56.7] — 2026-08-03
 
 ### Fixed

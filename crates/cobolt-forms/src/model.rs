@@ -3113,6 +3113,62 @@ pub const NEUMORPHIC_DARK_GRADIENT_END: &str = "#000000FF";
 
 const TAB_CONTROL_MCP_TOOL: &str = r#"{"name":"manage_tab_control_tabs","description":"Creates, updates, reorders, selects, or removes tabs that belong to a TabControl in the form designer. A tab is a child container owned by exactly one TabControl and represents one selectable page within that control. Tabs must not be created as independent top-level form controls. Controls placed on a tab belong to that tab page and are visible only when the tab is active, unless the designer is explicitly displaying inactive pages for editing.","inputSchema":{"type":"object","required":["operation","tab_control_id"],"properties":{"operation":{"type":"string","enum":["create","update","remove","reorder","select"],"description":"The operation to perform on a tab belonging to the specified TabControl."},"tab_control_id":{"type":"string","description":"The unique identifier of the parent TabControl that owns the tab. The referenced control must exist and must be a TabControl."},"tab_id":{"type":"string","description":"The stable unique identifier of the tab page. Required for update, remove, reorder, and select operations. The tab must belong to the specified TabControl."},"caption":{"type":"string","description":"The text displayed in the tab header. Changing the caption does not change the tab identifier or the ownership of controls placed inside the tab."},"index":{"type":"integer","minimum":0,"description":"The zero-based position of the tab within the parent TabControl. Tabs are displayed according to this order. Reordering a tab must preserve its identifier and child controls."},"selected":{"type":"boolean","description":"Determines whether this tab becomes the active page of the TabControl. Only one tab within the same TabControl may be selected at a time."},"enabled":{"type":"boolean","description":"Determines whether the user can activate the tab at runtime. A disabled tab remains part of the TabControl and retains its child controls."},"visible":{"type":"boolean","description":"Determines whether the tab header and its page are available at runtime. Hiding a tab must not delete the tab or its child controls."},"tooltip":{"type":"string","description":"Optional explanatory text displayed when the user points to the tab header."},"icon":{"type":["string","null"],"description":"Optional icon resource associated with the tab header. The value must reference a valid project resource or be null to remove the icon."},"confirm_remove_with_children":{"type":"boolean","default":false,"description":"Confirms removal of a tab that contains child controls. Removing a tab may also remove or orphan its contained controls, depending on the designer policy. The tool must reject destructive removal unless this value is true."}},"allOf":[{"if":{"properties":{"operation":{"const":"create"}}},"then":{"required":["caption"]}},{"if":{"properties":{"operation":{"enum":["update","remove","reorder","select"]}}},"then":{"required":["tab_id"]}},{"if":{"properties":{"operation":{"const":"reorder"}}},"then":{"required":["index"]}}]}}"#;
 
+/// The `Transparency` a freshly dropped control starts with, 0–100.
+///
+/// Almost everything starts opaque. A **CheckBox** starts fully transparent:
+/// it is a tick and a caption, not a card, and a painted face behind it only
+/// fights whatever it was dropped onto — a GroupBox, a Panel, the form itself.
+pub fn default_transparency(control_type: &ControlType) -> i64 {
+    match control_type {
+        ControlType::CheckBox => 100,
+        _ => 0,
+    }
+}
+
+/// A control's `Transparency` (0 = opaque … 100 = invisible).
+///
+/// Falls back to the legacy `Opacity` (which ran the other way) so a form saved
+/// before the rename still reads correctly even if it was never migrated.
+pub fn transparency_of(ctrl: &Control) -> i64 {
+    if let Some(v) = ctrl.get_prop("Transparency") {
+        return v.as_i64().clamp(0, 100);
+    }
+    if let Some(v) = ctrl.get_prop("Opacity") {
+        return (100 - v.as_i64().clamp(0, 100)).clamp(0, 100);
+    }
+    default_transparency(&ctrl.control_type)
+}
+
+/// A control's transparency as the alpha multiplier the painters want:
+/// `1.0` fully opaque, `0.0` invisible.
+pub fn alpha_multiplier(ctrl: &Control) -> f32 {
+    1.0 - (transparency_of(ctrl) as f32 / 100.0)
+}
+
+/// Rewrite a control loaded from a pre-rename form: `Opacity` becomes its
+/// complement in `Transparency`, and the old key is dropped.
+///
+/// Only fires when the file actually carried `Opacity` and no `Transparency`,
+/// so a form saved by a newer build is left exactly as it is. Without this a
+/// control saved at `Opacity = 40` would silently come back fully opaque, since
+/// the seeded `Transparency` default would answer first.
+pub fn migrate_legacy_opacity(ctrl: &mut Control) {
+    let Some(old) = ctrl.get_prop("Opacity").map(|v| v.as_i64()) else {
+        return;
+    };
+    if ctrl.get_prop("Transparency").is_some() {
+        // Both present: the file is newer than the rename and simply still
+        // carries the old key. Transparency wins; drop the stale one.
+        ctrl.properties.shift_remove("Opacity");
+        return;
+    }
+    ctrl.set_prop(
+        "Transparency",
+        PropValue::Int((100 - old.clamp(0, 100)).clamp(0, 100)),
+    );
+    ctrl.properties.shift_remove("Opacity");
+}
+
 impl Control {
     pub fn new(id: impl Into<String>, control_type: ControlType, x: i32, y: i32) -> Self {
         let (w, h) = control_type.default_size();
@@ -3171,7 +3227,17 @@ impl Control {
         // still works). See `Control::is_anchored`.
         props.insert("Anchor".into(), PropValue::Bool(false));
         props.insert("Padding".into(), PropValue::Int(0));
-        props.insert("Opacity".into(), PropValue::Int(100));
+        // How much of what is BEHIND the control shows through, 0–100:
+        // 0 = opaque, 100 = the control's own face is not painted at all and
+        // the form (or whatever control sits under it) shows in full. This
+        // replaced `Opacity`, which ran the other way round and read as a
+        // double negative every time transparency was what you actually wanted.
+        // Forms saved with `Opacity` are migrated on load — see
+        // [`migrate_legacy_opacity`].
+        props.insert(
+            "Transparency".into(),
+            PropValue::Int(default_transparency(&control_type)),
+        );
 
         // ── Drop shadow ───────────────────────────────────────────────────────
         props.insert("ShadowEnabled".into(), PropValue::Bool(false));
@@ -6062,7 +6128,10 @@ mod tests {
                 false,
                 "VScroll default off"
             );
-            assert!(c.get_prop("Opacity").is_some(), "missing Opacity");
+            assert!(
+                c.get_prop("Transparency").is_some(),
+                "missing Transparency"
+            );
             let cr = c.content_rect();
             assert!(
                 cr.y > c.rect.y && cr.h < c.rect.h,
@@ -6668,12 +6737,42 @@ mod tests {
     #[test]
     fn opacity_of_reads_property_012() {
         // The render walk uses this to fade a container subtree (spec 012).
+        // Transparency runs the other way from the Opacity it replaced: 0 is
+        // opaque, 100 is invisible.
         let mut c = Control::new("C", ControlType::Panel, 0, 0);
-        assert_eq!(crate::paint::opacity_of(&c), 1.0); // default 100
-        c.set_prop("Opacity", PropValue::Int(50));
+        assert_eq!(crate::paint::opacity_of(&c), 1.0); // default 0 % transparent
+        c.set_prop("Transparency", PropValue::Int(50));
         assert!((crate::paint::opacity_of(&c) - 0.5).abs() < 1e-6);
-        c.set_prop("Opacity", PropValue::Int(0));
+        c.set_prop("Transparency", PropValue::Int(100));
         assert_eq!(crate::paint::opacity_of(&c), 0.0);
+    }
+
+    /// A form saved before the rename still reads correctly: `Opacity` is the
+    /// complement of `Transparency`, so a control faded to 40 % opacity must
+    /// come back as 60 % transparent and not as fully opaque.
+    #[cfg(feature = "render")]
+    #[test]
+    fn a_legacy_opacity_still_reads_as_its_complement() {
+        let mut c = Control::new("C", ControlType::Panel, 0, 0);
+        c.properties.shift_remove("Transparency");
+        c.set_prop("Opacity", PropValue::Int(40));
+        assert_eq!(transparency_of(&c), 60);
+        assert!((crate::paint::opacity_of(&c) - 0.4).abs() < 1e-6);
+    }
+
+    /// A CheckBox is a tick and a caption, not a card: it starts with no face
+    /// at all, so it sits on whatever it was dropped onto instead of punching
+    /// a rectangle through it.
+    #[test]
+    fn a_checkbox_starts_fully_transparent() {
+        let cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        assert_eq!(transparency_of(&cb), 100, "a CheckBox has no background");
+
+        // Everything else still starts opaque.
+        for t in [ControlType::Panel, ControlType::Button, ControlType::TextBox] {
+            let c = Control::new("c", t.clone(), 0, 0);
+            assert_eq!(transparency_of(&c), 0, "{t:?} must start opaque");
+        }
     }
 
     #[test]

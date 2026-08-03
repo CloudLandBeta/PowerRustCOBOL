@@ -37,11 +37,7 @@ pub enum DropTarget {
 /// A control's `Opacity` (0–100) as a 0.0–1.0 multiplier (default 1.0). Inlined
 /// here so the containers logic stays free of the `render` feature.
 fn opacity_of(ctrl: &Control) -> f32 {
-    ctrl.get_prop("Opacity")
-        .map(|v| v.as_i64())
-        .unwrap_or(100)
-        .clamp(0, 100) as f32
-        / 100.0
+    crate::model::alpha_multiplier(ctrl)
 }
 
 fn index_of(controls: &[Control], id: &str) -> Option<usize> {
@@ -308,7 +304,7 @@ mod tests {
         let clip = clip_rect(&c, 1).expect("child has a clip");
         assert_eq!(clip, c[0].content_rect());
         assert!(clip_rect(&c, 2).is_none(), "top-level control has no clip");
-        c[0].set_prop("Opacity", PropValue::Int(50));
+        c[0].set_prop("Transparency", PropValue::Int(50));
         assert!((ancestor_opacity(&c, 1) - 0.5).abs() < 1e-6);
         assert_eq!(ancestor_opacity(&c, 2), 1.0);
     }

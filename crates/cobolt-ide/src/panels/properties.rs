@@ -3612,16 +3612,22 @@ impl PropertiesPanel {
                     .push((id.to_owned(), "TabOrder".into(), PropValue::Int(to)));
             }
         });
-        if let Some(op) = ctrl.get_prop("Opacity") {
-            let mut v = op.as_i64();
-            property_row(ui, tr.lbl_opacity, |ui| {
+        // Transparency, not Opacity: 0 % is opaque and 100 % lets the form (or
+        // whatever control sits underneath) through completely. Reading through
+        // `transparency_of` means a form saved before the rename still shows the
+        // right number even if it reaches here unmigrated.
+        {
+            let mut v = cobolt_forms::model::transparency_of(ctrl);
+            property_row(ui, tr.lbl_transparency, |ui| {
                 if ui
                     .add(DragValue::new(&mut v).speed(1).range(0..=100).suffix("%"))
                     .changed()
                 {
-                    action
-                        .set_props
-                        .push((id.to_owned(), "Opacity".into(), PropValue::Int(v)));
+                    action.set_props.push((
+                        id.to_owned(),
+                        "Transparency".into(),
+                        PropValue::Int(v),
+                    ));
                 }
             });
         }

@@ -1608,11 +1608,7 @@ pub fn nv_icon_indexed_file(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke
 /// render walk multiplies a container's `opacity_of` into the `alpha_mul` it
 /// passes to descendants, so a faded container dims its whole subtree (spec 012).
 pub fn opacity_of(ctrl: &Control) -> f32 {
-    ctrl.get_prop("Opacity")
-        .map(|v| v.as_i64())
-        .unwrap_or(100)
-        .clamp(0, 100) as f32
-        / 100.0
+    crate::model::alpha_multiplier(ctrl)
 }
 
 pub fn draw_control(

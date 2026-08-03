@@ -968,15 +968,15 @@ fn parse_control<R: std::io::BufRead>(
             }
             OwnedEvent::Text(text) => {
                 if let Some(ref pname) = current_prop {
-                    ctrl.properties
-                        .insert(pname.clone(), parse_prop_value(&text));
+                    let (pname, value) = migrate_opacity_property(pname, parse_prop_value(&text));
+                    ctrl.properties.insert(pname, value);
                 }
             }
             OwnedEvent::CData(text) => {
                 // CDATA inside a <Property> (unlikely but handle gracefully)
                 if let Some(ref pname) = current_prop {
-                    ctrl.properties
-                        .insert(pname.clone(), parse_prop_value(&text));
+                    let (pname, value) = migrate_opacity_property(pname, parse_prop_value(&text));
+                    ctrl.properties.insert(pname, value);
                 }
             }
             OwnedEvent::ChildrenStart => {
@@ -1049,6 +1049,24 @@ fn parse_control<R: std::io::BufRead>(
     }
 
     Ok(ctrl)
+}
+
+/// Translate the legacy `Opacity` property into `Transparency` as it is read.
+///
+/// The two run opposite ways — `Opacity = 100` and `Transparency = 0` both mean
+/// "opaque" — so the value is complemented, not just renamed. This has to happen
+/// HERE, while the file's own value is in hand: `Control::new` has already
+/// seeded a `Transparency` default, so a migration that ran afterwards could not
+/// tell a seeded default from a value the developer chose, and a control saved
+/// at `Opacity = 40` would come back fully opaque.
+///
+/// Every other property passes through untouched.
+fn migrate_opacity_property(name: &str, value: PropValue) -> (String, PropValue) {
+    if !name.eq_ignore_ascii_case("Opacity") {
+        return (name.to_owned(), value);
+    }
+    let opacity = value.as_i64().clamp(0, 100);
+    ("Transparency".to_owned(), PropValue::Int(100 - opacity))
 }
 
 fn parse_prop_value(s: &str) -> PropValue {
