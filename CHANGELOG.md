@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.6] — 2026-08-03
+
+### Fixed
+
+- **A form-level `01` now always carries `GLOBAL`.** The form is the outermost
+  program of the generated nest and every handler and common procedure is
+  contained in it, so an `01` without the clause is private to the form: no
+  handler can name it, and nothing written on the handler side can repair that,
+  because declaring the item locally makes a second, unrelated copy. It is the
+  single most common way a form's data ends up unreachable. Saving the form's
+  `WORKING-STORAGE` or `FILE SECTION` — from the COBOL Structure editor or from
+  an agent's `set_form_structure` — now applies the clause to every `01` that
+  lacks it, including the record descriptions under an `FD`.
+- The rewrite only ever adds, and skips what it must: an entry that is already
+  `GLOBAL`, one marked `EXTERNAL` (COBOL-85 forbids both on one item), and
+  `01 FILLER`, which has no name to reach it by. Placement follows the clause
+  rules — after the data-name, or after the `REDEFINES` target where there is
+  one, since `REDEFINES` has to sit next to the name it redefines. Subordinate
+  levels are never touched: `GLOBAL` belongs on the `01` and carries the whole
+  subtree, and on an `05` it is a hard error. Applying it twice changes nothing.
+
+## [PowerRustCOBOL 1.56.5] — 2026-08-03
+
+### Fixed
+
+- **The COBOL Structure editor's grip resized the window horizontally but never
+  vertically.** egui clamps a resizable axis from above by `max_size` and from
+  below by the content it has to show. The window opened at `0.7 · screen` with
+  `max_height` set to `0.7 · screen` as well, and its editor was sized from that
+  same constant — so the ceiling and the floor landed on the same value and the
+  height had nowhere to go in either direction. Width had no cap and its content
+  followed `available_width`, which is exactly why only width responded. The cap
+  now leaves real headroom above the default, and the editor takes its height
+  from the window rather than from a constant, so the window can be made taller
+  *and* shorter. The reserve below the editor is deliberately generous: on a
+  resizable axis egui renders at the size the developer dragged to, so
+  over-reserving only leaves a gap, while under-reserving is what makes a window
+  creep.
+
 ## [PowerRustCOBOL 1.56.4] — 2026-08-03
 
 ### Fixed

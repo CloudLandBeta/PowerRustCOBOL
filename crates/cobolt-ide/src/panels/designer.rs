@@ -677,6 +677,25 @@ const MODAL_KEEP_ON_SCREEN: f32 = 120.0;
 /// Note this is about the CONSTRAINT. A window built with `.anchor(…)` is
 /// pinned outright and cannot be dragged at all, whatever it is constrained to —
 /// seed the position with `.default_pos(…)` instead.
+/// The COBOL Structure window's `(default_height, max_height)`.
+///
+/// These must not be the same number. egui clamps a resizable axis from ABOVE
+/// by `max_size` and from BELOW by the content it has to show
+/// (`Resize::show`, egui 0.35). The window used to open at `0.7 · screen` with
+/// `max_height` also `0.7 · screen`, and its editor was sized to fill exactly
+/// that — so the ceiling and the floor landed on the same value and the grip
+/// could not move the height in either direction. Width had no cap and its
+/// content followed `available_width`, which is why only width responded.
+///
+/// The default stays a comfortable 70 % of the screen; the cap leaves real
+/// headroom above it so there is somewhere to grow into.
+fn cs_window_heights(screen: egui::Rect) -> (f32, f32) {
+    let default_h = (screen.height() * 0.7).max(360.0);
+    // Room to grow, minus a margin so the title bar and the grip stay reachable.
+    let max_h = (screen.height() - 40.0).max(default_h + 120.0);
+    (default_h, max_h)
+}
+
 fn modal_roam_rect(screen: egui::Rect, w: f32, h: f32) -> egui::Rect {
     let slack_x = (w - MODAL_KEEP_ON_SCREEN).max(0.0);
     let slack_y = (h - MODAL_KEEP_ON_SCREEN).max(0.0);
@@ -1938,10 +1957,24 @@ impl DesignerPanel {
                     let old = crate::agent::form_structure_field(&mut self.form, block)
                         .map(|s| s.clone())
                         .unwrap_or_default();
+                    let mut new = crate::llm::normalize_comments(code);
+                    // A form-level `01` without GLOBAL is private to the form,
+                    // so no contained handler can name it — and nothing the
+                    // handler agent writes afterwards can repair that, because
+                    // declaring the item locally makes a second, unrelated
+                    // copy. Apply the clause as the change-set lands, not as
+                    // advice: it is added here rather than in `execute` so undo
+                    // and redo replay the exact stored text.
+                    if matches!(
+                        crate::agent::form_structure_block(block),
+                        Some("WORKING-STORAGE") | Some("FILE SECTION")
+                    ) {
+                        new = crate::panels::cobol_structure::ensure_global_on_01_levels(&new);
+                    }
                     cmds.push(Cmd::SetFormStructure {
                         block: block.clone(),
                         old,
-                        new: crate::llm::normalize_comments(code),
+                        new,
                     });
                 }
                 AgentOp::GenerateEventHandler {
@@ -8691,7 +8724,7 @@ impl DesignerPanel {
 
         let screen = ctx.content_rect();
         let default_w = (screen.width() * 0.6).max(420.0);
-        let default_h = (screen.height() * 0.7).max(360.0);
+        let (default_h, max_h) = cs_window_heights(screen);
         let mut close = false;
 
         // `anchor` pins a window outright: egui re-places an anchored window
@@ -8709,7 +8742,7 @@ impl DesignerPanel {
             .movable(true)
             .default_width(default_w)
             .default_height(default_h)
-            .max_height(screen.height() * 0.7)
+            .max_height(max_h)
             .default_pos(default_pos)
             .constrain_to(roam)
             .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(14)))
@@ -8740,11 +8773,22 @@ impl DesignerPanel {
                 self.cs_editor.status_row(ui);
                 ui.add_space(4.0);
 
-                // Fixed-size container the editor fills and scrolls inside (a
-                // height from `available_height` would creep on every repaint).
-                // Reserve room for the inline AI bar when a model is configured.
+                // The editor follows the WINDOW's height. It used to be sized
+                // from `default_h` — a constant off the screen — which pinned
+                // the content height and became the floor egui clamps a
+                // resizable axis against, so the height could not shrink either.
+                //
+                // Sizing from `available_height` is safe in ONE direction only,
+                // and that is the direction taken here. Reserving MORE than the
+                // footer needs leaves a gap and nothing else: a resizable axis
+                // renders at `desired_size`, so the window keeps the height the
+                // developer dragged to. Reserving LESS is what creeps, because
+                // egui grows `desired_size` to fit content it cannot show. So
+                // the reserve below is deliberately generous.
                 let ai_reserve = if llm.is_configured() { 92.0 } else { 0.0 };
-                let editor_h = (default_h - 170.0 - ai_reserve).max(180.0);
+                const FOOTER_RESERVE: f32 = 72.0;
+                let editor_h =
+                    (ui.available_height() - ai_reserve - FOOTER_RESERVE).max(180.0);
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
@@ -13712,6 +13756,40 @@ mod modal_roam_tests {
             roam.top(),
             s.top(),
             "the roam rect must not extend above the screen"
+        );
+    }
+
+    /// The COBOL Structure window opened at exactly its own `max_height`, so
+    /// egui's upper clamp sat on the value the window already had and the grip
+    /// could not make it taller. The cap must leave real headroom above the
+    /// default, or the vertical grip has nowhere to travel.
+    #[test]
+    fn the_structure_window_cap_leaves_room_above_its_default_height() {
+        for h in [700.0, 1000.0, 1440.0, 2160.0] {
+            let s = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1600.0, h));
+            let (default_h, max_h) = cs_window_heights(s);
+            assert!(
+                max_h > default_h,
+                "screen {h}: the cap must exceed the default ({max_h} vs {default_h})"
+            );
+            assert!(
+                max_h - default_h >= 100.0,
+                "screen {h}: {} of headroom is not worth dragging for",
+                max_h - default_h
+            );
+        }
+    }
+
+    /// A very short screen must not invert the pair. The default has a 360 pt
+    /// floor, so on a small display the cap has to be lifted clear of it rather
+    /// than computed from the screen alone.
+    #[test]
+    fn the_cap_stays_above_the_default_on_a_short_screen() {
+        let s = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1600.0, 300.0));
+        let (default_h, max_h) = cs_window_heights(s);
+        assert!(
+            max_h > default_h,
+            "cap {max_h} must still clear the 360pt default floor {default_h}"
         );
     }
 

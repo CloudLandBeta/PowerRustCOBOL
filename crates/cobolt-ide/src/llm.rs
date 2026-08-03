@@ -5668,7 +5668,7 @@ The Event Handler Script Agent's prompt carries a project COBOL code-generation 
 
 These are the standard's own acceptance conditions. Each is a defect when it fails:
 
-* Every application `01`-level record is declared `GLOBAL`, and `GLOBAL` is on the `01`, never on a subordinate item.
+* Every application `01`-level record is declared `GLOBAL`, and `GLOBAL` is on the `01`, never on a subordinate item. This covers the FILE SECTION's record descriptions as well as WORKING-STORAGE: an `01` under an `FD` is form-level data like any other, and without the clause no contained handler can name it. (The IDE now applies the clause when a form block is saved, so a submission arriving without it is a slip rather than a disaster — still report it, because the agent should be writing the shape it means.)
 * No elementary `PIC` field is declared directly at level `01` for application data — related items are grouped beneath a meaningful record.
 * Structurally identical repeated items use an `OCCURS` table rather than `ITEM-1`, `ITEM-2`, `ITEM-3`.
 * `REDEFINES` appears only where a genuine alternate view of the same storage is needed.
