@@ -37,6 +37,7 @@ pub mod resolver;
 pub mod symbol_table;
 pub mod type_checker;
 
+use crate::symbol_table::DataItemInfo;
 use cobolt_ast::program::Program;
 use cobolt_lexer::Span;
 
@@ -128,10 +129,28 @@ impl SemanticResult {
 /// The returned [`SemanticResult`] always contains a symbol table (even on
 /// error), allowing downstream tools to present partial information.
 pub fn analyze(program: &Program) -> SemanticResult {
+    // The outermost program of a compilation unit inherits nothing: there is no
+    // enclosing program to declare a GLOBAL item for it.
+    analyze_contained(program, &[])
+}
+
+/// [`analyze`], for a program CONTAINED in another, told which `GLOBAL` items
+/// its ancestors declare.
+///
+/// COBOL-85 scopes a `GLOBAL` name to the declaring program AND every program
+/// contained in it, however deeply. Pass 5 below gave each contained program a
+/// symbol table built from its own DATA DIVISION alone, so a handler that read
+/// a form-level item — the whole point of declaring it `GLOBAL` — was told the
+/// name `is not declared in DATA DIVISION`. The code ran fine: the interpreter
+/// keeps one shared environment and the outer program's items are in it. Only
+/// the analyzer disagreed, which is the worst place for the disagreement to be,
+/// because the agents write against it and correct code kept being rejected.
+fn analyze_contained(program: &Program, inherited_globals: &[DataItemInfo]) -> SemanticResult {
     let mut diagnostics = Vec::new();
 
-    // Pass 1: build the symbol table from DATA + PROCEDURE divisions.
-    let symbols = symbol_table::SymbolTable::build(program);
+    // Pass 1: build the symbol table from DATA + PROCEDURE divisions, plus the
+    // GLOBAL items visible from the programs enclosing this one.
+    let symbols = symbol_table::SymbolTable::build_contained(program, inherited_globals);
 
     // Pass 1b: reject redeclared unique procedure names (paragraphs/sections).
     duplicates::check(program, &mut diagnostics);
@@ -161,8 +180,28 @@ pub fn analyze(program: &Program) -> SemanticResult {
     //
     // Diagnostics from a contained program are appended to the same list: they
     // carry their own spans, and the caller reports against the whole source.
+    //
+    // "In its own right" is not "in isolation". What this program declares
+    // GLOBAL is visible to everything it contains, and so is whatever its own
+    // ancestors declared GLOBAL — visibility accumulates down the nest. A name
+    // this program declares itself shadows an ancestor's, so its own globals go
+    // in first and the inherited ones only fill the gaps.
+    let visible_globals = if program.nested_programs.is_empty() {
+        Vec::new()
+    } else {
+        let mut visible = symbol_table::SymbolTable::global_data_items(program);
+        let own: std::collections::HashSet<&str> =
+            visible.iter().map(|i| i.cobol_name.as_str()).collect();
+        let inherited: Vec<DataItemInfo> = inherited_globals
+            .iter()
+            .filter(|i| !own.contains(i.cobol_name.as_str()))
+            .cloned()
+            .collect();
+        visible.extend(inherited);
+        visible
+    };
     for nested in &program.nested_programs {
-        diagnostics.extend(analyze(nested).diagnostics);
+        diagnostics.extend(analyze_contained(nested, &visible_globals).diagnostics);
     }
 
     SemanticResult {

@@ -302,7 +302,7 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
         if !matches!(p.peek_at(1), Token::Section) {
             // Could be an implicit paragraph in a sectioned program — collect
             // any paragraphs before a section header or EOF
-            let paras = parse_paragraphs_until_section(p);
+            let paras = parse_paragraphs_until_section(p, "implicit");
             if !paras.is_empty() {
                 sections.push(Section {
                     name: "<implicit>".into(),
@@ -318,7 +318,7 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
         p.advance(); // SECTION
         p.expect_period();
 
-        let paragraphs = parse_paragraphs_until_section(p);
+        let paragraphs = parse_paragraphs_until_section(p, &name);
         sections.push(Section {
             name,
             paragraphs,
@@ -328,7 +328,14 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
     sections
 }
 
-fn parse_paragraphs_until_section(p: &mut Parser) -> Vec<Paragraph> {
+/// Collect the body of one section: the sentences written straight under its
+/// header, then its named paragraphs, stopping at the next section header.
+///
+/// `owner` names the section, and is used only to label the unnamed paragraph
+/// that carries the leading sentences — two sections must not both produce a
+/// `<implicit>`, or the duplicate-procedure check would reject the program and
+/// the symbol table would keep only one of the two bodies.
+fn parse_paragraphs_until_section(p: &mut Parser, owner: &str) -> Vec<Paragraph> {
     let mut paragraphs = Vec::new();
     loop {
         if p.at(&Token::Eof) {
@@ -355,7 +362,40 @@ fn parse_paragraphs_until_section(p: &mut Parser) -> Vec<Paragraph> {
             let para = parse_paragraph(p);
             paragraphs.push(para);
         } else {
-            break;
+            // Sentences written straight under the section header, with no
+            // paragraph-name in between. COBOL-85 allows it and the project's
+            // code standard requires it — `MAIN SECTION.` followed by its
+            // PERFORMs, `INITIALIZE-… SECTION.` followed by its MOVEs — so this
+            // is the shape handlers are now written in.
+            //
+            // Before this they were not collected at all: control fell back to
+            // the caller, which was looking for a section name, reported
+            // "expected section name, found MOVE" and skipped to the next
+            // period. The section survived with an EMPTY paragraph list, so the
+            // body was gone before resolution ever saw it — no undeclared-name
+            // warning, no PERFORM check, and nothing to run.
+            //
+            // `parse_stmts` stops at the next paragraph or section header, so
+            // this claims only what belongs to this section.
+            let span = p.peek_span();
+            let stmts = parse_stmts(p, &|tok| {
+                matches!(
+                    tok,
+                    Token::Environment
+                        | Token::Data
+                        | Token::Identification
+                        | Token::End
+                        | Token::Eof
+                )
+            });
+            if stmts.is_empty() {
+                break; // Prevent infinite loop
+            }
+            paragraphs.push(Paragraph {
+                name: format!("<{owner}>"),
+                stmts,
+                span,
+            });
         }
     }
     paragraphs

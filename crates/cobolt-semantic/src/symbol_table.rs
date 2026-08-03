@@ -170,6 +170,63 @@ impl SymbolTable {
         table
     }
 
+    /// Build a symbol table for a program CONTAINED in another, seeded with the
+    /// `GLOBAL` items its ancestors declare.
+    ///
+    /// Pass `&[]` for the outermost program of a compilation unit — it has no
+    /// enclosing program, so it inherits nothing and this is exactly
+    /// [`SymbolTable::build`].
+    pub fn build_contained(program: &Program, inherited: &[DataItemInfo]) -> Self {
+        let mut table = SymbolTable::build(program);
+        for info in inherited {
+            // Innermost declaration wins: a contained program that declares the
+            // name itself shadows the ancestor's GLOBAL item, so an inherited
+            // name only fills a gap it does not already occupy.
+            table
+                .data_items
+                .entry(info.cobol_name.clone())
+                .or_insert_with(|| info.clone());
+        }
+        table
+    }
+
+    /// The data items this program makes visible to the programs it contains.
+    ///
+    /// `GLOBAL` is written on the `01`/`77` item (or the FD), never on a
+    /// subordinate — so the whole subtree beneath a `GLOBAL` record is visible,
+    /// and that is what a form's `01 MC-APPLICATION-DATA GLOBAL.` is for: the
+    /// `05`/`10` items under it are what a handler actually names.
+    pub fn global_data_items(program: &Program) -> Vec<DataItemInfo> {
+        let mut table = SymbolTable::default();
+        let Some(data_div) = &program.data else {
+            return Vec::new();
+        };
+        for section in &data_div.sections {
+            match section {
+                DataSection::WorkingStorage(items)
+                | DataSection::LocalStorage(items)
+                | DataSection::Linkage(items) => {
+                    for decl in items {
+                        if decl.is_global {
+                            table.index_data_decl(decl);
+                        }
+                    }
+                }
+                DataSection::FileSection(fds) => {
+                    for fd in fds {
+                        if fd.is_global {
+                            for rec in &fd.records {
+                                table.index_data_decl(rec);
+                            }
+                        }
+                    }
+                }
+                DataSection::Screen(_) => {}
+            }
+        }
+        table.data_items.into_values().collect()
+    }
+
     /// Recursively index a data declaration and all its children.
     fn index_data_decl(&mut self, decl: &DataDecl) {
         if let Some(info) = DataItemInfo::from_decl(decl) {

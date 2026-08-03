@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.2] — 2026-08-03
+
+The code standard shipped in 1.56.1 mandated a shape the toolchain could not
+actually accept. Three things stood between the standard and code that runs, and
+all three are fixed here.
+
+### Fixed
+
+- **Sentences written straight under a `SECTION` header were discarded.** The
+  section parser collected only `Identifier Period` paragraph headers; anything
+  else ended the collection and fell back to the caller, which was looking for a
+  section name, reported `expected section name, found MOVE` and skipped to the
+  next period. The section survived with an EMPTY paragraph list, so the body was
+  gone before resolution, the `PERFORM`-target check or the interpreter ever saw
+  it. This is legal COBOL-85 and it is exactly what the code standard requires —
+  `MAIN SECTION.` followed by its `PERFORM`s, `INITIALIZE-… SECTION.` followed by
+  its `MOVE`s — so every handler written to the standard would have parsed to a
+  program that does nothing. Those sentences are now collected into an unnamed
+  paragraph labelled after the section that owns it, so two sections cannot
+  collide on one `<implicit>` name.
+- **`GLOBAL` items did not reach the programs their declarer contains.** Every
+  contained program was analyzed with a symbol table built from its own DATA
+  DIVISION alone, so a handler reading a form-level item — the entire purpose of
+  declaring it `GLOBAL`, and rule 2 of the code standard — was told the name
+  `is not declared in DATA DIVISION`. There was no legal answer: declaring the
+  item locally makes a second, unrelated copy. COBOL-85 scopes a `GLOBAL` name to
+  the declaring program and everything contained in it, however deeply, and the
+  whole subtree beneath a `GLOBAL` `01` travels with it. Visibility now
+  accumulates down the nest, with a contained program's own declaration shadowing
+  an inherited one. The code always ran correctly — the interpreter keeps one
+  shared environment — so this was the analyzer rejecting programs the runtime
+  was happy to execute.
+- **The Pedantic reviewer judged by a rulebook its specialist no longer used.**
+  It carried the language contract alone, so it would have rejected the shape the
+  standard mandates: `EXIT PROGRAM` as an unlisted verb, `COMP` as a missing
+  `COMP-5`, a section with no paragraph-names as malformed, and a form-level
+  `GLOBAL` item as undeclared. That is the deadlock this pair has hit before —
+  specialist and reviewer alternating until the correction budget runs out. The
+  reviewer now carries the standard's own acceptance conditions and enforces
+  them, and its false-positive list grew from four entries to eight to cover the
+  four shapes above.
+
 ## [PowerRustCOBOL 1.56.1] — 2026-08-03
 
 ### Changed

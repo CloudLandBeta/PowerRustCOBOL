@@ -3264,9 +3264,13 @@ mod tests {
         assert!(handler.contains(crate::llm::EVENT_HANDLER_PRESERVATION_MARKER));
 
         // The reviewer must stop demanding the swap that has no legal answer.
+        // Assert the bullet itself, not how many bullets share its list — the
+        // count grows every time the pair learns another rule, and the point
+        // here is that THIS false positive is among them.
         let reviewer = db.load_prompt(PEDANTIC_EVENT_HANDLER_REVIEWER);
         assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_PROCEDURE_SCOPE_MARKER));
-        assert!(reviewer.contains("Four false positives"));
+        assert!(reviewer.contains("false positives you must NOT raise"));
+        assert!(reviewer.contains(r#"Do not demand `PERFORM` where the submission wrote `CALL "NAME"`"#));
         assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_LANGUAGE_CONTRACT_MARKER));
         assert!(reviewer.contains(crate::llm::PEDANTIC_EVENT_PRESERVATION_MARKER));
 

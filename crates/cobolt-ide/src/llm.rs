@@ -4258,6 +4258,13 @@ pub const EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER: &str = "RUSTCOBOL LANGUAGE CON
 pub const EVENT_HANDLER_BEST_PRACTICES_MARKER: &str =
     "COBOL CODE-GENERATION BEST PRACTICES (MANDATORY, OVERRIDING)";
 
+/// Marker sentence unique to the revision that taught the Pedantic reviewer the
+/// same standard its specialist writes against. A reviewer without it enforces
+/// the language contract alone and rejects the very shape the standard mandates
+/// — which is the deadlock the false-positive list exists to prevent.
+pub const PEDANTIC_EVENT_CODE_STANDARD_MARKER: &str =
+    "Project Code Standard Checks (MANDATORY, OVERRIDING)";
+
 /// The Event Handler prompt as shipped before the RustCOBOL language contract
 /// was merged into it. Kept verbatim so an **unmodified** stored copy can be
 /// recognised and upgraded, while a developer's own edits are left alone.
@@ -5588,14 +5595,37 @@ That section is the language specification, and it enumerates exactly what this 
 * a bare `*` comment line, or any stray character in column 7 above a blank or numeric sequence area — either one silently switches the whole file to fixed format, where everything past column 72 is discarded;
 * an unterminated scoped statement, or a missing `.` where the grammar requires one.
 
-Four false positives you must NOT raise, because each would reject correct work and burn the correction loop:
+Eight false positives you must NOT raise, because each would reject correct work and burn the correction loop:
 
 * Do not demand that lines be wrapped or continued at column 72, 80 or any other margin. RustCOBOL is parsed free-form and has no line-length limit; a long statement is not a defect.
 * Do not demand proof that the handler was compiled, executed or observed running. You are reviewing a proposal — the code is applied only after your approval, so no such evidence can exist at review time. Judge the code, the identifiers, the contract clauses and the delegation context, all of which exist now.
 * Do not demand `PERFORM` where the submission wrote `CALL "NAME"` at a common procedure, and do not call that `CALL` a defect. `PERFORM` reaches only a paragraph of the SAME program; a common procedure is a separate nested program. `CALL` is the ONLY form that works there, so demanding the swap leaves the specialist no legal move — it has deadlocked this review before, round after round, until the correction budget ran out.
 * Do not judge a comma decimal separator by habit. When the form declares `DECIMAL-POINT IS COMMA` the roles of `.` and `,` are exchanged in `PICTURE` character-strings and in numeric literals, so `PIC ZZZ.ZZ9,99` and `MOVE 7,49 TO WS-PRICE` are correct, not malformed. You cannot see the form's `SPECIAL-NAMES` from your context either: a submission that writes the edited item and notes that the form must carry the clause has done the right thing, not a defect.
+* Do not call `EXIT PROGRAM` an unlisted verb. It is in the contract's statement list, and the code standard below REQUIRES it as the last statement of `MAIN SECTION`. It is how a called COBOL-85 program returns to its caller with the run unit intact and its own `WORKING-STORAGE` still holding its values. `STOP RUN` would be the defect; `EXIT PROGRAM` is the correct ending.
+* Do not demand `COMP-5` where the submission wrote `COMP`. The code standard below requires `COMP` for application data and overrides the contract's preference, so `COMP` is the compliant choice and swapping it back is the defect.
+* Do not treat a section without paragraph-names as malformed. `MAIN SECTION.` followed directly by its sentences, and `INITIALIZE-… SECTION.` followed directly by its `MOVE`s, is legal COBOL-85 and is the structure the code standard mandates. A paragraph-name is not required between a section header and its statements.
+* Do not report a form-level item as undeclared because you cannot see it declared in the handler body. A `01 … GLOBAL` record in the FORM is visible to every program contained in it, subordinates included — that is what `GLOBAL` is for, and it is how shared application state reaches a handler at all. Redeclaring such an item locally would be the defect, because it makes a second, unrelated copy.
 
 Do not invent requirements the contract does not state, and do not restate the contract at length in your review — cite the clause and name the violation.
+
+Project Code Standard Checks (MANDATORY, OVERRIDING)
+
+The Event Handler Script Agent's prompt carries a project COBOL code-generation standard, in a section headed `COBOL CODE-GENERATION BEST PRACTICES (MANDATORY, OVERRIDING)`. It is additional to the language contract and, where the two disagree, IT WINS. You review against it as strictly as against the contract: a submission that parses cleanly but ignores the standard is defective, and one that follows the standard is NOT defective for having departed from a contract clause the standard overrides.
+
+These are the standard's own acceptance conditions. Each is a defect when it fails:
+
+* Every application `01`-level record is declared `GLOBAL`, and `GLOBAL` is on the `01`, never on a subordinate item.
+* No elementary `PIC` field is declared directly at level `01` for application data — related items are grouped beneath a meaningful record.
+* Structurally identical repeated items use an `OCCURS` table rather than `ITEM-1`, `ITEM-2`, `ITEM-3`.
+* `REDEFINES` appears only where a genuine alternate view of the same storage is needed.
+* Numeric-edited items are reusable formatting buffers, not one per business value, and each one matches the size, sign and decimal precision of the field it formats.
+* Currency editing keeps a required `9` immediately before the decimal separator — `PIC ZZ9,99`, not `PIC ZZZ,99` — so a small amount still shows a digit.
+* Numeric literals and `PICTURE` clauses follow ONE decimal convention throughout, chosen by whether the containing program declares `DECIMAL-POINT IS COMMA`. Mixing both in a compilation unit is a defect.
+* A table whose occurrences hold DIFFERENT values is initialized procedurally with `MOVE` statements, never through a multi-value `VALUE` clause on the `OCCURS` item.
+* Initialization lives in its own `INITIALIZE-… SECTION`, one responsibility per section, and is reached by `PERFORM` near the start of `MAIN SECTION`.
+* `MAIN SECTION` stays an orchestration plan — `PERFORM`s and the closing `EXIT PROGRAM` — with implementation detail moved into named sections.
+* The body ends with `EXIT PROGRAM`.
+* Examples from the standard are adapted to the actual domain, not copied verbatim.
 
 Correction Process
 The Pedantic Agent must challenge the work directly, precisely, and objectively. It must not soften criticism, approve partially correct work without qualification, overlook defects for the sake of politeness, or infer compliance merely because the response appears confident or well formatted.
@@ -6427,6 +6457,55 @@ mod tests {
                 "the standard must settle {settled} explicitly"
             );
         }
+    }
+
+    /// A specialist and its reviewer judging by different rulebooks is the
+    /// deadlock this pair keeps falling into: the standard requires a shape, the
+    /// reviewer knows only the contract, and the correction budget runs out
+    /// while they alternate. The reviewer carries the standard's own acceptance
+    /// conditions, and is told not to raise the four false positives the
+    /// standard creates.
+    #[test]
+    fn the_reviewer_judges_by_the_same_standard_its_specialist_writes_to() {
+        let reviewer = DEFAULT_PEDANTIC_EVENT_PROMPT;
+        assert!(
+            reviewer.contains(PEDANTIC_EVENT_CODE_STANDARD_MARKER),
+            "the reviewer must carry the code standard's checks"
+        );
+        assert!(
+            reviewer.contains(EVENT_HANDLER_BEST_PRACTICES_MARKER),
+            "and must name the specialist's section it is reviewing against"
+        );
+        // Both halves of consistency. It must ENFORCE the standard...
+        for enforced in [
+            "declared `GLOBAL`",
+            "`OCCURS` table",
+            "`PIC ZZ9,99`",
+            "initialized procedurally",
+            "`INITIALIZE-… SECTION`",
+            "ends with `EXIT PROGRAM`",
+        ] {
+            assert!(
+                reviewer.contains(enforced),
+                "the reviewer must enforce: {enforced}"
+            );
+        }
+        // ...and must not reject the shape the standard requires.
+        for tolerated in [
+            "Do not call `EXIT PROGRAM` an unlisted verb",
+            "Do not demand `COMP-5` where the submission wrote `COMP`",
+            "Do not treat a section without paragraph-names as malformed",
+            "Do not report a form-level item as undeclared",
+        ] {
+            assert!(
+                reviewer.contains(tolerated),
+                "the reviewer must not raise: {tolerated}"
+            );
+        }
+        assert!(
+            reviewer.contains("Eight false positives"),
+            "the count must match the list it introduces"
+        );
     }
 
     /// `EXIT PROGRAM` is how a called COBOL-85 program returns to its caller
