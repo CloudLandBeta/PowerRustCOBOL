@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.3] — 2026-08-03
+
+### Fixed
+
+- **The COBOL Event Editor modal can be moved freely now.** It already declared
+  `movable(true)`, but egui constrains a window's whole rect, not just its title
+  bar — and the modal opens at 70 % of the screen, so it could only travel the
+  leftover 30 % before being clamped back. It reads as pinned. It is now
+  constrained to a rect that extends past the screen on the sides and the
+  bottom, so it can be pushed roughly a window-width in any of those directions.
+  It stays recoverable: each side is widened by (size − 120 pt), so at every
+  extreme 120 pt of the window remain on screen, and the top edge is
+  deliberately not widened — a title bar dragged above the screen could never be
+  grabbed again.
+
+### Changed
+
+- **Initialization of a form's data items belongs in the form's `onLoad` event,
+  and the code standard now says so imperatively.** Rule 10 said "at program
+  startup", which in a RAD form is ambiguous: every handler is a separate
+  contained program with its own `MAIN SECTION`, so the rule read as though each
+  one should initialize. It must not — a control's handler runs again on every
+  user action, so a `PERFORM INITIALIZE-…` there silently resets the data the
+  rest of the form is accumulating. The standard now pins initialization to the
+  form's `onLoad` handler and nowhere else, the worked example is labelled as
+  the `onLoad` handler with a second example showing what every other handler
+  looks like without it, and the decision tree asks which of the two is being
+  written. The Pedantic reviewer enforces both directions: a control handler
+  that initializes is a defect, and one that merely uses data it never set is
+  not.
+
 ## [PowerRustCOBOL 1.56.2] — 2026-08-03
 
 The code standard shipped in 1.56.1 mandated a shape the toolchain could not

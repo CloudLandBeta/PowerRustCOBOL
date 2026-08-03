@@ -4925,6 +4925,12 @@ The main execution section must call required initialization sections using `PER
            EXIT PROGRAM.
 ```
 
+**In a PowerRustCOBOL form that startup is the form's `onLoad` event, and this is imperative.** The form's data items are initialized THERE and nowhere else.
+
+Every event handler is a separate contained program that runs again on each user action, so initialization placed in a control's handler re-runs on every click — a `MOVE 7,49 TO ITEM-PRICE (1)` in `onCheckedChanged` silently resets the data the rest of the form is accumulating. The form's `onLoad` handler runs once, when the form loads, which is the only place that establishes state for every other handler to rely on.
+
+So: put the `PERFORM INITIALIZE-…` calls in the FORM's `onLoad` handler, alongside the `INITIALIZE-… SECTION`s themselves. Every other handler assumes the data is already there and never initializes it. If a task asks you to implement a control's event and the data it needs has no initializer yet, say so and name the `onLoad` handler that must carry it — do not initialize from the control's handler to compensate.
+
 ## 11. Place initialization code in its own section
 **Why**
 
@@ -5032,6 +5038,7 @@ Before returning code, verify:
 - Different table values are initialized procedurally.
 - Initialization code resides in a dedicated section.
 - The initialization section is invoked with `PERFORM` near the beginning of `MAIN SECTION`.
+- The form's data items are initialized in the FORM's `onLoad` event and nowhere else — never from a control's handler, which would re-run on every user action.
 - `MAIN SECTION` remains concise and orchestration-oriented.
 - Program termination uses `EXIT PROGRAM`.
 - Standard COBOL-85 code and project-specific extensions are clearly distinguished.
@@ -5076,7 +5083,7 @@ FORM's WORKING-STORAGE SECTION
 ```
 
 
-EVENT HANDLER
+FORM `onLoad` EVENT HANDLER — the one handler that initializes, and the only one
 
 ```cobol
        ENVIRONMENT DIVISION.
@@ -5105,6 +5112,28 @@ EVENT HANDLER
 
            EXIT.
 ```
+
+EVERY OTHER EVENT HANDLER — same shape, minus the initialization
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+
+       MAIN SECTION.
+
+           PERFORM RECALCULATE-TOTAL
+
+           EXIT PROGRAM.
+
+       RECALCULATE-TOTAL SECTION.
+
+           *> Reads the data the form's onLoad handler already established.
+
+           EXIT.
+```
+
+A control's handler never carries `PERFORM INITIALIZE-…`. It runs on every user action, so initializing there would reset the form's data each time it fires.
 
 The names, values, table dimensions, sections, edited pictures, and application flow shown above are illustrative. Generate structures that reflect the actual domain and requirement while preserving these coding conventions.
 
@@ -5141,7 +5170,15 @@ Start
 ├── Are repeated values being initialized?
 │      ├── Yes → Create an INITIALIZE-... SECTION.
 │      │            Initialize tables with MOVE statements.
+│      │            PERFORM it from the FORM's onLoad handler, never
+│      │            from a control's handler.
 │      └── No → Do not add initialization code.
+│
+├── Am I implementing a CONTROL's event, not the form's onLoad?
+│      ├── Yes → Assume the data is already initialized. Do not
+│      │            initialize it here; if no initializer exists,
+│      │            say so and name the onLoad handler that needs one.
+│      └── No → This is onLoad: initialization belongs here.
 │
 ├── Does MAIN SECTION contain implementation details?
 │      ├── Yes → Move them into a dedicated SECTION.
@@ -5623,6 +5660,7 @@ These are the standard's own acceptance conditions. Each is a defect when it fai
 * Numeric literals and `PICTURE` clauses follow ONE decimal convention throughout, chosen by whether the containing program declares `DECIMAL-POINT IS COMMA`. Mixing both in a compilation unit is a defect.
 * A table whose occurrences hold DIFFERENT values is initialized procedurally with `MOVE` statements, never through a multi-value `VALUE` clause on the `OCCURS` item.
 * Initialization lives in its own `INITIALIZE-… SECTION`, one responsibility per section, and is reached by `PERFORM` near the start of `MAIN SECTION`.
+* The form's data items are initialized in the FORM's `onLoad` handler and NOWHERE else. A control's handler that carries `PERFORM INITIALIZE-…`, or that `MOVE`s starting values into form-level data, is a defect however tidy it looks: that handler runs again on every user action, so it silently resets the data the rest of the form is accumulating. Reject it, and say the initialization belongs in `onLoad`. Conversely, a control's handler that simply USES data it never set is correct — do not report the missing initialization as an undeclared or uninitialized-value defect.
 * `MAIN SECTION` stays an orchestration plan — `PERFORM`s and the closing `EXIT PROGRAM` — with implementation detail moved into named sections.
 * The body ends with `EXIT PROGRAM`.
 * Examples from the standard are adapted to the actual domain, not copied verbatim.
@@ -6457,6 +6495,19 @@ mod tests {
                 "the standard must settle {settled} explicitly"
             );
         }
+        // Initialization has exactly one home. A control's handler fires on
+        // every user action, so a `PERFORM INITIALIZE-…` there resets the data
+        // the rest of the form is accumulating — the standard must say so
+        // imperatively, not leave "program startup" to be interpreted.
+        let body = &prompt[standard..];
+        assert!(
+            body.contains("that startup is the form's `onLoad` event, and this is imperative"),
+            "the standard must pin initialization to the form's onLoad"
+        );
+        assert!(
+            body.contains("A control's handler never carries `PERFORM INITIALIZE-…`"),
+            "and must say plainly where it does NOT belong"
+        );
     }
 
     /// A specialist and its reviewer judging by different rulebooks is the
@@ -6484,6 +6535,10 @@ mod tests {
             "initialized procedurally",
             "`INITIALIZE-… SECTION`",
             "ends with `EXIT PROGRAM`",
+            // Initialization belongs to the form's onLoad and nowhere else: a
+            // control's handler fires on every user action, so initializing
+            // there resets the data the rest of the form is accumulating.
+            "initialized in the FORM's `onLoad` handler and NOWHERE else",
         ] {
             assert!(
                 reviewer.contains(enforced),

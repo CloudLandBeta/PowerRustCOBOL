@@ -657,6 +657,31 @@ const FORM_EDGE_GRAB: f32 = 7.0;
 /// Smallest form dimension allowed when resizing by drag (matches `set_form_prop`).
 const FORM_MIN_SIZE: i32 = 64;
 
+/// How much of a roaming modal must stay on screen, in points.
+const MODAL_KEEP_ON_SCREEN: f32 = 120.0;
+
+/// The rect the COBOL Event Editor modal may be dragged within.
+///
+/// `movable(true)` alone did not give the developer a window they could move.
+/// egui constrains a window's whole RECT, not just its title bar, so a modal
+/// that opens at 70 % of the screen can only travel the leftover 30 % before it
+/// is clamped back — it reads as pinned. Constraining to a rect that extends
+/// PAST the screen gives the whole desk to push it around on.
+///
+/// It stays recoverable. Each side is widened by (size − [`MODAL_KEEP_ON_SCREEN`]),
+/// so however far the window is pushed, that many points of it remain on screen.
+/// The top is deliberately NOT widened: a title bar dragged above the screen's
+/// top edge could never be grabbed again, which is exactly how a movable window
+/// gets lost for good.
+fn event_modal_roam_rect(screen: egui::Rect, w: f32, h: f32) -> egui::Rect {
+    let slack_x = (w - MODAL_KEEP_ON_SCREEN).max(0.0);
+    let slack_y = (h - MODAL_KEEP_ON_SCREEN).max(0.0);
+    egui::Rect::from_min_max(
+        egui::pos2(screen.left() - slack_x, screen.top()),
+        egui::pos2(screen.right() + slack_x, screen.bottom() + slack_y),
+    )
+}
+
 /// Detect whether the canvas-space pointer `(px, py)` is over the form's resize
 /// border, given the form size `(w, h)`. Returns the edge, or `None`.
 fn detect_form_edge(px: i32, py: i32, w: f32, h: f32) -> Option<FormEdge> {
@@ -8054,6 +8079,8 @@ impl DesignerPanel {
         // dragged position by id afterwards.
         let default_pos = screen.center() - egui::vec2(default_w * 0.5, default_h * 0.5);
 
+        let roam = event_modal_roam_rect(screen, default_w, default_h);
+
         egui::Window::new(&title)
             .id(egui::Id::new("event_editor_modal"))
             .collapsible(false)
@@ -8064,7 +8091,7 @@ impl DesignerPanel {
             .min_width(360.0)
             .min_height(420.0)
             .default_pos(default_pos)
-            .constrain(true)
+            .constrain_to(roam)
             .frame(
                 egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)),
             )
@@ -13597,6 +13624,92 @@ mod ai_status_tests {
             ));
             assert!(!status_is_progress("", &tr));
         }
+    }
+}
+
+#[cfg(test)]
+mod event_modal_roam_tests {
+    use super::*;
+
+    fn screen() -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1600.0, 1000.0))
+    }
+
+    /// The complaint the fix answers: a modal at 70 % of the screen, constrained
+    /// to the screen, can travel only the leftover 30 %. Constrained to the roam
+    /// rect it can be pushed a whole window-width either way, so dragging it
+    /// feels free rather than rubber-banded.
+    #[test]
+    fn the_modal_may_be_pushed_far_past_the_screen_edges() {
+        let s = screen();
+        let (w, h) = (s.width() * 0.70, s.height() * 0.70); // 1120 x 700
+        let roam = event_modal_roam_rect(s, w, h);
+
+        assert!(
+            roam.left() < s.left() && roam.right() > s.right(),
+            "the modal must be draggable past both side edges: {roam:?}"
+        );
+        // Travel available along x: the roam width less the window width. The
+        // screen alone would have allowed only 1600 − 1120 = 480.
+        let travel_x = roam.width() - w;
+        assert!(
+            travel_x > s.width() - w,
+            "roaming must beat screen-constrained travel ({travel_x} vs {})",
+            s.width() - w
+        );
+    }
+
+    /// Freedom must not mean losing the window. However far it is pushed, that
+    /// much of it is still on screen to grab.
+    #[test]
+    fn some_of_the_modal_always_stays_on_screen() {
+        let s = screen();
+        let (w, h) = (1120.0, 700.0);
+        let roam = event_modal_roam_rect(s, w, h);
+
+        // Pushed as far left as allowed, its right edge is still on screen.
+        let leftmost_right_edge = roam.left() + w;
+        assert!(
+            leftmost_right_edge >= s.left() + MODAL_KEEP_ON_SCREEN,
+            "too little left visible: {leftmost_right_edge}"
+        );
+        // Pushed as far right as allowed, its left edge is still on screen.
+        let rightmost_left_edge = roam.right() - w;
+        assert!(
+            rightmost_left_edge <= s.right() - MODAL_KEEP_ON_SCREEN,
+            "too little right visible: {rightmost_left_edge}"
+        );
+        // Pushed as far down as allowed, its top — the title bar — is still on.
+        let lowest_top_edge = roam.bottom() - h;
+        assert!(
+            lowest_top_edge <= s.bottom() - MODAL_KEEP_ON_SCREEN,
+            "the title bar must not be pushed off the bottom: {lowest_top_edge}"
+        );
+    }
+
+    /// The one direction that is NOT widened. A title bar dragged above the
+    /// screen's top edge cannot be grabbed again, so the window would be lost
+    /// with no way to bring it back.
+    #[test]
+    fn the_title_bar_can_never_leave_the_top_of_the_screen() {
+        let s = screen();
+        let roam = event_modal_roam_rect(s, 1120.0, 700.0);
+        assert_eq!(
+            roam.top(),
+            s.top(),
+            "the roam rect must not extend above the screen"
+        );
+    }
+
+    /// A modal smaller than the margin we insist on keeping visible must not
+    /// produce a roam rect narrower than the screen — that would constrain it
+    /// MORE than before and make the bug worse for small windows.
+    #[test]
+    fn a_modal_smaller_than_the_margin_is_not_constrained_further() {
+        let s = screen();
+        let roam = event_modal_roam_rect(s, 80.0, 60.0);
+        assert!(roam.left() <= s.left() && roam.right() >= s.right());
+        assert!(roam.bottom() >= s.bottom());
     }
 }
 
