@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.1] — 2026-08-03
+
+### Changed
+
+- **The COBOL Event Handler agent now writes against the project's code
+  standard, and that standard outranks the language contract.** The developer's
+  code-generation best practices are folded into the agent's prompt as a
+  mandatory section: application data under meaningful `01 … GLOBAL` records
+  rather than one elementary `PIC` item per value, `OCCURS` tables instead of
+  repeated fields, reusable numeric-edited buffers matched to their source
+  picture, currency edited as `ZZ9,99` with the required digit before the
+  separator, differing table values initialized procedurally in a dedicated
+  `INITIALIZE-… SECTION`, and a `MAIN SECTION` that only orchestrates. It is
+  additional to the RustCOBOL language contract and placed after it, and where
+  the two disagree the standard wins.
+- **`EXIT PROGRAM` is now in the contract, as the way a handler returns.** It
+  was left implicit under a bare `EXIT` in the verb list, which is how the agent
+  and its Pedantic reviewer came to disagree about whether writing it was legal
+  at all. Clause 1 now states what it means — control returns to the `CALL` that
+  reached you, the COBOL-85 *run unit* carries on, and the program's
+  `WORKING-STORAGE` keeps its values, so the next call resumes with them instead
+  of restarting from the `VALUE` clauses — and clause 4 lists every `EXIT` form
+  explicitly. That matches the runtime, which saves a called program's locals on
+  the way out and restores them on the way back in, with only `CANCEL`
+  discarding them. `STOP RUN` (ends the whole run unit) and `GOBACK` (generated
+  by the IDE as the wrapper's own return) are marked as the two returns that are
+  not this one.
+- Two conflicts the standard does create are settled in the prompt itself, so
+  neither side can alternate between them: `COMP` replaces the contract's
+  preferred `COMP-5` for application data, and an elementary `PIC` item at level
+  `01` — the shape the contract's own skeleton shows — is what the standard
+  forbids for application data. The wrapper rule is untouched: the IDE still
+  generates `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK` and
+  `END PROGRAM`.
+
 ## [PowerRustCOBOL 1.56.0] — 2026-08-02
 
 ### Added

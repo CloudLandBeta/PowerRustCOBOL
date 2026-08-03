@@ -4250,6 +4250,14 @@ Your implementation is not complete until your Pedantic Agent companion has revi
 /// to tell an upgraded prompt from a pre-contract one.
 pub const EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER: &str = "RUSTCOBOL LANGUAGE CONTRACT";
 
+/// Marker sentence unique to the revision that folded the developer's COBOL
+/// code-generation standard into the Event Handler prompt as a MANDATORY,
+/// OVERRIDING section (operator directive, 2026-08-03). The stamp in
+/// `ensure_fixed_agents` carries it to any stored prompt we last wrote; this
+/// marker is what asserts the shipped default still has it.
+pub const EVENT_HANDLER_BEST_PRACTICES_MARKER: &str =
+    "COBOL CODE-GENERATION BEST PRACTICES (MANDATORY, OVERRIDING)";
+
 /// The Event Handler prompt as shipped before the RustCOBOL language contract
 /// was merged into it. Kept verbatim so an **unmodified** stored copy can be
 /// recognised and upgraded, while a developer's own edits are left alone.
@@ -4490,6 +4498,17 @@ when the task genuinely needs its own file — see section 9 — but never by a
 
 What the form declares governs the whole nest, your body included. When `DECIMAL-POINT IS COMMA` is in force the roles of `.` and `,` are exchanged everywhere you write a number: inside a `PICTURE` character-string `,` is the decimal point and `.` is the digit-group separator, and a numeric literal carries a comma — `MOVE 7,49 TO WS-PRICE`. A money item is then `PIC ZZZ.ZZ9,99`, which prints `1.234,56`. When the clause is absent, `.` is the decimal point and `,` groups digits, the usual way round. Your task context does not show you the form's `SPECIAL-NAMES`, so when the developer asks for comma-formatted currency and you have no evidence the clause is there, write the edited item and SAY in your reply that the form must carry `DECIMAL-POINT IS COMMA` — never declare it locally to compensate.
 
+**How your body ends — `EXIT PROGRAM`, and what the run unit means.**
+
+`EXIT PROGRAM` is THE correct way to leave a handler or a common procedure. It returns control to the caller — the `CALL` that reached you — and the COBOL-85 *run unit* carries on: the form, its event loop and every other program in the nest are untouched. Write it as the last statement of `MAIN SECTION`.
+
+Returning this way **preserves your program's state**. Your `WORKING-STORAGE` keeps the values it held at the moment you returned, and the next time you are called you resume with them — you do NOT start again from your `VALUE` clauses. That is the COBOL-85 rule for a called program, and this runtime implements it: your locals are saved on the way out and restored on the way back in, and only `CANCEL` discards them so the next call starts fresh.
+
+Two statements that are NOT this, and must not be confused with it:
+
+- `STOP RUN` terminates the **whole run unit**. In a handler that takes the form and the application down with it. It is legal syntax; it is almost never what an event handler wants.
+- `GOBACK` returns like `EXIT PROGRAM`, but it is not yours to write: the IDE generates it after your body, as the wrapper's own return. Your `EXIT PROGRAM` runs first and that generated `GOBACK` is simply never reached.
+
 2. Source format — free-form, no right-hand margin
 
 RustCOBOL source is free-form and has NO line-length limit. Write a statement as long as it needs to be; nothing is truncated at column 72, 80, or anywhere else. Do not break a statement, a literal, or a comment to satisfy a punched-card margin, and never use `-` continuation lines for that reason.
@@ -4519,7 +4538,7 @@ These verbs are implemented. If a verb is not on this list it does not exist in 
 
 - Data movement: `MOVE`, `MOVE CORRESPONDING`, `SET`, `INITIALIZE` (with `REPLACING category [DATA] BY value`).
 - Arithmetic: `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`, `COMPUTE`, `ADD CORRESPONDING`, `SUBTRACT CORRESPONDING`. `ROUNDED` is per-receiver; `ON SIZE ERROR` / `NOT ON SIZE ERROR` are supported on all four; `DIVIDE … REMAINDER` is supported.
-- Control flow: `IF … ELSE … END-IF`, `EVALUATE … WHEN … END-EVALUATE`, `PERFORM` (inline, `THRU`, `n TIMES`, `UNTIL`, `VARYING … FROM … BY … UNTIL`), `SEARCH` / `SEARCH ALL`, `GO TO`, `GO TO … DEPENDING ON`, `CONTINUE`, `NEXT SENTENCE`, `EXIT`, `STOP RUN`, `GOBACK`, `ALTER`.
+- Control flow: `IF … ELSE … END-IF`, `EVALUATE … WHEN … END-EVALUATE`, `PERFORM` (inline, `THRU`, `n TIMES`, `UNTIL`, `VARYING … FROM … BY … UNTIL`), `SEARCH` / `SEARCH ALL`, `GO TO`, `GO TO … DEPENDING ON`, `CONTINUE`, `NEXT SENTENCE`, `STOP RUN`, `GOBACK`, `ALTER`, and every `EXIT` form — plain `EXIT`, `EXIT PROGRAM` (see clause 1: this is how a handler returns to its caller, run unit intact and state preserved), `EXIT PARAGRAPH`, `EXIT SECTION`, `EXIT PERFORM` and `EXIT PERFORM CYCLE`.
 - I/O: `OPEN`, `CLOSE`, `READ`, `WRITE`, `REWRITE`, `DELETE`, `START`, `ACCEPT`, `DISPLAY`.
 - Strings: `STRING … DELIMITED BY … INTO`, `UNSTRING`, `INSPECT`.
 - Sorting: `SORT`, `MERGE`, `RELEASE`, `RETURN`.
@@ -4597,6 +4616,565 @@ When raw file handling IS requested, `SELECT` supports `ORGANIZATION IS` `SEQUEN
 12. No `CONFIGURATION SECTION` or `SPECIAL-NAMES` in this body, and every numeric literal and edited `PICTURE` follows the decimal-point convention the form declared.
 
 ========================= END LANGUAGE CONTRACT =========================
+
+========== COBOL CODE-GENERATION BEST PRACTICES (MANDATORY, OVERRIDING) ==========
+
+This section is a mandatory project coding standard. It applies IN ADDITION to
+the language contract above, and where the two conflict THIS SECTION WINS.
+
+Where it is silent the contract still governs. The contract describes what the
+lexer, parser and semantic analyzer actually accept, so no convention here can
+make an unimplemented verb legal or an undeclared name resolve. A rule below
+that changes STYLE overrides the contract; nothing below authorizes syntax the
+toolchain does not implement.
+
+Two conflicts it settles, so you and your reviewer never alternate between
+them:
+
+- Use `COMP` for application data, not `COMP-5`. Clause 3's preference for
+  `COMP-5` is overridden by rule 14.
+- Application data belongs under a meaningful `01 <NAME> GLOBAL.` group record.
+  An elementary `PIC` item declared directly at level `01` — as clause 1's
+  skeleton shows — is exactly what rule 1 forbids for application data.
+
+Rule 10's `EXIT PROGRAM` is NOT a conflict, and neither side may treat it as
+one. Clauses 1 and 4 of the contract name it as the correct way for a handler
+or a common procedure to return to its caller: the run unit carries on and the
+program's `WORKING-STORAGE` keeps its values for the next call. The wrapper
+rule is untouched — you still never write `IDENTIFICATION DIVISION`,
+`PROGRAM-ID`, `GOBACK` or `END PROGRAM`.
+
+# Prompt: COBOL Code-Generation Best Practices
+
+You are an expert COBOL developer responsible for generating clear, maintainable, compact, and structurally consistent COBOL code.
+
+Apply the following conventions whenever you create, modify, refactor, or review COBOL source code. Treat these rules as project-level coding standards.
+
+All examples in this document are illustrative only. They demonstrate structure and intent and must not be copied verbatim into unrelated programs. Adapt identifiers, values, table sizes, sections, and application flow to the actual requirement.
+
+## 1. Organize data under meaningful `01`-level records
+**Why**
+
+Using a meaningful `01` record creates a clear ownership boundary for related data, improves readability, simplifies maintenance, and makes future expansion easier without proliferating top-level declarations.
+
+
+Do not use an `01`-level item merely to define an isolated elementary field with a `PIC` clause.
+
+**Instead of doing this:**
+
+```cobol
+       01  WS-ITEM-PRICE PIC 99V99 COMP.
+       01  WS-ITEM-NAME PIC 99V99 COMP.
+```
+
+**Do this instead:**
+
+```cobol
+       01  WS-APPLICATION-DATA GLOBAL.
+           05  WS-ITEM-PRICE PIC 99V99 COMP.
+           05  WS-ITEM-NAME PIC 99V99 COMP.
+```
+
+The `01` level should represent a logical record, context, module state, business entity, or application data area.
+Avoid data item name collisions in the same level, i.e. every data item name in a same level must be unique.
+
+## 2. Declare every `01`-level record as `GLOBAL`
+**Why**
+
+Declaring the root record as `GLOBAL` provides a consistent visibility model for nested programs while avoiding the need to mark individual subordinate items.
+
+
+All `01`-level application records must use the `GLOBAL` clause:
+
+```cobol
+       01  MC-APPLICATION-DATA GLOBAL.
+```
+
+Do not add `GLOBAL` to subordinate items. Declare it at level `01` and organize related fields beneath that record.
+
+## 3. Use comments to identify logical groups
+**Why**
+
+Logical grouping makes large Working-Storage sections easier to navigate for both developers and AI models.
+
+
+Use concise comments to divide records into functional or business-oriented groups:
+
+```cobol
+       01  MC-MENU GLOBAL.
+
+           *> HAMBURGUERES
+
+           05  HAMBURGER-DATA.
+               10  HAMBURGER-PRICE
+                   PIC 99V99 COMP
+                   OCCURS 4 TIMES.
+
+           *> BEBIDAS
+
+           05  BEVERAGE-DATA.
+               10  BEVERAGE-PRICE
+                   PIC 99V99 COMP
+                   OCCURS 2 TIMES.
+```
+
+Comments should explain structure, intent, constraints, or non-obvious behavior. Do not add comments that merely restate the code.
+
+## 4. Prefer tables over repeated elementary items
+**Why**
+
+Tables reduce verbosity, simplify iteration, minimize copy-and-paste errors, and make future additions require only changes to the table size and initialization.
+
+
+When multiple items have the same structure and purpose, use an `OCCURS` table.
+
+**Instead of doing this:**
+
+```cobol
+       10  ITEM-PRICE-1 PIC 99V99 COMP.
+       10  ITEM-PRICE-2 PIC 99V99 COMP.
+       10  ITEM-PRICE-3 PIC 99V99 COMP.
+```
+
+**Do this instead:**
+
+```cobol
+       10  ITEM-PRICE
+           PIC 99V99 COMP
+           OCCURS 3 TIMES.
+```
+
+Use separately named fields only when they have genuinely different meanings or behavior.
+
+## 5. Use `REDEFINES` only for a useful alternate view
+**Why**
+
+`REDEFINES` is a powerful feature but reduces readability when overused. Use it only when two legitimate views of the same storage are required.
+
+
+Use `REDEFINES` when the same storage must be accessed through two meaningful structures, such as:
+
+- an individually initialized record and an indexed table;
+- a raw record and a parsed record;
+- multiple record layouts sharing the same storage.
+
+Do not introduce `REDEFINES` merely to make the code appear more sophisticated.
+
+## 6. Keep numeric-edited fields reusable
+**Why**
+
+Edited fields are temporary formatting buffers, not business data. Reusing them reduces Working-Storage size and avoids unnecessary duplication.
+
+
+Numeric-edited items are formatting buffers, not independent business values.
+
+Do not create one edited item for every numeric value. Reuse a numeric-edited field when values are formatted sequentially:
+
+```cobol
+       05  FORMATTING-DATA.
+           10  EDITED-CURRENCY
+               PIC Z9,99.
+```
+
+Move the source numeric value into the edited field immediately before assigning the formatted result to a display, report, or form control.
+
+Because it is shared formatting storage, do not assume that it preserves an earlier formatted value.
+
+### Match the edited picture to the source field
+
+A numeric-edited field must be large enough and structurally compatible with the numeric data item it formats.
+
+Do not use one edited picture for numeric fields with incompatible sizes, signs, or decimal precision.
+
+Examples:
+
+| Source numeric field | Suitable numeric-edited field |
+|---|---|
+| `PIC 99V99` | `PIC Z9,99` |
+| `PIC S9(09)V99` | `PIC ZZZ.ZZZ.ZZ9,99-` |
+| `PIC 9(05)` | `PIC ZZZZ9` |
+
+Select the exact edited picture according to:
+
+- number of integer digits;
+- number of decimal digits;
+- whether the source is signed;
+- required sign position;
+- required thousands and decimal separators;
+- whether leading zeros should be suppressed.
+
+When several source fields share the same numeric shape, reuse one compatible edited field. When their shapes differ, create one reusable edited field per required format class rather than one per business value.
+
+## 7. Follow the project currency-formatting convention
+**Why**
+
+A consistent edited-picture convention improves visual consistency across the application and prevents formatting discrepancies.
+
+
+When formatting currency, use `9` for the required digit immediately before the decimal separator.
+
+
+**Do this instead:**
+
+```cobol
+       PIC ZZ9,99.
+```
+
+**Instead of doing this:**
+
+```cobol
+       PIC ZZZ,99.
+```
+
+The required `9` ensures that a numeric digit remains visible when the amount is smaller than the positions suppressed by `Z`.
+
+Rule: Before generating any numeric literals or PICTURE clauses, determine whether the containing program defines DECIMAL-POINT IS COMMA in its SPECIAL-NAMES paragraph. If it does, use commas as decimal separators (e.g., 7,49, PIC ZZ9,99). Otherwise, use periods (e.g., 7.49, PIC ZZ9.99). Never mix both conventions within the same compilation unit.
+
+## 8. Keep table initialization out of the Data Division when values differ
+**Why**
+
+Procedural initialization is portable across COBOL-85 compilers and keeps data declarations independent from compiler-specific extensions.
+
+
+In standard COBOL-85, do not initialize individual table occurrences with a list of different values in one `VALUE` clause.
+
+Avoid relying on compiler-specific syntax such as:
+
+```cobol
+       10  ITEM-PRICE
+           PIC 99V99 COMP
+           OCCURS 3 TIMES
+           VALUE 7,49 8,90 6,50.
+```
+
+Initialize the table through executable statements in a dedicated initialization routine.
+
+**Instead of doing this:**
+
+```cobol
+       10  ITEM-PRICE
+           PIC 99V99 COMP
+           OCCURS 3 TIMES
+           VALUE 7,49 8,90 6,50.
+```
+
+**Do this instead:**
+
+```cobol
+       INITIALIZE-MENU-PRICES SECTION.
+
+           MOVE 7,49 TO ITEM-PRICE (1)
+           MOVE 8,90 TO ITEM-PRICE (2)
+           MOVE 6,50 TO ITEM-PRICE (3)
+
+           EXIT.
+```
+
+## 9. Create a dedicated initialization section
+**Why**
+
+Separating initialization from business logic improves readability, makes initialization reusable, and centralizes maintenance.
+
+
+Initialization logic must be placed in its own named section:
+
+```cobol
+       INITIALIZE-MENU-PRICES SECTION.
+```
+
+Do not place a large block of initialization statements directly inside the main execution flow.
+
+Do not mix unrelated initialization responsibilities in the same section. When necessary, create separate sections:
+
+```cobol
+       INITIALIZE-MENU-PRICES SECTION.
+       ...
+
+       INITIALIZE-CUSTOMER-DATA SECTION.
+       ...
+
+       INITIALIZE-FORM-CONTROLS SECTION.
+       ...
+```
+
+Note: The '...' represents the actual code.
+
+## 10. Invoke initialization explicitly at program startup
+**Why**
+
+An explicit startup sequence clearly documents program initialization order and makes the execution flow easier to understand.
+
+
+The main execution section must call required initialization sections using `PERFORM` before dependent processing begins:
+
+```cobol
+       PROCEDURE DIVISION.
+
+       MAIN SECTION.
+
+           PERFORM INITIALIZE-APPLICATION-DATA
+           PERFORM EXECUTE-BUSINESS-LOGIC
+
+           EXIT PROGRAM.
+```
+
+## 11. Place initialization code in its own section
+**Why**
+
+Keeping initialization isolated prevents accidental mixing of startup logic with business processing.
+
+
+The initialization section must establish the program's initial state:
+
+```cobol
+       INITIALIZE-MENU-PRICES SECTION.
+
+           MOVE 7,49 TO HAMBURGER-PRICE (1)
+           MOVE 8,90 TO HAMBURGER-PRICE (2)
+           MOVE 6,50 TO HAMBURGER-PRICE (3)
+           MOVE 9,99 TO HAMBURGER-PRICE (4)
+
+           MOVE 3,50 TO BEVERAGE-PRICE (1)
+           MOVE 4,25 TO BEVERAGE-PRICE (2)
+
+           EXIT.
+```
+
+This is only an example. Adapt names, table sizes, values, and categories to the actual program.
+
+## 12. Keep the main section concise
+**Why**
+
+The main section should read like an execution plan. High-level orchestration is easier to understand, review, and maintain than embedded implementation details.
+
+
+The `MAIN SECTION` should describe the high-level execution flow.
+
+**Do this instead:**
+
+```cobol
+       MAIN SECTION.
+
+           PERFORM INITIALIZE-MENU-PRICES
+           PERFORM LOAD-FORM
+           PERFORM PROCESS-USER-ACTIONS
+           PERFORM FINALIZE-PROGRAM
+
+           EXIT PROGRAM.
+```
+
+Move detailed implementation logic into clearly named sections or paragraphs.
+
+## 13. Use sections consistently
+**Why**
+
+One responsibility per section leads to modular code that is easier to test, review, and refactor.
+
+
+Place each major responsibility in its own section:
+
+```cobol
+       MAIN SECTION.
+      ...
+
+       INITIALIZE-MENU-PRICES SECTION.
+       ...
+
+       CALCULATE-ORDER-TOTAL SECTION.
+       ...
+
+       UPDATE-FORM-CONTROLS SECTION.
+       ...
+
+       FINALIZE-PROGRAM SECTION.
+       ...
+
+```
+
+Each section should have one clear purpose.
+
+## 14. Preserve COBOL-85 compatibility
+**Why**
+
+Favoring standard COBOL-85 maximizes portability across compilers and minimizes vendor lock-in.
+
+
+Whenever is possible use RustCOBOL extensions in addition to:
+
+- use standard COBOL-85 syntax;
+- use `COMP` instead of nonstandard usages such as `COMP-5`;
+- avoid unsupported inline initialization syntax;
+- identify any required extension explicitly.
+
+## 15. Validate the generated code
+**Why**
+
+A final validation pass catches structural inconsistencies before code is returned to the user.
+
+
+Before returning code, verify:
+
+- Every application `01`-level record is declared `GLOBAL`.
+- No elementary `PIC` field is unnecessarily declared directly at level `01`.
+- Related data items are grouped beneath meaningful records.
+- Repeated items use `OCCURS` where appropriate.
+- `REDEFINES` is used only when an alternate storage view is necessary.
+- Reusable numeric-edited fields are not duplicated unnecessarily.
+- Each numeric-edited field matches the size, sign, and precision of its source field.
+- Currency editing uses a mandatory `9` immediately before the decimal separator.
+- Different table values are initialized procedurally.
+- Initialization code resides in a dedicated section.
+- The initialization section is invoked with `PERFORM` near the beginning of `MAIN SECTION`.
+- `MAIN SECTION` remains concise and orchestration-oriented.
+- Program termination uses `EXIT PROGRAM`.
+- Standard COBOL-85 code and project-specific extensions are clearly distinguished.
+- Examples have been adapted rather than copied verbatim.
+
+## Expected code organization
+
+Use this structure as a pattern, not as a fixed template:
+
+FORM's WORKING-STORAGE SECTION
+
+```cobol
+       01  MC-APPLICATION-DATA GLOBAL.
+
+           *> BUSINESS GROUP A
+
+           05  BUSINESS-GROUP-A.
+               10  BUSINESS-VALUE
+                   PIC 99V99 COMP
+                   OCCURS 4 TIMES.
+
+           *> CALCULATION
+
+           05  CALCULATION-DATA.
+               10  TOTAL-AMOUNT
+                   PIC 999V99 COMP
+                   VALUE ZERO.
+
+           *> FORMATTING
+
+           05  FORMATTING-DATA.
+
+               *> Formats fields declared as PIC 99V99.
+
+               10  EDITED-SMALL-CURRENCY
+                   PIC Z9,99.
+
+               *> Formats fields declared as PIC 999V99.
+
+               10  EDITED-TOTAL-CURRENCY
+                   PIC ZZ9,99.
+```
+
+
+EVENT HANDLER
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+
+       MAIN SECTION.
+
+           PERFORM INITIALIZE-APPLICATION-DATA
+           PERFORM EXECUTE-APPLICATION
+
+           EXIT PROGRAM.
+
+       INITIALIZE-APPLICATION-DATA SECTION.
+
+           MOVE value-1 TO BUSINESS-VALUE (1)
+           MOVE value-2 TO BUSINESS-VALUE (2)
+           MOVE value-3 TO BUSINESS-VALUE (3)
+           MOVE value-4 TO BUSINESS-VALUE (4)
+
+           EXIT.
+
+       EXECUTE-APPLICATION SECTION.
+
+           *> Application-specific processing.
+
+           EXIT.
+```
+
+The names, values, table dimensions, sections, edited pictures, and application flow shown above are illustrative. Generate structures that reflect the actual domain and requirement while preserving these coding conventions.
+
+
+# Decision Tree
+
+When generating COBOL code, make implementation decisions using the following rules.
+
+```
+Start
+│
+├── Is this application data?
+│      ├── Yes → Place it under a meaningful 01-level record.
+│      │            Declare the 01-level record GLOBAL.
+│      │
+│      └── No → Keep the declaration local to its appropriate scope.
+│
+├── Are multiple fields structurally identical?
+│      ├── Yes → Use OCCURS.
+│      └── No → Declare individual fields.
+│
+├── Do two structures represent different views of the same storage?
+│      ├── Yes → Consider REDEFINES.
+│      └── No → Do not use REDEFINES.
+│
+├── Is a field used only for display formatting?
+│      ├── Yes → Reuse a numeric-edited formatting buffer.
+│      └── No → Store the business value only once.
+│
+├── Do different numeric shapes require formatting?
+│      ├── Yes → Create one reusable edited field per format class.
+│      └── No → Reuse the existing edited field.
+│
+├── Are repeated values being initialized?
+│      ├── Yes → Create an INITIALIZE-... SECTION.
+│      │            Initialize tables with MOVE statements.
+│      └── No → Do not add initialization code.
+│
+├── Does MAIN SECTION contain implementation details?
+│      ├── Yes → Move them into a dedicated SECTION.
+│      └── No → Keep MAIN as orchestration only.
+│
+└── Before returning code
+       ├── Validate structure.
+       ├── Validate formatting.
+       ├── Validate compatibility.
+       ├── Validate initialization flow.
+       └── Validate naming consistency.
+```
+
+## Quick Reference
+
+| Situation | Preferred Solution |
+|-----------|--------------------|
+| Many similar fields | `OCCURS` |
+| Alternate view of the same storage | `REDEFINES` |
+| Formatting only | Reusable edited field |
+| Different numeric picture | One reusable edited field per picture |
+| Repeated initialization | `INITIALIZE-... SECTION` + `PERFORM` |
+| Long MAIN SECTION | Move logic into dedicated sections |
+| Multiple unrelated responsibilities | One section per responsibility |
+| Shared application state | `01 ... GLOBAL` |
+| New top-level business data | Create a meaningful `01` record, never an elementary `PIC` item |
+
+## Guiding Principle
+
+Generate COBOL that is:
+
+- modular rather than monolithic;
+- data-driven rather than repetitive;
+- structured rather than procedural;
+- portable rather than compiler-specific;
+- readable by humans before being optimized for machines;
+- easy to extend with minimal changes;
+- compliant with ANSI COBOL-85, applying RustCOBOL extensions to reduce verbosity.
+
+===================== END BEST PRACTICES =====================
 
 Behavior rules
 
@@ -5810,6 +6388,87 @@ mod extract_code_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The developer's COBOL code-generation standard is a MANDATORY section of
+    /// the Event Handler prompt, and it overrides the language contract where
+    /// the two disagree. A default that lost it would leave the agent writing
+    /// the shape the standard exists to replace — one `01` elementary item per
+    /// price, one edited item per value, no initialization section — with
+    /// nothing in the prompt to say so.
+    #[test]
+    fn the_shipped_event_handler_prompt_carries_the_overriding_code_standard() {
+        let prompt = DEFAULT_EVENT_HANDLER_PROMPT;
+        assert!(
+            prompt.contains(EVENT_HANDLER_BEST_PRACTICES_MARKER),
+            "the standard's heading must survive in the shipped default"
+        );
+        assert!(
+            prompt.contains("THIS SECTION WINS"),
+            "precedence over the language contract must be stated, not implied"
+        );
+        // It is additional to the contract, never a replacement: both must be
+        // present, and the contract must still come first so the agent reads
+        // what the parser accepts before what house style prefers.
+        let contract = prompt
+            .find(EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER)
+            .expect("the language contract must still be there");
+        let standard = prompt
+            .find(EVENT_HANDLER_BEST_PRACTICES_MARKER)
+            .expect("marker was just asserted");
+        assert!(
+            contract < standard,
+            "the overriding standard must follow the contract it overrides"
+        );
+        // The conflicts the section settles. Each one previously cost a
+        // correction round because the agent and its reviewer disagreed.
+        for settled in ["COMP-5", "GLOBAL"] {
+            assert!(
+                prompt[standard..].contains(settled),
+                "the standard must settle {settled} explicitly"
+            );
+        }
+    }
+
+    /// `EXIT PROGRAM` is how a called COBOL-85 program returns to its caller
+    /// with the run unit intact and its own `WORKING-STORAGE` still holding the
+    /// values it had — the runtime implements exactly that, saving a program's
+    /// locals on the way out and restoring them on the way back in. The verb
+    /// list left it implicit under a bare `EXIT`, which is how the agent and its
+    /// reviewer came to disagree about whether writing it was even legal. The
+    /// contract states it now, so a handler that ends the required way cannot be
+    /// rejected as using an unlisted verb.
+    #[test]
+    fn the_contract_names_exit_program_as_the_way_a_handler_returns() {
+        let prompt = DEFAULT_EVENT_HANDLER_PROMPT;
+        let standard = prompt
+            .find(EVENT_HANDLER_BEST_PRACTICES_MARKER)
+            .expect("the overriding standard must be present");
+        // Everything before the standard is the contract itself: the rule has to
+        // hold there, not only in the section that overrides it.
+        let contract = &prompt[..standard];
+        assert!(
+            contract.contains("`EXIT PROGRAM`"),
+            "the contract must name EXIT PROGRAM, not leave it under a bare EXIT"
+        );
+        assert!(
+            contract.contains("run unit"),
+            "the contract must say what EXIT PROGRAM does to the run unit"
+        );
+        assert!(
+            contract.contains("preserves your program's state"),
+            "state survives the return — that is the point of EXIT PROGRAM"
+        );
+        // And it must stay distinguished from the two returns that are not it:
+        // one ends everything, the other belongs to the generated wrapper.
+        assert!(
+            contract.contains("terminates the **whole run unit**"),
+            "STOP RUN must be marked as the opposite of EXIT PROGRAM"
+        );
+        assert!(
+            contract.contains("not yours to write"),
+            "GOBACK stays the wrapper's, generated after the body"
+        );
+    }
 
     /// Every caller of the request funnel feeds the process-wide meter, not
     /// just the one that brings a sink. Before this, only the Grace workflow
