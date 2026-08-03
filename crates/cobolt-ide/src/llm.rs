@@ -984,7 +984,20 @@ pub struct LastModelCall {
 static LAST_MODEL_CALL: LazyLock<Mutex<Option<LastModelCall>>> =
     LazyLock::new(|| Mutex::new(None));
 
-/// Record a completed model call for the chat-footer indicator.
+/// Record a completed model call: the chat-footer indicator AND the
+/// process-wide token meter.
+///
+/// The two used to be fed from different places and neither path fed both. The
+/// agent workflow reported here and nowhere else, so a Grace run — dozens of
+/// calls, the longest wait the IDE has — left [`token_meter`] untouched and the
+/// "Thinking…" reading sat frozen at whatever the last editor request had put
+/// there. Meanwhile the editor and designer fed the meter through
+/// [`accumulate_tokens`] and never reported a last call, so the footer went
+/// stale for them.
+///
+/// **Call this exactly once per completed call, and never alongside
+/// [`accumulate_tokens`] for the same reply** — both add to the meter, so
+/// doing both would count that call twice.
 pub fn record_last_model_call(provider: &str, model: &str, input_tokens: u64, output_tokens: u64) {
     if let Ok(mut slot) = LAST_MODEL_CALL.lock() {
         *slot = Some(LastModelCall {
@@ -994,6 +1007,7 @@ pub fn record_last_model_call(provider: &str, model: &str, input_tokens: u64, ou
             output_tokens,
         });
     }
+    add_to_token_meter(input_tokens, output_tokens);
 }
 
 /// The most recent completed model call, if any happened this session.
@@ -1005,8 +1019,11 @@ pub fn last_model_call() -> Option<LastModelCall> {
 /// completed, from every surface — the editor, the designer, the prompt review,
 /// history compaction, the benchmark and the Grace workflow alike.
 ///
-/// Fed at the one funnel all of them pass through ([`accumulate_tokens`]), so a
-/// new chat surface needs no plumbing of its own to show a token count.
+/// Fed from the two places a call can complete: [`accumulate_tokens`] for the
+/// direct request funnel, and [`record_last_model_call`] for the agent
+/// workflow, which runs its own transport and never reaches that funnel. A new
+/// chat surface needs no plumbing of its own to show a token count; a new model
+/// CALL PATH must feed one of those two, and exactly one.
 ///
 /// It counts COMPLETED calls, because that is when a provider reports usage: a
 /// call in flight contributes nothing until it returns, and the figure then
@@ -6611,6 +6628,7 @@ mod tests {
     /// show.
     #[test]
     fn the_token_meter_counts_a_call_that_brought_no_sink_of_its_own() {
+        let _serial = METER_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let (in0, out0) = token_meter();
 
         // No sink — the editor/designer shape.
@@ -6627,6 +6645,40 @@ mod tests {
         // A line that is not a token report leaves both alone.
         accumulate_tokens(&None, "agent · routing → Form Designer");
         assert_eq!(token_meter(), (in0 + 130, out0 + 52));
+    }
+
+    /// The token meter is one process-wide counter, and cargo runs tests as
+    /// threads of a single process. Every meter test reads a baseline and then
+    /// asserts an exact delta, so two of them running at once make both fail on
+    /// the other's additions. Hold this for the length of any such test.
+    static METER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The agent workflow runs its own transport and never reaches the request
+    /// funnel, so it fed the footer's last-call slot and nothing else: a Grace
+    /// run — dozens of calls and the longest wait the IDE has — left the meter
+    /// exactly where the previous editor request had put it, and the developer
+    /// watched a frozen "Thinking… ↑39.1k ↓260" for minutes. Reporting a
+    /// completed call now moves both.
+    #[test]
+    fn reporting_a_completed_agent_call_moves_the_token_meter() {
+        let _serial = METER_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (in0, out0) = token_meter();
+
+        record_last_model_call("ollama_cloud", "gemma4:31b", 6345, 150);
+        assert_eq!(
+            token_meter(),
+            (in0 + 6345, out0 + 150),
+            "an agent call must reach the meter, not only the footer"
+        );
+
+        // And it still records the call for the footer, which was its own job.
+        let last = last_model_call().expect("the footer's last call");
+        assert_eq!((last.input_tokens, last.output_tokens), (6345, 150));
+        assert_eq!(last.model, "gemma4:31b");
+
+        // A workflow is many calls; each one adds.
+        record_last_model_call("ollama_cloud", "gemma4:31b", 11500, 757);
+        assert_eq!(token_meter(), (in0 + 17845, out0 + 907));
     }
 
     /// The counter is a status line, so it must not shove the layout about as

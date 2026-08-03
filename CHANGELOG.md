@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.56.4] — 2026-08-03
+
+### Fixed
+
+- **The token counter sat frozen for the whole of an agent run.** 1.56.0 fed the
+  process-wide meter from the request funnel, which covers the editor, the
+  designer, the prompt review, compaction and the benchmark — but the agent
+  workflow runs its own transport and never reaches that funnel. It reported
+  into the run totals, the statistics table and the chat footer's last-call
+  slot, and none of those is the meter. So the longest wait the IDE has, a Grace
+  run of dozens of calls, was the one wait whose "Thinking…" reading never
+  moved: it stayed at whatever the previous editor request had left there.
+  Recording a completed call now feeds the meter as well as the footer, and the
+  typed-extraction calls — which had reported to neither — report too.
+- **The COBOL Structure editor could not be moved at all.** It was built with
+  `anchor(CENTER_CENTER)`, and egui re-places an anchored window every frame, so
+  its title bar was not draggable — no amount of constraining would have changed
+  that. It now seeds its centred position with `default_pos` and roams within
+  the same widened rect as the Event Editor modal, keeping 120 pt of window on
+  screen at every extreme. The roam helper is shared by both and is no longer
+  named after the event modal.
+
 ## [PowerRustCOBOL 1.56.3] — 2026-08-03
 
 ### Fixed

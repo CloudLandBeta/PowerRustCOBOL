@@ -1023,6 +1023,16 @@ impl DbAgentInvoker {
                 extract_started.elapsed().as_millis() as u64,
             );
         }
+        // A typed extraction is a model call like any other: it costs tokens and
+        // the developer is waiting on it. It reported into the run totals and the
+        // stats table but nowhere the "Thinking…" reading could see, so those
+        // tokens were spent invisibly.
+        crate::llm::record_last_model_call(
+            &cfg.provider,
+            &cfg.model,
+            reply.input_tokens,
+            reply.output_tokens,
+        );
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Detail,
             format!(

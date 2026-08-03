@@ -660,7 +660,7 @@ const FORM_MIN_SIZE: i32 = 64;
 /// How much of a roaming modal must stay on screen, in points.
 const MODAL_KEEP_ON_SCREEN: f32 = 120.0;
 
-/// The rect the COBOL Event Editor modal may be dragged within.
+/// The rect a big designer modal may be dragged within.
 ///
 /// `movable(true)` alone did not give the developer a window they could move.
 /// egui constrains a window's whole RECT, not just its title bar, so a modal
@@ -673,7 +673,11 @@ const MODAL_KEEP_ON_SCREEN: f32 = 120.0;
 /// The top is deliberately NOT widened: a title bar dragged above the screen's
 /// top edge could never be grabbed again, which is exactly how a movable window
 /// gets lost for good.
-fn event_modal_roam_rect(screen: egui::Rect, w: f32, h: f32) -> egui::Rect {
+///
+/// Note this is about the CONSTRAINT. A window built with `.anchor(…)` is
+/// pinned outright and cannot be dragged at all, whatever it is constrained to —
+/// seed the position with `.default_pos(…)` instead.
+fn modal_roam_rect(screen: egui::Rect, w: f32, h: f32) -> egui::Rect {
     let slack_x = (w - MODAL_KEEP_ON_SCREEN).max(0.0);
     let slack_y = (h - MODAL_KEEP_ON_SCREEN).max(0.0);
     egui::Rect::from_min_max(
@@ -8079,7 +8083,7 @@ impl DesignerPanel {
         // dragged position by id afterwards.
         let default_pos = screen.center() - egui::vec2(default_w * 0.5, default_h * 0.5);
 
-        let roam = event_modal_roam_rect(screen, default_w, default_h);
+        let roam = modal_roam_rect(screen, default_w, default_h);
 
         egui::Window::new(&title)
             .id(egui::Id::new("event_editor_modal"))
@@ -8690,14 +8694,24 @@ impl DesignerPanel {
         let default_h = (screen.height() * 0.7).max(360.0);
         let mut close = false;
 
+        // `anchor` pins a window outright: egui re-places an anchored window
+        // every frame, so its title bar cannot be dragged at all — no amount of
+        // constraining changes that. Seed the centred position with
+        // `default_pos` instead and let egui remember where the developer drags
+        // it, the same way the Event Editor modal does.
+        let default_pos = screen.center() - egui::vec2(default_w * 0.5, default_h * 0.5);
+        let roam = modal_roam_rect(screen, default_w, default_h);
+
         egui::Window::new(format!("{} — {title}", tr.cs_open))
             .id(egui::Id::new("cobol_structure_window"))
             .collapsible(false)
             .resizable(true)
+            .movable(true)
             .default_width(default_w)
             .default_height(default_h)
             .max_height(screen.height() * 0.7)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .default_pos(default_pos)
+            .constrain_to(roam)
             .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
                 // Editable procedure name, or the fixed section keyword.
@@ -13628,7 +13642,7 @@ mod ai_status_tests {
 }
 
 #[cfg(test)]
-mod event_modal_roam_tests {
+mod modal_roam_tests {
     use super::*;
 
     fn screen() -> egui::Rect {
@@ -13643,7 +13657,7 @@ mod event_modal_roam_tests {
     fn the_modal_may_be_pushed_far_past_the_screen_edges() {
         let s = screen();
         let (w, h) = (s.width() * 0.70, s.height() * 0.70); // 1120 x 700
-        let roam = event_modal_roam_rect(s, w, h);
+        let roam = modal_roam_rect(s, w, h);
 
         assert!(
             roam.left() < s.left() && roam.right() > s.right(),
@@ -13665,7 +13679,7 @@ mod event_modal_roam_tests {
     fn some_of_the_modal_always_stays_on_screen() {
         let s = screen();
         let (w, h) = (1120.0, 700.0);
-        let roam = event_modal_roam_rect(s, w, h);
+        let roam = modal_roam_rect(s, w, h);
 
         // Pushed as far left as allowed, its right edge is still on screen.
         let leftmost_right_edge = roam.left() + w;
@@ -13693,7 +13707,7 @@ mod event_modal_roam_tests {
     #[test]
     fn the_title_bar_can_never_leave_the_top_of_the_screen() {
         let s = screen();
-        let roam = event_modal_roam_rect(s, 1120.0, 700.0);
+        let roam = modal_roam_rect(s, 1120.0, 700.0);
         assert_eq!(
             roam.top(),
             s.top(),
@@ -13707,7 +13721,7 @@ mod event_modal_roam_tests {
     #[test]
     fn a_modal_smaller_than_the_margin_is_not_constrained_further() {
         let s = screen();
-        let roam = event_modal_roam_rect(s, 80.0, 60.0);
+        let roam = modal_roam_rect(s, 80.0, 60.0);
         assert!(roam.left() <= s.left() && roam.right() >= s.right());
         assert!(roam.bottom() >= s.bottom());
     }
