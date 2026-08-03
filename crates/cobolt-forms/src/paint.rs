@@ -1636,10 +1636,18 @@ pub fn draw_control(
         rect
     };
 
-    // Opacity (0–100) fades this control. Ancestor *container* opacities are
-    // already folded into the incoming `alpha_mul` by the render walk, so a faded
-    // container dims its whole subtree (spec 012). Default 100 ⇒ no change.
-    let alpha_mul = alpha_mul * opacity_of(ctrl);
+    // `Transparency` is about the control's FACE, not about erasing the control.
+    // It answers "how much of what is behind shows through", so it fades the
+    // background, the frame and its shadow — while the tick, the glyph, the
+    // caption and the border stay exactly as legible as they were. Folding it
+    // into `alpha_mul` instead made a fully transparent control invisible, which
+    // is why a CheckBox at its new default of 100 vanished outright rather than
+    // simply losing the card behind it.
+    //
+    // Ancestor *container* transparencies are still folded into the incoming
+    // `alpha_mul` by the render walk, so a faded container dims its whole
+    // subtree (spec 012) exactly as before.
+    let face_alpha = alpha_mul * opacity_of(ctrl);
 
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     let c_scale = |c: u8| -> u8 { ((c as f32) * alpha_mul) as u8 };
@@ -2942,10 +2950,21 @@ pub fn draw_control(
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
+    // Where a CheckBox's drop shadow belongs follows its transparency. With a
+    // face solid enough to lift off the form (under 30 % transparent) the
+    // shadow is the whole frame's, as for any other control. Once the
+    // background is mostly or entirely see-through there is no card to raise,
+    // and a frame shadow would hang in mid-air around nothing — so the control
+    // draws no frame at all and the only thing casting is the tick box itself,
+    // which takes its own relief from `draw_glass_auto` on `box_rect` below.
+    let checkbox_frameless =
+        matches!(ctrl.control_type, CT::CheckBox) && crate::model::transparency_of(ctrl) >= 30;
+
     if (is_label && !background_gradient && user_bg.is_none())
         || pic_frameless
         || chart_frameless
         || container_frameless
+        || checkbox_frameless
     {
         // No visible frame. When selected, show a lightweight selection outline.
         if is_container {
@@ -2980,7 +2999,7 @@ pub fn draw_control(
                 .unwrap_or(fill),
         );
         if is_neumorphic {
-            draw_neumorphic_shadow_only(painter, frame_rect, frame_round, alpha_mul);
+            draw_neumorphic_shadow_only(painter, frame_rect, frame_round, face_alpha);
         }
         let face_rect = debug_frame(
             painter,
@@ -2998,7 +3017,7 @@ pub fn draw_control(
             frame_round,
         )));
         if is_neumorphic {
-            draw_neumorphic_overlay_shadow_only(painter, frame_rect, frame_round, alpha_mul);
+            draw_neumorphic_overlay_shadow_only(painter, frame_rect, frame_round, face_alpha);
         }
         let bc = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
@@ -3084,7 +3103,7 @@ pub fn draw_control(
                 fill,
                 frame_round,
                 selected,
-                alpha_mul,
+                face_alpha,
             );
         }
     } else if glass {
@@ -3110,7 +3129,7 @@ pub fn draw_control(
             user_bg,
             frame_round,
             selected,
-            alpha_mul,
+            face_alpha,
         );
         // When the control has an explicit BorderStyle + BorderWidth, draw the
         // user border on top of the glass frame so containers (Panel, GroupBox)
@@ -3545,6 +3564,30 @@ pub fn draw_control(
     }
 
     if !label.is_empty() {
+        // A CheckBox has no face of its own by default, so its caption sits on
+        // whatever it was dropped onto — a GroupBox, a Panel, a dark form, a
+        // Neumorphic Dark surface. The seeded default is plain black, which is
+        // unreadable on half of those. Keep the developer's colour whenever it
+        // already clears WCAG AA against what is actually behind it, and
+        // otherwise fall to the pole that reads: `caret_color` picks by ratio,
+        // so it clears AA on ANY surface, where a luminance threshold would
+        // still leave ~3.5:1 on a mid grey.
+        let label_color = if matches!(ctrl.control_type, CT::CheckBox) {
+            // `draw_control` is not given the form's own backdrop (it is a
+            // parameter of the render walk, not of the painter), so the neutral
+            // default stands in for it. That only matters under Classic /
+            // Enhanced, where the frost composites what is behind; the
+            // Neumorphic surfaces are solid and answer exactly, which is the
+            // case that was actually unreadable — black-on-dark.
+            let behind = control_surface_tone(
+                painter.ctx(),
+                ctrl,
+                parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
+            );
+            caret_color(behind, label_color)
+        } else {
+            label_color
+        };
         let txt_color =
             Color32::from_rgba_premultiplied(label_color.r(), label_color.g(), label_color.b(), a);
         let txt_color = if textbox_hint {
@@ -7832,6 +7875,85 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
         CT::StatusBar => "statusbar",
         CT::PictureBox => "picturebox",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod checkbox_face_tests {
+    use super::*;
+    use crate::model::{transparency_of, Control, ControlType};
+
+    /// Where a CheckBox's drop shadow belongs follows its transparency. The
+    /// threshold is the rule as specified: under 30 % there is a face solid
+    /// enough to lift off the form, so the whole frame casts; at 30 % or above
+    /// there is no card to raise and only the tick box does.
+    fn casts_from_whole_frame(cb: &Control) -> bool {
+        transparency_of(cb) < 30
+    }
+
+    #[test]
+    fn a_default_checkbox_casts_from_the_tick_box_only() {
+        let cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        assert_eq!(transparency_of(&cb), 100);
+        assert!(
+            !casts_from_whole_frame(&cb),
+            "with no background there is no card to lift"
+        );
+    }
+
+    #[test]
+    fn a_mostly_opaque_checkbox_casts_from_the_whole_frame() {
+        let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        for t in [0, 10, 29] {
+            cb.set_prop("Transparency", crate::model::PropValue::Int(t));
+            assert!(casts_from_whole_frame(&cb), "{t}% must cast from the frame");
+        }
+        for t in [30, 60, 100] {
+            cb.set_prop("Transparency", crate::model::PropValue::Int(t));
+            assert!(
+                !casts_from_whole_frame(&cb),
+                "{t}% must cast from the tick box only"
+            );
+        }
+    }
+
+    /// The caption has to stay readable on whatever the CheckBox was dropped
+    /// onto. The seeded default is plain black, which is unreadable on a dark
+    /// surface — the case that sent developers hunting for a colour picker.
+    #[test]
+    fn the_caption_flips_to_stay_legible_on_a_dark_surface() {
+        let dark = Color32::from_rgb(24, 26, 32);
+        let chosen = caret_color(dark, Color32::BLACK);
+        assert!(
+            contrast_ratio(chosen, dark) >= 4.5,
+            "black on a dark surface must be rescued, got {chosen:?}"
+        );
+    }
+
+    /// A colour the developer picked that already reads is left alone — the
+    /// rescue must not overrule a deliberate, legible choice.
+    #[test]
+    fn a_legible_chosen_colour_is_kept() {
+        let light = Color32::from_rgb(240, 240, 240);
+        assert_eq!(caret_color(light, Color32::BLACK), Color32::BLACK);
+
+        let brand = Color32::from_rgb(10, 60, 140);
+        assert_eq!(caret_color(light, brand), brand, "AA-clear brand colour");
+    }
+
+    /// Chosen by ratio rather than by a luminance threshold, so it clears AA on
+    /// ANY surface — including the mid greys where a threshold leaves ~3.5:1.
+    #[test]
+    fn the_rescue_clears_aa_on_every_surface() {
+        for v in (0..=255).step_by(15) {
+            let surface = Color32::from_rgb(v, v, v);
+            let chosen = caret_color(surface, Color32::from_rgb(128, 128, 128));
+            assert!(
+                contrast_ratio(chosen, surface) >= 4.5,
+                "grey {v} only reached {:.2}",
+                contrast_ratio(chosen, surface)
+            );
+        }
     }
 }
 

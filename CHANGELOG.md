@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.57.1] — 2026-08-03
+
+### Fixed
+
+- **`Transparency` fades the control's FACE, not the whole control.** As
+  shipped in 1.57.0 it was folded into the alpha every part of the control was
+  drawn with, so the CheckBox's new default of 100 made the tick and the caption
+  vanish along with the background — a brand-new CheckBox rendered as nothing at
+  all. It now fades the background, the frame and its shadow, while the tick,
+  the glyph, the caption and the border stay exactly as legible as before.
+  Ancestor containers still dim their whole subtree, as spec 012 intends.
+
+### Changed
+
+- **A CheckBox's drop shadow follows its transparency.** Under 30 % transparent
+  there is a face solid enough to lift off the form, so the whole frame casts,
+  as for any other control. At 30 % or above there is no card to raise — a frame
+  shadow would hang in mid-air around nothing — so the control draws no frame
+  and the tick box alone casts, from the relief it already gets.
+- **A CheckBox caption stays legible on every form style.** The seeded default
+  is plain black, which is unreadable on a dark form or a Neumorphic Dark
+  surface. A colour that already clears WCAG AA against what is behind it is
+  left exactly as the developer set it; one that does not falls to whichever
+  pole reads. The choice is made by contrast ratio, not by a luminance
+  threshold, so it clears AA on any surface — a threshold still leaves about
+  3.5:1 on a mid grey.
+- The last `Opacity` strings are gone: five IntelliSense entries and the
+  designer's property list now name `Transparency`, completing 1.57.0's rename.
+
 ## [PowerRustCOBOL 1.57.0] — 2026-08-03
 
 ### Added

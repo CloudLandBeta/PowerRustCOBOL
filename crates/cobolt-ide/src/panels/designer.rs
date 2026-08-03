@@ -742,7 +742,7 @@ const STYLE_PROP_KEYS: &[&str] = &[
     "Underline",
     "Strikethrough",
     "FontName",
-    "Opacity",
+    "Transparency",
     "CornerRadius",
     "BorderWidth",
     "BorderStyle",

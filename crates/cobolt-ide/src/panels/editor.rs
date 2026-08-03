@@ -559,7 +559,7 @@ fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str
             ("FontSize", "Font size in points"),
             ("Bold", "1 = bold text"),
             ("CornerRadius", "Border corner radius"),
-            ("Opacity", "Opacity 0–100"),
+            ("Transparency", "Transparency 0–100 (0 = opaque)"),
         ],
         "Label" => &[
             ("Caption", "Label text"),
@@ -570,7 +570,7 @@ fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str
             ("Italic", "1 = italic"),
             ("Underline", "1 = underline"),
             ("Strikethrough", "1 = strikethrough"),
-            ("Opacity", "Opacity 0–100"),
+            ("Transparency", "Transparency 0–100 (0 = opaque)"),
         ],
         "TextBox" => &[
             ("Text", "Current text value"),
@@ -617,7 +617,7 @@ fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str
             ("ImagePath", "Absolute path to image file"),
             ("SizeMode", "Normal / StretchImage / Zoom / AutoSize"),
             ("Visible", "1 = visible, 0 = hidden"),
-            ("Opacity", "Opacity 0–100"),
+            ("Transparency", "Transparency 0–100 (0 = opaque)"),
             ("Width", "Width in pixels"),
             ("Height", "Height in pixels"),
         ],
@@ -630,7 +630,7 @@ fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str
         "Panel" => &[
             ("Visible", "1 = visible, 0 = hidden"),
             ("BackgroundColor", "Background colour (RRGGBB)"),
-            ("Opacity", "Opacity 0–100"),
+            ("Transparency", "Transparency 0–100 (0 = opaque)"),
         ],
         "ProgressBar" => &[
             ("Value", "Current value"),
@@ -675,7 +675,7 @@ fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str
             ("Height", "Height in pixels"),
             ("BackgroundColor", "Background colour (RRGGBB)"),
             ("ForegroundColor", "Foreground colour (RRGGBB)"),
-            ("Opacity", "Opacity 0–100"),
+            ("Transparency", "Transparency 0–100 (0 = opaque)"),
         ],
     }
 }
