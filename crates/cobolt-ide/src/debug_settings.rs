@@ -547,3 +547,152 @@ mod tests {
         assert_eq!(back.indexed_log, "off");
     }
 }
+
+#[cfg(test)]
+mod switches_respond {
+    use super::*;
+
+    struct Harness {
+        ctx: egui::Context,
+        modal: DebugSettingsModal,
+        settings: DebugSettings,
+        tr: Tr,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            Self {
+                ctx: egui::Context::default(),
+                modal: DebugSettingsModal { open: true, tab: 0 },
+                settings: DebugSettings::default(),
+                tr: crate::i18n::Language::English.tr(),
+            }
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            ));
+            input.events = events;
+            self.ctx.begin_pass(input);
+            self.modal.show(&self.ctx, &mut self.settings, &self.tr);
+            let _ = self.ctx.end_pass();
+        }
+
+        fn settle(&mut self) {
+            for _ in 0..6 {
+                self.frame(vec![]);
+            }
+        }
+
+        fn rect(&self) -> egui::Rect {
+            self.ctx
+                .memory(|m| m.area_rect(egui::Id::new("debug_settings_modal")))
+                .expect("no debug settings window")
+        }
+
+        fn click(&mut self, pos: egui::Pos2) {
+            self.frame(vec![egui::Event::PointerMoved(pos)]);
+            self.frame(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }]);
+            self.frame(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }]);
+            self.frame(vec![]);
+        }
+
+        fn read(&mut self, getters: &[Flag]) -> Vec<bool> {
+            getters.iter().map(|(_, g)| *g(&mut self.settings)).collect()
+        }
+    }
+
+    /// `(label, accessor)` for one checkbox switch.
+    type Flag = (&'static str, fn(&mut DebugSettings) -> &mut bool);
+
+    fn flags_of(section: &Section) -> Vec<Flag> {
+        section
+            .switches
+            .iter()
+            .filter_map(|sw| match sw {
+                Switch::Flag { label, get, .. } => Some((*label, *get)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Every checkbox in every tab must actually be clickable, and must move its
+    /// own field and no other.
+    ///
+    /// The switches on disk had three of six flags set while the other three
+    /// stayed `false`, which reads exactly like a dead row or a `get` closure
+    /// pointing at the wrong field — and nothing in the suite could tell the
+    /// difference, because the tests all called the accessors directly instead
+    /// of going through the rendered checkbox. This one clicks.
+    #[test]
+    fn every_switch_moves_its_own_field() {
+        for (index, section) in SECTIONS.iter().enumerate() {
+            let flags = flags_of(section);
+            if flags.is_empty() {
+                continue;
+            }
+            let mut h = Harness::new();
+            h.modal.tab = index;
+            h.settle();
+            let rect = h.rect();
+            let mut found: Vec<Option<egui::Pos2>> = vec![None; flags.len()];
+
+            // The checkbox column is wherever the label column happens to end,
+            // so the click point is discovered rather than assumed. The title
+            // bar and the button row are left out: a click there drags or
+            // resizes the window and moves everything else under the cursor.
+            let mut y = rect.top() + 60.0;
+            'scan: while y < rect.bottom() - 60.0 {
+                let mut x = rect.left() + 100.0;
+                while x < rect.right() - 60.0 {
+                    let before = h.read(&flags);
+                    h.click(egui::pos2(x, y));
+                    let after = h.read(&flags);
+                    let moved: Vec<usize> = (0..flags.len())
+                        .filter(|i| before[*i] != after[*i])
+                        .collect();
+                    assert!(
+                        moved.len() <= 1,
+                        "one click at ({x:.0},{y:.0}) moved several switches: {:?}",
+                        moved.iter().map(|i| flags[*i].0).collect::<Vec<_>>()
+                    );
+                    if let Some(i) = moved.first() {
+                        found[*i] = Some(egui::pos2(x, y));
+                        h.settings = DebugSettings::default();
+                        if found.iter().all(|f| f.is_some()) {
+                            break 'scan;
+                        }
+                    }
+                    if !h.modal.open {
+                        h.modal.open = true;
+                        h.settle();
+                    }
+                    x += 25.0;
+                }
+                y += 4.0;
+            }
+
+            for (i, (label, _)) in flags.iter().enumerate() {
+                assert!(
+                    found[i].is_some(),
+                    "no click anywhere in the \"{}\" tab reached the \"{label}\" checkbox — \
+                     the row renders but cannot be switched",
+                    (section.tab)(&crate::i18n::Language::English.tr())
+                );
+            }
+        }
+    }
+}

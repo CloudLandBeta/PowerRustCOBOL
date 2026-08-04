@@ -305,7 +305,22 @@ impl LeaderboardModal {
             );
             return;
         }
-        egui::ScrollArea::vertical()
+        // `both`, not `vertical` — and the horizontal direction is what keeps
+        // the window still. A scroll area whose horizontal direction is
+        // DISABLED sizes itself to `available.max(content)` (egui
+        // `scroll_area.rs`, "Expand to fit content"), so a row wider than the
+        // window makes the scroll area wider than the window. That width is the
+        // content's `min_rect`, and on a non-resizable axis egui reports
+        // `last_content_size` as the window's size — `fixed_size` bounds only
+        // the space OFFERED to the content, never the rect the window ends up
+        // with. So the row pushed the window open from the inside, with nothing
+        // touching the grip and `self.size` never moving.
+        //
+        // The row is genuinely wide: six columns ending in five buttons, and
+        // the translations run half again as long as the English ("Utiliser
+        // pour tous les spécialistes"). With the direction ENABLED the area
+        // takes the width it is given and scrolls the overflow instead.
+        egui::ScrollArea::both()
             .id_salt("leaderboard_rows")
             // Shrinks to the rows it has (so a short board is a short card)
             // but never past the height the window was dragged to.
@@ -1077,6 +1092,114 @@ mod tests {
         m.size.x = m.size.x.clamp(MIN_W, MAX_W);
         m.size.y = m.size.y.clamp(MIN_H, MAX_H);
         assert_eq!(m.size, egui::vec2(MAX_W, MAX_H));
+    }
+
+    /// Renders the real panel for a run of frames and reports, per frame, the
+    /// stored size and the rect egui actually gave the window.
+    ///
+    /// Every other size test in this file does arithmetic on `self.size` and
+    /// never lays anything out, which is why they all passed while the window
+    /// on screen kept growing. `fixed_size` bounds the space *offered* to the
+    /// content; on a non-resizable axis egui reports `last_content_size` as the
+    /// window's size (`Resize::end`), so content wider than the fixed size
+    /// moves the window rect and nothing in the stored number ever shows it.
+    fn frames(lang: crate::i18n::Language, n: usize) -> Vec<(egui::Vec2, egui::Rect)> {
+        let ctx = egui::Context::default();
+        let theme = crate::theme::default_theme();
+        let tr = lang.tr();
+        // Model names of the length the store actually holds — an Ollama tag
+        // carries its quantisation, and those are the widest cells in the row.
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-5", "", run(94.0));
+        lb.record_success("openai", "gpt-5", "", run(88.0));
+        lb.record_success("ollama", "qwen2.5-coder:32b-instruct-q4_K_M", "", run(61.0));
+        lb.record_failure("ollama", "deepseek-coder-v2:16b", "", "connection refused");
+
+        let mut m = LeaderboardModal::new(true);
+        let mut seen = Vec::new();
+        for _ in 0..n {
+            let mut input = egui::RawInput::default();
+            // A screen far larger than the window, so nothing here is the
+            // screen clamping the growth out of sight.
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(3000.0, 2000.0),
+            ));
+            ctx.begin_pass(input);
+            m.show(&ctx, &lb, theme, &tr);
+            let _ = ctx.end_pass();
+            let rect = ctx
+                .memory(|mem| mem.area_rect(egui::Id::new("model_leaderboard")))
+                .expect("the leaderboard window did not register an area");
+            seen.push((m.size, rect));
+        }
+        seen
+    }
+
+    /// The window must be the size we asked for and must stay there while
+    /// nobody touches it.
+    ///
+    /// Swept over every language: the row ends in five buttons, and the
+    /// translations of "Use for All Specialists" run half again as long as the
+    /// English, so a window that fits in one language is not evidence for any
+    /// other.
+    #[test]
+    fn the_window_does_not_grow_while_nobody_touches_it() {
+        for lang in crate::i18n::Language::ALL {
+            check_one_language(*lang);
+        }
+    }
+
+    fn check_one_language(lang: crate::i18n::Language) {
+        let seen = frames(lang, 16);
+        let report = |s: &[(egui::Vec2, egui::Rect)]| {
+            s.iter()
+                .enumerate()
+                .map(|(i, (size, rect))| {
+                    format!(
+                        "  frame {i}: size {:.0}x{:.0}  rect {:.0}x{:.0}",
+                        size.x,
+                        size.y,
+                        rect.width(),
+                        rect.height()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        // The stored size is the control: if this moved, something other than
+        // the grip is writing it and the content is not the driver.
+        for (size, _) in &seen {
+            assert_eq!(
+                *size,
+                egui::vec2(DEFAULT_W, DEFAULT_H),
+                "[{:?}] the stored size changed with no drag:\n{}",
+                lang,
+                report(&seen)
+            );
+        }
+
+        // Settled: the rect must not still be climbing at the end of the run.
+        let (_, first) = seen[2];
+        for (_, rect) in &seen[2..] {
+            assert!(
+                (rect.width() - first.width()).abs() < 0.5,
+                "[{:?}] the window kept growing frame over frame:\n{}",
+                lang,
+                report(&seen)
+            );
+        }
+
+        // And it must be the size we asked for, not merely stable at some
+        // other size the content dictated — in either direction.
+        let (_, last) = seen[seen.len() - 1];
+        assert!(
+            (last.width() - DEFAULT_W).abs() < 0.5,
+            "[{:?}] the window is wider than its fixed size — the content is the driver:\n{}",
+            lang,
+            report(&seen)
+        );
     }
 
     /// The row area is derived from the stored size, never from the space the
