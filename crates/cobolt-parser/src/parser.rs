@@ -8,7 +8,7 @@
 
 use cobolt_ast::program::{
     AccessMode, AlternateKey, EnvironmentDivision, FileControl, FileOrganization,
-    InputOutputSection, StorageMode,
+    InputOutputSection, RustItemBlock, StorageMode,
 };
 use cobolt_lexer::{Span, SpannedToken, Token};
 
@@ -29,6 +29,9 @@ pub struct Parser {
     /// `REPOSITORY. CLASS name IS "external"` bindings captured during the
     /// CONFIGURATION SECTION (spec 005 Rust-FFI bridge); moved into the program.
     pub(crate) repository: Vec<(String, String)>,
+    /// Item-level `EXEC RUST` blocks captured in the CONFIGURATION SECTION
+    /// (spec 041 R19); moved into the program alongside `repository`.
+    pub(crate) rust_items: Vec<RustItemBlock>,
     /// Scratch: the class name from the most recently parsed
     /// `USAGE OBJECT REFERENCE <class>`, consumed by the data item being built.
     pub(crate) pending_object_class: Option<String>,
@@ -47,6 +50,7 @@ impl Parser {
             diagnostics: Vec::new(),
             decimal_comma: false,
             repository: Vec::new(),
+            rust_items: Vec::new(),
             pending_object_class: None,
         }
     }
@@ -411,8 +415,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
 
     Program {
         span: Span::dummy(),
-        // Filled by the CONFIGURATION SECTION parser (spec 041 R19).
-        rust_items: Vec::new(),
+        rust_items: std::mem::take(&mut p.rust_items),
         identification,
         environment,
         data,
@@ -454,6 +457,21 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         | Token::Identification
                         | Token::Eof
                 ) {
+                    // Item-level `EXEC RUST … END-EXEC` (spec 041 R19). The
+                    // lexer already collapsed the whole block into one token,
+                    // so this only has to file it. It sits here, in the
+                    // CONFIGURATION SECTION beside REPOSITORY, because both
+                    // declare what Rust types the program has — and because a
+                    // statement-level block compiles to a function body, where
+                    // a `struct` or `impl` could not be seen by another block.
+                    if let Token::ExecRustBlock(src) = p.peek() {
+                        let source = src.clone();
+                        let span = p.peek_span();
+                        p.advance();
+                        p.eat(&Token::Period);
+                        p.rust_items.push(RustItemBlock { source, span });
+                        continue;
+                    }
                     let ident = if let Token::Identifier(s) = p.peek() {
                         Some(s.clone())
                     } else {

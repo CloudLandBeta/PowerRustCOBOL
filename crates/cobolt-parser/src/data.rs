@@ -78,6 +78,21 @@ pub(crate) fn parse_data_division(p: &mut Parser) -> Option<DataDivision> {
             }
             // Next division header or EOF — stop.
             Token::Procedure | Token::Environment | Token::Identification | Token::Eof => break,
+            // Spec 041 R21 — placement. An `EXEC RUST` block is either an
+            // item-level one (CONFIGURATION SECTION, after REPOSITORY) or a
+            // statement-level one (PROCEDURE DIVISION). The DATA DIVISION is
+            // neither, and a hard error here is the point of the feature: this
+            // used to be the kind of thing the old executor swallowed.
+            Token::ExecRustBlock(_) => {
+                p.emit_error(
+                    "EXEC RUST is not allowed in the DATA DIVISION — put an \
+                     item-level block (types, impls, use) in the CONFIGURATION \
+                     SECTION after REPOSITORY, or a statement-level block in the \
+                     PROCEDURE DIVISION",
+                );
+                p.advance();
+                p.eat(&Token::Period);
+            }
             // Unknown — skip with a warning.
             _ => {
                 p.emit_warning(format!("unexpected token in DATA DIVISION: {:?}", p.peek()));

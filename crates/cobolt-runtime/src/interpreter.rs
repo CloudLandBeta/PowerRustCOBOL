@@ -2324,10 +2324,15 @@ impl Interpreter {
                 try_stmts,
                 exception_var,
                 catch_stmts,
+                rust_exception_var,
+                rust_catch_stmts,
                 finally_stmts,
                 ..
             } => {
-                // Execute the TRY body, catching any UserException.
+                // Execute the TRY body. Each clause catches ONLY its own class
+                // (spec 041 R24): a COBOL exception never reaches
+                // CATCH RUST-EXCEPTION, and a contained Rust panic is never
+                // swallowed by a plain CATCH EXCEPTION.
                 let try_result = self.exec_stmts(try_stmts);
 
                 let handled = match &try_result {
@@ -2339,6 +2344,19 @@ impl Interpreter {
                         }
                         // Run the CATCH body.
                         self.exec_stmts(catch_stmts)?;
+                        true
+                    }
+                    // A panic is caught only when a RUST-EXCEPTION clause was
+                    // actually written; without one it propagates below, after
+                    // FINALLY has run (R25).
+                    Err(RuntimeError::RustPanic { message })
+                        if rust_exception_var.is_some() || !rust_catch_stmts.is_empty() =>
+                    {
+                        let msg = message.clone();
+                        if let Some(var) = rust_exception_var {
+                            self.env.set_str(var, &msg);
+                        }
+                        self.exec_stmts(rust_catch_stmts)?;
                         true
                     }
                     _ => false,

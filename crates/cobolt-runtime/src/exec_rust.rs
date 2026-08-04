@@ -43,6 +43,36 @@ use crate::{
     environment::CobolEnvironment, error::RuntimeError, objects::ObjectRegistry, value::CobolValue,
 };
 
+// ── Panic containment (spec 041 R12, R13) ────────────────────────────────────
+
+/// Run a compiled block body, turning a panic into a [`RuntimeError::RustPanic`]
+/// instead of letting it unwind out of the interpreter.
+///
+/// Every call into generated Rust goes through here. The message is plain text
+/// — the panic payload — so `DISPLAY` of the name bound by
+/// `CATCH RUST-EXCEPTION` is readable without picking substrings out of it
+/// (R23).
+///
+/// No `extern "C"` is involved: generated blocks are compiled into the same
+/// binary as this runtime, so the call is ordinary Rust and there is no C ABI
+/// to cross. `catch_unwind` alone is what R12/R13 need.
+pub(crate) fn contain<T>(f: impl FnOnce() -> T) -> Result<T, RuntimeError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => Ok(value),
+        Err(payload) => {
+            // A panic payload is `&str` or `String` in practice; anything else
+            // is reported as such rather than silently becoming an empty
+            // message, which would be undiagnosable.
+            let message = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "panic with a non-string payload".to_string());
+            Err(RuntimeError::RustPanic { message })
+        }
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Execute an `EXEC RUST` block.
@@ -275,4 +305,44 @@ fn cobol_name(s: &str) -> String {
         .trim()
         .to_ascii_uppercase()
         .replace('_', "-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// R12/R13 — a panic in generated Rust becomes a catchable runtime error
+    /// and never unwinds out of the interpreter.
+    #[test]
+    fn a_panic_becomes_a_rust_panic_error() {
+        let ok = contain(|| 2 + 2);
+        assert_eq!(ok.unwrap(), 4, "a normal return must pass straight through");
+
+        let err = contain(|| -> i32 { panic!("index out of range") });
+        match err {
+            Err(RuntimeError::RustPanic { message }) => assert!(
+                message.contains("index out of range"),
+                "the payload was lost: {message}"
+            ),
+            other => panic!("expected RustPanic, got {other:?}"),
+        }
+
+        // A `String` payload survives too — `panic!("{}", s)` produces one.
+        let err = contain(|| -> i32 { panic!("{}", String::from("boom")) });
+        assert!(matches!(
+            err,
+            Err(RuntimeError::RustPanic { ref message }) if message.contains("boom")
+        ));
+    }
+
+    /// A panic is NOT a `UserException`; that difference is what stops a plain
+    /// `CATCH EXCEPTION` from swallowing it (R24).
+    #[test]
+    fn a_contained_panic_is_not_a_user_exception() {
+        let err = contain(|| -> i32 { panic!("boom") }).unwrap_err();
+        assert!(
+            !matches!(err, RuntimeError::UserException { .. }),
+            "a panic must not masquerade as a COBOL exception: {err:?}"
+        );
+    }
 }

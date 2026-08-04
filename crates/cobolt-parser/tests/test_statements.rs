@@ -586,3 +586,94 @@ fn screen_position_line_col_parse_without_at_and_with_arithmetic() {
     parse_stmts(&prog("    DISPLAY A B.\n"));
     parse_stmts(&prog("    ACCEPT ITM.\n"));
 }
+
+// ── TRY / CATCH / CATCH RUST-EXCEPTION (spec 041 R23, R24) ──────────────────
+
+/// Pull the four catch-related fields out of a lone `TryCatch`.
+fn try_clauses(src: &str) -> (Option<String>, usize, Option<String>, usize) {
+    let stmts = parse_stmts(&prog(src));
+    match stmts.into_iter().next().expect("no statement parsed") {
+        Stmt::TryCatch {
+            exception_var,
+            catch_stmts,
+            rust_exception_var,
+            rust_catch_stmts,
+            ..
+        } => (
+            exception_var,
+            catch_stmts.len(),
+            rust_exception_var,
+            rust_catch_stmts.len(),
+        ),
+        other => panic!("expected TryCatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn try_with_only_a_plain_catch() {
+    let (var, body, rust_var, rust_body) =
+        try_clauses("    TRY\n DISPLAY 'a'\n CATCH EXCEPTION E\n DISPLAY 'b'\n END-TRY.\n");
+    assert_eq!(var.as_deref(), Some("E"));
+    assert_eq!(body, 1);
+    assert_eq!(rust_var, None, "no RUST-EXCEPTION clause was written");
+    assert_eq!(rust_body, 0);
+}
+
+#[test]
+fn try_with_only_a_rust_catch() {
+    let (var, body, rust_var, rust_body) =
+        try_clauses("    TRY\n DISPLAY 'a'\n CATCH RUST-EXCEPTION E\n DISPLAY 'b'\n END-TRY.\n");
+    assert_eq!(var, None, "the plain clause must stay empty");
+    assert_eq!(body, 0);
+    assert_eq!(rust_var.as_deref(), Some("E"));
+    assert_eq!(rust_body, 1);
+}
+
+/// R24 — one `TRY` may carry both, each keeping its own name and body.
+#[test]
+fn try_with_both_clauses_keeps_them_apart() {
+    let (var, body, rust_var, rust_body) = try_clauses(
+        "    TRY\n DISPLAY 'a'\n\
+         CATCH EXCEPTION E\n DISPLAY 'b'\n\
+         CATCH RUST-EXCEPTION R\n DISPLAY 'c'\n DISPLAY 'd'\n END-TRY.\n",
+    );
+    assert_eq!(var.as_deref(), Some("E"));
+    assert_eq!(body, 1);
+    assert_eq!(rust_var.as_deref(), Some("R"));
+    assert_eq!(rust_body, 2);
+}
+
+/// Order is not significant.
+#[test]
+fn try_with_both_clauses_reversed() {
+    let (var, _, rust_var, _) = try_clauses(
+        "    TRY\n DISPLAY 'a'\n\
+         CATCH RUST-EXCEPTION R\n DISPLAY 'c'\n\
+         CATCH EXCEPTION E\n DISPLAY 'b'\n END-TRY.\n",
+    );
+    assert_eq!(var.as_deref(), Some("E"));
+    assert_eq!(rust_var.as_deref(), Some("R"));
+}
+
+#[test]
+fn duplicate_catch_clauses_are_rejected() {
+    for (src, want) in [
+        (
+            "    TRY\n DISPLAY 'a'\n CATCH EXCEPTION E\n DISPLAY 'b'\n \
+             CATCH EXCEPTION F\n DISPLAY 'c'\n END-TRY.\n",
+            "duplicate CATCH EXCEPTION clause",
+        ),
+        (
+            "    TRY\n DISPLAY 'a'\n CATCH RUST-EXCEPTION E\n DISPLAY 'b'\n \
+             CATCH RUST-EXCEPTION F\n DISPLAY 'c'\n END-TRY.\n",
+            "duplicate CATCH RUST-EXCEPTION clause",
+        ),
+    ] {
+        let result = parse(tokenize(&prog(src), SourceFormat::Free));
+        assert!(
+            result.diagnostics.iter().any(|d| d.message.contains(want)),
+            "expected {want:?}, got {:?}",
+            result.diagnostics
+        );
+    }
+}

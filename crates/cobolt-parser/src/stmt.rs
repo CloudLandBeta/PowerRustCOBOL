@@ -2879,19 +2879,53 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
         )
     });
 
-    // CATCH EXCEPTION <name>  (optional)
+    // CATCH clauses (both optional, either order, at most one of each).
+    //
+    // Spec 041 R23/R24: `CATCH EXCEPTION` takes COBOL exceptions and
+    // `CATCH RUST-EXCEPTION` takes contained Rust panics. They are separate
+    // clauses, not two spellings of one, so a `TRY` may carry both and neither
+    // catches the other's class.
     let mut exception_var = None;
     let mut catch_stmts = Vec::new();
-    if p.eat(&Token::Catch) {
-        p.eat(&Token::Exception); // optional EXCEPTION keyword
-                                  // next token should be the variable name
+    let mut rust_exception_var = None;
+    let mut rust_catch_stmts = Vec::new();
+    let mut seen_plain = false;
+    let mut seen_rust = false;
+
+    while matches!(p.peek(), Token::Catch) {
+        p.advance(); // CATCH
+        let is_rust = p.eat(&Token::RustException);
+        if !is_rust {
+            p.eat(&Token::Exception); // the EXCEPTION keyword stays optional
+        }
+        let mut var = None;
         if let Token::Identifier(name) = p.peek().clone() {
-            exception_var = Some(name.clone());
+            var = Some(name);
             p.advance();
         }
-        catch_stmts = parse_stmts(p, &|t| {
-            matches!(t, Token::Finally | Token::EndTry | Token::Eof)
+        // A following CATCH ends this clause — that is what lets the two
+        // clauses sit side by side.
+        let body = parse_stmts(p, &|t| {
+            matches!(
+                t,
+                Token::Catch | Token::Finally | Token::EndTry | Token::Eof
+            )
         });
+
+        match (is_rust, seen_rust, seen_plain) {
+            (true, true, _) => p.emit_error("duplicate CATCH RUST-EXCEPTION clause"),
+            (false, _, true) => p.emit_error("duplicate CATCH EXCEPTION clause"),
+            (true, false, _) => {
+                seen_rust = true;
+                rust_exception_var = var;
+                rust_catch_stmts = body;
+            }
+            (false, _, false) => {
+                seen_plain = true;
+                exception_var = var;
+                catch_stmts = body;
+            }
+        }
     }
 
     // FINALLY (optional)
@@ -2907,9 +2941,9 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
         try_stmts,
         exception_var,
         catch_stmts,
-        // Parsed in T3 (spec 041 R23); absent means a panic propagates (R25).
-        rust_exception_var: None,
-        rust_catch_stmts: Vec::new(),
+        // Absent means a panic propagates after FINALLY (R25).
+        rust_exception_var,
+        rust_catch_stmts,
         finally_stmts,
         span,
     }

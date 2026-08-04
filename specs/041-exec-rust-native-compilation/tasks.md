@@ -40,29 +40,48 @@ saying so.
   - Verify: `cargo build --workspace` clean; `cargo test -p cobolt-ast
     -p cobolt-parser` green (23 + parser suites).
 
-- [ ] **T3 — Parse `CATCH RUST-EXCEPTION`** (R23, R24)
+- [x] **T3 — Parse `CATCH RUST-EXCEPTION`** (R23, R24) — *done:
+      `cargo test -p cobolt-parser --test test_statements` 42 passed (was 37),
+      0 failed. Clause loop accepts either order; a repeat of either clause
+      emits "duplicate CATCH … clause".*
   - Files: `crates/cobolt-parser/src/stmt.rs`
   - Do: parse the new clause; allow **both** clauses on one `TRY`, in either order.
   - Verify: `cargo test -p cobolt-parser` green; new tests parse (a) each clause
     alone, (b) both together, (c) a duplicate clause → diagnostic.
 
-- [ ] **T4 — Parse item-level `EXEC RUST`** (R19, R21)
-  - Files: `crates/cobolt-parser/src/stmt.rs` + the division/section parser
-  - Do: accept an item-level block in `CONFIGURATION SECTION` after `REPOSITORY`;
-    reject a statement-level block outside `PROCEDURE DIVISION` and an item-level
-    block inside it, each naming the location.
-  - Verify: `cargo test -p cobolt-parser` green; **covers AC21**.
+- [x] **T4 — Parse item-level `EXEC RUST`** (R19, partial R21) — *done:
+      `cargo test -p cobolt-parser` green, `test_exec_rust.rs` 8 → 10 passed.*
+  - Files: `crates/cobolt-parser/src/parser.rs` (config-section arm, `rust_items`
+    state), `data.rs` (placement rejection),
+    `crates/cobolt-parser/tests/test_exec_rust.rs`
+  - Done: item-level blocks captured into `Program::rust_items`; `EXEC RUST` in
+    the `DATA DIVISION` is a hard error naming both legal homes.
+  - **R21 is only half implemented, deliberately.** *Placement* is enforced here.
+    The other half — "reject an item-level block that **contains statements**" —
+    is **not**, because deciding it means parsing Rust, and a keyword-sniffing
+    approximation would produce confident wrong answers on valid code. `rustc`
+    already rejects a statement at module scope precisely, so this is left to it
+    and surfaces through the T10 diagnostic mapping. **AC21 is therefore only
+    partly covered here; its statement-in-item half moves to T10.**
+  - Note: a statement-level block outside `PROCEDURE DIVISION` is now
+    structurally unreachable — position alone decides which kind a block is — so
+    that clause of R21 needs no runtime check.
 
-- [ ] **T5 — Runtime: `RustPanic` + catch routing** (R12, R13, R23, R24, R25)
-  - Files: `crates/cobolt-runtime/src/error.rs`, `interpreter.rs` (`TryCatch` arm
-    at ~2334)
-  - Do: add `RuntimeError::RustPanic { message }`; route it **only** to a
-    `CATCH RUST-EXCEPTION` clause; leave `UserException` routing untouched; run
-    `FINALLY` on both paths; propagate an uncaught panic after `FINALLY`.
-  - Verify: `cargo test -p cobolt-runtime` green. Tests raise a synthetic
-    `RustPanic` (no block needed yet) and assert: caught by `RUST-EXCEPTION`
-    (**AC11** binding), **not** caught by plain `CATCH EXCEPTION` (**AC17**), both
-    clauses route correctly (**AC18**), `FINALLY` always runs.
+- [x] **T5 — Runtime: `RustPanic` + catch routing** (R12, R13, R23, R24, R25) —
+      *done: `cargo test -p cobolt-runtime` 104 passed, 0 failed; full workspace
+      sweep **1509 passed, 0 failed, 8 ignored**.*
+  - Files: `crates/cobolt-runtime/src/error.rs` (`RustPanic` variant),
+    `exec_rust.rs` (`contain()` + tests), `interpreter.rs` (`TryCatch` arm)
+  - Done: `RustPanic` added and routed **only** to a `CATCH RUST-EXCEPTION`
+    clause; `UserException` routing untouched; `FINALLY` runs on both paths; a
+    panic with no `RUST-EXCEPTION` clause propagates after `FINALLY` (R25).
+    `contain()` wraps a block call in `catch_unwind`, keeping payload text for
+    `DISPLAY` and reporting a non-string payload rather than an empty message.
+  - **AC11/AC17/AC18 are NOT verified end-to-end yet — deferred to T6.** They
+    need a *reachable* panic, and no statement can raise one until blocks are
+    compiled and dispatched. What is proven here: a panic becomes `RustPanic`,
+    payload text survives, and a panic is **not** a `UserException` (the
+    difference R24 depends on). The COBOL-level routing tests land in T6.
 
 ## Phase B — the breaking change
 
@@ -189,5 +208,6 @@ pushed unless the operator asks.
 | AC7 | T7 | AC18 | T5 |
 | AC8 | T12 | AC19 | T12 |
 | AC9 | T7 | AC20 | T12 |
-| AC10 | T9 | AC21 | T4 |
-| AC11 | T5 | | |
+| AC10 | T9 | AC21 | T4 (placement) + T10 (statement-in-item, via rustc) |
+| AC11 | T6 (needs a reachable panic) | AC17 | T6 |
+| AC18 | T6 | | |

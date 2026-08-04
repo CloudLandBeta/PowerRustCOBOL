@@ -233,3 +233,70 @@ MAIN.
         "expected ExecRust in procedure, got: {all_stmts:?}"
     );
 }
+
+// ── Item-level blocks (spec 041 R19, R21) ────────────────────────────────────
+
+/// An item-level block carries Rust ITEMS — `use`, `struct`, `impl` — and is
+/// emitted at module scope so every statement-level block can see the types it
+/// declares. It lives in the CONFIGURATION SECTION beside REPOSITORY.
+#[test]
+fn item_level_block_is_captured_from_the_configuration_section() {
+    let src = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ITEMS.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS \"Rust.String\"
+       EXEC RUST
+           pub struct Point { pub x: i64, pub y: i64 }
+           impl Point { pub fn sum(&self) -> i64 { self.x + self.y } }
+       END-EXEC.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+";
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        result.diagnostics
+    );
+    let prog = result.program.expect("program parsed");
+    assert_eq!(prog.rust_items.len(), 1, "expected one item-level block");
+    let body = &prog.rust_items[0].source;
+    assert!(body.contains("pub struct Point"), "source lost: {body}");
+    assert!(body.contains("impl Point"), "source lost: {body}");
+    // The REPOSITORY entry beside it is untouched.
+    assert!(prog
+        .repository
+        .iter()
+        .any(|(n, e)| n == "RUST-STRING" && e == "Rust.String"));
+}
+
+/// R21 — placement. The DATA DIVISION is neither of the two legal homes, and
+/// this must be a hard error rather than something quietly skipped.
+#[test]
+fn exec_rust_in_the_data_division_is_rejected() {
+    let src = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BADPLACE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       EXEC RUST
+           let x = 1;
+       END-EXEC.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+";
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("EXEC RUST is not allowed in the DATA DIVISION")),
+        "expected a placement error, got: {:?}",
+        result.diagnostics
+    );
+}
