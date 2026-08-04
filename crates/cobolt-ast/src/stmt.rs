@@ -798,6 +798,17 @@ pub enum Stmt {
         /// Name of the exception variable in the CATCH clause (e.g. `"e"`).
         exception_var: Option<String>,
         catch_stmts: Vec<Stmt>,
+        /// Name bound by `CATCH RUST-EXCEPTION <name>` (spec 041 R23).
+        ///
+        /// A SEPARATE clause rather than a variant of the one above, because a
+        /// `TRY` may carry both and each catches only its own class (R24): a
+        /// contained Rust panic must never be swallowed by a plain
+        /// `CATCH EXCEPTION`, which would report a memory-safety or logic fault
+        /// as a business error.
+        rust_exception_var: Option<String>,
+        /// Body of the `CATCH RUST-EXCEPTION` clause. Empty when absent — and
+        /// when absent a panic propagates after `FINALLY` (R25).
+        rust_catch_stmts: Vec<Stmt>,
         finally_stmts: Vec<Stmt>,
         span: Span,
     },

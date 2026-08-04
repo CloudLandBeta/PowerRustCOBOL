@@ -411,6 +411,8 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
 
     Program {
         span: Span::dummy(),
+        // Filled by the CONFIGURATION SECTION parser (spec 041 R19).
+        rust_items: Vec::new(),
         identification,
         environment,
         data,

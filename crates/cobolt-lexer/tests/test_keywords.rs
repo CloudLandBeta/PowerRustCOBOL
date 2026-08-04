@@ -188,3 +188,32 @@ fn program_id_paragraph() {
     assert_eq!(toks[2], Token::Identifier("MY-APP".to_string()));
     assert_eq!(toks[3], Token::Period);
 }
+
+/// Spec 041 R23 — `CATCH RUST-EXCEPTION <name>` is its own clause, so the
+/// hyphenated word must lex as one reserved token and not as `RUST` minus
+/// `EXCEPTION`.
+#[test]
+fn rust_exception_keyword() {
+    let toks = tokens_from_free("CATCH RUST-EXCEPTION E");
+    assert_eq!(toks[0], Token::Catch);
+    assert_eq!(toks[1], Token::RustException);
+    assert_eq!(toks[2], Token::Identifier("E".to_string()));
+
+    // The plain clause is untouched — a Rust panic must not be caught by it
+    // (R24), which starts with the two clauses being different tokens.
+    let plain = tokens_from_free("CATCH EXCEPTION E");
+    assert_eq!(plain[0], Token::Catch);
+    assert_eq!(plain[1], Token::Exception);
+    assert_ne!(plain[1], Token::RustException);
+}
+
+/// The word is reserved as a keyword, not as text: inside an alphanumeric
+/// literal it stays part of the literal.
+#[test]
+fn rust_exception_inside_a_literal_is_not_a_keyword() {
+    let toks = tokens_from_free("DISPLAY \"RUST-EXCEPTION\"");
+    assert!(
+        !toks.contains(&Token::RustException),
+        "the literal was lexed as a keyword: {toks:?}"
+    );
+}

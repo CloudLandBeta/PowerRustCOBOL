@@ -395,6 +395,7 @@ fn stmt_stop_run() {
 #[test]
 fn program_construction() {
     let prog = Program {
+        rust_items: Vec::new(),
         identification: IdentificationDivision {
             program_id: "HELLO".into(),
             author: Some("Cobolt test".into()),

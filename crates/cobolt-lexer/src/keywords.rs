@@ -293,6 +293,9 @@ pub fn lookup(word: &str) -> Option<Token> {
         "TRY" => Token::Try,
         "CATCH" => Token::Catch,
         "EXCEPTION" => Token::Exception,
+        // Spec 041 R23. Hyphenated, so it cannot collide with a user data name
+        // (COBOL words may hold hyphens, but this one is reserved here).
+        "RUST-EXCEPTION" => Token::RustException,
         "FINALLY" => Token::Finally,
         "END-TRY" => Token::EndTry,
         "THROW" | "RAISE" => Token::Throw,

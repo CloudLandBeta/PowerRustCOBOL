@@ -475,6 +475,10 @@ pub enum Token {
     Catch,
     /// EXCEPTION — used in `CATCH EXCEPTION <name>`
     Exception,
+    /// RUST-EXCEPTION — used in `CATCH RUST-EXCEPTION <name>` (spec 041 R23).
+    /// Its own clause on purpose: a contained Rust panic is a distinct failure
+    /// class, and a plain `CATCH EXCEPTION` must not swallow it (R24).
+    RustException,
     /// FINALLY — optional cleanup block
     Finally,
     /// END-TRY — closes the TRY/CATCH/FINALLY construct

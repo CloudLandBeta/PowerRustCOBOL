@@ -253,5 +253,28 @@ pub struct Program {
     /// external type name, e.g. `RUST-STRING` → `Rust.String`). Drives the
     /// Rust-FFI bridge (spec 005).
     pub repository: Vec<(String, String)>,
+    /// Item-level `EXEC RUST … END-EXEC` blocks (spec 041 R19), in source order,
+    /// each holding the Rust source verbatim.
+    ///
+    /// A statement-level block compiles to a FUNCTION BODY, where a `struct`,
+    /// `impl`, `trait` or `use` cannot be declared in a way another block can
+    /// see. These carry Rust **items** instead and are emitted at module scope
+    /// (R20), which is what lets one block define a type that another block —
+    /// or a `CLASS` in [`Self::repository`] — refers to (R8 revised, R22).
+    ///
+    /// They live beside `repository` because they are the other half of the same
+    /// subject: both declare what Rust types this program has. Parsed from the
+    /// `CONFIGURATION SECTION`, after `REPOSITORY`.
+    pub rust_items: Vec<RustItemBlock>,
+    pub span: Span,
+}
+
+/// One item-level `EXEC RUST` block (spec 041 R19).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RustItemBlock {
+    /// The Rust source between `EXEC RUST` and `END-EXEC`, verbatim.
+    pub source: String,
+    /// Where it came from, so a `rustc` diagnostic can be mapped back to the
+    /// developer's own line and column (R10).
     pub span: Span,
 }

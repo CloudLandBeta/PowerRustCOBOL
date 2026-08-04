@@ -2907,6 +2907,9 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
         try_stmts,
         exception_var,
         catch_stmts,
+        // Parsed in T3 (spec 041 R23); absent means a panic propagates (R25).
+        rust_exception_var: None,
+        rust_catch_stmts: Vec::new(),
         finally_stmts,
         span,
     }
