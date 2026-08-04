@@ -59,6 +59,20 @@ sets it on every `AgentKind::Specialist`. Both create the project model profile
 when that model has never been used in this project, and both clear an explicit
 `no_model` marker, since assigning a model is the developer overruling it.
 
+### R5a — Every configured model is listed (1.58.1)
+
+A row exists for every model profile, tested or not. The original build created
+a row only on a test result, which made a freshly shipped board empty and
+indistinguishable from a broken one. An untested model shows *not tested yet*,
+stays unrated (no rank number, sorted below every scored model), and offers Run
+tests. `Leaderboard::ensure_models` runs on project open and on panel open, and
+reports whether anything changed so the file is written only when it did.
+
+Opening a project also replays `agentic_ai/model-benchmarks.jsonl` into the
+board, so proficiency tests run before the board existed are not lost. The
+archive is append-ordered and replayed in order, so the newest run of a model
+stands; a model already carrying a live result is skipped entirely.
+
 ### R6 — Storage is machine-wide
 
 `<data_dir>/cobolt/model_leaderboard.json`, beside `llm_config.json` — a model

@@ -240,6 +240,15 @@ impl Entry {
         self.runs > 0 && self.overall().is_some()
     }
 
+    /// A model that is configured but has never been put through the test.
+    ///
+    /// Distinct from a model whose test *failed*: one has nothing to report
+    /// yet, the other has a reason. Both are unrated, and telling them apart is
+    /// the difference between "run the test" and "fix the connection".
+    pub fn never_tested(&self) -> bool {
+        self.runs == 0 && self.last_error.is_none()
+    }
+
     /// How many distinct invented or unsupported constructs the reviewer
     /// counted in the last run.
     pub fn hallucinations(&self) -> Option<u32> {
@@ -305,6 +314,38 @@ impl Leaderboard {
 
     pub fn get(&self, provider: &str, model: &str) -> Option<&Entry> {
         self.entries.iter().find(|e| e.matches(provider, model))
+    }
+
+    /// Put every configured model on the board, tested or not.
+    ///
+    /// Without this the board only ever showed models that had already been
+    /// through the test, which on a fresh install is none of them: a developer
+    /// with eight models configured opened an empty window and had no way to
+    /// tell whether that meant "nothing tested yet" or "this is broken". A
+    /// model with no result is listed as untested, with its Run tests button
+    /// as the obvious next step.
+    ///
+    /// Returns whether anything was added, so the caller only writes the file
+    /// when there is something new in it.
+    pub fn ensure_models(&mut self, profiles: &[crate::llm::ModelProfile]) -> bool {
+        let mut added = false;
+        for p in profiles {
+            if p.model.trim().is_empty() || p.provider.trim().is_empty() {
+                continue;
+            }
+            if self.get(&p.provider, &p.model).is_some() {
+                continue;
+            }
+            self.entries
+                .push(Entry::new(&p.provider, &p.model, &p.endpoint));
+            added = true;
+        }
+        added
+    }
+
+    /// Whether this model has a row yet, whatever its state.
+    pub fn contains(&self, provider: &str, model: &str) -> bool {
+        self.get(provider, model).is_some()
     }
 
     /// Record a run that finished and produced scores.
@@ -527,6 +568,82 @@ mod tests {
         let caps = &lb.get("openrouter", "m").unwrap().caps;
         assert_eq!(caps.ctx_in, Some(128_000));
         assert_eq!(caps.params_b, Some(24.0));
+    }
+
+    fn profile(provider: &str, model: &str) -> crate::llm::ModelProfile {
+        crate::llm::ModelProfile {
+            id: format!("{provider}-{model}"),
+            name: format!("{provider} · {model}"),
+            provider: provider.to_string(),
+            endpoint: "https://example".to_string(),
+            endpoint_user_edited: false,
+            model: model.to_string(),
+            temperature: 0.7,
+            max_tokens: 8192,
+            timeout_secs: 30,
+        }
+    }
+
+    #[test]
+    fn every_configured_model_is_listed_even_when_never_tested() {
+        let mut lb = Leaderboard::default();
+        assert!(lb.ensure_models(&[
+            profile("ollama", "qwen2.5-coder:32b"),
+            profile("anthropic", "claude-opus-5"),
+        ]));
+        assert_eq!(
+            lb.ranked(Board::Overall).len(),
+            2,
+            "a configured model must appear before it is ever tested"
+        );
+        let e = lb.get("ollama", "qwen2.5-coder:32b").unwrap();
+        assert!(e.never_tested());
+        assert!(!e.rated());
+        assert_eq!(e.overall(), None);
+    }
+
+    #[test]
+    fn listing_models_is_idempotent_and_keeps_results() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("ollama", "tested", "", outcome(84.0));
+        let profiles = [profile("ollama", "tested"), profile("ollama", "fresh")];
+        assert!(lb.ensure_models(&profiles));
+        assert!(
+            !lb.ensure_models(&profiles),
+            "a second pass must report no change so the file is not rewritten"
+        );
+        assert_eq!(lb.entries.len(), 2);
+        assert_eq!(
+            lb.get("ollama", "tested").unwrap().overall(),
+            Some(84.0),
+            "listing must not wipe a result the model already earned"
+        );
+    }
+
+    #[test]
+    fn a_profile_with_no_model_id_is_not_listed() {
+        let mut lb = Leaderboard::default();
+        assert!(!lb.ensure_models(&[profile("ollama", "   ")]));
+        assert!(lb.entries.is_empty());
+    }
+
+    #[test]
+    fn never_tested_and_failed_are_different_states() {
+        let mut lb = Leaderboard::default();
+        lb.ensure_models(&[profile("ollama", "fresh")]);
+        lb.record_failure("ollama", "broken", "", "connection refused");
+        assert!(lb.get("ollama", "fresh").unwrap().never_tested());
+        assert!(!lb.get("ollama", "broken").unwrap().never_tested());
+    }
+
+    #[test]
+    fn untested_models_rank_below_tested_ones() {
+        let mut lb = Leaderboard::default();
+        lb.ensure_models(&[profile("ollama", "fresh")]);
+        lb.record_success("anthropic", "scored", "", outcome(60.0));
+        let order = lb.ranked(Board::Overall);
+        assert_eq!(lb.entries[order[0]].model, "scored");
+        assert_eq!(lb.entries[order[1]].model, "fresh");
     }
 
     #[test]

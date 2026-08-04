@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.58.1] — 2026-08-04
+
+### Fixed
+
+- **The leaderboard opened empty, and stayed empty.** A model only got a row
+  once it had been through the proficiency test, so a freshly shipped board had
+  nothing on it — and no way to tell "nothing tested yet" from "this is broken".
+  Every configured model profile is now listed the moment the board opens, shown
+  as *not tested yet* with its Run tests button as the obvious next step. An
+  untested model is still unrated: it takes no rank number and sorts below every
+  scored model.
+
+- **Proficiency tests run before the board existed are recovered.** Each project
+  archived every report it ever produced in `agentic_ai/model-benchmarks.jsonl`,
+  and those results were being left behind. Opening a project now replays that
+  archive into the board — newest run per model wins, and a model that already
+  carries a live result is left untouched. Nobody has to re-run (or re-pay for)
+  a test that already happened.
+
+- **A metrics block written as `metrics = { … }` inside a ```` ```json ````
+  fence was silently discarded.** The reader peeled one marker and gave up, so a
+  report using that shape — a third of the archived ones — scored nothing at
+  all. It now peels the fence tag, the `metrics` label and the `=` in turn, and
+  refuses to strip a tag off a word that merely begins with one
+  (`"metrics_version"` stays a key).
+
+- **"Not tested yet" and "test failed" now read as the different things they
+  are.** Both are unrated, but one wants a test run and the other wants a
+  connection fixed.
+
 ## [PowerRustCOBOL 1.58.0] — 2026-08-03
 
 ### Added

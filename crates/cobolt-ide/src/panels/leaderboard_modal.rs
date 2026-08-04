@@ -187,6 +187,8 @@ impl LeaderboardModal {
         let ranked = board.ranked(self.board);
         if ranked.is_empty() {
             ui.add_space(12.0);
+            // Reached only when no model is configured at all — a configured
+            // model always has a row, tested or not.
             ui.label(
                 egui::RichText::new(tr.leaderboard_empty)
                     .size(SZ_BODY)
@@ -262,10 +264,16 @@ impl LeaderboardModal {
                                     });
                                 }
                                 _ => {
+                                    // Never tested and failed-its-test are both
+                                    // unrated, but they call for different
+                                    // things: run it, or fix the connection.
+                                    let (text, colour) = if e.never_tested() {
+                                        (tr.leaderboard_not_tested, theme.text_dim)
+                                    } else {
+                                        (tr.leaderboard_not_rated, theme.error)
+                                    };
                                     let cell = ui.label(
-                                        egui::RichText::new(tr.leaderboard_not_rated)
-                                            .size(SZ_BODY)
-                                            .color(theme.error),
+                                        egui::RichText::new(text).size(SZ_BODY).color(colour),
                                     );
                                     if let Some(err) = &e.last_error {
                                         cell.on_hover_text(err);

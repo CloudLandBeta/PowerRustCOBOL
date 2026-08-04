@@ -2195,6 +2195,10 @@ impl CoboltApp {
         project.ai.apply_to_llm(&mut llm);
         llm.repair_project_profiles();
         self.llm = llm;
+        // The board follows the project's models (spec 040): opening a project
+        // lists its models straight away, and replays any proficiency reports
+        // this project archived before the board existed.
+        self.sync_leaderboard_models();
         migrated
     }
 
@@ -5196,6 +5200,93 @@ impl CoboltApp {
             })
     }
 
+    /// Bring the board up to date with what this machine actually has
+    /// configured (spec 040): every model profile gets a row, and any
+    /// proficiency report this project archived before the board existed is
+    /// folded back in.
+    ///
+    /// Cheap and idempotent — it only writes when something changed — so it can
+    /// run on startup, on project open, and whenever the panel is opened.
+    fn sync_leaderboard_models(&mut self) {
+        let profiles = self.llm.model_profiles.clone();
+        let mut changed = self.leaderboard.ensure_models(&profiles);
+        changed |= self.backfill_leaderboard_from_archive();
+        if changed {
+            self.save_leaderboard();
+        }
+    }
+
+    /// Replay `agentic_ai/model-benchmarks.jsonl` into the board.
+    ///
+    /// Every proficiency test ever run in this project was archived there with
+    /// its full report; the board arrived afterwards. Rather than making the
+    /// developer re-run tests that already happened (and re-pay for them), the
+    /// archive is parsed oldest-first and the scores recovered. A model that
+    /// already has a result on the board is left alone — a live run is always
+    /// better evidence than a replayed one.
+    fn backfill_leaderboard_from_archive(&mut self) -> bool {
+        let Some(root) = self.project_dir() else {
+            return false;
+        };
+        let path = root.join("agentic_ai").join("model-benchmarks.jsonl");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return false;
+        };
+        // Models already carrying a result before this pass are left alone; a
+        // live run always beats a replayed one. Captured up front so that
+        // within the replay itself the later archive lines still overwrite the
+        // earlier ones — the archive is append-ordered, so the newest run of a
+        // model must be the one that stands.
+        let already_rated: std::collections::HashSet<(String, String)> = self
+            .leaderboard
+            .entries
+            .iter()
+            .filter(|e| e.rated())
+            .map(|e| (e.provider.to_lowercase(), e.model.to_lowercase()))
+            .collect();
+        let mut changed = false;
+        for line in text.lines() {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let (Some(provider), Some(model)) = (
+                v.get("provider").and_then(|p| p.as_str()),
+                v.get("model").and_then(|m| m.as_str()),
+            ) else {
+                continue;
+            };
+            if provider.trim().is_empty() || model.trim().is_empty() {
+                continue;
+            }
+            if already_rated.contains(&(provider.to_lowercase(), model.to_lowercase())) {
+                continue;
+            }
+            let Some(report) = v.get("report").and_then(|r| r.as_str()) else {
+                continue;
+            };
+            // Only a report that actually carries scores is worth replaying;
+            // the inferred fallback would invent a rank out of prose.
+            let Some(metrics) = Self::llm_benchmark_metrics(report) else {
+                continue;
+            };
+            if metrics.get("overall_score").is_none() {
+                continue;
+            }
+            let endpoint = v
+                .get("endpoint")
+                .and_then(|e| e.as_str())
+                .unwrap_or_default();
+            self.leaderboard.record_success(
+                provider,
+                model,
+                endpoint,
+                crate::leaderboard::RunOutcome { metrics },
+            );
+            changed = true;
+        }
+        changed
+    }
+
     fn save_leaderboard(&mut self) {
         if let Err(e) = self.leaderboard.save() {
             self.output
@@ -5284,16 +5375,7 @@ impl CoboltApp {
             };
             let block = &rest[..end];
             rest = &rest[end + 3..];
-            let trimmed = block.trim();
-            let mut json_text = trimmed
-                .strip_prefix("json")
-                .or_else(|| trimmed.strip_prefix("metrics"))
-                .map(str::trim)
-                .unwrap_or(trimmed);
-            if let Some(stripped) = json_text.strip_prefix('=') {
-                json_text = stripped.trim();
-            }
-            candidates.push(json_text.to_string());
+            candidates.push(Self::strip_fence_preamble(block));
         }
         if let (Some(start), Some(end)) = (report.rfind('{'), report.rfind('}')) {
             if start < end {
@@ -5320,6 +5402,41 @@ impl CoboltApp {
             }
         }
         first_valid
+    }
+
+    /// Reduce a fenced block to the JSON inside it.
+    ///
+    /// Models label the metrics block every way the prompt could be read:
+    /// ```` ```json ````, ```` ```metrics ````, and — the one that used to
+    /// defeat this — a fence tagged `json` whose body opens `metrics = {`, an
+    /// assignment rather than a value. Each marker is peeled in turn instead of
+    /// once, so `json` + `metrics` + `=` on the same block all come off and the
+    /// scores are read rather than silently discarded.
+    fn strip_fence_preamble(block: &str) -> String {
+        let mut text = block.trim();
+        for _ in 0..4 {
+            let before = text;
+            for tag in ["json", "metrics"] {
+                if let Some(rest) = text.strip_prefix(tag) {
+                    // Only a real tag, never the start of a longer word.
+                    if rest
+                        .chars()
+                        .next()
+                        .map(|c| c.is_whitespace() || c == '=' || c == '{')
+                        .unwrap_or(false)
+                    {
+                        text = rest.trim_start();
+                    }
+                }
+            }
+            if let Some(rest) = text.strip_prefix('=') {
+                text = rest.trim_start();
+            }
+            if std::ptr::eq(before, text) {
+                break;
+            }
+        }
+        text.trim().to_string()
     }
 
     fn metric_score(metrics: &serde_json::Value, key: &str) -> Option<f32> {
@@ -6828,6 +6945,9 @@ impl CoboltApp {
             }
         }
         if action.open_leaderboard {
+            // Pick up models configured since the last sync, so the board is
+            // never a shorter list than the Models Manager.
+            self.sync_leaderboard_models();
             self.leaderboard_modal =
                 Some(crate::panels::leaderboard_modal::LeaderboardModal::new());
         }
@@ -14564,6 +14684,56 @@ mod ai_setup_invite_tests {
         llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
         let agents = vec![agent("Grace", "orchestrator", false, Some("d9566a66"), "")];
         assert!(ai_setup_needed_for(&llm, &agents));
+    }
+}
+
+#[cfg(test)]
+mod benchmark_metrics_tests {
+    use super::*;
+
+    /// Every metrics-block shape found in the real archived reports under
+    /// `agentic_ai/model-benchmarks.jsonl` (spec 040). The middle one is what
+    /// used to be dropped: a `json` fence whose body is an assignment.
+    #[test]
+    fn every_archived_fence_shape_yields_scores() {
+        for body in [
+            "```json\n{\n  \"overall_score\": 82\n}\n```",
+            "```json\nmetrics = {\n  \"overall_score\": 82\n}\n```",
+            "```metrics\n{\n  \"overall_score\": 82\n}\n```",
+            "```metrics\n= {\n  \"overall_score\": 82\n}\n```",
+        ] {
+            let report = format!("Executive summary.\n\n{body}\n");
+            let metrics = CoboltApp::llm_benchmark_metrics(&report)
+                .unwrap_or_else(|| panic!("no metrics parsed from:\n{body}"));
+            assert_eq!(
+                CoboltApp::metric_score(&metrics, "overall_score"),
+                Some(82.0),
+                "wrong score from:\n{body}"
+            );
+        }
+    }
+
+    /// A fence tag must not be peeled off a word that merely starts with it.
+    #[test]
+    fn a_key_beginning_with_a_tag_name_is_not_mistaken_for_one() {
+        let report = "```json\n{\"metrics_version\": 2, \"overall_score\": 70}\n```";
+        let metrics = CoboltApp::llm_benchmark_metrics(report).expect("parsed");
+        assert_eq!(
+            CoboltApp::metric_score(&metrics, "overall_score"),
+            Some(70.0)
+        );
+    }
+
+    /// The pedantic reviewer's verdict overrides the primary's self-scoring.
+    #[test]
+    fn the_pedantic_final_block_wins() {
+        let report = "```json\n{\"overall_score\": 95}\n```\n\
+                      ```json\n{\"pedantic_final\": true, \"overall_score\": 61}\n```";
+        let metrics = CoboltApp::llm_benchmark_metrics(report).expect("parsed");
+        assert_eq!(
+            CoboltApp::metric_score(&metrics, "overall_score"),
+            Some(61.0)
+        );
     }
 }
 
