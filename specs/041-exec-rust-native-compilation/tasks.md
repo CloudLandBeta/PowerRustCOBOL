@@ -111,7 +111,41 @@ saying so.
     plain `CATCH` and the run ends; both clauses route to their own class; a
     COBOL `THROW` never reaches the Rust clause.
 
-- [ ] **T7 — Semantic rules** (R5, R6, R8-revised, R16, R21, R22)
+- [ ] **T7 — Semantic rules** (R5, R6 **done**; R8-revised, R16, R22 **remaining**)
+  - *Partial: `cargo test -p cobolt-semantic` 16 passed, 0 failed; workspace
+    **1519 passed, 0 failed**.*
+  - **R5 done** — a referenced item that is not `USAGE OBJECT REFERENCE` is an
+    error naming it (`exec_rust_rejects_a_pic_item`); a Rust-typed object binds
+    cleanly (`exec_rust_accepts_an_object_reference_item`). **AC6 covered.**
+  - **R6 done, but not as written.** AC7 said `WS-USER-NAME` must be rejected;
+    that is impossible, because `cobol_to_rust` lowercases and swaps hyphens, so
+    it becomes `ws_user_name` — already valid `snake_case`. Every ordinary COBOL
+    name converts cleanly. What actually survives the conversion broken is a
+    **Rust keyword** (`01 TYPE` → `type`) or a name that **cannot start an
+    identifier** (`01 1ST-FLAG` → `1st_flag`), so `rust_name_problem()` catches
+    those. Spec AC7 corrected with the reason recorded.
+    **AC7 covered** (`exec_rust_rejects_a_name_that_is_a_rust_keyword`).
+  - **Report-or-fix: resolved, with the operator's approval.**
+    `exec_rust_bindings_resolved` and `exec_rust_no_spurious_partial_matches`
+    bound `PIC` items and so described programs R5 now rejects — yet stayed
+    green, because they only assert the `Info` binding list. Both now bind
+    `USAGE OBJECT REFERENCE` items, keeping their real subject (whole-word
+    binding resolution, no partial matches), and
+    `exec_rust_bindings_resolved` additionally asserts **no R5 rejection**, so
+    it can no longer pass while describing code that would not build.
+  - Remaining: **R8-revised** (AC9), **R16** (AC14), **R22**.
+  - **⚠ Blocking question for R8-revised — where does the canonical Rust-type
+    list live?** The 48 `CLASS RUST-*` entries are in
+    `cobolt-forms/src/model.rs:4419`, but `cobolt-semantic` depends only on
+    `cobolt-lexer` and `cobolt-ast` (`cobolt-forms` is a **dev**-dependency), so
+    semantic analysis cannot see them. Options: **(a)** move the list to
+    `cobolt-ast` as the shared home and have `cobolt-forms` reference it — one
+    source of truth, but touches `cobolt-forms` and its tests; **(b)** duplicate
+    it in `cobolt-semantic` — rejected, it will drift; **(c)** check only that a
+    class is declared by an item-level block, and let `rustc` reject an unknown
+    `std` type at T10 — cheapest, but the diagnostic names the generated type,
+    not the developer's `CLASS`, so **AC9 would not be met as written**.
+    Recommendation: **(a)**.
   - Files: `crates/cobolt-semantic/src/lib.rs`, `resolver.rs`
   - Do: reject a referenced item that is not `USAGE OBJECT REFERENCE RUST-*` (R5);
     reject a bound name that is not `snake_case` (R6); resolve a `CLASS` against

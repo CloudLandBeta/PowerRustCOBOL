@@ -21,6 +21,7 @@
 //! when it lowers to executable code.
 
 use cobolt_ast::{
+    data::Usage,
     program::{ProcedureBody, Program},
     stmt::Stmt,
 };
@@ -44,6 +45,49 @@ pub fn resolve_bindings(
 ) {
     walk_stmts_in_program(program, &mut |stmt| {
         if let Stmt::ExecRust { source, span, .. } = stmt {
+            // Spec 041 R5 — only `USAGE OBJECT REFERENCE RUST-<type>` items may
+            // cross into a block. A PIC item has no Rust type to bind to: its
+            // value is a scaled decimal or a fixed-width space-padded field, and
+            // handing one to compiled Rust would mean re-implementing COBOL's
+            // numeric and padding rules inside generated code. Move it through
+            // an object with `INVOKE` / `::` instead, outside the block.
+            for (cobol, _rust) in collect_bindings(source, symbols) {
+                let Some(info) = symbols.data_items().find_map(|(_, i)| {
+                    (i.cobol_name == cobol).then_some(i)
+                }) else {
+                    continue;
+                };
+                if info.usage != Usage::ObjectReference {
+                    diagnostics.push(SemanticDiagnostic {
+                        severity: Severity::Error,
+                        message: format!(
+                            "EXEC RUST block references {cobol}, which is not a \
+                             USAGE OBJECT REFERENCE item — only Rust-typed objects \
+                             may cross into a block"
+                        ),
+                        span: *span,
+                    });
+                    continue;
+                }
+                // R6 — the bound name becomes a Rust identifier verbatim, so it
+                // has to BE one. `cobol_to_rust` lowercases and swaps hyphens
+                // for underscores, which is enough for ordinary COBOL names;
+                // what it cannot fix is a name that lands on a Rust keyword
+                // (`TYPE` → `type`) or does not start like an identifier
+                // (`1ST-FLAG` → `1st_flag`).
+                if let Some(reason) = rust_name_problem(&info.rust_name) {
+                    diagnostics.push(SemanticDiagnostic {
+                        severity: Severity::Error,
+                        message: format!(
+                            "EXEC RUST cannot bind {cobol}: its Rust name \
+                             `{}` {reason} — rename the data item",
+                            info.rust_name
+                        ),
+                        span: *span,
+                    });
+                }
+            }
+
             let bindings = collect_bindings(source, symbols);
             if !bindings.is_empty() {
                 let names: Vec<_> = bindings
@@ -81,6 +125,42 @@ pub fn collect_bindings(source: &str, symbols: &SymbolTable) -> Vec<(String, Str
         }
     }
     out
+}
+
+/// Why `name` cannot be used as a Rust identifier, or `None` if it can
+/// (spec 041 R6).
+///
+/// Deliberately narrow: `cobol_to_rust` already lowercases and replaces
+/// hyphens, so an ordinary COBOL name arrives as valid `snake_case`. Only two
+/// things survive that and still break — a Rust keyword, and a name that does
+/// not start like an identifier.
+fn rust_name_problem(name: &str) -> Option<&'static str> {
+    /// Rust's reserved words, including the ones reserved for future use.
+    /// COBOL programs use several of these as data names quite naturally
+    /// (`TYPE`, `REF`, `BOX`, `MATCH`), so this is not a theoretical list.
+    const KEYWORDS: &[&str] = &[
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+        "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+        "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
+        "true", "type", "union", "unsafe", "use", "where", "while", "abstract", "become", "box",
+        "do", "final", "macro", "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
+    ];
+
+    if name.is_empty() {
+        return Some("is empty");
+    }
+    if KEYWORDS.contains(&name) {
+        return Some("is a Rust keyword");
+    }
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Some("does not start with a letter or underscore");
+    }
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Some("contains a character that is not a letter, digit or underscore");
+    }
+    None
 }
 
 /// Check whether `haystack` contains `needle` as a whole identifier word.

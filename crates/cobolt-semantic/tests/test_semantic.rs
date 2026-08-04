@@ -173,24 +173,46 @@ MAIN.
 
 #[test]
 fn exec_rust_bindings_resolved() {
+    // Spec 041 R5: only `USAGE OBJECT REFERENCE RUST-<type>` items may cross
+    // into a block, so the fixture binds Rust-typed objects. (It used to bind
+    // PIC items, which the compiler now rejects — the test stayed green because
+    // it only asserts the Info binding list, so it described a program that
+    // would no longer build.) The subject under test is unchanged: which names
+    // the binding pass resolves out of a block's source.
     let src = "\
 IDENTIFICATION DIVISION.
 PROGRAM-ID. EXECTEST.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-STRING IS \"Rust.String\"
+    CLASS RUST-I64 IS \"Rust.i64\"
 DATA DIVISION.
 WORKING-STORAGE SECTION.
-01 WS-COUNT  PIC 9(4) VALUE 0.
-01 WS-RESULT PIC 9(8) VALUE 0.
-01 WS-NAME   PIC X(30).
+01 WS-COUNT  USAGE IS OBJECT REFERENCE RUST-I64.
+01 WS-RESULT USAGE IS OBJECT REFERENCE RUST-I64.
+01 WS-NAME   USAGE IS OBJECT REFERENCE RUST-STRING.
 PROCEDURE DIVISION.
 MAIN.
     EXEC RUST
-        *ws_count += 1;
-        *ws_result = (*ws_count as i64) * 2;
+        ws_count += 1;
+        ws_result = ws_count * 2;
     END-EXEC.
     STOP RUN.
 ";
     let prog = parse_program(src);
     let result = analyze(&prog);
+
+    // The fixture must be a program that actually builds: no R5 rejection.
+    // Without this the test can pass while describing rejected code, which is
+    // exactly what it did before the conversion.
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        !errors
+            .iter()
+            .any(|d| d.message.contains("not a USAGE OBJECT REFERENCE")),
+        "the fixture binds an item R5 rejects: {errors:?}"
+    );
 
     // The exec_rust pass should emit Info diagnostics listing the bindings
     let info_diags: Vec<_> = result
@@ -225,13 +247,18 @@ MAIN.
 
 #[test]
 fn exec_rust_no_spurious_partial_matches() {
-    // ws_count_extra should not match ws_count binding
+    // ws_count_extra should not match ws_count binding. Bound as an object
+    // item per R5 — see the note on `exec_rust_bindings_resolved`.
     let src = "\
 IDENTIFICATION DIVISION.
 PROGRAM-ID. PARTMATCH.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-I64 IS \"Rust.i64\"
 DATA DIVISION.
 WORKING-STORAGE SECTION.
-01 WS-COUNT PIC 9(4) VALUE 0.
+01 WS-COUNT USAGE IS OBJECT REFERENCE RUST-I64.
 PROCEDURE DIVISION.
 MAIN.
     EXEC RUST
@@ -354,5 +381,98 @@ MAIN.
     assert!(
         errors.is_empty(),
         "FD IS GLOBAL must parse clean: {errors:?}"
+    );
+}
+
+// ── EXEC RUST: what may cross into a block (spec 041 R5, R6) ─────────────────
+
+/// **AC6 / R5** — a `PIC` item has no Rust type to bind to. Its value is a
+/// scaled decimal or a fixed-width space-padded field, so handing one to
+/// compiled Rust would mean re-implementing COBOL's numeric and padding rules
+/// in generated code. It must be rejected, by name.
+#[test]
+fn exec_rust_rejects_a_pic_item() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. PICBIND.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-COUNT PIC 9(4) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    EXEC RUST
+        ws_count += 1;
+    END-EXEC.
+    STOP RUN.
+";
+    let result = analyze(&parse_program(src));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        errors
+            .iter()
+            .any(|d| d.message.contains("WS-COUNT")
+                && d.message.contains("not a USAGE OBJECT REFERENCE")),
+        "expected WS-COUNT to be rejected by name, got: {errors:?}"
+    );
+}
+
+/// R5 — the same reference against a `USAGE OBJECT REFERENCE` item is fine.
+#[test]
+fn exec_rust_accepts_an_object_reference_item() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. OBJBIND.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-STRING IS \"Rust.String\"
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 USER-NAME USAGE IS OBJECT REFERENCE RUST-STRING VALUE \"ada\".
+PROCEDURE DIVISION.
+MAIN.
+    EXEC RUST
+        user_name.push_str(\" lovelace\");
+    END-EXEC.
+    STOP RUN.
+";
+    let result = analyze(&parse_program(src));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        !errors.iter().any(|d| d.message.contains("user_name")
+            || d.message.contains("USER-NAME")),
+        "a Rust-typed object must bind cleanly, got: {errors:?}"
+    );
+}
+
+/// **AC7 / R6** — the bound name becomes a Rust identifier verbatim, so a COBOL
+/// name that lands on a Rust keyword cannot be used. `TYPE` is a name COBOL
+/// programs pick quite naturally.
+#[test]
+fn exec_rust_rejects_a_name_that_is_a_rust_keyword() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. KEYWORDBIND.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-STRING IS \"Rust.String\"
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 TYPE USAGE IS OBJECT REFERENCE RUST-STRING VALUE \"x\".
+PROCEDURE DIVISION.
+MAIN.
+    EXEC RUST
+        type.push_str(\"y\");
+    END-EXEC.
+    STOP RUN.
+";
+    let result = analyze(&parse_program(src));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        errors
+            .iter()
+            .any(|d| d.message.contains("Rust keyword") && d.message.contains("TYPE")),
+        "expected a keyword-collision error naming TYPE, got: {errors:?}"
     );
 }

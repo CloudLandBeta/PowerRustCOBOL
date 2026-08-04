@@ -191,8 +191,15 @@ item/statement split.
       *(R11)* — this is the regression guard for the reported defect.
 - [ ] **AC6** — A bound item that is a `PIC` item is rejected at compile time with
       a message naming it. *(R5)*
-- [ ] **AC7** — A bound item named `WS-USER-NAME` is rejected with a message
-      telling the developer the Rust-side name must be `snake_case`. *(R6)*
+- [ ] **AC7** — A bound item whose Rust name is unusable is rejected, naming the
+      item: a COBOL name landing on a Rust keyword (`01 TYPE` → `type`) or one
+      that cannot start an identifier (`01 1ST-FLAG` → `1st_flag`). *(R6)*
+      *(Corrected 2026-08-04 during T7: this criterion originally said
+      `WS-USER-NAME` must be rejected, which is impossible —
+      `DataItemInfo::cobol_to_rust` lowercases and replaces hyphens, so
+      `WS-USER-NAME` becomes `ws_user_name`, already valid `snake_case`. Every
+      ordinary COBOL name converts cleanly; only keywords and non-identifier
+      starts survive the conversion broken, so those are what R6 can catch.)*
 - [ ] **AC8** — Each of the 48 `CLASS RUST-*` types is exercised by at least one
       test declaring an item of that type and using it inside a block. *(R7)*
 - [ ] **AC9** — `CLASS RUST-NOPE IS "Rust.Nope"` fails the build naming the class.
