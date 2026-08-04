@@ -5912,13 +5912,35 @@ Return the report in clear language, followed by one fenced JSON block named `me
   "file_handling_score": 0-100,
   "forms_extensions_score": 0-100,
   "unsupported_feature_avoidance": 0-100,
+  "indexed_file_score": 0-100,
+  "modification_score": 0-100,
+  "debugging_score": 0-100,
+  "refactoring_score": 0-100,
+  "table_driven_score": 0-100,
+  "type_inference_score": 0-100,
+  "inline_invoke_score": 0-100,
+  "code_explanation_score": 0-100,
+  "hallucination_count": <whole number, not a percentage>,
   "recommended_usage": "short text",
   "strengths": ["..."],
   "weaknesses": ["..."],
   "typical_failure_patterns": ["..."]
 }
 
-Be honest about uncertainty: this is a lightweight interactive benchmark, not a full compiler-run benchmark. The overall score must use these weights: 15% compilation, 30% functional correctness, 15% instruction following, 10% semantic correctness, 10% code preservation, 5% runtime correctness, 5% formatting preservation, 10% unsupported-feature avoidance. The dashboard-specific scores must reflect only the supported benchmark scope listed above."#;
+The leaderboard reads these additional per-capability scores; each one is judged on the work you actually produced during this assessment, on the same 0-100 scale, and must be present:
+- `indexed_file_score`: indexed files specifically — primary and alternate keys, duplicate alternates, START/READ NEXT/READ PREVIOUS positioning, REWRITE and DELETE, INVALID KEY and AT END handling, FILE STATUS checks, COMMIT/ROLLBACK. Judge this apart from sequential and line-sequential work, which belongs to `file_handling_score`.
+- `modification_score`: changing existing code — adding, removing, renaming and restructuring while preserving comments, formatting, identifiers, behaviour and the required divisions/sections.
+- `debugging_score`: locating and correcting a defect in code that was given rather than written, and explaining what the defect was.
+- `refactoring_score`: restructuring working code without altering behaviour — extracting paragraphs, removing duplication, tightening data descriptions, improving names.
+- `table_driven_score`: OCCURS and OCCURS DEPENDING ON, ASCENDING/DESCENDING KEY, INDEXED BY, SET, SEARCH and SEARCH ALL, and bounds discipline in table-driven designs.
+- `type_inference_score`: choosing PIC and USAGE correctly for the values a field must hold — precision, sign, scale, COMP/COMP-3 choice, and avoiding truncation or overflow.
+- `inline_invoke_score`: the inline object syntax for controls and form objects — `Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`, and Rust FFI repository objects via INVOKE. Reduce it for `CALL "COBOL-SET-PROPERTY"`, legacy `INVOKE Control "Method" USING ...`, or a method written as a property assignment.
+- `code_explanation_score`: explaining COBOL accurately to a developer — what the code does, why, and where its risks are, without inventing behaviour.
+- `hallucination_count`: a WHOLE NUMBER, not a percentage: how many distinct invented or unsupported things appeared in your output — verbs, controls, properties, methods, file organizations, or APIs that PowerRustCOBOL does not have. Count each distinct invention once. Report 0 only if there were none; do not report a percentage here.
+
+Be honest about uncertainty: this is a lightweight interactive benchmark, not a full compiler-run benchmark. The overall score must use these weights: 15% compilation, 30% functional correctness, 15% instruction following, 10% semantic correctness, 10% code preservation, 5% runtime correctness, 5% formatting preservation, 10% unsupported-feature avoidance. The dashboard-specific scores must reflect only the supported benchmark scope listed above.
+
+Do not report latency, speed, memory use, token counts, reliability or determinism anywhere in the metrics. This assessment judges COBOL and PowerRustCOBOL competence only; a figure about the machine or the run does not belong in it."#;
 
 /// Spec 029: one synchronous-style request to a named database agent (used
 /// by Grace's workflow host). The label in the AI activity log is generic;
@@ -6148,6 +6170,191 @@ pub fn spawn_detect(endpoint: &str) -> Receiver<Result<DetectedApi, String>> {
         ));
     });
     rx
+}
+
+/// Ask the provider what the model can actually take and produce — supported
+/// input/output tokens, and for local weights the parameter count and
+/// quantization (spec 040).
+///
+/// Run alongside "Test connection", where it costs nothing extra: the numbers
+/// matter most for free cloud routes, whose output ceiling is often a small
+/// fraction of the context they advertise, and which is otherwise discovered
+/// only when a benchmark answer is truncated mid-report.
+///
+/// Every provider answers differently and several answer not at all, so this
+/// never fails the connection: an unknown limit comes back as `None` and the
+/// leaderboard shows it as unknown rather than as zero.
+pub fn spawn_probe_capabilities(
+    provider: Provider,
+    endpoint: &str,
+    key: &str,
+    model: &str,
+) -> Receiver<crate::leaderboard::ModelCapabilities> {
+    let (tx, rx) = mpsc::channel();
+    let ep = heal_endpoint(endpoint);
+    let key = key.to_string();
+    let pid = provider.id().to_string();
+    let model = model.trim().to_string();
+
+    std::thread::spawn(move || {
+        let caps = probe_capabilities_blocking(&pid, &ep, &key, &model);
+        let _ = tx.send(caps);
+    });
+    rx
+}
+
+fn probe_capabilities_blocking(
+    pid: &str,
+    ep: &str,
+    key: &str,
+    model: &str,
+) -> crate::leaderboard::ModelCapabilities {
+    use crate::leaderboard::ModelCapabilities;
+    let empty = ModelCapabilities::default();
+    if model.is_empty() {
+        return empty;
+    }
+    let Ok(rt) = tokio::runtime::Runtime::new() else {
+        return empty;
+    };
+    rt.block_on(async {
+        let Ok(client) = reqwest::Client::builder().build() else {
+            return empty;
+        };
+        if pid == "ollama" || pid == "ollama_cloud" {
+            let root = ep
+                .trim_end_matches("/api")
+                .trim_end_matches("/api/chat")
+                .trim_end_matches("/api/tags")
+                .trim_end_matches("/v1")
+                .trim_end_matches('/');
+            let url = format!("{root}/api/show");
+            let body = serde_json::json!({ "model": model });
+            let Ok(res) = client.post(&url).json(&body).send().await else {
+                return empty;
+            };
+            let Ok(json) = res.json::<serde_json::Value>().await else {
+                return empty;
+            };
+            return ollama_capabilities(&json);
+        }
+        // Everything else that answers at all answers the OpenAI-style listing.
+        let url = model_list_url(pid, ep);
+        let mut req = client.get(&url);
+        for (name, value) in model_list_headers(pid, key) {
+            req = req.header(name, value);
+        }
+        let Ok(res) = req.send().await else {
+            return empty;
+        };
+        let Ok(json) = res.json::<serde_json::Value>().await else {
+            return empty;
+        };
+        openai_style_capabilities(&json, model)
+    })
+}
+
+/// Read `/api/show`. Ollama publishes the context length under an
+/// architecture-prefixed key (`llama.context_length`, `qwen2.context_length`,
+/// …), so the architecture is looked up rather than guessed.
+fn ollama_capabilities(json: &serde_json::Value) -> crate::leaderboard::ModelCapabilities {
+    let mut caps = crate::leaderboard::ModelCapabilities::default();
+    if let Some(info) = json.get("model_info").and_then(|v| v.as_object()) {
+        let arch = json
+            .get("details")
+            .and_then(|d| d.get("family"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                info.get("general.architecture")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            });
+        let ctx = arch
+            .as_deref()
+            .and_then(|a| info.get(&format!("{a}.context_length")))
+            .or_else(|| {
+                info.iter()
+                    .find(|(k, _)| k.ends_with(".context_length"))
+                    .map(|(_, v)| v)
+            })
+            .and_then(|v| v.as_u64());
+        caps.ctx_in = ctx.map(|v| v as u32);
+        // A local model has no separate output ceiling: it will keep
+        // generating inside the same window.
+        caps.ctx_out = caps.ctx_in;
+    }
+    if let Some(details) = json.get("details") {
+        caps.quantization = details
+            .get("quantization_level")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        caps.params_b = details
+            .get("parameter_size")
+            .and_then(|v| v.as_str())
+            .and_then(parse_parameter_size);
+    }
+    caps
+}
+
+/// `"32.8B"` / `"7b"` / `"480 B"` → billions. Anything else is unknown, which
+/// is a better answer than a wrong number.
+fn parse_parameter_size(text: &str) -> Option<f32> {
+    let t = text.trim().to_ascii_uppercase();
+    let digits: String = t
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let value: f32 = digits.parse().ok()?;
+    if t.ends_with('M') {
+        Some(value / 1000.0)
+    } else if t.contains('B') {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+/// Read an OpenAI-style `/models` listing. OpenRouter (and HuggingFace's
+/// router, which copies its shape) publishes `context_length`,
+/// `top_provider.max_completion_tokens` and per-token `pricing`; the plain
+/// OpenAI listing publishes none of them, and correctly yields nothing.
+fn openai_style_capabilities(
+    json: &serde_json::Value,
+    model: &str,
+) -> crate::leaderboard::ModelCapabilities {
+    let mut caps = crate::leaderboard::ModelCapabilities::default();
+    let Some(list) = json.get("data").and_then(|v| v.as_array()) else {
+        return caps;
+    };
+    let Some(entry) = list.iter().find(|m| {
+        m.get("id")
+            .and_then(|v| v.as_str())
+            .map(|id| id.eq_ignore_ascii_case(model))
+            .unwrap_or(false)
+    }) else {
+        return caps;
+    };
+    caps.ctx_in = entry
+        .get("context_length")
+        .or_else(|| entry.get("max_context_length"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    caps.ctx_out = entry
+        .get("top_provider")
+        .and_then(|t| t.get("max_completion_tokens"))
+        .or_else(|| entry.get("max_output_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    // Pricing is quoted per single token as a string ("0.000004"); the board
+    // shows dollars per million.
+    caps.usd_per_mtok_out = entry
+        .get("pricing")
+        .and_then(|p| p.get("completion"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f32>().ok())
+        .map(|per_token| per_token * 1_000_000.0);
+    caps
 }
 
 pub fn spawn_list_models(

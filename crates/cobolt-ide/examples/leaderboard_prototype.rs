@@ -4,7 +4,14 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Model Leaderboard — **visual prototype** (pre-spec).
+//! Model Leaderboard — **visual prototype**, superseded by the shipped panel.
+//!
+//! The real board is `panels/leaderboard_modal.rs` and is what the IDE opens.
+//! This file is kept as the design record of how that layout was settled, and
+//! it deliberately still shows metrics the product does **not** collect —
+//! latency, output tokens, reliability, determinism, peak memory — which were
+//! dropped from the test on 2026-08-03 as measurements of the machine rather
+//! than of the model. Read it as history, not as a specification.
 //!
 //! A throwaway, self-contained eframe app that shows the proposed Model
 //! Leaderboard so its layout can be judged *before* any of it is wired into the

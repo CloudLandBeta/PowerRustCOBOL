@@ -34,6 +34,7 @@ pub mod model_policy;
 pub mod grace_session;
 pub mod i18n;
 pub mod inspector;
+pub mod leaderboard;
 pub mod llm;
 pub mod main_form;
 mod panels;

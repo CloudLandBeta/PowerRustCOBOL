@@ -22,6 +22,7 @@ pub mod indexed_field_control;
 pub mod indexed_grid;
 pub mod indexed_new_dialog;
 pub mod indexed_properties;
+pub mod leaderboard_modal;
 pub mod md_render;
 pub mod models_modal;
 pub mod output;

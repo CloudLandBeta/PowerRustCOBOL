@@ -296,6 +296,8 @@ pub struct SettingsFormAction {
     pub manage_agents: bool,
     /// Open the Models Manager (spec 031).
     pub manage_models: bool,
+    /// Open the Model Leaderboard (spec 040).
+    pub open_leaderboard: bool,
 }
 
 /// Common license identifiers offered in the dropdown.
@@ -1306,6 +1308,16 @@ impl SettingsForm {
                                     }
                                     if ui.button(tr.models_manage).clicked() {
                                         action.manage_models = true;
+                                    }
+                                    // Spec 040: the ranked record of every
+                                    // proficiency test, next to the managers
+                                    // whose tests fill it.
+                                    if ui
+                                        .button(tr.leaderboard_open)
+                                        .on_hover_text(tr.leaderboard_open_hint)
+                                        .clicked()
+                                    {
+                                        action.open_leaderboard = true;
                                     }
                                 });
                             });

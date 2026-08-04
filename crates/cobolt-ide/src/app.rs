@@ -330,6 +330,14 @@ pub struct CoboltApp {
     llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     llm_benchmark_status: Option<String>,
     llm_benchmark_report: Option<String>,
+    /// Machine-wide ranked record of every proficiency test (spec 040).
+    leaderboard: crate::leaderboard::Leaderboard,
+    /// The Model Leaderboard panel, present while open.
+    leaderboard_modal: Option<crate::panels::leaderboard_modal::LeaderboardModal>,
+    /// In-flight capability probe and the `(provider, model, endpoint)` it
+    /// answers for.
+    llm_caps_rx: Option<std::sync::mpsc::Receiver<crate::leaderboard::ModelCapabilities>>,
+    llm_caps_target: Option<(String, String, String)>,
 
     // Dialog state
     new_form: NewFormDialog,
@@ -1002,6 +1010,10 @@ impl CoboltApp {
             llm_benchmark_rx: None,
             llm_benchmark_status: None,
             llm_benchmark_report: None,
+            leaderboard: crate::leaderboard::Leaderboard::load(),
+            leaderboard_modal: None,
+            llm_caps_rx: None,
+            llm_caps_target: None,
 
             new_form: NewFormDialog::new(),
             new_indexed: NewIndexedDialog::new(),
@@ -4974,12 +4986,252 @@ impl CoboltApp {
             Ok(report) => {
                 self.llm_benchmark_status = Some("COBOL proficiency check complete.".into());
                 self.save_llm_benchmark_stats(&report);
+                self.record_benchmark_success(&report);
                 self.llm_benchmark_report = Some(report);
             }
             Err(e) => {
                 self.llm_benchmark_status = Some(e.clone());
+                self.record_benchmark_failure(&e);
                 self.llm_test_error = Some(format!("COBOL proficiency check failed: {e}"));
             }
+        }
+    }
+
+    /// Start a proficiency run, and alongside it the capability probe whose
+    /// token limits land on the same leaderboard row (spec 040).
+    fn start_proficiency_benchmark(&mut self, cfg: crate::llm::LlmConfig) {
+        self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+        self.llm_benchmark_config = Some(cfg.clone());
+        self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+        self.start_capability_probe(&cfg);
+    }
+
+    /// Ask the provider what the model supports. Never blocks and never fails
+    /// the run: an unknown limit stays unknown.
+    fn start_capability_probe(&mut self, cfg: &crate::llm::LlmConfig) {
+        if cfg.model.trim().is_empty() || self.llm_caps_rx.is_some() {
+            return;
+        }
+        let Some(provider) = crate::llm::Provider::from_id(&cfg.provider) else {
+            return;
+        };
+        self.llm_caps_target = Some((
+            cfg.provider.clone(),
+            cfg.model.clone(),
+            cfg.endpoint.clone(),
+        ));
+        self.llm_caps_rx = Some(crate::llm::spawn_probe_capabilities(
+            provider,
+            &cfg.endpoint,
+            &cfg.api_key,
+            &cfg.model,
+        ));
+    }
+
+    fn poll_capability_probe(&mut self) {
+        let Some(rx) = &self.llm_caps_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(caps) => {
+                if let Some((provider, model, endpoint)) = self.llm_caps_target.take() {
+                    self.leaderboard
+                        .apply_capabilities(&provider, &model, &endpoint, caps);
+                    self.save_leaderboard();
+                }
+                self.llm_caps_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.llm_caps_rx = None;
+                self.llm_caps_target = None;
+            }
+        }
+    }
+
+    /// Carry out what the leaderboard row was clicked for (spec 040).
+    fn handle_leaderboard_action(
+        &mut self,
+        act: crate::panels::leaderboard_modal::LeaderboardAction,
+    ) {
+        if let Some((provider, model)) = act.run_tests {
+            let cfg = self.leaderboard_run_config(&provider, &model);
+            self.start_proficiency_benchmark(cfg);
+        }
+        if let Some((provider, model)) = act.apply_to_grace {
+            self.assign_model_to_agents(&provider, &model, true);
+        }
+        if let Some((provider, model)) = act.apply_to_specialists {
+            self.assign_model_to_agents(&provider, &model, false);
+        }
+        if let Some((provider, model)) = act.open_report {
+            // The full report text lives in the project archive, not in the
+            // ranked store; re-running is the only way to see it if this
+            // project never ran the test.
+            match self.stored_benchmark_report(&provider, &model) {
+                Some(report) => {
+                    self.llm_benchmark_config = Some(self.leaderboard_run_config(&provider, &model));
+                    self.llm_benchmark_report = Some(report);
+                }
+                None => {
+                    if let Some(m) = self.leaderboard_modal.as_mut() {
+                        m.set_status(format!(
+                            "No stored report for {model} in this project — run the tests to produce one."
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The runnable config for a leaderboard row: the matching project profile
+    /// when there is one (so its key and sampling are used), otherwise the
+    /// row's own provider/endpoint over the active config.
+    fn leaderboard_run_config(&self, provider: &str, model: &str) -> crate::llm::LlmConfig {
+        if let Some(profile) = self
+            .llm
+            .model_profiles
+            .iter()
+            .find(|p| p.provider == provider && p.model == model)
+        {
+            return profile.resolve(&self.llm);
+        }
+        let mut cfg = self.llm.clone();
+        cfg.provider = provider.to_string();
+        cfg.model = model.to_string();
+        if let Some(e) = self.leaderboard.get(provider, model) {
+            if !e.endpoint.trim().is_empty() {
+                cfg.endpoint = e.endpoint.clone();
+            }
+        }
+        let slot = crate::llm::api_key_slot(provider, model);
+        cfg.api_key = self.llm.api_keys.get(&slot).cloned().unwrap_or_default();
+        cfg.api_key_slot = slot;
+        cfg
+    }
+
+    /// Point Grace, or every specialist, at this model — creating the project
+    /// model profile if the model has never been used here (spec 040).
+    fn assign_model_to_agents(&mut self, provider: &str, model: &str, grace_only: bool) {
+        let tr = self.lang.tr();
+        let Some(root) = self.project_dir() else {
+            if let Some(m) = self.leaderboard_modal.as_mut() {
+                m.set_status("Open a project first — agents belong to a project.".to_string());
+            }
+            return;
+        };
+        let endpoint = self
+            .leaderboard
+            .get(provider, model)
+            .map(|e| e.endpoint.clone())
+            .filter(|e| !e.trim().is_empty())
+            .or_else(|| {
+                crate::llm::Provider::from_id(provider)
+                    .map(|p| p.default_endpoint().to_string())
+            })
+            .unwrap_or_default();
+        let profile_id = self.llm.find_or_create_profile(
+            provider,
+            &endpoint,
+            model,
+            crate::llm::default_temperature(),
+            crate::llm::default_max_tokens(),
+            crate::llm::default_timeout_secs(),
+        );
+
+        let mut db = crate::agents_db::AgentsDb::load(&root);
+        let mut touched = 0usize;
+        for agent in &mut db.agents {
+            let wanted = if grace_only {
+                agent.kind == crate::agents_db::AgentKind::Orchestrator
+            } else {
+                agent.kind == crate::agents_db::AgentKind::Specialist
+            };
+            if !wanted {
+                continue;
+            }
+            agent.model_profile = Some(profile_id.clone());
+            // An explicit "(no model)" is a decision; handing it one silently
+            // would undo it. Assigning a model clears the marker on purpose.
+            agent.no_model = false;
+            touched += 1;
+        }
+        if let Err(e) = db.save_all() {
+            self.output
+                .push_status(format!("Could not save the agents: {e}"));
+            return;
+        }
+        self.persist_active_project_ai();
+        let status = if grace_only {
+            tr.leaderboard_applied_grace.replacen("{}", model, 1)
+        } else {
+            tr.leaderboard_applied_specialists
+                .replacen("{}", model, 1)
+                .replacen("{}", &touched.to_string(), 1)
+        };
+        self.output.push_status(status.clone());
+        if let Some(m) = self.leaderboard_modal.as_mut() {
+            m.set_status(status);
+        }
+    }
+
+    /// The most recent stored report for this model in the open project.
+    fn stored_benchmark_report(&self, provider: &str, model: &str) -> Option<String> {
+        let path = self
+            .project_dir()?
+            .join("agentic_ai")
+            .join("model-benchmarks.jsonl");
+        let text = std::fs::read_to_string(path).ok()?;
+        text.lines()
+            .rev()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|v| {
+                v.get("provider").and_then(|p| p.as_str()) == Some(provider)
+                    && v.get("model").and_then(|m| m.as_str()) == Some(model)
+            })
+            .and_then(|v| {
+                v.get("report")
+                    .and_then(|r| r.as_str())
+                    .map(str::to_string)
+            })
+    }
+
+    fn save_leaderboard(&mut self) {
+        if let Err(e) = self.leaderboard.save() {
+            self.output
+                .push_status(format!("Could not save the leaderboard: {e}"));
+        }
+    }
+
+    /// Fold a completed proficiency run into the leaderboard (spec 040).
+    fn record_benchmark_success(&mut self, report: &str) {
+        let Some(cfg) = self.llm_benchmark_config.clone() else {
+            return;
+        };
+        let metrics = Self::llm_benchmark_metrics(report)
+            .unwrap_or_else(|| Self::fallback_benchmark_metrics(report));
+        self.leaderboard.record_success(
+            &cfg.provider,
+            &cfg.model,
+            &cfg.endpoint,
+            crate::leaderboard::RunOutcome { metrics },
+        );
+        self.save_leaderboard();
+    }
+
+    /// Record a run that could not be carried out: the model keeps whatever it
+    /// scored before, and shows the reason instead of a rank.
+    fn record_benchmark_failure(&mut self, error: &str) {
+        let Some(cfg) = self.llm_benchmark_config.clone() else {
+            return;
+        };
+        self.leaderboard
+            .record_failure(&cfg.provider, &cfg.model, &cfg.endpoint, error);
+        self.save_leaderboard();
+        // A test started from the board reports back to the board, rather than
+        // to the generic connection alert behind it.
+        if let Some(m) = self.leaderboard_modal.as_mut() {
+            m.show_error(cfg.model.clone(), error.to_string());
         }
     }
 
@@ -6100,9 +6352,7 @@ impl CoboltApp {
                     self.output
                         .push_status(tr.agents_unreviewed_warning.replacen("{}", &eff.model, 1));
                 }
-                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
-                self.llm_benchmark_config = Some(eff.clone());
-                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&eff));
+                self.start_proficiency_benchmark(eff.clone());
                 self.llm_benchmark_offer = None;
             }
             if skip {
@@ -6407,13 +6657,20 @@ impl CoboltApp {
                     self.output
                         .push_status(tr.agents_unreviewed_warning.replacen("{}", &cfg.model, 1));
                 }
-                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
-                self.llm_benchmark_config = Some(cfg.clone());
-                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+                self.start_proficiency_benchmark(cfg.clone());
             }
             if act.applied {
                 self.persist_active_project_ai();
             }
+        }
+        // Model Leaderboard (spec 040) — taken out of self to split borrows.
+        if let Some(mut m) = self.leaderboard_modal.take() {
+            let theme = self.current_theme();
+            let act = m.show(ctx, &self.leaderboard, theme, &self.lang.tr());
+            if m.open {
+                self.leaderboard_modal = Some(m);
+            }
+            self.handle_leaderboard_action(act);
         }
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
@@ -6450,9 +6707,7 @@ impl CoboltApp {
             // its own (no reviewer — the manager cleared it), with the report
             // window opening over the manager exactly as it does elsewhere.
             if let Some(cfg) = act.run_proficiency {
-                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
-                self.llm_benchmark_config = Some(cfg.clone());
-                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+                self.start_proficiency_benchmark(cfg.clone());
             }
             if act.semantic_download_requested && self.semantic_download.is_none() {
                 self.start_semantic_download();
@@ -6571,6 +6826,10 @@ impl CoboltApp {
                 // project model profiles. Persist that migration immediately.
                 self.persist_active_project_ai();
             }
+        }
+        if action.open_leaderboard {
+            self.leaderboard_modal =
+                Some(crate::panels::leaderboard_modal::LeaderboardModal::new());
         }
         if action.manage_models {
             self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());
@@ -8951,6 +9210,7 @@ impl eframe::App for CoboltApp {
             self.lang_persisted = self.lang;
         }
         self.poll_llm_benchmark();
+        self.poll_capability_probe();
         // Cleanups the designers performed on their own reach the Output panel
         // here — an automatic removal that leaves no trace is how a developer
         // loses work without knowing it.

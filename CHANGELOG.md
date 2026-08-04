@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.58.0] — 2026-08-03
+
+### Added
+
+- **Model Leaderboard** (Project Settings → AI → *Model Leaderboard*). Every
+  COBOL proficiency test now lands on a ranked board instead of vanishing once
+  its report window is closed. Four boards — Overall, Cloud free, Cloud paid,
+  Local — each showing `Rank | Model | Provider | Overall evaluation ***** |
+  Details | Run tests | Apply to Grace | Apply to Specialists`. The store is
+  **machine-wide**, beside `llm_config.json`, so a model tested with one project
+  open still ranks when the next one is; the per-project
+  `agentic_ai/model-benchmarks.jsonl` archive of full report text is unchanged.
+
+- **Eight more scores from the proficiency test**, so the board measures what
+  the work actually needs: indexed files, code modification, debugging,
+  refactoring, table-driven design, type inference, inline `INVOKE`, and code
+  explanation — plus a **hallucination count**: how many distinct invented verbs,
+  controls, properties or APIs appeared, as a whole number rather than the
+  resistance percentage that was there before.
+
+- **The connection now reports what the model can take.** Alongside a
+  proficiency run, the provider is asked for the supported input and output
+  token limits, and for local weights the parameter count and quantization.
+  This matters most for free cloud routes, whose output ceiling is often a small
+  fraction of the context they advertise — until now that was discovered only
+  when a benchmark answer stopped mid-report.
+
+- **A model can be put to work straight from its rank.** *Apply to Grace* hands
+  the model to the orchestrator; *Apply to Specialists* hands it to every
+  specialist agent, creating the project model profile if that model has never
+  been used here.
+
+### Changed
+
+- **A test that could not run no longer looks like a bad score.** A model whose
+  benchmark never started — no key, refused connection, rate limit — is recorded
+  with the provider's error and *no* scores: it shows no stars, takes no rank
+  number, sorts below every rated model, and cannot be applied to an agent. A
+  score it never earned would be worse than no score at all.
+
+- **A metric the model did not return reads as "not collected", never as 0 %.**
+  Results recorded before the eight new keys existed show blanks in those rows
+  rather than zeros.
+
+- **The proficiency test no longer reports speed, memory or token cost.** Those
+  measure the machine and the moment rather than the model's grasp of COBOL, and
+  a board that mixes the two invites picking a model for being quick at being
+  wrong.
+
 ## [PowerRustCOBOL 1.57.2] — 2026-08-03
 
 ### Added
