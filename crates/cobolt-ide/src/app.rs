@@ -5105,6 +5105,9 @@ impl CoboltApp {
         if let Some((provider, model)) = act.apply_to_grace {
             self.assign_model_to_agents(&provider, &model, true);
         }
+        if let Some((provider, model)) = act.apply_to_judge {
+            self.assign_model_to_judge(&provider, &model);
+        }
         if let Some((provider, model)) = act.apply_to_specialists {
             self.assign_model_to_agents(&provider, &model, false);
         }
@@ -5190,6 +5193,85 @@ impl CoboltApp {
         cfg.api_key = self.llm.api_keys.get(&slot).cloned().unwrap_or_default();
         cfg.api_key_slot = slot;
         cfg
+    }
+
+    /// Give the COBOL Proficiency Judge this model (spec 040).
+    ///
+    /// Refused when a specialist already runs it: the judge would then be
+    /// scoring a model the project depends on, which is the separation rule
+    /// read from the other direction.
+    fn assign_model_to_judge(&mut self, provider: &str, model: &str) {
+        let tr = self.lang.tr();
+        let Some(root) = self.project_dir() else {
+            if let Some(m) = self.leaderboard_modal.as_mut() {
+                m.set_status("Open a project first — agents belong to a project.".to_string());
+            }
+            return;
+        };
+        let mut db = crate::agents_db::AgentsDb::load(&root);
+        let key = format!(
+            "{}::{}",
+            provider.trim().to_ascii_lowercase(),
+            model.trim().to_ascii_lowercase()
+        );
+        if let Some(user) = db.agents.iter().find(|a| {
+            a.kind == crate::agents_db::AgentKind::Specialist
+                && a.enabled
+                && db.agent_model_key(&a.name, &self.llm).as_deref() == Some(key.as_str())
+        }) {
+            let msg = tr
+                .leaderboard_judge_model_taken
+                .replacen("{}", model, 1)
+                .replacen("{}", &user.name, 1);
+            self.output.push_status(msg.clone());
+            if let Some(m) = self.leaderboard_modal.as_mut() {
+                m.set_status(msg);
+            }
+            return;
+        }
+
+        let endpoint = self
+            .leaderboard
+            .get(provider, model)
+            .map(|e| e.endpoint.clone())
+            .filter(|e| !e.trim().is_empty())
+            .or_else(|| {
+                crate::llm::Provider::from_id(provider)
+                    .map(|p| p.default_endpoint().to_string())
+            })
+            .unwrap_or_default();
+        let profile_id = self.llm.find_or_create_profile(
+            provider,
+            &endpoint,
+            model,
+            crate::llm::default_temperature(),
+            crate::llm::default_max_tokens(),
+            crate::llm::default_timeout_secs(),
+        );
+        let Some(judge) = db
+            .agents
+            .iter_mut()
+            .find(|a| a.name.eq_ignore_ascii_case(crate::agents_db::PROFICIENCY_JUDGE))
+        else {
+            return;
+        };
+        judge.model_profile = Some(profile_id);
+        judge.no_model = false;
+        judge.provider.clear();
+        judge.model.clear();
+        if let Err(e) = db.save_all() {
+            self.output
+                .push_status(format!("Could not save the agents: {e}"));
+            return;
+        }
+        self.persist_active_project_ai();
+        let status = tr.leaderboard_applied_judge.replacen("{}", model, 1);
+        self.output.push_status(status.clone());
+        if let Some(m) = self.leaderboard_modal.as_mut() {
+            m.set_status(status);
+            // The judge can judge now — the next Run tests must not ask again.
+            m.set_judge_ready(true);
+        }
     }
 
     /// Point Grace, or every specialist, at this model — creating the project

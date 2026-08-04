@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.2] — 2026-08-04
+
+### Added
+
+- **Trophies on the leaderboard.** Gold, silver and bronze for the top three
+  *ranked* models, in a column of their own. A model that could not be tested
+  holds no rank, so it can never take a trophy from one that earned it — and a
+  board with two rated models awards two trophies, not three. They are painted
+  rather than typed: 🏆 is not in every font, and a missing glyph in the first
+  column would read as a broken row.
+
+- **A fourth row action: `[Use for Judge]`.** The three assignment buttons are
+  now `[Use for Grace] [Use for Judge] [Use for All Specialists]`, renamed from
+  "Apply to …". Use for Judge is declined when a specialist already runs that
+  model, naming the specialist — the separation rule read from the other
+  direction. Assigning one also clears the "the Judge has no model" question for
+  the rest of the session.
+
+- **The leaderboard window resizes from a grip** on its bottom-right border,
+  3 px in from the corner, between 860×300 and 2400×1600. The grip sits in its
+  own foreground layer pinned to the window's outer rectangle — put inside the
+  content it joined the layout, pushing the card around and moving as the
+  content moved, so dragging it fought the thing it was sizing.
+
+  egui's own `resizable(true)` is deliberately not used. It renegotiates the
+  window rectangle against its contents every frame, and a content that then
+  measures itself against that rectangle grows a few pixels each time until the
+  window reaches the screen edge — the failure this project has hit before. The
+  size is stored instead and moves **only** by the grip's drag delta; every
+  child is laid out from that stored number rather than from available space, so
+  there is no loop to run away.
+
 ## [PowerRustCOBOL 1.60.1] — 2026-08-04
 
 ### Changed

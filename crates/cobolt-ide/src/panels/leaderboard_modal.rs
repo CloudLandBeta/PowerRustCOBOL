@@ -20,12 +20,20 @@ use crate::i18n::Tr;
 use crate::leaderboard::{Board, Leaderboard, Tier};
 use crate::theme::Theme;
 
-/// A **ceiling**, not a height: the card hugs its rows and only starts
-/// scrolling past this. A fixed height left two thirds of the panel empty
-/// whenever the board was short, which it usually is.
-const MAX_BODY_H: f32 = 620.0;
-/// Wide enough for four buttons and the longest model id at 14 px.
-const TABLE_W: f32 = 1010.0;
+/// Opening size. From here on the size is whatever the developer dragged it to
+/// — see [`LeaderboardModal::size`].
+const DEFAULT_W: f32 = 1180.0;
+const DEFAULT_H: f32 = 560.0;
+/// Hard stops for the grip, so the window cannot be dragged into uselessness.
+const MIN_W: f32 = 860.0;
+const MIN_H: f32 = 300.0;
+const MAX_W: f32 = 2400.0;
+const MAX_H: f32 = 1600.0;
+/// Everything above the rows: the two header lines, the card's own title,
+/// padding and the footnote. Subtracted from the window height to give the row
+/// area — a constant, so the rows never measure themselves against the space
+/// they were handed.
+const HEADER_H: f32 = 160.0;
 /// Breathing room inside the card, so nothing touches its border.
 const CARD_PAD: i8 = 10;
 const SZ_TITLE: f32 = 18.0;
@@ -46,6 +54,14 @@ pub struct LeaderboardModal {
     judge_ready: bool,
     /// A Run tests click held back while the judge question is answered.
     pending_run: Option<(String, String)>,
+    /// The window's size, owned here rather than by egui.
+    ///
+    /// This is the whole defence against the self-inflating window: the size
+    /// changes **only** when the developer drags the grip. Children are laid
+    /// out from this stored number, never from `available_width()` or
+    /// `max_rect()`, so nothing a child measures can feed back into the size
+    /// and grow it again on the next frame.
+    size: egui::Vec2,
 }
 
 #[derive(Default)]
@@ -54,6 +70,8 @@ pub struct LeaderboardAction {
     pub run_tests: Option<(String, String)>,
     /// Assign this `(provider, model)` to Grace.
     pub apply_to_grace: Option<(String, String)>,
+    /// Assign this `(provider, model)` to the COBOL Proficiency Judge.
+    pub apply_to_judge: Option<(String, String)>,
     /// Assign this `(provider, model)` to every specialist agent.
     pub apply_to_specialists: Option<(String, String)>,
     /// Reopen the stored benchmark report for this `(provider, model)`.
@@ -73,8 +91,10 @@ impl LeaderboardModal {
             status: None,
             judge_ready,
             pending_run: None,
+            size: egui::vec2(DEFAULT_W, DEFAULT_H),
         }
     }
+
 
     /// The judge gained (or lost) a model while the panel was open.
     pub fn set_judge_ready(&mut self, ready: bool) {
@@ -114,7 +134,7 @@ impl LeaderboardModal {
         let mut action = LeaderboardAction::default();
         let mut open = self.open;
 
-        egui::Window::new(
+        let window = egui::Window::new(
             egui::RichText::new(tr.leaderboard_title)
                 .size(SZ_TITLE)
                 .strong(),
@@ -122,27 +142,49 @@ impl LeaderboardModal {
         .id(egui::Id::new("model_leaderboard"))
         .open(&mut open)
         .collapsible(false)
-        .resizable(false)
+        // egui's own resize, with its grip on the window border — the same
+        // arrangement Debug Settings uses, and the reason that one behaves.
+        //
+        // `resizable(true)` is only dangerous when the content measures itself
+        // against the rectangle egui is negotiating: each frame the content
+        // grows to fill, egui grows the window to fit, and the pair walk to the
+        // screen edge. Every size below is a constant or the stored
+        // `self.size`, never `available_*`, so there is nothing for the resize
+        // to amplify.
+        .resizable(true)
+        .default_size(self.size)
+        .min_width(MIN_W)
+        .min_height(MIN_H)
+        .max_width(MAX_W)
+        .max_height(MAX_H)
         .default_pos([40.0, 60.0])
         .show(ctx, |ui| {
-            ui.set_width(TABLE_W);
+            let width = self.size.x - 2.0 * CARD_PAD as f32;
+            ui.set_width(width);
             self.header(ui, board, theme, tr);
             ui.add_space(8.0);
-            // The card hugs its content vertically — no fixed height, so a
-            // six-row board is a six-row card. Width stays fixed, which is what
-            // keeps the columns from renegotiating themselves every frame.
+            // Everything below is measured from `self.size`, never from the Ui.
+            let rows_h = (self.size.y - HEADER_H).max(120.0);
             egui::Frame::NONE
                 .fill(theme.bg_panel)
                 .stroke(egui::Stroke::new(1.0, theme.panel_border()))
                 .corner_radius(egui::CornerRadius::same(10))
                 .inner_margin(egui::Margin::same(CARD_PAD))
                 .show(ui, |ui| {
-                    let inner = TABLE_W - 2.0 * CARD_PAD as f32 - 2.0;
+                    let inner = width - 2.0 * CARD_PAD as f32 - 2.0;
                     ui.set_min_width(inner);
                     ui.set_max_width(inner);
-                    self.table(ui, board, theme, tr, &mut action);
+                    self.table(ui, board, theme, tr, &mut action, rows_h);
                 });
         });
+
+        // Remember what the developer dragged the window to, so reopening it
+        // returns to that size rather than snapping back to the default.
+        if let Some(window) = window {
+            let dragged = window.response.rect.size();
+            self.size.x = dragged.x.clamp(MIN_W, MAX_W);
+            self.size.y = dragged.y.clamp(MIN_H, MAX_H);
+        }
 
         self.details_modal(ctx, board, theme, tr, &mut action);
         self.judge_missing_modal(ctx, theme, tr, &mut action);
@@ -197,6 +239,7 @@ impl LeaderboardModal {
         theme: &Theme,
         tr: &Tr,
         action: &mut LeaderboardAction,
+        rows_h: f32,
     ) {
         ui.label(
             egui::RichText::new(Self::board_title(self.board, tr))
@@ -218,19 +261,19 @@ impl LeaderboardModal {
         }
         egui::ScrollArea::vertical()
             .id_salt("leaderboard_rows")
-            // Shrinks to the rows it has (so the card is tight) but never
-            // grows past the ceiling (so a long board scrolls instead of
-            // running off the screen).
-            .max_height(MAX_BODY_H)
+            // Shrinks to the rows it has (so a short board is a short card)
+            // but never past the height the window was dragged to.
+            .max_height(rows_h)
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 egui::Grid::new("leaderboard_grid")
-                    .num_columns(5)
+                    .num_columns(6)
                     .striped(true)
                     .spacing([14.0, 7.0])
-                    .min_col_width(48.0)
+                    .min_col_width(26.0)
                     .show(ui, |ui| {
                         for h in [
+                            "",
                             tr.leaderboard_col_rank,
                             tr.leaderboard_col_model,
                             tr.leaderboard_col_provider,
@@ -252,6 +295,9 @@ impl LeaderboardModal {
                             let rated = e.rated();
                             if rated {
                                 rank += 1;
+                                // Gold, silver, bronze — and nothing at all for
+                                // a row with no rank to be third of.
+                                paint_trophy(ui, rank, SZ_BODY + 8.0);
                                 ui.label(
                                     egui::RichText::new(format!("#{rank}"))
                                         .size(SZ_BODY)
@@ -259,6 +305,7 @@ impl LeaderboardModal {
                                         .color(theme.text_bright),
                                 );
                             } else {
+                                ui.label("");
                                 ui.label(
                                     egui::RichText::new("—").size(SZ_BODY).color(theme.error),
                                 );
@@ -347,6 +394,19 @@ impl LeaderboardModal {
                                     .clicked()
                                 {
                                     action.apply_to_grace = Some(id.clone());
+                                }
+                                if ui
+                                    .add_enabled(
+                                        rated,
+                                        egui::Button::new(
+                                            egui::RichText::new(tr.leaderboard_apply_judge)
+                                                .size(SZ_BODY),
+                                        ),
+                                    )
+                                    .on_hover_text(tr.leaderboard_apply_judge_hint)
+                                    .clicked()
+                                {
+                                    action.apply_to_judge = Some(id.clone());
                                 }
                                 if ui
                                     .add_enabled(
@@ -737,6 +797,88 @@ fn paint_star(painter: &egui::Painter, center: egui::Pos2, r: f32, color: egui::
     }
 }
 
+// ── trophies ───────────────────────────────────────────────────────────────
+
+/// Gold, silver and bronze for the top three **ranked** models.
+///
+/// `rank` is the position among rated rows only, so a model that could not be
+/// tested is never in the running for one: it holds no rank, and a trophy is a
+/// claim about a result it does not have.
+fn trophy_colour(rank: usize) -> Option<(egui::Color32, egui::Color32)> {
+    match rank {
+        1 => Some((
+            egui::Color32::from_rgb(255, 201, 74),
+            egui::Color32::from_rgb(168, 122, 20),
+        )),
+        2 => Some((
+            egui::Color32::from_rgb(205, 213, 222),
+            egui::Color32::from_rgb(126, 137, 150),
+        )),
+        3 => Some((
+            egui::Color32::from_rgb(205, 127, 50),
+            egui::Color32::from_rgb(126, 74, 26),
+        )),
+        _ => None,
+    }
+}
+
+/// A cup on a stem and base, painted rather than typed — 🏆 is not in every
+/// font, and a missing glyph in the first column would read as a broken row.
+fn paint_trophy(ui: &mut egui::Ui, rank: usize, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let Some((face, rim)) = trophy_colour(rank) else {
+        return;
+    };
+    let painter = ui.painter();
+    let w = size;
+    let cx = rect.center().x;
+    let top = rect.top() + w * 0.14;
+    let cup_h = w * 0.40;
+    let half_top = w * 0.24;
+    let half_bot = w * 0.12;
+
+    // Handles first, so the cup's own edge covers where they meet it.
+    for dir in [-1.0_f32, 1.0] {
+        painter.add(egui::Shape::line(
+            vec![
+                egui::pos2(cx + dir * half_top, top + w * 0.03),
+                egui::pos2(cx + dir * (half_top + w * 0.15), top + w * 0.09),
+                egui::pos2(cx + dir * (half_top + w * 0.09), top + w * 0.23),
+                egui::pos2(cx + dir * half_top * 0.85, top + w * 0.27),
+            ],
+            egui::Stroke::new(1.6, rim),
+        ));
+    }
+    // Cup: a bowl tapering to the stem.
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(cx - half_top, top),
+            egui::pos2(cx + half_top, top),
+            egui::pos2(cx + half_bot, top + cup_h),
+            egui::pos2(cx - half_bot, top + cup_h),
+        ],
+        face,
+        egui::Stroke::new(1.0, rim),
+    ));
+    // Stem, then the base it stands on.
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(cx - w * 0.05, top + cup_h),
+            egui::pos2(cx + w * 0.05, top + cup_h + w * 0.13),
+        ),
+        0.0,
+        rim,
+    );
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(cx - w * 0.20, top + cup_h + w * 0.13),
+            egui::pos2(cx + w * 0.20, top + cup_h + w * 0.21),
+        ),
+        2.0,
+        face,
+    );
+}
+
 fn score_color(theme: &Theme, v: f32) -> egui::Color32 {
     if v >= 85.0 {
         theme.ed_data
@@ -800,6 +942,29 @@ mod tests {
         assert!(lb.ranked(Board::Local).is_empty());
     }
 
+    /// Trophies go to the top three **ranked** models. An untestable model
+    /// holds no rank, so it can never take a trophy from a model that earned
+    /// one — and with two rated rows, only two trophies are awarded.
+    #[test]
+    fn only_ranked_models_take_trophies() {
+        assert!(trophy_colour(1).is_some());
+        assert!(trophy_colour(2).is_some());
+        assert!(trophy_colour(3).is_some());
+        assert!(trophy_colour(4).is_none(), "fourth place gets no trophy");
+        assert!(trophy_colour(0).is_none(), "an unranked row gets no trophy");
+
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "first", "", run(92.0));
+        lb.record_failure("anthropic", "unreachable", "", "connection refused");
+        lb.record_success("anthropic", "second", "", run(80.0));
+        let awarded: Vec<_> = displayed_ranks(&lb, Board::Overall)
+            .into_iter()
+            .filter(|(_, rank)| rank.map(|r| trophy_colour(r).is_some()).unwrap_or(false))
+            .map(|(model, _)| model)
+            .collect();
+        assert_eq!(awarded, vec!["first", "second"]);
+    }
+
     /// Spec 040 R12: with a judge ready, Run tests runs. Without one it holds
     /// the request back and asks first — a self-assessment is not something to
     /// start by accident.
@@ -834,5 +999,52 @@ mod tests {
         assert!(SZ_BODY >= 14.0);
         assert!(SZ_TITLE > SZ_BODY);
         assert_eq!(CARD_PAD, 10);
+    }
+
+    /// The window opens at its default and stays there until dragged. This is
+    /// the property that keeps a resizable egui window from inflating: nothing
+    /// but a drag delta may move the stored size.
+    #[test]
+    fn the_size_only_changes_by_a_drag() {
+        let mut m = LeaderboardModal::new(true);
+        let opened = m.size;
+        assert_eq!(opened, egui::vec2(DEFAULT_W, DEFAULT_H));
+
+        // What `resize_grip` does with a drag delta.
+        m.size += egui::vec2(120.0, 80.0);
+        m.size.x = m.size.x.clamp(MIN_W, MAX_W);
+        m.size.y = m.size.y.clamp(MIN_H, MAX_H);
+        assert_eq!(m.size, egui::vec2(DEFAULT_W + 120.0, DEFAULT_H + 80.0));
+    }
+
+    /// Dragging inward stops at the minimum rather than collapsing the window,
+    /// and outward at the maximum rather than running off the screen.
+    #[test]
+    fn the_grip_clamps_at_both_ends() {
+        let mut m = LeaderboardModal::new(true);
+        m.size += egui::vec2(-9000.0, -9000.0);
+        m.size.x = m.size.x.clamp(MIN_W, MAX_W);
+        m.size.y = m.size.y.clamp(MIN_H, MAX_H);
+        assert_eq!(m.size, egui::vec2(MIN_W, MIN_H));
+
+        m.size += egui::vec2(9000.0, 9000.0);
+        m.size.x = m.size.x.clamp(MIN_W, MAX_W);
+        m.size.y = m.size.y.clamp(MIN_H, MAX_H);
+        assert_eq!(m.size, egui::vec2(MAX_W, MAX_H));
+    }
+
+    /// The row area is derived from the stored size, never from the space the
+    /// Ui handed back — the shape that inflates.
+    #[test]
+    fn the_row_area_follows_the_stored_height() {
+        let mut m = LeaderboardModal::new(true);
+        let rows = |h: f32| (h - HEADER_H).max(120.0);
+        assert!(rows(m.size.y) > 120.0);
+        m.size.y = MIN_H;
+        assert_eq!(rows(m.size.y), MIN_H - HEADER_H);
+        assert!(
+            rows(m.size.y) >= 120.0,
+            "even at the minimum the rows keep a usable floor instead of going negative"
+        );
     }
 }
