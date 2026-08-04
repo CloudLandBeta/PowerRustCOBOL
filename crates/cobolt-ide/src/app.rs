@@ -9149,7 +9149,7 @@ impl CoboltApp {
 
 // ── Liquid Glass visuals ──────────────────────────────────────────────────────
 
-fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
+pub(crate) fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     use egui::Color32;
     use egui::{style::WidgetVisuals, CornerRadius, Shadow, Stroke, Visuals};
 

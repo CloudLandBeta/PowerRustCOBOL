@@ -206,7 +206,22 @@ impl LeaderboardModal {
         .fixed_size(self.size)
         .default_pos([40.0, 60.0])
         .show(ctx, |ui| {
-            let width = self.size.x - 2.0 * CARD_PAD as f32;
+            // `self.size` is the size of the RESIZE area, and egui puts the
+            // window margin INSIDE that (window.rs: the title bar and the body
+            // are both children of `Resize`, and the body is wrapped in
+            // `Frame::NONE.inner_margin(window_margin)`). So the content that
+            // fits is the stored width minus that margin — subtracting
+            // `CARD_PAD` instead was subtracting the card's own padding, a
+            // different number (10 against 12).
+            //
+            // Being 4 px too wide is what opened the gap at the corners: the
+            // body overflowed the resize area, the window frame followed the
+            // body, and the TITLE BAR — laid out at the width the resize area
+            // offered — stayed 6 px short of it. Two rounded corners of the
+            // same radius and the same stroke, one inside the other.
+            let margin = ui.style().spacing.window_margin.sum().x;
+            let stroke = 2.0 * ui.style().visuals.window_stroke.width;
+            let width = self.size.x - margin - stroke;
             ui.set_width(width);
             self.header(ui, board, theme, tr);
             ui.add_space(8.0);
@@ -269,10 +284,20 @@ impl LeaderboardModal {
                 }
             }
             if let Some(s) = &self.status {
-                ui.label(
-                    egui::RichText::new(s)
-                        .size(SZ_SMALL)
-                        .color(theme.ed_data),
+                // `truncate()`, not a plain label: this sits in a horizontal
+                // row that nothing clips, and the Run tests status is the
+                // longest string in the panel ("Running the test — the COBOL
+                // Proficiency Judge (…) will re-score the result."). Left to
+                // its natural width it pushed the header past the content
+                // width, the window frame followed it, and the title bar —
+                // fixed at the width `Resize` offered — stayed behind, which
+                // is the corner gap again, this time appearing only once a
+                // Run tests click had set a status.
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(s).size(SZ_SMALL).color(theme.ed_data),
+                    )
+                    .truncate(),
                 );
             }
         });
@@ -1134,6 +1159,137 @@ mod tests {
             seen.push((m.size, rect));
         }
         seen
+    }
+
+    /// Every rounded rect the panel paints on a settled frame, under the app's
+    /// real visuals (the default egui style has a different window radius and
+    /// margin, so it hides exactly the mismatch we are looking for).
+    fn painted_rects() -> Vec<egui::epaint::RectShape> {
+        let ctx = egui::Context::default();
+        let theme = crate::theme::default_theme();
+        let tr = crate::i18n::Language::English.tr();
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-5", "", run(94.0));
+        lb.record_success("ollama", "qwen2.5-coder:32b", "", run(61.0));
+        let mut m = LeaderboardModal::new(true);
+        // A Run tests click puts this beside the board tabs, and it is by far
+        // the widest thing in the header.
+        m.set_status(
+            "Running the test — the COBOL Proficiency Judge (claude-sonnet-5) \
+             will re-score the result."
+                .to_string(),
+        );
+
+        crate::app::apply_glass_visuals(&ctx, theme);
+        let mut rects = Vec::new();
+        for pass in 0..4 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(2000.0, 1200.0),
+            ));
+            ctx.begin_pass(input);
+            m.show(&ctx, &lb, theme, &tr);
+            let full = ctx.end_pass();
+            if pass < 3 {
+                continue;
+            }
+            for cs in &full.shapes {
+                collect(&cs.shape, &mut rects);
+            }
+        }
+        rects
+    }
+
+    fn collect(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+        match shape {
+            egui::Shape::Rect(r) => out.push(r.clone()),
+            egui::Shape::Vec(v) => {
+                for s in v {
+                    collect(s, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn describe(r: &egui::epaint::RectShape) -> String {
+        let c = r.corner_radius;
+        format!(
+            "[{:.0},{:.0} .. {:.0},{:.0}] r=({},{},{},{}) stroke={:.1}",
+            r.rect.min.x,
+            r.rect.min.y,
+            r.rect.max.x,
+            r.rect.max.y,
+            c.nw,
+            c.ne,
+            c.sw,
+            c.se,
+            r.stroke.width
+        )
+    }
+
+    /// Diagnostic: dump every rounded rect, so a concentric mismatch reads as
+    /// numbers instead of a screenshot. This is what found the corner gap.
+    #[test]
+    #[ignore]
+    fn dump_rounded_rects() {
+        let dump: Vec<String> = painted_rects()
+            .iter()
+            .filter(|r| {
+                let c = r.corner_radius;
+                c.nw != 0 || c.ne != 0 || c.sw != 0 || c.se != 0
+            })
+            .map(describe)
+            .collect();
+        panic!("rounded rects:\n  {}", dump.join("\n  "));
+    }
+
+    /// The window frame and the title bar must be the SAME rectangle.
+    ///
+    /// They are drawn with the same stroke and the same 12px top radius, so any
+    /// disagreement paints two concentric rounded corners with a gap between
+    /// them — which is what showed at the top-right corner. The cause was the
+    /// content width: `fixed_size` refers to the window's OUTER size, and egui
+    /// fits the title bar and the body inside it after taking off the frame's
+    /// total margin (`window.rs`: `resize.max_size -= window_frame
+    /// .total_margin()`, itself `inner_margin + stroke`) and then the window
+    /// margin around the body. Content that does not clear BOTH pushes the
+    /// frame out past the title bar, which stays at the width `Resize` offered.
+    #[test]
+    fn the_title_bar_and_the_window_frame_are_the_same_rect() {
+        let rects = painted_rects();
+        // The frame: rounded on all four corners, and stroked (the drop shadow
+        // shares its radius but carries no stroke).
+        let frame = rects
+            .iter()
+            .find(|r| {
+                let c = r.corner_radius;
+                c.nw == 12 && c.ne == 12 && c.sw == 12 && c.se == 12 && r.stroke.width > 0.0
+            })
+            .expect("no window frame painted");
+        // The title bar: top corners rounded, bottom square.
+        let title = rects
+            .iter()
+            .find(|r| {
+                let c = r.corner_radius;
+                c.nw == 12 && c.ne == 12 && c.sw == 0 && c.se == 0
+            })
+            .expect("no title bar painted");
+
+        for (edge, a, b) in [
+            ("left", frame.rect.left(), title.rect.left()),
+            ("right", frame.rect.right(), title.rect.right()),
+        ] {
+            assert!(
+                (a - b).abs() < 0.5,
+                "the window frame and the title bar disagree on their {edge} edge \
+                 ({a:.1} vs {b:.1}) — that difference paints as a gap between two \
+                 rounded corners.\n  frame: {}\n  title: {}",
+                describe(frame),
+                describe(title)
+            );
+        }
     }
 
     /// The window must be the size we asked for and must stay there while
