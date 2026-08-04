@@ -108,6 +108,41 @@ layout live in `AGENTS.md`; this file is the do/don't list.)
   kept on Button/CheckBox/RadioButton. Never render a centered `<id>` placeholder on other controls.
 - Container membership is by a control's **`parent`** field (set on drop via
   `containers::resolve_drop_target`), not geometry — a visually-overlapping sibling is **not** a child.
+- **GOLDEN RULE — a window may NEVER resize itself.** A window changes size
+  only because the developer dragged its grip. If it grows, shrinks or creeps
+  on its own, that is a defect, not a layout quirk — and it is this project's
+  most repeated one.
+
+  **Never `egui::Window::…resizable(true)`** on a window whose content can ask
+  for space (a `ScrollArea`, a `Grid`, wrapping text). egui then renegotiates
+  the window rectangle against that content every frame: the content asks for
+  what it was given plus its own margins, egui grants it, and the pair walk to
+  the screen edge. Nothing about the drag is involved — it happens while the
+  mouse is still.
+
+  The pattern that holds, every time:
+
+  1. **The window owns an explicit size** stored on the panel struct —
+     `size: egui::Vec2`, seeded from a `DEFAULT_W`/`DEFAULT_H` constant.
+  2. `.resizable(false).fixed_size(self.size)` — egui negotiates nothing.
+  3. **Every child is laid out from that stored number**, never from
+     `ui.available_width()`, `ui.available_height()` or `ui.max_rect()`. A
+     child that measures the space it was handed is the feedback path; remove
+     it and there is no loop left to run.
+  4. **One custom grip** in its own `egui::Area` at `Order::Foreground`, pinned
+     to the window's outer rect from `Window::show`'s response. It adds
+     `response.drag_delta()` to `self.size`, clamped to MIN/MAX. It must be
+     the *only* writer of that field — never read the size back from the
+     window, or egui's rounding becomes a growth term of its own.
+  5. Do **not** put the grip inside the content `Ui`: there it joins the
+     layout, shifts the content, and the drag fights what it is sizing.
+
+  `debug_settings.rs` uses `resizable(true)` and is stable **only** because its
+  content is capped at a constant height and never asks for more. That is the
+  exception, not the template — copying it onto a window with a live scroll
+  area reintroduces the bug. `panels/leaderboard_modal.rs` is the reference
+  implementation of the five points above.
+
 - **egui resizable panes:** never use `egui::TopBottomPanel::show_inside(...)`
   (or the equivalent `SidePanel::show_inside(...)`) for panes the user must resize.
   In egui 0.29, nested resizable panels renegotiate their parent rectangle every

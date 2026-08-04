@@ -29,6 +29,9 @@ const MIN_W: f32 = 860.0;
 const MIN_H: f32 = 300.0;
 const MAX_W: f32 = 2400.0;
 const MAX_H: f32 = 1600.0;
+/// Side of the resize grip, and its inset from the window's border.
+const GRIP: f32 = 14.0;
+const GRIP_INSET: f32 = 3.0;
 /// Everything above the rows: the two header lines, the card's own title,
 /// padding and the footnote. Subtracted from the window height to give the row
 /// area — a constant, so the rows never measure themselves against the space
@@ -96,6 +99,54 @@ impl LeaderboardModal {
     }
 
 
+    /// The resize grip, in its own foreground [`egui::Area`] pinned to the
+    /// window's **outer** bottom-right corner, [`GRIP_INSET`] in from it.
+    ///
+    /// It lives outside the content on purpose: allocated inside, it joined the
+    /// layout, pushed the card around and moved as the content moved, so a drag
+    /// fought the thing it was sizing.
+    ///
+    /// Its drag delta is the one and only writer of `self.size`.
+    fn resize_grip(&mut self, ctx: &egui::Context, theme: &Theme, window: egui::Rect) {
+        let corner = window.max - egui::vec2(GRIP_INSET, GRIP_INSET);
+        let origin = corner - egui::vec2(GRIP, GRIP);
+        egui::Area::new(egui::Id::new("leaderboard_resize_grip"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(origin)
+            .show(ctx, |ui| {
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(GRIP, GRIP), egui::Sense::drag());
+                if response.dragged() {
+                    self.size += response.drag_delta();
+                    self.size.x = self.size.x.clamp(MIN_W, MAX_W);
+                    self.size.y = self.size.y.clamp(MIN_H, MAX_H);
+                }
+                if response.hovered() || response.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNorthWest);
+                }
+                let colour = if response.hovered() || response.dragged() {
+                    theme.accent
+                } else {
+                    theme.text_dim
+                };
+                let painter = ui.painter();
+                for (i, offset) in [2.0_f32, 6.0, 10.0].iter().enumerate() {
+                    let len = GRIP - offset - 1.0;
+                    if len <= 0.0 {
+                        continue;
+                    }
+                    let stroke = egui::Stroke::new(if i == 0 { 1.6 } else { 1.2 }, colour);
+                    painter.line_segment(
+                        [
+                            egui::pos2(rect.right() - len, rect.bottom()),
+                            egui::pos2(rect.right(), rect.bottom() - len),
+                        ],
+                        stroke,
+                    );
+                }
+            });
+    }
+
     /// The judge gained (or lost) a model while the panel was open.
     pub fn set_judge_ready(&mut self, ready: bool) {
         self.judge_ready = ready;
@@ -142,21 +193,17 @@ impl LeaderboardModal {
         .id(egui::Id::new("model_leaderboard"))
         .open(&mut open)
         .collapsible(false)
-        // egui's own resize, with its grip on the window border — the same
-        // arrangement Debug Settings uses, and the reason that one behaves.
+        // NEVER `resizable(true)` here. egui then negotiates the window
+        // rectangle against its contents every frame, and this window's rows
+        // are a scroll area that reports what it would like to be — so the two
+        // push each other outward and the window walks to the screen edge on
+        // its own. Debug Settings survives that only because its content is
+        // pinned to a constant height and never asks for more.
         //
-        // `resizable(true)` is only dangerous when the content measures itself
-        // against the rectangle egui is negotiating: each frame the content
-        // grows to fill, egui grows the window to fit, and the pair walk to the
-        // screen edge. Every size below is a constant or the stored
-        // `self.size`, never `available_*`, so there is nothing for the resize
-        // to amplify.
-        .resizable(true)
-        .default_size(self.size)
-        .min_width(MIN_W)
-        .min_height(MIN_H)
-        .max_width(MAX_W)
-        .max_height(MAX_H)
+        // The size is ours, it is exact, and the ONLY thing that changes it is
+        // the developer dragging the grip.
+        .resizable(false)
+        .fixed_size(self.size)
         .default_pos([40.0, 60.0])
         .show(ctx, |ui| {
             let width = self.size.x - 2.0 * CARD_PAD as f32;
@@ -178,12 +225,11 @@ impl LeaderboardModal {
                 });
         });
 
-        // Remember what the developer dragged the window to, so reopening it
-        // returns to that size rather than snapping back to the default.
+        // The grip, pinned to the window's outer corner on its own layer. It
+        // reads no size from the window — it only adds its drag delta to ours,
+        // so nothing the content does can move the window.
         if let Some(window) = window {
-            let dragged = window.response.rect.size();
-            self.size.x = dragged.x.clamp(MIN_W, MAX_W);
-            self.size.y = dragged.y.clamp(MIN_H, MAX_H);
+            self.resize_grip(ctx, theme, window.response.rect);
         }
 
         self.details_modal(ctx, board, theme, tr, &mut action);

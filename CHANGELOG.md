@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.4] — 2026-08-04
+
+### Fixed
+
+- **The Model Leaderboard window grew on its own, with nobody touching it.**
+  1.60.2 gave it egui's native `resizable(true)`, copying Debug Settings — but
+  Debug Settings is stable only because its content is capped at a constant
+  height and never asks for more. The leaderboard's rows are a scroll area that
+  reports what it would like to be, so egui granted it, the content asked again
+  for the larger space, and the window walked to the screen edge while the mouse
+  sat still.
+
+  It is back to owning its size: `resizable(false)` with an exact
+  `fixed_size`, every child laid out from that stored number rather than from
+  the space it was handed, and one grip on the bottom-right border whose drag
+  delta is the only thing in the program that may change it.
+
+### Changed
+
+- **"A window may never resize itself" is now a GOLDEN RULE** in
+  `CONVENTIONS.md`, with the five-point pattern that holds and the reason
+  `debug_settings.rs` is an exception rather than a template. This defect has
+  recurred across several releases; the rule is written down so the next change
+  starts from it instead of rediscovering it.
+
 ## [PowerRustCOBOL 1.60.3] — 2026-08-04
 
 ### Fixed
