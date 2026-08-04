@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.57.2] — 2026-08-03
+
+### Added
+
+- **Model Leaderboard — design prototype (`cargo run -p cobolt-ide --example
+  leaderboard_prototype`).** A standalone window that lays out the proposed
+  board for COBOL-proficiency results: four tabs (Overall, Cloud free, Cloud
+  paid, Local), the row `Rank | Model | Provider | Overall evaluation ***** |
+  Details | Run tests | Apply to Grace | Apply to Specialists`, a Details modal
+  with the full metric sheet, and the failure path — a model whose test cannot
+  run shows an error window, loses its stars and drops to the bottom of the
+  board. It renders on the real IDE palettes by including `src/theme.rs`, and
+  every figure in it is invented sample data, labelled as such on screen.
+
+  **The IDE itself is unchanged by this release**: the leaderboard is not wired
+  into the application, no benchmark result is stored or ranked, and no menu
+  opens it. The prototype exists to settle the layout before the feature is
+  built.
+
 ## [PowerRustCOBOL 1.57.1] — 2026-08-03
 
 ### Fixed
