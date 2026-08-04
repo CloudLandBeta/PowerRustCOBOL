@@ -63,9 +63,22 @@ pub struct LlmConfig {
     /// Always bound on 127.0.0.1 only; a change takes effect on restart.
     #[serde(default = "default_inspection_port")]
     pub inspection_port: u16,
-    /// Machine-local API keys. Current project models use stable
+    /// API keys for this RUN. Current project models use stable
     /// `profile::<uuid>` slots; provider/model slots remain only for migration.
-    #[serde(default)]
+    ///
+    /// **Never serialized — `#[serde(skip)]` is a security control, not a
+    /// tidiness one.** A key reaches disk by exactly one route: the OS vault
+    /// (Keychain / Credential Manager / Secret Service), recorded in
+    /// [`Self::natively_stored_slots`] and re-read by
+    /// [`Self::hydrate_native_keys`]. With no vault the key lives in this
+    /// process and nowhere else, so every run asks for it again.
+    ///
+    /// This map used to be written into `llm_config.json` in plaintext, in a
+    /// world-readable file, one careless `git add` away from being published.
+    /// Losing keys on restart is the accepted cost until the secrets UI ships
+    /// and the vault can be turned back on; leaking one is not recoverable.
+    /// See [`purge_plaintext_keys`] for the removal of already-written keys.
+    #[serde(skip)]
     pub api_keys: std::collections::HashMap<String, String>,
     /// When each credential was stored, as unix seconds. A 401 is most often
     /// an EXPIRED key, and "this one has been on file for four months" is the
@@ -306,7 +319,12 @@ impl LlmConfig {
     }
 
     fn finish_load(mut cfg: Self, recovered: bool, path: &Path) -> Self {
-        let mut changed = false;
+        // Every install that ran a build before this one has its keys sitting
+        // in this file in cleartext. `#[serde(skip)] api_keys` stops them being
+        // written again, but on its own it would leave the existing ones there
+        // indefinitely — nothing rewrites the file until some OTHER setting
+        // changes. Rewriting on sight is the whole remediation.
+        let mut changed = purge_plaintext_keys(path);
         if retired_model_message(&cfg.model).is_some() {
             cfg.model.clear();
             changed = true;
@@ -611,15 +629,10 @@ fn load_machine_config_at(path: &Path) -> LlmConfig {
     let mut merged_backup_key = false;
     if !recovered {
         if let Some(backup) = read_config_file(&config_backup_path(path)) {
-            for (slot, key) in &backup.api_keys {
-                if !key.trim().is_empty()
-                    && !cfg.deleted_api_key_slots.contains(slot)
-                    && !cfg.api_keys.contains_key(slot)
-                {
-                    cfg.api_keys.insert(slot.clone(), key.clone());
-                    merged_backup_key = true;
-                }
-            }
+            // No key loop here any more: `api_keys` is `#[serde(skip)]`, so a
+            // backup file has no secrets to give back. Only the vault MARKER
+            // below survives on disk, and only it can restore a credential.
+            //
             // A slot the backup marks as natively-stored has its secret in
             // the OS store, not in `backup.api_keys` — only the marker
             // needs recovering here; `hydrate_native_keys` below turns a
@@ -633,16 +646,17 @@ fn load_machine_config_at(path: &Path) -> LlmConfig {
                     merged_backup_key = true;
                 }
             }
+            // A profile is recovered on its own merit. This used to require
+            // the backup to also hold that profile's CREDENTIAL — reasonable
+            // when keys lived on disk ("don't restore a profile we have no key
+            // for"), and wrong the moment they stopped: having no stored
+            // credential is now the normal state, so that gate silently
+            // dropped every non-vault profile the backup existed to protect.
+            // The endpoint, model and tuning are worth restoring by
+            // themselves; the developer re-enters the key either way.
             for profile in backup.model_profiles {
                 let slot = profile_api_key_slot(&profile.id);
-                let has_backed_credential = backup
-                    .api_keys
-                    .get(&slot)
-                    .map(|key| !key.trim().is_empty())
-                    .unwrap_or(false)
-                    || backup.natively_stored_slots.contains(&slot);
-                if has_backed_credential
-                    && !cfg.deleted_api_key_slots.contains(&slot)
+                if !cfg.deleted_api_key_slots.contains(&slot)
                     && !cfg
                         .model_profiles
                         .iter()
@@ -700,12 +714,43 @@ fn read_config_with_backup(path: &Path) -> Option<(LlmConfig, bool)> {
     read_config_file(&config_backup_path(path)).map(|cfg| (cfg, true))
 }
 
+/// Whether `path`'s stored JSON still carries a non-empty plaintext `api_keys`
+/// object, i.e. keys written by a build that persisted them.
+///
+/// Reports only presence — the values are never read out, logged, or returned.
+/// A `true` makes the caller rewrite the file, and since `api_keys` is
+/// `#[serde(skip)]` the rewritten copy simply has no such member.
+fn purge_plaintext_keys(path: &Path) -> bool {
+    // The RAW text: `read_config_file` deserializes, and `api_keys` is
+    // `#[serde(skip)]`, so a parsed copy can never show what is still there.
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    value
+        .get("api_keys")
+        .and_then(|k| k.as_object())
+        .map(|map| !map.is_empty())
+        .unwrap_or(false)
+}
+
 fn write_config_file(path: &Path, data: &[u8]) -> Result<(), String> {
     use std::io::Write;
 
     let temp = config_temp_path(path);
     let backup = config_backup_path(path);
     let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
+    // Owner-only, set BEFORE the bytes land: this file carries endpoints,
+    // profile ids and — on a build that still had them — keys, and it was
+    // being created world-readable (0644), so every account on the machine
+    // could read it. The rename below carries these bits to the real path.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
     file.write_all(data).map_err(|e| e.to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
@@ -806,7 +851,33 @@ impl ChatTurn {
             content: content.into(),
         }
     }
+    /// Observability output: the verbose coordination transcript, the run
+    /// statistics footer, the retrieval "Token savings" line.
+    ///
+    /// It belongs in the chat for the developer to read, and NOWHERE in what an
+    /// agent is told the conversation was. Stored as `assistant` these lines
+    /// were replayed to Grace as if she had said them, and — being the newest
+    /// turns — they won the clarity gate's byte budget and evicted the real
+    /// answer, so a follow-up like "could you implement it?" reached her with a
+    /// token-savings banner as the entire history. See [`Self::is_dialogue`].
+    pub fn telemetry(content: impl Into<String>) -> Self {
+        Self {
+            role: TELEMETRY_ROLE.into(),
+            content: content.into(),
+        }
+    }
+
+    /// Whether this turn is something the developer or an agent actually SAID,
+    /// and may therefore be replayed as conversation history. Allow-listed on
+    /// purpose: a new non-dialogue role must opt in, never leak in.
+    pub fn is_dialogue(&self) -> bool {
+        matches!(self.role.as_str(), "user" | "assistant" | "question")
+    }
 }
+
+/// Role of a [`ChatTurn::telemetry`] turn. Rendered agent-side like an
+/// `assistant` balloon, but never sent back to a model as dialogue.
+pub const TELEMETRY_ROLE: &str = "telemetry";
 
 pub enum AiLogKind {
     Info,
@@ -7227,12 +7298,25 @@ mod tests {
             8192,
             30,
         );
-        // Serialises inside LlmConfig and comes back intact.
+        // The PROFILE serialises inside LlmConfig and comes back intact. The
+        // key does not travel with it — keys are per-run memory now — so the
+        // reloaded config carries the connection and nothing secret.
         let json = serde_json::to_string(&cfg).unwrap();
-        let back: LlmConfig = serde_json::from_str(&json).unwrap();
-        let p = back.profile(&id).expect("profile persisted");
+        assert!(
+            !json.contains("sk-secret"),
+            "a serialized LlmConfig carried a key:\n{json}"
+        );
+        let mut back: LlmConfig = serde_json::from_str(&json).unwrap();
+        let p = back.profile(&id).expect("profile persisted").clone();
         assert_eq!(p.model, "claude-sonnet-5");
-        // resolve() fills the connection and pulls the key from api_keys.
+        assert!(back.api_keys.is_empty(), "a key survived serialization");
+
+        // resolve() pulls the key from the in-memory map, which is what a run
+        // holds after the developer has entered it.
+        back.api_keys.insert(
+            api_key_slot("anthropic", "claude-sonnet-5"),
+            "sk-secret".into(),
+        );
         let resolved = p.resolve(&back);
         assert_eq!(resolved.provider, "anthropic");
         assert_eq!(resolved.model, "claude-sonnet-5");
@@ -7447,13 +7531,16 @@ mod tests {
 
         let empty_draft = LlmConfig::load_defaults_for_test();
         empty_draft.save_machine_at(&path).unwrap();
+
+        // Neither save put the credential on disk, so there is nothing here
+        // for a later save to "preserve" — and nothing to leak.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("keep-me"), "the key reached disk:\n{raw}");
         let loaded = LlmConfig::load_machine_at(&path);
         assert_eq!(
-            loaded
-                .api_keys
-                .get(&profile_api_key_slot("saved"))
-                .map(String::as_str),
-            Some("keep-me")
+            loaded.api_keys.get(&profile_api_key_slot("saved")),
+            None,
+            "a credential survived a save/load round trip"
         );
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -7516,19 +7603,25 @@ mod tests {
         let without_key = LlmConfig::load_defaults_for_test();
         write_config_file(&path, &serde_json::to_vec_pretty(&without_key).unwrap()).unwrap();
 
+        // The PROFILE is what the backup restores. The key never went to
+        // either file, so it is not among the things that can come back — a
+        // recovered run asks for it again.
         let recovered = LlmConfig::load_machine_at(&path);
-        assert_eq!(
-            recovered.api_keys.get(&slot).map(String::as_str),
-            Some("recovered-key")
-        );
         assert_eq!(recovered.profile("recover").unwrap().model, "gpt-5");
+        assert_eq!(
+            recovered.api_keys.get(&slot),
+            None,
+            "a key was recovered from disk, so it had been written to disk"
+        );
         for candidate in [&path, &config_backup_path(&path)] {
             let stored = read_config_file(candidate).unwrap();
-            assert_eq!(
-                stored.api_keys.get(&slot).map(String::as_str),
-                Some("recovered-key")
-            );
             assert_eq!(stored.profile("recover").unwrap().model, "gpt-5");
+            let raw = std::fs::read_to_string(candidate).unwrap();
+            assert!(
+                !raw.contains("recovered-key"),
+                "{} carries a key:\n{raw}",
+                candidate.display()
+            );
         }
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -7584,7 +7677,54 @@ mod tests {
     }
 
     #[test]
-    fn native_store_unavailable_falls_back_to_plaintext_json() {
+    /// Every install that ran an earlier build has its keys in this file
+    /// already. Refusing to write NEW ones does nothing for those: the file is
+    /// only rewritten when something else changes, so a key could sit there
+    /// indefinitely. Loading must actively remove it.
+    #[test]
+    fn plaintext_keys_already_on_disk_are_purged_on_load() {
+        let dir =
+            std::env::temp_dir().join(format!("prc_llm_purge_{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("llm_config.json");
+
+        // The shape a previous build left behind.
+        let legacy = serde_json::json!({
+            "model": "claude-sonnet-5",
+            "api_keys": { "profile::abc": "sk-ant-leaked-value" },
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("sk-ant-leaked-value"));
+
+        let loaded = LlmConfig::load_machine_at(&path);
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !raw.contains("sk-ant-leaked-value"),
+            "the key is STILL on disk after a load:\n{raw}"
+        );
+        assert!(
+            loaded.api_keys.is_empty(),
+            "a purged key was still handed to the run"
+        );
+        // The rewrite must not cost the developer their settings.
+        assert_eq!(loaded.model, "claude-sonnet-5");
+
+        // And the rewritten file is owner-only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "config written world-readable: {mode:o}");
+        }
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_store_unavailable_keeps_the_key_in_memory_only() {
         // No guard needed: `force_unavailable` defaults `true` per-thread
         // (see `crate::secrets::test_support`), and this test never calls
         // `AllowNativeStoreForTest`, so this thread's default can never be
@@ -7602,16 +7742,27 @@ mod tests {
         cfg.store_api_key(slot.clone(), "plaintext-fallback-value");
         cfg.save_machine_at(&path).unwrap();
 
+        // The key is usable for the rest of THIS run…
+        assert_eq!(
+            cfg.api_keys.get(&slot).map(String::as_str),
+            Some("plaintext-fallback-value")
+        );
+        // …and reaches the disk nowhere. With no vault, memory is the only
+        // store there is: a key written here is world-readable at rest and one
+        // stray commit from being published.
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(
-            raw.contains("plaintext-fallback-value"),
-            "with no native store available, the key must still be saved (in plaintext)"
+            !raw.contains("plaintext-fallback-value"),
+            "the key was written to {}:\n{raw}",
+            path.display()
         );
 
+        // So a new run starts with no key and must ask for it again.
         let loaded = LlmConfig::load_machine_at(&path);
         assert_eq!(
-            loaded.api_keys.get(&slot).map(String::as_str),
-            Some("plaintext-fallback-value")
+            loaded.api_keys.get(&slot),
+            None,
+            "a key survived a restart without a vault to survive in"
         );
 
         let _ = std::fs::remove_dir_all(dir);

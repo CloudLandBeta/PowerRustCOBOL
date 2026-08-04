@@ -207,10 +207,16 @@ fn clarity_conversation_slice(context: &str) -> String {
     // Turn starts: the transcript head, plus every `role:` line that follows
     // the `\n\n` joiner. Content may itself contain blank lines, so only
     // lines that begin with a known role open a turn.
+    // `question: ` counts too. It was missing, so a question balloon did not
+    // open a turn: the budget walk glued it onto the turn before it and could
+    // cut the tail in the middle of one.
     let mut starts = vec![0usize];
     for (offset, _) in transcript.match_indices("\n\n") {
         let rest = &transcript[offset + 2..];
-        if rest.starts_with("user: ") || rest.starts_with("assistant: ") {
+        if rest.starts_with("user: ")
+            || rest.starts_with("assistant: ")
+            || rest.starts_with("question: ")
+        {
             starts.push(offset + 2);
         }
     }
@@ -4490,6 +4496,22 @@ mod tests {
         assert!(slice.starts_with("assistant: Qual arquivo?"), "{slice}");
         assert!(slice.contains("solto no meio"), "{slice}");
         assert!(slice.ends_with("user: o inicial"), "{slice}");
+
+        // A `question:` turn opens a turn like any other. Grace's questions to
+        // the developer live in their own balloons, so the turn the developer
+        // is ANSWERING is usually a `question:` one — glued to the turn before
+        // it, the budget walk could drop or split exactly the exchange the
+        // gate exists to see.
+        let old_turn = format!("user: {}", "x".repeat(CLARITY_CONVERSATION_BUDGET));
+        let context = format!(
+            "CONVERSATION SO FAR:\n{old_turn}\n\nquestion: Qual deve ser o nome do formulário?\n\nuser: chame de ALERT-FORM"
+        );
+        let slice = clarity_conversation_slice(&context);
+        assert!(
+            slice.starts_with("question: Qual deve ser o nome"),
+            "a question turn did not open a turn: {slice}"
+        );
+        assert!(slice.ends_with("user: chame de ALERT-FORM"), "{slice}");
 
         // A single oversized turn is hard-truncated to the budget's tail.
         let huge = format!("CONVERSATION SO FAR:\nuser: {}fim", "y".repeat(9_000));

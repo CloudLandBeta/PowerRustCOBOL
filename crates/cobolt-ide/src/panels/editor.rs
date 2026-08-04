@@ -1457,7 +1457,12 @@ fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f
     // white foreground, agent-side alignment. Always plain text — the red
     // fill and the Markdown card would fight each other.
     let is_question = role == "question";
-    let is_user = !is_question && role != "assistant";
+    // Telemetry balloons (coordination transcript, run statistics, retrieval
+    // savings) are agent-side like an assistant reply — they are excluded from
+    // an agent's conversation history, not from the developer's view, so they
+    // must keep looking the way they always have.
+    let is_user =
+        !is_question && role != "assistant" && role != crate::llm::TELEMETRY_ROLE;
     let fill = if is_question {
         Color32::from_rgb(0xC0, 0x2A, 0x22)
     } else {

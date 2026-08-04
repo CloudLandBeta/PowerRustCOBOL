@@ -114,6 +114,25 @@ pub struct GraceChatAction {
     pub rescan_documentation: bool,
 }
 
+impl GraceChatPanel {
+    /// The conversation as Grace is told it happened: what the developer and
+    /// the agents actually SAID, oldest first, `role: content` per turn.
+    ///
+    /// Only dialogue turns. The history also holds the collapsed action-history
+    /// turn, the verbose coordination transcript, the run-statistics footer and
+    /// the retrieval-savings line; replaying those as conversation cost Grace
+    /// the real exchange, because the clarity gate keeps a bounded TAIL and
+    /// these land last. The developer still sees every one of them.
+    fn dialogue_so_far(&self) -> String {
+        self.history
+            .iter()
+            .filter(|turn| turn.is_dialogue())
+            .map(|turn| format!("{}: {}", turn.role, turn.content))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+}
+
 impl Default for GraceChatPanel {
     fn default() -> Self {
         Self {
@@ -304,8 +323,11 @@ impl GraceChatPanel {
                     let mut balloons =
                         crate::grace_host::workflow_chat_balloons(&record, verbose, tr);
                     let reply = balloons.pop().unwrap_or_default();
+                    // Everything before the final balloon is the coordination
+                    // transcript and its run-statistics footer — observability,
+                    // not something Grace said to the developer.
                     for balloon in balloons {
-                        self.history.push(ChatTurn::assistant(balloon));
+                        self.history.push(ChatTurn::telemetry(balloon));
                     }
                     // Agent questions live in their own red balloons, one at a
                     // time: show the surrounding context now, queue the
@@ -326,7 +348,7 @@ impl GraceChatPanel {
                     // the context, as its own history line after the reply.
                     if verbose {
                         if let Some(line) = crate::grace_host::rag_savings_line(&record, tr) {
-                            self.history.push(ChatTurn::assistant(line));
+                            self.history.push(ChatTurn::telemetry(line));
                         }
                     }
                     self.status = Some(format!("Workflow {} completed.", record.workflow_id));
@@ -966,12 +988,7 @@ impl GraceChatPanel {
                                 })
                                 .collect::<Vec<_>>()
                                 .join("\n");
-                            let conversation = self
-                                .history
-                                .iter()
-                                .map(|turn| format!("{}: {}", turn.role, turn.content))
-                                .collect::<Vec<_>>()
-                                .join("\n\n");
+                            let conversation = self.dialogue_so_far();
                             let _ = self.persist();
                             self.session = Some(GraceSession::spawn_with_context(
                                 root,
@@ -992,12 +1009,7 @@ impl GraceChatPanel {
                         self.pending_questions.clear();
                         self.current_question = None;
                         self.collected_answers.clear();
-                        let conversation = self
-                            .history
-                            .iter()
-                            .map(|turn| format!("{}: {}", turn.role, turn.content))
-                            .collect::<Vec<_>>()
-                            .join("\n\n");
+                        let conversation = self.dialogue_so_far();
                         self.history.push(ChatTurn::user(&request));
                         self.prompt.clear();
                         self.status = None;
@@ -1057,6 +1069,64 @@ impl GraceChatPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Observability output is for the developer's eyes, never for Grace's
+    /// memory of what was said.
+    ///
+    /// Reported live: the developer asked for an FFI example, Grace answered,
+    /// and the follow-up "could you implement it ?" reached her with a
+    /// conversation consisting of ONE line — the token-savings banner. The
+    /// clarity gate keeps a bounded TAIL of the transcript, and the verbose
+    /// coordination transcript, the run-statistics footer and the savings line
+    /// are appended AFTER the reply, so as `assistant` turns they were the
+    /// newest turns and won the budget outright. Grace scored the follow-up
+    /// 0/10 and asked what "it" meant.
+    #[test]
+    fn telemetry_turns_never_reach_grace_as_conversation() {
+        let mut panel = GraceChatPanel::new();
+        panel.history.push(ChatTurn::user(
+            "can you write an example of FFI integration ?",
+        ));
+        panel
+            .history
+            .push(ChatTurn::assistant("### FFI Integration\nCALL \"rust_square\"…"));
+        panel.history.push(ChatTurn {
+            role: crate::agent_actions::ACTIONS_ROLE.into(),
+            content: "[{\"agent\":\"Grace\",\"kind\":\"planning\"}]".into(),
+        });
+        panel
+            .history
+            .push(ChatTurn::telemetry("📊 Run statistics\nOverall time: 9.4s"));
+        panel.history.push(ChatTurn::telemetry(
+            "Token savings: 91.06% — Knowledge Base retrieval injected ≈3744 of ≈41888 available tokens into the context.",
+        ));
+
+        let conversation = panel.dialogue_so_far();
+
+        // What was actually said survives — this is what "could you implement
+        // it ?" needs in order to resolve "it".
+        assert!(
+            conversation.contains("FFI integration"),
+            "the developer's request was dropped:\n{conversation}"
+        );
+        assert!(
+            conversation.contains("rust_square"),
+            "Grace's own answer was dropped:\n{conversation}"
+        );
+        // None of the observability output does.
+        for leak in [
+            "Token savings",
+            "Run statistics",
+            "\"kind\":\"planning\"",
+            crate::llm::TELEMETRY_ROLE,
+            crate::agent_actions::ACTIONS_ROLE,
+        ] {
+            assert!(
+                !conversation.contains(leak),
+                "{leak:?} was replayed to Grace as conversation:\n{conversation}"
+            );
+        }
+    }
 
     #[test]
     fn conversation_history_is_scoped_to_the_project_root() {
