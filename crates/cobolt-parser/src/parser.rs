@@ -35,6 +35,9 @@ pub struct Parser {
     /// Scratch: the class name from the most recently parsed
     /// `USAGE OBJECT REFERENCE <class>`, consumed by the data item being built.
     pub(crate) pending_object_class: Option<String>,
+    /// Next id for a statement-level `EXEC RUST` block, handed out in source
+    /// order (spec 041).
+    pub(crate) next_block_id: u32,
 }
 
 impl Parser {
@@ -52,6 +55,7 @@ impl Parser {
             repository: Vec::new(),
             rust_items: Vec::new(),
             pending_object_class: None,
+            next_block_id: 0,
         }
     }
 
@@ -207,6 +211,13 @@ impl Parser {
     }
 
     // ── Diagnostics ───────────────────────────────────────────────────────────
+
+    /// Hand out the next `EXEC RUST` block id, in source order (spec 041).
+    pub(crate) fn next_exec_rust_id(&mut self) -> u32 {
+        let id = self.next_block_id;
+        self.next_block_id += 1;
+        id
+    }
 
     pub(crate) fn emit_error(&mut self, msg: impl Into<String>) {
         let span = self.peek_span();

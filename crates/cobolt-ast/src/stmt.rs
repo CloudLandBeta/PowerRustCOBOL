@@ -776,6 +776,14 @@ pub enum Stmt {
         /// **Populated by the semantic pass** (empty at parse time).
         /// Each entry maps a COBOL name to the corresponding Rust snake_case name.
         referenced_data: Vec<ExecRustBinding>,
+        /// Identifies this block's compiled function (spec 041 R1/R2).
+        ///
+        /// Assigned in source order at parse time, and used by codegen to name
+        /// the generated function and by the runtime to find it. A block whose
+        /// id has nothing registered against it is a hard error, never a no-op:
+        /// the executor this replaced logged unrecognised input at `debug!` and
+        /// carried on, so a block of real Rust "succeeded" while doing nothing.
+        block_id: u32,
         span: Span,
     },
 

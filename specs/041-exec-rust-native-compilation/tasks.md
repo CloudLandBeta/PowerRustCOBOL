@@ -85,17 +85,31 @@ saying so.
 
 ## Phase B — the breaking change
 
-- [ ] **T6 — Delete the interpreted micro-language** (R11)
-  - Files: `crates/cobolt-runtime/src/exec_rust.rs`, `interpreter.rs` (~2320)
-  - Do: remove `execute`/`exec_stmt`/`eval_expr`/`apply_compound` and the
-    silent-ignore branch. Replace with a dispatch table (`block_id → fn`) plus a
-    `catch_unwind` wrapper producing `RuntimeError::RustPanic`. An unregistered
-    block id is a hard error, never a no-op.
-  - **Report-or-fix:** any existing test asserting interpreted-mode behaviour must
-    be listed and either updated or retired *with justification stated in the
-    report* — never silently deleted.
-  - Verify: `cargo test -p cobolt-runtime`; **covers AC5** (a block whose body is
-    not compiled-and-registered fails loudly rather than succeeding silently).
+- [x] **T6 — Delete the interpreted micro-language** (R11) — *done: full workspace
+      sweep **1516 passed, 0 failed, 8 ignored**.*
+  - Files: `crates/cobolt-runtime/src/exec_rust.rs` (rewritten),
+    `interpreter.rs` (registry field + dispatch), `crates/cobolt-ast/src/stmt.rs`
+    (`block_id`), `crates/cobolt-parser/src/{parser.rs,stmt.rs}` (id assignment),
+    `crates/cobolt-runtime/tests/test_exec_rust_catch.rs` (new)
+  - Done: `interpret_statement`/`eval_expr`/`try_binary`/`numeric_op`/
+    `apply_compound`/`cobol_name` and the silent-ignore branch are **gone**.
+    Dispatch is `ExecRustRegistry` (`block_id → ExecRustFn`), populated by the
+    generated `main.rs`; an unregistered id is a hard `ExecRustError` naming the
+    id and telling the developer to build first.
+  - **Report-or-fix outcome: nothing needed changing.** Survey of every test
+    touching `EXEC RUST`: `cobolt-parser/tests/test_exec_rust.rs` is parse-only;
+    `cobolt-semantic/tests/test_semantic.rs` (`exec_rust_bindings_resolved`,
+    `exec_rust_no_spurious_partial_matches`) tests *binding resolution*, not
+    execution. **No test anywhere asserted interpreted-mode behaviour** — the
+    silent-ignore was never pinned by one, which is why it survived so long.
+    *(Both semantic tests bind `PIC` items inside blocks and so become T7's
+    concern under R5.)*
+  - Verify: **AC5** — `an_unregistered_block_fails_loudly`. Plus **AC11, AC17,
+    AC18** (deferred here from T5, now that a panic is reachable):
+    `cargo test -p cobolt-runtime --test test_exec_rust_catch` **4 passed** —
+    caught by `RUST-EXCEPTION` and execution continues; **not** caught by a
+    plain `CATCH` and the run ends; both clauses route to their own class; a
+    COBOL `THROW` never reaches the Rust clause.
 
 - [ ] **T7 — Semantic rules** (R5, R6, R8-revised, R16, R21, R22)
   - Files: `crates/cobolt-semantic/src/lib.rs`, `resolver.rs`

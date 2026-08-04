@@ -2848,9 +2848,14 @@ fn parse_exec_rust(p: &mut Parser) -> Stmt {
     // Optional trailing period (sentence terminator after END-EXEC).
     p.eat(&Token::Period);
 
+    // Source-order id, so codegen and the runtime agree on which generated
+    // function belongs to which block (spec 041).
+    let block_id = p.next_exec_rust_id();
+
     Stmt::ExecRust {
         source,
         referenced_data: Vec::new(), // populated by semantic pass
+        block_id,
         span,
     }
 }

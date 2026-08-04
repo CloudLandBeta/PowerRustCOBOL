@@ -560,6 +560,11 @@ pub struct Interpreter {
     object_refs: HashMap<String, String>,
     /// PowerRustCOBOL form/control object registry.
     pub objects: ObjectRegistry,
+    /// Compiled `EXEC RUST` blocks, registered by the generated `main.rs`
+    /// before the run (spec 041 R2). Empty in a plain interpreted run, which is
+    /// why executing a block without building first is a hard error rather
+    /// than a silent no-op.
+    pub exec_rust: crate::exec_rust::ExecRustRegistry,
     /// Property "shadows": a receiving property reference used by any verb is
     /// resolved to a synthetic env item preloaded with the property's current
     /// value; after each statement these are written back to the object store.
@@ -778,6 +783,7 @@ impl Interpreter {
             rust_bridge,
             object_refs,
             objects: ObjectRegistry::new(),
+            exec_rust: crate::exec_rust::ExecRustRegistry::new(),
             property_shadows: std::collections::HashMap::new(),
             para_map,
             para_order,
@@ -2317,7 +2323,9 @@ impl Interpreter {
             Stmt::GoBack { .. } => Err(RuntimeError::GoBack),
 
             // ── EXEC RUST ─────────────────────────────────────────────────────
-            Stmt::ExecRust { .. } => exec_rust::execute(stmt, &mut self.env, &mut self.objects),
+            Stmt::ExecRust { .. } => {
+                exec_rust::execute(stmt, &mut self.env, &mut self.objects, &self.exec_rust)
+            }
 
             // ── TRY / CATCH EXCEPTION / FINALLY ──────────────────────────────
             Stmt::TryCatch {
