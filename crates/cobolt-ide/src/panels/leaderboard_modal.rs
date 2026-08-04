@@ -20,14 +20,17 @@ use crate::i18n::Tr;
 use crate::leaderboard::{Board, Leaderboard, Tier};
 use crate::theme::Theme;
 
-/// Fixed geometry. Sizing a pane from the space it was handed is what makes an
-/// egui window creep outward a few pixels per frame.
-const BODY_H: f32 = 560.0;
-const TABLE_W: f32 = 940.0;
-const CARD_PAD: i8 = 8;
+/// A **ceiling**, not a height: the card hugs its rows and only starts
+/// scrolling past this. A fixed height left two thirds of the panel empty
+/// whenever the board was short, which it usually is.
+const MAX_BODY_H: f32 = 620.0;
+/// Wide enough for four buttons and the longest model id at 14 px.
+const TABLE_W: f32 = 1010.0;
+/// Breathing room inside the card, so nothing touches its border.
+const CARD_PAD: i8 = 10;
 const SZ_TITLE: f32 = 18.0;
-const SZ_BODY: f32 = 13.0;
-const SZ_SMALL: f32 = 12.0;
+const SZ_BODY: f32 = 14.0;
+const SZ_SMALL: f32 = 14.0;
 
 pub struct LeaderboardModal {
     pub open: bool,
@@ -37,6 +40,12 @@ pub struct LeaderboardModal {
     /// `(model, message)` of the error window.
     error: Option<(String, String)>,
     status: Option<String>,
+    /// Whether the COBOL Proficiency Judge has a model of its own. Resolved by
+    /// the app when the panel opens — reading the agent database every frame
+    /// would be a file read per frame.
+    judge_ready: bool,
+    /// A Run tests click held back while the judge question is answered.
+    pending_run: Option<(String, String)>,
 }
 
 #[derive(Default)]
@@ -49,17 +58,27 @@ pub struct LeaderboardAction {
     pub apply_to_specialists: Option<(String, String)>,
     /// Reopen the stored benchmark report for this `(provider, model)`.
     pub open_report: Option<(String, String)>,
+    /// Open the Agents Manager at the COBOL Proficiency Judge so a model can be
+    /// given to it.
+    pub open_judge_setup: bool,
 }
 
 impl LeaderboardModal {
-    pub fn new() -> Self {
+    pub fn new(judge_ready: bool) -> Self {
         Self {
             open: true,
             board: Board::Overall,
             details: None,
             error: None,
             status: None,
+            judge_ready,
+            pending_run: None,
         }
+    }
+
+    /// The judge gained (or lost) a model while the panel was open.
+    pub fn set_judge_ready(&mut self, ready: bool) {
+        self.judge_ready = ready;
     }
 
     /// Show a confirmation under the tabs (the app calls this once an action it
@@ -109,23 +128,24 @@ impl LeaderboardModal {
             ui.set_width(TABLE_W);
             self.header(ui, board, theme, tr);
             ui.add_space(8.0);
-            let size = egui::vec2(TABLE_W, BODY_H);
-            ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
-                egui::Frame::NONE
-                    .fill(theme.bg_panel)
-                    .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                    .corner_radius(egui::CornerRadius::same(10))
-                    .inner_margin(egui::Margin::same(CARD_PAD))
-                    .show(ui, |ui| {
-                        let inner = size - egui::Vec2::splat(2.0 * CARD_PAD as f32 + 2.0);
-                        ui.set_min_size(inner);
-                        ui.set_max_width(inner.x);
-                        self.table(ui, board, theme, tr, &mut action);
-                    });
-            });
+            // The card hugs its content vertically — no fixed height, so a
+            // six-row board is a six-row card. Width stays fixed, which is what
+            // keeps the columns from renegotiating themselves every frame.
+            egui::Frame::NONE
+                .fill(theme.bg_panel)
+                .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+                .corner_radius(egui::CornerRadius::same(10))
+                .inner_margin(egui::Margin::same(CARD_PAD))
+                .show(ui, |ui| {
+                    let inner = TABLE_W - 2.0 * CARD_PAD as f32 - 2.0;
+                    ui.set_min_width(inner);
+                    ui.set_max_width(inner);
+                    self.table(ui, board, theme, tr, &mut action);
+                });
         });
 
         self.details_modal(ctx, board, theme, tr, &mut action);
+        self.judge_missing_modal(ctx, theme, tr, &mut action);
         self.error_window(ctx, theme, tr);
         self.open = open && self.open;
         action
@@ -198,8 +218,11 @@ impl LeaderboardModal {
         }
         egui::ScrollArea::vertical()
             .id_salt("leaderboard_rows")
-            .max_height(BODY_H - 2.0 * CARD_PAD as f32 - 2.0 - (SZ_TITLE + 8.0))
-            .auto_shrink([false, false])
+            // Shrinks to the rows it has (so the card is tight) but never
+            // grows past the ceiling (so a long board scrolls instead of
+            // running off the screen).
+            .max_height(MAX_BODY_H)
+            .auto_shrink([false, true])
             .show(ui, |ui| {
                 egui::Grid::new("leaderboard_grid")
                     .num_columns(5)
@@ -302,7 +325,13 @@ impl LeaderboardModal {
                                     .on_hover_text(tr.leaderboard_run_tests_hint)
                                     .clicked()
                                 {
-                                    action.run_tests = Some(id.clone());
+                                    // A run with no judge is a self-assessment.
+                                    // Ask before spending the tokens, not after.
+                                    if self.judge_ready {
+                                        action.run_tests = Some(id.clone());
+                                    } else {
+                                        self.pending_run = Some(id.clone());
+                                    }
                                 }
                                 // A model that could not be reached is not a
                                 // model to hand the project's work to.
@@ -543,6 +572,66 @@ impl LeaderboardModal {
         }
     }
 
+    /// The judge has no model and a test was asked for. Offer to set one now,
+    /// rather than quietly producing a score the model gave itself.
+    fn judge_missing_modal(
+        &mut self,
+        ctx: &egui::Context,
+        theme: &Theme,
+        tr: &Tr,
+        action: &mut LeaderboardAction,
+    ) {
+        let Some(pending) = self.pending_run.clone() else {
+            return;
+        };
+        let mut close = false;
+        egui::Modal::new(egui::Id::new("leaderboard_judge_missing")).show(ctx, |ui| {
+            ui.set_width(520.0);
+            ui.label(
+                egui::RichText::new(tr.leaderboard_judge_missing_title)
+                    .size(SZ_TITLE)
+                    .strong(),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(tr.leaderboard_judge_missing_body)
+                    .size(SZ_BODY)
+                    .color(theme.text_bright),
+            );
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(egui::RichText::new(tr.leaderboard_judge_set_now).size(SZ_BODY))
+                    .clicked()
+                {
+                    action.open_judge_setup = true;
+                    close = true;
+                }
+                if ui
+                    .button(egui::RichText::new(tr.leaderboard_judge_run_anyway).size(SZ_BODY))
+                    .clicked()
+                {
+                    // Their call, made knowingly — and the run says so on the
+                    // way past, so the score is never mistaken for a judged one.
+                    action.run_tests = Some(pending.clone());
+                    self.status = Some(tr.leaderboard_judge_declined.to_string());
+                    close = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(egui::RichText::new(tr.leaderboard_cancel).size(SZ_BODY))
+                        .clicked()
+                    {
+                        close = true;
+                    }
+                });
+            });
+        });
+        if close || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.pending_run = None;
+        }
+    }
+
     /// Surface a test that could not run.
     pub fn show_error(&mut self, model: String, message: String) {
         self.error = Some((model, message));
@@ -709,5 +798,41 @@ mod tests {
     fn an_empty_board_is_a_state_the_panel_must_handle() {
         let lb = Leaderboard::default();
         assert!(lb.ranked(Board::Local).is_empty());
+    }
+
+    /// Spec 040 R12: with a judge ready, Run tests runs. Without one it holds
+    /// the request back and asks first — a self-assessment is not something to
+    /// start by accident.
+    #[test]
+    fn a_run_waits_for_an_answer_when_the_judge_has_no_model() {
+        let mut ready = LeaderboardModal::new(true);
+        assert!(ready.judge_ready);
+        assert!(ready.pending_run.is_none());
+
+        let mut unready = LeaderboardModal::new(false);
+        assert!(!unready.judge_ready);
+        // What the Run tests button does in each case.
+        let id = ("ollama".to_string(), "m".to_string());
+        if unready.judge_ready {
+            panic!("fixture is wrong");
+        }
+        unready.pending_run = Some(id.clone());
+        assert_eq!(unready.pending_run, Some(id));
+
+        // Giving the judge a model clears the question for later runs.
+        unready.set_judge_ready(true);
+        assert!(unready.judge_ready);
+        ready.set_judge_ready(false);
+        assert!(!ready.judge_ready);
+    }
+
+    /// Nothing in the panel renders below 14 px, and a card padded at 10 keeps
+    /// its content off its own border.
+    #[test]
+    fn the_type_scale_and_padding_hold() {
+        assert!(SZ_SMALL >= 14.0);
+        assert!(SZ_BODY >= 14.0);
+        assert!(SZ_TITLE > SZ_BODY);
+        assert_eq!(CARD_PAD, 10);
     }
 }

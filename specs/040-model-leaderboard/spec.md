@@ -121,6 +121,22 @@ COBOL Proficiency Judge (`AgentsModal::open_at`), where its model and its
 shipped prompt are both editable. Setup is three things now, and the judge is
 the one a developer would not go looking for.
 
+### R12 — A test asks about the Judge first (1.60.1)
+
+Run tests with no Judge model configured does not start. It offers: **Set the
+Judge's model** (opens the Agents Manager at the judge), **Run without the
+Judge**, or **Cancel**. Running without one is honoured and then stated — the
+score is a self-assessment and is described as one. Judge readiness is resolved
+when the panel opens and refreshed when the Agents Manager closes, never per
+frame: it is a file read.
+
+### R13 — Panel metrics (1.60.1)
+
+Type at 14 px (titles 18), card padding 10 px, width 1010 px. The card's height
+is content-driven with a 620 px ceiling — `auto_shrink([false, true])` — so a
+short board is a short card and a long one scrolls. Height is never derived from
+available space, which is what makes an egui pane creep.
+
 ### R6 — Storage is machine-wide
 
 `<data_dir>/cobolt/model_leaderboard.json`, beside `llm_config.json` — a model

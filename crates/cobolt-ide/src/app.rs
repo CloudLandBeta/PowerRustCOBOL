@@ -5053,11 +5053,38 @@ impl CoboltApp {
         }
     }
 
+    /// Whether the COBOL Proficiency Judge can actually judge — it exists, is
+    /// enabled, and has a model of its own (spec 040).
+    fn judge_has_model(&self) -> bool {
+        self.project_dir()
+            .map(|root| {
+                crate::agents_db::AgentsDb::load(&root)
+                    .proficiency_judge_config(&self.llm)
+                    .is_some()
+            })
+            .unwrap_or(false)
+    }
+
     /// Carry out what the leaderboard row was clicked for (spec 040).
     fn handle_leaderboard_action(
         &mut self,
         act: crate::panels::leaderboard_modal::LeaderboardAction,
     ) {
+        if act.open_judge_setup {
+            if let Some(dir) = self
+                .project_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf())
+            {
+                self.agents_modal = Some(crate::panels::agents_modal::AgentsModal::open_at(
+                    &dir,
+                    &mut self.llm,
+                    crate::agents_db::PROFICIENCY_JUDGE,
+                ));
+                self.persist_active_project_ai();
+            }
+        }
         if let Some((provider, model)) = act.run_tests {
             let cfg = self.leaderboard_run_config(&provider, &model);
             // Say which way the run went before it starts: a score that was
@@ -6837,6 +6864,13 @@ impl CoboltApp {
             let act = m.show(ctx, &mut self.llm, &self.lang.tr());
             if m.open {
                 self.agents_modal = Some(m);
+            } else if self.leaderboard_modal.is_some() {
+                // The judge may have just been given a model in there; the
+                // board asks again rather than holding a stale answer.
+                let ready = self.judge_has_model();
+                if let Some(lb) = self.leaderboard_modal.as_mut() {
+                    lb.set_judge_ready(ready);
+                }
             }
             // "Check proficiency" on a specialist: run the tandem benchmark for
             // its resolved config (its model, reviewed by its pedantic companion
@@ -7021,8 +7055,10 @@ impl CoboltApp {
             // Pick up models configured since the last sync, so the board is
             // never a shorter list than the Models Manager.
             self.sync_leaderboard_models();
-            self.leaderboard_modal =
-                Some(crate::panels::leaderboard_modal::LeaderboardModal::new());
+            let judge_ready = self.judge_has_model();
+            self.leaderboard_modal = Some(
+                crate::panels::leaderboard_modal::LeaderboardModal::new(judge_ready),
+            );
         }
         if action.manage_models {
             self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());

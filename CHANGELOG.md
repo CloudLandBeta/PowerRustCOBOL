@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.1] — 2026-08-04
+
+### Changed
+
+- **The leaderboard reads at 14 px**, up from 13/12, with the window widened to
+  1010 px so four buttons and the longest model id still sit on one line.
+
+- **The board no longer reserves a screenful it does not use.** Its card was a
+  fixed 560 px tall, so six rows of results floated at the top of a mostly empty
+  panel. The card now hugs its rows and only starts scrolling past 620 px, with
+  10 px of padding so nothing touches its border.
+
+- **A test asks about the Judge before spending anything.** Running a test with
+  no Judge model configured used to proceed silently and self-score. It now
+  stops and offers three answers: set the Judge's model (which opens the Agents
+  Manager on it), run without the Judge, or cancel. Choosing to run without one
+  is honoured and then stated plainly — *this model is scoring itself, so the
+  result may not be accurate* — rather than the score being presented as if it
+  had been checked. Giving the Judge a model in that detour clears the question
+  for the rest of the session without reopening the board.
+
 ## [PowerRustCOBOL 1.60.0] — 2026-08-04
 
 ### Added
