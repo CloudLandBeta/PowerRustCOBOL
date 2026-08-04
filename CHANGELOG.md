@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.3] — 2026-08-04
+
+### Fixed
+
+- **Every switch name in Debug Settings had collapsed to an ellipsis** —
+  "Fra…", "Da…", "Ro…", "Dis…" — leaving four checkboxes with no way to tell
+  which was which except by hovering each one. The labels were set to truncate
+  but the grid column had no width of its own, so it shrank to its minimum and
+  took the text with it. The column is now a stated width, wide enough for the
+  longest switch name — a constant rather than a share of the available space,
+  so the resizable window cannot be widened by its own labels.
+
 ## [PowerRustCOBOL 1.60.2] — 2026-08-04
 
 ### Added
