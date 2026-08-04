@@ -30,6 +30,12 @@
   are.** Both are unrated, but one wants a test run and the other wants a
   connection fixed.
 
+- **`ollama_cloud` models were filed under *Local*.** They share a name with
+  local Ollama, but nothing runs on this machine, there is no quantization or
+  hardware of yours to report, and the service bills — so they belong on *Cloud
+  paid*. Plain `ollama` and llama.cpp remain Local. A per-entry override is
+  still there when the guess is wrong.
+
 ## [PowerRustCOBOL 1.58.0] — 2026-08-03
 
 ### Added

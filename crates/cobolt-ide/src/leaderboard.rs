@@ -38,15 +38,18 @@ pub enum Tier {
 impl Tier {
     /// Best-effort classification from the connection alone.
     ///
-    /// Ollama (local or its cloud relay) runs the weights on hardware the
-    /// developer controls. OpenRouter marks its no-charge routes with a
-    /// `:free` model suffix, and HuggingFace's router serves its free tier the
-    /// same way. Everything else is assumed to bill, because assuming a paid
-    /// model is free is the mistake that costs money — the developer can
-    /// override it per entry.
+    /// **Local** means the weights run on hardware the developer controls —
+    /// plain `ollama`, llama.cpp. `ollama_cloud` is deliberately *not* local
+    /// despite the shared name: nothing runs on this machine, there is no
+    /// quantization or hardware of the developer's to report, and it bills.
+    ///
+    /// OpenRouter marks its no-charge routes with a `:free` model suffix, and
+    /// HuggingFace's router serves its free tier the same way. Everything else
+    /// is assumed to bill, because assuming a paid model is free is the mistake
+    /// that costs money — the developer can override it per entry.
     pub fn classify(provider: &str, model: &str) -> Self {
         let p = provider.trim().to_ascii_lowercase();
-        if p.starts_with("ollama") || p == "local" || p == "llamacpp" {
+        if p == "ollama" || p == "local" || p == "llamacpp" || p == "llama_cpp" {
             return Tier::Local;
         }
         let m = model.trim().to_ascii_lowercase();
@@ -453,9 +456,9 @@ mod tests {
     fn tier_classification_follows_provider_then_model() {
         assert_eq!(Tier::classify("ollama", "qwen2.5-coder:32b"), Tier::Local);
         assert_eq!(
-            Tier::classify("ollama_cloud", "deepseek-v3"),
-            Tier::Local,
-            "the cloud relay still runs a model the developer manages"
+            Tier::classify("ollama_cloud", "gemma4:31b"),
+            Tier::CloudPaid,
+            "Ollama's hosted service runs nothing on this machine and bills for it"
         );
         assert_eq!(
             Tier::classify("openrouter", "qwen3-coder:free"),
