@@ -93,6 +93,34 @@ self-scoring. Where only one model is configured the judge is still seeded and
 the run reports itself **unjudged**, which is a visible problem rather than a
 hidden one.
 
+### R10 — Model separation (1.60.0)
+
+A model cannot judge, or orchestrate, work it also performed.
+
+| Holder | Rule |
+|---|---|
+| Grace | model A |
+| Judge | model A **only while no other agent uses A**; a model of its own is preferred |
+| Specialists | any model except Grace's and the Judge's |
+
+Ideal: Grace → A, Judge → B, specialists → C, D, E…
+
+`AgentsDb::model_separation` compares the resolved `provider::model`, not
+profile ids — two profiles naming one model are one model. Disabled agents run
+nothing and cannot clash. `ModelSeparation::is_valid` is the enforceable rule;
+`is_ideal` additionally requires the Judge to hold a model of its own.
+
+Enforced in three places: the Agents Manager footer names the offending agent
+above the key/reviewer warnings; the leaderboard's *Apply to Specialists*
+declines a reserved model with its reason; the setup wizard states the rule.
+
+### R11 — The setup wizard's third door (1.60.0)
+
+`[Models] [Agents] [Judge]`. The Judge button opens the Agents Manager at the
+COBOL Proficiency Judge (`AgentsModal::open_at`), where its model and its
+shipped prompt are both editable. Setup is three things now, and the judge is
+the one a developer would not go looking for.
+
 ### R6 — Storage is machine-wide
 
 `<data_dir>/cobolt/model_leaderboard.json`, beside `llm_config.json` — a model

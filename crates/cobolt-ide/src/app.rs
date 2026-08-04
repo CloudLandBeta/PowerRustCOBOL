@@ -5195,6 +5195,28 @@ impl CoboltApp {
         );
 
         let mut db = crate::agents_db::AgentsDb::load(&root);
+        // Spec 040 R10: a specialist may not stand on Grace's or the judge's
+        // model. Giving the whole specialist pool the judge's model would leave
+        // the judge scoring a model the project runs on — refused here rather
+        // than reported afterwards.
+        if !grace_only {
+            let key = format!(
+                "{}::{}",
+                provider.trim().to_ascii_lowercase(),
+                model.trim().to_ascii_lowercase()
+            );
+            if let Some(reserved_for) = db.model_is_reserved(&self.llm, &key) {
+                let msg = tr
+                    .leaderboard_model_reserved
+                    .replacen("{}", model, 1)
+                    .replacen("{}", reserved_for, 1);
+                self.output.push_status(msg.clone());
+                if let Some(m) = self.leaderboard_modal.as_mut() {
+                    m.set_status(msg);
+                }
+                return;
+            }
+        }
         let mut touched = 0usize;
         for agent in &mut db.agents {
             let wanted = if grace_only {
@@ -8181,6 +8203,7 @@ impl CoboltApp {
             .unwrap_or(false);
         let mut open_models = false;
         let mut open_agents = false;
+        let mut open_judge = false;
         let mut close = false;
 
         egui::Window::new(tr.ai_setup_title)
@@ -8206,13 +8229,29 @@ impl CoboltApp {
                         ui.label(egui::RichText::new(tr.ai_setup_msg).size(13.0));
                         ui.add_space(14.0);
                         ui.horizontal(|ui| {
-                            if ui.button(tr.models_manage).clicked() {
+                            if ui.button(tr.ai_setup_models).clicked() {
                                 open_models = true;
                             }
-                            if ui.button(tr.agents_manage).clicked() {
+                            if ui.button(tr.ai_setup_agents).clicked() {
                                 open_agents = true;
                             }
+                            // Spec 040 R11: the judge is the third thing that
+                            // has to be set up, and the only one a developer
+                            // would not think to look for.
+                            if ui
+                                .button(tr.ai_setup_judge)
+                                .on_hover_text(tr.ai_setup_judge_hint)
+                                .clicked()
+                            {
+                                open_judge = true;
+                            }
                         });
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(tr.ai_setup_separation)
+                                .size(12.0)
+                                .color(self.current_theme().text_dim),
+                        );
                         ui.add_space(10.0);
                         ui.checkbox(&mut hide_again, tr.ai_setup_hide);
                         ui.add_space(8.0);
@@ -8240,17 +8279,22 @@ impl CoboltApp {
         if open_models {
             self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());
         }
-        if open_agents {
+        if open_agents || open_judge {
             if let Some(dir) = self
                 .project_path
                 .as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf())
             {
-                self.agents_modal = Some(crate::panels::agents_modal::AgentsModal::open_for(
-                    &dir,
-                    &mut self.llm,
-                ));
+                self.agents_modal = Some(if open_judge {
+                    crate::panels::agents_modal::AgentsModal::open_at(
+                        &dir,
+                        &mut self.llm,
+                        crate::agents_db::PROFICIENCY_JUDGE,
+                    )
+                } else {
+                    crate::panels::agents_modal::AgentsModal::open_for(&dir, &mut self.llm)
+                });
                 // Opening can migrate legacy agent model settings onto project
                 // profiles — persist that immediately (same as Project Settings).
                 self.persist_active_project_ai();

@@ -113,6 +113,24 @@ pub struct AgentsModalAction {
 
 impl AgentsModal {
     /// Load (and first-time seed, R7) the project's agents and open.
+    /// Open the manager with one agent already selected — used by the AI setup
+    /// wizard's **Judge** button, which exists to take the developer straight to
+    /// the COBOL Proficiency Judge rather than leaving them to find it in the
+    /// rail (spec 040 R11).
+    pub fn open_at(project_dir: &Path, llm: &mut LlmConfig, agent_name: &str) -> Self {
+        let mut m = Self::open_for(project_dir, llm);
+        if let Some(index) = m
+            .db
+            .agents
+            .iter()
+            .position(|a| a.name.eq_ignore_ascii_case(agent_name))
+        {
+            m.sel = index;
+            m.load_selected(llm);
+        }
+        m
+    }
+
     pub fn open_for(project_dir: &Path, llm: &mut LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
         let mut seeded = db.ensure_fixed_agents(llm);
@@ -235,8 +253,25 @@ impl AgentsModal {
                         // footer layout is independent of which state fires.
                         let violation = self.db.pair_rule_violation();
                         let missing = self.db.missing_key(llm);
+                        // Spec 040 R10: a specialist standing on Grace's or the
+                        // judge's model. Ranked above the key/reviewer warnings
+                        // because it silently invalidates a judgement rather
+                        // than stopping a run.
+                        let separation = self.db.model_separation(llm);
                         let (msg, msg_color) = if let Some(e) = &self.error {
                             (format!("⚠ {e}"), egui::Color32::from_rgb(224, 120, 120))
+                        } else if let Some(clash) = separation.clashes.first() {
+                            (
+                                tr.agents_model_reserved
+                                    .replacen("{}", &clash.agent, 1)
+                                    .replacen("{}", clash.reserved_for, 1),
+                                egui::Color32::from_rgb(230, 192, 106),
+                            )
+                        } else if separation.judge_shares_grace {
+                            (
+                                tr.agents_judge_shares_grace.to_string(),
+                                egui::Color32::from_rgb(169, 206, 236),
+                            )
                         } else if let Some((p, c)) = &violation {
                             (
                                 tr.agents_pair_rule

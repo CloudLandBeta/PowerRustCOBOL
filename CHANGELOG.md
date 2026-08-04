@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.0] — 2026-08-04
+
+### Added
+
+- **The AI setup wizard has a third door: `[Models] [Agents] [Judge]`.** Setting
+  up the AI used to mean two things; since 1.59.0 it means three, and the judge
+  is the one nobody would think to look for. The button opens the Agents Manager
+  with the COBOL Proficiency Judge already selected, so its model and its prompt
+  are one click away rather than somewhere in the rail. The wizard also states
+  the model-separation rule, which is where a developer meets it first.
+
+- **Model separation is now a rule the IDE holds you to.** A model cannot judge,
+  or orchestrate, work it also performed:
+
+  - a specialist agent may not run **Grace's** model;
+  - a specialist agent may not run the **Judge's** model;
+  - the Judge *may* share Grace's model — but only while no other agent is on
+    it. Permitted, not preferred.
+
+  The ideal arrangement stays Grace on one model, the Judge on a second, the
+  specialists on others. Separation compares the resolved `provider::model`, so
+  two profiles naming the same model are correctly seen as one model rather than
+  two; a disabled agent runs nothing and cannot clash.
+
+### Changed
+
+- **The Agents Manager names the clash instead of leaving you to find it.** Its
+  footer now leads with the offending agent and who the model is reserved for,
+  above the existing key and reviewer warnings — a clash silently invalidates a
+  judgement rather than stopping a run, which makes it the more expensive thing
+  to miss. A Judge sharing Grace's model is reported too, in the calmer colour
+  of something allowed.
+
+- **The leaderboard refuses to break the rule on your behalf.** *Apply to
+  Specialists* with a model reserved for Grace or the Judge is declined with the
+  reason, rather than assigned and reported afterwards.
+
 ## [PowerRustCOBOL 1.59.0] — 2026-08-04
 
 ### Added
