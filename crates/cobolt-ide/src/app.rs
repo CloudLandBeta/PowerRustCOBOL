@@ -5060,6 +5060,19 @@ impl CoboltApp {
     ) {
         if let Some((provider, model)) = act.run_tests {
             let cfg = self.leaderboard_run_config(&provider, &model);
+            // Say which way the run went before it starts: a score that was
+            // never contested must not look like one that was.
+            let tr = self.lang.tr();
+            let status = if cfg.reviewer_configured() {
+                tr.leaderboard_judged_by
+                    .replacen("{}", &cfg.reviewer_model, 1)
+            } else {
+                tr.leaderboard_unjudged.to_string()
+            };
+            self.output.push_status(status.clone());
+            if let Some(m) = self.leaderboard_modal.as_mut() {
+                m.set_status(status);
+            }
             self.start_proficiency_benchmark(cfg);
         }
         if let Some((provider, model)) = act.apply_to_grace {
@@ -5074,7 +5087,8 @@ impl CoboltApp {
             // project never ran the test.
             match self.stored_benchmark_report(&provider, &model) {
                 Some(report) => {
-                    self.llm_benchmark_config = Some(self.leaderboard_run_config(&provider, &model));
+                    self.llm_benchmark_config =
+                        Some(self.leaderboard_primary_config(&provider, &model));
                     self.llm_benchmark_report = Some(report);
                 }
                 None => {
@@ -5092,6 +5106,43 @@ impl CoboltApp {
     /// when there is one (so its key and sampling are used), otherwise the
     /// row's own provider/endpoint over the active config.
     fn leaderboard_run_config(&self, provider: &str, model: &str) -> crate::llm::LlmConfig {
+        let mut cfg = self.leaderboard_primary_config(provider, model);
+        self.attach_proficiency_judge(&mut cfg);
+        cfg
+    }
+
+    /// Point the run's reviewer fields at the COBOL Proficiency Judge, so the
+    /// score the board ranks was contested by a second model rather than
+    /// awarded by the model to itself (spec 040).
+    ///
+    /// A judge resolving to the same model as the one under test is left
+    /// unattached: `reviewer_configured` would reject it anyway, and an
+    /// unattached reviewer is at least an honest "unjudged" the caller can
+    /// report.
+    fn attach_proficiency_judge(&self, cfg: &mut crate::llm::LlmConfig) {
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        let db = crate::agents_db::AgentsDb::load(&root);
+        let Some(judge) = db.proficiency_judge_config(&self.llm) else {
+            return;
+        };
+        if judge.model.trim().eq_ignore_ascii_case(cfg.model.trim())
+            && judge.provider.trim().eq_ignore_ascii_case(cfg.provider.trim())
+        {
+            return;
+        }
+        cfg.reviewer_provider = judge.provider.clone();
+        cfg.reviewer_endpoint = judge.endpoint.clone();
+        cfg.reviewer_model = judge.model.clone();
+        let prompt = db.load_agent_core_instructions(crate::agents_db::PROFICIENCY_JUDGE);
+        if !prompt.trim().is_empty() {
+            cfg.pedantic_prompt = prompt;
+        }
+    }
+
+    /// The model-under-test half of a leaderboard run.
+    fn leaderboard_primary_config(&self, provider: &str, model: &str) -> crate::llm::LlmConfig {
         if let Some(profile) = self
             .llm
             .model_profiles

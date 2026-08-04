@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.59.0] — 2026-08-04
+
+### Added
+
+- **COBOL Proficiency Judge** — a new built-in agent, and the first reviewer
+  that belongs to no owner. The other six review what their primary produced;
+  this one reviews a model's assessment *of itself*, and its verdict is the
+  score the leaderboard ranks.
+
+  It matters because a proficiency test started from the leaderboard was
+  self-scored: the model under test wrote the report, the numbers, and the
+  praise, and the board ranked all three. The judge is now attached to that run,
+  re-scores it independently from the generated COBOL rather than from the
+  primary's claims, and where the two disagree the judge's numbers stand.
+
+  It is seeded on project open, and deliberately given a model that is **not**
+  the project default where a second one exists — a judge running the model it
+  is judging is refused as a reviewer, which would quietly turn the run back
+  into self-assessment. Its prompt is told the one thing the other reviewers are
+  not: that the scores it has been handed are a claim, not evidence.
+
+- **A run says which way it went before it starts.** Either "the COBOL
+  Proficiency Judge (*model*) will re-score the result", or an explicit warning
+  that the test is running unjudged with the model scoring itself, and how to
+  fix that. A score that was never contested must not look like one that was.
+
 ## [PowerRustCOBOL 1.58.1] — 2026-08-04
 
 ### Fixed

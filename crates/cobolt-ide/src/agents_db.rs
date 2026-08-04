@@ -50,6 +50,12 @@ pub enum AgentKind {
 pub const GRACE: &str = "Grace";
 
 /// Canonical built-in reviewer companion for Grace's orchestration work.
+/// The COBOL Proficiency Judge (spec 040) — the only reviewer that belongs to
+/// no owner agent. The others review what their primary produced; this one
+/// reviews a model's assessment of itself, and its verdict is the score the
+/// leaderboard ranks.
+pub const PROFICIENCY_JUDGE: &str = "COBOL Proficiency Judge";
+
 pub const PEDANTIC_GRACE_REVIEWER: &str = "Grace Pedantic Reviewer";
 
 /// Built-in tandem reviewer for the Form Designer specialist.
@@ -1198,6 +1204,80 @@ impl AgentsDb {
         self.save_default_prompt(GRACE, &default).is_ok()
     }
 
+    /// Seed the COBOL Proficiency Judge (spec 040).
+    ///
+    /// Unlike every other reviewer it has **no owner** and so no companion
+    /// link: it is not attached to an agent whose output it checks, it is
+    /// attached to the proficiency test itself. `ensure_tandem_reviewer` cannot
+    /// create it for that reason — it starts by looking up an owner.
+    fn ensure_proficiency_judge(&mut self) -> bool {
+        const SPECIALIZATION: &str = "proficiency-review";
+        const PURPOSE: &str = "Independently re-scores a model's COBOL proficiency assessment, so a ranked score is never one the model gave itself.";
+        const ROUTING: &str = "Invoked by the COBOL proficiency test; reviews the model under test and returns the authoritative scores. Calls nothing.";
+        let default_prompt = crate::llm::default_proficiency_judge_prompt();
+
+        if let Some(index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(PROFICIENCY_JUDGE))
+        {
+            let mut changed = false;
+            if self.load_prompt(PROFICIENCY_JUDGE).trim().is_empty()
+                && self
+                    .save_default_prompt(PROFICIENCY_JUDGE, &default_prompt)
+                    .is_ok()
+            {
+                changed = true;
+            }
+            let judge = &mut self.agents[index];
+            if judge.kind != AgentKind::Pedantic {
+                judge.kind = AgentKind::Pedantic;
+                changed = true;
+            }
+            if judge.specialization != SPECIALIZATION {
+                judge.specialization = SPECIALIZATION.into();
+                changed = true;
+            }
+            if judge.purpose.trim().is_empty() {
+                judge.purpose = PURPOSE.into();
+                changed = true;
+            }
+            if judge.routing.trim().is_empty() {
+                judge.routing = ROUTING.into();
+                changed = true;
+            }
+            if changed {
+                let _ = self.save_all();
+            }
+            return changed;
+        }
+
+        let Ok(id) = self.create_kinded(
+            PROFICIENCY_JUDGE,
+            &default_prompt,
+            AgentKind::Pedantic,
+            SPECIALIZATION,
+        ) else {
+            return false;
+        };
+        if let Some(judge) = self.agents.iter_mut().find(|agent| agent.id == id) {
+            judge.purpose = PURPOSE.into();
+            judge.routing = ROUTING.into();
+        }
+        let _ = self.save_all();
+        true
+    }
+
+    /// The judge's runnable connection, or `None` when it is absent, disabled
+    /// or has no model of its own.
+    pub fn proficiency_judge_config(
+        &self,
+        llm: &crate::llm::LlmConfig,
+    ) -> Option<crate::llm::LlmConfig> {
+        let judge = self.by_name(PROFICIENCY_JUDGE).filter(|a| a.enabled)?;
+        resolve_agent_connection(judge, llm)
+    }
+
     pub fn ensure_grace_reviewer(&mut self, _llm: &crate::llm::LlmConfig) -> bool {
         self.ensure_tandem_reviewer(
             GRACE,
@@ -1211,6 +1291,7 @@ impl AgentsDb {
 
     fn ensure_required_reviewers(&mut self, llm: &crate::llm::LlmConfig) -> usize {
         let mut changed = self.ensure_grace_reviewer(llm) as usize;
+        changed += self.ensure_proficiency_judge() as usize;
         changed += self.ensure_tandem_reviewer(
             FORM_DESIGNER,
             PEDANTIC_FORM_DESIGNER_REVIEWER,
@@ -1934,6 +2015,47 @@ impl AgentsDb {
         changed
     }
 
+    /// Give the judge a model, preferring one that is **not** the project
+    /// default (spec 040).
+    ///
+    /// A judge running the same model as the one under test is not a judge:
+    /// `reviewer_configured` refuses a reviewer identical to the primary, so
+    /// the run would silently fall back to the model scoring itself — the exact
+    /// thing this agent exists to prevent. Where a second profile exists it is
+    /// chosen; where only one does, the judge is seeded with it anyway and the
+    /// test says out loud that it ran unjudged, which is a problem the
+    /// developer can see and fix by adding a model.
+    fn ensure_judge_connection(
+        &mut self,
+        llm: &crate::llm::LlmConfig,
+        default_profile: Option<&str>,
+    ) -> usize {
+        let alternative = llm
+            .model_profiles
+            .iter()
+            .find(|p| Some(p.id.as_str()) != default_profile && !p.model.trim().is_empty())
+            .map(|p| p.id.clone())
+            .or_else(|| default_profile.map(str::to_string));
+        let Some(profile_id) = alternative else {
+            return 0;
+        };
+        let Some(judge) = self
+            .agents
+            .iter_mut()
+            .find(|a| a.name.eq_ignore_ascii_case(PROFICIENCY_JUDGE))
+        else {
+            return 0;
+        };
+        if judge.no_model
+            || judge.model_profile.is_some()
+            || !judge.model.trim().is_empty()
+        {
+            return 0;
+        }
+        judge.model_profile = Some(profile_id);
+        1
+    }
+
     fn ensure_builtin_connections(&mut self, llm: &crate::llm::LlmConfig) -> usize {
         let profile_id = llm
             .model_profiles
@@ -1981,6 +2103,7 @@ impl AgentsDb {
                 changed += 1;
             }
         }
+        changed += self.ensure_judge_connection(llm, profile_id.as_deref());
         if changed > 0 {
             let _ = self.save_all();
         }
@@ -2245,6 +2368,136 @@ mod tests {
     }
 
     /// Choosing "(no model)" for a built-in agent must survive the next project
+    fn profile(llm: &mut crate::llm::LlmConfig, name: &str, model: &str) -> String {
+        let id = new_uuid();
+        llm.model_profiles.push(crate::llm::ModelProfile {
+            id: id.clone(),
+            name: name.into(),
+            provider: "anthropic".into(),
+            endpoint: "https://api.anthropic.com/v1".into(),
+            endpoint_user_edited: false,
+            model: model.into(),
+            temperature: 0.7,
+            max_tokens: 8192,
+            timeout_secs: 30,
+        });
+        id
+    }
+
+    /// Spec 040: the judge exists after seeding, is pedantic, and belongs to
+    /// nobody — every other reviewer is some agent's companion.
+    #[test]
+    fn the_proficiency_judge_is_seeded_and_owned_by_no_agent() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        let judge = db.by_name(PROFICIENCY_JUDGE).expect("judge seeded");
+        assert_eq!(judge.kind, AgentKind::Pedantic);
+        assert_eq!(judge.specialization, "proficiency-review");
+        assert!(!db.load_prompt(PROFICIENCY_JUDGE).trim().is_empty());
+        let judge_id = judge.id.clone();
+        assert!(
+            db.agents
+                .iter()
+                .all(|a| a.companion.as_deref() != Some(judge_id.as_str())),
+            "the judge reviews the test, not another agent's output"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Seeding it onto the same model as everything else would make it a judge
+    /// of itself, which `reviewer_configured` rejects — leaving the run
+    /// silently self-scored.
+    #[test]
+    fn the_judge_prefers_a_model_that_is_not_the_default() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "anthropic".into();
+        llm.model = "primary-model".into();
+        let default_id = profile(&mut llm, "Primary", "primary-model");
+        let other_id = profile(&mut llm, "Second", "other-model");
+
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        assert_eq!(
+            db.by_name(GRACE).unwrap().model_profile.as_deref(),
+            Some(default_id.as_str())
+        );
+        assert_eq!(
+            db.by_name(PROFICIENCY_JUDGE).unwrap().model_profile.as_deref(),
+            Some(other_id.as_str()),
+            "the judge must not default to the model it would be judging"
+        );
+        let cfg = db.proficiency_judge_config(&llm).expect("judge resolves");
+        assert_eq!(cfg.model, "other-model");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// With one model configured there is no second opinion to be had. The
+    /// judge is still seeded — the run reports itself unjudged rather than
+    /// pretending otherwise.
+    #[test]
+    fn a_single_model_still_seeds_the_judge() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "anthropic".into();
+        llm.model = "only-model".into();
+        let only = profile(&mut llm, "Only", "only-model");
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(
+            db.by_name(PROFICIENCY_JUDGE).unwrap().model_profile.as_deref(),
+            Some(only.as_str())
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// A disabled judge must not resolve: a run is then honestly unjudged.
+    #[test]
+    fn a_disabled_judge_does_not_resolve() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "anthropic".into();
+        llm.model = "m".into();
+        profile(&mut llm, "P", "m");
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        assert!(db.proficiency_judge_config(&llm).is_some());
+
+        let id = db.by_name(PROFICIENCY_JUDGE).unwrap().id.clone();
+        db.agents.iter_mut().find(|a| a.id == id).unwrap().enabled = false;
+        assert!(db.proficiency_judge_config(&llm).is_none());
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Seeding runs on every project open; it must not keep rewriting.
+    #[test]
+    fn seeding_the_judge_twice_changes_nothing_the_second_time() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        let before = db.by_name(PROFICIENCY_JUDGE).unwrap().clone();
+
+        let mut reopened = AgentsDb::load(&proj);
+        reopened.ensure_fixed_agents(&llm);
+        let after = reopened.by_name(PROFICIENCY_JUDGE).unwrap();
+        assert_eq!(before.id, after.id);
+        assert_eq!(
+            reopened
+                .agents
+                .iter()
+                .filter(|a| a.name.eq_ignore_ascii_case(PROFICIENCY_JUDGE))
+                .count(),
+            1,
+            "a second open must not fork a duplicate judge"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
     /// open: `ensure_fixed_agents` used to re-seed any built-in whose profile was
     /// unset, so the choice looked like it never saved.
     #[test]
@@ -2521,8 +2774,13 @@ mod tests {
         llm.reviewer_endpoint = llm.endpoint.clone();
         let mut db = AgentsDb::load(&proj);
         // Six built-in primaries, each immediately paired with its own
-        // purpose-specific Pedantic reviewer.
-        assert_eq!(db.seed_from_legacy(&llm), 12);
+        // purpose-specific Pedantic reviewer, plus the ownerless COBOL
+        // Proficiency Judge (spec 040).
+        assert_eq!(db.seed_from_legacy(&llm), 13);
+        assert_eq!(
+            db.by_name(PROFICIENCY_JUDGE).unwrap().kind,
+            AgentKind::Pedantic
+        );
         let grace = db.by_name(GRACE).unwrap();
         assert_eq!(grace.kind, AgentKind::Orchestrator);
         assert!(db.orchestrator_violation().is_none());
@@ -3304,7 +3562,10 @@ mod tests {
 
         let mut db = AgentsDb::load(&proj);
         assert!(db.ensure_fixed_agents(&llm) > 0);
-        assert_eq!(db.agents.len(), 12);
+        // Six owners, their six companions, and the ownerless COBOL
+        // Proficiency Judge (spec 040).
+        assert_eq!(db.agents.len(), 13);
+        assert!(db.by_name(PROFICIENCY_JUDGE).is_some());
         for (owner_name, reviewer_name) in [
             (GRACE, PEDANTIC_GRACE_REVIEWER),
             (FORM_DESIGNER, PEDANTIC_FORM_DESIGNER_REVIEWER),

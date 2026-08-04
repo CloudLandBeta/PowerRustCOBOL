@@ -73,6 +73,26 @@ board, so proficiency tests run before the board existed are not lost. The
 archive is append-ordered and replayed in order, so the newest run of a model
 stands; a model already carrying a live result is skipped entirely.
 
+### R5b — The COBOL Proficiency Judge (1.59.0)
+
+A ranked score must not be one the model gave itself. A new built-in agent,
+`COBOL Proficiency Judge` (kind `Pedantic`, specialization `proficiency-review`),
+is seeded on project open and attached as the reviewer of every test started
+from the board, driving the existing tandem loop: primary benchmark → judge
+review → revision → judge's FINAL assessment, whose `pedantic_final` block
+carries the authoritative scores.
+
+It is the only reviewer with **no owner** — the other six are companions of the
+agent whose output they check, so `ensure_tandem_reviewer` (which begins by
+looking up an owner) cannot create it.
+
+Its model is seeded to a profile that is *not* the project default where a
+second profile exists. `reviewer_configured` refuses a reviewer identical to the
+primary, so a judge on the same model would silently return the run to
+self-scoring. Where only one model is configured the judge is still seeded and
+the run reports itself **unjudged**, which is a visible problem rather than a
+hidden one.
+
 ### R6 — Storage is machine-wide
 
 `<data_dir>/cobolt/model_leaderboard.json`, beside `llm_config.json` — a model
