@@ -303,6 +303,9 @@ static SECTIONS: &[Section] = &[
 /// Scrollable height of the switch list. A constant on purpose — see the note
 /// at the `ScrollArea` in [`DebugSettingsModal::show`].
 const SWITCH_AREA_HEIGHT: f32 = 260.0;
+/// Width of the switch-name column. Fits the longest shipped label with room
+/// to spare, so nothing truncates.
+const SWITCH_LABEL_WIDTH: f32 = 340.0;
 
 /// Help → Debug Settings. Edits [`DebugSettings`] live; every change is saved
 /// immediately, so there is no Apply/Cancel to get wrong.
@@ -413,8 +416,19 @@ fn switch_row(ui: &mut egui::Ui, switch: &Switch, settings: &mut DebugSettings) 
     // as the mechanism, and a developer still needs it for a shell run.
     let hover = format!("{hint}\n\nEnv: {env}");
 
-    ui.add(egui::Label::new(label).truncate())
-        .on_hover_text(hover.clone());
+    // `truncate()` alone lets the grid column collapse to its minimum, which is
+    // how every label had become "Fra…", "Da…", "Ro…". The width is stated
+    // explicitly instead: wide enough for the longest switch name, and a
+    // constant rather than a share of the available space, so a resizable
+    // window cannot be widened by its own labels.
+    ui.allocate_ui_with_layout(
+        egui::vec2(SWITCH_LABEL_WIDTH, 0.0),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.add(egui::Label::new(label).truncate())
+                .on_hover_text(hover.clone());
+        },
+    );
 
     let mut changed = false;
     match switch {
