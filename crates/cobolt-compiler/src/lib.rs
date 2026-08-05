@@ -228,6 +228,21 @@ struct CoboltProject {
 /// that to [`CompilerError::NoMain`].
 fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
     let exists = |rel: &String| !rel.is_empty() && dir.join(rel).exists();
+
+    // A form project's program is the MAIN FORM's generated `.cbl`, and nothing
+    // else will do.
+    //
+    // Only `sources[0]` is parsed into the program that the built binary
+    // interprets. A form-centric project created by the IDE also carries a stub
+    // `src/main.cbl` — seven lines, a DISPLAY and a GOBACK — and that stub was
+    // winning, because it exists. The result was a binary that drew the form and
+    // ran the stub: no event handler in the compiled program at all, so every
+    // button was dead and every `EXEC RUST` block in a handler was never
+    // compiled. Nothing failed; nothing happened.
+    if let Some(rel) = main_form_program(proj, dir) {
+        return Some(rel);
+    }
+
     if exists(&proj.project.main) {
         return Some(proj.project.main.clone());
     }
@@ -236,6 +251,51 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
         .iter()
         .chain(proj.files.sources.iter())
         .find(|rel| exists(rel))
+        .cloned()
+}
+
+/// The generated `.cbl` of the form marked MAIN, if this project has forms.
+///
+/// Falls back to the first form when none carries the flag, so a project that
+/// predates the main-form marker still builds something coherent rather than a
+/// stub.
+fn main_form_program(proj: &CoboltProject, dir: &Path) -> Option<String> {
+    if proj.files.forms.is_empty() {
+        return None;
+    }
+    let stem_of = |rel: &String| {
+        Path::new(rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_owned)
+    };
+
+    let mut chosen: Option<String> = None;
+    for rel in &proj.files.forms {
+        let abs = dir.join(rel);
+        if !abs.exists() {
+            continue;
+        }
+        let is_main = std::fs::read_to_string(&abs)
+            .ok()
+            .and_then(|xml| cobolt_forms::load_form_from_str(&xml).ok())
+            .map(|f| f.main_form)
+            .unwrap_or(false);
+        if chosen.is_none() || is_main {
+            chosen = stem_of(rel);
+        }
+        if is_main {
+            break;
+        }
+    }
+    let stem = chosen?;
+
+    proj.files
+        .generated
+        .iter()
+        .find(|g| {
+            stem_of(g).as_deref() == Some(stem.as_str()) && dir.join(g).exists()
+        })
         .cloned()
 }
 
