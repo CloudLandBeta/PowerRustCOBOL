@@ -84,11 +84,20 @@ pub(crate) fn parse_data_division(p: &mut Parser) -> Option<DataDivision> {
             // neither, and a hard error here is the point of the feature: this
             // used to be the kind of thing the old executor swallowed.
             Token::ExecRustBlock(_) => {
+                // The advice has to work for the developer who is looking at a
+                // FORM, not at a listing. In the designer there are no division
+                // headers to aim at — there are COBOL Structure blocks — and the
+                // one that lands inside the CONFIGURATION SECTION is REPOSITORY.
+                // Naming only the divisions sent people to WORKING-STORAGE,
+                // which is the DATA DIVISION, and straight back to this error.
                 p.emit_error(
-                    "EXEC RUST is not allowed in the DATA DIVISION — put an \
-                     item-level block (types, impls, use) in the CONFIGURATION \
-                     SECTION after REPOSITORY, or a statement-level block in the \
-                     PROCEDURE DIVISION",
+                    "EXEC RUST is not allowed in the DATA DIVISION. An item-level \
+                     block (use, struct, impl, fn) goes in the CONFIGURATION \
+                     SECTION after REPOSITORY — in a form, that is the COBOL \
+                     Structure panel's REPOSITORY block, below the CLASS entries, \
+                     NOT WORKING-STORAGE. A statement-level block goes in the \
+                     PROCEDURE DIVISION — in a form, an event handler or a common \
+                     procedure",
                 );
                 p.advance();
                 p.eat(&Token::Period);

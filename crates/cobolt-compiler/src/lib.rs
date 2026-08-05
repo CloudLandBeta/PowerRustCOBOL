@@ -610,6 +610,24 @@ fn build_core(
         forms.push((id, raw));
     }
 
+    // The MAIN form goes first, because that is the one the built application
+    // opens (`FORMS.first()` in the generated `main.rs`).
+    //
+    // Without this the binary opened whichever form happened to be listed first
+    // in `cobolt.toml` — so a project whose main form was the third one started
+    // on the wrong window, while the IDE's own Run, which resolves the main form
+    // properly, showed the right one. The build and the IDE disagreed about what
+    // the application *is*.
+    if let Some(main_at) = forms.iter().position(|(_, raw)| {
+        cobolt_forms::load_form_from_str(&String::from_utf8_lossy(raw))
+            .map(|f| f.main_form)
+            .unwrap_or(false)
+    }) {
+        let main = forms.remove(main_at);
+        log(&format!("   main form: {}", main.0));
+        forms.insert(0, main);
+    }
+
     log(&format!("   {} form(s)", forms.len()));
 
     // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
@@ -1943,6 +1961,8 @@ Because a block is compiled, **a program containing one is built before it runs*
 | --- | --- | --- |
 | **Item-level** | `CONFIGURATION SECTION`, after `REPOSITORY` — outermost program only, like everything else in that section | Rust **items**: `struct`, `enum`, `impl`, `trait`, `use`. Emitted at module scope, so every block in the program can see them |
 | **Statement-level** | `PROCEDURE DIVISION`, anywhere a statement may appear — including inside an event handler | Rust **statements**: the work |
+
+**In a FORM there are no division headers — there are COBOL Structure blocks.** An item-level block goes in the **REPOSITORY** block, below the `CLASS` entries, because that block is woven into the `CONFIGURATION SECTION`. It must NOT go in **WORKING-STORAGE**, which is woven into the `DATA DIVISION` and rejects a block. A statement-level block goes in an event handler or a common procedure, both of which are `PROCEDURE DIVISION` code. Do not advise a developer to "put it in the CONFIGURATION SECTION" without naming the REPOSITORY block: a form gives them no other way to reach that section.
 
 Putting a statement in an item-level block, or a `struct` in a statement-level one, is an error; the reported line and column are your own.
 
@@ -4016,6 +4036,57 @@ mod resolve_main_tests {
             "the compiled block did not run without a toolchain:\n{stdout}"
         );
         println!("AC3: built binary ran its compiled block with PATH empty");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **The built application must open the form marked as MAIN.**
+    ///
+    /// The generated `main.rs` opens `FORMS.first()`, so the order the build
+    /// embeds forms in *is* the choice of start-up window. It used to be
+    /// `cobolt.toml` order, which meant a project whose main form was not listed
+    /// first started on the wrong window — while the IDE's own Run, which
+    /// resolves the main form properly, opened the right one. Two answers to
+    /// "what is this application?", and only one of them shipped.
+    #[test]
+    fn the_build_puts_the_main_form_first() {
+        let dir = temp_dir("mainform");
+        let forms_dir = dir.join("forms");
+        fs::create_dir_all(&forms_dir).unwrap();
+
+        // Three forms; the MAIN one is deliberately not the first listed.
+        for (stem, is_main) in [("buttons", false), ("checkboxes", true), ("labels", false)] {
+            let mut form = cobolt_forms::Form::new(
+                &stem.to_ascii_uppercase(),
+                "T",
+                640,
+                480,
+            );
+            form.main_form = is_main;
+            cobolt_forms::save_form(&form, &forms_dir.join(format!("{stem}.cfrm"))).unwrap();
+        }
+
+        // Reproduce the collection step's ordering decision.
+        let mut forms: Vec<(String, Vec<u8>)> = Vec::new();
+        for stem in ["buttons", "checkboxes", "labels"] {
+            let raw = fs::read(forms_dir.join(format!("{stem}.cfrm"))).unwrap();
+            forms.push((stem.to_ascii_uppercase(), raw));
+        }
+        assert_eq!(forms[0].0, "BUTTONS", "precondition: main is not first yet");
+
+        if let Some(at) = forms.iter().position(|(_, raw)| {
+            cobolt_forms::load_form_from_str(&String::from_utf8_lossy(raw))
+                .map(|f| f.main_form)
+                .unwrap_or(false)
+        }) {
+            let main = forms.remove(at);
+            forms.insert(0, main);
+        }
+
+        assert_eq!(
+            forms[0].0, "CHECKBOXES",
+            "the built binary opens FORMS.first(), so the main form must be first"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

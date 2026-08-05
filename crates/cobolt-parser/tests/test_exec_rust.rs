@@ -291,12 +291,23 @@ fn exec_rust_in_the_data_division_is_rejected() {
            STOP RUN.
 ";
     let result = parse(tokenize(src, SourceFormat::Free));
+    let msg = result
+        .diagnostics
+        .iter()
+        .find(|d| d.message.contains("EXEC RUST is not allowed in the DATA DIVISION"))
+        .map(|d| d.message.clone())
+        .unwrap_or_else(|| panic!("expected a placement error, got: {:?}", result.diagnostics));
+
+    // The developer who hits this is usually looking at a form, where there are
+    // no division headers to aim at — only COBOL Structure blocks. Advice that
+    // names only the divisions sends them to WORKING-STORAGE and straight back
+    // here, so the message must name the block that actually works.
     assert!(
-        result
-            .diagnostics
-            .iter()
-            .any(|d| d.message.contains("EXEC RUST is not allowed in the DATA DIVISION")),
-        "expected a placement error, got: {:?}",
-        result.diagnostics
+        msg.contains("REPOSITORY block"),
+        "the message must say which COBOL Structure block to use: {msg}"
+    );
+    assert!(
+        msg.contains("NOT WORKING-STORAGE"),
+        "the message must rule out the slot people actually try: {msg}"
     );
 }

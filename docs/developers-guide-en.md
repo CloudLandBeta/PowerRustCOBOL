@@ -2222,6 +2222,22 @@ one on macOS.
 | **Item-level** | `CONFIGURATION SECTION`, after `REPOSITORY` (outermost program only, like everything else there) | Rust *items*: `struct`, `enum`, `impl`, `trait`, `use` — visible to every block in the program |
 | **Statement-level** | `PROCEDURE DIVISION`, anywhere a statement may go — including an event handler | Rust *statements*: the work |
 
+> **In a form, where do you actually type it?** A form has no division headers
+> for you to aim at — it has COBOL Structure blocks. An item-level block goes in
+> the **REPOSITORY** block, below the `CLASS` entries, because that block is
+> woven into the `CONFIGURATION SECTION`:
+>
+> ```cobol
+>     CLASS RUST-STRING IS "Rust.String".
+>     EXEC RUST
+>         pub fn shout(s: &str) -> String { s.to_uppercase() }
+>     END-EXEC
+> ```
+>
+> **Not WORKING-STORAGE** — that block is woven into the `DATA DIVISION`, where a
+> block is rejected. A statement-level block goes in an event handler or a common
+> procedure, which are `PROCEDURE DIVISION` code.
+
 #### What may cross into a block
 
 Only a `USAGE OBJECT REFERENCE` item whose `CLASS` names a Rust type. A `PIC`

@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **A built application opened the wrong form.** It started whichever form was
+  listed first in `cobolt.toml`, ignoring the one you marked as MAIN — so a
+  project whose main form was not the first one launched on the wrong window,
+  while the IDE's own Run, which resolves the main form properly, showed the
+  right one. The build and the IDE disagreed about what the application *is*.
+  The main form is now embedded first, which is the form the binary opens.
+
+- **"EXEC RUST is not allowed in the DATA DIVISION" gave advice you could not
+  follow.** It said to use the `CONFIGURATION SECTION`, but a form has no
+  division headers — it has COBOL Structure blocks, and the only "your own
+  COBOL" block on offer is WORKING-STORAGE, which *is* the DATA DIVISION. The
+  message now names the block that works: the **REPOSITORY** block, below the
+  `CLASS` entries. The guide and the System KB say the same.
+
 - **An `EXEC RUST` block inside `TRY … END-TRY` compiled into nothing.** The
   statement walk had a catch-all arm, so it never looked inside `TRY`, `CATCH`,
   `FINALLY`, `ON SIZE ERROR`, `INVALID KEY`, `ON OVERFLOW`, `AT END` or
