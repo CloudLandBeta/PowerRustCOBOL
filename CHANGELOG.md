@@ -11,10 +11,18 @@
   not exist a minute ago. So the moment any control name in its body did not
   resolve, Save deleted the code before you had finished writing it.
 
-  **Save and Run no longer remove procedures.** They write what you wrote. The
-  cleanup still runs where it is actually justified — in the designer, at the
-  moment you delete the controls a procedure addresses — where it is undoable
-  and reported, exactly as before.
+  **Nothing removes a procedure any more except you.** Save and Run write what
+  you wrote. Deleting a control no longer takes a common procedure with it
+  either: deleting a control takes *that control's* handler code, which belongs
+  to it, but a common procedure is separate code that merely mentions it. If a
+  deletion leaves a procedure addressing nothing that exists, the Output panel
+  says so — and the code stays for you to fix or remove.
+
+- **Deleting a common procedure now asks first.** The 🗑 button removed it on
+  the spot, and from the Run-Form inspector it did so without even going on the
+  undo stack. It now shows what it is about to destroy — the procedure's name
+  and how many lines of your COBOL — defaults to Cancel, and is undoable from
+  both places.
 
 - **The orphan test could not see controls inside a container.** A form is a
   tree: a Button inside a GroupBox lives in that container's children. The scan

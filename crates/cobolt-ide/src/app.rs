@@ -390,6 +390,12 @@ pub struct CoboltApp {
     /// A fatal form-runtime / codegen error to surface in a modal dialog. The
     /// IDE stays open; execution has already stopped on the interpreter thread.
     form_error: Option<String>,
+    /// A pending "delete this common procedure?" confirmation (operator,
+    /// 2026-08-05: user code is never removed without being asked).
+    ///
+    /// `designer` is the index into `designers`, or `None` when the request came
+    /// from the Run-Form inspector, which carries its own designer state.
+    pending_proc_delete: Option<PendingProcDelete>,
     alert_error: Option<String>,
     /// Font size for the message text in the error modals (adjusted with the
     /// A− / A+ buttons in the dialog; session-only, like the output-log size).
@@ -703,6 +709,19 @@ enum BuildLogKind {
     Success,
     /// A build error — red.
     Error,
+}
+
+/// A common procedure the developer asked to delete, held until they confirm
+/// (operator, 2026-08-05: user code is never removed without being asked).
+#[derive(Clone)]
+struct PendingProcDelete {
+    /// Index into `designers`, or `None` for the Run-Form inspector's own
+    /// designer state.
+    designer: Option<usize>,
+    index: usize,
+    name: String,
+    /// Non-blank lines of body, so the dialog can say what is at stake.
+    lines: usize,
 }
 
 /// Messages from the manual KB-reindex worker (File menu) to the UI thread.
@@ -1042,6 +1061,7 @@ impl CoboltApp {
             debug: crate::debug_settings::DebugSettings::load(),
             debug_modal: Default::default(),
             form_error: None,
+            pending_proc_delete: None,
             alert_error: None,
             error_font_size: 13.0,
             save_flash: None,
@@ -3867,6 +3887,8 @@ impl CoboltApp {
         let mut open_designer = false;
         let mut close = false;
         let mut changed = false;
+        // Collected inside the closure that borrows `self.inspect`; applied after.
+        let mut pending_proc_delete: Option<PendingProcDelete> = None;
 
         // Live-refresh from disk before drawing so a Designer save (or any
         // external write) of this form is reflected in the Main-Pane inspector.
@@ -3947,9 +3969,15 @@ impl CoboltApp {
                     changed = true;
                 }
                 if let Some(i) = action.cs_del_proc {
-                    if i < st.designer.form.user_procedures.len() {
-                        st.designer.form.user_procedures.remove(i);
-                        changed = true;
+                    // Ask first — and route through the undoable command, which
+                    // the direct `Vec::remove` here used to bypass entirely.
+                    if let Some(p) = st.designer.form.user_procedures.get(i) {
+                        pending_proc_delete = Some(PendingProcDelete {
+                            designer: None,
+                            index: i,
+                            name: p.name.clone(),
+                            lines: p.code.lines().filter(|l| !l.trim().is_empty()).count(),
+                        });
                     }
                 }
                 // Event editing and the COBOL Structure editor need the full designer.
@@ -3961,6 +3989,10 @@ impl CoboltApp {
                     open_designer = true;
                 }
             });
+
+        if pending_proc_delete.is_some() {
+            self.pending_proc_delete = pending_proc_delete;
+        }
 
         if changed {
             let gate_input = self.inspect.as_ref().map(|st| {
@@ -8228,6 +8260,80 @@ impl CoboltApp {
     /// semantic error) or the interpreter reports a fatal runtime error. The
     /// message is also in the Output console; this dialog just makes it
     /// unmissable. Closing it leaves the IDE fully usable.
+    /// Ask before deleting a common procedure, and only then remove it.
+    ///
+    /// A common procedure is code the developer wrote by hand. Pressing its
+    /// delete button is an explicit request, but an explicit request is still
+    /// not a licence to destroy work without a word — so the body's size is
+    /// shown, the default is Cancel, and the removal is undoable.
+    fn show_proc_delete_confirmation(&mut self, ctx: &Context) {
+        let Some(pending) = self.pending_proc_delete.clone() else {
+            return;
+        };
+        let tr = self.lang.tr();
+        let message = tr
+            .proc_delete_confirm_message
+            .replace("{name}", &pending.name)
+            .replace("{lines}", &pending.lines.to_string());
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new(tr.proc_delete_confirm_title)
+            .id(egui::Id::new("proc_delete_confirm"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(message);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.delete_confirm_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_proc_delete = None;
+            return;
+        }
+        if !confirm {
+            return;
+        }
+        self.pending_proc_delete = None;
+        match pending.designer {
+            Some(idx) => {
+                if idx < self.designers.len() {
+                    let d = &mut self.designers[idx].1;
+                    if pending.index < d.form.user_procedures.len() {
+                        // Undoable, with the full body on the stack.
+                        d.remove_user_procedure(pending.index);
+                        if matches!(
+                            d.cobol_structure_edit,
+                            Some(crate::panels::cobol_structure::CsTarget::Procedure(_))
+                        ) {
+                            d.cobol_structure_edit = None;
+                        }
+                    }
+                }
+            }
+            None => {
+                if let Some(st) = &mut self.inspect {
+                    if pending.index < st.designer.form.user_procedures.len() {
+                        st.designer.remove_user_procedure(pending.index);
+                    }
+                }
+            }
+        }
+        self.output.push_status(format!(
+            "Deleted procedure {} — undo restores it.",
+            pending.name
+        ));
+    }
+
     fn show_form_error(&mut self, ctx: &Context) {
         let msg = match &self.form_error {
             Some(m) => m.clone(),
@@ -9906,6 +10012,7 @@ impl eframe::App for CoboltApp {
         self.show_kb_reindex_modal(ctx);
         self.show_build_details_window(ctx);
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
+        self.show_proc_delete_confirmation(ctx);
         self.show_form_error(ctx);
         // Duplicate COBOL ID / Validation alert — modal.
         self.show_alert_error(ctx);
@@ -13341,16 +13448,17 @@ impl CoboltApp {
                 Some(crate::panels::cobol_structure::CsTarget::Procedure(new_idx));
         }
         if let Some(i) = inspector_action.cs_del_proc {
-            let d = &mut self.designers[idx].1;
-            if i < d.form.user_procedures.len() {
-                d.remove_user_procedure(i);
-                // The popup may have been editing a procedure whose index shifted.
-                if matches!(
-                    d.cobol_structure_edit,
-                    Some(crate::panels::cobol_structure::CsTarget::Procedure(_))
-                ) {
-                    d.cobol_structure_edit = None;
-                }
+            // Hold the request for confirmation. This is code the developer
+            // wrote by hand; pressing the button says what they want, and the
+            // dialog says what it costs before it happens.
+            let d = &self.designers[idx].1;
+            if let Some(p) = d.form.user_procedures.get(i) {
+                self.pending_proc_delete = Some(PendingProcDelete {
+                    designer: Some(idx),
+                    index: i,
+                    name: p.name.clone(),
+                    lines: p.code.lines().filter(|l| !l.trim().is_empty()).count(),
+                });
             }
         }
 

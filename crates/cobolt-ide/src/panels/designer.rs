@@ -2875,15 +2875,25 @@ impl DesignerPanel {
             });
         }
         self.selected_ids.clear();
-        // A control deletion can leave a form-level procedure addressing
-        // nothing that exists. It is invisible on the canvas, it survives
-        // deleting every control, and it can break the form outright — so it
-        // goes with them, undoably and on the record.
-        for name in self.prune_orphaned_procedures() {
-            self.orphan_notices.push(format!(
-                "Removed procedure {name}: every control it referenced was deleted, \
-                 and nothing called it. Undo restores it."
-            ));
+        // A control deletion can leave a form-level procedure addressing nothing
+        // that exists — and it can break the form outright.
+        //
+        // It is **reported, never removed** (operator, 2026-08-05: "treat user
+        // code as sacred"). Deleting a control takes that control's own handler
+        // code with it, which is the control's; a common procedure is separate
+        // code that merely mentions it, and no condition — orphaned, uncalled,
+        // unparseable — earns the right to delete what the developer wrote.
+        // Telling them costs a line in the Output panel; guessing costs them the
+        // work.
+        for index in self.form.orphaned_user_procedures() {
+            if let Some(proc) = self.form.user_procedures.get(index) {
+                self.orphan_notices.push(format!(
+                    "Procedure {} now references only controls that no longer exist, \
+                     and nothing calls it. It was KEPT — the form will not run until \
+                     you fix or delete it.",
+                    proc.name
+                ));
+            }
         }
     }
 
@@ -4032,25 +4042,12 @@ impl DesignerPanel {
         }
     }
 
-    /// Remove the user procedures orphaned by a control deletion, returning
-    /// their names for the Output panel. See
-    /// [`cobolt_forms::Form::orphaned_user_procedures`] for what earns that
-    /// word — the test is deliberately strict, because this deletes code.
-    ///
-    /// Each removal is a normal `RemoveProcedure` command, so it rides the
-    /// undo stack with its full body: one undo brings the procedure back, the
-    /// next brings the control back. Nothing is lost silently.
-    pub fn prune_orphaned_procedures(&mut self) -> Vec<String> {
-        let mut removed = Vec::new();
-        for index in self.form.orphaned_user_procedures().into_iter().rev() {
-            if let Some(proc) = self.form.user_procedures.get(index).cloned() {
-                removed.push(proc.name.clone());
-                self.apply(Cmd::RemoveProcedure { index, proc });
-            }
-        }
-        removed.reverse();
-        removed
-    }
+    // NOTE: there is deliberately no `prune_orphaned_procedures` (operator,
+    // 2026-08-05). Nothing in this program removes a common procedure except
+    // the developer, through the delete button, after confirming.
+    // [`cobolt_forms::Form::orphaned_user_procedures`] is now purely a query:
+    // it says which procedures address nothing that exists, so the designer can
+    // *report* them.
 
     /// Apply a data binding from the binding editor as an undoable command.
     /// Binding application rewrites target-control properties (columns,
@@ -13589,12 +13586,21 @@ mod property_key_case_tests {
 mod orphan_sweep_tests {
     use super::*;
 
-    /// Deleting the last control that a procedure addressed takes the
-    /// procedure with it — reported, and undoable, because it is code the
-    /// developer may want back. Observed live: the procedure stayed, and the
-    /// form could no longer be launched at all (operator, 2026-07-31).
+    /// Deleting the last control a procedure addressed **reports** it and
+    /// **keeps** it.
+    ///
+    /// *Changed 2026-08-05 on the operator's instruction: "never, ever delete
+    /// code… treat user code as sacred."* This test previously asserted the
+    /// opposite — that the procedure went with the control. Deleting a control
+    /// takes that control's own handler code, which belongs to it; a common
+    /// procedure is separate code that merely mentions the control, and being
+    /// orphaned is not a licence to destroy it.
+    ///
+    /// The original incident (operator, 2026-07-31) — a leftover procedure that
+    /// stopped the form launching — is still addressed, by *telling* the
+    /// developer instead of guessing on their behalf.
     #[test]
-    fn deleting_the_last_control_takes_the_orphaned_procedure_and_says_so() {
+    fn deleting_the_last_control_reports_the_orphaned_procedure_and_keeps_it() {
         let mut form = Form::new("F", "T", 400, 300);
         form.controls
             .push(Control::new("TXT1", ControlType::TextBox, 0, 0));
@@ -13606,27 +13612,24 @@ mod orphan_sweep_tests {
 
         dp.selected_ids = vec!["TXT1".into()];
         dp.delete_selected();
-        assert!(dp.form.controls.is_empty());
-        assert!(
-            dp.form.user_procedures.is_empty(),
-            "the orphaned procedure must go with the control"
+        assert!(dp.form.controls.is_empty(), "the control itself still goes");
+        assert_eq!(
+            dp.form.user_procedures.len(),
+            1,
+            "the developer's procedure must survive the deletion of a control it mentions"
         );
-        assert_eq!(dp.orphan_notices.len(), 1, "the removal must be reported");
-        assert!(dp.orphan_notices[0].contains("UPDATE-CONCATENATION"));
+        assert!(
+            dp.form.user_procedures[0].code.contains("txt1::Text"),
+            "and survive intact"
+        );
 
-        // Nothing is lost silently: undo brings the code back — through the
-        // same confirmation any procedure-history step asks for — and the next
-        // undo brings the control back.
-        dp.undo();
+        assert_eq!(dp.orphan_notices.len(), 1, "but they must be told");
+        assert!(dp.orphan_notices[0].contains("UPDATE-CONCATENATION"));
         assert!(
-            dp.pending_history_confirm.is_some(),
-            "restoring procedure code asks first"
+            dp.orphan_notices[0].contains("KEPT"),
+            "the notice must say the code was kept, not removed: {}",
+            dp.orphan_notices[0]
         );
-        dp.confirm_pending_history(true);
-        assert_eq!(dp.form.user_procedures.len(), 1);
-        assert!(dp.form.user_procedures[0].code.contains("txt1::Text"));
-        dp.undo();
-        assert_eq!(dp.form.controls.len(), 1);
     }
 
     /// **The defect the operator hit (2026-08-05): a brand-new procedure
@@ -13655,23 +13658,24 @@ mod orphan_sweep_tests {
         });
         let mut dp = DesignerPanel::new(form);
 
-        // Whatever else happens, no sweep runs unless controls are deleted.
         assert_eq!(
             dp.form.user_procedures.len(),
             1,
             "a newly created procedure must survive until the developer removes it"
         );
 
-        // Deleting an unrelated control is not licence to take it either: the
-        // control it names was never one of this form's, so its disappearance
-        // is not evidence of anything.
+        // Deleting an unrelated control is not licence to take it either.
         dp.selected_ids = vec!["BUTTON-1".into()];
         dp.delete_selected();
-        assert!(
-            dp.form.user_procedures.is_empty(),
-            "the delete-time sweep is unchanged — this documents what it still does"
+        assert_eq!(
+            dp.form.user_procedures.len(),
+            1,
+            "nothing but the developer removes a procedure"
         );
-        assert_eq!(dp.orphan_notices.len(), 1, "and it still says so");
+        assert!(
+            dp.form.user_procedures[0].code.contains("txtNotYetAdded"),
+            "and it is untouched, not trimmed or rewritten"
+        );
     }
 
     /// A procedure that still addresses a live control is a defect for the
