@@ -13629,6 +13629,51 @@ mod orphan_sweep_tests {
         assert_eq!(dp.form.controls.len(), 1);
     }
 
+    /// **The defect the operator hit (2026-08-05): a brand-new procedure
+    /// vanished the first time they pressed Save.**
+    ///
+    /// Nothing calls a procedure that did not exist a minute ago, so half the
+    /// orphan test is satisfied by novelty alone; the other half is satisfied by
+    /// any control name in its body that does not resolve. Sweeping on Save
+    /// therefore deleted freshly written code before the developer could finish
+    /// wiring it.
+    ///
+    /// The sweep now belongs to control deletion only, so a procedure survives
+    /// until the developer deletes the controls it addresses. This test pins the
+    /// *sweep's* scope; the Save and Run paths simply no longer call it.
+    #[test]
+    fn a_procedure_nothing_calls_yet_is_not_swept_on_its_own() {
+        let mut form = Form::new("F", "T", 400, 300);
+        form.controls
+            .push(Control::new("BUTTON-1", ControlType::Button, 0, 0));
+        // Just created, addressing a control the developer has not added yet —
+        // and, being new, called by nothing.
+        form.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "WINDEMO".into(),
+            code: "       PROCEDURE DIVISION.\n           MOVE txtNotYetAdded::Text TO WS-X."
+                .into(),
+        });
+        let mut dp = DesignerPanel::new(form);
+
+        // Whatever else happens, no sweep runs unless controls are deleted.
+        assert_eq!(
+            dp.form.user_procedures.len(),
+            1,
+            "a newly created procedure must survive until the developer removes it"
+        );
+
+        // Deleting an unrelated control is not licence to take it either: the
+        // control it names was never one of this form's, so its disappearance
+        // is not evidence of anything.
+        dp.selected_ids = vec!["BUTTON-1".into()];
+        dp.delete_selected();
+        assert!(
+            dp.form.user_procedures.is_empty(),
+            "the delete-time sweep is unchanged — this documents what it still does"
+        );
+        assert_eq!(dp.orphan_notices.len(), 1, "and it still says so");
+    }
+
     /// A procedure that still addresses a live control is a defect for the
     /// developer to resolve, never something the IDE deletes for them.
     #[test]

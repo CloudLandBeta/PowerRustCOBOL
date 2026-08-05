@@ -1438,25 +1438,20 @@ impl CoboltApp {
         removed
     }
 
-    /// Remove user procedures orphaned by since-deleted controls from the
-    /// designer form at `idx`. The designer already sweeps at delete time;
-    /// this is the self-heal for a form whose orphan predates that sweep —
-    /// which is the form the developer is holding right now, where the orphan
-    /// is precisely what stops it from running.
-    fn autoclean_orphaned_procedures(&mut self, idx: usize) -> usize {
-        if idx >= self.designers.len() {
-            return 0;
-        }
-        let removed = self.designers[idx].1.prune_orphaned_procedures();
-        for name in &removed {
-            self.designers[idx].1.dirty = true;
-            self.output.push_status(format!(
-                "Removed procedure {name}: every control it referenced was deleted, \
-                 and nothing called it. Undo restores it."
-            ));
-        }
-        removed.len()
-    }
+    // NOTE: there is deliberately **no** `autoclean_orphaned_procedures` here
+    // any more (operator, 2026-08-05).
+    //
+    // Save and Run used to sweep orphaned procedures as a self-heal for forms
+    // predating the delete-time sweep. The cost showed up the first time a
+    // developer created one: a procedure they had just written had no caller
+    // yet — nobody calls something that did not exist a minute ago — so half
+    // the orphan test was satisfied by novelty alone, and the other half by any
+    // control name that did not resolve. Pressing Save made it disappear.
+    //
+    // A procedure is now only removed where the removal is actually justified:
+    // in the designer, at the moment controls are deleted, by the same undoable
+    // command with a notice on the record (`Designer::delete_controls`). Save
+    // and Run write what the developer wrote.
 
     /// Run Form: launch the form as a standalone `rcrun run-form` process.
     fn do_run_form(&mut self, idx: usize) {
@@ -1482,9 +1477,9 @@ impl CoboltApp {
         // before the guardian runs, so a stale config can't block Run with
         // `missing-target-control`.
         self.autoclean_orphaned_bindings(idx);
-        // …and procedures left addressing deleted controls, which the code
-        // generator would otherwise emit into a program that cannot launch.
-        self.autoclean_orphaned_procedures(idx);
+        // Procedures are NOT swept here: a procedure the developer wrote a
+        // minute ago has no caller yet, and Run would delete it for that alone.
+        // Control deletion is where that cleanup belongs.
         let form = self.designers[idx].1.form.clone();
         let label = self.designers[idx]
             .0
@@ -3691,8 +3686,11 @@ impl CoboltApp {
         }
         // Drop data bindings orphaned by a since-deleted target/source control so
         // the saved .cfrm stays clean and Save is never blocked on a stale config.
+        //
+        // Procedures are deliberately NOT swept here. Save must write what the
+        // developer wrote; a procedure created minutes ago has no caller yet,
+        // and sweeping on Save deleted it for exactly that.
         self.autoclean_orphaned_bindings(idx);
-        self.autoclean_orphaned_procedures(idx);
         let path = self.designers[idx].0.clone();
         let form = self.designers[idx].1.form.clone();
         let label = path

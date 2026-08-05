@@ -5,17 +5,22 @@
 ### Fixed
 
 - **A new common procedure disappeared the first time you saved the form.**
-  Save runs a cleanup that removes procedures orphaned by a deleted control. It
-  decided what "deleted" meant by reading the form's **top-level** controls
-  only — but a form is a tree, and a Button or TextBox inside a GroupBox or a
-  panel lives in that container's children. So a procedure addressing a nested
-  control looked like one whose every control had been deleted; and since a
-  procedure you just created has no caller yet, both of the cleanup's conditions
-  were met and it was removed before you had finished writing it.
+  Save and Run swept away "orphaned" procedures — ones whose every referenced
+  control is gone *and* that nothing calls. A procedure you have just created
+  satisfies the second half by novelty alone: nothing calls something that did
+  not exist a minute ago. So the moment any control name in its body did not
+  resolve, Save deleted the code before you had finished writing it.
 
-  The scan now walks every control at every depth, on both sides of the test:
-  the controls a procedure addresses, and the handlers that might call it — the
-  button that calls a common procedure is usually inside a container too.
+  **Save and Run no longer remove procedures.** They write what you wrote. The
+  cleanup still runs where it is actually justified — in the designer, at the
+  moment you delete the controls a procedure addresses — where it is undoable
+  and reported, exactly as before.
+
+- **The orphan test could not see controls inside a container.** A form is a
+  tree: a Button inside a GroupBox lives in that container's children. The scan
+  read only the top level, so a procedure addressing a nested control looked
+  like one whose controls had all been deleted, and a procedure called from a
+  nested control's handler looked uncalled. Both sides now walk every depth.
 
 - **Data bindings onto a control inside a container were pruned the same way.**
   The identical top-level-only scan ran on the same Save, so a binding onto a
