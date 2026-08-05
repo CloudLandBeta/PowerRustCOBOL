@@ -123,6 +123,21 @@ pub fn resolve_bindings(
     });
 }
 
+/// Visit every statement-level `EXEC RUST` block in the program, in source
+/// order.
+///
+/// Source order is the order the parser assigned block ids in, so codegen can
+/// rely on it (spec 041 T8). Exposed here rather than duplicated in
+/// `cobolt-compiler` because the walk must stay identical to the one binding
+/// resolution uses — a block this misses is a block that compiles into nothing.
+pub fn for_each_block(program: &Program, f: &mut impl FnMut(&Stmt)) {
+    walk_stmts_in_program(program, &mut |stmt| {
+        if matches!(stmt, Stmt::ExecRust { .. }) {
+            f(stmt);
+        }
+    });
+}
+
 /// Collect all COBOL data items referenced by a single EXEC RUST source block.
 ///
 /// Returns a `Vec` of `(cobol_name, rust_name)` pairs in symbol-table order.

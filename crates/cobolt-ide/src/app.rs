@@ -2354,6 +2354,8 @@ impl CoboltApp {
                 verbose: false,
                 workspace_root: None,
                 progress: Some(ptx),
+                // Host only — there is no cross-compilation (spec 041 R17).
+                target: None,
             };
             let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
             let _ = tx.send(result);

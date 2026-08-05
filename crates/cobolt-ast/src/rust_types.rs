@@ -91,6 +91,185 @@ pub const SHIPPED_RUST_TYPES: &[(&str, &str)] = &[
     ("RUST-RANGE", "Rust.Range"),
 ];
 
+/// What a compiled `EXEC RUST` block binds a shipped class as: the Rust type it
+/// appears as inside the block, and the expression that starts it off
+/// (spec 041 R4, R7).
+///
+/// Both strings are **Rust source text**, emitted verbatim into the generated
+/// crate — nothing here is compiled by `cobolt-ast` itself. They live beside
+/// [`SHIPPED_RUST_TYPES`] so the two lists cannot drift; a test asserts every
+/// shipped path has an entry.
+///
+/// # Why some classes bind wider than they read
+///
+/// Every integer width binds as `i64` and both floats as `f64`, because that is
+/// how the curated bridge *stores* them: `INVOKE`/`::` dispatch on the same
+/// object through `downcast_mut::<i64>()`. Binding `RUST-U8` as a real `u8`
+/// would give the block a nicer type and make the very next `INVOKE` on that
+/// item fail. One storage, one truth.
+///
+/// The unsized classes (`Rust.str`, `Rust.OsStr`, `Rust.CStr`, `Rust.Path`)
+/// bind as their owned forms, since a data item owns its object and a `str`
+/// cannot be owned.
+const BLOCK_BINDINGS: &[(&str, &str, &str)] = &[
+    // ── Primitive (scalar) types ──────────────────────────────────────────
+    ("Rust.bool", "bool", "false"),
+    ("Rust.char", "char", "'\\0'"),
+    ("Rust.i8", "i64", "0"),
+    ("Rust.i16", "i64", "0"),
+    ("Rust.i32", "i64", "0"),
+    ("Rust.i64", "i64", "0"),
+    ("Rust.i128", "i64", "0"),
+    ("Rust.isize", "i64", "0"),
+    ("Rust.u8", "i64", "0"),
+    ("Rust.u16", "i64", "0"),
+    ("Rust.u32", "i64", "0"),
+    ("Rust.u64", "i64", "0"),
+    ("Rust.u128", "i64", "0"),
+    ("Rust.usize", "i64", "0"),
+    ("Rust.f32", "f64", "0.0"),
+    ("Rust.f64", "f64", "0.0"),
+    ("Rust.str", "String", "String::new()"),
+    ("Rust.unit", "()", "()"),
+    // ── Strings, text and paths ───────────────────────────────────────────
+    ("Rust.String", "String", "String::new()"),
+    ("Rust.OsString", "std::ffi::OsString", "std::ffi::OsString::new()"),
+    ("Rust.OsStr", "std::ffi::OsString", "std::ffi::OsString::new()"),
+    ("Rust.CString", "std::ffi::CString", "std::ffi::CString::default()"),
+    ("Rust.CStr", "std::ffi::CString", "std::ffi::CString::default()"),
+    ("Rust.Path", "std::path::PathBuf", "std::path::PathBuf::new()"),
+    ("Rust.PathBuf", "std::path::PathBuf", "std::path::PathBuf::new()"),
+    // ── Collections ───────────────────────────────────────────────────────
+    // The element type is the bridge's own value enum, so a collection filled
+    // by `INVOKE` and one filled inside a block hold the same things.
+    (
+        "Rust.Vec",
+        "Vec<cobolt_runtime::rust_bridge::BridgeValue>",
+        "Vec::new()",
+    ),
+    (
+        "Rust.VecDeque",
+        "std::collections::VecDeque<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::collections::VecDeque::new()",
+    ),
+    (
+        "Rust.LinkedList",
+        "std::collections::LinkedList<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::collections::LinkedList::new()",
+    ),
+    (
+        "Rust.HashMap",
+        "std::collections::HashMap<String, cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::collections::HashMap::new()",
+    ),
+    (
+        "Rust.BTreeMap",
+        "std::collections::BTreeMap<String, cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::collections::BTreeMap::new()",
+    ),
+    // A set needs `Hash`/`Ord` on its element, which the bridge value is not;
+    // `String` is the useful set element in COBOL programs anyway.
+    (
+        "Rust.HashSet",
+        "std::collections::HashSet<String>",
+        "std::collections::HashSet::new()",
+    ),
+    (
+        "Rust.BTreeSet",
+        "std::collections::BTreeSet<String>",
+        "std::collections::BTreeSet::new()",
+    ),
+    (
+        "Rust.BinaryHeap",
+        "std::collections::BinaryHeap<i64>",
+        "std::collections::BinaryHeap::new()",
+    ),
+    // ── Core enums ────────────────────────────────────────────────────────
+    (
+        "Rust.Option",
+        "Option<cobolt_runtime::rust_bridge::BridgeValue>",
+        "None",
+    ),
+    (
+        "Rust.Result",
+        "Result<cobolt_runtime::rust_bridge::BridgeValue, String>",
+        "Ok(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    // ── Smart pointers, cells and synchronisation ─────────────────────────
+    (
+        "Rust.Box",
+        "Box<cobolt_runtime::rust_bridge::BridgeValue>",
+        "Box::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    (
+        "Rust.Rc",
+        "std::rc::Rc<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::rc::Rc::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    (
+        "Rust.Arc",
+        "std::sync::Arc<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::sync::Arc::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    (
+        "Rust.Weak",
+        "std::rc::Weak<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::rc::Weak::new()",
+    ),
+    // `Cell` needs `Copy` to be useful at all, so it holds the integer.
+    ("Rust.Cell", "std::cell::Cell<i64>", "std::cell::Cell::new(0)"),
+    (
+        "Rust.RefCell",
+        "std::cell::RefCell<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::cell::RefCell::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    (
+        "Rust.Mutex",
+        "std::sync::Mutex<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::sync::Mutex::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    (
+        "Rust.RwLock",
+        "std::sync::RwLock<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::sync::RwLock::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+    ),
+    (
+        "Rust.Cow",
+        "std::borrow::Cow<'static, str>",
+        "std::borrow::Cow::Borrowed(\"\")",
+    ),
+    // ── Time ──────────────────────────────────────────────────────────────
+    (
+        "Rust.Duration",
+        "std::time::Duration",
+        "std::time::Duration::ZERO",
+    ),
+    (
+        "Rust.Instant",
+        "std::time::Instant",
+        "std::time::Instant::now()",
+    ),
+    (
+        "Rust.SystemTime",
+        "std::time::SystemTime",
+        "std::time::SystemTime::UNIX_EPOCH",
+    ),
+    // ── Ranges ────────────────────────────────────────────────────────────
+    ("Rust.Range", "std::ops::Range<i64>", "0..0"),
+];
+
+/// `(Rust type, initial value)` a compiled block binds `path` as — see
+/// [`BLOCK_BINDINGS`].
+///
+/// `None` for a developer-defined class: codegen binds that as the bare type
+/// name, started from `Default::default()`.
+pub fn block_binding(path: &str) -> Option<(&'static str, &'static str)> {
+    BLOCK_BINDINGS
+        .iter()
+        .find(|(p, _, _)| *p == path)
+        .map(|(_, ty, init)| (*ty, *init))
+}
+
 /// Whether `path` (e.g. `"Rust.String"`) is one of the shipped types.
 ///
 /// Answers for [`SHIPPED_RUST_TYPES`] only — a developer-defined type declared
@@ -140,5 +319,24 @@ mod tests {
         }
         assert!(!is_shipped_rust_type("Rust.Nope"));
         assert_eq!(rust_type_name("System.String"), None);
+    }
+
+    /// Spec 041 T8 — the two lists must describe the same set of classes. A
+    /// shipped class with no binding could not be used from a compiled block;
+    /// a binding for a class that no longer ships is dead text nobody will
+    /// notice going stale.
+    #[test]
+    fn every_shipped_type_has_a_block_binding() {
+        for (name, path) in SHIPPED_RUST_TYPES {
+            let (ty, init) = block_binding(path)
+                .unwrap_or_else(|| panic!("{name} ({path}) has no EXEC RUST binding"));
+            assert!(!ty.is_empty() && !init.is_empty(), "{path} binds to nothing");
+        }
+        assert_eq!(
+            BLOCK_BINDINGS.len(),
+            SHIPPED_RUST_TYPES.len(),
+            "a block binding exists for a class that is not shipped"
+        );
+        assert_eq!(block_binding("Rust.Point"), None, "developer types are not here");
     }
 }

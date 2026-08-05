@@ -53,6 +53,8 @@ use flate2::Compression;
 use serde::Deserialize;
 use thiserror::Error;
 
+pub mod exec_rust;
+
 // ── License / NOTICE assets ─────────────────────────────────────────────────────
 //
 // Baked in at build time so the `package`/`build` commands can drop the required
@@ -98,6 +100,36 @@ pub enum CompilerError {
 
     #[error("cargo build failed (exit {code}):\n{stderr}")]
     CargoBuild { code: i32, stderr: String },
+
+    /// A `rustc` error inside a developer's `EXEC RUST` block, reported against
+    /// their COBOL source rather than the generated file (spec 041 R10).
+    #[error("EXEC RUST error in '{file}' at line {line}, column {col}: {message}")]
+    ExecRustBlock {
+        file: String,
+        line: u32,
+        col: u32,
+        message: String,
+    },
+
+    /// The Rust toolchain is missing or unusable (spec 041 R14).
+    ///
+    /// Building a PowerRustCOBOL application has always shelled out to `cargo`;
+    /// what spec 041 adds is saying so plainly instead of letting the failure
+    /// arrive as an opaque spawn error. **Only building** needs the toolchain —
+    /// a built binary runs on machines that have none.
+    #[error(
+        "the Rust toolchain is required to build, but {tool} could not be run: {detail}. \
+         Install Rust from https://rustup.rs and make sure {tool} is on PATH. \
+         (Only building needs it — the binary you produce does not.)"
+    )]
+    Toolchain { tool: String, detail: String },
+
+    /// A build was asked for a target this host cannot produce (spec 041 R18).
+    #[error(
+        "cannot build for '{requested}' on this machine ({host}): PowerRustCOBOL builds \
+         for the host only. Build the application on {requested} instead."
+    )]
+    UnsupportedTarget { requested: String, host: String },
 
     #[error("No main COBOL source specified in cobolt.toml")]
     NoMain,
@@ -232,6 +264,13 @@ pub struct BuildOptions {
     /// Optional channel that receives [`BuildProgress`] updates as the build
     /// moves through its phases (for a UI progress bar).
     pub progress: Option<std::sync::mpsc::Sender<BuildProgress>>,
+    /// Target triple to build for. `None` — the default — means the host.
+    ///
+    /// There is no cross-compilation (spec 041 R17/R18): anything other than the
+    /// host triple is rejected with a diagnostic telling the developer to build
+    /// on that operating system. The option exists so that request can be
+    /// *refused clearly* rather than silently producing a host binary.
+    pub target: Option<String>,
 }
 
 impl Default for BuildOptions {
@@ -240,11 +279,13 @@ impl Default for BuildOptions {
             verbose: true,
             workspace_root: None,
             progress: None,
+            target: None,
         }
     }
 }
 
 /// Build result returned on success.
+#[derive(Debug)]
 pub struct BuildResult {
     /// Path to the produced executable.
     pub binary_path: PathBuf,
@@ -339,6 +380,55 @@ fn sanitize_package_name(project_name: &str) -> String {
     }
 }
 
+// ── Toolchain (spec 041 R14, R18) ────────────────────────────────────────────
+
+/// Turn a failure to start a toolchain program into a diagnostic that names it.
+fn toolchain_error(tool: &str, e: &std::io::Error) -> CompilerError {
+    CompilerError::Toolchain {
+        tool: tool.to_string(),
+        detail: e.to_string(),
+    }
+}
+
+/// Read the host triple out of `rustc -vV`, given a way to run it.
+///
+/// Taking the runner as an argument is what makes "no toolchain" testable: a
+/// test can hand this a closure that fails the way a missing `rustc` fails,
+/// without editing `PATH` for the whole test process.
+fn probe_host_triple<R>(run: R) -> Result<String, CompilerError>
+where
+    R: FnOnce() -> std::io::Result<std::process::Output>,
+{
+    let out = run().map_err(|e| toolchain_error("rustc", &e))?;
+    if !out.status.success() {
+        return Err(CompilerError::Toolchain {
+            tool: "rustc".into(),
+            detail: format!(
+                "it exited with {}: {}",
+                out.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+        });
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .find_map(|l| l.strip_prefix("host: "))
+        .map(|h| h.trim().to_string())
+        .ok_or_else(|| CompilerError::Toolchain {
+            tool: "rustc".into(),
+            detail: "its version output did not report a host triple".into(),
+        })
+}
+
+/// The triple this machine builds for.
+fn host_triple() -> Result<String, CompilerError> {
+    probe_host_triple(|| {
+        std::process::Command::new("rustc")
+            .arg("-vV")
+            .output()
+    })
+}
+
 /// Shared build pipeline used by both [`build_project`] and [`build_single_file`].
 fn build_core(
     proj: CoboltProject,
@@ -372,6 +462,21 @@ fn build_core(
             });
         }
     };
+
+    // ── 1. The toolchain, before anything is staged ──────────────────────────
+    // Checked first so a missing toolchain fails with its own diagnostic and
+    // leaves no half-built artefacts behind (spec 041 R14/AC12), and so a
+    // cross-target request is refused before any work is done (R18/AC16).
+    report(0.02, "Checking the Rust toolchain…");
+    let host = host_triple()?;
+    if let Some(requested) = opts.target.as_deref() {
+        if requested != host {
+            return Err(CompilerError::UnsupportedTarget {
+                requested: requested.to_string(),
+                host,
+            });
+        }
+    }
 
     report(0.05, "Reading project…");
     // The system documentation is NOT published here. It describes the
@@ -576,7 +681,20 @@ fn build_core(
     let cargo_toml = generate_cargo_toml(&bin_name, &proj.project.version, &crates_path, has_forms);
     std::fs::write(build_dir.join("Cargo.toml"), cargo_toml)?;
 
-    // ── 9. Generate src/main.rs ───────────────────────────────────────────────
+    // ── 9. Generate src/exec_rust_blocks.rs ───────────────────────────────────
+    // Emitted unconditionally: a program with no blocks gets an empty dispatch
+    // table, which keeps `main.rs` free of a conditional module (spec 041 T8).
+    report(0.55, "Generating Rust blocks…");
+    let blocks = exec_rust::generate(&program, &sem.symbols, main_src);
+    if blocks.block_count > 0 || blocks.item_count > 0 {
+        log(&format!(
+            "   {} EXEC RUST block(s), {} item-level block(s)",
+            blocks.block_count, blocks.item_count
+        ));
+    }
+    std::fs::write(src_dir.join("exec_rust_blocks.rs"), &blocks.source)?;
+
+    // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
     let form_ids: Vec<&str> = forms.iter().map(|(id, _)| id.as_str()).collect();
     let main_rs = generate_main_rs(
         &proj.project.name,
@@ -592,17 +710,34 @@ fn build_core(
     // Stream cargo's stderr so the progress bar advances per crate compiled and
     // shows the crate currently building.
     report(0.60, "Compiling…");
-    use std::io::{BufRead as _, BufReader};
+    use std::io::{BufRead as _, BufReader, Read as _};
     let mut args = vec!["build"];
     if !proj.project.debug_compilation {
         args.push("--release");
     }
+    // `--message-format=json` puts machine-readable diagnostics on **stdout**
+    // and leaves the human "Compiling …" lines on stderr, so the progress bar
+    // keeps working while the diagnostics become mappable back to the
+    // developer's COBOL (spec 041 R10).
+    args.push("--message-format=json");
     let mut child = std::process::Command::new("cargo")
         .args(&args)
         .current_dir(&build_dir)
-        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| toolchain_error("cargo", &e))?;
+
+    // Drain stdout on its own thread: reading the two pipes in sequence
+    // deadlocks as soon as one fills its buffer, and a JSON diagnostic stream
+    // fills quickly.
+    let json_reader = child.stdout.take().map(|mut out| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = out.read_to_string(&mut buf);
+            buf
+        })
+    });
 
     let mut captured = String::new();
     let mut compiled = 0usize;
@@ -621,7 +756,28 @@ fn build_core(
         }
     }
     let status = child.wait()?;
+    let json = json_reader
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
     if !status.success() {
+        // A failure inside a developer's block is reported in their terms. Any
+        // other failure — ours, or a dependency's — surfaces raw, because
+        // dressing it up as a COBOL error would point them at innocent code.
+        if let Some(d) = exec_rust::map_cargo_json(&json, &blocks)
+            .into_iter()
+            .find(|d| d.level == "error")
+        {
+            let message = match &d.code {
+                Some(code) => format!("{} [{code}]", d.message),
+                None => d.message.clone(),
+            };
+            return Err(CompilerError::ExecRustBlock {
+                file: main_rel.clone(),
+                line: d.line,
+                col: d.col,
+                message,
+            });
+        }
         return Err(CompilerError::CargoBuild {
             code: status.code().unwrap_or(-1),
             stderr: captured,
@@ -1202,6 +1358,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // the current value rather than the seeded default.
     std::thread::spawn(move || {
         let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+        // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9). One
+        // interpreter per process means one object bridge, so every block —
+        // including one in a form event handler — sees the same state.
+        interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
         interp.set_input_channel(input_rx);
         let _ = interp.run();
     });
@@ -1513,6 +1673,10 @@ impl eframe::App for FormApp {
         r#"//! {app_name} v{version} — built with RustCOBOL (embed+bundle)
 //! Auto-generated by cobolt-compiler. Do not edit.
 
+/// Compiled `EXEC RUST` blocks — generated alongside this file, and empty when
+/// the program has none (spec 041 R1/R2).
+mod exec_rust_blocks;
+
 const APP_NAME:    &str = "{app_name}";
 const APP_VERSION: &str = "{version}";
 
@@ -1552,6 +1716,8 @@ fn load_program() -> cobolt_ast::program::Program {{
 fn run_headless(program: cobolt_ast::program::Program) {{
     use cobolt_runtime::Interpreter;
     let mut interp = Interpreter::new(program);
+    // Compiled EXEC RUST blocks, before the run (spec 041 R2).
+    interp.register_exec_rust_blocks(exec_rust_blocks::register);
     match interp.run() {{
         Ok(()) => {{}}
         Err(e) if e.is_exit_signal() => {{}}
@@ -3378,6 +3544,20 @@ mod resolve_main_tests {
             generate_cargo_toml("gencompilecheck", "0.1.0", &crates_path, true);
         std::fs::write(dir.join("src/main.rs"), &main_rs).unwrap();
         std::fs::write(dir.join("Cargo.toml"), &cargo_toml).unwrap();
+        // `main.rs` declares `mod exec_rust_blocks;` unconditionally, so the
+        // module has to exist even for a program with no blocks (spec 041 T9).
+        let empty = cobolt_parser::parse(cobolt_lexer::tokenize(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. NOBLOCKS.\nPROCEDURE DIVISION.\n    STOP RUN.\n",
+            cobolt_lexer::SourceFormat::Free,
+        ))
+        .program
+        .expect("the empty fixture should parse");
+        let empty_symbols = cobolt_semantic::symbol_table::SymbolTable::build(&empty);
+        std::fs::write(
+            dir.join("src/exec_rust_blocks.rs"),
+            exec_rust::generate(&empty, &empty_symbols, "").source,
+        )
+        .unwrap();
 
         let mut cmd = std::process::Command::new("cargo");
         cmd.arg("build")
@@ -3395,6 +3575,511 @@ mod resolve_main_tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── EXEC RUST end-to-end (spec 041 T9) ────────────────────────────────────
+
+    /// Build a headless program from COBOL source through the real generators
+    /// and **run** it, returning its stdout.
+    ///
+    /// Substring assertions on generated text cannot tell whether a block
+    /// actually executes, and that is the whole claim of spec 041. This does the
+    /// full round trip — parse, serialise the AST, emit the blocks module, emit
+    /// `main.rs`, `cargo build`, execute — so a green result means a compiled
+    /// block really ran inside a built binary.
+    fn build_and_run_cobol(bin: &str, cobol: &str) -> String {
+        use cobolt_lexer::{tokenize, SourceFormat};
+        use cobolt_parser::parse;
+
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("cobolt-compiler sits at <workspace>/crates/cobolt-compiler")
+            .to_path_buf();
+        let crates_path = workspace_root.join("crates");
+
+        let parsed = parse(tokenize(cobol, SourceFormat::Free));
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .all(|d| d.severity != cobolt_parser::Severity::Error),
+            "the fixture should parse: {:?}",
+            parsed.diagnostics
+        );
+        let program = parsed.program.expect("the fixture should produce a program");
+        let sem = cobolt_semantic::analyze(&program);
+        assert!(
+            sem.diagnostics
+                .iter()
+                .all(|d| d.severity != cobolt_semantic::Severity::Error),
+            "the fixture should pass semantic analysis: {:?}",
+            sem.diagnostics
+                .iter()
+                .filter(|d| d.severity == cobolt_semantic::Severity::Error)
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+
+        let dir = temp_dir(bin);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("assets")).unwrap();
+
+        let ast_bytes = bincode::serialize(&program).unwrap();
+        let mut gz = GzEncoder::new(Vec::new(), Compression::best());
+        gz.write_all(&ast_bytes).unwrap();
+        fs::write(dir.join("assets/program.bin"), gz.finish().unwrap()).unwrap();
+
+        let blocks = exec_rust::generate(&program, &sem.symbols, cobol);
+        fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
+        fs::write(
+            dir.join("src/main.rs"),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], ""),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            generate_cargo_toml(bin, "0.1.0", &crates_path, false),
+        )
+        .unwrap();
+
+        let target_dir = workspace_root.join("target");
+        let built = std::process::Command::new("cargo")
+            .arg("build")
+            .current_dir(&dir)
+            .env("CARGO_TARGET_DIR", &target_dir)
+            .output()
+            .expect("failed to run cargo build");
+        assert!(
+            built.status.success(),
+            "the generated crate failed to build:\n{}\n--- generated blocks ---\n{}",
+            String::from_utf8_lossy(&built.stderr),
+            blocks.source
+        );
+
+        let exe = target_dir.join("debug").join(bin);
+        let run = std::process::Command::new(&exe)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run {}: {e}", exe.display()));
+        let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+        assert!(
+            run.status.success(),
+            "the built binary exited with {:?}\nstdout:\n{stdout}\nstderr:\n{}",
+            run.status.code(),
+            String::from_utf8_lossy(&run.stderr)
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+        stdout
+    }
+
+    /// **AC1, AC2 and AC10 together**, in one built binary:
+    ///
+    /// * AC1 — a block calls real `std` APIs on a bound `Rust.String`, and the
+    ///   mutation is visible to COBOL afterwards through `INVOKE`;
+    /// * AC2 — the second block uses a closure, a generic, an iterator chain,
+    ///   `match` and `?`, none of which the deleted micro-interpreter could
+    ///   have run;
+    /// * AC10 — the second block reads what the first stored in a bound
+    ///   `Rust.Vec`, so the two share one context.
+    #[test]
+    fn a_compiled_block_runs_mutates_and_shares_state() {
+        let out = build_and_run_cobol(
+            "execrustdemo",
+            r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RUSTDEMO.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-VEC IS "Rust.Vec"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 USER-NAME USAGE IS OBJECT REFERENCE RUST-STRING VALUE "ada".
+       01 WS-ITEMS USAGE IS OBJECT REFERENCE RUST-VEC.
+       01 WS-TEXT PIC X(20).
+       01 WS-COUNT PIC 9(4).
+       PROCEDURE DIVISION.
+           EXEC RUST
+           use cobolt_runtime::rust_bridge::BridgeValue;
+           user_name.push_str("-lovelace");
+           for n in [10_i64, 20, 30] {
+               ws_items.push(BridgeValue::Int(n));
+           }
+           END-EXEC.
+           EXEC RUST
+           use cobolt_runtime::rust_bridge::BridgeValue;
+           fn twice<T: Clone>(v: T) -> (T, T) {
+               (v.clone(), v)
+           }
+           let total: i64 = ws_items
+               .iter()
+               .map(|v| match v {
+                   BridgeValue::Int(n) => *n,
+                   _ => 0,
+               })
+               .sum();
+           let parsed: i64 = "6".parse::<i64>()?;
+           let (a, b) = twice(parsed);
+           println!("TOTAL={} TWICE={}", total, a + b);
+           END-EXEC.
+           INVOKE USER-NAME "to_string" RETURNING WS-TEXT
+           DISPLAY "NAME=" WS-TEXT
+           INVOKE WS-ITEMS "len" RETURNING WS-COUNT
+           DISPLAY "COUNT=" WS-COUNT
+           STOP RUN.
+"#,
+        );
+
+        // AC10 — the second block saw the first block's three pushes.
+        assert!(
+            out.contains("TOTAL=60"),
+            "two blocks did not share state; output was:\n{out}"
+        );
+        // AC2 — the generic, the closure and `?` all ran.
+        assert!(out.contains("TWICE=12"), "the block's Rust did not run:\n{out}");
+        // AC1 — COBOL sees the mutation the block made.
+        assert!(
+            out.contains("NAME=ada-lovelace"),
+            "the mutation was not visible to COBOL:\n{out}"
+        );
+        assert!(
+            out.contains("COUNT=0003"),
+            "the bound Vec did not keep the block's pushes:\n{out}"
+        );
+    }
+
+    // ── Toolchain and target (spec 041 T11) ───────────────────────────────────
+
+    /// **AC12** — with `rustc` unavailable the build fails with a diagnostic
+    /// that names the missing toolchain, rather than an opaque spawn error.
+    #[test]
+    fn a_missing_toolchain_is_named() {
+        let err = probe_host_triple(|| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No such file or directory (os error 2)",
+            ))
+        })
+        .expect_err("a missing rustc must fail the build");
+
+        let text = err.to_string();
+        assert!(text.contains("rustc"), "the tool should be named: {text}");
+        assert!(
+            text.contains("Rust toolchain is required to build"),
+            "the message should say what is missing: {text}"
+        );
+        assert!(
+            text.contains("rustup.rs"),
+            "the message should say how to fix it: {text}"
+        );
+        assert!(
+            text.contains("does not"),
+            "it should say the produced binary needs no toolchain: {text}"
+        );
+    }
+
+    /// A `rustc` that runs but reports nothing usable is a broken toolchain,
+    /// not a silent success.
+    #[test]
+    fn a_rustc_without_a_host_line_is_a_toolchain_error() {
+        let out = probe_host_triple(|| {
+            Ok(std::process::Output {
+                status: Default::default(),
+                stdout: b"rustc 1.99.0\n".to_vec(),
+                stderr: Vec::new(),
+            })
+        });
+        assert!(matches!(out, Err(CompilerError::Toolchain { .. })), "{out:?}");
+
+        let good = probe_host_triple(|| {
+            Ok(std::process::Output {
+                status: Default::default(),
+                stdout: b"rustc 1.99.0\nbinary: rustc\nhost: aarch64-apple-darwin\n".to_vec(),
+                stderr: Vec::new(),
+            })
+        })
+        .expect("a normal rustc -vV should parse");
+        assert_eq!(good, "aarch64-apple-darwin");
+    }
+
+    /// **AC16** — asking for a target that is not the host is refused, and the
+    /// message tells the developer to build on that operating system.
+    #[test]
+    fn a_non_host_target_is_refused() {
+        let host = host_triple().expect("this test machine has a Rust toolchain");
+        let other = if host.contains("windows") {
+            "aarch64-apple-darwin"
+        } else {
+            "x86_64-pc-windows-msvc"
+        };
+
+        let dir = temp_dir("crosstarget");
+        let src = dir.join("cross.cbl");
+        fs::write(
+            &src,
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. CROSS.\nPROCEDURE DIVISION.\n    STOP RUN.\n",
+        )
+        .unwrap();
+
+        let opts = BuildOptions {
+            verbose: false,
+            target: Some(other.to_string()),
+            ..Default::default()
+        };
+        let err = build_single_file(&src, &opts).expect_err("a non-host target must be refused");
+        let text = err.to_string();
+        assert!(text.contains(other), "the requested target should be named: {text}");
+        assert!(text.contains(&host), "the host should be named: {text}");
+        assert!(
+            text.contains("Build the application on"),
+            "the message should say what to do instead: {text}"
+        );
+
+        // No binary was produced.
+        assert!(!dir.join("bin").exists(), "a refused build left artefacts behind");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Diagnostic mapping (spec 041 T10) ─────────────────────────────────────
+
+    /// The translation itself, on a cargo message shaped exactly like the real
+    /// one: a diagnostic on a generated line that carries developer code is
+    /// restated in COBOL coordinates, and one on our own scaffolding is
+    /// dropped rather than blamed on them.
+    #[test]
+    fn cargo_diagnostics_are_restated_in_cobol_coordinates() {
+        let cobol = "IDENTIFICATION DIVISION.\n\
+                     PROGRAM-ID. MAPDEMO.\n\
+                     ENVIRONMENT DIVISION.\n\
+                     CONFIGURATION SECTION.\n\
+                     REPOSITORY.\n    CLASS RUST-STRING IS \"Rust.String\"\n\
+                     DATA DIVISION.\n\
+                     WORKING-STORAGE SECTION.\n\
+                     01 WS-TEXT USAGE IS OBJECT REFERENCE RUST-STRING.\n\
+                     PROCEDURE DIVISION.\n\
+                     MAIN-PARA.\n    \
+                     EXEC RUST\n    ws_text.push_str(\"x\");\n    END-EXEC.\n    \
+                     STOP RUN.\n";
+        let program = cobolt_parser::parse(cobolt_lexer::tokenize(
+            cobol,
+            cobolt_lexer::SourceFormat::Free,
+        ))
+        .program
+        .expect("the fixture should parse");
+        let symbols = cobolt_semantic::symbol_table::SymbolTable::build(&program);
+        let blocks = exec_rust::generate(&program, &symbols, cobol);
+
+        let developer_line = blocks
+            .source
+            .lines()
+            .position(|l| l.contains("ws_text.push_str"))
+            .expect("the developer's line was emitted") as u32
+            + 1;
+        let scaffold_line = blocks
+            .source
+            .lines()
+            .position(|l| l.contains("pub fn register("))
+            .unwrap() as u32
+            + 1;
+
+        let json = format!(
+            r#"{{"reason":"compiler-message","message":{{"level":"error","message":"mismatched types","code":{{"code":"E0308"}},"spans":[{{"file_name":"/tmp/x/src/exec_rust_blocks.rs","line_start":{developer_line},"column_start":5,"is_primary":true}}]}}}}
+{{"reason":"compiler-artifact","target":{{"name":"x"}}}}
+not json at all
+{{"reason":"compiler-message","message":{{"level":"error","message":"ours, not theirs","spans":[{{"file_name":"/tmp/x/src/exec_rust_blocks.rs","line_start":{scaffold_line},"column_start":1,"is_primary":true}}]}}}}
+{{"reason":"compiler-message","message":{{"level":"error","message":"elsewhere entirely","spans":[{{"file_name":"/tmp/x/src/main.rs","line_start":3,"column_start":1,"is_primary":true}}]}}}}"#
+        );
+
+        let mapped = exec_rust::map_cargo_json(&json, &blocks);
+        assert_eq!(
+            mapped.len(),
+            1,
+            "only the developer's own diagnostic should map: {mapped:?}"
+        );
+        assert_eq!(mapped[0].message, "mismatched types");
+        assert_eq!(mapped[0].code.as_deref(), Some("E0308"));
+
+        let expected_line = cobol
+            .lines()
+            .position(|l| l.contains("ws_text.push_str"))
+            .unwrap() as u32
+            + 1;
+        assert_eq!(
+            mapped[0].line, expected_line,
+            "the diagnostic should point at the developer's COBOL line"
+        );
+    }
+
+    /// **AC4, end to end** — a block with a deliberate type error fails the
+    /// build, and the reported line *and column* are the developer's, asserted
+    /// as the exact numbers their editor would show.
+    #[test]
+    fn a_type_error_in_a_block_reports_the_developers_line_and_column() {
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BADRUST.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS \"Rust.String\"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TEXT USAGE IS OBJECT REFERENCE RUST-STRING VALUE \"x\".
+       PROCEDURE DIVISION.
+           EXEC RUST
+           let n: i64 = ws_text;
+           END-EXEC.
+           STOP RUN.
+";
+        let dir = temp_dir("badrust");
+        let src = dir.join("badrust.cbl");
+        fs::write(&src, cobol).unwrap();
+
+        let opts = BuildOptions {
+            verbose: false,
+            ..Default::default()
+        };
+        let err = build_single_file(&src, &opts).expect_err("a type error must fail the build");
+
+        let (line, col, message) = match &err {
+            CompilerError::ExecRustBlock {
+                line,
+                col,
+                message,
+                ..
+            } => (*line, *col, message.clone()),
+            other => panic!("expected an EXEC RUST diagnostic, got: {other}"),
+        };
+
+        // The line the developer wrote the offending Rust on.
+        let offending = cobol
+            .lines()
+            .position(|l| l.contains("let n: i64 = ws_text;"))
+            .expect("the fixture has that line");
+        assert_eq!(line, offending as u32 + 1, "wrong line: {err}");
+
+        // The column of `ws_text` within it — 1-based, as an editor counts.
+        let expected_col = cobol.lines().nth(offending).unwrap().find("ws_text").unwrap() as u32 + 1;
+        assert_eq!(col, expected_col, "wrong column: {err}");
+
+        assert!(
+            message.contains("mismatched types") || message.contains("E0308"),
+            "rustc's own words should survive: {message}"
+        );
+        // Nothing about the generated file leaks into what the developer reads.
+        let shown = err.to_string();
+        assert!(
+            !shown.contains("exec_rust_blocks"),
+            "generated-code detail leaked into the diagnostic: {shown}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **AC21, the half T4 deferred here** — an item-level block containing a
+    /// statement is rejected. Deciding that needs a Rust parser, so `rustc`
+    /// decides it, and the mapping is what makes the answer land on the
+    /// developer's line instead of on generated code.
+    #[test]
+    fn a_statement_in_an_item_level_block_is_rejected_at_its_own_line() {
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BADITEM.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS \"Rust.String\"
+       EXEC RUST
+       let stray = 1;
+       END-EXEC.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N PIC 9(4).
+       PROCEDURE DIVISION.
+           STOP RUN.
+";
+        let dir = temp_dir("baditem");
+        let src = dir.join("baditem.cbl");
+        fs::write(&src, cobol).unwrap();
+
+        let opts = BuildOptions {
+            verbose: false,
+            ..Default::default()
+        };
+        let err = build_single_file(&src, &opts).expect_err("a statement at module scope must fail");
+
+        match &err {
+            CompilerError::ExecRustBlock { line, .. } => {
+                let offending = cobol
+                    .lines()
+                    .position(|l| l.contains("let stray = 1;"))
+                    .expect("the fixture has that line") as u32
+                    + 1;
+                assert_eq!(*line, offending, "the statement's own line should be named: {err}");
+            }
+            other => panic!("expected an EXEC RUST diagnostic, got: {other}"),
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **AC19/AC20 (item-level half)** — a `struct` and `impl` written in an
+    /// item-level block are module-scope items, so a `CLASS` can name the type,
+    /// an item can be declared with it, and blocks in *different* paragraphs can
+    /// both use it, sharing one object.
+    #[test]
+    fn a_developer_defined_type_is_usable_across_paragraphs() {
+        let out = build_and_run_cobol(
+            "execrustpoint",
+            r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RUSTPOINT.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS MY-POINT IS "Rust.Point"
+       EXEC RUST
+       #[derive(Default, Debug)]
+       pub struct Point {
+           pub x: i64,
+           pub y: i64,
+       }
+
+       impl Point {
+           pub fn shift(&mut self, dx: i64, dy: i64) {
+               self.x += dx;
+               self.y += dy;
+           }
+           pub fn manhattan(&self) -> i64 {
+               self.x.abs() + self.y.abs()
+           }
+       }
+       END-EXEC.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 ORIGIN USAGE IS OBJECT REFERENCE MY-POINT.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           PERFORM MOVE-IT
+           PERFORM REPORT-IT
+           STOP RUN.
+       MOVE-IT.
+           EXEC RUST
+           origin.shift(3, 4);
+           END-EXEC.
+       REPORT-IT.
+           EXEC RUST
+           println!("DIST={}", origin.manhattan());
+           END-EXEC.
+"#,
+        );
+
+        assert!(
+            out.contains("DIST=7"),
+            "the developer-defined type did not survive between paragraphs:\n{out}"
+        );
     }
 
     #[test]

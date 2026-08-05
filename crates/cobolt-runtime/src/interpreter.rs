@@ -280,6 +280,25 @@ fn seed_external_store(env: &mut CobolEnvironment, store: &ExternalStore) {
     }
 }
 
+impl Interpreter {
+    /// Install this program's compiled `EXEC RUST` blocks (spec 041 R2).
+    ///
+    /// Called by the generated `main.rs` with the generated module's `register`
+    /// function, before [`Interpreter::run`]. Takes the installer rather than a
+    /// built table so the generated crate never has to name
+    /// [`crate::exec_rust::ExecRustRegistry`] itself.
+    ///
+    /// Nothing registers these in a plain interpreted run, which is exactly why
+    /// executing a block without building first is a hard error and not a
+    /// silent no-op.
+    pub fn register_exec_rust_blocks(
+        &mut self,
+        install: impl FnOnce(&mut crate::exec_rust::ExecRustRegistry),
+    ) {
+        install(&mut self.exec_rust);
+    }
+}
+
 /// Construct the program's `OBJECT REFERENCE` items (spec 005 Rust-FFI bridge):
 /// resolve each item's class via the program's `REPOSITORY` bindings to a Rust
 /// type, create the object (seeded from the item's `VALUE`, if any), store the
@@ -323,9 +342,13 @@ fn collect_object_ref(
         if let (Some(name), Some(class)) = (&decl.name, &decl.object_class) {
             if let Some(rust_type) = repo.get(&class.to_ascii_uppercase()) {
                 let args = initial_bridge_args(&decl.value);
+                // A class the curated bridge cannot construct still gets a real,
+                // unique handle (spec 041 R22): a developer-defined type is built
+                // by the first compiled block that binds it, and the id 0 this
+                // used to hand out aliased every such item onto one another.
                 let id = match bridge.create(rust_type, &args) {
                     Ok(crate::rust_bridge::BridgeValue::Handle(id)) => id,
-                    _ => 0,
+                    _ => bridge.create_uninitialised(rust_type),
                 };
                 let key = name.to_ascii_uppercase();
                 env.set_i64(&key, id);
@@ -2323,9 +2346,13 @@ impl Interpreter {
             Stmt::GoBack { .. } => Err(RuntimeError::GoBack),
 
             // ── EXEC RUST ─────────────────────────────────────────────────────
-            Stmt::ExecRust { .. } => {
-                exec_rust::execute(stmt, &mut self.env, &mut self.objects, &self.exec_rust)
-            }
+            Stmt::ExecRust { .. } => exec_rust::execute(
+                stmt,
+                &mut self.env,
+                &mut self.objects,
+                &mut self.rust_bridge,
+                &self.exec_rust,
+            ),
 
             // ── TRY / CATCH EXCEPTION / FINALLY ──────────────────────────────
             Stmt::TryCatch {

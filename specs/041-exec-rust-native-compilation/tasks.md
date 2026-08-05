@@ -177,38 +177,99 @@ saying so.
   - Verify: `cargo test -p cobolt-semantic`; **covers AC6, AC7, AC9, AC14**. Each
     test asserts the message *names* the item, not merely that it failed.
 
-- [ ] **T8 — Codegen: emit `exec_rust_blocks.rs`** (R1, R4, R19, R20)
-  - Files: `crates/cobolt-compiler/src/lib.rs` (near `generate_main_rs`, ~939)
-  - Do: emit item-level blocks verbatim at **module scope**; emit each
-    statement-level block as one function with a preamble binding
-    `referenced_data` by `downcast_mut::<T>()`. Carry the generated-by banner.
-  - Verify: `cargo test -p cobolt-compiler` green; a test asserts the emitted file
-    places items at module scope and functions below them.
+- [x] **T8 — Codegen: emit `exec_rust_blocks.rs`** (R1, R4, R19, R20) — *done:
+      `cargo test -p cobolt-compiler --lib exec_rust` **6 passed**, 0 failed.*
+  - **New module, not `lib.rs`:** the codegen lives in
+    `crates/cobolt-compiler/src/exec_rust.rs`. The task said "near
+    `generate_main_rs`"; `lib.rs` is already ~3 000 lines and this is a
+    self-contained emitter with its own provenance bookkeeping.
+  - **The T6 design error is fixed.** `ExecRustContext` carried
+    `ObjectRegistry` (forms and controls) but not `RustBridge`, where bound
+    objects actually live — so a generated block could see an item's *handle id*
+    in `env` and nothing it pointed at. The context now carries all three.
+  - **Binding is take-and-put-back**, and the emitted order matters: resolve
+    ids → `check_binding` **every** item → take → run → put back → re-raise.
+    Checking before taking is what stops a block that binds two objects from
+    taking the first, failing on the second, and stranding the first slot.
+  - **Containment moved inside the generated function** (plan §4 now records
+    this). With `catch_unwind` only at the call site a panic would unwind past
+    the taken values and drop them, leaving live COBOL handles pointing at
+    nothing; the generated function puts everything back on both paths and then
+    `resume_unwind`s, so the runtime's own containment still produces
+    `RustPanic` and `CATCH RUST-EXCEPTION` is unaffected.
+  - **A block body is a `Result`-returning function body**, which is what makes
+    `?` usable at block level (AC2). An error reaching the end becomes a panic,
+    so it arrives as a `RUST-EXCEPTION` like every other block failure.
+  - **New: `cobolt_ast::rust_types::block_binding`** — what each shipped class
+    binds as, and what it starts from. Every integer width binds as `i64` and
+    both floats as `f64` because that is how the bridge *stores* them; binding
+    `RUST-U8` as a real `u8` would make the next `INVOKE` on that item panic.
+    A test asserts the two lists cannot drift.
+  - **New: `RustBridge::create_uninitialised` / `check_binding` / `take_or_init`.**
+    A `CLASS` naming a developer-defined type is not constructible by the curated
+    bridge; such items used to get handle **0**, which silently aliased every one
+    of them onto the same slot. They now get a real unique handle, and the first
+    block to bind one initialises it (R22).
+  - Also: `DataItemInfo` gained `object_class` — the only thing that says which
+    Rust type a handle refers to.
 
-- [ ] **T9 — Register the table in `main.rs`** (R2, R9)
-  - Files: `crates/cobolt-compiler/src/lib.rs` (`generate_main_rs`)
-  - Do: build the dispatch table and hand it to the `Interpreter` before `run()`;
-    one shared context for the process.
-  - Verify: `cargo test -p cobolt-compiler`; end-to-end test builds a project whose
-    block mutates a bound `Rust.String` and asserts COBOL sees it (**AC1**), a
-    block using closures/generics/iterators/`match`/`?` compiles and runs
-    (**AC2**), and two blocks share state (**AC10**).
+- [x] **T9 — Register the table in `main.rs`** (R2, R9) — *done:
+      `a_compiled_block_runs_mutates_and_shares_state` and
+      `a_developer_defined_type_is_usable_across_paragraphs` **2 passed** (329 s
+      and 16 s — the first build populates the shared target dir).*
+  - `Interpreter::register_exec_rust_blocks` takes the generated module's
+    `register` fn, so the generated crate never names `ExecRustRegistry`. Both
+    run paths register: headless and the form-app interpreter thread.
+  - **AC1, AC2, AC10 verified by execution, not by substring.** The test drives
+    the real generators, runs `cargo build`, and executes the produced binary:
+    a block mutates a bound `Rust.String` (`NAME=ada-lovelace` read back through
+    `INVOKE`), a second block uses a closure, a generic `fn`, an iterator chain,
+    `match` and `?` (`TWICE=12`), and reads the `Rust.Vec` the first filled
+    (`TOTAL=60`, `COUNT=0003`).
+  - **AC19 and the paragraph half of AC20** also verified here: a `struct Point`
+    with an `impl` written in an item-level block, named by `CLASS MY-POINT`,
+    mutated in one paragraph and read in another (`DIST=7`). The form-handler
+    half of AC20 is T12's.
 
 ## Phase C — diagnostics, reach, IDE
 
-- [ ] **T10 — Map `rustc` diagnostics to COBOL spans** (R10)
-  - Files: `crates/cobolt-compiler/src/lib.rs` (the `cargo build` invocation, ~600)
-  - Do: run cargo with `--message-format=json`; translate each diagnostic's
-    generated-file line/column back through a span table to the developer's
-    `EXEC RUST` source. **The plan calls this the hard part — budget for it.**
-  - Verify: `cargo test -p cobolt-compiler`; **covers AC4** — a deliberate type
-    error reports the developer's line/column, asserted as exact numbers.
+- [x] **T10 — Map `rustc` diagnostics to COBOL spans** (R10) — *done:
+      `cargo test -p cobolt-compiler --lib` mapping tests **3 passed**
+      (`cargo_diagnostics_are_restated_in_cobol_coordinates`,
+      `a_type_error_in_a_block_reports_the_developers_line_and_column`,
+      `a_statement_in_an_item_level_block_is_rejected_at_its_own_line`).*
+  - **The provenance is recorded while emitting, not reconstructed after.** The
+    emitter writes developer source with *no added indentation*, so a generated
+    column is already the developer's column and only the first line of a block
+    needs an offset (the lexer trims what it captures). `GeneratedBlocks.line_map`
+    carries the rest.
+  - Cargo runs with `--message-format=json`: diagnostics on stdout, the human
+    "Compiling …" lines still on stderr, so the progress bar is untouched. stdout
+    is drained on its own thread — reading both pipes in sequence deadlocks as
+    soon as one fills.
+  - **A diagnostic that does not map is not dressed up.** Errors in `main.rs`, in
+    a dependency, or on this codegen's own scaffolding fall through to the raw
+    cargo output: blaming those on a COBOL line would point the developer at
+    innocent code.
+  - **AC4 asserted as exact numbers**, line *and* column, against a real build,
+    and the message is checked for *not* mentioning `exec_rust_blocks`.
+  - **AC21's second half lands here as T4 predicted**: `let stray = 1;` at module
+    scope is rejected by `rustc` and reported at the developer's own line.
 
-- [ ] **T11 — Toolchain + target failures** (R14, R16, R18)
-  - Files: `crates/cobolt-compiler/src/lib.rs`
-  - Do: explicit diagnostic when cargo/rustc is unusable (no silent fallback);
-    reject a non-host target telling the developer to build on that OS.
-  - Verify: `cargo test -p cobolt-compiler`; **covers AC12, AC16**.
+- [x] **T11 — Toolchain + target failures** (R14, R16, R18) — *done:
+      `a_missing_toolchain_is_named`, `a_rustc_without_a_host_line_is_a_toolchain_error`,
+      `a_non_host_target_is_refused` — **3 passed**.*
+  - The toolchain is probed **before anything is staged**, so a missing `rustc`
+    fails with its own diagnostic and leaves no half-built artefacts (AC12), and
+    a cross-target request is refused before any work (AC16).
+  - **Testable without editing `PATH`:** `probe_host_triple` takes the runner as
+    an argument, so a test can hand it exactly the failure a missing `rustc`
+    produces. Editing `PATH` would have been process-global and raced every other
+    test in the binary.
+  - `BuildOptions::target` exists so a cross-target request can be *refused
+    clearly* rather than silently producing a host binary. The message names the
+    requested triple, the host, and what to do instead.
+  - R16 was already done in T7 (`unlinked_crates`), so nothing was needed here.
 
 - [ ] **T12 — Type-coverage suite** (R7, R22)
   - Files: `crates/cobolt-runtime/tests/test_rust_ffi.rs` (extend; do not fork)

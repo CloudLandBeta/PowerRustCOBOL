@@ -398,6 +398,8 @@ fn cmd_build(args: &[String]) {
         verbose: !quiet,
         workspace_root: None,
         progress: None,
+        // Host only — there is no cross-compilation (spec 041 R17).
+        target: None,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));

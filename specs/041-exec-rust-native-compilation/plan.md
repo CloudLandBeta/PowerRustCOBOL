@@ -120,6 +120,22 @@ cross-compilation exists to remove).
   stability is irrelevant. — *Rejected:* the spec's `extern "C"` boundary (R12),
   which is only needed across a dynamic-library edge that no longer exists.
   **`catch_unwind` alone satisfies R12/R13.** *Spec R12/R13 should be reworded.*
+- **Decision (T8, revises §1.4): containment lives *inside* the generated
+  function, not only at the call site.** — *Why:* binding is take-and-put-back,
+  so a block holds its objects as locals while it runs. With `catch_unwind` only
+  around the call, a panic unwinds past those locals and drops them, leaving live
+  COBOL handles pointing at nothing. The generated function wraps the body,
+  **puts every value back on both paths**, then `resume_unwind`s — so the
+  runtime's `contain()` still turns it into `RustPanic` and `CATCH
+  RUST-EXCEPTION` is unchanged. — *Rejected:* cloning each object (silently
+  discards the block's mutations on the panic path) and a drop guard (needs the
+  bridge borrowed while the body holds the values, which is the aliasing this
+  design exists to avoid).
+- **Decision (T8): a block body is a `Result`-returning function body.** —
+  *Why:* AC2 requires `?` inside a block, which needs an enclosing `Result`
+  return. An error that reaches the end becomes a panic, so it arrives as a
+  `RUST-EXCEPTION` like every other failure in a block — one door, not two. —
+  *Consequence to document:* an early exit is `return Ok(())`, not `return;`.
 - **Decision: bind objects by typed `downcast_mut`, not by value marshalling.** —
   *Why:* the registry already stores genuine `std` values as `Box<dyn Any>`; the
   preamble can hand the block a real `&mut String`/`&mut Vec<_>`. This is what makes

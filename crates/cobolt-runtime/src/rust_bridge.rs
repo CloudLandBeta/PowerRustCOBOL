@@ -73,6 +73,17 @@ struct BridgeObject {
     value: Box<dyn Any>,
 }
 
+/// What a handle holds before anything has put a real object in it.
+///
+/// The curated bridge constructs the handful of types `INVOKE`/`::` can call
+/// methods on. A `CLASS` naming a **developer-defined** type (spec 041 R22) is
+/// not one of those — nothing in this crate knows how to build a `Point` — yet
+/// the item still needs a handle, and a unique one: handing every such item the
+/// same id 0 would silently alias unrelated objects. So the item gets a real id
+/// with this marker in it, and the first compiled block to bind it swaps in a
+/// `Default`-constructed value ([`RustBridge::take_or_default`]).
+struct Uninitialised;
+
 /// The run-unit's table of live Rust objects referenced from COBOL.
 ///
 /// Handles are stable ids; dropping one removes the object (running its `Drop`),
@@ -113,6 +124,120 @@ impl RustBridge {
     /// Drop a handle, running the Rust destructor. Returns whether it existed.
     pub fn drop_handle(&mut self, id: i64) -> bool {
         self.objects.remove(&id).is_some()
+    }
+
+    /// Move the value out of `id`, leaving the handle empty (spec 041 T8).
+    ///
+    /// Compiled blocks bind by **take-and-put-back** rather than by borrowing:
+    /// a block may bind several objects at once, and handing out two `&mut`
+    /// from one `HashMap` is not expressible. Taking owned values sidesteps
+    /// aliasing entirely and matches how they are stored (`Box<dyn Any>`).
+    ///
+    /// Returns `None` when the handle is unknown or holds a different type —
+    /// the caller reports that rather than papering over it.
+    pub fn take_value<T: 'static>(&mut self, id: i64) -> Option<T> {
+        let obj = self.objects.remove(&id)?;
+        let type_name = obj.type_name.clone();
+        match obj.value.downcast::<T>() {
+            Ok(boxed) => Some(*boxed),
+            Err(value) => {
+                // Wrong type: put it back untouched so a failed bind cannot
+                // destroy the object.
+                self.objects.insert(id, BridgeObject { type_name, value });
+                None
+            }
+        }
+    }
+
+    /// Put a value back under an existing handle id (the other half of
+    /// [`Self::take_value`]).
+    pub fn put_value<T: 'static>(&mut self, id: i64, type_name: &str, value: T) {
+        self.objects.insert(
+            id,
+            BridgeObject {
+                type_name: type_name.to_owned(),
+                value: Box::new(value),
+            },
+        );
+    }
+
+    /// The `REPOSITORY` external name a handle was created under, e.g.
+    /// `"Rust.String"`.
+    pub fn type_of(&self, id: i64) -> Option<&str> {
+        self.objects.get(&id).map(|o| o.type_name.as_str())
+    }
+
+    /// Reserve a handle for a type the curated bridge cannot construct
+    /// (spec 041 R22 — a developer-defined `CLASS`).
+    ///
+    /// The handle is real and unique; what it holds is a marker until the first
+    /// compiled block binds it. See [`Uninitialised`].
+    pub fn create_uninitialised(&mut self, type_name: &str) -> i64 {
+        self.store(type_name, Box::new(Uninitialised))
+    }
+
+    /// Whether `id` may be bound as `T` by a compiled block — spec 041 T8.
+    ///
+    /// Checked for **every** binding *before* any value is moved, so a block
+    /// binding several objects cannot take some, fail on a later one, and leave
+    /// the taken slots empty. `Err` carries a message naming the COBOL item, the
+    /// class it was declared with, and what the handle actually holds.
+    pub fn check_binding<T: 'static>(
+        &self,
+        id: i64,
+        cobol_name: &str,
+        class_path: &str,
+    ) -> Result<(), String> {
+        let Some(obj) = self.objects.get(&id) else {
+            return Err(format!(
+                "EXEC RUST cannot bind {cobol_name}: handle {id} is not live — the \
+                 item is not a USAGE OBJECT REFERENCE, or its object was dropped"
+            ));
+        };
+        if obj.value.is::<T>() || obj.value.is::<Uninitialised>() {
+            return Ok(());
+        }
+        Err(format!(
+            "EXEC RUST cannot bind {cobol_name} as {class_path}: its handle holds \
+             a {} instead",
+            obj.type_name
+        ))
+    }
+
+    /// Move the value out of `id` for a compiled block, calling `init` when the
+    /// handle is still [`Uninitialised`].
+    ///
+    /// `init` rather than `Default` because several shipped classes have no
+    /// `Default` — `Rust.Instant`, `Rust.SystemTime`, `Rust.Result` — and each
+    /// has an obvious starting value instead. `cobolt_ast::rust_types` holds the
+    /// one the generated code passes.
+    ///
+    /// Infallible by construction: [`Self::check_binding`] has already rejected
+    /// a handle that holds something else. A wrong type here would mean codegen
+    /// and this table disagree, and quietly substituting the initial value would
+    /// hide that, so it panics — which containment turns into a catchable
+    /// `RUST-EXCEPTION`.
+    pub fn take_or_init<T: 'static>(&mut self, id: i64, init: impl FnOnce() -> T) -> T {
+        match self.objects.remove(&id) {
+            None => init(),
+            Some(obj) => {
+                if obj.value.is::<Uninitialised>() {
+                    return init();
+                }
+                let type_name = obj.type_name.clone();
+                match obj.value.downcast::<T>() {
+                    Ok(boxed) => *boxed,
+                    Err(value) => {
+                        self.objects.insert(id, BridgeObject { type_name, value });
+                        panic!(
+                            "EXEC RUST binding for handle {id} was checked and then \
+                             found to hold a different type — codegen and the object \
+                             table disagree"
+                        )
+                    }
+                }
+            }
+        }
     }
 
     /// Construct a curated Rust object. `type_name` is the `REPOSITORY` external

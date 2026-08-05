@@ -38,6 +38,16 @@ pub struct DataItemInfo {
     pub pic_kind: Option<PicKind>,
     /// Usage / storage class.
     pub usage: Usage,
+    /// The `REPOSITORY` class this item was declared with, for a
+    /// `USAGE OBJECT REFERENCE` item: `"RUST-STRING"`. `None` for every other
+    /// item.
+    ///
+    /// Kept here because it is the only thing that says *which* Rust type a
+    /// handle refers to, and `EXEC RUST` codegen needs that to bind the item at
+    /// its real type (spec 041 T8). It is the class name as written, not the
+    /// resolved path — resolving needs the program's `REPOSITORY`, which the
+    /// symbol table deliberately does not hold.
+    pub object_class: Option<String>,
     /// `true` if this item is a group (no PIC clause and has children).
     pub is_group: bool,
     /// Source location of the declaration.
@@ -61,6 +71,7 @@ impl DataItemInfo {
             level: decl.level,
             pic_kind: decl.picture.as_ref().map(|p| p.kind),
             usage: decl.usage,
+            object_class: decl.object_class.clone(),
             is_group: decl.picture.is_none() && !decl.children.is_empty(),
             span: decl.span,
         })
@@ -246,6 +257,7 @@ impl SymbolTable {
                         level: 77,
                         pic_kind: Some(PicKind::Numeric),
                         usage: Usage::Index,
+                        object_class: None,
                         is_group: false,
                         span: decl.span,
                     });
