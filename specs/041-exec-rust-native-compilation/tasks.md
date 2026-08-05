@@ -271,54 +271,125 @@ saying so.
     requested triple, the host, and what to do instead.
   - R16 was already done in T7 (`unlinked_crates`), so nothing was needed here.
 
-- [ ] **T12 — Type-coverage suite** (R7, R22)
-  - Files: `crates/cobolt-runtime/tests/test_rust_ffi.rs` (extend; do not fork)
-  - Do: one table-driven test, one row per shipped `CLASS RUST-*`, declaring an
-    item of that class and touching one method; plus a developer-defined
-    `struct Point` + `impl` used from another paragraph and from a form handler.
-  - Verify: `cargo test -p cobolt-runtime`; **covers AC8, AC19, AC20**. Report the
-    count of classes exercised as a number.
+- [x] **T12 — Type-coverage suite** (R7, R22) — *done: `every_shipped_class_binds_inside_a_block`
+      (compiler, built and run) and `every_shipped_class_gets_a_live_unique_handle`
+      (runtime) — **AC8 exercises all 48 shipped classes**, reported by the test
+      itself.*
+  - **Split by where the claim actually lives.** AC8 says each class must be
+    *used inside a block*, and a block is compiled — so the program that declares
+    all 48, binds every one in a block and runs is a `cobolt-compiler` test. The
+    runtime half extends `test_rust_ffi.rs` as instructed, asserting the thing the
+    runtime owns: every declared item gets a **live, unique** handle.
+  - The COBOL source is generated from `SHIPPED_RUST_TYPES`, so adding a class
+    without a binding fails the test instead of shipping a class nobody can use.
+    Two blocks touch every item — the second proves each value survived the
+    first's put-back.
+  - **A pre-existing parser bug had to be fixed to get here.** `repository` and
+    `rust_items` were accumulated in parser state and moved out when a `Program`
+    was built — but nested programs are parsed *before* the outer program is
+    built, so the first nested program took the outer program's entries and the
+    outer was left with none. A form's `CLASS RUST-STRING IS "Rust.String"`
+    vanished the moment the form gained an event handler. Claimed before the
+    nested loop now.
+  - **AC20's event-handler half** is `a_block_inside_a_nested_program_runs`: a form
+    event handler *is* a nested program, so the block walk now descends into them
+    — a top-level-only walk dropped every handler block in silence, which is the
+    defect class this spec exists to remove. A nested block also binds the
+    containing program's `GLOBAL` items (and only those, as COBOL scoping says).
 
-- [ ] **T13 — IDE: *Run* builds when a block is present** (plan §4 / spec Q3, Q8)
-  - Files: `crates/cobolt-ide/src/app.rs` (Run action), Output panel
-  - Do: if the program contains any `EXEC RUST`, build before running and execute
-    the built binary; otherwise keep today's interpreter path. Stream build
-    progress to the Output panel so the pause is explained.
-  - Verify: `cargo build -p cobolt-ide` + `cargo test -p cobolt-ide`; manual: press
-    *Run* on a form with a block and watch progress, then on one without and
-    confirm the fast path is unchanged.
+- [x] **T13 — IDE: *Run* builds when a block is present** (plan §4 / spec Q3, Q8) —
+      *done: `cargo build -p cobolt-ide` clean; `exec_rust_run` **4 tests**.*
+  - The decision is a tested, pure function (`crates/cobolt-ide/src/exec_rust_run.rs`)
+    that asks the **lexer**, not a substring search: a program merely mentioning
+    `EXEC RUST` in a comment or a literal would otherwise pay a cargo build on
+    every *Run*, forever, for nothing.
+  - *Run* on a program with a block builds first and starts the built binary;
+    without one, the `rcrun run-form` fast path is untouched. Six `Tr` keys ×6
+    languages carry the Output-panel messages.
+  - **Debug is refused, explicitly.** The debugger steps interpreted COBOL over
+    `@DBG` lines and a compiled block is native code with no such protocol; saying
+    so beats starting a session that cannot step into the block.
+  - **Not verified by me:** the on-screen behaviour. The IDE builds and the
+    decision is unit-tested, but I do not drive the application — pressing *Run*
+    on a form with a block, and on one without, is the operator's check.
 
-- [ ] **T14 — Rebuild economy** (R15)
-  - Files: — (measurement only)
-  - Do: confirm cargo's incremental cache means an unchanged block does not
-    recompile.
-  - Verify: **AC13** — build twice, report the measured cargo invocation count or
-    elapsed seconds for each. **Verify-first: report the number the run produced,
-    never an estimate.**
+- [x] **T14 — Rebuild economy** (R15) — *done, **measured**: build 1 compiled
+      **237 crates in 26.4 s**; build 2 compiled **0 crates in 0.6 s**; after
+      editing the block, build 3 compiled **1 crate**.*
+  - **AC13 needed a fix, not just a measurement.** Every build rewrote
+    `Cargo.toml`, `main.rs` and `exec_rust_blocks.rs` unconditionally, giving each
+    a fresh mtime — and cargo's fingerprint is mtime-based, so an unchanged
+    program recompiled its own crate every single time. `write_if_changed`
+    compares first.
+  - The measurement is a **count**, not a stopwatch: `BuildResult::crates_compiled`
+    is cargo's own tally, and "compiled 0 crates" means the same thing on a fast
+    machine and a slow one. The third build guards the opposite failure — a cache
+    that never invalidates would pass the first assertion while being useless.
+  - Also fixed here: the tests now remove their build staging **and hold a shared
+    mutex while they build**. Each staged crate carries its own `target/`, so
+    tests that built and walked away left about a gigabyte apiece behind, and
+    four running at once needed several gigabytes at the same moment — enough to
+    fill a disk, after which the `ENOSPC` surfaces as an unrelated failure
+    somewhere else entirely. (Both happened on this machine mid-session.)
 
 ## Phase D — docs, i18n, finalize
 
-- [ ] **T15 — Docs & i18n**
-  - Files: `docs/developers-guide-en.md`, `crates/cobolt-ide/src/i18n.rs`,
-    `crates/cobolt-compiler/src/lib.rs` (KB tables ~1638)
-  - Do: guide section — the two block kinds and where each may appear, the
-    `USAGE OBJECT REFERENCE` restriction, `snake_case` names, shared context and
-    that `CANCEL` does not reset it, `CATCH RUST-EXCEPTION`, `std`-only, host-only
-    builds, and that *Run* builds. Add `Tr` keys ×6 for every new Output-panel
-    string. Update the System KB documentation tables (same change, per `tech.md`).
-    **Translations of the guide are user-maintained — do not touch.**
-  - Verify: `cargo test -p cobolt-ide i18n` (no empty translations); guide renders
-    in the doc viewer.
+- [x] **T15 — Docs & i18n** — *done: guide section added, 6 `Tr` keys ×6
+      languages (`cargo test -p cobolt-ide --bins -- i18n` **3 passed**, including
+      `no_empty_ui_translations` and `non_english_is_actually_translated`), KB
+      table extended and `assets/knowledge/chunked.data` rebuilt.*
+  - The guide gains `### Rust inside COBOL — EXEC RUST` inside §13 (the language
+    section) rather than a new numbered section: renumbering would break every
+    translation's structure and every TOC anchor, for no gain.
+  - The System KB's `rustcobol_extensions.md` gains the same contract in the form
+    the agents read it — the two block kinds and where each may appear, what may
+    cross into a block, the `i64`/`f64` binding rule, developer-defined types and
+    their `Default` requirement, the `Result`-body/`?` contract, shared state,
+    the linked-crate set, and that Run builds.
+  - `chunked.data` regenerated with `cargo run -p cobolt-ide --example
+    build_chunked_kb`, so `prebuilt_chunked_kb_matches_the_published_documentation`
+    is green rather than red-and-explained.
+  - **Translations untouched**, per the standing rule.
 
-- [ ] **T16 — Finalize**
-  - Do: full `cargo test --workspace --no-fail-fast`, collecting **every**
-    `test result` line; CHANGELOG entry; confirm all 21 acceptance criteria.
-    **Version bump is the operator's call (spec Q4) — do not bump the minor
-    unprompted.** Raise spec Q5 (`tech.md` still records the KB reindex as
-    suspended) for a decision.
-  - Verify: full sweep green with totals reported; **AC3** — build an app with a
-    block and run it where no Rust toolchain exists, and **AC15** — confirm the
-    host build works. Both are *observed*, never inferred.
+  - Files touched: `docs/developers-guide-en.md`, `crates/cobolt-ide/src/i18n.rs`,
+    `crates/cobolt-compiler/src/lib.rs` (KB tables), `assets/knowledge/chunked.data`.
+
+- [x] **T16 — Finalize** — *full sweep **80 suites, 1545 passed, 0 failed, 8
+      ignored**; CHANGELOG entry added; version bumped **1.60.8 → 1.60.9** (fix
+      number only).*
+  - Command: `cargo test --workspace --lib --tests --no-fail-fast`. Every
+    `test result` line was collected and summed, not grepped for failures.
+    `cobolt-compiler` alone is **33 passed in 1028 s** — the end-to-end tests
+    each build and run a real binary.
+  - **Two exclusions, stated rather than hidden.** `--lib --tests` runs no
+    **examples**: `cobolt-forms`'s `gen_reference_theme` does not compile
+    (`unresolved import 'image'`), which I confirmed is **pre-existing** by
+    stashing this branch's changes and rebuilding it. It also runs no doc-tests.
+  - The handoff's baseline was 1523 passed / 2 failed, both `secrets::macos`
+    Keychain tests. Those **passed** in this run; they are environment-dependent
+    (each waits ~60 s on the Keychain), not fixed by anything here.
+  - **Version.** `tech.md` says a feature bumps the minor, which contradicts the
+    operator's standing rule that only they raise `x`/`y` — the rule spec Q4
+    defers to. So `z` was bumped and the contradiction is recorded in Q5 rather
+    than resolved unilaterally.
+  - **Q5 acted on**: this change edits the KB tables, so `build_chunked_kb` was
+    run and the regenerated `assets/knowledge/chunked.data` (948 records from 5
+    documents) is committed with it; `tech.md`'s "suspended" parenthetical was
+    corrected to match the operator's 2026-07-31 lift, since leaving it would
+    tell the next change to skip a required step and to read a real red test as
+    expected. Flagged in the spec for confirmation.
+  - **AC3 is partially observed and says so.** The binary runs its compiled block
+    with `PATH` empty and `RUSTUP_HOME`/`CARGO_HOME` cleared. A genuinely
+    toolchain-free *machine* cannot be produced from the build machine; that step
+    is the operator's.
+  - **AC15 is left unchecked, deliberately.** macOS is observed — every
+    end-to-end test here builds and runs a binary on `aarch64-apple-darwin`.
+    Linux and Windows cannot be verified from here and are not claimed.
+  - **T13's on-screen behaviour is likewise unverified**: the IDE compiles and the
+    build-or-interpret decision is unit-tested, but pressing *Run* is the
+    operator's check.
+  - **Not done here, on purpose:** nothing is pushed, and `features` is not merged
+    into `main` — both are the operator's call.
 
 ## Done criteria
 

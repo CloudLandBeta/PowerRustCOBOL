@@ -25,6 +25,7 @@ pub mod data_binding_guardian;
 pub mod debug_settings;
 pub mod flags;
 pub mod docs_embed;
+pub mod exec_rust_run;
 pub mod file_dialog;
 pub mod fonts;
 pub mod form_runtime;

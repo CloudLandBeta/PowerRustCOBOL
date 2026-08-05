@@ -295,6 +295,12 @@ pub struct BuildResult {
     pub form_count: usize,
     /// Compressed AST size in bytes.
     pub ast_bytes: usize,
+    /// How many crates `cargo` actually compiled this time (spec 041 R15).
+    ///
+    /// `0` on a rebuild with nothing changed — the measurement AC13 asks for,
+    /// as a count rather than a stopwatch reading, because a count is the same
+    /// number on a fast machine and a slow one.
+    pub crates_compiled: usize,
 }
 
 /// Compile a Cobolt project into a single native binary.
@@ -378,6 +384,23 @@ fn sanitize_package_name(project_name: &str) -> String {
     } else {
         "app".to_string()
     }
+}
+
+/// Write `bytes` to `path` only when they differ from what is already there
+/// (spec 041 R15).
+///
+/// Every build regenerates `Cargo.toml`, `main.rs` and `exec_rust_blocks.rs`
+/// from source. Writing them unconditionally gives each a fresh mtime, and
+/// cargo's fingerprint is mtime-based — so an unchanged program recompiled its
+/// own crate on every single build, for nothing. Comparing first is what makes
+/// "build twice, compile nothing the second time" true rather than aspirational.
+fn write_if_changed(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Ok(existing) = std::fs::read(path) {
+        if existing == bytes {
+            return Ok(());
+        }
+    }
+    std::fs::write(path, bytes)
 }
 
 // ── Toolchain (spec 041 R14, R18) ────────────────────────────────────────────
@@ -638,11 +661,11 @@ fn build_core(
     std::fs::create_dir_all(&src_dir)?;
 
     // Write compressed AST
-    std::fs::write(assets_dir.join("program.bin"), &compressed_ast)?;
+    write_if_changed(&assets_dir.join("program.bin"), &compressed_ast)?;
 
     // Write form files
     for (id, raw) in &forms {
-        std::fs::write(forms_dir.join(format!("{id}.cfrm")), raw)?;
+        write_if_changed(&forms_dir.join(format!("{id}.cfrm")), raw)?;
     }
 
     // ── 7b. Stage the asset-pack themes the forms actually use ────────────────
@@ -679,7 +702,7 @@ fn build_core(
     let has_forms = !forms.is_empty();
 
     let cargo_toml = generate_cargo_toml(&bin_name, &proj.project.version, &crates_path, has_forms);
-    std::fs::write(build_dir.join("Cargo.toml"), cargo_toml)?;
+    write_if_changed(&build_dir.join("Cargo.toml"), cargo_toml.as_bytes())?;
 
     // ── 9. Generate src/exec_rust_blocks.rs ───────────────────────────────────
     // Emitted unconditionally: a program with no blocks gets an empty dispatch
@@ -692,7 +715,7 @@ fn build_core(
             blocks.block_count, blocks.item_count
         ));
     }
-    std::fs::write(src_dir.join("exec_rust_blocks.rs"), &blocks.source)?;
+    write_if_changed(&src_dir.join("exec_rust_blocks.rs"), blocks.source.as_bytes())?;
 
     // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
     let form_ids: Vec<&str> = forms.iter().map(|(id, _)| id.as_str()).collect();
@@ -704,7 +727,7 @@ fn build_core(
         &staged_themes,
         &project_theme_default,
     );
-    std::fs::write(src_dir.join("main.rs"), main_rs)?;
+    write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
     // ── 10. Run cargo build --release ─────────────────────────────────────────
     // Stream cargo's stderr so the progress bar advances per crate compiled and
@@ -923,6 +946,7 @@ fn build_core(
         source_count: sources.len(),
         form_count: forms.len(),
         ast_bytes: ast_compressed_len,
+        crates_compiled: compiled,
     })
 }
 
@@ -1898,6 +1922,67 @@ Never assume a containing program's declarations are visible to a nested one. On
 `COMMON` is never requested — codegen marks every nested program `IS COMMON PROGRAM`, so a common procedure is always callable by its siblings. `INITIAL` is not emitted by this platform. `LOCAL-STORAGE` and `SCREEN SECTION` are parsed by the compiler but no operation writes them.
 
 Checklist before emitting a change-set: no nested program declares a `CONFIGURATION SECTION` or `SPECIAL-NAMES`; every nested program has its own `DATA DIVISION`; `GLOBAL` items are referenced, never duplicated; `EXTERNAL` items are treated as run-unit-wide; cross-program invocation is `CALL`, never `PERFORM`.
+
+## `EXEC RUST` — real Rust, compiled into the program
+
+`EXEC RUST … END-EXEC` is **compiled**, not interpreted. Each block becomes a real Rust function inside the crate the build already produces, so the whole language is available: closures, generics, iterator chains, `match`, `?`, and any `std` API. There is no micro-language and no subset.
+
+Because a block is compiled, **a program containing one is built before it runs**. *Run* does that build for you and starts the built binary; a program with no block keeps the fast interpreter path unchanged. Building needs a Rust toolchain; **the binary you produce does not** — it runs on machines with no Rust installed. Builds are for the host operating system only: build a Windows application on Windows, a macOS one on macOS.
+
+### The two kinds of block
+
+| Kind | Where it goes | What it holds |
+| --- | --- | --- |
+| **Item-level** | `CONFIGURATION SECTION`, after `REPOSITORY` — outermost program only, like everything else in that section | Rust **items**: `struct`, `enum`, `impl`, `trait`, `use`. Emitted at module scope, so every block in the program can see them |
+| **Statement-level** | `PROCEDURE DIVISION`, anywhere a statement may appear — including inside an event handler | Rust **statements**: the work |
+
+Putting a statement in an item-level block, or a `struct` in a statement-level one, is an error; the reported line and column are your own.
+
+### What may cross into a block
+
+Only a `USAGE OBJECT REFERENCE` item whose `CLASS` names a Rust type. A `PIC` item is rejected by name: its value is a scaled decimal or a fixed-width padded field, and there is no Rust type it is. Move such a value through an object with `INVOKE` before the block.
+
+The Rust variable is the COBOL name lowercased with hyphens turned into underscores — `WS-USER-NAME` is `ws_user_name`. A name that lands on a Rust keyword (`01 TYPE` → `type`) or cannot start an identifier (`01 1ST-FLAG`) is rejected; rename the item.
+
+- Every integer class (`RUST-I8` … `RUST-USIZE`) binds as `i64`, and both float classes as `f64` — that is how the object bridge stores them, so `INVOKE` and a block always see the same value.
+- The collection classes hold `cobolt_runtime::rust_bridge::BridgeValue`, so a `Rust.Vec` filled by `INVOKE` and one filled inside a block hold the same things.
+- The unsized classes (`RUST-STR`, `RUST-OSSTR`, `RUST-CSTR`, `RUST-PATH`) bind as their owned forms (`String`, `OsString`, `CString`, `PathBuf`).
+
+### Your own Rust types
+
+Declare the type in an item-level block, name it with a `CLASS`, and declare items of it:
+
+```cobol
+       REPOSITORY.
+           CLASS MY-POINT IS "Rust.Point"
+       EXEC RUST
+       #[derive(Default)]
+       pub struct Point { pub x: i64, pub y: i64 }
+       impl Point {
+           pub fn shift(&mut self, dx: i64, dy: i64) { self.x += dx; self.y += dy; }
+       }
+       END-EXEC.
+```
+
+A developer-defined type must implement `Default` — that is what the first block to touch the item starts it from. The 48 shipped `CLASS RUST-*` types are a floor, not a ceiling.
+
+### How a block behaves
+
+- **A block body is a Rust function body returning `Result<(), Box<dyn Error>>`.** That is what makes `?` usable inside it. To leave early, write `return Ok(())`, not `return;`. An error that propagates out becomes a `RUST-EXCEPTION`.
+- **A panic is catchable**: `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it, `DISPLAY e` prints the panic's plain text, and the program continues. A plain `CATCH EXCEPTION` does **not** catch a panic, and a COBOL `THROW` does not reach a `RUST-EXCEPTION` clause; a `TRY` may carry both clauses.
+- **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
+- **Crates**: `std`, plus what every built program already links — `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A `use` of anything else is rejected, naming the crate.
+- A block that is *not* built cannot run: an unregistered block is a hard error naming its id, never a silent no-op.
+
+```cobol
+       01 USER-NAME USAGE IS OBJECT REFERENCE RUST-STRING VALUE "ada".
+       ...
+           EXEC RUST
+           user_name.push_str("-lovelace");
+           let vowels = user_name.chars().filter(|c| "aeiou".contains(*c)).count();
+           println!("{vowels} vowels");
+           END-EXEC.
+```
 
 ## `SPECIAL-NAMES` and the decimal separator
 `SPECIAL-NAMES` belongs to the FORM, the main program of the nest. Its `ENVIRONMENT DIVISION` → `CONFIGURATION SECTION` → `SPECIAL-NAMES` paragraph is written with `set_form_structure` (or by hand in the COBOL Structure panel) and is the ONLY place `DECIMAL-POINT IS COMMA` may be declared. A handler or common procedure that declares `SPECIAL-NAMES` or a `CONFIGURATION SECTION` is redeclaring it inside a nested program and is rejected.
@@ -3399,6 +3484,33 @@ mod resolve_main_tests {
         dir
     }
 
+    /// Remove the staging crate `build_core` leaves in the system temp dir.
+    ///
+    /// Each staged crate carries its own `target/`, so a test that builds and
+    /// walks away leaves about a gigabyte behind — a few of those fill a disk
+    /// and the failure lands on whatever runs next, looking like anything but a
+    /// test that did not tidy up.
+    fn remove_build_staging(bin_name: &str) {
+        let dir = std::env::temp_dir().join(format!("cobolt-build-{bin_name}"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Serialises the tests that drive a real `build_single_file`.
+    ///
+    /// `build_core` stages each program into its own crate with its own
+    /// `target/`, so several of these running at once means several gigabytes
+    /// live at the same moment — enough to fill a developer's disk, and the
+    /// resulting `ENOSPC` surfaces as an unrelated failure somewhere else.
+    /// Held for the whole test, they cost wall-clock and bound peak disk to one
+    /// staged crate.
+    static HEAVY_BUILD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Take [`HEAVY_BUILD`], ignoring a poisoned lock: an earlier test's panic
+    /// is that test's failure to report, not a reason to fail this one too.
+    fn heavy_build_guard() -> std::sync::MutexGuard<'static, ()> {
+        HEAVY_BUILD.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
         CoboltProject {
             project: ProjectMeta {
@@ -3750,6 +3862,332 @@ mod resolve_main_tests {
         );
     }
 
+    /// **AC3, as far as one machine can show it** — the built binary does not
+    /// need the Rust toolchain it was built with.
+    ///
+    /// The criterion asks for execution on a machine where `rustc` is absent,
+    /// which no test on the build machine can literally provide. What this does
+    /// provide is the property that claim rests on: the binary is run with an
+    /// **empty `PATH` and `RUSTUP_HOME`/`CARGO_HOME` cleared**, so neither
+    /// `cargo` nor `rustc` is reachable, and it still runs its compiled block.
+    /// A binary that shelled out to the toolchain would fail here.
+    ///
+    /// The remaining gap — a genuinely toolchain-free machine — is an operator
+    /// check, and is recorded as such rather than inferred from this.
+    #[test]
+    fn the_built_binary_runs_with_no_toolchain_on_the_path() {
+        use cobolt_lexer::{tokenize, SourceFormat};
+        use cobolt_parser::parse;
+
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NOTOOLCHAIN.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS \"Rust.String\"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TEXT USAGE IS OBJECT REFERENCE RUST-STRING VALUE \"ok\".
+       PROCEDURE DIVISION.
+           EXEC RUST
+           println!(\"BLOCK-RAN={}\", ws_text.to_uppercase());
+           END-EXEC.
+           STOP RUN.
+";
+        // Build through the same generators the other end-to-end tests use.
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .to_path_buf();
+        let bin = "execrustnotoolchain";
+        let program = parse(tokenize(cobol, SourceFormat::Free)).program.unwrap();
+        let sem = cobolt_semantic::analyze(&program);
+        let dir = temp_dir(bin);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        let mut gz = GzEncoder::new(Vec::new(), Compression::best());
+        gz.write_all(&bincode::serialize(&program).unwrap()).unwrap();
+        fs::write(dir.join("assets/program.bin"), gz.finish().unwrap()).unwrap();
+        fs::write(
+            dir.join("src/exec_rust_blocks.rs"),
+            exec_rust::generate(&program, &sem.symbols, cobol).source,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("src/main.rs"),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], ""),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            generate_cargo_toml(bin, "0.1.0", &workspace_root.join("crates"), false),
+        )
+        .unwrap();
+        let target_dir = workspace_root.join("target");
+        let built = std::process::Command::new("cargo")
+            .arg("build")
+            .current_dir(&dir)
+            .env("CARGO_TARGET_DIR", &target_dir)
+            .output()
+            .expect("cargo build");
+        assert!(
+            built.status.success(),
+            "build failed:\n{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+
+        // Now run it with nothing of the toolchain reachable.
+        let exe = target_dir.join("debug").join(bin);
+        let run = std::process::Command::new(&exe)
+            .env("PATH", "")
+            .env("RUSTUP_HOME", "")
+            .env("CARGO_HOME", "")
+            .output()
+            .expect("run the built binary");
+        let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+        assert!(
+            run.status.success(),
+            "the built binary failed with no toolchain on PATH:\n{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(
+            stdout.contains("BLOCK-RAN=OK"),
+            "the compiled block did not run without a toolchain:\n{stdout}"
+        );
+        println!("AC3: built binary ran its compiled block with PATH empty");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Rebuild economy (spec 041 T14) ────────────────────────────────────────
+
+    /// **AC13, measured** — building the same unchanged program twice compiles
+    /// nothing the second time.
+    ///
+    /// The number reported is `cargo`'s own count of crates it compiled, taken
+    /// from its output on each run. A count, not a stopwatch: elapsed time says
+    /// different things on different machines, while "compiled 0 crates" means
+    /// the same thing everywhere.
+    ///
+    /// This is also the regression guard for the churn the fix removed —
+    /// regenerating `main.rs` and friends unconditionally gave them a fresh
+    /// mtime every build, so cargo rebuilt the program's own crate every time
+    /// even when nothing had changed.
+    #[test]
+    fn an_unchanged_program_recompiles_nothing() {
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REBUILDME.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS \"Rust.String\"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TEXT USAGE IS OBJECT REFERENCE RUST-STRING VALUE \"x\".
+       PROCEDURE DIVISION.
+           EXEC RUST
+           ws_text.push_str(\"y\");
+           END-EXEC.
+           STOP RUN.
+";
+        let _heavy = heavy_build_guard();
+        let dir = temp_dir("rebuild");
+        let src = dir.join("rebuildme.cbl");
+        fs::write(&src, cobol).unwrap();
+
+        let opts = BuildOptions {
+            verbose: false,
+            ..Default::default()
+        };
+
+        let t0 = std::time::Instant::now();
+        let first = build_single_file(&src, &opts).expect("the first build should succeed");
+        let first_secs = t0.elapsed().as_secs_f64();
+
+        let t1 = std::time::Instant::now();
+        let second = build_single_file(&src, &opts).expect("the second build should succeed");
+        let second_secs = t1.elapsed().as_secs_f64();
+
+        println!(
+            "AC13: build 1 compiled {} crate(s) in {first_secs:.1}s; \
+             build 2 compiled {} crate(s) in {second_secs:.1}s",
+            first.crates_compiled, second.crates_compiled
+        );
+
+        assert_eq!(
+            second.crates_compiled, 0,
+            "an unchanged program recompiled {} crate(s) on the second build \
+             (the first compiled {})",
+            second.crates_compiled, first.crates_compiled
+        );
+
+        // And a changed block *does* rebuild — a cache that never invalidates
+        // would pass the assertion above while being much worse than useless.
+        fs::write(&src, cobol.replace("push_str(\"y\")", "push_str(\"yz\")")).unwrap();
+        let third = build_single_file(&src, &opts).expect("the third build should succeed");
+        println!(
+            "AC13: after editing the block, build 3 compiled {} crate(s)",
+            third.crates_compiled
+        );
+        assert!(
+            third.crates_compiled > 0,
+            "editing the block did not trigger a recompile"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+        remove_build_staging("rebuildme");
+    }
+
+    // ── Type coverage (spec 041 T12) ──────────────────────────────────────────
+
+    /// **AC8** — every shipped `CLASS RUST-*` is declared as an item and used
+    /// inside a compiled block, in one built and executed binary.
+    ///
+    /// The program is generated from `SHIPPED_RUST_TYPES` itself, so adding a
+    /// class without giving it a binding fails here rather than shipping a class
+    /// nobody can actually use. Two blocks touch every item: the second proves
+    /// each value survived the first block's put-back, which is the part of the
+    /// machinery a single block would not exercise.
+    #[test]
+    fn every_shipped_class_binds_inside_a_block() {
+        use cobolt_ast::rust_types::SHIPPED_RUST_TYPES;
+
+        let mut repository = String::new();
+        let mut items = String::new();
+        let mut first = String::new();
+        let mut second = String::new();
+        for (class, path) in SHIPPED_RUST_TYPES {
+            let item = format!("WS-{class}");
+            let var = item.to_ascii_lowercase().replace('-', "_");
+            repository.push_str(&format!("           CLASS {class} IS \"{path}\"\n"));
+            items.push_str(&format!(
+                "       01 {item} USAGE IS OBJECT REFERENCE {class}.\n"
+            ));
+            // Type-agnostic, but real: `size_of_val` needs the binding to exist
+            // at a concrete sized type, and the mutable borrow needs it to be a
+            // genuine owned value rather than a copy of a stand-in.
+            first.push_str(&format!(
+                "           touched += std::mem::size_of_val(&{var}) as i64;\n           let _ = &mut {var};\n"
+            ));
+            second.push_str(&format!(
+                "           again += std::mem::size_of_val(&{var}) as i64;\n"
+            ));
+        }
+
+        let cobol = format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. ALLTYPES.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      CONFIGURATION SECTION.\n\
+             \x20      REPOSITORY.\n{repository}\
+             \x20      DATA DIVISION.\n\
+             \x20      WORKING-STORAGE SECTION.\n{items}\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20          EXEC RUST\n\
+             \x20          let mut touched: i64 = 0;\n{first}\
+             \x20          println!(\"TOUCHED={{}}\", touched);\n\
+             \x20          END-EXEC.\n\
+             \x20          EXEC RUST\n\
+             \x20          let mut again: i64 = 0;\n{second}\
+             \x20          println!(\"AGAIN={{}}\", again);\n\
+             \x20          END-EXEC.\n\
+             \x20          STOP RUN.\n"
+        );
+
+        let out = build_and_run_cobol("execrustalltypes", &cobol);
+
+        let touched: i64 = out
+            .lines()
+            .find_map(|l| l.strip_prefix("TOUCHED="))
+            .expect("the first block should run")
+            .trim()
+            .parse()
+            .expect("a number");
+        let again: i64 = out
+            .lines()
+            .find_map(|l| l.strip_prefix("AGAIN="))
+            .expect("the second block should run")
+            .trim()
+            .parse()
+            .expect("a number");
+        assert_eq!(
+            touched, again,
+            "the objects did not survive the first block's put-back"
+        );
+
+        // The number this test actually exercised, reported rather than assumed.
+        assert_eq!(
+            SHIPPED_RUST_TYPES.len(),
+            48,
+            "the shipped class count changed — AC8 covers {} classes",
+            SHIPPED_RUST_TYPES.len()
+        );
+        println!("AC8: exercised {} shipped classes", SHIPPED_RUST_TYPES.len());
+    }
+
+    /// **AC20, the event-handler half** — a form event handler is a *nested
+    /// program*, and a block inside one is compiled, registered and dispatched
+    /// like any other.
+    ///
+    /// This is the case a top-level-only walk would have dropped in silence,
+    /// which is the exact failure mode spec 041 exists to remove. The type comes
+    /// from an item-level block in the outer program, so the handler is also
+    /// using a developer-defined type declared elsewhere.
+    #[test]
+    fn a_block_inside_a_nested_program_runs() {
+        let out = build_and_run_cobol(
+            "execrusthandler",
+            r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS MY-COUNTER IS "Rust.Counter"
+       EXEC RUST
+       #[derive(Default)]
+       pub struct Counter {
+           pub hits: i64,
+       }
+
+       impl Counter {
+           pub fn hit(&mut self) {
+               self.hits += 1;
+           }
+       }
+       END-EXEC.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-COUNTER USAGE IS OBJECT REFERENCE MY-COUNTER GLOBAL.
+       PROCEDURE DIVISION.
+           CALL "BUTTON1-CLICK".
+           CALL "BUTTON1-CLICK".
+           EXEC RUST
+           println!("HITS={}", ws_counter.hits);
+           END-EXEC.
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BUTTON1-CLICK.
+       PROCEDURE DIVISION.
+           EXEC RUST
+           ws_counter.hit();
+           END-EXEC.
+           GOBACK.
+       END PROGRAM BUTTON1-CLICK.
+       END PROGRAM OUTER.
+"#,
+        );
+
+        assert!(
+            out.contains("HITS=2"),
+            "a block in a nested program did not run twice; output was:\n{out}"
+        );
+    }
+
     // ── Toolchain and target (spec 041 T11) ───────────────────────────────────
 
     /// **AC12** — with `rustc` unavailable the build fails with a diagnostic
@@ -3933,6 +4371,7 @@ not json at all
            END-EXEC.
            STOP RUN.
 ";
+        let _heavy = heavy_build_guard();
         let dir = temp_dir("badrust");
         let src = dir.join("badrust.cbl");
         fs::write(&src, cobol).unwrap();
@@ -3976,6 +4415,57 @@ not json at all
         );
 
         let _ = fs::remove_dir_all(&dir);
+        remove_build_staging("badrust");
+    }
+
+    /// **AC5 — the regression guard for the defect that started spec 041.**
+    ///
+    /// `foo();` is exactly what the deleted interpreter would have written to a
+    /// debug log and skipped, so the block "succeeded" while doing nothing. It
+    /// now fails the build, at the developer's own line, saying `foo` is not
+    /// found. The runtime half — a block with no compiled function behind it —
+    /// is `an_unregistered_block_fails_loudly` in `cobolt-runtime`.
+    #[test]
+    fn a_statement_the_old_interpreter_would_have_skipped_fails_the_build() {
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SILENTNOMORE.
+       PROCEDURE DIVISION.
+           EXEC RUST
+           foo();
+           END-EXEC.
+           STOP RUN.
+";
+        let _heavy = heavy_build_guard();
+        let dir = temp_dir("silentnomore");
+        let src = dir.join("silentnomore.cbl");
+        fs::write(&src, cobol).unwrap();
+
+        let opts = BuildOptions {
+            verbose: false,
+            ..Default::default()
+        };
+        let err = build_single_file(&src, &opts)
+            .expect_err("an unrecognised statement must fail the build, not be skipped");
+
+        match &err {
+            CompilerError::ExecRustBlock { line, message, .. } => {
+                let offending = cobol
+                    .lines()
+                    .position(|l| l.contains("foo();"))
+                    .expect("the fixture has that line") as u32
+                    + 1;
+                assert_eq!(*line, offending, "wrong line: {err}");
+                assert!(
+                    message.contains("foo"),
+                    "the message should name what is missing: {message}"
+                );
+            }
+            other => panic!("expected an EXEC RUST diagnostic, got: {other}"),
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+        remove_build_staging("silentnomore");
     }
 
     /// **AC21, the half T4 deferred here** — an item-level block containing a
@@ -4000,6 +4490,7 @@ not json at all
        PROCEDURE DIVISION.
            STOP RUN.
 ";
+        let _heavy = heavy_build_guard();
         let dir = temp_dir("baditem");
         let src = dir.join("baditem.cbl");
         fs::write(&src, cobol).unwrap();
@@ -4023,6 +4514,7 @@ not json at all
         }
 
         let _ = fs::remove_dir_all(&dir);
+        remove_build_staging("baditem");
     }
 
     /// **AC19/AC20 (item-level half)** — a `struct` and `impl` written in an

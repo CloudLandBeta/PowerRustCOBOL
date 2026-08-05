@@ -429,6 +429,14 @@ pub struct CoboltApp {
     /// Pending binary build result channel (Phase 11).
     pending_build_rx:
         Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
+    /// Set when *Run* started a build because the program contains `EXEC RUST`
+    /// (spec 041 T13): the form whose run is waiting for that build.
+    ///
+    /// A block is compiled, so `rcrun run-form` — which walks the AST — cannot
+    /// execute one. Run therefore builds first and starts the built binary. The
+    /// build is asynchronous, so the intent to run has to survive until its
+    /// result arrives; `None` means the build was a plain Build.
+    pending_build_then_run: Option<PathBuf>,
     /// Manual KB reindex (File menu): progress/done messages from the worker
     /// thread, drained each frame. `Some` = running, which disables the menu
     /// item and shows the progress modal.
@@ -1049,6 +1057,7 @@ impl CoboltApp {
             agent_status: None,
             agent_debug_open: false,
             pending_build_rx: None,
+            pending_build_then_run: None,
             kb_reindex_rx: None,
             kb_reindex_phase: (0.0, String::new()),
             build_modal_hidden: false,
@@ -1330,6 +1339,34 @@ impl CoboltApp {
         }
     }
 
+    /// Start the binary a build just produced, because *Run* needed a build
+    /// (the program contains `EXEC RUST` — spec 041 T13).
+    ///
+    /// The binary is its own application: it embeds the program, its forms, and
+    /// the compiled blocks, and needs no toolchain. It is started detached, the
+    /// way a developer would start it from a file manager — the IDE does not
+    /// own its window, and closing the IDE does not close it.
+    fn launch_built_binary(&mut self, binary: &Path, form_path: &Path) {
+        let tr = self.lang.tr();
+        match std::process::Command::new(binary)
+            .current_dir(binary.parent().unwrap_or(Path::new(".")))
+            .envs(self.debug.child_env())
+            .spawn()
+        {
+            Ok(_) => {
+                self.output
+                    .push_status(tr.status_exec_rust_launching.to_owned());
+                self.set_element_status(form_path, ElementStatus::Tested);
+            }
+            Err(e) => {
+                let msg = format!("Error starting {}: {e}", binary.display());
+                self.output.push_status(msg.clone());
+                self.set_element_status(form_path, ElementStatus::Failed);
+                self.form_error = Some(msg);
+            }
+        }
+    }
+
     fn do_stop(&mut self) {
         self.runner.stop();
         self.output.push_status("── Stop requested ──");
@@ -1528,6 +1565,43 @@ impl CoboltApp {
         // window, event loop, and interpreter, exactly like a binary built by
         // `rcrun build`. The IDE stays idle while the form runs.
         let cbl_path = self.generated_cbl_path(&form_path);
+
+        // …unless the program contains `EXEC RUST` (spec 041 T13). A block is
+        // compiled into the built binary, so the interpreter `rcrun run-form`
+        // uses has nothing to call; running it anyway would fail loudly at the
+        // first block, which is correct but useless. Build first and run what
+        // the build produced. Programs without a block never reach this and
+        // keep the fast path exactly as it was.
+        if crate::exec_rust_run::file_has_blocks(&cbl_path) {
+            let tr = self.lang.tr();
+            if debug {
+                // The debugger drives the interpreter over `@DBG` lines; a
+                // compiled block is native code with no such protocol. Say so
+                // rather than starting a session that cannot step into it.
+                let msg = tr.status_exec_rust_debug_unsupported.to_owned();
+                self.output.push_status(msg.clone());
+                self.form_error = Some(msg);
+                return;
+            }
+            if self.cobolt_project.is_none() {
+                // Building needs a project manifest; a single form has none.
+                self.output.push_status(
+                    "EXEC RUST needs a project to build — open or create one to run this form."
+                        .to_owned(),
+                );
+                return;
+            }
+            let building = tr.status_exec_rust_building.to_owned();
+            // `do_build_binary` clears the run output and may refuse (no
+            // project, forms with errors), so the notice goes in afterwards and
+            // the pending intent is only recorded once a build really started.
+            self.do_build_binary();
+            if self.pending_build_rx.is_some() {
+                self.output.push_status(building);
+                self.pending_build_then_run = Some(form_path.clone());
+            }
+            return;
+        }
         let theme_default = self
             .cobolt_project
             .as_ref()
@@ -9729,6 +9803,11 @@ impl eframe::App for CoboltApp {
                     self.build_log.push((BuildLogKind::Success, line));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
+                    // Run started this build because the program contains
+                    // EXEC RUST (spec 041 T13) — start what it produced.
+                    if let Some(form_path) = self.pending_build_then_run.take() {
+                        self.launch_built_binary(&result.binary_path, &form_path);
+                    }
                 }
                 Ok(Err(e)) => {
                     self.output.push_status(format!("❌ Build failed: {e}"));
@@ -9738,6 +9817,19 @@ impl eframe::App for CoboltApp {
                     self.build_details_open = true;
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
+                    if let Some(form_path) = self.pending_build_then_run.take() {
+                        let tr = self.lang.tr();
+                        // A build the developer did not ask for failed, so say
+                        // plainly that nothing was started, and — when the
+                        // toolchain is what is missing — how to fix it.
+                        self.output
+                            .push_status(tr.status_exec_rust_build_failed.to_owned());
+                        if e.contains("Rust toolchain is required") {
+                            self.output
+                                .push_status(tr.status_exec_rust_toolchain_missing.to_owned());
+                        }
+                        self.set_element_status(&form_path, ElementStatus::Failed);
+                    }
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     ctx.request_repaint(); // keep polling
@@ -9747,6 +9839,7 @@ impl eframe::App for CoboltApp {
                         .push_status("❌ Build thread disconnected unexpectedly.");
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
+                    self.pending_build_then_run = None;
                 }
             }
         }

@@ -129,9 +129,9 @@ pub fn generate(program: &Program, symbols: &SymbolTable, cobol_source: &str) ->
     e.line("");
 
     // ── Item-level blocks, verbatim at module scope (R19, R20) ───────────────
-    let mut item_count = 0usize;
-    for item in &program.rust_items {
-        item_count += 1;
+    let items = cobolt_semantic::exec_rust::item_blocks(program);
+    let item_count = items.len();
+    for item in items {
         e.line(&format!(
             "// ── item-level EXEC RUST block (COBOL line {}) ──",
             item.span.line
@@ -141,8 +141,11 @@ pub fn generate(program: &Program, symbols: &SymbolTable, cobol_source: &str) ->
     }
 
     // ── One function per statement-level block ───────────────────────────────
-    let mut blocks: Vec<(u32, String, Span)> = Vec::new();
-    cobolt_semantic::exec_rust::for_each_block(program, &mut |stmt| {
+    // Each block is emitted against the program that *contains* it: a form event
+    // handler is a nested program with its own DATA DIVISION and REPOSITORY, and
+    // resolving its names against the outer program would bind the wrong items.
+    let mut blocks: Vec<(u32, String, Span, Vec<Binding>)> = Vec::new();
+    cobolt_semantic::exec_rust::for_each_block(program, &mut |owner, stmt| {
         if let Stmt::ExecRust {
             source,
             block_id,
@@ -150,12 +153,21 @@ pub fn generate(program: &Program, symbols: &SymbolTable, cobol_source: &str) ->
             ..
         } = stmt
         {
-            blocks.push((*block_id, source.clone(), *span));
+            let bindings = if std::ptr::eq(owner, program) {
+                resolve_bindings(owner, program, symbols, None, source)
+            } else {
+                // A nested program sees its own items, plus the containing
+                // program's `GLOBAL` ones — which is how a form's data reaches
+                // its event handlers.
+                let nested_symbols = SymbolTable::build(owner);
+                resolve_bindings(owner, program, &nested_symbols, Some(symbols), source)
+            };
+            blocks.push((*block_id, source.clone(), *span, bindings));
         }
     });
 
-    for (block_id, source, span) in &blocks {
-        emit_block(&mut e, program, symbols, cobol_source, *block_id, source, *span);
+    for (block_id, source, span, bindings) in &blocks {
+        emit_block(&mut e, cobol_source, *block_id, source, *span, bindings);
     }
 
     // ── The dispatch table (R2) ──────────────────────────────────────────────
@@ -165,7 +177,7 @@ pub fn generate(program: &Program, symbols: &SymbolTable, cobol_source: &str) ->
     e.line("/// id with nothing registered against it is a hard runtime error, never");
     e.line("/// a silent no-op.");
     e.line("pub fn register(registry: &mut cobolt_runtime::exec_rust::ExecRustRegistry) {");
-    for (block_id, _, _) in &blocks {
+    for (block_id, _, _, _) in &blocks {
         e.line(&format!("    registry.register({block_id}, block_{block_id});"));
     }
     e.line("}");
@@ -287,15 +299,12 @@ pub fn map_cargo_json(stdout: &str, blocks: &GeneratedBlocks) -> Vec<BlockDiagno
 /// Emit one statement-level block as a function.
 fn emit_block(
     e: &mut Emitter,
-    program: &Program,
-    symbols: &SymbolTable,
     cobol_source: &str,
     block_id: u32,
     source: &str,
     span: Span,
+    bindings: &[Binding],
 ) {
-    let bindings = resolve_bindings(program, symbols, source);
-
     e.line(&format!(
         "/// `EXEC RUST` block {block_id}, from COBOL line {}.",
         span.line
@@ -305,7 +314,7 @@ fn emit_block(
     ));
 
     // 1. Handle ids.
-    for b in &bindings {
+    for b in bindings {
         e.line(&format!(
             "    let __cobolt_h_{rust} : i64 = ctx.env.get(\"{cobol}\").and_then(|v| v.as_i64()).unwrap_or(0);",
             rust = b.rust_name,
@@ -313,7 +322,7 @@ fn emit_block(
         ));
     }
     // 2. Check every binding before anything is moved.
-    for b in &bindings {
+    for b in bindings {
         e.line(&format!(
             "    if let Err(__cobolt_e) = ctx.bridge.check_binding::<{ty}>(__cobolt_h_{rust}, \"{cobol}\", \"{class}\") {{ panic!(\"{{}}\", __cobolt_e); }}",
             ty = b.rust_type,
@@ -323,7 +332,7 @@ fn emit_block(
         ));
     }
     // 3. Take them.
-    for b in &bindings {
+    for b in bindings {
         e.line(&format!(
             "    let mut {rust} : {ty} = ctx.bridge.take_or_init(__cobolt_h_{rust}, || {init});",
             rust = b.rust_name,
@@ -351,7 +360,7 @@ fn emit_block(
     e.line("    }));");
 
     // 5. Put back on both paths, then re-raise.
-    for b in &bindings {
+    for b in bindings {
         e.line(&format!(
             "    ctx.bridge.put_value(__cobolt_h_{rust}, \"{class}\", {rust});",
             rust = b.rust_name,
@@ -380,22 +389,58 @@ struct Binding {
 
 /// Work out what each name the block mentions binds to.
 ///
+/// `owner` is the program the block sits in and `root` the outermost one: a
+/// nested program (a form event handler) usually declares no `REPOSITORY` of its
+/// own and relies on the outer one, so the class is looked up in the owner
+/// first and the root second.
+///
 /// Silently skips an item that is not a `USAGE OBJECT REFERENCE` or whose class
-/// is not in the `REPOSITORY`: semantic analysis has already rejected those
+/// is not in either `REPOSITORY`: semantic analysis has already rejected those
 /// (R5, revised R8) and the build stops before codegen, so anything reaching
 /// here is bindable.
-fn resolve_bindings(program: &Program, symbols: &SymbolTable, source: &str) -> Vec<Binding> {
+fn resolve_bindings(
+    owner: &Program,
+    root: &Program,
+    symbols: &SymbolTable,
+    globals_from: Option<&SymbolTable>,
+    source: &str,
+) -> Vec<Binding> {
+    // The owner's own items first; then, for a nested program, the containing
+    // program's GLOBAL items. Non-GLOBAL outer items are deliberately left out:
+    // COBOL does not make them visible, and binding one anyway would compile
+    // code the language says should not resolve.
+    let mut candidates = collect_bindings(source, symbols)
+        .into_iter()
+        .map(|(c, r)| (c, r, false))
+        .collect::<Vec<_>>();
+    if let Some(outer) = globals_from {
+        for (cobol_name, rust_name) in collect_bindings(source, outer) {
+            if candidates.iter().any(|(c, _, _)| *c == cobol_name) {
+                continue;
+            }
+            if outer.data_item(&cobol_name).is_some_and(|i| i.is_global) {
+                candidates.push((cobol_name, rust_name, true));
+            }
+        }
+    }
+
     let mut out = Vec::new();
-    for (cobol_name, rust_name) in collect_bindings(source, symbols) {
-        let Some(info) = symbols.data_item(&cobol_name) else {
+    for (cobol_name, rust_name, from_outer) in candidates {
+        let table = if from_outer {
+            globals_from.unwrap_or(symbols)
+        } else {
+            symbols
+        };
+        let Some(info) = table.data_item(&cobol_name) else {
             continue;
         };
         let Some(class) = &info.object_class else {
             continue;
         };
-        let Some((_, path)) = program
+        let Some((_, path)) = owner
             .repository
             .iter()
+            .chain(root.repository.iter())
             .find(|(k, _)| k.eq_ignore_ascii_case(class))
         else {
             continue;
@@ -500,9 +545,21 @@ mod tests {
     use cobolt_parser::parse;
 
     fn compile(src: &str) -> (GeneratedBlocks, String) {
-        let program = parse(tokenize(src, SourceFormat::Free))
-            .program
-            .expect("the fixture should parse");
+        let parsed = parse(tokenize(src, SourceFormat::Free));
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .all(|d| d.severity != cobolt_parser::Severity::Error),
+            "the fixture should parse cleanly: {:?}",
+            parsed
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity == cobolt_parser::Severity::Error)
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+        let program = parsed.program.expect("the fixture should parse");
         let symbols = SymbolTable::build(&program);
         (generate(&program, &symbols, src), src.to_string())
     }
@@ -617,6 +674,50 @@ MAIN-PARA.
         let (gen, _) = compile(WITH_ITEM_BLOCK);
         assert!(gen.source.contains("registry.register(0, block_0);"));
         assert!(gen.source.contains("pub fn block_0("));
+    }
+
+    /// A `GLOBAL` item — how a form's data reaches its event handlers — still
+    /// binds, and a block in a nested program binds against it too.
+    #[test]
+    fn a_global_object_reference_binds_in_both_programs() {
+        let (gen, _) = compile(
+            r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. OUTER.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-STRING IS "Rust.String".
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-TEXT USAGE IS OBJECT REFERENCE RUST-STRING GLOBAL.
+PROCEDURE DIVISION.
+    EXEC RUST
+    ws_text.push_str("outer");
+    END-EXEC.
+    STOP RUN.
+
+IDENTIFICATION DIVISION.
+PROGRAM-ID. HANDLER.
+PROCEDURE DIVISION.
+    EXEC RUST
+    ws_text.push_str("handler");
+    END-EXEC.
+    GOBACK.
+END PROGRAM HANDLER.
+END PROGRAM OUTER.
+"#,
+        );
+        assert_eq!(gen.block_count, 2, "both blocks should be emitted");
+        let takes = gen
+            .source
+            .matches("let mut ws_text : String")
+            .count();
+        assert_eq!(
+            takes, 2,
+            "the GLOBAL item should bind in the outer program and in the nested one:\n{}",
+            gen.source
+        );
     }
 
     /// A program with no blocks still yields a module that compiles and

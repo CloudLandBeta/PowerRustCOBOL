@@ -90,3 +90,77 @@ fn invoke_with_using_argument_mutates() {
 // `obj::method()` form are wired. Inline `::` as a **value operand** inside
 // DISPLAY/MOVE/COMPUTE is covered by `test_inline_methodcall_009`
 // (spec 009 R16 / AC9 — `DISPLAY S::len()`).
+
+// ── Every shipped class gets a real object (spec 041 T12) ────────────────────
+
+/// One row per shipped `CLASS RUST-*`: declare an item of it and check the
+/// handle it receives.
+///
+/// The curated bridge only *constructs* a handful of types — `String`, the
+/// integers, the floats, `bool`, `Vec`. Every other class used to fall through
+/// to handle **0**, so a program declaring `RUST-HASHMAP` and `RUST-INSTANT`
+/// gave both items the same dead id and neither had an object behind it. That
+/// silence is the same family of defect spec 041 exists to remove, so this
+/// asserts what the fix guarantees: **every** declared item gets a live, unique
+/// handle, whether or not the bridge can build its type yet.
+///
+/// What a block then *does* with each class is compiled code, so it is proved
+/// where it happens — `every_shipped_class_binds_inside_a_block` in
+/// `cobolt-compiler` builds and runs a program that binds all of them.
+#[test]
+fn every_shipped_class_gets_a_live_unique_handle() {
+    use cobolt_ast::rust_types::SHIPPED_RUST_TYPES;
+
+    let mut repository = String::new();
+    let mut items = String::new();
+    let mut displays = String::new();
+    for (class, path) in SHIPPED_RUST_TYPES {
+        repository.push_str(&format!("           CLASS {class} IS \"{path}\"\n"));
+        items.push_str(&format!(
+            "       01 WS-{class} USAGE IS OBJECT REFERENCE {class}.\n"
+        ));
+        displays.push_str(&format!("           DISPLAY WS-{class}.\n"));
+    }
+
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. ALLCLASSES.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      CONFIGURATION SECTION.\n\
+         \x20      REPOSITORY.\n{repository}\
+         \x20      DATA DIVISION.\n\
+         \x20      WORKING-STORAGE SECTION.\n{items}\
+         \x20      PROCEDURE DIVISION.\n{displays}\
+         \x20          STOP RUN.\n"
+    );
+
+    let (out, live) = run(&src);
+    assert_eq!(
+        out.len(),
+        SHIPPED_RUST_TYPES.len(),
+        "every declared item should have been displayed"
+    );
+
+    let ids: Vec<i64> = out
+        .iter()
+        .map(|s| s.trim().parse().expect("a handle id is numeric"))
+        .collect();
+    for (id, (class, _)) in ids.iter().zip(SHIPPED_RUST_TYPES) {
+        assert!(*id > 0, "{class} got handle {id} — no object behind it");
+    }
+    let mut unique = ids.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        ids.len(),
+        "two classes share a handle, so writing one would overwrite the other"
+    );
+
+    assert_eq!(
+        live,
+        SHIPPED_RUST_TYPES.len(),
+        "each of the {} shipped classes should hold one live object",
+        SHIPPED_RUST_TYPES.len()
+    );
+}

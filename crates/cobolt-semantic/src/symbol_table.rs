@@ -48,6 +48,9 @@ pub struct DataItemInfo {
     /// resolved path — resolving needs the program's `REPOSITORY`, which the
     /// symbol table deliberately does not hold.
     pub object_class: Option<String>,
+    /// `GLOBAL` — visible to this program's nested programs, which is how a
+    /// form's data reaches its event handlers.
+    pub is_global: bool,
     /// `true` if this item is a group (no PIC clause and has children).
     pub is_group: bool,
     /// Source location of the declaration.
@@ -72,6 +75,7 @@ impl DataItemInfo {
             pic_kind: decl.picture.as_ref().map(|p| p.kind),
             usage: decl.usage,
             object_class: decl.object_class.clone(),
+            is_global: decl.is_global,
             is_group: decl.picture.is_none() && !decl.children.is_empty(),
             span: decl.span,
         })
@@ -258,6 +262,7 @@ impl SymbolTable {
                         pic_kind: Some(PicKind::Numeric),
                         usage: Usage::Index,
                         object_class: None,
+                        is_global: decl.is_global,
                         is_group: false,
                         span: decl.span,
                     });

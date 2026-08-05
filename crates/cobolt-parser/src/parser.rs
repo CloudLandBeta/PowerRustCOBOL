@@ -392,6 +392,19 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
     // PROCEDURE DIVISION (required)
     let procedure = parse_procedure_division(p);
 
+    // Claim this program's REPOSITORY and item-level EXEC RUST blocks **before**
+    // any nested program is parsed.
+    //
+    // Both are accumulated in parser state and moved out when a `Program` is
+    // built. Nested programs are parsed below, so if the move happened at the
+    // end, the first nested program to be built would take the outer program's
+    // entries and the outer would be left with none — which is exactly what
+    // happened: a form's `CLASS RUST-STRING IS "Rust.String"` vanished the
+    // moment the form gained an event handler, and every `OBJECT REFERENCE`
+    // item in it silently stopped resolving.
+    let repository = std::mem::take(&mut p.repository);
+    let rust_items = std::mem::take(&mut p.rust_items);
+
     // Collect nested programs until END PROGRAM or EOF
     let mut nested_programs = Vec::new();
     let mut end_program_name: Option<String> = None;
@@ -426,7 +439,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
 
     Program {
         span: Span::dummy(),
-        rust_items: std::mem::take(&mut p.rust_items),
+        rust_items,
         identification,
         environment,
         data,
@@ -434,7 +447,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         nested_programs,
         end_program_name,
         decimal_comma: p.decimal_comma,
-        repository: std::mem::take(&mut p.repository),
+        repository,
     }
 }
 

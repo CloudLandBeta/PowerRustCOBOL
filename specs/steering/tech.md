@@ -61,12 +61,12 @@ Always build **and** test the touched crates before declaring a task done.
   System KB documentation (the `cobolt-compiler` property/method/event docs
   tables the KB publisher emits). This applies to every change path:
   spec-driven work *and* direct "implement/fix this" requests.
-  *(The mandatory chunked-store reindex per change is **suspended** by the
-  operator, 2026-07-29: do not run `build_chunked_kb` as part of routine
-  changes. Note the freshness test
-  `prebuilt_chunked_kb_matches_the_published_documentation` will stay red
-  after docs-table changes until someone reindexes — reindex only when the
-  operator asks.)*
+  *(The chunked-store reindex is **required again**: the operator lifted the
+  2026-07-29 suspension on 2026-07-31. Run `cargo run -p cobolt-ide --example
+  build_chunked_kb` in the same change that touches the docs tables and commit
+  the regenerated `assets/knowledge/chunked.data`. A red
+  `prebuilt_chunked_kb_matches_the_published_documentation` is a real failure
+  again, not an expected one.)*
 - **Tests:** user-provided tests are *report-or-fix*, never silently changed.
   New tests report quantified, human-readable results. **Verify-first** — never
   assert a measurement the run didn't produce.

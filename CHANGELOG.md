@@ -1,5 +1,66 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.9] — 2026-08-04
+
+### Added
+
+- **`EXEC RUST` is real Rust now, compiled into your program.** Closures,
+  generics, iterator chains, `match`, `?`, the whole of `std` — a block becomes
+  an ordinary Rust function inside the crate PowerRustCOBOL already builds for
+  you. There is no new compiler and no dynamic loading: a built application was
+  always a generated Rust crate, so this is one more generated module in it.
+
+  What it replaced is the reason it matters. The old `EXEC RUST` interpreted a
+  four-form micro-language — compound assignment, simple assignment, `let` as a
+  **no-op**, integer arithmetic — and anything it did not recognise was written
+  to a debug log and skipped. A block of real Rust therefore *succeeded while
+  doing nothing at all*: no error, no output, nothing to diagnose. That branch is
+  deleted. A block with no compiled function behind it is now a hard error naming
+  its id and telling you to build.
+
+- **Two kinds of block.** Item-level blocks live in the `CONFIGURATION SECTION`
+  after `REPOSITORY` and hold Rust *items* — `struct`, `enum`, `impl`, `trait`,
+  `use` — emitted at module scope where every block in the program can see them.
+  Statement-level blocks live in the `PROCEDURE DIVISION`, including inside a
+  form event handler. So the 48 shipped `CLASS RUST-*` types are a floor, not a
+  ceiling: declare your own type, name it with a `CLASS`, and bind items of it.
+
+- **`CATCH RUST-EXCEPTION`.** A panic inside a block is caught by
+  `TRY … CATCH RUST-EXCEPTION e … END-TRY`, `DISPLAY e` prints its plain text,
+  and the program continues. A plain `CATCH EXCEPTION` does *not* catch a panic
+  and a COBOL `THROW` never reaches the Rust clause — one `TRY` may carry both
+  and each kind goes to its own.
+
+- **Rust errors are reported in your terms.** A type error inside a block fails
+  the build at *your* `EXEC RUST` line and column, never at generated code. A
+  diagnostic that cannot be traced back to something you wrote is shown raw
+  rather than blamed on an innocent COBOL line.
+
+- **Run builds when it has to.** A program containing a block is built before it
+  runs and the built binary is what starts; a program without one keeps today's
+  fast interpreter path untouched. Building needs a Rust toolchain — the
+  application you produce does not.
+
+### Fixed
+
+- **A form's `REPOSITORY` vanished the moment the form gained an event handler.**
+  `REPOSITORY` entries were collected in parser state and handed to a program
+  when it was built — but nested programs are built first, so the first event
+  handler took the form's `CLASS` bindings and the form was left with none. Every
+  `USAGE OBJECT REFERENCE` item in such a form silently stopped resolving. The
+  containing program now claims its own before any nested program is parsed.
+
+- **Two Rust objects could share one handle.** A `CLASS` naming a type the object
+  bridge cannot construct gave its item handle `0` — and so did the next one, and
+  the next, so unrelated items aliased onto the same dead slot. Each gets a real,
+  unique handle now.
+
+- **An unchanged program recompiled itself on every build.** The generated
+  `Cargo.toml`, `main.rs` and blocks module were rewritten every time, giving each
+  a fresh mtime; cargo's fingerprint is mtime-based, so it rebuilt the program's
+  own crate for nothing. They are only written when their content changed —
+  measured: a second build of an unchanged program now compiles **0 crates**.
+
 ## [PowerRustCOBOL 1.60.4] — 2026-08-04
 
 ### Fixed

@@ -2190,6 +2190,93 @@ re-trigger itself.)
 > bottom. `GO TO` *out of* a declarative section is not supported; keep the
 > handler self-contained (typically a `DISPLAY` plus flag setting).
 
+### Rust inside COBOL — `EXEC RUST`
+
+`EXEC RUST … END-EXEC` embeds **real Rust**, compiled into your program. Not a
+subset, not an interpreted imitation: closures, generics, iterator chains,
+`match`, `?` and the whole of `std` work, because each block becomes an ordinary
+Rust function inside the crate PowerRustCOBOL already builds for you.
+
+```cobol
+       01 USER-NAME USAGE IS OBJECT REFERENCE RUST-STRING VALUE "ada".
+       ...
+           EXEC RUST
+           user_name.push_str("-lovelace");
+           let vowels = user_name.chars().filter(|c| "aeiou".contains(*c)).count();
+           println!("{vowels} vowels");
+           END-EXEC.
+```
+
+**A program with a block is built before it runs.** *Run* performs that build and
+starts the built binary; the pause is reported in the Output panel. A program
+with no block keeps the fast interpreter path exactly as before. Building needs a
+Rust toolchain (install it from <https://rustup.rs>) — **the application you
+produce does not**: it runs on machines with no Rust installed. Builds target the
+host operating system only, so build a Windows application on Windows and a macOS
+one on macOS.
+
+#### Two kinds of block
+
+| Kind | Where | What it holds |
+| --- | --- | --- |
+| **Item-level** | `CONFIGURATION SECTION`, after `REPOSITORY` (outermost program only, like everything else there) | Rust *items*: `struct`, `enum`, `impl`, `trait`, `use` — visible to every block in the program |
+| **Statement-level** | `PROCEDURE DIVISION`, anywhere a statement may go — including an event handler | Rust *statements*: the work |
+
+#### What may cross into a block
+
+Only a `USAGE OBJECT REFERENCE` item whose `CLASS` names a Rust type. A `PIC`
+item is rejected by name: its value is a scaled decimal or a fixed-width padded
+field, and there is no Rust type it *is*. Move such a value through an object
+with `INVOKE` before the block.
+
+The Rust variable is your COBOL name, lowercased, hyphens turned into
+underscores: `WS-USER-NAME` becomes `ws_user_name`. A name that lands on a Rust
+keyword (`01 TYPE` → `type`) or cannot start an identifier (`01 1ST-FLAG`) is
+rejected — rename the item.
+
+Every integer class binds as `i64` and both float classes as `f64`, because that
+is how the object bridge stores them: `INVOKE` and a block always see the same
+value. Collections hold the bridge's own value type, so a `Rust.Vec` filled by
+`INVOKE` and one filled inside a block hold the same things.
+
+#### Your own Rust types
+
+The 48 shipped `CLASS RUST-*` types are a floor, not a ceiling. Declare a type in
+an item-level block, name it with a `CLASS`, and use it like any other:
+
+```cobol
+       REPOSITORY.
+           CLASS MY-POINT IS "Rust.Point"
+       EXEC RUST
+       #[derive(Default)]
+       pub struct Point { pub x: i64, pub y: i64 }
+       impl Point {
+           pub fn shift(&mut self, dx: i64, dy: i64) { self.x += dx; self.y += dy; }
+       }
+       END-EXEC.
+```
+
+Your type must implement `Default` — that is what the first block to touch the
+item starts it from.
+
+#### How a block behaves
+
+- **A block body is a Rust function body returning `Result<(), Box<dyn Error>>`,**
+  which is what makes `?` usable inside it. To leave early write `return Ok(())`,
+  not `return;`. An error that propagates out becomes a `RUST-EXCEPTION`.
+- **A panic is catchable.** `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it,
+  `DISPLAY e` prints the panic's message as plain text, and the program carries
+  on. A plain `CATCH EXCEPTION` does *not* catch a panic, and a COBOL `THROW`
+  never reaches a `RUST-EXCEPTION` clause — one `TRY` may carry both clauses and
+  each gets its own kind.
+- **State is shared for the whole run.** Two blocks in different paragraphs, or
+  in a form event handler, see the same objects. `CANCEL` does not reset it.
+- **Crates**: `std`, plus what every built program already links — `eframe`,
+  `egui`, `egui_extras`, and PowerRustCOBOL's own crates. A `use` of anything else
+  is rejected, naming the crate; arbitrary dependencies are not supported yet.
+- **Errors are reported in your terms.** A Rust type error inside a block fails
+  the build at *your* `EXEC RUST` line and column, not at generated code.
+
 ---
 
 ## 14. Indexed files — a first-class resource

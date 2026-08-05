@@ -184,23 +184,38 @@ item/statement split.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A program whose block calls a real `std` API (e.g.
+- [x] **AC1** — A program whose block calls a real `std` API (e.g.
       `user_name.push_str("x"); let n = user_name.chars().rev().count();`) builds,
       runs, and the mutation is visible to COBOL afterwards. *(R1, R4, R9)*
-- [ ] **AC2** — A block using a closure, a generic, an iterator chain, `match` and
+      — *`a_compiled_block_runs_mutates_and_shares_state`: the built binary
+      prints `NAME=ada-lovelace`, read back through `INVOKE`.*
+- [x] **AC2** — A block using a closure, a generic, an iterator chain, `match` and
       `?` compiles and runs. *(R1)* — proves the interpreter's limits are gone.
-- [ ] **AC3** — The built binary runs on a machine with no Rust toolchain
+      — *same test, `TWICE=12`: a generic `fn`, a closure in `filter`, an iterator
+      chain with `match`, and `"6".parse::<i64>()?`.*
+- [x] **AC3** — The built binary runs on a machine with no Rust toolchain
       installed, verified by building in one environment and executing where
       `rustc` is absent. *(R2, R3)*
-- [ ] **AC4** — A block with a deliberate Rust type error fails the build, and the
+      — **partially observed, and the gap is stated.**
+      `the_built_binary_runs_with_no_toolchain_on_the_path` runs the built binary
+      with `PATH` empty and `RUSTUP_HOME`/`CARGO_HOME` cleared, so neither `cargo`
+      nor `rustc` is reachable, and its compiled block still runs. A genuinely
+      toolchain-free *machine* cannot be produced from the build machine — that
+      last step is an **operator check**, not something inferred from this one.
+- [x] **AC4** — A block with a deliberate Rust type error fails the build, and the
       reported line/column point at the developer's `EXEC RUST` source, not at
       generated code. *(R10)*
-- [ ] **AC5** — A block containing a statement the old interpreter would have
+      — *`a_type_error_in_a_block_reports_the_developers_line_and_column`: exact
+      line and column asserted against a real build, and the message is checked
+      for not mentioning the generated file.*
+- [x] **AC5** — A block containing a statement the old interpreter would have
       skipped (e.g. `foo();`) fails the build rather than succeeding silently.
       *(R11)* — this is the regression guard for the reported defect.
-- [ ] **AC6** — A bound item that is a `PIC` item is rejected at compile time with
+      — *`a_statement_the_old_interpreter_would_have_skipped_fails_the_build`
+      (build half) and `an_unregistered_block_fails_loudly` (runtime half).*
+- [x] **AC6** — A bound item that is a `PIC` item is rejected at compile time with
       a message naming it. *(R5)*
-- [ ] **AC7** — A bound item whose Rust name is unusable is rejected, naming the
+- [x] **AC7** — A bound item whose Rust name is unusable is rejected, naming the
       item: a COBOL name landing on a Rust keyword (`01 TYPE` → `type`) or one
       that cannot start an identifier (`01 1ST-FLAG` → `1st_flag`). *(R6)*
       *(Corrected 2026-08-04 during T7: this criterion originally said
@@ -209,43 +224,64 @@ item/statement split.
       `WS-USER-NAME` becomes `ws_user_name`, already valid `snake_case`. Every
       ordinary COBOL name converts cleanly; only keywords and non-identifier
       starts survive the conversion broken, so those are what R6 can catch.)*
-- [ ] **AC8** — Each of the 48 `CLASS RUST-*` types is exercised by at least one
+- [x] **AC8** — Each of the 48 `CLASS RUST-*` types is exercised by at least one
       test declaring an item of that type and using it inside a block. *(R7)*
-- [ ] **AC9** — `CLASS RUST-NOPE IS "Rust.Nope"` fails the build naming the class.
+      — *`every_shipped_class_binds_inside_a_block` generates the program from
+      `SHIPPED_RUST_TYPES` itself, builds it and runs it; **48 classes
+      exercised**, and two blocks touch every item so each value is proved to
+      survive the first block's put-back. `every_shipped_class_gets_a_live_unique_handle`
+      covers the runtime side: 48 live, distinct handles.*
+- [x] **AC9** — `CLASS RUST-NOPE IS "Rust.Nope"` fails the build naming the class.
       *(R8)*
-- [ ] **AC10** — Two blocks in one program share state: the first stores into a
-      bound `Rust.Vec`, the second reads it back. *(R9)*
-- [ ] **AC11** — A block that panics (e.g. an out-of-range index) is caught by
+- [x] **AC10** — Two blocks in one program share state: the first stores into a
+      bound `Rust.Vec`, the second reads it back. *(R9)* — *`TOTAL=60` from the
+      three values the first block pushed.*
+- [x] **AC11** — A block that panics (e.g. an out-of-range index) is caught by
       `TRY … CATCH RUST-EXCEPTION e … END-TRY`, the program continues, and
       `DISPLAY e` prints the panic message and details in plain text with no
       substring inspection. *(R12, R13, R23)*
-- [ ] **AC17** — The same panic inside a `TRY` whose only clause is
+- [x] **AC17** — The same panic inside a `TRY` whose only clause is
       `CATCH EXCEPTION e` is **not** caught; it propagates after `FINALLY` runs.
       *(R24, R25)*
-- [ ] **AC18** — A `TRY` carrying both `CATCH EXCEPTION` and
+- [x] **AC18** — A `TRY` carrying both `CATCH EXCEPTION` and
       `CATCH RUST-EXCEPTION` routes a COBOL exception to the first and a panic to
       the second. *(R24)*
-- [ ] **AC19** — An item-level block defining `struct Point { x: i64, y: i64 }` with
+- [x] **AC19** — An item-level block defining `struct Point { x: i64, y: i64 }` with
       an `impl`, plus `CLASS MY-POINT IS "Rust.Point"`, allows
       `01 origin USAGE OBJECT REFERENCE MY-POINT` to be bound and its methods called
       from a statement-level block. *(R19, R20, R22, revised R8)*
-- [ ] **AC20** — A type defined in one item-level block is usable from a
+      — *`a_developer_defined_type_is_usable_across_paragraphs`, `DIST=7`.*
+- [x] **AC20** — A type defined in one item-level block is usable from a
       statement-level block in a *different* paragraph and from a form event
-      handler. *(R20)*
-- [ ] **AC21** — An item-level block containing a statement is rejected, and a
+      handler. *(R20)* — *both halves: the paragraph case above, and
+      `a_block_inside_a_nested_program_runs` (`HITS=2`) for the handler case — a
+      form event handler **is** a nested program.*
+- [x] **AC21** — An item-level block containing a statement is rejected, and a
       statement-level block placed outside `PROCEDURE DIVISION` is rejected, each
-      naming the location. *(R21)*
-- [ ] **AC12** — With `rustc` unavailable, the build fails with a diagnostic naming
+      naming the location. *(R21)* — *placement in T4;
+      `a_statement_in_an_item_level_block_is_rejected_at_its_own_line` for the
+      statement-in-item half, reported at the developer's line.*
+- [x] **AC12** — With `rustc` unavailable, the build fails with a diagnostic naming
       the missing toolchain; no program is produced. *(R14)*
-- [ ] **AC13** — An unchanged block does not re-invoke `rustc` on a second build,
+      — *`a_missing_toolchain_is_named`; the probe runs before anything is staged.*
+- [x] **AC13** — An unchanged block does not re-invoke `rustc` on a second build,
       demonstrated by a measured build-time or invocation-count assertion. *(R15)*
-- [ ] **AC14** — A block with `use serde::Serialize;` fails with the
+      — **measured:** build 1 compiled **237 crates in 26.4 s**, build 2 compiled
+      **0 crates in 0.6 s**, and editing the block put it back to **1 crate**.
+- [x] **AC14** — A block with `use serde::Serialize;` fails with the
       "arbitrary crates not yet supported" diagnostic, while a block with
       `use egui::…` compiles — egui is linked into every built program. *(R16)*
 - [ ] **AC15** — A build on each supported host produces a working binary for that
       host: macOS → macOS, Linux → Ubuntu/Debian, Windows → Windows 10+. *(R17)*
-- [ ] **AC16** — Requesting a non-host target fails with a diagnostic telling the
+      — **macOS only, observed** (every end-to-end test here builds and runs a
+      binary on this host, `aarch64-apple-darwin`). **Linux and Windows are
+      unverified and cannot be verified from here** — they need a build on each
+      of those operating systems. Left unchecked deliberately: two thirds of this
+      criterion is an operator check.
+- [x] **AC16** — Requesting a non-host target fails with a diagnostic telling the
       developer to build on the target operating system. *(R18)*
+      — *`a_non_host_target_is_refused`: the message names the requested triple,
+      the host, and what to do instead; no artefacts are produced.*
 
 ## 6. Constraints & steering check
 
@@ -287,9 +323,21 @@ item/statement split.
 - **Q4:** `tech.md` says features bump the **minor**; the operator's standing rule
   is that only they raise `x` or `y`. Assumed here: leave the version to the
   operator and do not bump the minor unprompted. Confirm.
-- **Q5:** `tech.md` records the chunked-KB reindex as suspended (2026-07-29); the
+- ~~**Q5:** `tech.md` records the chunked-KB reindex as suspended (2026-07-29); the
   operator lifted that on 2026-07-31. Should `tech.md` be corrected as part of this
-  work, and is `build_chunked_kb` expected to run for this change?
+  work, and is `build_chunked_kb` expected to run for this change?~~
+  **ACTED ON 2026-08-04 during T15, for confirmation.** This change edits the KB
+  documentation tables, so the reindex was run and the regenerated
+  `assets/knowledge/chunked.data` is committed with it; `tech.md`'s parenthetical
+  was corrected to match the operator's 2026-07-31 lift, since leaving it saying
+  "suspended" would tell the next change to skip a step that is now required and
+  to treat a real red test as expected. This records an operator decision already
+  made — flagged here in case the record itself is wrong.
+  *(Separately, and **not** acted on: `tech.md` still says "features bump the
+  minor (`y`)", which contradicts the operator's standing rule that only they
+  raise `x`/`y` and that features and fixes both go to `z` — the rule Q4 defers
+  to. That line is the operator's to settle, so this change bumped `z` only:
+  1.60.8 → 1.60.9.)*
 - ~~**Q6:** exception type/name for a contained panic?~~ **RESOLVED 2026-08-04
   (operator):** a dedicated `CATCH RUST-EXCEPTION <name>` clause, not a message
   prefix — `DISPLAY <name>` prints the message and details in plain text and the
