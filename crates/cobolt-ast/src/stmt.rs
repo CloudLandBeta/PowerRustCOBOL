@@ -831,6 +831,219 @@ pub enum Stmt {
 }
 
 impl Stmt {
+    /// Every statement nested directly inside this one, in source order.
+    ///
+    /// # Why this lives here, with no wildcard arm
+    ///
+    /// Walking the statement tree used to mean writing a `match` in the walker
+    /// with a `_ => {}` at the end. That compiles forever, including for the
+    /// statements nobody remembered: an `EXEC RUST` block inside
+    /// `TRY … END-TRY` — the *documented* way to catch a `RUST-EXCEPTION` —
+    /// was invisible to codegen, so it compiled into nothing and failed at run
+    /// time as "no compiled function". `ON SIZE ERROR`, `INVALID KEY`,
+    /// `ON OVERFLOW`, `SEARCH … WHEN` and `AT END` had the same hole.
+    ///
+    /// This match is **exhaustive on purpose**. Adding a statement that carries
+    /// other statements will not compile until it is listed here, next to the
+    /// definition, where the omission is obvious.
+    pub fn child_stmts(&self) -> Vec<&Stmt> {
+        let mut out: Vec<&Stmt> = Vec::new();
+        match self {
+            // Arithmetic — ON SIZE ERROR / NOT ON SIZE ERROR.
+            Stmt::Add {
+                on_size_error,
+                not_on_size_error,
+                ..
+            }
+            | Stmt::Subtract {
+                on_size_error,
+                not_on_size_error,
+                ..
+            }
+            | Stmt::Multiply {
+                on_size_error,
+                not_on_size_error,
+                ..
+            }
+            | Stmt::Divide {
+                on_size_error,
+                not_on_size_error,
+                ..
+            }
+            | Stmt::Compute {
+                on_size_error,
+                not_on_size_error,
+                ..
+            } => {
+                out.extend(on_size_error.iter());
+                out.extend(not_on_size_error.iter());
+            }
+
+            Stmt::If {
+                then_stmts,
+                else_stmts,
+                ..
+            } => {
+                out.extend(then_stmts.iter());
+                out.extend(else_stmts.iter());
+            }
+
+            Stmt::Evaluate {
+                whens, other_stmts, ..
+            } => {
+                for w in whens {
+                    out.extend(w.stmts.iter());
+                }
+                out.extend(other_stmts.iter());
+            }
+
+            Stmt::Perform { target, .. } => match target {
+                PerformTarget::Inline { stmts }
+                | PerformTarget::Times { stmts, .. }
+                | PerformTarget::Until { stmts, .. }
+                | PerformTarget::Varying { stmts, .. } => out.extend(stmts.iter()),
+                PerformTarget::Paragraph(..)
+                | PerformTarget::Section(..)
+                | PerformTarget::Thru { .. } => {}
+            },
+
+            Stmt::Search { at_end, whens, .. } => {
+                out.extend(at_end.iter());
+                for (_, stmts) in whens {
+                    out.extend(stmts.iter());
+                }
+            }
+
+            Stmt::Read {
+                at_end,
+                not_at_end,
+                invalid_key,
+                not_invalid_key,
+                ..
+            } => {
+                out.extend(at_end.iter());
+                out.extend(not_at_end.iter());
+                out.extend(invalid_key.iter());
+                out.extend(not_invalid_key.iter());
+            }
+
+            Stmt::Write {
+                invalid_key,
+                not_invalid_key,
+                ..
+            }
+            | Stmt::Rewrite {
+                invalid_key,
+                not_invalid_key,
+                ..
+            }
+            | Stmt::Delete {
+                invalid_key,
+                not_invalid_key,
+                ..
+            }
+            | Stmt::Start {
+                invalid_key,
+                not_invalid_key,
+                ..
+            } => {
+                out.extend(invalid_key.iter());
+                out.extend(not_invalid_key.iter());
+            }
+
+            Stmt::String_ {
+                on_overflow,
+                not_on_overflow,
+                ..
+            }
+            | Stmt::Unstring {
+                on_overflow,
+                not_on_overflow,
+                ..
+            } => {
+                out.extend(on_overflow.iter());
+                out.extend(not_on_overflow.iter());
+            }
+
+            Stmt::Return {
+                at_end,
+                not_at_end,
+                ..
+            } => {
+                out.extend(at_end.iter());
+                out.extend(not_at_end.iter());
+            }
+
+            Stmt::Call {
+                on_exception,
+                not_on_exception,
+                ..
+            } => {
+                out.extend(on_exception.iter());
+                out.extend(not_on_exception.iter());
+            }
+
+            Stmt::TryCatch {
+                try_stmts,
+                catch_stmts,
+                rust_catch_stmts,
+                finally_stmts,
+                ..
+            } => {
+                out.extend(try_stmts.iter());
+                out.extend(catch_stmts.iter());
+                out.extend(rust_catch_stmts.iter());
+                out.extend(finally_stmts.iter());
+            }
+
+            // Leaves — no nested statements. Listed rather than wildcarded so a
+            // new statement with a body cannot slip in unnoticed.
+            Stmt::Move { .. }
+            | Stmt::MoveCorresponding { .. }
+            | Stmt::AddCorresponding { .. }
+            | Stmt::SubtractCorresponding { .. }
+            | Stmt::Initialize { .. }
+            | Stmt::Alter { .. }
+            | Stmt::Unlock { .. }
+            | Stmt::Commit { .. }
+            | Stmt::Rollback { .. }
+            | Stmt::SetPointer { .. }
+            | Stmt::GoTo { .. }
+            | Stmt::GoToDepending { .. }
+            | Stmt::Continue { .. }
+            | Stmt::Exit { .. }
+            | Stmt::NextSentence { .. }
+            | Stmt::SentenceEnd { .. }
+            | Stmt::Open { .. }
+            | Stmt::Close { .. }
+            | Stmt::Accept { .. }
+            | Stmt::Display { .. }
+            | Stmt::Inspect { .. }
+            | Stmt::Sort { .. }
+            | Stmt::Merge { .. }
+            | Stmt::Release { .. }
+            | Stmt::Invoke { .. }
+            | Stmt::InvokeExpr { .. }
+            | Stmt::Cancel { .. }
+            | Stmt::Stop { .. }
+            | Stmt::GoBack { .. }
+            | Stmt::WindowOp { .. }
+            | Stmt::ControlSet { .. }
+            | Stmt::ExecRust { .. }
+            | Stmt::Throw { .. } => {}
+        }
+        out
+    }
+
+    /// Visit this statement and every statement nested inside it, depth-first
+    /// in source order.
+    pub fn walk(&self, f: &mut impl FnMut(&Stmt)) {
+        f(self);
+        for child in self.child_stmts() {
+            child.walk(f);
+        }
+    }
+
     /// Return the source span of this statement.
     pub fn span(&self) -> Span {
         match self {

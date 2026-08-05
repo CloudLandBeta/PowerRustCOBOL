@@ -2234,10 +2234,27 @@ underscores: `WS-USER-NAME` becomes `ws_user_name`. A name that lands on a Rust
 keyword (`01 TYPE` → `type`) or cannot start an identifier (`01 1ST-FLAG`) is
 rejected — rename the item.
 
+**A bound name is a `&mut T`, not a `T`.** That is what lets you assign through
+it, and method calls auto-dereference as usual:
+
+```rust
+*counter = 10;              // assign through the name
+text.push_str("x");         // method call — no `*` needed
+let n = text.chars().count();
+```
+
 Every integer class binds as `i64` and both float classes as `f64`, because that
 is how the object bridge stores them: `INVOKE` and a block always see the same
-value. Collections hold the bridge's own value type, so a `Rust.Vec` filled by
-`INVOKE` and one filled inside a block hold the same things.
+value. **A `CLASS RUST-I32` item is an `i64` inside the block** — a function you
+write to fill it must return `i64`, not `i32`. Collections hold the bridge's own
+value type, so a `Rust.Vec` filled by `INVOKE` and one filled inside a block hold
+the same things.
+
+#### Where a block may appear
+
+Anywhere a statement may appear — including inside `IF`, `EVALUATE`, `PERFORM`,
+`ON SIZE ERROR`, `INVALID KEY`, `AT END`, and inside `TRY … END-TRY`, which is
+where you put one when you want to catch what it might do.
 
 #### Your own Rust types
 
@@ -2271,11 +2288,100 @@ item starts it from.
   each gets its own kind.
 - **State is shared for the whole run.** Two blocks in different paragraphs, or
   in a form event handler, see the same objects. `CANCEL` does not reset it.
-- **Crates**: `std`, plus what every built program already links — `eframe`,
-  `egui`, `egui_extras`, and PowerRustCOBOL's own crates. A `use` of anything else
-  is rejected, naming the crate; arbitrary dependencies are not supported yet.
+- **Crates**: `std`, plus `eframe`, `egui`, `egui_extras` and PowerRustCOBOL's own
+  crates. A program containing any block links the GUI crates even when it has no
+  forms, so a console program can open a window. A `use` of anything else is
+  rejected, naming the crate; arbitrary dependencies are not supported yet.
 - **Errors are reported in your terms.** A Rust type error inside a block fails
   the build at *your* `EXEC RUST` line and column, not at generated code.
+
+#### A worked example: a dialog from COBOL
+
+This builds and runs as a console program. It defines an `eframe` application in
+an item-level block, then calls it from a statement-level block inside a `TRY`,
+so a failure arrives as a `RUST-EXCEPTION` rather than killing the run.
+
+Note `fn ui`, not `fn update`: PowerRustCOBOL links **eframe 0.35**, whose `App`
+trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)`. Older
+eframe tutorials showing `update` will not compile here.
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. WINDEMO.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32    IS "Rust.i32"
+
+      *> Item-level block: items only. Emitted at module scope, so every
+      *> statement-level block in the program can see these.
+       EXEC RUST
+           use eframe::egui;
+           use std::sync::{Arc, Mutex};
+
+           pub struct ButtonDialog {
+               pub clicked: Arc<Mutex<i64>>,
+           }
+
+           impl eframe::App for ButtonDialog {
+               fn ui(&mut self, ui: &mut egui::Ui, _f: &mut eframe::Frame) {
+                   ui.horizontal(|ui| {
+                       for caption in [1_i64, 2_i64] {
+                           if ui.button(caption.to_string()).clicked() {
+                               *self.clicked.lock().unwrap() = caption;
+                               ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                           }
+                       }
+                   });
+               }
+           }
+
+      *> Opens the window, blocks until a button closes it, and returns the
+      *> caption. Zero means the window was closed instead.
+           pub fn ask(title: &str) -> i64 {
+               let clicked = Arc::new(Mutex::new(0_i64));
+               let out = clicked.clone();
+               let _ = eframe::run_native(
+                   title,
+                   eframe::NativeOptions::default(),
+                   Box::new(move |_cc| Ok(Box::new(ButtonDialog { clicked: out }))),
+               );
+               let v = *clicked.lock().unwrap();
+               v
+           }
+       END-EXEC.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+      *> Only USAGE OBJECT REFERENCE items may cross into a block, and their
+      *> names must convert to valid Rust identifiers:
+      *> window-title -> window_title, clicked-button -> clicked_button.
+       01 window-title    USAGE IS OBJECT REFERENCE RUST-STRING
+                          VALUE "Hello, From COBOL".
+       01 clicked-button  USAGE IS OBJECT REFERENCE RUST-I32.
+       01 ws-error        PIC X(120).
+
+       PROCEDURE DIVISION.
+       MAIN.
+           TRY
+               EXEC RUST
+      *> `clicked_button` is a `&mut i64` — assign through it. `RUST-I32`
+      *> binds as i64, which is why `ask` returns i64.
+                   *clicked_button = ask(window_title.as_str());
+               END-EXEC
+           CATCH RUST-EXCEPTION ws-error
+               DISPLAY "Window failed: " ws-error
+           END-TRY.
+
+           DISPLAY clicked-button.
+           GOBACK.
+```
+
+> **A window from a form's handler is a different matter.** A form application
+> already owns an event loop, and `run_native` starts another; nesting them
+> aborts the process. From a form, use the designer's own controls, or open a
+> second egui *viewport* rather than a second native app.
 
 ---
 

@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.11] — 2026-08-05
+
+### Fixed
+
+- **An `EXEC RUST` block inside `TRY … END-TRY` compiled into nothing.** The
+  statement walk had a catch-all arm, so it never looked inside `TRY`, `CATCH`,
+  `FINALLY`, `ON SIZE ERROR`, `INVALID KEY`, `ON OVERFLOW`, `AT END` or
+  `SEARCH … WHEN`. A block written in the one place the guide recommends — inside
+  a `TRY`, so its failure can be caught — was silently skipped and then failed at
+  run time as "no compiled function", which reads like a build problem and is not.
+
+  The child-statement list now lives in `cobolt-ast` as an **exhaustive** match
+  with no wildcard: a new statement that carries other statements will not
+  compile until it is listed, next to the definition.
+
+- **A bound item is now a `&mut T`, as this language always meant it to be.**
+  `*counter = 10;` assigns through the name and `text.push_str("x")` still works
+  by auto-deref. It had been bound by value, so assigning through it did not
+  compile.
+
+- **`eframe` and `egui` were promised to blocks but not linked for console
+  programs.** Analysis accepted `use eframe::egui;` and the build then failed with
+  `unresolved import 'eframe'`. A program containing any block now links the GUI
+  crates whether or not it has forms — which is exactly what lets a console
+  program open a window.
+
+### Changed
+
+- The developer's guide and the System KB gained a worked FFI example — an
+  `eframe` dialog defined in an item-level block and called from a statement-level
+  one inside a `TRY` — plus the facts that example proves: bound names are
+  mutable references, `RUST-I32` binds as `i64`, and **eframe here is 0.35**,
+  whose `App` trait requires `fn ui`, not `fn update`.
+
 ## [PowerRustCOBOL 1.60.10] — 2026-08-05
 
 ### Fixed

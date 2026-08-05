@@ -697,17 +697,12 @@ fn build_core(
         ));
     }
 
-    // ── 8. Generate Cargo.toml for the build project ──────────────────────────
-    let crates_path = workspace_root.join("crates");
-    let has_forms = !forms.is_empty();
-
-    let cargo_toml = generate_cargo_toml(&bin_name, &proj.project.version, &crates_path, has_forms);
-    write_if_changed(&build_dir.join("Cargo.toml"), cargo_toml.as_bytes())?;
-
-    // ── 9. Generate src/exec_rust_blocks.rs ───────────────────────────────────
+    // ── 8. Generate src/exec_rust_blocks.rs ───────────────────────────────────
     // Emitted unconditionally: a program with no blocks gets an empty dispatch
     // table, which keeps `main.rs` free of a conditional module (spec 041 T8).
     report(0.55, "Generating Rust blocks…");
+    let crates_path = workspace_root.join("crates");
+    let has_forms = !forms.is_empty();
     let blocks = exec_rust::generate(&program, &sem.symbols, main_src);
     if blocks.block_count > 0 || blocks.item_count > 0 {
         log(&format!(
@@ -716,6 +711,19 @@ fn build_core(
         ));
     }
     write_if_changed(&src_dir.join("exec_rust_blocks.rs"), blocks.source.as_bytes())?;
+
+    // ── 9. Generate Cargo.toml for the build project ──────────────────────────
+    // The GUI crates are linked for a program with forms **or** with any
+    // `EXEC RUST` block. Semantic analysis tells a developer that `eframe` and
+    // `egui` are available to a block (spec 041 R16); leaving them out of a
+    // console program's manifest made that a lie, and the failure surfaced as
+    // `unresolved import 'eframe'` against their own line — a correct message
+    // for a promise we had broken. A block is also exactly where someone opens
+    // a dialog from an otherwise console program, which is the reason to want
+    // them there.
+    let links_gui = has_forms || blocks.block_count > 0 || blocks.item_count > 0;
+    let cargo_toml = generate_cargo_toml(&bin_name, &proj.project.version, &crates_path, links_gui);
+    write_if_changed(&build_dir.join("Cargo.toml"), cargo_toml.as_bytes())?;
 
     // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
     let form_ids: Vec<&str> = forms.iter().map(|(id, _)| id.as_str()).collect();
@@ -1944,7 +1952,9 @@ Only a `USAGE OBJECT REFERENCE` item whose `CLASS` names a Rust type. A `PIC` it
 
 The Rust variable is the COBOL name lowercased with hyphens turned into underscores — `WS-USER-NAME` is `ws_user_name`. A name that lands on a Rust keyword (`01 TYPE` → `type`) or cannot start an identifier (`01 1ST-FLAG`) is rejected; rename the item.
 
-- Every integer class (`RUST-I8` … `RUST-USIZE`) binds as `i64`, and both float classes as `f64` — that is how the object bridge stores them, so `INVOKE` and a block always see the same value.
+**A bound name is a `&mut T`, not a `T`.** Assign through it — `*counter = 10;` — and call methods on it directly, since method calls auto-dereference (`text.push_str("x")`).
+
+- Every integer class (`RUST-I8` … `RUST-USIZE`) binds as `i64`, and both float classes as `f64` — that is how the object bridge stores them, so `INVOKE` and a block always see the same value. A `CLASS RUST-I32` item is an `i64` inside a block, so a function written to fill it must return `i64`.
 - The collection classes hold `cobolt_runtime::rust_bridge::BridgeValue`, so a `Rust.Vec` filled by `INVOKE` and one filled inside a block hold the same things.
 - The unsized classes (`RUST-STR`, `RUST-OSSTR`, `RUST-CSTR`, `RUST-PATH`) bind as their owned forms (`String`, `OsString`, `CString`, `PathBuf`).
 
@@ -1971,7 +1981,10 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **A block body is a Rust function body returning `Result<(), Box<dyn Error>>`.** That is what makes `?` usable inside it. To leave early, write `return Ok(())`, not `return;`. An error that propagates out becomes a `RUST-EXCEPTION`.
 - **A panic is catchable**: `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it, `DISPLAY e` prints the panic's plain text, and the program continues. A plain `CATCH EXCEPTION` does **not** catch a panic, and a COBOL `THROW` does not reach a `RUST-EXCEPTION` clause; a `TRY` may carry both clauses.
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
-- **Crates**: `std`, plus what every built program already links — `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A `use` of anything else is rejected, naming the crate.
+- **Crates**: `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. A `use` of anything else is rejected, naming the crate.
+- **eframe here is 0.35.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
+- **A window opened from a form's handler aborts the process.** A form application already owns an event loop and `eframe::run_native` starts another. Opening a window with `run_native` is for console programs; from a form, use the designer's controls or a second egui viewport.
+- A block may appear **anywhere a statement may**, including inside `IF`, `EVALUATE`, `PERFORM`, `ON SIZE ERROR`, `INVALID KEY`, `AT END` and `TRY … END-TRY` — the last being where a block goes when its failure should be caught.
 - A block that is *not* built cannot run: an unregistered block is a hard error naming its id, never a silent no-op.
 
 ```cobol
@@ -1982,6 +1995,52 @@ A developer-defined type must implement `Default` — that is what the first blo
            let vowels = user_name.chars().filter(|c| "aeiou".contains(*c)).count();
            println!("{vowels} vowels");
            END-EXEC.
+```
+
+A worked example — an `eframe` dialog defined in an item-level block and called from a statement-level one inside a `TRY`. This compiles as a console program:
+
+```cobol
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32    IS "Rust.i32"
+       EXEC RUST
+           use eframe::egui;
+           use std::sync::{Arc, Mutex};
+           pub struct ButtonDialog { pub clicked: Arc<Mutex<i64>> }
+           impl eframe::App for ButtonDialog {
+               fn ui(&mut self, ui: &mut egui::Ui, _f: &mut eframe::Frame) {
+                   ui.horizontal(|ui| {
+                       for caption in [1_i64, 2_i64] {
+                           if ui.button(caption.to_string()).clicked() {
+                               *self.clicked.lock().unwrap() = caption;
+                               ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                           }
+                       }
+                   });
+               }
+           }
+           pub fn ask(title: &str) -> i64 {
+               let clicked = Arc::new(Mutex::new(0_i64));
+               let out = clicked.clone();
+               let _ = eframe::run_native(title, eframe::NativeOptions::default(),
+                   Box::new(move |_cc| Ok(Box::new(ButtonDialog { clicked: out }))));
+               let v = *clicked.lock().unwrap();
+               v
+           }
+       END-EXEC.
+       ...
+       01 window-title   USAGE IS OBJECT REFERENCE RUST-STRING VALUE "Hello".
+       01 clicked-button USAGE IS OBJECT REFERENCE RUST-I32.
+       01 ws-error       PIC X(120).
+       PROCEDURE DIVISION.
+           TRY
+               EXEC RUST
+                   *clicked_button = ask(window_title.as_str());
+               END-EXEC
+           CATCH RUST-EXCEPTION ws-error
+               DISPLAY "Window failed: " ws-error
+           END-TRY.
+           DISPLAY clicked-button.
 ```
 
 ## `SPECIAL-NAMES` and the decimal separator
@@ -4069,11 +4128,14 @@ mod resolve_main_tests {
             // Type-agnostic, but real: `size_of_val` needs the binding to exist
             // at a concrete sized type, and the mutable borrow needs it to be a
             // genuine owned value rather than a copy of a stand-in.
+            // `&*var` measures the bound VALUE. A bound name is a `&mut T`, so
+            // `&var` would measure the reference — eight bytes for all 48,
+            // which would pass while proving almost nothing.
             first.push_str(&format!(
-                "           touched += std::mem::size_of_val(&{var}) as i64;\n           let _ = &mut {var};\n"
+                "           touched += std::mem::size_of_val(&*{var}) as i64;\n           let _ = &mut *{var};\n"
             ));
             second.push_str(&format!(
-                "           again += std::mem::size_of_val(&{var}) as i64;\n"
+                "           again += std::mem::size_of_val(&*{var}) as i64;\n"
             ));
         }
 

@@ -331,10 +331,10 @@ fn emit_block(
             class = b.class_path,
         ));
     }
-    // 3. Take them.
+    // 3. Take them into locals the generated function owns.
     for b in bindings {
         e.line(&format!(
-            "    let mut {rust} : {ty} = ctx.bridge.take_or_init(__cobolt_h_{rust}, || {init});",
+            "    let mut __cobolt_v_{rust} : {ty} = ctx.bridge.take_or_init(__cobolt_h_{rust}, || {init});",
             rust = b.rust_name,
             ty = b.rust_type,
             init = b.init_expr,
@@ -345,6 +345,18 @@ fn emit_block(
     e.line("    let __cobolt_outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {");
     e.line("        let cobolt_objects = &mut *ctx.objects;");
     e.line("        let cobolt_env = &mut *ctx.env;");
+    // The developer's name is a `&mut T`, not a `T`. That is the convention
+    // this language already had — `*ws_count += 1;` — and it is what lets a
+    // block assign through the name (`*clicked_button = ask(...)`) as well as
+    // call methods on it (`window_title.as_str()`), which auto-deref handles.
+    // The owned value stays in the enclosing function so it can be put back
+    // even when the body panics.
+    for b in bindings {
+        e.line(&format!(
+            "        let {rust} = &mut __cobolt_v_{rust};",
+            rust = b.rust_name
+        ));
+    }
     // A block body is a function body returning `Result`, which is what makes
     // `?` usable inside it (AC2). An error that reaches here becomes a panic,
     // and therefore a catchable `RUST-EXCEPTION` — the same door every other
@@ -362,7 +374,7 @@ fn emit_block(
     // 5. Put back on both paths, then re-raise.
     for b in bindings {
         e.line(&format!(
-            "    ctx.bridge.put_value(__cobolt_h_{rust}, \"{class}\", {rust});",
+            "    ctx.bridge.put_value(__cobolt_h_{rust}, \"{class}\", __cobolt_v_{rust});",
             rust = b.rust_name,
             class = b.class_path,
         ));
@@ -633,22 +645,32 @@ MAIN-PARA.
             "a shipped class should bind at the type the bridge stores:\n{src}"
         );
         assert!(
-            src.contains("let mut ws_text : String = ctx.bridge.take_or_init"),
-            "the bound variable should be the developer's snake_case name:\n{src}"
+            src.contains("let mut __cobolt_v_ws_text : String = ctx.bridge.take_or_init"),
+            "the owned value lives in the generated function:\n{src}"
         );
         assert!(
-            src.contains("let mut ws_origin : Point = ctx.bridge.take_or_init")
+            src.contains("let mut __cobolt_v_ws_origin : Point = ctx.bridge.take_or_init")
                 && src.contains("|| Default::default()"),
             "a developer-defined class binds at its own type, from Default:\n{src}"
         );
+        // What the developer's own code sees is a `&mut T` under their name —
+        // the convention this language already had (`*ws_count += 1;`), and
+        // what lets a block assign through the name as well as call methods on
+        // it.
         assert!(
-            src.contains("ctx.bridge.put_value(__cobolt_h_ws_text, \"Rust.String\", ws_text);"),
+            src.contains("let ws_text = &mut __cobolt_v_ws_text;"),
+            "the developer's name must be a mutable reference:\n{src}"
+        );
+        assert!(
+            src.contains(
+                "ctx.bridge.put_value(__cobolt_h_ws_text, \"Rust.String\", __cobolt_v_ws_text);"
+            ),
             "every taken value must be put back:\n{src}"
         );
 
         // Order: check before take before put-back.
         let check = src.find("check_binding::<String>").unwrap();
-        let take = src.find("let mut ws_text : String").unwrap();
+        let take = src.find("let mut __cobolt_v_ws_text : String").unwrap();
         let put = src.find("put_value(__cobolt_h_ws_text").unwrap();
         assert!(check < take && take < put, "the preamble is out of order");
     }
@@ -711,13 +733,83 @@ END PROGRAM OUTER.
         assert_eq!(gen.block_count, 2, "both blocks should be emitted");
         let takes = gen
             .source
-            .matches("let mut ws_text : String")
+            .matches("let mut __cobolt_v_ws_text : String")
             .count();
         assert_eq!(
             takes, 2,
             "the GLOBAL item should bind in the outer program and in the nested one:\n{}",
             gen.source
         );
+    }
+
+    /// **A block inside `TRY … END-TRY` must be compiled.**
+    ///
+    /// This is the one place the guide tells a developer to put a block — it is
+    /// how `CATCH RUST-EXCEPTION` is used — and the statement walker's old
+    /// `_ => {}` arm swallowed `TryCatch` whole. The block compiled into
+    /// nothing and the program failed at run time with "no compiled function",
+    /// which reads like a build problem and is not one.
+    ///
+    /// The other conditional phrases are here for the same reason: each was a
+    /// separate silent hole.
+    #[test]
+    fn blocks_inside_conditional_phrases_are_compiled() {
+        let (gen, _) = compile(
+            r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. NESTED.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-N PIC 9(4).
+01 WS-E PIC X(80).
+PROCEDURE DIVISION.
+MAIN-PARA.
+    TRY
+        EXEC RUST
+        println!("in try");
+        END-EXEC
+    CATCH RUST-EXCEPTION WS-E
+        EXEC RUST
+        println!("in rust catch");
+        END-EXEC
+    FINALLY
+        EXEC RUST
+        println!("in finally");
+        END-EXEC
+    END-TRY.
+    COMPUTE WS-N = 1 / 1
+        ON SIZE ERROR
+            EXEC RUST
+            println!("in size error");
+            END-EXEC
+    END-COMPUTE.
+    IF WS-N = 1
+        EXEC RUST
+        println!("in if");
+        END-EXEC
+    END-IF.
+    STOP RUN.
+"#,
+        );
+
+        assert_eq!(
+            gen.block_count, 5,
+            "every nested block must compile — TRY, CATCH RUST-EXCEPTION, \
+             FINALLY, ON SIZE ERROR and IF:\n{}",
+            gen.source
+        );
+        for needle in [
+            "in try",
+            "in rust catch",
+            "in finally",
+            "in size error",
+            "in if",
+        ] {
+            assert!(
+                gen.source.contains(needle),
+                "the block containing {needle:?} was dropped"
+            );
+        }
     }
 
     /// A program with no blocks still yields a module that compiles and
