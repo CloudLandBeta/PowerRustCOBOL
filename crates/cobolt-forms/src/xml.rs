@@ -2096,6 +2096,31 @@ Actor Caption:string</Property>
         let _ = std::fs::remove_file(&path);
     }
 
+    /// A procedure the developer has only just created has **no body yet**.
+    /// It must survive a save and reload, or it disappears from the form the
+    /// moment they press Save — before they ever get to write it.
+    #[test]
+    fn a_procedure_with_no_body_yet_survives_a_save_and_reload() {
+        let mut form = sample_form();
+        form.user_procedures = vec![UserProcedure {
+            name: "USER-PROC-1".into(),
+            code: String::new(),
+        }];
+
+        let path = std::env::temp_dir().join("cobolt_test_empty_proc.cfrm");
+        save_form(&form, &path).expect("save_form failed");
+        let loaded = load_form(&path).expect("load_form failed");
+
+        assert_eq!(
+            loaded.user_procedures.len(),
+            1,
+            "a body-less procedure was dropped by the save/load round trip"
+        );
+        assert_eq!(loaded.user_procedures[0].name, "USER-PROC-1");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn xml_output_contains_expected_tags() {
         let form = sample_form();

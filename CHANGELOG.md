@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.10] — 2026-08-05
+
+### Fixed
+
+- **A new common procedure disappeared the first time you saved the form.**
+  Save runs a cleanup that removes procedures orphaned by a deleted control. It
+  decided what "deleted" meant by reading the form's **top-level** controls
+  only — but a form is a tree, and a Button or TextBox inside a GroupBox or a
+  panel lives in that container's children. So a procedure addressing a nested
+  control looked like one whose every control had been deleted; and since a
+  procedure you just created has no caller yet, both of the cleanup's conditions
+  were met and it was removed before you had finished writing it.
+
+  The scan now walks every control at every depth, on both sides of the test:
+  the controls a procedure addresses, and the handlers that might call it — the
+  button that calls a common procedure is usually inside a container too.
+
+- **Data bindings onto a control inside a container were pruned the same way.**
+  The identical top-level-only scan ran on the same Save, so a binding onto a
+  DataGrid or ComboBox in a GroupBox was dropped as though its target had been
+  deleted — losing a whole configuration dialog's worth of work, silently.
+
 ## [PowerRustCOBOL 1.60.9] — 2026-08-04
 
 ### Added

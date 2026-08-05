@@ -5030,11 +5030,16 @@ impl Form {
     /// ("paragraph 'GOBACK' is declared more than once"), and nothing on
     /// screen explained why (operator, 2026-07-31).
     pub fn orphaned_user_procedures(&self) -> Vec<usize> {
-        let live: std::collections::HashSet<String> = self
-            .controls
-            .iter()
-            .map(|c| c.id.to_ascii_uppercase())
-            .collect();
+        // Every control, at every depth. `controls` is a **tree**: a Button
+        // inside a GroupBox lives in that GroupBox's `children`, so a scan of
+        // the top level alone misses most of a real form — and then a procedure
+        // addressing a nested control looks like one whose controls were all
+        // deleted. Since a newly created procedure has no caller yet either, it
+        // was removed the first time the developer pressed Save.
+        let mut live: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for ctrl in &self.controls {
+            collect_control_ids(ctrl, &mut live);
+        }
         let mut doomed: std::collections::HashSet<usize> = std::collections::HashSet::new();
         loop {
             let mut grew = false;
@@ -5046,10 +5051,13 @@ impl Form {
                 if refs.is_empty() || refs.iter().any(|r| live.contains(r)) {
                     continue;
                 }
+                // Handlers at every depth too: the button that calls a common
+                // procedure is usually inside a GroupBox or a panel, and reading
+                // only top-level handlers made such a procedure look uncalled.
                 let called = self
                     .controls
                     .iter()
-                    .flat_map(|c| c.events.iter())
+                    .flat_map(control_events)
                     .chain(self.form_events.iter())
                     .any(|ev| code_mentions_word(&ev.code, &proc.name))
                     || self
@@ -5090,17 +5098,18 @@ impl Form {
     /// mappings on survivors); `0` means nothing changed.
     pub fn prune_orphaned_data_bindings(&mut self) -> usize {
         use std::collections::HashSet;
-        let ctrl_ids: HashSet<String> = self
-            .controls
-            .iter()
-            .map(|c| c.id.to_ascii_uppercase())
-            .collect();
-        let array_ids: HashSet<String> = self
-            .controls
-            .iter()
-            .filter_map(|c| c.explicit_control_array_id())
-            .map(|a| a.to_ascii_uppercase())
-            .collect();
+        // Every control at every depth — `controls` is a tree. A DataGrid or a
+        // ComboBox inside a GroupBox is the normal case, not the exotic one, and
+        // reading only the top level made every binding onto one look like a
+        // binding whose target had been deleted.
+        let mut ctrl_ids: HashSet<String> = HashSet::new();
+        for ctrl in &self.controls {
+            collect_control_ids(ctrl, &mut ctrl_ids);
+        }
+        let mut array_ids: HashSet<String> = HashSet::new();
+        for ctrl in &self.controls {
+            collect_control_array_ids(ctrl, &mut array_ids);
+        }
         let has_ctrl = |id: &str| ctrl_ids.contains(&id.to_ascii_uppercase());
         let has_array = |id: &str| array_ids.contains(&id.to_ascii_uppercase());
 
@@ -5197,6 +5206,37 @@ fn find_in<'a>(ctrl: &'a Control, id: &str) -> Option<&'a Control> {
     ctrl.children.iter().find_map(|c| find_in(c, id))
 }
 
+/// Collect `ctrl`'s id and every descendant's, upper-cased.
+fn collect_control_ids(ctrl: &Control, out: &mut std::collections::HashSet<String>) {
+    out.insert(ctrl.id.to_ascii_uppercase());
+    for child in &ctrl.children {
+        collect_control_ids(child, out);
+    }
+}
+
+/// Collect the explicit control-array id of `ctrl` and every descendant.
+fn collect_control_array_ids(ctrl: &Control, out: &mut std::collections::HashSet<String>) {
+    if let Some(id) = ctrl.explicit_control_array_id() {
+        out.insert(id.to_ascii_uppercase());
+    }
+    for child in &ctrl.children {
+        collect_control_array_ids(child, out);
+    }
+}
+
+/// Every event binding on `ctrl` and its descendants.
+///
+/// A form is a tree, so "the handlers of this form" is never
+/// `controls.iter().flat_map(|c| c.events.iter())` — that reads the top level
+/// and stops.
+fn control_events(ctrl: &Control) -> Vec<&EventBinding> {
+    let mut out: Vec<&EventBinding> = ctrl.events.iter().collect();
+    for child in &ctrl.children {
+        out.extend(control_events(child));
+    }
+    out
+}
+
 fn find_in_mut<'a>(ctrl: &'a mut Control, id: &str) -> Option<&'a mut Control> {
     if ctrl.id.to_ascii_uppercase() == id {
         return Some(ctrl);
@@ -5242,6 +5282,97 @@ mod orphan_procedure_tests {
         // defect for the developer to resolve, not an orphan to remove.
         let form = form_with(&["TXT2"], vec![proc("UPDATE-CONCATENATION", body)]);
         assert!(form.orphaned_user_procedures().is_empty());
+    }
+
+    /// The same blind spot, in the code that deletes **data bindings**: it runs
+    /// on the same Save, and a DataGrid inside a GroupBox is the normal case.
+    /// Losing a binding costs the developer a whole configuration dialog's
+    /// worth of work, silently.
+    #[test]
+    fn a_binding_onto_a_nested_control_is_not_pruned() {
+        let mut form = Form::new("F", "T", 400, 300);
+        let mut group = Control::new("PANEL-1", ControlType::GroupBox, 0, 0);
+        group
+            .children
+            .push(Control::new("GRID-1", ControlType::DataGrid, 10, 10));
+        form.controls.push(group);
+        form.data_bindings.push(DataBindingDef::new(
+            "b1",
+            "Customers",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-CUSTOMERS".into(),
+                occurs_item: "WS-CUST".into(),
+                fields: Vec::new(),
+                key_fields: Vec::new(),
+                writable: false,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".into(),
+            },
+        ));
+
+        let removed = form.prune_orphaned_data_bindings();
+        assert_eq!(
+            removed, 0,
+            "a binding onto a control inside a container was pruned as orphaned"
+        );
+        assert_eq!(form.data_bindings.len(), 1);
+    }
+
+    /// **A control inside a container is still a control.** `Form::controls` is
+    /// a tree — a Button inside a GroupBox lives in that GroupBox's `children`,
+    /// not at the top level — so a scan that only walks the top level cannot see
+    /// most of a real form's controls.
+    ///
+    /// The cost is not cosmetic: a procedure that addresses a nested control
+    /// looks like one whose every control was deleted, and a brand-new procedure
+    /// is never called by anything yet, so it is removed the first time the
+    /// developer presses Save.
+    #[test]
+    fn a_procedure_addressing_a_nested_control_is_not_orphaned() {
+        let mut form = Form::new("F", "T", 400, 300);
+        let mut group = Control::new("PANEL-1", ControlType::GroupBox, 0, 0);
+        group
+            .children
+            .push(Control::new("TXT1", ControlType::TextBox, 10, 10));
+        form.controls.push(group);
+        form.user_procedures = vec![proc(
+            "UPDATE-TOTAL",
+            "       PROCEDURE DIVISION.\n           MOVE txt1::Text TO WS-X.",
+        )];
+
+        assert!(
+            form.orphaned_user_procedures().is_empty(),
+            "a procedure addressing a control inside a container was treated as \
+             an orphan — its control exists, it is just not at the top level"
+        );
+    }
+
+    /// The same blind spot from the other direction: the handler that calls a
+    /// procedure usually belongs to a control inside a container.
+    #[test]
+    fn a_procedure_called_from_a_nested_controls_handler_is_not_orphaned() {
+        let mut form = Form::new("F", "T", 400, 300);
+        let mut group = Control::new("PANEL-1", ControlType::GroupBox, 0, 0);
+        let mut button = Control::new("SAVE-BTN", ControlType::Button, 10, 10);
+        button.events.push(EventBinding {
+            event: "onClick".into(),
+            paragraph: "SAVE-BTN--onClick".into(),
+            code: "       PROCEDURE DIVISION.\n           CALL \"UPDATE-TOTAL\".".into(),
+        });
+        group.children.push(button);
+        form.controls.push(group);
+        // Its own controls are all gone, so only the CALL can save it.
+        form.user_procedures = vec![proc(
+            "UPDATE-TOTAL",
+            "       PROCEDURE DIVISION.\n           MOVE txtGone::Text TO WS-X.",
+        )];
+
+        assert!(
+            form.orphaned_user_procedures().is_empty(),
+            "a procedure called from a nested control's handler was treated as \
+             uncalled — the CALL is there, just not on a top-level control"
+        );
     }
 
     /// Deleting code is not a cleanup when someone still calls it.
