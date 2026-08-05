@@ -445,6 +445,120 @@ MAIN.
     );
 }
 
+/// **AC14 / R16** — an arbitrary crate is rejected, naming it; egui is not,
+/// because every generated program already links eframe/egui.
+#[test]
+fn exec_rust_rejects_an_unlinked_crate_but_allows_egui() {
+    let with = |body: &str| {
+        format!(
+            "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. CRATES.
+PROCEDURE DIVISION.
+MAIN.
+    EXEC RUST
+{body}
+    END-EXEC.
+    STOP RUN.
+"
+        )
+    };
+
+    let result = analyze(&parse_program(&with("        use serde::Serialize;")));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        errors
+            .iter()
+            .any(|d| d.message.contains("`serde`") && d.message.contains("does not link")),
+        "expected serde to be rejected by name, got: {errors:?}"
+    );
+
+    // egui and std are linked into every built program — no complaint.
+    for allowed in ["        use egui::Context;", "        use std::fmt::Write;"] {
+        let result = analyze(&parse_program(&with(allowed)));
+        let errors: Vec<_> = result.errors().collect();
+        assert!(
+            !errors.iter().any(|d| d.message.contains("does not link")),
+            "{allowed} should compile, got: {errors:?}"
+        );
+    }
+}
+
+/// **AC9 / R8-revised** — a `CLASS` naming a type that does not exist fails,
+/// and the diagnostic names the developer's `CLASS`, not some generated symbol.
+#[test]
+fn exec_rust_rejects_a_class_naming_no_real_type() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. BADCLASS.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-NOPE IS \"Rust.Nope\"
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+    let result = analyze(&parse_program(src));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        errors
+            .iter()
+            .any(|d| d.message.contains("RUST-NOPE") && d.message.contains("Rust.Nope")),
+        "expected the CLASS to be named in the error, got: {errors:?}"
+    );
+}
+
+/// R8-revised / R22 — the shipped 48 are a **floor**. A type declared by an
+/// item-level block is just as legitimate, so the same `CLASS` is accepted once
+/// the developer defines the type.
+#[test]
+fn a_developer_defined_type_may_be_named_by_a_class() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. OWNTYPE.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS MY-POINT IS \"Rust.Point\"
+EXEC RUST
+    pub struct Point { pub x: i64, pub y: i64 }
+    impl Point { pub fn sum(&self) -> i64 { self.x + self.y } }
+END-EXEC.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+    let result = analyze(&parse_program(src));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        !errors.iter().any(|d| d.message.contains("Rust.Point")),
+        "a developer-defined type must be accepted, got: {errors:?}"
+    );
+}
+
+/// A shipped type still resolves without any item-level block.
+#[test]
+fn a_shipped_class_is_accepted_on_its_own() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SHIPPED.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-HASHMAP IS \"Rust.HashMap\"
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+    let result = analyze(&parse_program(src));
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        !errors.iter().any(|d| d.message.contains("Rust.HashMap")),
+        "a shipped type must be accepted, got: {errors:?}"
+    );
+}
+
 /// **AC7 / R6** — the bound name becomes a Rust identifier verbatim, so a COBOL
 /// name that lands on a Rust keyword cannot be used. `TYPE` is a name COBOL
 /// programs pick quite naturally.

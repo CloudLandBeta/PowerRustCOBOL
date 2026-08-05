@@ -4413,65 +4413,11 @@ pub struct CobolStructure {
 /// classes in `REPOSITORY` form. The literal is the type's path in the Rust
 /// hierarchy (analogous to `System.String` in .NET), so a data item can be
 /// `USAGE OBJECT REFERENCE RUST-STRING`. New forms start with these.
+/// The table itself lives in [`cobolt_ast::rust_types`] — semantic analysis
+/// needs the same answer about which `Rust.*` types exist (spec 041 R8), and a
+/// second copy here would drift the moment either side gained a type.
 pub fn default_repository() -> String {
-    const TYPES: &[(&str, &str)] = &[
-        // ── Primitive (scalar) types ──────────────────────────────────────────
-        ("RUST-BOOL", "Rust.bool"),
-        ("RUST-CHAR", "Rust.char"),
-        ("RUST-I8", "Rust.i8"),
-        ("RUST-I16", "Rust.i16"),
-        ("RUST-I32", "Rust.i32"),
-        ("RUST-I64", "Rust.i64"),
-        ("RUST-I128", "Rust.i128"),
-        ("RUST-ISIZE", "Rust.isize"),
-        ("RUST-U8", "Rust.u8"),
-        ("RUST-U16", "Rust.u16"),
-        ("RUST-U32", "Rust.u32"),
-        ("RUST-U64", "Rust.u64"),
-        ("RUST-U128", "Rust.u128"),
-        ("RUST-USIZE", "Rust.usize"),
-        ("RUST-F32", "Rust.f32"),
-        ("RUST-F64", "Rust.f64"),
-        ("RUST-STR", "Rust.str"),
-        ("RUST-UNIT", "Rust.unit"),
-        // ── Strings, text and paths ───────────────────────────────────────────
-        ("RUST-STRING", "Rust.String"),
-        ("RUST-OSSTRING", "Rust.OsString"),
-        ("RUST-OSSTR", "Rust.OsStr"),
-        ("RUST-CSTRING", "Rust.CString"),
-        ("RUST-CSTR", "Rust.CStr"),
-        ("RUST-PATH", "Rust.Path"),
-        ("RUST-PATHBUF", "Rust.PathBuf"),
-        // ── Collections ───────────────────────────────────────────────────────
-        ("RUST-VEC", "Rust.Vec"),
-        ("RUST-VECDEQUE", "Rust.VecDeque"),
-        ("RUST-LINKEDLIST", "Rust.LinkedList"),
-        ("RUST-HASHMAP", "Rust.HashMap"),
-        ("RUST-BTREEMAP", "Rust.BTreeMap"),
-        ("RUST-HASHSET", "Rust.HashSet"),
-        ("RUST-BTREESET", "Rust.BTreeSet"),
-        ("RUST-BINARYHEAP", "Rust.BinaryHeap"),
-        // ── Core enums ────────────────────────────────────────────────────────
-        ("RUST-OPTION", "Rust.Option"),
-        ("RUST-RESULT", "Rust.Result"),
-        // ── Smart pointers, cells and synchronisation ─────────────────────────
-        ("RUST-BOX", "Rust.Box"),
-        ("RUST-RC", "Rust.Rc"),
-        ("RUST-ARC", "Rust.Arc"),
-        ("RUST-WEAK", "Rust.Weak"),
-        ("RUST-CELL", "Rust.Cell"),
-        ("RUST-REFCELL", "Rust.RefCell"),
-        ("RUST-MUTEX", "Rust.Mutex"),
-        ("RUST-RWLOCK", "Rust.RwLock"),
-        ("RUST-COW", "Rust.Cow"),
-        // ── Time ──────────────────────────────────────────────────────────────
-        ("RUST-DURATION", "Rust.Duration"),
-        ("RUST-INSTANT", "Rust.Instant"),
-        ("RUST-SYSTEMTIME", "Rust.SystemTime"),
-        // ── Ranges ────────────────────────────────────────────────────────────
-        ("RUST-RANGE", "Rust.Range"),
-    ];
-    TYPES
+    cobolt_ast::rust_types::SHIPPED_RUST_TYPES
         .iter()
         .map(|(name, path)| format!("           CLASS {name} IS \"{path}\""))
         .collect::<Vec<_>>()

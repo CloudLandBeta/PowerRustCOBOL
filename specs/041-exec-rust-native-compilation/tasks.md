@@ -111,9 +111,17 @@ saying so.
     plain `CATCH` and the run ends; both clauses route to their own class; a
     COBOL `THROW` never reaches the Rust clause.
 
-- [ ] **T7 — Semantic rules** (R5, R6 **done**; R8-revised, R16, R22 **remaining**)
-  - *Partial: `cargo test -p cobolt-semantic` 16 passed, 0 failed; workspace
-    **1519 passed, 0 failed**.*
+- [x] **T7 — Semantic rules** (R5, R6, R8-revised, R16, R22) — *done:
+      `cargo test -p cobolt-semantic --test test_semantic` **20 passed**, 0
+      failed.*
+  - **R16 done**, and its meaning corrected by the operator: not "`std`-only"
+    but **`std` plus the crates every generated binary already links** — egui is
+    the standard GUI for the IDE *and* the application, and
+    `generate_cargo_toml` emits `eframe`/`egui_extras`/`cobolt-forms` into every
+    build. `unlinked_crates()` inspects `use` declarations only (the clear
+    signal); a bare `some_crate::f()` slips through to `rustc`, with a worse
+    message but a correct verdict. **AC14 covered**
+    (`exec_rust_rejects_an_unlinked_crate_but_allows_egui`).
   - **R5 done** — a referenced item that is not `USAGE OBJECT REFERENCE` is an
     error naming it (`exec_rust_rejects_a_pic_item`); a Rust-typed object binds
     cleanly (`exec_rust_accepts_an_object_reference_item`). **AC6 covered.**
@@ -133,7 +141,22 @@ saying so.
     binding resolution, no partial matches), and
     `exec_rust_bindings_resolved` additionally asserts **no R5 rejection**, so
     it can no longer pass while describing code that would not build.
-  - Remaining: **R8-revised** (AC9), **R16** (AC14), **R22**.
+  - **R8-revised done, R22 done.** The shipped type table moved from
+    `cobolt-forms/src/model.rs` to `cobolt-ast/src/rust_types.rs` (operator chose
+    option (a)), so `cobolt-forms` and `cobolt-semantic` cannot disagree about
+    it; `cobolt-forms` gained a `cobolt-ast` dependency and `default_repository()`
+    now reads the shared table. `check_repository_classes` rejects a `CLASS`
+    naming neither a shipped type nor one declared by an item-level block, and
+    names the developer's `CLASS` in the message. **AC9 covered**, plus
+    `a_developer_defined_type_may_be_named_by_a_class` (the floor-not-ceiling
+    case) and `a_shipped_class_is_accepted_on_its_own`.
+    `types_declared_in_item_blocks` is a permissive lexical scan, not a Rust
+    parser: a wrong accept costs a precise `rustc` error later, a wrong reject
+    would refuse a valid program with a wrong reason.
+  - Remaining: **R16** (AC14) — and its meaning changed, see the spec: not
+    "`std`-only" but "`std` + the crates the binary already links", since
+    `eframe`/`egui`/`egui_extras`/`cobolt-forms` are emitted into every generated
+    `Cargo.toml`.
   - **⚠ Blocking question for R8-revised — where does the canonical Rust-type
     list live?** The 48 `CLASS RUST-*` entries are in
     `cobolt-forms/src/model.rs:4419`, but `cobolt-semantic` depends only on

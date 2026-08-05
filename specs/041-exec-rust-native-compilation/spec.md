@@ -125,9 +125,18 @@ hand-written shims in `rust_bridge.rs`.
 - **R15 (optional):** Where a block's source and binding signature are unchanged
   since the previous build, the system shall reuse the cached compiled artefact
   rather than invoking `rustc` again.
-- **R16 (constraint):** v1 shall accept only `std`; a block whose Rust references
-  an external crate shall fail the build with a diagnostic saying external crates
-  are not yet supported.
+- **R16 (constraint):** v1 shall accept `std` **plus the crates the generated
+  binary already links** — `eframe`/`egui`, `egui_extras`, `cobolt-forms`,
+  `cobolt-runtime`. A block referencing any *other* third-party crate shall fail
+  the build saying arbitrary crates are not yet supported.
+  *(Corrected 2026-08-04 by the operator: this said "`std`-only", which was
+  wrong. egui IS the standard GUI for PowerRustCOBOL — for the IDE **and** the
+  application — and `generate_cargo_toml` already emits `eframe 0.35`,
+  `egui_extras` and `cobolt-forms` with `features = ["render"]` into every built
+  program. Those crates are linked regardless, so a block using them needs no
+  vendoring and compiles today. What is genuinely deferred is an arbitrary
+  third-party dependency, which needs a manifest story. The earlier reading also
+  made a windowed demo look impossible, which it is not.)*
 - **R17 (constraint):** The system shall build for the **host triple only** and
   shall not cross-compile. An application for a given operating system is built on
   that operating system: macOS → macOS, Linux → Ubuntu/Debian, Windows →
@@ -231,7 +240,8 @@ item/statement split.
 - [ ] **AC13** — An unchanged block does not re-invoke `rustc` on a second build,
       demonstrated by a measured build-time or invocation-count assertion. *(R15)*
 - [ ] **AC14** — A block with `use serde::Serialize;` fails with the
-      "external crates not yet supported" diagnostic. *(R16)*
+      "arbitrary crates not yet supported" diagnostic, while a block with
+      `use egui::…` compiles — egui is linked into every built program. *(R16)*
 - [ ] **AC15** — A build on each supported host produces a working binary for that
       host: macOS → macOS, Linux → Ubuntu/Debian, Windows → Windows 10+. *(R17)*
 - [ ] **AC16** — Requesting a non-host target fails with a diagnostic telling the

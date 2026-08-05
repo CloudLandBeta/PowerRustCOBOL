@@ -165,6 +165,7 @@ fn analyze_contained(program: &Program, inherited_globals: &[DataItemInfo]) -> S
     type_checker::check(program, &symbols, &mut diagnostics);
 
     // Pass 4: EXEC RUST binding resolution.
+    exec_rust::check_repository_classes(program, &mut diagnostics);
     exec_rust::resolve_bindings(program, &symbols, &mut diagnostics);
 
     // Pass 5: every contained program, analyzed in its own right.

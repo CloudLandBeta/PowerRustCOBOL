@@ -1349,6 +1349,7 @@ dependencies = [
 name = "cobolt-forms"
 version = "0.2.0"
 dependencies = [
+ "cobolt-ast",
  "cobolt-media",
  "egui",
  "egui-elegance",

@@ -28,6 +28,7 @@
 pub mod data;
 pub mod expr;
 pub mod program;
+pub mod rust_types;
 pub mod stmt;
 
 // Re-export the span types so downstream crates only need one import.

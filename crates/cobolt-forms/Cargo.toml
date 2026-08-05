@@ -14,6 +14,9 @@ license.workspace      = true
 repository.workspace   = true
 
 [dependencies]
+# The shipped Rust-type table lives in cobolt-ast so the form model and
+# semantic analysis cannot disagree about it (spec 041 R8).
+cobolt-ast  = { path = "../cobolt-ast" }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 serde_yaml  = { workspace = true }

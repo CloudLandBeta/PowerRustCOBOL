@@ -23,6 +23,7 @@
 use cobolt_ast::{
     data::Usage,
     program::{ProcedureBody, Program},
+    rust_types::{is_shipped_rust_type, rust_type_name},
     stmt::Stmt,
 };
 
@@ -51,6 +52,21 @@ pub fn resolve_bindings(
             // handing one to compiled Rust would mean re-implementing COBOL's
             // numeric and padding rules inside generated code. Move it through
             // an object with `INVOKE` / `::` instead, outside the block.
+            // R16 — a crate the build does not link cannot compile, and saying
+            // so here names the crate the developer wrote rather than leaving
+            // `rustc` to complain about generated code.
+            for krate in unlinked_crates(source) {
+                diagnostics.push(SemanticDiagnostic {
+                    severity: Severity::Error,
+                    message: format!(
+                        "EXEC RUST uses crate `{krate}`, which this build does not \
+                         link — arbitrary crates are not yet supported; std, egui \
+                         and eframe are available"
+                    ),
+                    span: *span,
+                });
+            }
+
             for (cobol, _rust) in collect_bindings(source, symbols) {
                 let Some(info) = symbols.data_items().find_map(|(_, i)| {
                     (i.cobol_name == cobol).then_some(i)
@@ -125,6 +141,117 @@ pub fn collect_bindings(source: &str, symbols: &SymbolTable) -> Vec<(String, Str
         }
     }
     out
+}
+
+/// Crates a block may draw on (spec 041 R16).
+///
+/// Not `std` alone: **every** generated program already links these, because
+/// `generate_cargo_toml` emits them into the crate `cargo` builds. egui is the
+/// standard GUI for PowerRustCOBOL — the IDE *and* the application — so a block
+/// using it needs no vendoring and compiles today. What v1 defers is an
+/// arbitrary third-party dependency, which needs a manifest story first.
+const LINKED_CRATES: &[&str] = &[
+    // Always available to any Rust code.
+    "std",
+    "core",
+    "alloc",
+    // Emitted into every generated Cargo.toml.
+    "eframe",
+    "egui",
+    "egui_extras",
+    "cobolt_forms",
+    "cobolt_runtime",
+    // `crate`/`self`/`super` are intra-crate paths, not dependencies.
+    "crate",
+    "self",
+    "super",
+];
+
+/// Report any `use <crate>::…` in `source` naming a crate the build does not
+/// link (spec 041 R16).
+///
+/// Only `use` declarations are inspected — the clear, greppable signal. A bare
+/// `some_crate::f()` with no `use` would slip through and be caught by `rustc`
+/// instead, with a worse message but a correct verdict.
+fn unlinked_crates(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in source.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("use ") else {
+            continue;
+        };
+        // `use egui::Context;` → `egui`; `use std::{fs, io};` → `std`
+        let root: String = rest
+            .trim_start_matches("::")
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if root.is_empty() || LINKED_CRATES.contains(&root.as_str()) {
+            continue;
+        }
+        if !out.contains(&root) {
+            out.push(root);
+        }
+    }
+    out
+}
+
+/// Every `Rust.*` type an item-level block declares (spec 041 R19/R22).
+///
+/// A lexical scan for `struct` / `enum` / `type` / `union` followed by a name.
+/// Deliberately **permissive**: it is not a Rust parser, and the cost of the
+/// two error directions is not symmetric. Accepting a name that turns out not
+/// to exist costs a precise `rustc` error later; rejecting one that does exist
+/// would refuse a valid program with a wrong explanation. So when in doubt this
+/// says yes.
+fn types_declared_in_item_blocks(program: &Program) -> Vec<String> {
+    const DECLARERS: [&str; 4] = ["struct", "enum", "type", "union"];
+    let mut out = Vec::new();
+    for block in &program.rust_items {
+        let mut words = block.source.split_whitespace().peekable();
+        while let Some(word) = words.next() {
+            if !DECLARERS.contains(&word) {
+                continue;
+            }
+            let Some(next) = words.peek() else { continue };
+            // `struct Point {`, `struct Point<T>`, `struct Point;`
+            let name: String = next
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+/// Spec 041 R8 (revised) — a `REPOSITORY` `CLASS` must name a Rust type that
+/// exists: one of the shipped set, or one an item-level block declares.
+///
+/// The shipped 48 are a **floor**, not a ceiling. Catching an unknown name here
+/// means the diagnostic can point at the developer's `CLASS`; left to `rustc`
+/// it would name the generated type instead, which is not the text they wrote.
+pub fn check_repository_classes(program: &Program, diagnostics: &mut Vec<SemanticDiagnostic>) {
+    let declared = types_declared_in_item_blocks(program);
+    for (class_name, path) in &program.repository {
+        // Only `Rust.*` is ours; another external hierarchy is left alone.
+        let Some(type_name) = rust_type_name(path) else {
+            continue;
+        };
+        if is_shipped_rust_type(path) || declared.iter().any(|d| d == type_name) {
+            continue;
+        }
+        diagnostics.push(SemanticDiagnostic {
+            severity: Severity::Error,
+            message: format!(
+                "CLASS {class_name} names \"{path}\", which is neither a shipped \
+                 Rust type nor declared by an item-level EXEC RUST block"
+            ),
+            span: program.span,
+        });
+    }
 }
 
 /// Why `name` cannot be used as a Rust identifier, or `None` if it can
