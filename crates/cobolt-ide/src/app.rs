@@ -190,6 +190,22 @@ struct StaleBuildPrompt {
     intent: StaleBuildIntent,
 }
 
+/// Whether a build of `project` must discard every cached artefact: true when
+/// the running `current` version is newer than the one that last fully built
+/// it — which includes a project that has never been fully built at all.
+///
+/// ONE predicate, read by both the Build button (to choose full over
+/// incremental) and Run's stale gate (to decide whether to prompt). They have
+/// to agree: 1.60.30 wired Build to the plain incremental path, which leaves
+/// the version stamp untouched, so Run then asked for the very full build the
+/// developer had just waited through — the project was built twice.
+fn build_needs_full(
+    project: Option<&crate::project_model::CoboltProject>,
+    current: &str,
+) -> bool {
+    project.is_some_and(|p| p.project.build_is_stale_for(current))
+}
+
 pub struct CoboltApp {
     // Code workspace
     project: ProjectPanel,
@@ -1482,12 +1498,12 @@ impl CoboltApp {
     /// Whether the open project was last fully built by an OLDER
     /// PowerRustCOBOL than the one running.
     fn build_is_stale(&self) -> bool {
-        self.cobolt_project
-            .as_ref()
-            .is_some_and(|p| p.project.build_is_stale_for(crate::version::VERSION))
+        build_needs_full(self.cobolt_project.as_ref(), crate::version::VERSION)
     }
 
-    /// Gate every Run path on the version stamp.
+    /// Gate every Run path on the version stamp. See [`build_needs_full`] —
+    /// the Build button reads the same predicate, so a build it just performed
+    /// is one this gate accepts.
     ///
     /// Returns `true` when the caller should stop and let the developer answer
     /// the prompt. The prompt reappears on every Run until a full build
@@ -2545,6 +2561,24 @@ impl CoboltApp {
         self.do_build_binary_with(false);
     }
 
+    /// The Build button (toolbar and the File menu item).
+    ///
+    /// A project the running PowerRustCOBOL has never fully built gets the
+    /// FULL build. An incremental one there produces a binary the IDE itself
+    /// refuses to trust: it leaves the version stamp untouched, so the next
+    /// Run still asks for a full build and the incremental minutes are spent
+    /// twice over — which is exactly what an operator hit (2026-08-06).
+    ///
+    /// The decision lives here rather than in [`Self::do_build_binary`] so the
+    /// EXEC RUST auto-build inside Run stays incremental: reaching that one
+    /// means the developer already answered the stale prompt with "Run
+    /// anyway", and silently full-building would overrule the answer they
+    /// just gave.
+    fn do_build_binary_button(&mut self) {
+        let full = self.build_is_stale();
+        self.do_build_binary_with(full);
+    }
+
     /// Build, optionally discarding every cached artefact first.
     ///
     /// A full build is what answers "it behaves oddly since I updated": the
@@ -2589,6 +2623,22 @@ impl CoboltApp {
         self.output.clear_run_output();
         self.output
             .push_status("── Building binary …  (this may take a minute) ──");
+        // A full build discards every cached artefact, so it takes minutes
+        // longer than an incremental one. Say why it is happening — otherwise
+        // a Build that used to be quick just looks stuck.
+        if full {
+            let last = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.project.built_with_display().to_owned())
+                .unwrap_or_else(|| "never fully built".to_owned());
+            let msg = self
+                .lang
+                .tr()
+                .status_build_full_stale
+                .replace("{last}", &last);
+            self.output.push_status(msg);
+        }
 
         // Run the build on a background thread; collect result via a one-shot
         // channel, and stream phase progress via a second channel.
@@ -10504,7 +10554,7 @@ impl eframe::App for CoboltApp {
                         .on_hover_text("Compile project → single native executable in bin/")
                         .clicked()
                     {
-                        self.do_build_binary(); ui.close();
+                        self.do_build_binary_button(); ui.close();
                     }
                     ui.separator();
                     // Manual KB reindex — the same incremental sync a Grace
@@ -10605,7 +10655,7 @@ impl eframe::App for CoboltApp {
             ToolbarAction::Run => self.do_run(),
             ToolbarAction::Stop => self.do_stop(),
             ToolbarAction::Debug => self.do_debug(),
-            ToolbarAction::Build => self.do_build_binary(),
+            ToolbarAction::Build => self.do_build_binary_button(),
             ToolbarAction::Check => self.do_check(),
             // The toolbar Open button always opens (or switches to) a project, so
             // you can change projects at any time. Opening an individual COBOL
@@ -15081,6 +15131,56 @@ fn tracked_generated_rel(
                 == Some(file_name)
         })
         .cloned()
+}
+
+#[cfg(test)]
+mod build_button_full_tests {
+    use super::*;
+    use crate::project_model::CoboltProject;
+
+    fn proj(built_with: &str) -> CoboltProject {
+        let mut p = CoboltProject::new("Demo.project", "main.cbl");
+        p.project.built_with_version = built_with.to_owned();
+        p
+    }
+
+    /// The Build button discards cached artefacts exactly when Run would stop
+    /// and ask for a full build. Before this, Build was unconditionally
+    /// incremental: it left the stamp alone, so the developer waited out a
+    /// build and Run immediately asked for another one.
+    #[test]
+    fn build_is_full_exactly_when_run_would_prompt() {
+        // Never fully built (every project created before the stamp existed,
+        // and every brand-new one) → full.
+        assert!(build_needs_full(Some(&proj("")), "1.60.36"));
+        // Built by an older PowerRustCOBOL → full.
+        assert!(build_needs_full(Some(&proj("1.60.35")), "1.60.36"));
+        // Already built by this one → incremental, so the common case stays
+        // as quick as it ever was.
+        assert!(!build_needs_full(Some(&proj("1.60.36")), "1.60.36"));
+        // Downgraded IDE: rebuilding cannot un-write what a newer version
+        // produced, so it neither prompts nor full-builds.
+        assert!(!build_needs_full(Some(&proj("1.61.0")), "1.60.36"));
+    }
+
+    /// No project open — there is nothing to full-build, and `do_build_binary`
+    /// refuses for want of a manifest anyway.
+    #[test]
+    fn no_project_never_forces_a_full_build() {
+        assert!(!build_needs_full(None, "1.60.36"));
+    }
+
+    /// A full build is what writes the stamp, so the SECOND build of an
+    /// upgraded project is incremental again: the prompt and the long build
+    /// happen once per upgrade, not once per Build click.
+    #[test]
+    fn the_full_build_settles_it_for_this_version() {
+        let mut p = proj("1.60.35");
+        assert!(build_needs_full(Some(&p), "1.60.36"));
+        // What the build-result handler stamps on success.
+        p.project.built_with_version = "1.60.36".to_owned();
+        assert!(!build_needs_full(Some(&p), "1.60.36"));
+    }
 }
 
 #[cfg(test)]

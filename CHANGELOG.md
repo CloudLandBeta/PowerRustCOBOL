@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.36] — 2026-08-06
+
+### Fixed
+
+- **The Build button always built incrementally, even when the project needed a
+  full rebuild — so an upgraded project was built twice.** 1.60.30 taught Run to
+  check the recorded version and offer a full build, but wired Build to the plain
+  incremental path. An incremental build leaves the recorded version untouched,
+  so the sequence was: click Build, wait out the build, click Run, and be asked
+  for the very full build you had just waited through — then wait again. Nothing
+  in the Output panel hinted that the first build was one the IDE would not
+  count.
+
+  The Build button now reads the **same** predicate Run's prompt reads
+  (`build_needs_full`): a project last fully built by an older PowerRustCOBOL —
+  or never fully built, which covers everything created before the stamp
+  existed — gets the full build, and the Output panel says why it is taking
+  longer. Because a full build is what records the version, the second click is
+  incremental again: the long build happens once per upgrade, not once per
+  click.
+
+  The auto-build inside Run (for a form with `EXEC RUST` blocks) deliberately
+  stays incremental — reaching it means the developer already answered the
+  prompt with "Run anyway", and silently full-building would overrule the answer
+  they just gave.
+
 ## [PowerRustCOBOL 1.60.27 / 1.60.28] — 2026-08-06
 
 ### Changed

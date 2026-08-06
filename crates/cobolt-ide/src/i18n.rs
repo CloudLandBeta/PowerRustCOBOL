@@ -147,6 +147,9 @@ pub struct Tr {
     pub status_run_not_started: &'static str,
     /// `{version}` = the PowerRustCOBOL version just stamped into the project.
     pub status_build_stamped: &'static str,
+    /// `{last}` = version that last fully built the project (or "never fully
+    /// built"). Explains why Build is taking the longer, full path.
+    pub status_build_full_stale: &'static str,
     pub stale_build_title: &'static str,
     /// `{last}` = version that last fully built, `{current}` = running version.
     pub stale_build_body: &'static str,
@@ -1204,6 +1207,7 @@ const EN: Tr = Tr {
     status_built_exited_err: "❌ {name} failed: {err}",
     status_run_not_started: "⏹ Run cancelled — the build did not start, so no program was launched.",
     status_build_stamped: "🔖 Project recorded as fully built with PowerRustCOBOL {version}.",
+    status_build_full_stale: "🧹 Last full build: {last} — building fully, so nothing compiled by the older version survives. This takes longer than an incremental build.",
     stale_build_title: "This project was built by an older PowerRustCOBOL",
     stale_build_body: "Last full build: {last}. Running now: {current}.\n\nA full build recompiles everything from your current sources, clearing anything left by the older version — and records this version in the project.",
     stale_build_hint: "Only a full build updates the recorded version, so this appears on every Run until you do one.",
@@ -2117,6 +2121,7 @@ const ES: Tr = Tr {
     status_built_exited_err: "❌ {name} falló: {err}",
     status_run_not_started: "⏹ Ejecución cancelada — la compilación no se inició, así que no se lanzó ningún programa.",
     status_build_stamped: "🔖 Proyecto registrado como compilado por completo con PowerRustCOBOL {version}.",
+    status_build_full_stale: "🧹 Última compilación completa: {last} — se compila por completo para que no sobreviva nada compilado por la versión anterior. Tarda más que una compilación incremental.",
     stale_build_title: "Este proyecto se compiló con una versión anterior de PowerRustCOBOL",
     stale_build_body: "Última compilación completa: {last}. Versión actual: {current}.\n\nUna compilación completa recompila todo a partir de sus fuentes actuales, elimina lo que dejó la versión anterior y registra esta versión en el proyecto.",
     stale_build_hint: "Solo una compilación completa actualiza la versión registrada, por eso este aviso aparece en cada ejecución hasta que la realice.",
@@ -3030,6 +3035,7 @@ const PT: Tr = Tr {
     status_built_exited_err: "❌ {name} falhou: {err}",
     status_run_not_started: "⏹ Execução cancelada — a compilação não começou, então nenhum programa foi iniciado.",
     status_build_stamped: "🔖 Projeto registrado como compilado por completo com PowerRustCOBOL {version}.",
+    status_build_full_stale: "🧹 Última compilação completa: {last} — compilando por completo para que não sobreviva nada compilado pela versão anterior. Demora mais do que uma compilação incremental.",
     stale_build_title: "Este projeto foi compilado por uma versão anterior do PowerRustCOBOL",
     stale_build_body: "Última compilação completa: {last}. Versão atual: {current}.\n\nUma compilação completa recompila tudo a partir dos seus fontes atuais, descarta o que a versão anterior deixou e registra esta versão no projeto.",
     stale_build_hint: "Somente uma compilação completa atualiza a versão registrada, por isso este aviso aparece a cada execução até que você a faça.",
@@ -3943,6 +3949,7 @@ const JA: Tr = Tr {
     status_built_exited_err: "❌ {name} が失敗しました: {err}",
     status_run_not_started: "⏹ 実行を中止しました — ビルドが開始されなかったため、プログラムは起動されていません。",
     status_build_stamped: "🔖 PowerRustCOBOL {version} でフルビルド済みとしてプロジェクトに記録しました。",
+    status_build_full_stale: "🧹 最後のフルビルド: {last} — 以前のバージョンでコンパイルされたものが残らないよう、フルビルドを実行します。増分ビルドより時間がかかります。",
     stale_build_title: "このプロジェクトは以前のバージョンの PowerRustCOBOL でビルドされています",
     stale_build_body: "最後のフルビルド: {last}。現在の実行バージョン: {current}。\n\nフルビルドは現在のソースからすべてを再コンパイルし、以前のバージョンが残したものを取り除き、このバージョンをプロジェクトに記録します。",
     stale_build_hint: "記録されるバージョンを更新できるのはフルビルドだけです。実行するまで、この確認は毎回表示されます。",
@@ -4856,6 +4863,7 @@ const ZH: Tr = Tr {
     status_built_exited_err: "❌ {name} 失败：{err}",
     status_run_not_started: "⏹ 运行已取消 — 编译未开始，因此没有启动任何程序。",
     status_build_stamped: "🔖 已记录该项目由 PowerRustCOBOL {version} 完整编译。",
+    status_build_full_stale: "🧹 上次完整编译：{last} — 正在执行完整编译，以确保旧版本编译的产物不会残留。这比增量编译耗时更长。",
     stale_build_title: "该项目由较旧版本的 PowerRustCOBOL 编译",
     stale_build_body: "上次完整编译：{last}。当前运行版本：{current}。\n\n完整编译会依据当前源码重新编译全部内容，清除旧版本遗留的产物，并把此版本记录到项目中。",
     stale_build_hint: "只有完整编译才会更新记录的版本，因此在完成之前，每次运行都会出现此提示。",
@@ -5776,6 +5784,7 @@ const FR: Tr = Tr {
     status_built_exited_err: "❌ {name} a échoué : {err}",
     status_run_not_started: "⏹ Exécution annulée — la compilation n'a pas démarré, aucun programme n'a donc été lancé.",
     status_build_stamped: "🔖 Projet enregistré comme entièrement compilé avec PowerRustCOBOL {version}.",
+    status_build_full_stale: "🧹 Dernière compilation complète : {last} — compilation complète en cours, pour qu'il ne subsiste rien de compilé par l'ancienne version. C'est plus long qu'une compilation incrémentale.",
     stale_build_title: "Ce projet a été compilé par une version antérieure de PowerRustCOBOL",
     stale_build_body: "Dernière compilation complète : {last}. Version en cours : {current}.\n\nUne compilation complète recompile tout à partir de vos sources actuelles, efface ce que la version antérieure a laissé et enregistre cette version dans le projet.",
     stale_build_hint: "Seule une compilation complète met à jour la version enregistrée ; cet avertissement revient donc à chaque exécution tant que vous ne l'avez pas faite.",

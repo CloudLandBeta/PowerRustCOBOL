@@ -2951,6 +2951,31 @@ flowchart LR
   machine without PowerRustCOBOL" feature (binary + assets + any libraries +
   launcher). For now, ship `bin/` and the copied assets.
 
+### Full builds and the recorded version
+
+A project records the PowerRustCOBOL version that last **fully** built it. When
+you open a project that was last fully built by an **older** PowerRustCOBOL — or
+that has never been fully built at all — the **Build** button performs a **full**
+build: every cached compilation artefact is discarded first, so nothing produced
+by the older version can survive into the new executable. It takes noticeably
+longer than an ordinary build, and the Output panel says why it is doing so.
+
+Once that build succeeds the version is recorded, and later Build clicks are
+ordinary incremental builds again — the long build happens **once per upgrade**,
+not once per click. Pressing **Run** on a project that still needs one offers you
+the same full build before it starts anything.
+
+From the command line:
+
+```text
+rcrun build --full  [cobolt.toml]   # discard cached artefacts, then build
+rcrun build --clean [cobolt.toml]   # same thing, spelled the other way
+```
+
+> ⚠️ **Caveat.** Only a full build updates the recorded version, and that is
+> deliberate: an ordinary incremental build cannot promise that nothing compiled
+> by the earlier version is still linked into the result.
+
 > **Note.** Forms are loaded **lazily** inside the binary: a 20-form application
 > starts instantly even if the user only ever opens one form.
 
