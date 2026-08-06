@@ -41,10 +41,15 @@ pub fn show(
 
             // Order: Open | Save | Check | Build | Debug | Run | Stop | ⚙
 
+            // Every button flashes briefly on click (crate::theme::flash_on_click)
+            // so a press is always visibly acknowledged.
+
             // ── Open file ─────────────────────────────────────────────────────
-            if ui.button(tr.tb_open).clicked() {
+            let open_resp = ui.button(tr.tb_open);
+            if open_resp.clicked() {
                 action = ToolbarAction::Open;
             }
+            crate::theme::flash_on_click(ui, &open_resp);
 
             // ── Save ──────────────────────────────────────────────────────────
             // Live only when something is genuinely unsaved (dirty form designer,
@@ -55,6 +60,7 @@ pub fn show(
             if save_resp.clicked() {
                 action = ToolbarAction::Save;
             }
+            crate::theme::flash_on_click(ui, &save_resp);
             if has_active && !has_unsaved {
                 save_resp.on_disabled_hover_text(tr.tb_nothing_to_save);
             }
@@ -62,18 +68,18 @@ pub fn show(
             ui.separator();
 
             // ── Check (parse/analyse only) ────────────────────────────────────
-            if ui
-                .add_enabled(has_active, Button::new(tr.tb_check))
-                .clicked()
-            {
+            let check_resp = ui.add_enabled(has_active, Button::new(tr.tb_check));
+            if check_resp.clicked() {
                 action = ToolbarAction::Check;
             }
+            crate::theme::flash_on_click(ui, &check_resp);
 
             // ── Build binary ──────────────────────────────────────────────────
             let build_resp = ui.add_enabled(compilable, Button::new(tr.tb_build));
             if build_resp.clicked() {
                 action = ToolbarAction::Build;
             }
+            crate::theme::flash_on_click(ui, &build_resp);
             if !compilable {
                 build_resp.on_hover_text(tr.tb_need_program);
             }
@@ -90,6 +96,7 @@ pub fn show(
             if run_resp.clicked() {
                 action = ToolbarAction::Run;
             }
+            crate::theme::flash_on_click(ui, &run_resp);
             if !compilable {
                 run_resp.on_hover_text(tr.tb_need_program);
             }
@@ -106,6 +113,7 @@ pub fn show(
             if dbg_resp.clicked() {
                 action = ToolbarAction::Debug;
             }
+            crate::theme::flash_on_click(ui, &dbg_resp);
             if !debuggable {
                 dbg_resp.on_hover_text(tr.tb_debug_hint);
             }
@@ -116,9 +124,11 @@ pub fn show(
             } else {
                 Color32::GRAY
             }));
-            if ui.add_enabled(busy, stop_btn).clicked() {
+            let stop_resp = ui.add_enabled(busy, stop_btn);
+            if stop_resp.clicked() {
                 action = ToolbarAction::Stop;
             }
+            crate::theme::flash_on_click(ui, &stop_resp);
 
             // Settings now live in the Main Pane (click the project node); the
             // toolbar no longer has a gear button.

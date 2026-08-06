@@ -218,6 +218,10 @@ pub struct CoboltApp {
     /// output streams into the Output panel and their death is reported, never
     /// silent. A re-Run replaces the previous instance.
     built_runs: Vec<crate::form_runtime::BuiltAppRun>,
+    /// The form whose DESIGNER window hosts the build modal, when the build was
+    /// started by that designer's Run Form button. `None` = the IDE main window
+    /// hosts it (toolbar Build). Exactly one surface shows the modal.
+    build_modal_host: Option<PathBuf>,
 
     // Run-Form process/memory inspector (toolbar toggle; only samples while a
     // Live Interpreter is running).
@@ -1013,6 +1017,7 @@ impl CoboltApp {
             form_runtimes: Vec::new(),
             external_runs: Vec::new(),
             built_runs: Vec::new(),
+            build_modal_host: None,
             inspector: crate::inspector::ProcessInspector::new(Default::default()),
             show_inspector: false,
             inspector_sized: false,
@@ -2534,6 +2539,9 @@ impl CoboltApp {
         self.pending_build_progress = Some(prx);
         self.build_phase = (0.0, "Starting…".to_string());
         self.build_modal_closed = false;
+        // Hosted by the IDE main window unless the caller (a designer's Run
+        // Form) claims it right after this returns.
+        self.build_modal_host = None;
         self.build_outcome = None;
         self.build_log.clear();
         self.build_details_open = false;
@@ -8910,14 +8918,16 @@ impl CoboltApp {
             return;
         }
         let tr = self.lang.tr();
-        // Ticker: reveal one more line every 250 ms while lines are pending,
+        // Ticker: reveal one more line every 75 ms while lines are pending,
         // so the log reads as a feed. `stick_to_bottom` keeps the view
         // following the newest line whenever the user is at the bottom.
+        // (250 ms originally — a forty-line build took ten seconds to read
+        // out, which read as the build being slow when it was the ticker.)
         if self.build_log_shown < self.build_log.len() {
             let now = std::time::Instant::now();
             let due = self
                 .build_log_last_reveal
-                .map(|t| now.duration_since(t).as_millis() >= 250)
+                .map(|t| now.duration_since(t).as_millis() >= 75)
                 .unwrap_or(true);
             if due {
                 self.build_log_shown += 1;
@@ -10271,7 +10281,16 @@ impl eframe::App for CoboltApp {
         // to a designer viewport (those render it themselves, on top).
         // "Building…" modal — blocks the IDE and stays up, showing the
         // outcome, until the user closes it.
-        self.show_building_modal(ctx);
+        // Exactly one surface hosts the build modal: the designer window whose
+        // Run Form started the build, else this main window. If that designer
+        // closed mid-build, fall back here so the modal is never orphaned.
+        let hosted_by_open_designer = self
+            .build_modal_host
+            .as_ref()
+            .is_some_and(|host| self.designers.iter().any(|(p, _)| p == host));
+        if !hosted_by_open_designer {
+            self.show_building_modal(ctx);
+        }
         self.show_kb_reindex_modal(ctx);
         self.show_build_details_window(ctx);
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
@@ -10772,6 +10791,15 @@ impl eframe::App for CoboltApp {
                         }
                     }
                     self.show_designer_window(vp_ctx, idx, &tr);
+                    // The build modal renders HERE when this designer's Run
+                    // Form started the build — the operator is looking at this
+                    // window, and a modal in the main window behind it goes
+                    // unseen (the exact complaint that motivated this).
+                    if self.build_modal_host.as_deref()
+                        == Some(self.designers[idx].0.as_path())
+                    {
+                        self.show_building_modal(vp_ctx);
+                    }
                 },
             );
         }
@@ -13391,6 +13419,10 @@ impl CoboltApp {
                     &self.save_flash,
                     Some((p, until)) if *p == form_path && std::time::Instant::now() < *until
                 );
+                // Building the form's binary, or that binary still running —
+                // the Run button reads as engaged for the whole stretch.
+                let run_busy = self.pending_build_then_run.as_deref() == Some(form_path.as_path())
+                    || self.built_runs.iter().any(|r| r.form_path == form_path);
                 ui.horizontal_centered(|ui| {
                     action = draw_icon_toolbar(
                         ui,
@@ -13407,6 +13439,7 @@ impl CoboltApp {
                         grid_on,
                         glass_on,
                         form_running,
+                        run_busy,
                         fp_active,
                         self.show_inspector,
                         self.debug_active,
@@ -13462,6 +13495,13 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::RunForm => {
                         self.do_run_form(idx);
+                        // If Run started a build, the build modal belongs to
+                        // THIS designer window, not the IDE main window — the
+                        // operator is looking here. Exactly one surface shows
+                        // it (the main-window call is gated on this).
+                        if self.pending_build_then_run.is_some() {
+                            self.build_modal_host = Some(self.designers[idx].0.clone());
+                        }
                     }
                     DesignerToolbarAction::ToggleInspector => {
                         self.toggle_inspector();

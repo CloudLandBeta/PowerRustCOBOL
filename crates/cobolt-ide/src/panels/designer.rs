@@ -10280,6 +10280,10 @@ pub(crate) fn draw_icon_toolbar(
     grid_on: bool,
     glass_on: bool,
     form_running: bool,
+    // A built binary for this form is being compiled or is running — the Run
+    // button reads as engaged (toggled accent) for that whole stretch, so the
+    // operator can see the IDE is busy on their behalf.
+    run_busy: bool,
     fp_active: bool,
     inspector_on: bool,
     debug_active: bool,
@@ -10426,6 +10430,10 @@ pub(crate) fn draw_icon_toolbar(
         if !tooltip.is_empty() {
             resp.clone().on_hover_text(tooltip);
         }
+        // Brief accent flash acknowledging the click, uniform across toolbars.
+        if enabled {
+            crate::theme::flash_on_click(ui, &resp);
+        }
         enabled && resp.clicked()
     };
 
@@ -10497,6 +10505,12 @@ pub(crate) fn draw_icon_toolbar(
             if icon_btn(ui, true, true, "Stop Running Form", &icon_stop) {
                 action = DesignerToolbarAction::StopForm;
             }
+        } else if run_busy {
+            // Building or running the compiled binary: the Run button reads as
+            // engaged — same accent treatment as a toggled Grid/Glass button.
+            // Disabled (a second Run mid-build would queue a second build), and
+            // "toggled wins over disabled" in icon_btn keeps it high-contrast.
+            let _ = icon_btn(ui, false, true, "Run Form — building/running…", &icon_run);
         } else {
             if icon_btn(ui, true, false, "Run Form (live interpreter)", &icon_run) {
                 action = DesignerToolbarAction::RunForm;

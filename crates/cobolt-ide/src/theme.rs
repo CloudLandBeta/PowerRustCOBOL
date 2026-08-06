@@ -1341,6 +1341,121 @@ pub fn active() -> Theme {
     ACTIVE.with(|a| a.get())
 }
 
+// ── Click flash ───────────────────────────────────────────────────────────────
+
+/// How long a clicked toolbar button stays lit. Short on purpose: it is an
+/// acknowledgement, not a state.
+pub const CLICK_FLASH_SECS: f64 = 0.075;
+
+/// Paint a brief accent flash over `resp` after a click, so every toolbar
+/// button visibly acknowledges being pressed.
+///
+/// Timing uses egui's own input clock (`i.time`), not `Instant`, so tests can
+/// drive the flash deterministically by advancing `RawInput::time`. State lives
+/// in temp memory under the response id — no caller bookkeeping.
+pub fn flash_on_click(ui: &egui::Ui, resp: &egui::Response) {
+    let id = resp.id.with("__click_flash");
+    let now = ui.ctx().input(|i| i.time);
+    if resp.clicked() {
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(id, now + CLICK_FLASH_SECS));
+    }
+    let Some(until) = ui.ctx().data(|d| d.get_temp::<f64>(id)) else {
+        return;
+    };
+    if now < until {
+        let accent = ui.visuals().selection.bg_fill.gamma_multiply(0.55);
+        ui.painter().rect_filled(resp.rect.expand(1.0), 5.0, accent);
+        ui.ctx().request_repaint();
+    } else {
+        ui.ctx().data_mut(|d| d.remove::<f64>(id));
+    }
+}
+
+#[cfg(test)]
+mod flash_tests {
+    use super::*;
+
+    /// The flash appears on the click frame and is gone once its time is up —
+    /// driven entirely through egui's input clock.
+    #[test]
+    fn the_flash_lights_on_click_and_dies_on_schedule() {
+        let ctx = egui::Context::default();
+        let at = |ctx: &egui::Context| -> egui::Pos2 {
+            ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("btn_rect")))
+                .map(|r| r.center())
+                .unwrap_or(egui::pos2(20.0, 15.0))
+        };
+        let flash_count = |time: f64, click: bool| -> usize {
+            let pos = at(&ctx);
+            let input = egui::RawInput {
+                time: Some(time),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 100.0),
+                )),
+                events: if click {
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                let resp = ui.button("Run");
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("btn_rect"), resp.rect));
+                flash_on_click(ui, &resp);
+            });
+            full.textures_delta.clear();
+            let btn: egui::Rect = ctx
+                .data(|d| d.get_temp(egui::Id::new("btn_rect")))
+                .expect("the button was drawn");
+            let want = btn.expand(1.0);
+            // The flash is the only rect painted exactly at the expanded
+            // button rect; the button's own frame sits at the unexpanded one.
+            full.shapes
+                .iter()
+                .flat_map(|cs| match &cs.shape {
+                    egui::Shape::Rect(r) => vec![r.rect],
+                    egui::Shape::Vec(v) => v
+                        .iter()
+                        .filter_map(|s| match s {
+                            egui::Shape::Rect(r) => Some(r.rect),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => vec![],
+                })
+                .filter(|r| (r.min.distance(want.min) + r.max.distance(want.max)) < 1.0)
+                .count()
+        };
+
+        // Warm-up + hover so the release lands as a click.
+        flash_count(0.00, false);
+        flash_count(0.01, false);
+        let on_click = flash_count(0.02, true);
+        assert!(on_click > 0, "the click frame must paint the flash");
+        let mid = flash_count(0.02 + CLICK_FLASH_SECS * 0.5, false);
+        assert!(mid > 0, "the flash must persist through its window");
+        let after = flash_count(0.02 + CLICK_FLASH_SECS + 0.01, false);
+        assert_eq!(after, 0, "the flash must be gone after {CLICK_FLASH_SECS}s");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.22] — 2026-08-06
+
+### Fixed
+
+- **The build window now appears in the window you started the build from.**
+  Run Form in a designer window used to put the build modal in the IDE main
+  window — behind the designer you were looking at. It now shows in that
+  designer window; the toolbar's Build button keeps it in the main window.
+  Exactly one build window ever appears, and if the hosting designer closes
+  mid-build the modal falls back to the main window rather than vanishing.
+
+- **Every toolbar button flashes (75 ms) when clicked** — both the IDE main
+  toolbar and the Form Designer's icon toolbar — so a press is always visibly
+  acknowledged.
+
+- **The Run Form button stays highlighted while its build and run are in
+  flight**, with the same accent treatment as a toggled Grid/Glass button. It
+  re-arms when the program exits.
+
+- **The build-details feed reveals lines every 75 ms** (was 250 ms — a
+  forty-line build took ten seconds to read out, which made the build itself
+  look slow).
+
 ## [PowerRustCOBOL 1.60.21] — 2026-08-06
 
 ### Changed
