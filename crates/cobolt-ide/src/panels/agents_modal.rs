@@ -1129,13 +1129,15 @@ mod resize_tests {
                 time: Some(frame as f64 / 60.0),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            ctx.run_ui(input, |ui| {
                 max_height = prompt_editor_height(ui, PROMPT_EDITOR_MAX_ROWS);
                 let id = ui.make_persistent_id("prompt_height_test");
                 let output = prompt_editor(ui, id, &mut prompt);
                 measured_height = output.viewport_rect.height();
                 content_height = output.content_height;
-            });
+            })
+            .textures_delta
+            .clear();
         }
 
         assert!(
@@ -1190,7 +1192,9 @@ mod resize_tests {
             ctx.run_ui(input, |root_ui| {
                 let c = root_ui.ctx().clone();
                 modal.show(&c, &mut llm, &tr);
-            });
+            })
+            .textures_delta
+            .clear();
             if let Some(state) = egui::containers::panel::PanelState::load(&ctx, rail_id) {
                 widths.push(state.outer_rect.width());
             }

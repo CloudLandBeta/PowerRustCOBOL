@@ -10465,11 +10465,12 @@ impl eframe::App for CoboltApp {
             // OS file-manager drop into the tree (spec 033, R10). eframe surfaces
             // dropped paths on `raw.dropped_files`; the panel tells us which folder
             // was under the pointer.
+            // egui 0.36: DroppedFile is a trait, `path()` always present.
             let dropped: Vec<PathBuf> = ctx.input(|i| {
                 i.raw
                     .dropped_files
                     .iter()
-                    .filter_map(|f| f.path.clone())
+                    .map(|f| f.path().to_path_buf())
                     .collect()
             });
             if !dropped.is_empty() {
@@ -15510,7 +15511,7 @@ mod error_modal_tests {
             egui::pos2(0.0, 0.0),
             egui::vec2(1600.0, 1000.0),
         ));
-        let _ = ctx.run_ui(input, |root_ui| {
+        ctx.run_ui(input, |root_ui| {
             let ctx2 = root_ui.ctx().clone();
             egui::Window::new("⛔ Error")
                 .id(egui::Id::new("test_error_modal"))
@@ -15526,7 +15527,9 @@ mod error_modal_tests {
                         );
                     });
                 });
-        });
+        })
+        .textures_delta
+        .clear();
         ctx.memory(|m| m.area_rect(egui::Id::new("test_error_modal")))
     }
 

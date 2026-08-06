@@ -8568,7 +8568,7 @@ mod theme_render_tests {
     fn control_border_accepts_button_3d_styles_without_panic() {
         let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(80.0, 28.0));
         let ctx = egui::Context::default();
-        let _ = ctx.run_ui(Default::default(), |root_ui| {
+        ctx.run_ui(Default::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             egui::CentralPanel::default().show(root_ui, |ui| {
@@ -8584,7 +8584,7 @@ mod theme_render_tests {
                     );
                 }
             });
-        });
+        }).textures_delta.clear();
     }
 
     #[test]
@@ -8824,13 +8824,14 @@ mod theme_render_tests {
         }
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
                 });
         });
+        full.textures_delta.clear();
         fn leaves(s: &egui::Shape) -> usize {
             match s {
                 egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
@@ -8871,13 +8872,14 @@ mod theme_render_tests {
         }
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
                 });
         });
+        full.textures_delta.clear();
         fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
             match s {
                 egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
@@ -8921,13 +8923,14 @@ mod theme_render_tests {
         c.set_prop("FillStyle", PropValue::String("None".into()));
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
                 });
         });
+        full.textures_delta.clear();
         fn leaves(s: &egui::Shape) -> usize {
             match s {
                 egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
@@ -8961,13 +8964,14 @@ mod theme_render_tests {
         let ctx = egui::Context::default();
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
                     draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
                 });
         });
+        full.textures_delta.clear();
         fn leaves(s: &egui::Shape) -> usize {
             match s {
                 egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
@@ -9042,13 +9046,14 @@ mod theme_render_tests {
             let ctx = egui::Context::default();
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
-            let full = ctx.run_ui(input, |root_ui| {
+            let mut full = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
                     });
             });
+            full.textures_delta.clear();
             fn count(s: &egui::Shape, total: &mut usize) {
                 match s {
                     egui::Shape::Vec(v) => v.iter().for_each(|s| count(s, total)),
@@ -9098,13 +9103,14 @@ mod theme_render_tests {
             let ctx = egui::Context::default();
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
-            let full = ctx.run_ui(input, |root_ui| {
+            let mut full = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
                         draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
                     });
             });
+            full.textures_delta.clear();
             // The thumb is the only filled circle this control paints.
             fn find_circle_x(s: &egui::Shape, out: &mut Option<f32>) {
                 match s {

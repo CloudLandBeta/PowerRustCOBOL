@@ -11629,7 +11629,7 @@ mod animator_tests {
             time: Some(t),
             ..Default::default()
         };
-        let out = ctx.run_ui(raw, |root_ui| {
+        let mut out = ctx.run_ui(raw, |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             let painter = ctx.layer_painter(egui::LayerId::background());
@@ -11647,6 +11647,7 @@ mod animator_tests {
                 false,
             );
         });
+        out.textures_delta.clear();
         out.shapes.into_iter().find_map(|cs| match cs.shape {
             egui::Shape::Mesh(m) => Some(m.texture_id),
             egui::Shape::Rect(r) if r.fill_texture_id() != egui::TextureId::default() => {
@@ -11698,7 +11699,7 @@ mod render_behavior_tests {
     fn render_at(ctrl: &Control, origin: Pos2) -> Vec<egui::Shape> {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
-        let out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             // Frame::none → the panel paints no background, so captured shapes are
@@ -11710,6 +11711,7 @@ mod render_behavior_tests {
                     draw_control(&painter, origin, ctrl, false, false, 1.0, 1.0, None);
                 });
         });
+        out.textures_delta.clear();
         out.shapes.into_iter().map(|cs| cs.shape).collect()
     }
 

@@ -1152,7 +1152,8 @@ mod tests {
             ));
             ctx.begin_pass(input);
             m.show(&ctx, &lb, theme, &tr);
-            let _ = ctx.end_pass();
+            // epaint 0.36 asserts on dropping unapplied texture deltas.
+            ctx.end_pass().textures_delta.clear();
             let rect = ctx
                 .memory(|mem| mem.area_rect(egui::Id::new("model_leaderboard")))
                 .expect("the leaderboard window did not register an area");
@@ -1190,7 +1191,9 @@ mod tests {
             ));
             ctx.begin_pass(input);
             m.show(&ctx, &lb, theme, &tr);
-            let full = ctx.end_pass();
+            let mut full = ctx.end_pass();
+            // epaint 0.36 asserts on dropping unapplied texture deltas.
+            full.textures_delta.clear();
             if pass < 3 {
                 continue;
             }

@@ -2143,7 +2143,7 @@ mod folder_row_action_tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |root_ui| {
+            ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(root_ui, |ui| {
@@ -2160,7 +2160,9 @@ mod folder_row_action_tests {
                             &tr,
                         );
                     });
-            });
+            })
+            .textures_delta
+            .clear();
         };
 
         frame(&mut panel, &mut out, t, vec![]);
@@ -2294,10 +2296,12 @@ mod keyboard_nav_tests {
             events: events_in,
             ..Default::default()
         };
-        let _ = ctx.run_ui(input, |root_ui| {
+        ctx.run_ui(input, |root_ui| {
             let c = root_ui.ctx().clone();
             panel.handle_tree_keys(&c, &mut events);
-        });
+        })
+        .textures_delta
+        .clear();
         events
     }
 
@@ -2416,7 +2420,7 @@ mod control_node_tests {
             ..Default::default()
         };
         let mut height = 0.0;
-        let _ = ctx.run_ui(input, |root_ui| {
+        ctx.run_ui(input, |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             egui::CentralPanel::default()
@@ -2441,7 +2445,9 @@ mod control_node_tests {
                         .height();
                     height = used;
                 });
-        });
+        })
+        .textures_delta
+        .clear();
         height
     }
 
@@ -2536,7 +2542,7 @@ mod control_node_in_real_wrappers {
             events: events_in,
             ..Default::default()
         };
-        let _ = ctx.run_ui(input, |root_ui| {
+        ctx.run_ui(input, |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             let tr = crate::i18n::Language::English.tr();
@@ -2567,7 +2573,9 @@ mod control_node_in_real_wrappers {
                         });
                     });
                 });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]

@@ -11,7 +11,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 - **Rust** workspace (`crates/*`), edition per workspace `Cargo.toml`;
   **MSRV 1.92** (egui 0.34+ floor).
-- **egui / eframe 0.35** for the IDE UI (immediate-mode GUI; multi-viewport via
+- **egui / eframe 0.36** for the IDE UI (immediate-mode GUI; multi-viewport via
   `ctx.show_viewport_immediate` — viewport callbacks receive `&mut Ui`; panels
   are `egui::Panel`, hosted on a `Ui`). *(The spec-027 upgrade landed on main;
   the `egui-035` branch it was staged on is deleted — do not recreate it.)*

@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.21] — 2026-08-06
+
+### Changed
+
+- **egui/eframe upgraded 0.35 → 0.36** across the IDE, the form engine, the CLI
+  and — importantly — the **generated application** (`EXEC RUST` blocks now
+  compile against eframe 0.36; the System KB says so). Companions moved with
+  it: egui_extras/egui_glow/egui_inspection 0.36, egui-elegance 0.15,
+  egui_commonmark 0.25. winit stays 0.30.13, so everything documented about
+  the process's single event loop is unchanged.
+
+  Verified per the upgrade playbook: the corner-rendering shape dumps are
+  **byte-identical** between 0.35 and 0.36 (both scenes), the concentric-arc
+  and notch-mask guards pass, the 120-frame modal test passes, the hand-rolled
+  popups still open, and a full form application builds end-to-end.
+
+  Two API changes absorbed, invisible to COBOL developers: `DroppedFile`
+  became a trait (`path()` method), and epaint now asserts when a test pass
+  drops unapplied texture deltas — every headless test harness clears them
+  (43 call sites across three harness styles).
+
 ## [PowerRustCOBOL 1.60.20] — 2026-08-06
 
 ### Fixed

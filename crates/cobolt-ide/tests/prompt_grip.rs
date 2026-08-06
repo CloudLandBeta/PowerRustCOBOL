@@ -47,7 +47,9 @@ fn pasting_more_lines_than_the_box_holds_never_resizes_it() {
                 });
                 box_h_probe.set(inner.response.rect.height());
             });
-        });
+        })
+        .textures_delta
+        .clear();
     };
 
     let mut short = String::from("one line");
@@ -124,7 +126,9 @@ fn grip_drag_pattern_receives_the_drag_over_the_text_edit() {
                     }
                 });
             }
-        });
+        })
+        .textures_delta
+        .clear();
     };
 
     run(vec![], &mut height, &mut text); // frame 1: register widgets

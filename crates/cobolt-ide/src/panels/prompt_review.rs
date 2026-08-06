@@ -801,10 +801,10 @@ mod tests {
                 egui::Pos2::ZERO,
                 egui::vec2(1600.0, 1200.0),
             ));
-            let _ = ctx.run_ui(input, |ui| {
+            ctx.run_ui(input, |ui| {
                 let ctx = ui.ctx().clone();
                 let _ = show(&ctx, &tr, state);
-            });
+            }).textures_delta.clear();
         };
 
         // egui needs one frame to discover an auto-sized window's own
@@ -878,10 +878,10 @@ mod tests {
                     egui::Pos2::ZERO,
                     egui::vec2(1600.0, 1200.0),
                 ));
-                let _ = ctx.run_ui(input, |ui| {
+                ctx.run_ui(input, |ui| {
                     let ctx = ui.ctx().clone();
                     let _ = show(&ctx, &tr, state);
-                });
+                }).textures_delta.clear();
             };
             run(&mut state);
             run(&mut state); // past the one-frame auto-size discovery settle
@@ -924,10 +924,10 @@ mod tests {
                     egui::Pos2::ZERO,
                     egui::vec2(2400.0, 1600.0),
                 ));
-                let _ = ctx.run_ui(input, |ui| {
+                ctx.run_ui(input, |ui| {
                     let c = ui.ctx().clone();
                     let _ = show(&c, &tr, state);
-                });
+                }).textures_delta.clear();
             }
             ctx.memory(|m| m.area_rect(id)).expect("window rendered").width()
         };
@@ -975,7 +975,7 @@ mod tests {
             egui::Pos2::ZERO,
             egui::vec2(1600.0, 1200.0),
         ));
-        let _ = ctx.run_ui(input, |_ui| {});
+        ctx.run_ui(input, |_ui| {}).textures_delta.clear();
 
         for &lang in crate::i18n::Language::ALL {
             let tr = lang.tr();
@@ -1073,10 +1073,10 @@ mod tests {
             egui::Pos2::ZERO,
             egui::vec2(1600.0, 1200.0),
         ));
-        let _ = ctx.run_ui(input, |ui| {
+        ctx.run_ui(input, |ui| {
             let ctx = ui.ctx().clone();
             let _ = show(&ctx, &tr, &mut state);
-        });
+        }).textures_delta.clear();
 
         let rendered = ctx.memory(|m| m.area_rect(id)).expect("window rendered");
         let seed = window_size(state.font, state.rows, state.width);

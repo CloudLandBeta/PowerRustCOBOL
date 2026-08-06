@@ -2317,7 +2317,7 @@ This builds and runs as a console program. It defines an `eframe` application in
 an item-level block, then calls it from a statement-level block inside a `TRY`,
 so a failure arrives as a `RUST-EXCEPTION` rather than killing the run.
 
-Note `fn ui`, not `fn update`: PowerRustCOBOL links **eframe 0.35**, whose `App`
+Note `fn ui`, not `fn update`: PowerRustCOBOL links **eframe 0.36**, whose `App`
 trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)`. Older
 eframe tutorials showing `update` will not compile here.
 

@@ -578,7 +578,9 @@ mod switches_respond {
             input.events = events;
             self.ctx.begin_pass(input);
             self.modal.show(&self.ctx, &mut self.settings, &self.tr);
-            let _ = self.ctx.end_pass();
+            // epaint 0.36 asserts on dropping unapplied texture deltas; a
+            // headless test pass has no renderer to apply them to.
+            self.ctx.end_pass().textures_delta.clear();
         }
 
         fn settle(&mut self) {

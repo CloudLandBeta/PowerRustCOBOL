@@ -322,12 +322,14 @@ mod tests {
                     .or_default()
                     .push("gb18030_bitmap_test".to_owned());
                 ctx.set_fonts(defs);
-                let _ = ctx.run_ui(Default::default(), |ui| {
+                ctx.run_ui(Default::default(), |ui| {
                     ui.label(
                         egui::RichText::new("汉字 GB18030 ABC")
                             .family(egui::FontFamily::Name("gb18030_bitmap_test".into())),
                     );
-                });
+                })
+                .textures_delta
+                .clear();
                 println!("GB18030 Bitmap accepted by skrifa and laid out without panic");
             } else {
                 println!("GB18030 Bitmap present but rejected by the loader");
@@ -346,7 +348,7 @@ mod tests {
 
         let ctx = egui::Context::default();
         // Frame 1: first request triggers on-demand load (still falls back this pass).
-        let _ = ctx.run_ui(Default::default(), |_| {});
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         let first = font_id(&ctx, &fam, 16.0);
         assert_eq!(
             first.family,
@@ -354,7 +356,7 @@ mod tests {
             "first request should fall back while the atlas rebuilds"
         );
         // Frame 2: atlas has been rebuilt, the named family is now usable.
-        let _ = ctx.run_ui(Default::default(), |_| {});
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         let ready = font_id(&ctx, &fam, 16.0);
         assert_eq!(
             ready.family,

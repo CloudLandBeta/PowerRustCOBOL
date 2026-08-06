@@ -3506,11 +3506,12 @@ fn render_interactive(
                 // plumbing `cobolt-forms` cannot own on its own (no `rfd`
                 // dependency here by design — see spec 039 T4) and is wired
                 // at the `cobolt-ide` host level instead.
+                // egui 0.36 made DroppedFile a trait: `path()` is a method and
+                // always present (on the web it is just the file name).
                 let paths: Vec<String> = fdz
                     .dropped_files
                     .iter()
-                    .filter_map(|f| f.path.as_ref())
-                    .map(|p| p.display().to_string())
+                    .map(|f| f.path().display().to_string())
                     .collect();
                 out.prop_updates.push((
                     id.to_owned(),
@@ -6129,10 +6130,11 @@ mod tests {
         panel.set_prop("BorderWidth", crate::model::PropValue::Int(1));
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             let painter = root_ui.painter_at(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
             crate::paint::restore_container_outline(&painter, &panel, rect, r, true, masked);
         });
+        full.textures_delta.clear();
         let mut hit = std::collections::BTreeSet::new();
         let classify = |c: egui::Pos2| -> Option<&'static str> {
             let left = c.x < rect.min.x + r;
@@ -6653,7 +6655,7 @@ mod tests {
         let controls = vec![panel, card, inner];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
-        let _ = ctx.run_ui(Default::default(), |root_ui| {
+        ctx.run_ui(Default::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             // Seed scroll offset in temp data
@@ -6673,7 +6675,7 @@ mod tests {
                 };
                 let _ = render_form(ui, &input);
             });
-        });
+        }).textures_delta.clear();
     }
 
     #[test]
@@ -6704,7 +6706,7 @@ mod tests {
 
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
-        let _ = ctx.run_ui(Default::default(), |root_ui| {
+        ctx.run_ui(Default::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             // Seed scroll offset in temp data
@@ -6724,7 +6726,7 @@ mod tests {
                 };
                 let _ = render_form(ui, &input);
             });
-        });
+        }).textures_delta.clear();
     }
 
     /// Operator rule (2026-07-30): the form keeps the size its author gave
@@ -6775,7 +6777,7 @@ mod tests {
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
         let mut captured = None;
-        let _ = ctx.run_ui(Default::default(), |root_ui| {
+        ctx.run_ui(Default::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
@@ -6794,7 +6796,7 @@ mod tests {
                 };
                 captured = Some(render_form(ui, &input));
             });
-        });
+        }).textures_delta.clear();
         let out = captured.expect("rendered");
         assert!(out.control_rects.contains_key("Pnl"));
         assert!(out.control_rects.contains_key("Btn"));
@@ -6838,7 +6840,7 @@ mod tests {
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
         let (mut rects_form, mut rects_faces) = (None, None);
-        let _ = ctx.run_ui(Default::default(), |root_ui| {
+        ctx.run_ui(Default::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             egui::CentralPanel::default().show_inside(root_ui, |ui| {
@@ -6857,7 +6859,7 @@ mod tests {
                 let origin = ui.min_rect().min;
                 rects_faces = Some(render_faces(&painter, origin, &input, None).control_rects);
             });
-        });
+        }).textures_delta.clear();
         let rf = rects_form.expect("render_form rects");
         let fc = rects_faces.expect("render_faces rects");
         for id in ["Pnl", "Chart", "Pic", "Txt", "Lbl"] {
@@ -6991,7 +6993,7 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            let _ = ctx.run_ui(input, |root_ui| {
+            ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
                 egui::CentralPanel::default()
@@ -7018,7 +7020,7 @@ mod tests {
                                 events.borrow_mut().extend(out.events);
                             });
                     });
-            });
+            }).textures_delta.clear();
             for (id, k, v) in updates.into_inner() {
                 overrides.borrow_mut().entry(id).or_default().insert(k, v);
             }
@@ -7099,7 +7101,7 @@ mod tests {
             input.time = Some(i as f64 * 0.05);
             input.events = evs;
             let st = MapState(&overrides);
-            let _ = ctx.run_ui(input, |root_ui| {
+            ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
                 egui::CentralPanel::default()
@@ -7125,7 +7127,7 @@ mod tests {
                                 });
                         outer_offset_y = out.state.offset.y;
                     });
-            });
+            }).textures_delta.clear();
         }
         let grid_scroll_y = ctx.memory(|m| {
             m.data
@@ -7197,7 +7199,7 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            let _ = ctx.run_ui(input, |root_ui| {
+            ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
                 egui::CentralPanel::default()
@@ -7217,7 +7219,7 @@ mod tests {
                         updates.borrow_mut().extend(out.prop_updates);
                         events.borrow_mut().extend(out.events);
                     });
-            });
+            }).textures_delta.clear();
             for (id, k, v) in updates.into_inner() {
                 overrides.borrow_mut().entry(id).or_default().insert(k, v);
             }
@@ -7650,7 +7652,7 @@ mod tests {
             input.focused = true;
             input.time = Some(i as f64 * 0.05);
             input.events = evs;
-            let _ = ctx.run_ui(input, |root_ui| {
+            ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
@@ -7667,7 +7669,7 @@ mod tests {
                         let out = render_form(ui, &inp);
                         requests.borrow_mut().extend(out.file_picker_requests);
                     });
-            });
+            }).textures_delta.clear();
         }
         assert!(
             requests.borrow().iter().any(|id| id == "Fdz"),
@@ -8062,7 +8064,7 @@ mod tests {
             input.focused = true;
             input.time = Some(i as f64); // 1s/frame → clears any interval
             let events = RefCell::new(Vec::<UiEvent>::new());
-            let _ = ctx.run_ui(input, |root_ui| {
+            ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
                 egui::CentralPanel::default()
@@ -8081,7 +8083,7 @@ mod tests {
                         let out = render_form(ui, &inp);
                         events.borrow_mut().extend(out.events);
                     });
-            });
+            }).textures_delta.clear();
             all.extend(events.into_inner());
         }
         all
@@ -8300,7 +8302,7 @@ mod shape_dump {
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
         input.focused = true;
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
@@ -8328,6 +8330,7 @@ mod shape_dump {
                     let _ = render_form(ui, &rin);
                 });
         });
+        full.textures_delta.clear();
         let mut out = Vec::new();
         for cs in &full.shapes {
             dump_shape(&mut out, cs.clip_rect, &cs.shape);
@@ -8368,7 +8371,7 @@ mod shape_dump {
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
@@ -8396,6 +8399,7 @@ mod shape_dump {
                     let _ = render_form(ui, &rin);
                 });
         });
+        full.textures_delta.clear();
         let mut out = Vec::new();
         for cs in &full.shapes {
             dump_shape(&mut out, cs.clip_rect, &cs.shape);
@@ -8440,7 +8444,7 @@ mod shape_dump {
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
@@ -8468,6 +8472,7 @@ mod shape_dump {
                     let _ = render_form(ui, &rin);
                 });
         });
+        full.textures_delta.clear();
         let mut out = Vec::new();
         for cs in &full.shapes {
             dump_shape(&mut out, cs.clip_rect, &cs.shape);
@@ -8512,7 +8517,7 @@ mod shape_dump {
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
@@ -8540,6 +8545,7 @@ mod shape_dump {
                     let _ = render_form(ui, &rin);
                 });
         });
+        full.textures_delta.clear();
         let mut out = Vec::new();
         for cs in &full.shapes {
             dump_shape(&mut out, cs.clip_rect, &cs.shape);
@@ -8732,7 +8738,7 @@ mod shape_dump {
             pos2(0.0, 0.0),
             Vec2::new(DG_FORM_W, DG_FORM_H),
         ));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
@@ -8760,6 +8766,7 @@ mod shape_dump {
                     let _ = render_form(ui, &rin);
                 });
         });
+        full.textures_delta.clear();
         full.shapes
     }
 
@@ -8911,7 +8918,7 @@ mod shape_dump {
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
-        let full = ctx.run_ui(input, |root_ui| {
+        let mut full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(root_ui, |ui| {
@@ -8939,6 +8946,7 @@ mod shape_dump {
                     let _ = render_form(ui, &rin);
                 });
         });
+        full.textures_delta.clear();
         fn walk(shape: &egui::Shape, face_r: &mut Option<u8>, checked: &mut usize) {
             match shape {
                 egui::Shape::Vec(v) => {
