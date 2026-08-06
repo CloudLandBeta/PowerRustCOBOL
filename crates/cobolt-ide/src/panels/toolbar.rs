@@ -16,6 +16,8 @@ use crate::runner::Runner;
 /// `lang` is updated in-place when the user picks a different language.
 /// `compilable` gates the Run / Debug / Build actions (a project needs at least
 /// one COBOL program or one form).
+/// `has_unsaved` gates Save: the button is live only while something in the
+/// project is actually unsaved, so its state reports whether the project is clean.
 pub fn show(
     panel_ui: &mut egui::Ui,
     ctx: &Context,
@@ -26,6 +28,9 @@ pub fn show(
     debuggable: bool,
     // `has_active`: true when there is an active project or open file — gates Save/Check.
     has_active: bool,
+    // `has_unsaved`: true when a form designer, an editor tab, or the Settings
+    // form has pending edits — gates Save only.
+    has_unsaved: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
@@ -42,11 +47,16 @@ pub fn show(
             }
 
             // ── Save ──────────────────────────────────────────────────────────
-            if ui
-                .add_enabled(has_active, Button::new(tr.tb_save))
-                .clicked()
-            {
+            // Live only when something is genuinely unsaved (dirty form designer,
+            // dirty editor tab, or unsaved project Settings). A clean project
+            // shows a greyed Save, so the button itself is the dirty indicator.
+            let save_enabled = has_active && has_unsaved;
+            let save_resp = ui.add_enabled(save_enabled, Button::new(tr.tb_save));
+            if save_resp.clicked() {
                 action = ToolbarAction::Save;
+            }
+            if has_active && !has_unsaved {
+                save_resp.on_disabled_hover_text(tr.tb_nothing_to_save);
             }
 
             ui.separator();

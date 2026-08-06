@@ -3765,6 +3765,59 @@ impl DesignerPanel {
         ));
     }
 
+    /// The action the 🔧 Auto-fix button used to run in the syntax-error modal:
+    /// reformat/normalise the handler (uppercases reserved words, fixes column
+    /// alignment, collapses spacing), re-validate, and — if that cleared every
+    /// error — save and close.
+    ///
+    /// The button was removed from the modal; the same reformat is still one
+    /// click away as ✨ Beautify in the editor status row, and Save re-validates.
+    /// Kept here rather than deleted so re-wiring it is a one-line change.
+    #[allow(dead_code)]
+    fn autofix_event_handler(
+        &mut self,
+        ctx: &egui::Context,
+        program_id: &str,
+        ctrl_id: &str,
+        event_name: &str,
+        orig_source: &str,
+    ) {
+        // Deterministic fix: reformat/normalise (uppercases reserved words,
+        // fixes column alignment, collapses spacing), then re-validate.
+        self.event_editor.beautify_active();
+        let fixed = self.event_editor.buffer_for_save().unwrap_or_default();
+        let mut errs2 = validate_handler_syntax(program_id, &fixed);
+        errs2.extend(validate_handler_members(&self.form, &fixed));
+        errs2.extend(validate_handler_semantics(
+            &self.form,
+            ctrl_id,
+            event_name,
+            program_id,
+            &fixed,
+        ));
+        if let Some(m) = self.event_modal.as_mut() {
+            if errs2.is_empty() {
+                // Clean now — save and close.
+                if fixed != orig_source {
+                    m.syntax_errors = None;
+                }
+            }
+            m.syntax_errors = if errs2.is_empty() { None } else { Some(errs2) };
+        }
+        if self
+            .event_modal
+            .as_ref()
+            .map(|m| m.syntax_errors.is_none())
+            .unwrap_or(false)
+        {
+            if fixed != orig_source {
+                self.save_event_handler(ctrl_id, event_name, fixed);
+            }
+            self.event_modal = None;
+        }
+        ctx.request_repaint();
+    }
+
     /// Commit the modal editor's content back into the form's event binding.
     pub fn save_event_handler(&mut self, ctrl_id: &str, event_name: &str, source: String) {
         if ctrl_id.is_empty() {
@@ -6428,6 +6481,19 @@ impl DesignerPanel {
         result
     }
 
+    /// True while this designer has a dialog waiting for the user. Read by the
+    /// app to un-pin the always-on-top auxiliary OS windows (debugger,
+    /// Run-Form Inspector) so they cannot cover it.
+    pub fn has_blocking_modal(&self) -> bool {
+        self.pending_delete.is_some()
+            || self.ai_error_modal.is_some()
+            || self.close_confirm
+            || self
+                .event_modal
+                .as_ref()
+                .is_some_and(|m| m.ai_confirm_clear || m.syntax_errors.is_some())
+    }
+
     fn show_delete_confirmation(&mut self, ui: &mut Ui) {
         let Some(pending) = self.pending_delete.clone() else {
             return;
@@ -6440,7 +6506,11 @@ impl DesignerPanel {
         let mut cancel = false;
         let mut confirm = false;
 
+        let win_id = egui::Id::new("designer_delete_confirm");
+        crate::app::raise_modal_layer(ui.ctx(), win_id);
         egui::Window::new(tr.delete_confirm_title)
+            .id(win_id)
+            .order(egui::Order::Foreground) // above the Event/Menu/Structure windows
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
@@ -7630,8 +7700,11 @@ impl DesignerPanel {
         // single size authority. Its size comes from the 800×450 seed plus the
         // user's grip drag only — never from measured content or the screen —
         // so the modal cannot grow on its own.
+        let win_id = egui::Id::new("form_designer_ai_error_modal");
+        crate::app::raise_modal_layer(ctx, win_id);
         egui::Window::new("AI Assistant Error")
-            .id(egui::Id::new("form_designer_ai_error_modal"))
+            .id(win_id)
+            .order(egui::Order::Foreground) // above the Event/Menu/Structure windows
             .open(&mut open)
             .resizable(false) // the inner `Resize` grip is the sole size control
             .collapsible(false)
@@ -8489,7 +8562,11 @@ impl DesignerPanel {
         {
             let mut cancel = false;
             let mut confirm = false;
+            let win_id = egui::Id::new("designer_ai_clear_confirm");
+            crate::app::raise_modal_layer(ui.ctx(), win_id);
             egui::Window::new(tr.ai_clear_confirm_title)
+                .id(win_id)
+                .order(egui::Order::Foreground) // above the Event Editor window
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -8554,15 +8631,16 @@ impl DesignerPanel {
             .as_ref()
             .and_then(|m| m.syntax_errors.clone());
         if let Some(errs) = pending_errs {
-            let mut do_autofix = false;
             let mut save_anyway = false;
             let mut keep_editing = false;
 
             let overlay = ui.ctx().content_rect();
             ui.painter()
                 .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 160));
+            crate::app::raise_modal_layer(ui.ctx(), egui::Id::new("event_syntax_modal"));
             egui::Window::new(format!("⚠  {}", tr.syntax_modal_title))
                 .id(egui::Id::new("event_syntax_modal"))
+                .order(egui::Order::Foreground) // above the Event Editor window
                 .collapsible(false)
                 .resizable(true)
                 .movable(true)
@@ -8608,13 +8686,10 @@ impl DesignerPanel {
                     ui.add_space(8.0);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui
-                            .button(format!("🔧  {}", tr.syntax_autofix))
-                            .on_hover_text(tr.syntax_autofix_hint)
-                            .clicked()
-                        {
-                            do_autofix = true;
-                        }
+                        // The one-click 🔧 Auto-fix button was removed: the same
+                        // reformat is reachable from ✨ Beautify in the editor
+                        // status row above, and Save re-validates. The action it
+                        // ran is kept in `autofix_event_handler` below.
                         if ui.button(tr.syntax_keep_editing).clicked() {
                             keep_editing = true;
                         }
@@ -8632,42 +8707,7 @@ impl DesignerPanel {
                     });
                 });
 
-            if do_autofix {
-                // Deterministic fix: reformat/normalise (uppercases reserved words,
-                // fixes column alignment, collapses spacing), then re-validate.
-                self.event_editor.beautify_active();
-                let fixed = self.event_editor.buffer_for_save().unwrap_or_default();
-                let mut errs2 = validate_handler_syntax(&program_id, &fixed);
-                errs2.extend(validate_handler_members(&self.form, &fixed));
-                errs2.extend(validate_handler_semantics(
-                    &self.form,
-                    &ctrl_id,
-                    &event_name,
-                    &program_id,
-                    &fixed,
-                ));
-                if let Some(m) = self.event_modal.as_mut() {
-                    if errs2.is_empty() {
-                        // Clean now — save and close.
-                        if fixed != orig_source {
-                            m.syntax_errors = None;
-                        }
-                    }
-                    m.syntax_errors = if errs2.is_empty() { None } else { Some(errs2) };
-                }
-                if self
-                    .event_modal
-                    .as_ref()
-                    .map(|m| m.syntax_errors.is_none())
-                    .unwrap_or(false)
-                {
-                    if fixed != orig_source {
-                        self.save_event_handler(&ctrl_id, &event_name, fixed);
-                    }
-                    self.event_modal = None;
-                }
-                ui.ctx().request_repaint();
-            } else if save_anyway {
+            if save_anyway {
                 let content = self.event_editor.buffer_for_save().unwrap_or_default();
                 if content != orig_source {
                     self.save_event_handler(&ctrl_id, &event_name, content);

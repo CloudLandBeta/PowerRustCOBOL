@@ -102,22 +102,26 @@ fn flag_shapes(rect: Rect, lang: Language, p: Palette) -> Vec<Shape> {
 
     fill(&mut out, rect, p.field);
     match lang {
-        // United States — the canton, and stripes across the lower half.
+        // United States — thirteen stripes, painted first and last, with the
+        // canton over the upper seven of them and two fifths of the width.
         Language::English => {
             let stripe = h / 13.0;
-            for i in (7..13).step_by(2) {
-                band(
+            let canton = Rect::from_min_size(rect.min, vec2(w * 0.4, stripe * 7.0));
+            // Odd rows are left as the field, so only the seven painted stripes
+            // are emitted: 0, 2, 4 and 6 beside the canton, 8, 10 and 12 across
+            // the whole width.
+            for i in (0..13).step_by(2) {
+                let left = if i < 7 { canton.right() } else { rect.left() };
+                fill(
                     &mut out,
-                    i as f32 * stripe / h,
-                    (i as f32 + 1.0) * stripe / h,
+                    Rect::from_min_max(
+                        pos2(left, rect.top() + i as f32 * stripe),
+                        pos2(rect.right(), rect.top() + (i as f32 + 1.0) * stripe),
+                    ),
                     p.mid,
                 );
             }
-            fill(
-                &mut out,
-                Rect::from_min_size(rect.min, vec2(w * 0.4, stripe * 7.0)),
-                p.ink,
-            );
+            fill(&mut out, canton, p.ink);
         }
         // Spain — narrow band, wide band, narrow band.
         Language::Spanish => {
@@ -432,6 +436,58 @@ mod tests {
             }
             other => panic!("expected a path, got {other:?}"),
         }
+    }
+
+    /// The United States flag is thirteen equal stripes, painted first and last,
+    /// with the canton over the upper seven and two fifths of the width. Only the
+    /// even rows are painted; the four beside the canton start at its edge, the
+    /// three below it run the full width, and the last one reaches the bottom.
+    #[test]
+    fn us_flag_is_thirteen_stripes_with_a_seven_stripe_canton() {
+        let p = test_palette();
+        let stripe = BOX.height() / 13.0;
+        let canton_right = BOX.left() + BOX.width() * 0.4;
+        let stripes: Vec<Rect> = flag_shapes(BOX, Language::English, p)
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Rect(r) if r.fill == p.mid => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            stripes.len(),
+            7,
+            "expected the seven painted stripes, got {stripes:?}"
+        );
+        for (n, r) in stripes.iter().enumerate() {
+            let row = (n * 2) as f32;
+            let want_left = if n < 4 { canton_right } else { BOX.left() };
+            assert!(
+                (r.top() - (BOX.top() + row * stripe)).abs() < 0.01
+                    && (r.bottom() - (BOX.top() + (row + 1.0) * stripe)).abs() < 0.01,
+                "stripe {n} should be row {row}, is {r:?}"
+            );
+            assert!(
+                (r.left() - want_left).abs() < 0.01 && (r.right() - BOX.right()).abs() < 0.01,
+                "stripe {n} should span {want_left}..{}, is {r:?}",
+                BOX.right()
+            );
+        }
+        // Painted first and last: no bare field at the top or bottom edge.
+        assert!((stripes[0].top() - BOX.top()).abs() < 0.01);
+        assert!((stripes[6].bottom() - BOX.bottom()).abs() < 0.05);
+        // The canton: two fifths wide, seven stripes tall, in the hoist corner.
+        let canton = flag_shapes(BOX, Language::English, p)
+            .into_iter()
+            .find_map(|s| match s {
+                Shape::Rect(r) if r.fill == p.ink => Some(r.rect),
+                _ => None,
+            })
+            .expect("the canton");
+        assert!((canton.left() - BOX.left()).abs() < 0.01);
+        assert!((canton.top() - BOX.top()).abs() < 0.01);
+        assert!((canton.right() - canton_right).abs() < 0.01);
+        assert!((canton.bottom() - (BOX.top() + 7.0 * stripe)).abs() < 0.01);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

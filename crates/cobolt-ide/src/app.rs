@@ -449,10 +449,18 @@ pub struct CoboltApp {
     kb_reindex_rx: Option<std::sync::mpsc::Receiver<KbReindexMsg>>,
     /// Latest reindex phase for the modal bar: (fraction 0..1, "n/m — subject").
     kb_reindex_phase: (f32, String),
-    /// Hide flags for the two background-progress modals: the work continues,
+    /// Hide flag for the KB-reindex background modal: the work continues,
     /// only the dialog is dismissed (reset when a new run starts).
-    build_modal_hidden: bool,
     kb_reindex_modal_hidden: bool,
+    /// The Building dialog is modal and outlives the build: it stays up,
+    /// showing the outcome, until the user presses Close — which is the only
+    /// thing that sets this. Reset when a new build starts.
+    build_modal_closed: bool,
+    /// Outcome of the finished build, so the Building dialog still has
+    /// something to show once the worker is gone: `Ok` = the success summary
+    /// line, `Err` = the failure message. Set by the drain in `update`,
+    /// cleared when a new build starts.
+    build_outcome: Option<Result<String, String>>,
     /// Full log of the current/last build (phases, details, result), colored
     /// per line in the details window. Cleared when a build starts.
     build_log: Vec<(BuildLogKind, String)>,
@@ -519,6 +527,32 @@ const ERROR_MODAL_SIZE: [f32; 2] = [800.0, 450.0];
 struct ErrorBodyAction {
     close: bool,
     save: bool,
+}
+
+/// Put an error/confirmation modal above every other window in ITS viewport.
+///
+/// A plain `egui::Window` is `Order::Middle`, so any other window the user
+/// clicks rises over it. `Window::order(Order::Foreground)` beats all of
+/// `Middle` outright; inside `Foreground` (shared with menus and popups) egui
+/// still stacks by last interaction, so this must also be called every frame
+/// the modal is on screen. Call it only AFTER the "is it open?" guard: it
+/// marks the layer visible for the frame.
+///
+/// This is per-viewport ONLY — layer order lives in `Memory::areas`, which is
+/// keyed by `ViewportId`. It cannot lift a window over a separate OS window;
+/// that is what `WindowLevel`/`with_always_on_top` is for.
+pub(crate) fn raise_modal_layer(ctx: &egui::Context, id: egui::Id) {
+    ctx.move_to_top(egui::LayerId::new(egui::Order::Foreground, id));
+}
+
+/// A `Resize` salt that is unique per OS window.
+///
+/// `Areas` are per-viewport but `ctx.data()` — where `egui::Resize` keeps the
+/// user's box size — is shared by all of them. The same modal painted in the
+/// main window and in a designer viewport would otherwise fight over one size
+/// state, which in this codebase is how self-inflation starts.
+fn per_viewport_salt(ctx: &egui::Context, base: &str) -> String {
+    format!("{base}_{}", ctx.viewport_id().0.value())
 }
 
 /// The user-resizable box every error modal lives in. The inner `egui::Resize`
@@ -1080,8 +1114,9 @@ impl CoboltApp {
             pending_build_then_run: None,
             kb_reindex_rx: None,
             kb_reindex_phase: (0.0, String::new()),
-            build_modal_hidden: false,
             kb_reindex_modal_hidden: false,
+            build_modal_closed: false,
+            build_outcome: None,
             build_log: Vec::new(),
             build_details_open: false,
             build_log_shown: 0,
@@ -1709,10 +1744,22 @@ impl CoboltApp {
     /// Closing the window stops the debug session.
     fn show_debugger_viewport(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
         let vp_id = ViewportId::from_hash_of("debugger_viewport");
+        // Always-on-top, EXCEPT while a dialog is waiting for an answer: an
+        // always-on-top OS window covers every egui window in every other
+        // viewport, and no layer `Order` can beat it. Note the level must be
+        // set explicitly both ways — egui only emits `ViewportCommand::
+        // WindowLevel` when the rebuilt builder carries a DIFFERENT `Some`
+        // level (egui 0.35 viewport.rs:848); merely dropping the call leaves
+        // the window pinned on top.
+        let level = if self.blocking_modal_open() {
+            egui::WindowLevel::Normal
+        } else {
+            egui::WindowLevel::AlwaysOnTop
+        };
         let mut builder = ViewportBuilder::default()
             .with_title(self.debugger.window_title())
             .with_resizable(true)
-            .with_always_on_top();
+            .with_window_level(level);
         // Apply the default size ONLY on the first frame after the session
         // starts; afterwards the OS window size is the user's alone.
         if !self.debugger_vp_sized {
@@ -2061,10 +2108,12 @@ impl CoboltApp {
         );
     }
 
+    /// Toolbar Save / Ctrl+S. Persists everything `has_unsaved_changes` counts —
+    /// every dirty editor tab, every dirty form designer (each regenerating its
+    /// COBOL), and the project Settings form. Action and enablement predicate
+    /// must stay in step, otherwise the Save button can never switch itself off.
     fn do_save(&mut self) {
-        if let Err(e) = self.editor.save_active() {
-            self.output.push_status(format!("Save failed: {e}"));
-        }
+        self.save_all_unsaved();
     }
 
     // ── Project actions ───────────────────────────────────────────────────────
@@ -2454,7 +2503,8 @@ impl CoboltApp {
         self.pending_build_rx = Some(rx);
         self.pending_build_progress = Some(prx);
         self.build_phase = (0.0, "Starting…".to_string());
-        self.build_modal_hidden = false;
+        self.build_modal_closed = false;
+        self.build_outcome = None;
         self.build_log.clear();
         self.build_details_open = false;
         self.build_log_shown = 0;
@@ -7574,6 +7624,7 @@ impl CoboltApp {
     /// Drives the on-close confirmation dialog.
     fn has_unsaved_changes(&self) -> bool {
         self.designers.iter().any(|(_, d)| d.dirty)
+            || self.inspect.as_ref().is_some_and(|st| st.designer.dirty)
             || self.editor.any_dirty()
             || self.settings_dirty()
     }
@@ -7592,8 +7643,19 @@ impl CoboltApp {
         for idx in dirty_designers {
             self.do_save_designer(idx);
         }
+        // The Main-Pane inspector holds its own transient designer; an inline edit
+        // whose auto-save the data-binding gate blocked is still unsaved.
+        if let Some(st) = &mut self.inspect {
+            if st.designer.dirty && save_form(&st.designer.form, &st.path).is_ok() {
+                st.designer.dirty = false;
+                st.mtime = file_mtime(&st.path);
+                let p = st.path.clone();
+                self.project.refresh_form(&p);
+                self.after_form_saved(&p);
+            }
+        }
         if let Err(e) = self.editor.save_all_dirty() {
-            self.output.push_status(format!("Save on close failed: {e}"));
+            self.output.push_status(format!("Save failed: {e}"));
         }
         if self.settings_dirty() {
             self.save_settings_form();
@@ -8256,6 +8318,23 @@ impl CoboltApp {
         }
     }
 
+    /// True while any error or confirmation dialog is waiting for the user.
+    /// The always-on-top auxiliary OS windows (debugger, Run-Form Inspector)
+    /// drop to a normal level while this holds, so they cannot sit over a
+    /// question the user has to answer.
+    fn blocking_modal_open(&self) -> bool {
+        self.form_error.is_some()
+            || self.alert_error.is_some()
+            || self.pending_proc_delete.is_some()
+            || self.pending_user_control_delete.is_some()
+            || self.pending_indexed_delete.is_some()
+            || self.designers.iter().any(|(_, d)| d.has_blocking_modal())
+            || self
+                .inspect
+                .as_ref()
+                .is_some_and(|st| st.designer.has_blocking_modal())
+    }
+
     /// Modal shown when a form's generated COBOL fails to launch (parse /
     /// semantic error) or the interpreter reports a fatal runtime error. The
     /// message is also in the Output console; this dialog just makes it
@@ -8278,8 +8357,11 @@ impl CoboltApp {
         let mut cancel = false;
         let mut confirm = false;
 
+        let win_id = egui::Id::new("proc_delete_confirm");
+        raise_modal_layer(ctx, win_id);
         egui::Window::new(tr.proc_delete_confirm_title)
-            .id(egui::Id::new("proc_delete_confirm"))
+            .id(win_id)
+            .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -8341,14 +8423,18 @@ impl CoboltApp {
         };
         let mut open = true;
         let mut close = false;
+        let win_id = egui::Id::new("form_runtime_error");
+        let salt = per_viewport_salt(ctx, "form_runtime_error_resize");
+        raise_modal_layer(ctx, win_id);
         egui::Window::new("⛔ COBOL error")
-            .id(egui::Id::new("form_runtime_error"))
+            .id(win_id)
+            .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
             .resizable(false) // the inner `Resize` grip is the sole size control
             .default_pos(Self::error_modal_default_pos(ctx))
             .open(&mut open)
             .show(ctx, |ui| {
-                close = self.error_modal_resize_box(ui, "form_runtime_error_resize", |app, ui| {
+                close = self.error_modal_resize_box(ui, &salt, |app, ui| {
                     app.error_modal_body(
                         ui,
                         Some("Execution stopped. See the Output panel for details."),
@@ -8368,14 +8454,18 @@ impl CoboltApp {
         };
         let mut open = true;
         let mut close = false;
+        let win_id = egui::Id::new("alert_error_dialog");
+        let salt = per_viewport_salt(ctx, "alert_error_resize");
+        raise_modal_layer(ctx, win_id);
         egui::Window::new("⛔ Error")
-            .id(egui::Id::new("alert_error_dialog"))
+            .id(win_id)
+            .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
             .resizable(false) // the inner `Resize` grip is the sole size control
             .default_pos(Self::error_modal_default_pos(ctx))
             .open(&mut open)
             .show(ctx, |ui| {
-                close = self.error_modal_resize_box(ui, "alert_error_resize", |app, ui| {
+                close = self.error_modal_resize_box(ui, &salt, |app, ui| {
                     app.error_modal_body(ui, None, &msg)
                 });
             });
@@ -8605,44 +8695,137 @@ impl CoboltApp {
         }
     }
 
+    /// Is the Building dialog on screen? It is modal, so the rest of the IDE
+    /// has to keep out of the way while it is up — the keyboard included,
+    /// because egui's modal layer blocks the pointer, not key events.
+    fn build_modal_visible(&self) -> bool {
+        !self.build_modal_closed
+            && (self.pending_build_rx.is_some() || self.build_outcome.is_some())
+    }
+
+    /// The Building dialog. A real [`egui::Modal`]: while it is up nothing
+    /// else in the IDE accepts input, and it does NOT vanish when the build
+    /// ends — the outcome replaces the progress bar and the dialog waits for
+    /// Close. Close is the only way out: `ModalResponse::should_close` is
+    /// deliberately never consulted, so Esc and clicks on the backdrop do
+    /// nothing.
+    ///
+    /// The width is pinned with `ui.set_width`, so neither a long binary path
+    /// nor a long error message can make the dialog size itself, and nothing
+    /// here is measured from the space around it.
     fn show_building_modal(&mut self, ctx: &Context) {
-        if self.pending_build_rx.is_none() {
+        let building = self.pending_build_rx.is_some();
+        if !building && self.build_outcome.is_none() {
             return;
         }
-        // Drain any phase updates that arrived since the last frame — even
-        // while the modal is hidden, so re-showing (next build) is current.
-        // Every line is also captured for the Build-details window: phases
-        // as milestones, `detail` lines as dimmed supplements.
-        let mut latest = None;
-        if let Some(prx) = &self.pending_build_progress {
-            while let Ok(p) = prx.try_recv() {
-                if p.detail {
-                    self.build_log.push((BuildLogKind::Detail, p.message));
-                } else {
-                    self.build_log
-                        .push((BuildLogKind::Phase, p.message.clone()));
-                    latest = Some(p);
+        // Drain any phase updates that arrived since the last frame. Every
+        // line is also captured for the Build-details window: phases as
+        // milestones, `detail` lines as dimmed supplements.
+        if building {
+            let mut latest = None;
+            if let Some(prx) = &self.pending_build_progress {
+                while let Ok(p) = prx.try_recv() {
+                    if p.detail {
+                        self.build_log.push((BuildLogKind::Detail, p.message));
+                    } else {
+                        self.build_log
+                            .push((BuildLogKind::Phase, p.message.clone()));
+                        latest = Some(p);
+                    }
                 }
             }
+            if let Some(p) = latest {
+                self.build_phase = (p.fraction, p.message);
+            }
+            ctx.request_repaint(); // keep polling while the build runs
         }
-        if let Some(p) = latest {
-            self.build_phase = (p.fraction, p.message);
+        if self.build_modal_closed {
+            return; // the user closed it; the next build brings it back
         }
-        ctx.request_repaint(); // keep polling while the build runs
-        if self.build_modal_hidden {
-            return; // dismissed — the build continues, result goes to Output
+        let tr = self.lang.tr();
+        let (frac, msg) = (self.build_phase.0, self.build_phase.1.clone());
+        let outcome = self.build_outcome.clone();
+        let mut details = false;
+        let mut close = false;
+        egui::Modal::new(egui::Id::new("building_modal"))
+            // The same dim the dialog painted by hand before it became a
+            // real modal.
+            .backdrop_color(egui::Color32::from_black_alpha(150))
+            .show(ctx, |ui| {
+                // One fixed width for both states.
+                ui.set_width(360.0);
+                match &outcome {
+                    None => {
+                        ui.heading(tr.build_modal_title);
+                        ui.add_space(8.0);
+                        // Determinate bar driven by the real build fraction.
+                        ui.add(
+                            egui::ProgressBar::new(frac.clamp(0.0, 1.0))
+                                .desired_width(344.0)
+                                .show_percentage(),
+                        );
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new());
+                            let label = if msg.is_empty() {
+                                "Starting…"
+                            } else {
+                                msg.as_str()
+                            };
+                            // Truncated, not extended: a long phase line must
+                            // not push the dialog wider.
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(label).size(13.0)).truncate(),
+                            );
+                        });
+                    }
+                    Some(Ok(summary)) => {
+                        ui.heading(
+                            egui::RichText::new(tr.build_modal_succeeded)
+                                .color(Color32::from_rgb(60, 190, 100)),
+                        );
+                        ui.add_space(8.0);
+                        ui.add(egui::Label::new(summary.as_str()).wrap());
+                    }
+                    Some(Err(error)) => {
+                        ui.heading(
+                            egui::RichText::new(tr.build_modal_failed)
+                                .color(Color32::from_rgb(235, 80, 80)),
+                        );
+                        ui.add_space(8.0);
+                        ui.add(egui::Label::new(error.as_str()).wrap());
+                    }
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.build_details_btn).clicked() {
+                        details = true;
+                    }
+                    // Close is the only exit, and only once the build has
+                    // finished — while it runs the IDE stays blocked.
+                    if ui
+                        .add_enabled(outcome.is_some(), egui::Button::new(tr.build_modal_close))
+                        .clicked()
+                    {
+                        close = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        if details {
+            self.build_details_open = true;
         }
-        // Dim the rest of the IDE so the build reads as modal.
-        let screen = ctx.content_rect();
-        ctx.layer_painter(egui::LayerId::new(
-            egui::Order::Middle,
-            egui::Id::new("building_dim"),
-        ))
-        .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
+        if close {
+            self.build_modal_closed = true;
+        }
+    }
+
+    #[allow(dead_code)]
+    fn show_building_modal_legacy_window(&mut self, ctx: &Context) {
         let (frac, msg) = (self.build_phase.0, self.build_phase.1.clone());
 
         egui::Window::new("Building…")
-            .id(egui::Id::new("building_modal"))
+            .id(egui::Id::new("building_modal_legacy"))
             .order(egui::Order::Foreground)
             .collapsible(false)
             .resizable(false)
@@ -8671,7 +8854,7 @@ impl CoboltApp {
                 ui.horizontal(|ui| {
                     let tr = self.lang.tr();
                     if ui.button(tr.modal_hide).clicked() {
-                        self.build_modal_hidden = true;
+                        self.build_modal_closed = true;
                     }
                     if ui.button(tr.build_details_btn).clicked() {
                         self.build_details_open = true;
@@ -8708,8 +8891,19 @@ impl CoboltApp {
         let mut open = true;
         let mut copy = false;
         let mut save = false;
+        // The Building dialog is a modal, and a modal blocks every layer at or
+        // below its own. While it is up the log therefore rides one order
+        // ABOVE it: `Order::Tooltip` > `Order::Foreground`, so it is never
+        // blocked and never fights the modal for the top slot inside a single
+        // order. With the dialog gone it is an ordinary window again.
+        let order = if self.build_modal_visible() {
+            egui::Order::Tooltip
+        } else {
+            egui::Order::Middle
+        };
         egui::Window::new(tr.build_details_title)
             .id(egui::Id::new("build_details_window"))
+            .order(order)
             .open(&mut open)
             .resizable(true)
             .default_size([640.0, 400.0])
@@ -8825,6 +9019,12 @@ impl CoboltApp {
     // ── Keyboard shortcuts (main window) ─────────────────────────────────────
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
+        // The Building dialog is modal: while it is up the IDE takes no
+        // commands. egui's modal layer blocks the pointer, not key events, so
+        // the shortcuts have to stand down themselves.
+        if self.build_modal_visible() {
+            return;
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
         {
             self.do_save();
@@ -9904,7 +10104,10 @@ impl eframe::App for CoboltApp {
                         result.ast_bytes,
                     );
                     self.output.push_status(line.clone());
-                    self.build_log.push((BuildLogKind::Success, line));
+                    self.build_log.push((BuildLogKind::Success, line.clone()));
+                    // The Building dialog does not self-dismiss: it stays up
+                    // with the outcome until the user closes it.
+                    self.build_outcome = Some(Ok(line));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                     // Run started this build because the program contains
@@ -9919,6 +10122,9 @@ impl eframe::App for CoboltApp {
                         .push((BuildLogKind::Error, format!("Build failed: {e}")));
                     // Errors are what the details window exists for — open it.
                     self.build_details_open = true;
+                    // …and the Building dialog stays up showing the failure
+                    // until the user closes it. `e` is still needed below.
+                    self.build_outcome = Some(Err(e.clone()));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                     if let Some(form_path) = self.pending_build_then_run.take() {
@@ -9939,8 +10145,12 @@ impl eframe::App for CoboltApp {
                     ctx.request_repaint(); // keep polling
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.output
-                        .push_status("❌ Build thread disconnected unexpectedly.");
+                    let msg = "Build thread disconnected unexpectedly.";
+                    self.output.push_status(format!("❌ {msg}"));
+                    self.build_log.push((BuildLogKind::Error, msg.to_string()));
+                    // Without an outcome the dialog would spin forever with a
+                    // disabled Close — report the loss and let the user out.
+                    self.build_outcome = Some(Err(msg.to_string()));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                     self.pending_build_then_run = None;
@@ -10007,7 +10217,8 @@ impl eframe::App for CoboltApp {
         self.show_ai_setup_modal(ctx, &tr);
         // Save alert: render it in the MAIN window only when it doesn't belong
         // to a designer viewport (those render it themselves, on top).
-        // "Building…" progress modal (closes right before the result is shown).
+        // "Building…" modal — blocks the IDE and stays up, showing the
+        // outcome, until the user closes it.
         self.show_building_modal(ctx);
         self.show_kb_reindex_modal(ctx);
         self.show_build_details_window(ctx);
@@ -10067,7 +10278,7 @@ impl eframe::App for CoboltApp {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(tr.menu_save).clicked() { self.do_save(); ui.close(); }
+                    if ui.add_enabled(self.has_unsaved_changes(), egui::Button::new(tr.menu_save)).clicked() { self.do_save(); ui.close(); }
                     ui.separator();
                     if ui.button(tr.menu_quit).clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -10131,6 +10342,9 @@ impl eframe::App for CoboltApp {
         // "Active" = a project is open or a file is being edited. Gates Save /
         // Check (toolbar) and the Run / View menus.
         let has_active = self.cobolt_project.is_some() || self.editor.active_source().is_some();
+        // Save is additionally gated on there being something to save. Computed
+        // before the call so it does not overlap the `&mut self.lang` borrow.
+        let has_unsaved = self.has_unsaved_changes();
         match toolbar::show(
             root_ui,
             ctx,
@@ -10140,6 +10354,7 @@ impl eframe::App for CoboltApp {
             compilable,
             debuggable,
             has_active,
+            has_unsaved,
         ) {
             ToolbarAction::Run => self.do_run(),
             ToolbarAction::Stop => self.do_stop(),
@@ -11182,10 +11397,17 @@ impl CoboltApp {
         // Apply the default size ONLY on the first frame after opening; on later
         // frames we omit `inner_size` so egui never re-commands a size and the
         // user's own window resizes are preserved.
+        // Always-on-top, except while a dialog needs an answer — see
+        // `show_debugger_viewport` for why the level is set explicitly.
+        let level = if self.blocking_modal_open() {
+            egui::WindowLevel::Normal
+        } else {
+            egui::WindowLevel::AlwaysOnTop
+        };
         let mut builder = ViewportBuilder::default()
             .with_title("📊 Run-Form Inspector")
             .with_resizable(true)
-            .with_always_on_top();
+            .with_window_level(level);
         if !self.inspector_sized {
             let sh = ctx.content_rect();
             builder = builder.with_inner_size([
@@ -12733,7 +12955,11 @@ impl CoboltApp {
         let mut confirm = false;
         let message = tr.uc_delete_confirm.replace("{name}", &name);
 
+        let win_id = egui::Id::new("user_control_delete_confirm");
+        raise_modal_layer(ctx, win_id);
         egui::Window::new(tr.uc_delete)
+            .id(win_id)
+            .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
@@ -12776,7 +13002,11 @@ impl CoboltApp {
         let def = cidx_path.as_ref().and_then(|p| load_indexed(p).ok());
         let data_path = def.as_ref().and_then(|d| self.resolve_assign_path(d));
 
+        let win_id = egui::Id::new("indexed_delete_confirm");
+        raise_modal_layer(ctx, win_id);
         egui::Window::new("Confirm removal")
+            .id(win_id)
+            .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
@@ -12881,7 +13111,11 @@ impl CoboltApp {
                 .unwrap_or("form");
             let title = format!("Save changes to '{stem}'?");
             let mut close_confirm = true; // controls the egui::Window open state
+            let win_id = egui::Id::new(("designer_close_confirm", idx));
+            raise_modal_layer(ctx, win_id);
             egui::Window::new(&title)
+                .id(win_id)
+                .order(egui::Order::Foreground) // above every ordinary window
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -13529,6 +13763,19 @@ impl CoboltApp {
         // Otherwise a report produced from the designer assistant can be visible
         // only behind the active OS window, which looks like "it only went to log".
         self.render_llm_benchmark_modals(ctx);
+
+        // Errors and confirmations raised FROM this designer belong in THIS OS
+        // window. `Order::Foreground` only orders layers inside one viewport;
+        // it cannot lift a window in the main IDE over the designer's own OS
+        // window. So the same dialog is painted here as well — one state, so
+        // answering either copy answers it everywhere.
+        //   • Run Form / Save from the designer toolbar → `form_error`
+        //     (do_run_form) and `alert_error` (reject_duplicate_form_cobol_id).
+        //   • Delete-procedure in the COBOL Structure inspector →
+        //     `pending_proc_delete` with `designer: Some(idx)`.
+        self.show_proc_delete_confirmation(ctx);
+        self.show_form_error(ctx);
+        self.show_alert_error(ctx);
     }
 }
 
