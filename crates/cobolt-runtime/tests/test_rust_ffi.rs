@@ -290,3 +290,106 @@ fn setting_a_control_property_from_an_object_reference_emits_a_state_update() {
     assert!(prop.eq_ignore_ascii_case("Caption"), "property: {prop}");
     assert_eq!(value.trim(), "7", "the VALUE must travel, not the handle id");
 }
+
+/// The operator's handler shape EXACTLY: a nested COMMON program, a TRY, an
+/// EXEC RUST block that writes a bound item, then `SET <control>::Caption TO`
+/// that item, then DISPLAY of it.
+///
+/// The earlier test put the SET at top level in a program with no block before
+/// it, and passed — which is why the report "DISPLAY works but the label never
+/// changes" kept surviving my explanations. This reproduces the real
+/// structure: if the StateUpdate is missing here while the DISPLAY is right,
+/// the fault is in what the block leaves behind, not in SET.
+#[test]
+fn a_set_after_a_block_inside_a_nested_program_still_reaches_the_ui() {
+    use cobolt_runtime::exec_rust::ExecRustContext;
+
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLERSHAPE.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32 IS "Rust.i32"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WINDOW-TITLE   GLOBAL USAGE IS OBJECT REFERENCE RUST-STRING VALUE "Hello".
+       01 CLICKED-BUTTON GLOBAL USAGE IS OBJECT REFERENCE RUST-I32.
+       01 WS-ERROR       GLOBAL PIC X(120).
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           CALL "BUTTON-1--ONCLICK"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+       PROCEDURE DIVISION.
+       MAIN.
+           TRY
+               EXEC RUST
+               END-EXEC
+
+               SET Label-1::Caption TO CLICKED-BUTTON
+
+               DISPLAY "Button clicked:" CLICKED-BUTTON.
+
+           CATCH RUST-EXCEPTION WS-ERROR
+               DISPLAY "Window failed: " WS-ERROR
+           END-TRY
+
+           GOBACK.
+
+       END PROGRAM BUTTON-1--ONCLICK.
+       END PROGRAM HANDLERSHAPE.
+"#;
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+
+    // Stand in for the compiled block: take the bound i64 out of the bridge,
+    // write the "clicked" value, put it back — exactly what the generated
+    // take-and-put-back preamble does around `*clicked_button = ask(..)`.
+    fn body(ctx: &mut ExecRustContext<'_>) {
+        let id = ctx.env.get_i64("CLICKED-BUTTON").unwrap_or(0);
+        let mut v: i64 = ctx.bridge.take_or_init(id, || 0i64);
+        v = 1;
+        ctx.bridge.put_value(id, "Rust.i32", v);
+    }
+    interp.register_exec_rust_blocks(|reg| reg.register(0, body));
+    interp.run().expect("run failed");
+
+    let displayed: Vec<String> = display_rx.try_iter().collect();
+    assert_eq!(
+        displayed,
+        vec!["Button clicked:1".to_string()],
+        "the DISPLAY half is what the operator sees working"
+    );
+
+    let updates: Vec<(String, String, String)> = state_rx
+        .try_iter()
+        .map(|u| (u.ctrl_id, u.prop, u.value))
+        .collect();
+    assert_eq!(
+        updates.len(),
+        1,
+        "the SET must reach the UI from inside a nested program's TRY, right \
+         after a block — got {updates:?}"
+    );
+    assert_eq!(updates[0].2.trim(), "1", "carrying the value, not the handle");
+}
