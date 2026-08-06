@@ -95,10 +95,21 @@ fn install_executable(src: &Path, dst: &Path) -> std::io::Result<()> {
         perms.set_mode(0o755);
         std::fs::set_permissions(&tmp, perms)?;
     }
-    // Unix rename replaces an existing dst atomically; Windows refuses, so
-    // clear the way there first (best-effort — dst may not exist).
+    // Unix rename replaces an existing dst atomically. Windows refuses to
+    // rename over an existing file — and also refuses to DELETE a running
+    // .exe, while it does allow RENAMING one. So: try the delete (works when
+    // nothing runs), and when a live instance holds the file, do the standard
+    // updater dance instead — rename the running exe aside, then move the new
+    // one into place; the parked file is cleaned up best-effort (a locked one
+    // disappears on the next successful install after the process ends).
     #[cfg(windows)]
-    let _ = std::fs::remove_file(dst);
+    if dst.exists() && std::fs::remove_file(dst).is_err() {
+        let parked = dst.with_file_name(format!(".{file_name}.old-{}", std::process::id()));
+        let _ = std::fs::remove_file(&parked);
+        if std::fs::rename(dst, &parked).is_err() {
+            // Locked beyond even a rename — surface the real rename error below.
+        }
+    }
     let renamed = std::fs::rename(&tmp, dst);
     if renamed.is_err() {
         let _ = std::fs::remove_file(&tmp);

@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.20] — 2026-08-06
+
+### Fixed
+
+- **The 1.60.19 binary install could fail on Windows while a previous instance
+  ran.** Windows locks a running `.exe` against deletion — but allows renaming
+  it. The install now does the standard updater dance there: park the running
+  executable under a temp name, move the new one into place, clean up the
+  parked file best-effort. (On Linux the 1.60.19 rename-install was already
+  correct — and it also cures the `ETXTBSY` build failure that copying over a
+  running executable causes there.) No behaviour change on macOS.
+
 ## [PowerRustCOBOL 1.60.19] — 2026-08-06
 
 ### Fixed
