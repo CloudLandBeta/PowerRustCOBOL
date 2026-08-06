@@ -214,6 +214,10 @@ pub struct CoboltApp {
     /// Forms running as external `rcrun run-form` processes (the Run Form
     /// path): own window, own event loop — the IDE stays idle while they run.
     external_runs: Vec<crate::form_runtime::ExternalFormRun>,
+    /// Compiled applications started by Run (spec 041 T13) — tracked so their
+    /// output streams into the Output panel and their death is reported, never
+    /// silent. A re-Run replaces the previous instance.
+    built_runs: Vec<crate::form_runtime::BuiltAppRun>,
 
     // Run-Form process/memory inspector (toolbar toggle; only samples while a
     // Live Interpreter is running).
@@ -1008,6 +1012,7 @@ impl CoboltApp {
             checked: std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
             external_runs: Vec::new(),
+            built_runs: Vec::new(),
             inspector: crate::inspector::ProcessInspector::new(Default::default()),
             show_inspector: false,
             inspector_sized: false,
@@ -1403,21 +1408,38 @@ impl CoboltApp {
     /// own its window, and closing the IDE does not close it.
     fn launch_built_binary(&mut self, binary: &Path, form_path: &Path) {
         let tr = self.lang.tr();
-        match std::process::Command::new(binary)
-            .current_dir(binary.parent().unwrap_or(Path::new(".")))
-            .envs(self.debug.child_env())
-            .spawn()
-        {
-            Ok(_) => {
-                self.output
-                    .push_status(tr.status_exec_rust_launching.to_owned());
+        // A re-Run replaces the previous instance — before this, every Run
+        // left the last binary running, and a stale window could mask a new
+        // launch that failed.
+        for run in &mut self.built_runs {
+            run.stop();
+        }
+        self.built_runs.clear();
+        match crate::form_runtime::BuiltAppRun::spawn(
+            binary,
+            form_path.to_path_buf(),
+            self.debug.child_env(),
+        ) {
+            Ok(run) => {
+                // The pid is the operator's proof that something started; the
+                // old message alone was also the last thing they ever heard.
+                self.output.push_status(
+                    tr.status_built_started
+                        .replace("{name}", &run.name)
+                        .replace("{pid}", &run.pid().to_string()),
+                );
                 self.set_element_status(form_path, ElementStatus::Tested);
+                self.built_runs.push(run);
             }
             Err(e) => {
                 let msg = format!("Error starting {}: {e}", binary.display());
                 self.output.push_status(msg.clone());
                 self.set_element_status(form_path, ElementStatus::Failed);
                 self.form_error = Some(msg);
+                // The error dialog is an Order::Foreground window; the Build
+                // modal's backdrop would block it. Get the modal out of the way
+                // so the failure is the thing on screen, not "Build succeeded".
+                self.build_modal_closed = true;
             }
         }
     }
@@ -1649,6 +1671,14 @@ impl CoboltApp {
             if self.pending_build_rx.is_some() {
                 self.output.push_status(building);
                 self.pending_build_then_run = Some(form_path.clone());
+            } else {
+                // The build refused to start (guardian gate, missing manifest,
+                // form errors — each already reported its own reason). Without
+                // this line the Run intent just evaporated: no build, no
+                // launch, and nothing saying so.
+                let tr = self.lang.tr();
+                self.output
+                    .push_status(tr.status_run_not_started.to_owned());
             }
             return;
         }
@@ -8793,7 +8823,14 @@ impl CoboltApp {
                                 .color(Color32::from_rgb(235, 80, 80)),
                         );
                         ui.add_space(8.0);
-                        ui.add(egui::Label::new(error.as_str()).wrap());
+                        // A failed cargo build can be hundreds of lines; without
+                        // a scroll bound the text pushed the Close button off
+                        // the screen and the modal could not be dismissed.
+                        egui::ScrollArea::vertical()
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                ui.add(egui::Label::new(error.as_str()).wrap());
+                            });
                     }
                 }
                 ui.add_space(10.0);
@@ -8801,12 +8838,12 @@ impl CoboltApp {
                     if ui.button(tr.build_details_btn).clicked() {
                         details = true;
                     }
-                    // Close is the only exit, and only once the build has
-                    // finished — while it runs the IDE stays blocked.
-                    if ui
-                        .add_enabled(outcome.is_some(), egui::Button::new(tr.build_modal_close))
-                        .clicked()
-                    {
+                    // Close is the only exit — and it must ALWAYS be there. It
+                    // was disabled until the build finished, so a hung build
+                    // worker left a modal that blocked the whole IDE with no
+                    // way out but force-quit. Closing mid-build only hides the
+                    // dialog; the build itself keeps running to its outcome.
+                    if ui.button(tr.build_modal_close).clicked() {
                         close = true;
                     }
                 });
@@ -10114,6 +10151,14 @@ impl eframe::App for CoboltApp {
                     // EXEC RUST (spec 041 T13) — start what it produced.
                     if let Some(form_path) = self.pending_build_then_run.take() {
                         self.launch_built_binary(&result.binary_path, &form_path);
+                        // The operator pressed Run, not Build: the launched
+                        // application is the outcome they asked for, and it
+                        // opens *behind* this modal — which never self-dismisses
+                        // and blocks the whole IDE. Leaving it up buried the
+                        // app; a plain Build keeps the modal, as before.
+                        if self.build_outcome.as_ref().is_some_and(|o| o.is_ok()) {
+                            self.build_modal_closed = true;
+                        }
                     }
                 }
                 Ok(Err(e)) => {
@@ -10153,7 +10198,14 @@ impl eframe::App for CoboltApp {
                     self.build_outcome = Some(Err(msg.to_string()));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
-                    self.pending_build_then_run = None;
+                    // A Run intent dies with the build thread — say so, and
+                    // mark the form, instead of dropping it in silence.
+                    if let Some(form_path) = self.pending_build_then_run.take() {
+                        let tr = self.lang.tr();
+                        self.output
+                            .push_status(tr.status_run_not_started.to_owned());
+                        self.set_element_status(&form_path, ElementStatus::Failed);
+                    }
                 }
             }
         }
@@ -10841,6 +10893,54 @@ impl eframe::App for CoboltApp {
             if let Some(err) = ext_error {
                 self.form_error = Some(err);
             }
+        }
+
+        // ── Launched BUILT binaries (spec 041 T13) ───────────────────────────
+        // Stream everything the compiled application prints into the Output
+        // panel, and report its exit — success or failure. Before this the
+        // spawned Child was discarded on the spot, so a program that died at
+        // startup left the IDE showing "starting the built program" and a green
+        // semaphore forever: the exact silence the operator kept reporting.
+        if !self.built_runs.is_empty() {
+            let mut built_error: Option<String> = None;
+            let mut i = 0;
+            while i < self.built_runs.len() {
+                for line in self.built_runs[i].drain_output() {
+                    self.output.push_line(line);
+                }
+                if self.built_runs[i].is_running() {
+                    i += 1;
+                    continue;
+                }
+                let run = self.built_runs.remove(i);
+                // Drain what raced the exit — often the only evidence.
+                for line in run.drain_output() {
+                    self.output.push_line(line);
+                }
+                let tr = self.lang.tr();
+                match run.exit_error() {
+                    None => {
+                        self.output.push_status(
+                            tr.status_built_exited_ok.replace("{name}", &run.name),
+                        );
+                    }
+                    Some(err) => {
+                        let msg = tr
+                            .status_built_exited_err
+                            .replace("{name}", &run.name)
+                            .replace("{err}", &err);
+                        self.output.push_status(msg.clone());
+                        self.set_element_status(&run.form_path, ElementStatus::Failed);
+                        if built_error.is_none() {
+                            built_error = Some(msg);
+                        }
+                    }
+                }
+            }
+            if let Some(err) = built_error {
+                self.form_error = Some(err);
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
         // ── Running form viewports (Phase 6) ─────────────────────────────────────

@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.18] — 2026-08-06
+
+### Fixed
+
+- **Running a built application was fire-and-forget — a program that died did
+  so in perfect silence.** The Run button (for a form with `EXEC RUST` blocks)
+  built the binary, spawned it, and threw the process handle away: its stdout
+  and stderr went nowhere visible, nothing ever checked whether it was still
+  alive, and the IDE reported "starting the built program" with a green
+  semaphore regardless. A program that crashed at startup looked exactly like
+  one that never launched — the "nothing anywhere" failure. Now the launched
+  program is tracked for its whole life:
+  - the Output panel shows **`{name} started (pid N)`**, then **everything the
+    program prints**, live (stderr lines marked with ⚠);
+  - when it exits, the exit is reported — quietly on success, loudly on
+    failure, with the exit code and the captured stderr in an error dialog;
+  - a re-Run **replaces** the previous instance instead of accumulating
+    processes, and nothing is left running when the IDE exits.
+
+- **The "Build succeeded" modal buried the very program it had just started.**
+  On the Run path the application was launched while the modal was still up —
+  and the modal blocks the entire IDE and never dismisses itself, so the new
+  window sat behind a dialog waiting for a Close click nobody knew mattered.
+  After a Run, a successful build now closes the modal itself; a plain Build
+  keeps it, as before.
+
+- **Two ways out of a stuck build modal.** A failed build's full rustc output
+  could push the Close button off-screen (no scroll bound — now capped and
+  scrollable), and a hung build worker left Close permanently disabled with
+  force-quit as the only exit (Close now always works; closing mid-build just
+  hides the dialog while the build runs to its outcome).
+
+- **A Run intent could evaporate without a trace.** If the build refused to
+  start (guardian gate, missing manifest, form errors) or the build thread
+  died, the pending "run after build" was dropped silently. Both paths now say
+  plainly that no program was launched.
+
 ## [PowerRustCOBOL 1.60.17] — 2026-08-06
 
 ### Fixed

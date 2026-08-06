@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -1160,6 +1160,220 @@ impl Drop for ExternalFormRun {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+}
+
+// ── A launched BUILT binary (spec 041 T13 run path) ──────────────────────────
+
+/// A compiled application started by Run, tracked for its whole life.
+///
+/// This exists because `launch_built_binary` used to `spawn()` and drop the
+/// `Child` on the floor: no stderr, no exit detection, stdio inherited into the
+/// IDE where nobody can see it. A built program that died at startup left the
+/// IDE saying "starting the built program" with a green semaphore — the exact
+/// "nothing anywhere" the operator reported, undiagnosable because the evidence
+/// was discarded at the moment it was produced. Same shape as
+/// [`ExternalFormRun`], minus the debug stdin.
+pub struct BuiltAppRun {
+    /// The form whose Run started this (tree semaphore + replace-on-re-Run).
+    pub form_path: PathBuf,
+    /// Display name for Output-panel lines.
+    pub name: String,
+    child: Child,
+    /// Live stdout+stderr lines, merged (stderr prefixed) — drained per frame.
+    output_rx: mpsc::Receiver<String>,
+    /// stderr kept separately too, for the exit report.
+    stderr_buf: Arc<Mutex<Vec<String>>>,
+    exit_status: Option<std::process::ExitStatus>,
+}
+
+impl BuiltAppRun {
+    /// Spawn `binary` with both pipes captured and reader threads attached.
+    pub fn spawn(
+        binary: &Path,
+        form_path: PathBuf,
+        envs: Vec<(&'static str, String)>,
+    ) -> std::io::Result<Self> {
+        let mut child = Command::new(binary)
+            .current_dir(binary.parent().unwrap_or(Path::new(".")))
+            .envs(envs)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        let (tx, output_rx) = mpsc::channel::<String>();
+        if let Some(stdout) = child.stdout.take() {
+            let tx = tx.clone();
+            thread::spawn(move || {
+                use std::io::BufRead;
+                for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        let stderr_buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let buf = Arc::clone(&stderr_buf);
+            thread::spawn(move || {
+                use std::io::BufRead;
+                for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+                    if let Ok(mut b) = buf.lock() {
+                        b.push(line.clone());
+                    }
+                    if tx.send(format!("⚠ {line}")).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
+        let name = binary
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "built program".to_owned());
+        Ok(Self {
+            form_path,
+            name,
+            child,
+            output_rx,
+            stderr_buf,
+            exit_status: None,
+        })
+    }
+
+    /// OS process id, reported so the operator can SEE something started.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Everything the program printed since the last call.
+    pub fn drain_output(&self) -> Vec<String> {
+        self.output_rx.try_iter().collect()
+    }
+
+    /// `true` while the process is alive; caches the exit status once it ends.
+    pub fn is_running(&mut self) -> bool {
+        if self.exit_status.is_some() {
+            return false;
+        }
+        match self.child.try_wait() {
+            Ok(Some(status)) => {
+                self.exit_status = Some(status);
+                false
+            }
+            Ok(None) => true,
+            Err(_) => false,
+        }
+    }
+
+    /// After exit: `None` for success, `Some(report)` for a failure — the exit
+    /// code plus whatever stderr said, which is the best diagnostic there is.
+    pub fn exit_error(&self) -> Option<String> {
+        let status = self.exit_status?;
+        if status.success() {
+            return None;
+        }
+        let code = status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "killed by signal".to_owned());
+        let lines = self.stderr_buf.lock().map(|b| b.clone()).unwrap_or_default();
+        Some(if lines.is_empty() {
+            format!("exit {code} — the program printed nothing on stderr")
+        } else {
+            format!("exit {code}\n{}", lines.join("\n"))
+        })
+    }
+
+    /// Kill the process (a re-Run replaces the previous instance).
+    pub fn stop(&mut self) {
+        if self.exit_status.is_none() {
+            let _ = self.child.kill();
+            if let Ok(status) = self.child.wait() {
+                self.exit_status = Some(status);
+            }
+        }
+    }
+}
+
+impl Drop for BuiltAppRun {
+    fn drop(&mut self) {
+        // Never leave an orphaned built application running after the IDE exits.
+        if self.exit_status.is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+#[cfg(test)]
+mod built_app_run_tests {
+    use super::BuiltAppRun;
+    use std::path::PathBuf;
+
+    fn wait_exit(run: &mut BuiltAppRun) {
+        for _ in 0..200 {
+            if !run.is_running() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the child never exited");
+    }
+
+    /// The whole reason the struct exists: a child that fails at startup must
+    /// hand back its exit code AND its stderr, not vanish.
+    #[test]
+    fn a_failing_child_reports_exit_code_and_stderr() {
+        let mut run = BuiltAppRun::spawn(
+            std::path::Path::new("/bin/sh"),
+            PathBuf::from("form.cfrm"),
+            vec![],
+        )
+        .expect("spawn sh");
+        // No args — sh on stdin=null exits 0 immediately; so use a scripted one.
+        run.stop();
+
+        let dir = std::env::temp_dir().join(format!("prc-builtrun-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("fails.sh");
+        std::fs::write(&script, "#!/bin/sh\necho out-line\necho err-line 1>&2\nexit 3\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let mut run =
+            BuiltAppRun::spawn(&script, PathBuf::from("form.cfrm"), vec![]).expect("spawn script");
+        assert!(run.pid() > 0);
+        wait_exit(&mut run);
+
+        let err = run.exit_error().expect("exit 3 must be reported");
+        assert!(err.contains("exit 3"), "code missing: {err}");
+        assert!(err.contains("err-line"), "stderr missing: {err}");
+
+        // Output lines were streamed too — both streams, stderr marked.
+        let all: Vec<String> = run.drain_output();
+        assert!(all.iter().any(|l| l == "out-line"), "{all:?}");
+        assert!(all.iter().any(|l| l.contains("err-line")), "{all:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A clean exit reports nothing — silence is only correct when true.
+    #[test]
+    fn a_clean_exit_reports_no_error() {
+        let mut run = BuiltAppRun::spawn(
+            std::path::Path::new("/usr/bin/true"),
+            PathBuf::from("form.cfrm"),
+            vec![],
+        )
+        .expect("spawn true");
+        wait_exit(&mut run);
+        assert!(run.exit_error().is_none());
     }
 }
 
