@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.26] — 2026-08-06
+
+### Fixed
+
+- **A block's window closing itself with `send_viewport_cmd(Close)` quit the
+  whole application.** `Context::send_viewport_cmd` targets the viewport
+  *current during the pass* — inside a `cobolt_windows` drawing closure that is
+  the **parent**, so the command reached the root and closed the form along
+  with the dialog. The dialog does disappear, which is exactly why the mistake
+  survives review; what gives it away is that any COBOL after `win.wait()` —
+  `SET Label-1::Caption TO clicked-button` — then races the shutdown and lands
+  only sometimes.
+
+  The supported close has always been `cobolt_windows::close("id")`, which ends
+  that window and nothing else. The guide and the System KB now say so at every
+  point a developer meets the API, and a test pins both halves: that
+  `send_viewport_cmd(Close)` reaches the root (so the guidance stays honest,
+  and flips loudly if egui ever changes it) and that closing through the
+  registry leaves the application running.
+
 ## [PowerRustCOBOL 1.60.25] — 2026-08-06
 
 ### Fixed

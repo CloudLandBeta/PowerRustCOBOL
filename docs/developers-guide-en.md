@@ -2512,6 +2512,26 @@ window. It returns a handle:
 `cobolt_windows::is_open(id)` and `cobolt_windows::close(id)` do the same by id,
 from anywhere. Opening an id that is already open replaces what it draws.
 
+> ### ⚠️ Close the window with `cobolt_windows::close`, not `send_viewport_cmd`
+>
+> To close the window from inside its own drawing closure — the OK button, a
+> picked value — call `cobolt_windows::close("your-id")`:
+>
+> ```rust
+> if ui.button(caption.to_string()).clicked() {
+>     *out.lock().unwrap() = caption;
+>     cobolt_windows::close("ask");     // ← closes THIS window
+> }
+> ```
+>
+> **Never** `ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close)` there,
+> however many eframe tutorials show it. That command targets the viewport
+> current during the pass — the **parent** — so it closes the whole
+> application. The dialog does disappear, which is why the mistake survives:
+> the form disappears with it, and any COBOL after `win.wait()` (setting a
+> label from the result) then races the shutdown, so the label updates
+> sometimes and not others.
+
 > **`wait()` is safe.** Your handler blocks, but the form does not: the
 > interpreter runs on its own thread, so the window keeps painting and stays
 > responsive while the handler waits.

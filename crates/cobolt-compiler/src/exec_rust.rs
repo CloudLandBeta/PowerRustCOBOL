@@ -117,6 +117,11 @@ const COBOLT_WINDOWS_MODULE: &str = r##"
 /// A block registers what to draw; the form application paints it every frame.
 /// The drawing closure runs on the UI thread, so share state with the block
 /// through an `Arc<Mutex<..>>`, as egui's own viewport documentation prescribes.
+///
+/// ⚠️ To close the window from inside its own drawing closure call
+/// [`close`] — NOT `ui.ctx().send_viewport_cmd(ViewportCommand::Close)`.
+/// That command targets the viewport current during the pass, which is the
+/// PARENT, so it closes the whole application instead of the window.
 pub mod cobolt_windows {
     use eframe::egui;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -209,6 +214,19 @@ pub mod cobolt_windows {
     }
 
     /// Close a window by id. Does nothing if no such window is open.
+    ///
+    /// This is how a window closes ITSELF from inside its drawing closure:
+    ///
+    /// ```ignore
+    /// if ui.button("OK").clicked() {
+    ///     cobolt_windows::close("my-dialog");
+    /// }
+    /// ```
+    ///
+    /// ⚠️ Do NOT use `ui.ctx().send_viewport_cmd(ViewportCommand::Close)`
+    /// there. That targets the viewport current during the pass — the parent —
+    /// so it closes the whole application, and whatever COBOL runs after
+    /// `wait()` returns then races the shutdown.
     pub fn close(id: &str) {
         for e in registry().lock().unwrap().iter() {
             if e.id == id {
