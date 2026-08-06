@@ -464,6 +464,16 @@ pub struct ProjectMeta {
     /// Is this a debug or release compilation
     #[serde(default = "default_debug_compilation")]
     pub debug_compilation: bool,
+    /// The PowerRustCOBOL version that last ran a FULL build of this project.
+    ///
+    /// Empty for a project that has never had one — including every project
+    /// created before this field existed. Only a full build writes it, because
+    /// only a full build guarantees nothing compiled by an older version
+    /// survives in the output. When the running IDE is newer than this, the
+    /// developer is offered a full build before running (see
+    /// [`ProjectMeta::build_is_stale_for`]).
+    #[serde(default)]
+    pub built_with_version: String,
 }
 
 /// Where a build installs the deliverable when the project does not say.
@@ -474,6 +484,42 @@ pub struct ProjectMeta {
 pub const DEFAULT_DESTINATION_FOLDER: &str = "dist";
 
 impl ProjectMeta {
+    /// Parse a `x.y.z` version into comparable parts, tolerating extra parts
+    /// and non-numeric junk (which sorts as 0).
+    fn version_triple(v: &str) -> (u32, u32, u32) {
+        let mut it = v
+            .trim()
+            .split(['.', '-', '+'])
+            .map(|p| p.parse::<u32>().unwrap_or(0));
+        (
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+        )
+    }
+
+    /// Does this project need a full build before it is run under `current`?
+    ///
+    /// True when the running PowerRustCOBOL is NEWER than the version that
+    /// last fully built the project — including the case of a project that has
+    /// never had one, which covers everything created before the stamp
+    /// existed. A project built by a newer version than the one running (the
+    /// developer downgraded) is NOT flagged: rebuilding cannot un-write what a
+    /// newer version produced, so nagging about it would be noise.
+    pub fn build_is_stale_for(&self, current: &str) -> bool {
+        Self::version_triple(current) > Self::version_triple(&self.built_with_version)
+    }
+
+    /// What to show for "last built with" — never blank.
+    pub fn built_with_display(&self) -> &str {
+        let v = self.built_with_version.trim();
+        if v.is_empty() {
+            "never fully built"
+        } else {
+            v
+        }
+    }
+
     /// The folder a build installs into — never empty.
     ///
     /// Before 1.60.27 the default was the project's own NAME, written into
@@ -566,6 +612,8 @@ impl CoboltProject {
                 license_text: String::new(),
                 destination_folder,
                 debug_compilation: true,
+                // Never fully built yet — the first full build stamps it.
+                built_with_version: String::new(),
             },
             files: ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
@@ -1839,5 +1887,80 @@ mod destination_folder_tests {
             p.project.destination_folder_or_default(),
             "Payroll-release"
         );
+    }
+}
+
+#[cfg(test)]
+mod build_stamp_tests {
+    use super::*;
+
+    fn proj(built_with: &str) -> CoboltProject {
+        let mut p = CoboltProject::new("Demo.project", "main.cbl");
+        p.project.built_with_version = built_with.to_owned();
+        p
+    }
+
+    /// A project that has never had a full build is always stale — that covers
+    /// every project created before the stamp existed.
+    #[test]
+    fn a_never_built_project_is_stale() {
+        let p = CoboltProject::new("Demo.project", "main.cbl");
+        assert_eq!(p.project.built_with_version, "");
+        assert!(p.project.build_is_stale_for("1.60.29"));
+        assert_eq!(p.project.built_with_display(), "never fully built");
+    }
+
+    /// Newer IDE than the stamp → stale, at every level of the version.
+    #[test]
+    fn a_newer_powerrustcobol_makes_the_build_stale() {
+        assert!(proj("1.60.28").project.build_is_stale_for("1.60.29"));
+        assert!(proj("1.60.29").project.build_is_stale_for("1.61.0"));
+        assert!(proj("1.60.29").project.build_is_stale_for("2.0.0"));
+    }
+
+    /// Same version → nothing to warn about. This is what stops the prompt
+    /// reappearing once the developer has done the build.
+    #[test]
+    fn the_same_version_is_not_stale() {
+        assert!(!proj("1.60.29").project.build_is_stale_for("1.60.29"));
+    }
+
+    /// A project built by a NEWER version than the one running is not flagged:
+    /// rebuilding cannot un-write what a newer version produced, so warning
+    /// about it would be pure noise.
+    #[test]
+    fn a_downgraded_ide_does_not_nag() {
+        assert!(!proj("1.61.0").project.build_is_stale_for("1.60.29"));
+        assert!(!proj("2.0.0").project.build_is_stale_for("1.60.29"));
+    }
+
+    /// Version parsing survives junk rather than panicking or mis-ordering.
+    #[test]
+    fn odd_versions_compare_sanely() {
+        assert!(proj("1.60").project.build_is_stale_for("1.60.1"));
+        assert!(!proj("1.60.29-beta").project.build_is_stale_for("1.60.29"));
+        assert!(proj("").project.build_is_stale_for("0.0.1"));
+        // Numeric, not lexicographic: 1.60.9 is older than 1.60.10.
+        assert!(proj("1.60.9").project.build_is_stale_for("1.60.10"));
+    }
+
+    /// The stamp survives a save/load round trip, and an old project file
+    /// without the field still loads.
+    #[test]
+    fn the_stamp_round_trips_and_old_files_still_load() {
+        let p = proj("1.60.29");
+        let s = toml::to_string(&p).expect("serialize");
+        let back: CoboltProject = toml::from_str(&s).expect("deserialize");
+        assert_eq!(back.project.built_with_version, "1.60.29");
+
+        let legacy = r#"
+[project]
+name = "Old.project"
+version = "1.0.0"
+main = "main.cbl"
+"#;
+        let old: CoboltProject = toml::from_str(legacy).expect("a pre-stamp project must load");
+        assert_eq!(old.project.built_with_version, "");
+        assert!(old.project.build_is_stale_for("1.60.29"));
     }
 }

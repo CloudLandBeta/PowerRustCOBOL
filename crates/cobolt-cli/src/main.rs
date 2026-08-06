@@ -382,13 +382,21 @@ fn cmd_help() {
 fn cmd_build(args: &[String]) {
     let mut target: Option<std::path::PathBuf> = None;
     let mut quiet = false;
+    let mut full = false;
 
     for arg in args {
         match arg.as_str() {
             "--quiet" | "-q" => quiet = true,
+            // Discard every cached artefact first. The answer to "it behaves
+            // oddly since I updated PowerRustCOBOL": the generated sources are
+            // rewritten every build, but cargo's own artefacts survive, so an
+            // incremental build can link objects produced by an older version.
+            "--full" | "--clean" => full = true,
             a if !a.starts_with('-') => target = Some(std::path::PathBuf::from(a)),
             other => {
                 eprintln!("rcrun build: unknown flag '{other}'");
+                eprintln!("  --full (or --clean)  discard cached artefacts and rebuild everything");
+                eprintln!("  --quiet (or -q)      only report the outcome");
                 process::exit(2);
             }
         }
@@ -400,6 +408,7 @@ fn cmd_build(args: &[String]) {
         progress: None,
         // Host only — there is no cross-compilation (spec 041 R17).
         target: None,
+        full,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));

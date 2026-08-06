@@ -174,6 +174,22 @@ struct PendingFolderDelete {
     category_root: String,
 }
 
+/// What the developer was trying to start when the version stamp was found
+/// stale — so the same action can be resumed after a full build.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StaleBuildIntent {
+    /// The IDE toolbar's Run.
+    Run,
+    /// A designer's Run Form, for the form at this index.
+    RunForm(usize),
+}
+
+/// A pending "this project was last built by an older PowerRustCOBOL" prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StaleBuildPrompt {
+    intent: StaleBuildIntent,
+}
+
 pub struct CoboltApp {
     // Code workspace
     project: ProjectPanel,
@@ -222,6 +238,13 @@ pub struct CoboltApp {
     /// started by that designer's Run Form button. `None` = the IDE main window
     /// hosts it (toolbar Build). Exactly one surface shows the modal.
     build_modal_host: Option<PathBuf>,
+    /// Whether the build now running is a FULL one — only a full build stamps
+    /// the project with the PowerRustCOBOL version that produced it.
+    pending_build_full: bool,
+    /// A Run/Run-Form the developer asked for while the project's last full
+    /// build was older than this PowerRustCOBOL. Holds what to do once they
+    /// answer the prompt; `None` when no prompt is up.
+    stale_build_prompt: Option<StaleBuildPrompt>,
 
     // Run-Form process/memory inspector (toolbar toggle; only samples while a
     // Live Interpreter is running).
@@ -1018,6 +1041,8 @@ impl CoboltApp {
             external_runs: Vec::new(),
             built_runs: Vec::new(),
             build_modal_host: None,
+            pending_build_full: false,
+            stale_build_prompt: None,
             inspector: crate::inspector::ProcessInspector::new(Default::default()),
             show_inspector: false,
             inspector_sized: false,
@@ -1328,6 +1353,11 @@ impl CoboltApp {
         if !self.allow_data_binding_project_action(BindingActionGate::RunProject) {
             return;
         }
+        // Was this project last fully built by an older PowerRustCOBOL? Ask
+        // before running anything — the prompt offers the full build itself.
+        if self.stale_build_blocks(StaleBuildIntent::Run) {
+            return;
+        }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
         // A project is a DESKTOP project (the only kind today): Run starts the
@@ -1449,6 +1479,29 @@ impl CoboltApp {
         }
     }
 
+    /// Whether the open project was last fully built by an OLDER
+    /// PowerRustCOBOL than the one running.
+    fn build_is_stale(&self) -> bool {
+        self.cobolt_project
+            .as_ref()
+            .is_some_and(|p| p.project.build_is_stale_for(crate::version::VERSION))
+    }
+
+    /// Gate every Run path on the version stamp.
+    ///
+    /// Returns `true` when the caller should stop and let the developer answer
+    /// the prompt. The prompt reappears on every Run until a full build
+    /// actually happens — which is the point: an incremental build cannot
+    /// promise that nothing compiled by the older version survived, so nothing
+    /// short of the full build clears it.
+    fn stale_build_blocks(&mut self, intent: StaleBuildIntent) -> bool {
+        if !self.build_is_stale() {
+            return false;
+        }
+        self.stale_build_prompt = Some(StaleBuildPrompt { intent });
+        true
+    }
+
     fn do_stop(&mut self) {
         self.runner.stop();
         self.output.push_status("── Stop requested ──");
@@ -1537,6 +1590,11 @@ impl CoboltApp {
 
     /// Run Form: launch the form as a standalone `rcrun run-form` process.
     fn do_run_form(&mut self, idx: usize) {
+        // Same version gate as the IDE's Run — the developer is starting their
+        // solution either way, and a stale full build affects both equally.
+        if self.stale_build_blocks(StaleBuildIntent::RunForm(idx)) {
+            return;
+        }
         self.launch_form_process(idx, false);
     }
 
@@ -2482,7 +2540,21 @@ impl CoboltApp {
     ///
     /// Runs entirely on a background thread so the IDE stays responsive.
     /// Progress lines are forwarded to the Output panel.
+    /// An ordinary, incremental build.
     fn do_build_binary(&mut self) {
+        self.do_build_binary_with(false);
+    }
+
+    /// Build, optionally discarding every cached artefact first.
+    ///
+    /// A full build is what answers "it behaves oddly since I updated": the
+    /// generated sources are regenerated every time, but cargo's own artefacts
+    /// survive across PowerRustCOBOL upgrades, so an incremental build can link
+    /// objects produced by an older version against newly generated code. It is
+    /// also the only build that stamps [`ProjectMeta::built_with_version`],
+    /// because it is the only one that can promise nothing older survived.
+    fn do_build_binary_with(&mut self, full: bool) {
+        self.pending_build_full = full;
         if !self.allow_data_binding_project_action(BindingActionGate::BuildProject) {
             return;
         }
@@ -2529,6 +2601,7 @@ impl CoboltApp {
                 progress: Some(ptx),
                 // Host only — there is no cross-compilation (spec 041 R17).
                 target: None,
+                full,
             };
             let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
             let _ = tx.send(result);
@@ -8454,6 +8527,76 @@ impl CoboltApp {
         ));
     }
 
+    /// "This project was last fully built by an older PowerRustCOBOL" — shown
+    /// on every Run until a full build actually happens.
+    fn show_stale_build_prompt(&mut self, ctx: &Context) {
+        let Some(prompt) = self.stale_build_prompt.clone() else {
+            return;
+        };
+        let tr = self.lang.tr();
+        let last = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.project.built_with_display().to_owned())
+            .unwrap_or_else(|| "never fully built".to_owned());
+
+        let mut build_now = false;
+        let mut run_anyway = false;
+        let mut dismissed = false;
+
+        egui::Modal::new(egui::Id::new("stale_build_prompt")).show(ctx, |ui| {
+            ui.set_width(460.0);
+            ui.heading(tr.stale_build_title);
+            ui.add_space(8.0);
+            ui.label(
+                tr.stale_build_body
+                    .replace("{last}", &last)
+                    .replace("{current}", crate::version::VERSION),
+            );
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new(tr.stale_build_hint).weak().italics());
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui.button(tr.stale_build_full_now).clicked() {
+                    build_now = true;
+                }
+                if ui.button(tr.stale_build_run_anyway).clicked() {
+                    run_anyway = true;
+                }
+                if ui.button(tr.stale_build_cancel).clicked() {
+                    dismissed = true;
+                }
+            });
+        });
+
+        if build_now {
+            self.stale_build_prompt = None;
+            // The full build stamps the project on success; the developer
+            // presses Run again once it finishes. Starting the run
+            // automatically would race the build they just asked for.
+            self.do_build_binary_with(true);
+            return;
+        }
+        if run_anyway {
+            // Deliberately does NOT clear the stamp check: the prompt returns
+            // on the next Run, because nothing was rebuilt. That is the
+            // requirement — it nags until the full build happens.
+            self.stale_build_prompt = None;
+            match prompt.intent {
+                StaleBuildIntent::Run => self.run_project_main_form(),
+                StaleBuildIntent::RunForm(idx) => {
+                    if idx < self.designers.len() {
+                        self.launch_form_process(idx, false);
+                    }
+                }
+            }
+            return;
+        }
+        if dismissed {
+            self.stale_build_prompt = None;
+        }
+    }
+
     fn show_form_error(&mut self, ctx: &Context) {
         let msg = match &self.form_error {
             Some(m) => m.clone(),
@@ -10157,6 +10300,35 @@ impl eframe::App for CoboltApp {
                     self.build_outcome = Some(Ok(line));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
+                    // Only a FULL build stamps the project: it is the only one
+                    // that can promise no artefact from an older
+                    // PowerRustCOBOL survived into this binary. Persisted at
+                    // once, so the prompt does not return on the next Run.
+                    if self.pending_build_full {
+                        self.pending_build_full = false;
+                        if let Some(p) = &mut self.cobolt_project {
+                            if p.project.built_with_version != crate::version::VERSION {
+                                p.project.built_with_version =
+                                    crate::version::VERSION.to_owned();
+                                let tr = self.lang.tr();
+                                self.output.push_status(
+                                    tr.status_build_stamped
+                                        .replace("{version}", crate::version::VERSION),
+                                );
+                                if let (Some(path), Some(proj)) =
+                                    (self.project_path.clone(), self.cobolt_project.as_ref())
+                                {
+                                    if let Err(e) =
+                                        crate::project_model::save_project(proj, &path)
+                                    {
+                                        self.output.push_status(format!(
+                                            "⚠️  Could not record the build version: {e}"
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Run started this build because the program contains
                     // EXEC RUST (spec 041 T13) — start what it produced.
                     if let Some(form_path) = self.pending_build_then_run.take() {
@@ -10296,6 +10468,9 @@ impl eframe::App for CoboltApp {
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
         self.show_proc_delete_confirmation(ctx);
         self.show_form_error(ctx);
+        // "Built by an older PowerRustCOBOL" — offered before every Run until
+        // a full build clears it.
+        self.show_stale_build_prompt(ctx);
         // Duplicate COBOL ID / Validation alert — modal.
         self.show_alert_error(ctx);
         // Model benchmark offer/progress/report is global: the worker can finish

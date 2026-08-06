@@ -404,6 +404,18 @@ pub struct BuildOptions {
     /// on that operating system. The option exists so that request can be
     /// *refused clearly* rather than silently producing a host binary.
     pub target: Option<String>,
+    /// Discard the incremental build directory first, so everything is
+    /// recompiled from the generated sources.
+    ///
+    /// The scaffold in the temp build directory (`Cargo.toml`, `main.rs`,
+    /// `exec_rust_blocks.rs`) is regenerated every build, but `cargo`'s own
+    /// artefacts survive — and they were produced by whichever PowerRustCOBOL
+    /// version happened to be installed at the time. After an upgrade that
+    /// changed codegen or the runtime, an incremental build can link stale
+    /// objects with new generated code. A full build is the answer to "it
+    /// behaves oddly since I updated", and it is what stamps
+    /// `built_with_version` into the project (spec: version-stamped projects).
+    pub full: bool,
 }
 
 impl Default for BuildOptions {
@@ -413,6 +425,7 @@ impl Default for BuildOptions {
             workspace_root: None,
             progress: None,
             target: None,
+            full: false,
         }
     }
 }
@@ -804,6 +817,19 @@ fn build_core(
     // ── 7. Create build staging directory ────────────────────────────────────
     report(0.50, "Packaging solution…");
     let build_dir = std::env::temp_dir().join(format!("cobolt-build-{}", &bin_name));
+    // A full build throws away everything cargo cached for this project, so
+    // nothing compiled by an older PowerRustCOBOL can survive into the new
+    // binary. Slower by design — this is the "make it clean" path.
+    if opts.full && build_dir.exists() {
+        report(0.50, "Full build — clearing previous artefacts…");
+        log("🧹 Full build: discarding the incremental build directory");
+        if let Err(e) = std::fs::remove_dir_all(&build_dir) {
+            log(&format!(
+                "⚠️  Could not clear {}: {e} — continuing incrementally",
+                build_dir.display()
+            ));
+        }
+    }
     let assets_dir = build_dir.join("assets");
     let forms_dir = assets_dir.join("forms");
     let src_dir = build_dir.join("src");
