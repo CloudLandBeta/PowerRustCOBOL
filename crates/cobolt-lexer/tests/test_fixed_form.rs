@@ -67,17 +67,29 @@ fn slash_comment_line() {
         .any(|t| matches!(t, Token::Identifier(s) if s == "PAGE")));
 }
 
+/// **The 72-column limit is not enforced** (operator, 2026-08-05: "this is
+/// archaic").
+///
+/// This test previously asserted the opposite — that anything from column 73 on
+/// was discarded as the card-deck identification area. What that rule actually
+/// did was delete code: silently, mid-token, with the error surfacing somewhere
+/// else. It also made `EXEC RUST` unusable inside a form, because a generated
+/// `.cbl` opens with a banner whose `*` is in column 7, so the file read as
+/// fixed and the embedded Rust was chopped at 72.
+///
+/// **The trade-off, stated plainly:** a legacy deck that really does carry
+/// sequence numbers in columns 73–80 will now see them as source. That is the
+/// price of not destroying anyone's code, and it was accepted deliberately.
 #[test]
-fn identification_area_ignored() {
-    // "000100 MOVE A TO B." = 19 bytes; need 53 spaces so MYPROG starts at
-    // index 72 (column 73), which is the fixed-form identification area.
+fn text_past_column_72_is_kept() {
+    // "000100 MOVE A TO B." = 19 bytes; the spaces put MYPROG at column 73.
     let src = "000100 MOVE A TO B.                                                     MYPROG\n";
     let t = toks_fixed(src);
     assert_eq!(t[0], Token::Move);
     assert!(
-        !t.iter()
+        t.iter()
             .any(|tok| matches!(tok, Token::Identifier(s) if s == "MYPROG")),
-        "identification area should be stripped"
+        "text past column 72 must be kept, not discarded"
     );
 }
 
