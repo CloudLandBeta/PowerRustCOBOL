@@ -126,6 +126,38 @@ impl RustBridge {
         self.objects.remove(&id).is_some()
     }
 
+    /// The value behind `id`, rendered for COBOL — without moving it.
+    ///
+    /// This is what lets `SET Label-1::Caption TO clicked-button` and
+    /// `DISPLAY window-title` show the *value*. Before it existed, a COBOL
+    /// statement reading an `OBJECT REFERENCE` item got the item's environment
+    /// slot — the **bridge handle id** — so a two-item program always displayed
+    /// "2" no matter what its block had computed: the second item's handle,
+    /// mistaken for a result, surviving every click because it was never the
+    /// click. `None` for types with no scalar rendering (Vec, maps, developer
+    /// types) and for uninitialised slots — the caller then falls back to the
+    /// handle, which at least is honest about being an id.
+    ///
+    /// The downcast set matches what actually gets stored: every integer width
+    /// binds as `i64` and both floats as `f64` (see `cobolt-ast::rust_types`),
+    /// and blocks put back the same types they took.
+    pub fn peek(&self, id: i64) -> Option<BridgeValue> {
+        let value = &self.objects.get(&id)?.value;
+        if let Some(s) = value.downcast_ref::<String>() {
+            return Some(BridgeValue::Str(s.clone()));
+        }
+        if let Some(n) = value.downcast_ref::<i64>() {
+            return Some(BridgeValue::Int(*n));
+        }
+        if let Some(f) = value.downcast_ref::<f64>() {
+            return Some(BridgeValue::Float(*f));
+        }
+        if let Some(b) = value.downcast_ref::<bool>() {
+            return Some(BridgeValue::Bool(*b));
+        }
+        None
+    }
+
     /// Move the value out of `id`, leaving the handle empty (spec 041 T8).
     ///
     /// Compiled blocks bind by **take-and-put-back** rather than by borrowing:

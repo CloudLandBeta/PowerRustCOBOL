@@ -2266,6 +2266,22 @@ write to fill it must return `i64`, not `i32`. Collections hold the bridge's own
 value type, so a `Rust.Vec` filled by `INVOKE` and one filled inside a block hold
 the same things.
 
+**Reading a bound item from COBOL yields its value.** After a block runs,
+`DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and
+`SET Label-1::Caption TO clicked-button` all see what the block wrote —
+strings, any integer width, floats and booleans. Collections and your own types
+have no single printable value; reading those yields an internal id, so go
+through `INVOKE`/`::methods` for them instead.
+
+> ⚠️ **Before 1.60.23 every such read yielded the internal id** — a small
+> integer that follows declaration order, so a program reading its second item
+> always showed "2" no matter what the block computed. If a label shows a
+> constant small number where a result should be, rebuild with a current
+> version.
+>
+> Writing a bound item from plain COBOL (`MOVE 5 TO clicked-button`) does
+> **not** reach the Rust value — assign inside a block (`*clicked_button = 5;`).
+
 #### Where a block may appear
 
 Anywhere a statement may appear — including inside `IF`, `EVALUATE`, `PERFORM`,

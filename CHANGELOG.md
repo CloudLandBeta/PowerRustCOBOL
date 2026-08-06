@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.23] — 2026-08-06
+
+### Fixed
+
+- **Reading a bound `OBJECT REFERENCE` item from COBOL yielded its internal
+  handle id, not its value — the "always 2" bug.** The dialog was innocent all
+  along: the click recorded correctly, `ask()` returned it, the block stored it
+  — and then `SET Label-1::Caption TO clicked-button` read the item's COBOL
+  slot, which holds the object bridge's **handle id**. Handles follow
+  declaration order (1, 2, …), so a program reading its second item showed "2"
+  whatever was clicked, on every egui version, forever. `DISPLAY` had the same
+  disease via its own path.
+
+  Both read paths now dereference the bridge: `DISPLAY`, `MOVE … TO`, and
+  `SET …::prop TO` see the value the block wrote — strings, every integer
+  width, floats, booleans. Types with no scalar rendering (Vec, HashMap,
+  developer types) still read as the id; drive those through
+  `INVOKE`/`::methods`. Writing a bound item from plain COBOL still does not
+  reach the Rust value — assign inside a block.
+
+  Pinned by a test that declares the operator's exact two items and asserts
+  the reads return `7` and `"Hello"`, not the handles `2` and `1` the old
+  behaviour produced.
+
 ## [PowerRustCOBOL 1.60.22] — 2026-08-06
 
 ### Fixed

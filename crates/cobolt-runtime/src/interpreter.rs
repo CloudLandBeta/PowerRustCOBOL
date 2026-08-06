@@ -3572,9 +3572,16 @@ impl Interpreter {
                 // the resolved storage key; literals/expressions render verbatim.
                 Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
                     let key = self.resolve_lvalue(op);
-                    match self.env.display_string(&key) {
-                        Some(s) => s,
-                        None => self.eval_expr(op, op.span())?.as_display_string(),
+                    // An OBJECT REFERENCE item displays its bridge VALUE, not
+                    // its handle id — same dereference the Identifier eval arm
+                    // performs; the env's fixed-width path knows nothing of it.
+                    if self.object_refs.contains_key(&key) {
+                        self.eval_expr(op, op.span())?.as_display_string()
+                    } else {
+                        match self.env.display_string(&key) {
+                            Some(s) => s,
+                            None => self.eval_expr(op, op.span())?.as_display_string(),
+                        }
                     }
                 }
                 _ => self.eval_expr(op, op.span())?.as_display_string(),
@@ -7129,6 +7136,19 @@ impl Interpreter {
                     let s = self.env.renames_value(&key).unwrap_or_default();
                     let n = s.len();
                     return Ok(CobolValue::from_str(&s, n));
+                }
+                // An OBJECT REFERENCE item's slot holds the bridge HANDLE ID —
+                // an internal number. Reading the item from COBOL must yield
+                // the value behind it, or `SET Label-1::Caption TO
+                // clicked-button` shows the id of the second item declared
+                // ("2") forever, whatever the block computed. Types with no
+                // scalar rendering fall through to the handle.
+                if self.object_refs.contains_key(&key) {
+                    if let Some(id) = self.env.get_i64(&key) {
+                        if let Some(v) = self.rust_bridge.peek(id) {
+                            return Ok(bridge_to_cobol(v));
+                        }
+                    }
                 }
                 Ok(self.env.get(&key).cloned().unwrap_or_else(|| {
                     tracing::debug!("Identifier '{key}' not found in environment — using 0");

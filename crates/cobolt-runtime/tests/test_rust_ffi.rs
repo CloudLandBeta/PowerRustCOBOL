@@ -141,12 +141,32 @@ fn every_shipped_class_gets_a_live_unique_handle() {
         "every declared item should have been displayed"
     );
 
+    // Since the object-reference dereference fix, DISPLAY of a *scalar* class
+    // (String, the integer widths, the floats, bool) shows the VALUE behind
+    // the handle — that is the fix's whole point, proven by
+    // `reading_an_object_reference_yields_the_value_not_the_handle`. Classes
+    // the bridge cannot render still display the handle id, which keeps them
+    // usable here as the handle-uniqueness probe.
+    let scalar = |path: &str| {
+        path == "Rust.String"
+            || path == "Rust.bool"
+            || path.starts_with("Rust.i")
+            || path.starts_with("Rust.u")
+            || path.starts_with("Rust.f")
+    };
     let ids: Vec<i64> = out
         .iter()
-        .map(|s| s.trim().parse().expect("a handle id is numeric"))
+        .zip(SHIPPED_RUST_TYPES)
+        .filter(|(_, (_, path))| !scalar(path))
+        .map(|(s, (class, _))| {
+            s.trim()
+                .parse()
+                .unwrap_or_else(|e| panic!("{class} should display its handle id: {e:?}"))
+        })
         .collect();
-    for (id, (class, _)) in ids.iter().zip(SHIPPED_RUST_TYPES) {
-        assert!(*id > 0, "{class} got handle {id} — no object behind it");
+    assert!(!ids.is_empty(), "some classes must remain handle-displaying");
+    for id in &ids {
+        assert!(*id > 0, "handle {id} — no object behind it");
     }
     let mut unique = ids.clone();
     unique.sort_unstable();
@@ -156,11 +176,53 @@ fn every_shipped_class_gets_a_live_unique_handle() {
         ids.len(),
         "two classes share a handle, so writing one would overwrite the other"
     );
+    // The scalar classes are covered by the live-count below: an aliased or
+    // dead handle would leave fewer live objects than declared items.
 
     assert_eq!(
         live,
         SHIPPED_RUST_TYPES.len(),
         "each of the {} shipped classes should hold one live object",
         SHIPPED_RUST_TYPES.len()
+    );
+}
+
+/// Reading an `OBJECT REFERENCE` item from COBOL yields its VALUE, never its
+/// bridge handle id.
+///
+/// This is the "always 2" bug, at its real scene: two items declared in order
+/// get handles 1 and 2, and `SET Label-1::Caption TO clicked-button` (or any
+/// read — DISPLAY, MOVE) used to fetch the item's environment slot, which
+/// holds the handle. The label showed "2" whatever the block had computed —
+/// the second item's *id*, mistaken for a result, surviving every click
+/// because it was never the click.
+#[test]
+fn reading_an_object_reference_yields_the_value_not_the_handle() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DEREF.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32 IS "Rust.i32"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WINDOW-TITLE   USAGE IS OBJECT REFERENCE RUST-STRING VALUE "Hello".
+       01 CLICKED-BUTTON USAGE IS OBJECT REFERENCE RUST-I32 VALUE 7.
+       01 WS-N PIC 9(4).
+       PROCEDURE DIVISION.
+           DISPLAY CLICKED-BUTTON.
+           DISPLAY WINDOW-TITLE.
+           MOVE CLICKED-BUTTON TO WS-N.
+           DISPLAY WS-N.
+           STOP RUN.
+"#;
+    let (out, _) = run(src);
+    assert_eq!(
+        out,
+        vec!["7".to_string(), "Hello".to_string(), "0007".to_string()],
+        "reads must dereference the bridge value; the old behaviour printed \
+         the handle ids (2 and 1)"
     );
 }
