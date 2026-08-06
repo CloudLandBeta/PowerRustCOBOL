@@ -11,16 +11,20 @@
 //! equivalent: a map of object name → property map.
 //!
 //! `EXEC RUST` blocks receive a `&mut ObjectRegistry` called
-//! `cobolt_objects` so they can read and write form properties directly
-//! from Rust code:
+//! `cobolt_objects` so they can write form properties directly from Rust
+//! code. Whatever a block writes here is forwarded to the form window when
+//! the block returns:
 //!
 //! ```text
 //! EXEC RUST
-//!     cobolt_objects.get_mut("FORM1")
-//!         .unwrap()
-//!         .set_property("Caption", "Hello!");
+//!     cobolt_objects.set_property("LABEL-1", "Caption", "Hello!");
 //! END-EXEC.
 //! ```
+//!
+//! Use `set_property`, not `get_mut(..).unwrap()`: a running form registers a
+//! control on first write, so `get_mut` returns `None` for one that has not
+//! been written yet and the `unwrap` panics. For the same reason a block
+//! cannot read a control's *designed* value — only one it has set itself.
 
 use indexmap::IndexMap;
 
@@ -195,8 +199,17 @@ impl ObjectRegistry {
         self.objects.contains_key(&name.to_ascii_uppercase())
     }
 
-    /// Set a property on a named object.  No-op if the object doesn't exist.
+    /// Set a property on a named object, registering the object if it is new.
+    ///
+    /// A running form does not pre-register its controls — they are created
+    /// here, on first write. Discarding a write to an unknown name instead (the
+    /// old behaviour) meant a control set from an `EXEC RUST` block was stored
+    /// nowhere, and a `COBOL-SET-PROPERTY` repainted the window but left the
+    /// registry empty, so reading the property back returned nothing.
     pub fn set_property(&mut self, obj: &str, prop: &str, value: impl Into<PropertyValue>) {
+        if !self.contains(obj) {
+            self.register(obj, "Control");
+        }
         if let Some(o) = self.get_mut(obj) {
             o.set_property(prop, value);
         }
@@ -210,6 +223,32 @@ impl ObjectRegistry {
     /// Iterate all registered objects.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &CoboltObject)> {
         self.objects.iter()
+    }
+
+    /// Every scalar property, flattened to `(OBJECT, PROPERTY) → text`.
+    ///
+    /// This exists so an `EXEC RUST` block's writes can reach the window. A
+    /// block is handed `cobolt_objects` and mutates it directly — through
+    /// [`ObjectRegistry::set_property`] or through `get_mut(..)` on the object,
+    /// which the registry cannot observe — so nothing was left to tell the UI
+    /// thread that anything had changed, and the documented way to drive a
+    /// control from Rust silently did nothing. Comparing a snapshot taken
+    /// before the block with one taken after finds the writes whichever route
+    /// they took.
+    ///
+    /// Nested objects and lists are skipped: a `StateUpdate` carries one
+    /// string, and a control's displayed properties are all scalars.
+    pub fn scalar_snapshot(&self) -> std::collections::HashMap<(String, String), String> {
+        let mut out = std::collections::HashMap::new();
+        for (name, obj) in &self.objects {
+            for (prop, val) in &obj.properties {
+                if matches!(val, PropertyValue::Object(_) | PropertyValue::List(_)) {
+                    continue;
+                }
+                out.insert((name.clone(), prop.clone()), val.to_string());
+            }
+        }
+        out
     }
 
     // ── Member-access path navigation (spec 011) ──────────────────────────────

@@ -96,6 +96,73 @@ impl GeneratedBlocks {
     }
 }
 
+// ── Event-loop calls in a form application (build-time rejection) ────────────
+
+/// A call in a developer's block that would build a second winit event loop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventLoopCall {
+    /// 1-based line in the developer's COBOL source.
+    pub cobol_line: u32,
+    /// 1-based column in the developer's COBOL source.
+    pub cobol_col: u32,
+    /// The call as written, e.g. `run_native`.
+    pub call: String,
+}
+
+/// Calls that build a winit event loop, across every `EXEC RUST` block.
+///
+/// A process gets exactly one event loop. A form application builds it on the
+/// main thread before the interpreter starts, and the interpreter — so every
+/// block in an event handler — runs on a worker thread. winit's
+/// `EVENT_LOOP_CREATED` guard is process-global and is checked ahead of any
+/// platform code, so a second call returns `Err(EventLoopError::RecreationAttempt)`.
+/// It does **not** panic, which is what makes this worth rejecting at build
+/// time: `CATCH RUST-EXCEPTION` never fires, the customary `let _ =` throws the
+/// `Err` away, and the developer is left with a window that never opens and no
+/// message anywhere. Console programs are unaffected — there the interpreter
+/// owns the main thread and the call is the normal way to open a window.
+pub fn find_event_loop_calls(program: &Program, cobol_source: &str) -> Vec<EventLoopCall> {
+    // Matched only where followed by `(`, so prose in a comment does not fail a
+    // build.
+    const CALLS: [&str; 2] = ["run_native", "EventLoop::new"];
+
+    let mut found = Vec::new();
+    let mut scan = |source: &str, span: Span| {
+        let (base_line, base_col) = block_start(cobol_source, span, source);
+        for call in CALLS {
+            for (at, _) in source.match_indices(call) {
+                let rest = source[at + call.len()..].trim_start();
+                if !rest.starts_with('(') {
+                    continue;
+                }
+                let prefix = &source[..at];
+                let newlines = prefix.matches('\n').count() as u32;
+                let col = match prefix.rfind('\n') {
+                    Some(nl) => (prefix.len() - nl) as u32,
+                    None => base_col + prefix.len() as u32,
+                };
+                found.push(EventLoopCall {
+                    cobol_line: base_line + newlines,
+                    cobol_col: col,
+                    call: call.to_owned(),
+                });
+            }
+        }
+    };
+
+    for item in cobolt_semantic::exec_rust::item_blocks(program) {
+        scan(&item.source, item.span);
+    }
+    cobolt_semantic::exec_rust::for_each_block(program, &mut |_owner, stmt| {
+        if let Stmt::ExecRust { source, span, .. } = stmt {
+            scan(source, *span);
+        }
+    });
+
+    found.sort_by_key(|c| (c.cobol_line, c.cobol_col));
+    found
+}
+
 /// Emit the module for `program`.
 ///
 /// `cobol_source` is the text the program was parsed from; it is used only to
@@ -574,6 +641,66 @@ mod tests {
         let program = parsed.program.expect("the fixture should parse");
         let symbols = SymbolTable::build(&program);
         (generate(&program, &symbols, src), src.to_string())
+    }
+
+    /// `run_native` is found in both kinds of block, at the developer's own
+    /// line, and prose that merely names it does not fail a build.
+    #[test]
+    fn event_loop_calls_are_found_at_the_developers_line() {
+        const SRC: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. DEMO.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-STRING IS "Rust.String".
+EXEC RUST
+pub fn ask() -> i64 {
+    // never call run_native from a handler
+    let _ = eframe::run_native("t", Default::default(), Box::new(|_| unimplemented!()));
+    0
+}
+END-EXEC.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-N PIC 9(4) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    EXEC RUST
+    let _ = EventLoop::new();
+    END-EXEC.
+    STOP RUN.
+"#;
+        let program = parse(tokenize(SRC, SourceFormat::Free))
+            .program
+            .expect("the fixture should parse");
+        let found = find_event_loop_calls(&program, SRC);
+
+        assert_eq!(
+            found.len(),
+            2,
+            "the comment must not count, the two calls must: {found:?}"
+        );
+        assert_eq!(found[0].call, "run_native");
+        assert_eq!(found[1].call, "EventLoop::new");
+
+        // The lines reported are the developer's, not the generated file's.
+        let line_of = |needle: &str| {
+            SRC.lines()
+                .position(|l| l.contains(needle) && !l.trim_start().starts_with("//"))
+                .map(|i| i as u32 + 1)
+                .unwrap()
+        };
+        assert_eq!(found[0].cobol_line, line_of("eframe::run_native"));
+        assert_eq!(found[1].cobol_line, line_of("EventLoop::new"));
+    }
+
+    /// A program with no blocks, and one whose block opens no window, are clean.
+    #[test]
+    fn a_block_without_an_event_loop_is_not_flagged() {
+        let (_, src) = compile(WITH_ITEM_BLOCK);
+        let program = parse(tokenize(&src, SourceFormat::Free)).program.unwrap();
+        assert!(find_event_loop_calls(&program, &src).is_empty());
     }
 
     const WITH_ITEM_BLOCK: &str = r#"

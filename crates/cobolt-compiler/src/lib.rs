@@ -781,6 +781,33 @@ fn build_core(
     report(0.55, "Generating Rust blocks…");
     let crates_path = workspace_root.join("crates");
     let has_forms = !forms.is_empty();
+    // A form application already owns the process's one event loop, so a block
+    // that opens its own window can only fail — and it fails *silently*, which
+    // is the reason to stop the build rather than ship a binary whose button
+    // does nothing. Console programs keep the call: there it works.
+    if has_forms {
+        if let Some(call) = exec_rust::find_event_loop_calls(&program, main_src).first() {
+            return Err(CompilerError::ExecRustBlock {
+                file: main_rel.clone(),
+                line: call.cobol_line,
+                col: call.cobol_col,
+                message: format!(
+                    "`{}` cannot open a window from a form application. This program \
+                     has forms, so the one event loop a process is allowed already \
+                     belongs to the form window, and every EXEC RUST block in an event \
+                     handler runs on a worker thread. The second call returns an error \
+                     instead of opening a window, and it does not panic — so nothing is \
+                     displayed, nothing is logged, and CATCH RUST-EXCEPTION never fires. \
+                     To change what is on screen from a block, write the control through \
+                     `cobolt_objects`; to show another window, design a second form. \
+                     `{}` belongs in a console program, where the interpreter owns the \
+                     main thread.",
+                    call.call, call.call
+                ),
+            });
+        }
+    }
+
     let blocks = exec_rust::generate(&program, &sem.symbols, main_src);
     if blocks.block_count > 0 || blocks.item_count > 0 {
         log(&format!(
@@ -1286,9 +1313,13 @@ impl CtrlState {
         CtrlState { props, visible: ctrl.visible, enabled: ctrl.enabled }
     }
     fn set(&mut self, key: &str, value: String) {
-        match key {
-            "Visible" => self.visible = value != "0" && value != "false",
-            "Enabled" => self.enabled = value != "0" && value != "false",
+        // Matched case-insensitively: a property name reaches here from a COBOL
+        // literal, from member access, or from an EXEC RUST block by way of the
+        // object registry, which upper-cases its keys. An exact match dropped
+        // every spelling but one, and dropped it in silence.
+        match key.to_ascii_uppercase().as_str() {
+            "VISIBLE" => self.visible = value != "0" && value != "false",
+            "ENABLED" => self.enabled = value != "0" && value != "false",
             _ => {}
         }
         self.props.insert(key.to_owned(), value);
@@ -2084,7 +2115,8 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
 - **Crates**: `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. A `use` of anything else is rejected, naming the crate.
 - **eframe here is 0.35.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
-- **`eframe::run_native` CANNOT be called from a form's event handler, and it fails SILENTLY.** A form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Result: no window, no error, no output — the handler appears to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread.
+- **`eframe::run_native` CANNOT be called from a form's event handler — and since 1.60.14 the BUILD REJECTS IT.** A project with forms whose block calls `run_native` (or `EventLoop::new`) fails to build, reported at the developer's own line and column. Why it cannot work: a form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Before the build-time rejection the result was no window, no error, no output — the handler appeared to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread, and is not rejected there.
+- **A block CAN change a control, through `cobolt_objects`.** Write the property and the window repaints when the block returns: `cobolt_objects.set_property("LABEL-1", "Caption", "Done");`. Property names are case-insensitive. ⚠️ **This did not work before 1.60.14**: block execution had no channel to the window, so the write landed in the registry and the form never showed it. Do not repeat the old advice to reach for `COBOL-SET-PROPERTY` *because* the block route is broken — it is not broken any more, though `COBOL-SET-PROPERTY` remains correct and unchanged. **Always use `set_property`; never advise `cobolt_objects.get_mut("X").unwrap()`** — a running form registers a control on first write, so `get_mut` returns `None` for one not yet written and the `unwrap` panics. For the same reason a block cannot READ a control's designed value, only one it set itself: to read what the operator typed, use `TextBox-1::Text` in COBOL and pass the item into the block.
 - A block may appear **anywhere a statement may**, including inside `IF`, `EVALUATE`, `PERFORM`, `ON SIZE ERROR`, `INVALID KEY`, `AT END` and `TRY … END-TRY` — the last being where a block goes when its failure should be caught.
 - A block that is *not* built cannot run: an unregistered block is a hard error naming its id, never a silent no-op.
 
@@ -2098,7 +2130,7 @@ A developer-defined type must implement `Default` — that is what the first blo
            END-EXEC.
 ```
 
-A worked example — an `eframe` dialog defined in an item-level block and called from a statement-level one inside a `TRY`. **CONSOLE PROGRAMS ONLY.** Copying this into a form's event handler is the mistake this page exists to prevent: it builds, and then does nothing at all, because `run_native` returns `Err(RecreationAttempt)` off the main thread and the `let _ =` throws that away. In a form, drive the controls through `cobolt_objects` instead.
+A worked example — an `eframe` dialog defined in an item-level block and called from a statement-level one inside a `TRY`. **CONSOLE PROGRAMS ONLY.** Copying this into a form's event handler is the mistake this page exists to prevent; since 1.60.14 a form project containing it **fails to build**, at the developer's own line. (Before that it built and then did nothing at all, because `run_native` returns `Err(RecreationAttempt)` off the main thread and the `let _ =` throws that away.) In a form, drive the controls through `cobolt_objects` instead.
 
 ```cobol
        REPOSITORY.

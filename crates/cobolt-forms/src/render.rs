@@ -1892,7 +1892,10 @@ pub fn merge_props<'a>(
 ) -> Control {
     let mut c = base.clone();
     for (k, v) in props {
-        match k.as_str() {
+        // Geometry is matched case-insensitively for the same reason as
+        // `set_prop` below it: these names arrive from COBOL literals and from
+        // the object registry, which upper-cases its keys.
+        match k.to_ascii_uppercase().as_str() {
             "X" => {
                 if let Ok(n) = v.trim().parse::<f32>() {
                     c.rect.x = n.round() as i32;
@@ -1903,12 +1906,12 @@ pub fn merge_props<'a>(
                     c.rect.y = n.round() as i32;
                 }
             }
-            "Width" => {
+            "WIDTH" => {
                 if let Ok(n) = v.trim().parse::<f32>() {
                     c.rect.w = n.round() as i32;
                 }
             }
-            "Height" => {
+            "HEIGHT" => {
                 if let Ok(n) = v.trim().parse::<f32>() {
                     c.rect.h = n.round() as i32;
                 }

@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.14] — 2026-08-06
+
+### Fixed
+
+- **A form application that opened its own window built happily and then did
+  nothing.** A process is allowed one event loop; a form application builds it
+  on the main thread before the interpreter starts, and every `EXEC RUST` block
+  in an event handler runs on a worker thread. A second `eframe::run_native`
+  therefore returns `Err(EventLoopError::RecreationAttempt)` — and because it
+  returns rather than panics, `CATCH RUST-EXCEPTION` never fires and the
+  customary `let _ =` throws the error away. The result was a button that
+  built, ran, and did nothing, with no message anywhere. The build now stops
+  and says so, at the developer's own line and column:
+
+  ```
+  EXEC RUST error in 'checkboxes-form.cbl' at line 97, column 32:
+  `run_native` cannot open a window from a form application …
+  ```
+
+  Console programs are unaffected — there the interpreter owns the main thread
+  and the call is the normal way to open a window. Detection requires an actual
+  call (`run_native (`), so prose in a comment does not fail a build.
+
+- **An `EXEC RUST` block could change a control and the window never repainted.**
+  A block is handed `cobolt_objects` and the documentation shows it as the way
+  to drive a control from Rust, but block execution had no channel to the UI
+  thread at all, so every such write was invisible. Whatever a block writes is
+  now forwarded to the window when the block returns — by comparing the object
+  registry before and after, which catches the write whichever route it took
+  (`set_property` on the registry, or `get_mut(..)` on the object). Unchanged
+  properties are not re-sent, and the CLI runner, which has no window, pays
+  nothing for the comparison.
+
+- **A property name reached the window in one spelling only.** The object
+  registry upper-cases its keys, while the running form matched `Visible`,
+  `Enabled` and the four geometry names exactly — so a control's visibility or
+  size set under any other spelling was dropped in silence. Both sites now match
+  case-insensitively, as `get_prop`/`set_prop` already did.
+
 ## [PowerRustCOBOL 1.60.12] — 2026-08-06
 
 ### Fixed

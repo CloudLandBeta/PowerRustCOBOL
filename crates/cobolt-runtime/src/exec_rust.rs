@@ -43,8 +43,8 @@ use std::collections::HashMap;
 use cobolt_ast::stmt::Stmt;
 
 use crate::{
-    environment::CobolEnvironment, error::RuntimeError, objects::ObjectRegistry,
-    rust_bridge::RustBridge,
+    channels::StateUpdate, environment::CobolEnvironment, error::RuntimeError,
+    objects::ObjectRegistry, rust_bridge::RustBridge,
 };
 
 // ── The context a block receives ─────────────────────────────────────────────
@@ -139,12 +139,18 @@ pub(crate) fn contain<T>(f: impl FnOnce() -> T) -> Result<T, RuntimeError> {
 /// Fails loudly when no function is registered for the block: that means the
 /// program was run without being built, or codegen and the runtime disagree
 /// about ids. Either way it is a fault, not something to skip (R11).
+///
+/// `state_tx` is the channel to the form window, or `None` under the CLI runner.
+/// When it is present, whatever the block wrote to `cobolt_objects` is forwarded
+/// to the UI thread after the block returns — without that, a block could change
+/// a control and the window would never repaint it.
 pub fn execute(
     stmt: &Stmt,
     env: &mut CobolEnvironment,
     objects: &mut ObjectRegistry,
     bridge: &mut RustBridge,
     registry: &ExecRustRegistry,
+    state_tx: Option<&std::sync::mpsc::Sender<StateUpdate>>,
 ) -> Result<(), RuntimeError> {
     let (block_id, span) = match stmt {
         Stmt::ExecRust { block_id, span, .. } => (*block_id, *span),
@@ -166,12 +172,31 @@ pub fn execute(
         });
     };
 
-    let mut ctx = ExecRustContext {
-        env,
-        objects,
-        bridge,
+    // Only snapshot when there is somewhere to send the difference; the CLI
+    // runner has no window and should not pay for the comparison.
+    let before = state_tx.map(|_| objects.scalar_snapshot());
+
+    let outcome = {
+        let mut ctx = ExecRustContext {
+            env,
+            objects: &mut *objects,
+            bridge,
+        };
+        contain(move || block(&mut ctx))
     };
-    contain(move || block(&mut ctx))
+
+    // Flushed whether the block returned or panicked: it may have written a
+    // control before it failed, and leaving that change invisible is the very
+    // silence this reports.
+    if let (Some(tx), Some(before)) = (state_tx, before) {
+        for ((obj, prop), val) in objects.scalar_snapshot() {
+            if before.get(&(obj.clone(), prop.clone())).map(String::as_str) != Some(val.as_str()) {
+                let _ = tx.send(StateUpdate::new(obj, prop, val));
+            }
+        }
+    }
+
+    outcome
 }
 
 #[cfg(test)]
@@ -231,7 +256,7 @@ mod tests {
             span: cobolt_lexer::Span::dummy(),
         };
 
-        let err = execute(&stmt, &mut env, &mut objects, &mut bridge, &registry)
+        let err = execute(&stmt, &mut env, &mut objects, &mut bridge, &registry, None)
             .expect_err("an unregistered block must not silently succeed");
         match err {
             RuntimeError::ExecRustError { message, .. } => {
@@ -261,11 +286,88 @@ mod tests {
             block_id: 0,
             span: cobolt_lexer::Span::dummy(),
         };
-        execute(&stmt, &mut env, &mut objects, &mut bridge, &registry)
+        execute(&stmt, &mut env, &mut objects, &mut bridge, &registry, None)
             .expect("the block should run");
         assert_eq!(
             env.get("WS-COUNT").map(|v| v.as_display_string()),
             Some("42".to_string())
+        );
+    }
+
+    /// A block that writes a control reaches the window.
+    ///
+    /// Both routes a block can take are covered: the registry's own
+    /// `set_property`, and `get_mut(..)` on the object — which the registry
+    /// cannot observe, so only a before/after comparison finds it.
+    #[test]
+    fn a_block_writing_a_control_notifies_the_ui() {
+        fn body(ctx: &mut ExecRustContext<'_>) {
+            ctx.objects.set_property("LABEL-1", "Caption", "7");
+            ctx.objects
+                .get_mut("LABEL-1")
+                .expect("registered by the write above")
+                .set_property("Visible", "0");
+        }
+
+        let mut env = CobolEnvironment::new();
+        let mut objects = ObjectRegistry::default();
+        objects.set_property("LABEL-1", "Caption", "before");
+        let mut bridge = RustBridge::new();
+        let mut registry = ExecRustRegistry::new();
+        registry.register(0, body);
+
+        let stmt = Stmt::ExecRust {
+            source: String::new(),
+            referenced_data: Vec::new(),
+            block_id: 0,
+            span: cobolt_lexer::Span::dummy(),
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        execute(&stmt, &mut env, &mut objects, &mut bridge, &registry, Some(&tx))
+            .expect("the block should run");
+
+        let mut seen: Vec<(String, String, String)> = rx
+            .try_iter()
+            .map(|u| (u.ctrl_id, u.prop, u.value))
+            .collect();
+        seen.sort();
+        assert_eq!(
+            seen,
+            vec![
+                ("LABEL-1".to_string(), "CAPTION".to_string(), "7".to_string()),
+                ("LABEL-1".to_string(), "VISIBLE".to_string(), "0".to_string()),
+            ],
+            "both writes must reach the UI thread, whichever route they took"
+        );
+    }
+
+    /// Untouched properties are not re-sent — the diff reports writes, not state.
+    #[test]
+    fn an_unchanged_registry_sends_nothing() {
+        fn body(ctx: &mut ExecRustContext<'_>) {
+            // Reads only, plus a write of the value already there.
+            ctx.objects.set_property("LABEL-1", "Caption", "same");
+        }
+
+        let mut env = CobolEnvironment::new();
+        let mut objects = ObjectRegistry::default();
+        objects.set_property("LABEL-1", "Caption", "same");
+        let mut bridge = RustBridge::new();
+        let mut registry = ExecRustRegistry::new();
+        registry.register(0, body);
+
+        let stmt = Stmt::ExecRust {
+            source: String::new(),
+            referenced_data: Vec::new(),
+            block_id: 0,
+            span: cobolt_lexer::Span::dummy(),
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        execute(&stmt, &mut env, &mut objects, &mut bridge, &registry, Some(&tx))
+            .expect("the block should run");
+        assert!(
+            rx.try_iter().next().is_none(),
+            "a write that changed nothing must not repaint the window"
         );
     }
 
@@ -288,7 +390,7 @@ mod tests {
             block_id: 3,
             span: cobolt_lexer::Span::dummy(),
         };
-        match execute(&stmt, &mut env, &mut objects, &mut bridge, &registry) {
+        match execute(&stmt, &mut env, &mut objects, &mut bridge, &registry, None) {
             Err(RuntimeError::RustPanic { message }) => {
                 assert!(message.contains("block blew up"), "{message}")
             }
@@ -335,7 +437,7 @@ mod tests {
             block_id: 1,
             span: cobolt_lexer::Span::dummy(),
         };
-        execute(&stmt, &mut env, &mut objects, &mut bridge, &registry)
+        execute(&stmt, &mut env, &mut objects, &mut bridge, &registry, None)
             .expect("the block should run");
 
         // The mutation is visible to COBOL afterwards, through the same handle.

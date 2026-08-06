@@ -2352,6 +2352,7 @@ impl Interpreter {
                 &mut self.objects,
                 &mut self.rust_bridge,
                 &self.exec_rust,
+                self.state_tx.as_ref(),
             ),
 
             // ── TRY / CATCH EXCEPTION / FINALLY ──────────────────────────────

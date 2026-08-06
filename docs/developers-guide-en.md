@@ -2396,7 +2396,16 @@ eframe tutorials showing `update` will not compile here.
 
 > ### ⚠️ Do not copy this into a form's event handler
 >
-> It will build, and then do **nothing at all** — no window, no error, no output.
+> **The build will stop you** — since 1.60.14, a project with forms whose block
+> calls `run_native` fails to build, at your own line and column:
+>
+> ```
+> EXEC RUST error in 'checkboxes-form.cbl' at line 97, column 32:
+> `run_native` cannot open a window from a form application …
+> ```
+>
+> Before that it built, and then did **nothing at all** — no window, no error, no
+> output — which is why the build now refuses.
 >
 > A form application already owns the process's one winit event loop, created on
 > the main thread, while the COBOL interpreter runs on a worker thread. winit's
@@ -2411,6 +2420,35 @@ eframe tutorials showing `update` will not compile here.
 > handler, drive the form's own controls through `cobolt_objects`, or show a
 > second form built in the designer.** `run_native` is for console programs,
 > where the interpreter owns the main thread.
+
+### Changing a control from inside a block
+
+A block is handed `cobolt_objects`, the running program's object registry. Write
+a control property there and the window is repainted when the block returns:
+
+```cobol
+       PROCEDURE DIVISION.
+       MAIN.
+           EXEC RUST
+           cobolt_objects.set_property("LABEL-1", "Caption", "Done");
+           END-EXEC.
+           GOBACK.
+```
+
+> **Note.** Property names are case-insensitive here, as everywhere else in
+> PowerRustCOBOL: `Caption`, `CAPTION` and `caption` address the same property.
+>
+> ⚠️ **Before 1.60.14 these writes did nothing.** Block execution had no channel
+> to the window, so the control changed in memory and the form never showed it.
+> If you worked around that with `COBOL-SET-PROPERTY`, that still works and needs
+> no change.
+>
+> ⚠️ **Write with `set_property`; do not reach for `get_mut(..).unwrap()`.** A
+> running form registers a control the first time something writes to it, so
+> `get_mut` returns nothing for a control you have not written yet and the
+> `unwrap` panics. For the same reason a block cannot **read** a control's
+> designed value — only one it set itself. To read what the operator typed, use
+> `TextBox-1::Text` in COBOL and pass the item into the block.
 
 ---
 
