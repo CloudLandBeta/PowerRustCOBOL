@@ -3089,6 +3089,21 @@ pub const DEFAULT_BACKGROUND_COLOR: &str = "#F0F0F0";
 /// and the DataGrid renderer's gate can never drift apart.
 pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 
+/// Default background of a NEW form — opaque graphite, the surface
+/// [`DEFAULT_FOREGROUND_COLOR`] (white) was chosen to read against.
+///
+/// It used to be `00000000`: fully transparent, so the desktop showed through
+/// and every control's legibility depended on whatever window or wallpaper was
+/// behind the form. White default text was readable when the form opened over
+/// a dark desktop and invisible when it opened over the IDE — the same build
+/// appearing to work and then not, run to run, with nothing changed. A form's
+/// appearance must be a property of the form. A developer who wants the glass
+/// look lowers the alpha deliberately.
+///
+/// Only new forms are affected: the value is written into every `.cfrm` at
+/// creation, so existing designs keep exactly what they have.
+pub const DEFAULT_FORM_BACKGROUND_COLOR: &str = "#2E3138FF";
+
 /// Default `FillColor` assigned to every new Shape — the legacy silver face. A
 /// Shape still on this value takes its face from the Appearance **Back colour**
 /// instead, so that section is not dead for Shapes; any other `FillColor` is an
@@ -4720,7 +4735,16 @@ impl Form {
             title: title.into(),
             width,
             height,
-            background_color: "00000000".to_owned(),
+            // OPAQUE, deliberately. A fully transparent form (`00000000`) shows
+            // the desktop through it, so the legibility of every control on it
+            // depends on whatever window or wallpaper happens to be behind —
+            // white default text was readable when the form opened over a dark
+            // desktop and invisible when it opened over the IDE, flipping run
+            // to run with no code change and looking exactly like a bug in the
+            // COBOL. A form's own appearance must not be decided by what is
+            // behind it; a developer who wants the glass look sets the alpha
+            // themselves. Matches DEFAULT_FOREGROUND_COLOR (white) at AA.
+            background_color: DEFAULT_FORM_BACKGROUND_COLOR.to_owned(),
             background_gradient_enabled: false,
             background_gradient_start_color: "#F0F0F0FF".to_owned(),
             background_gradient_end_color: "#C8D0DCFF".to_owned(),
@@ -7243,5 +7267,42 @@ mod tests {
         ] {
             assert!(events.contains(&want), "WebSearch missing {want}: {events:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod default_legibility_tests {
+    use super::*;
+
+    /// A brand-new form and a brand-new label must be legible TOGETHER.
+    ///
+    /// They were not: the form defaulted to `00000000` (fully transparent) and
+    /// every control to white text, so a new form's readability was decided by
+    /// the user's desktop. The same binary read fine launched over a dark
+    /// wallpaper and blank launched over the IDE, flipping between "works" and
+    /// "broken" with no code change — and looking for all the world like the
+    /// COBOL failing to set the value.
+    #[test]
+    fn a_new_form_and_a_new_label_are_legible_together() {
+        let bg = crate::paint::parse_color(DEFAULT_FORM_BACKGROUND_COLOR);
+        assert_eq!(bg.a(), 255, "a new form must be opaque, not see-through");
+
+        let fg = crate::paint::parse_color(DEFAULT_FOREGROUND_COLOR);
+        let ratio = crate::paint::contrast_ratio(fg, bg);
+        assert!(
+            ratio >= 4.5,
+            "default text on a default form must clear AA, got {ratio:.2}:1"
+        );
+    }
+
+    /// The default reaches a form actually created through `Form::new`.
+    #[test]
+    fn form_new_uses_the_opaque_default() {
+        let f = Form::new("MAIN-FORM", "Demo", 640, 480);
+        assert_eq!(f.background_color, DEFAULT_FORM_BACKGROUND_COLOR);
+        assert_ne!(
+            f.background_color, "00000000",
+            "the transparent default is what made legibility depend on the desktop"
+        );
     }
 }
