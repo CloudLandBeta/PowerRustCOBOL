@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.25] — 2026-08-06
+
+### Fixed
+
+- **Tab / Shift+Tab indent and unindent a selected block in every code
+  editor** — the editor tabs, the COBOL Structure editor and the Event Editor
+  (all three host the same editor). With a selection, Tab shifts every touched
+  line right by two spaces and Shift+Tab removes up to two leading spaces per
+  line; the selection follows its content. The line *after* a whole-line
+  selection is untouched, empty lines gain no trailing whitespace, and without
+  a selection Tab behaves exactly as before.
+
 ## [PowerRustCOBOL 1.60.24] — 2026-08-06
 
 ### Fixed

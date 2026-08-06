@@ -3092,7 +3092,18 @@ impl EditorPanel {
                         && !self.ac.visible
                         && !search_has_focus
                     {
+                        // Tab / Shift+Tab with a SELECTION indents / unindents
+                        // the touched block (+2 / −2 spaces per line). Only
+                        // with a selection: a bare caret keeps TextEdit's own
+                        // Tab. Checked BEFORE the event scan so an untouched
+                        // Tab passes through. NOT consume_key — it matches
+                        // logically and drops extra Shift, so it would eat
+                        // Shift+Tab as plain Tab (see `egui-consume-key` note).
+                        let has_selection = egui::TextEdit::load_state(ctx, editor_id)
+                            .and_then(|st| st.cursor.char_range())
+                            .is_some_and(|r| r.primary != r.secondary);
                         let mut auto_indent = false;
+                        let mut block_indent: Option<bool> = None; // Some(unindent?)
                         ctx.input_mut(|inp| {
                             inp.events.retain(|ev| match ev {
                                 egui::Event::Key {
@@ -3104,9 +3115,42 @@ impl EditorPanel {
                                     auto_indent = true;
                                     false
                                 }
+                                egui::Event::Key {
+                                    key: Key::Tab,
+                                    pressed: true,
+                                    modifiers,
+                                    ..
+                                } if has_selection
+                                    && (modifiers.is_none() || *modifiers == egui::Modifiers::SHIFT) =>
+                                {
+                                    block_indent = Some(modifiers.shift);
+                                    false
+                                }
                                 _ => true,
                             });
                         });
+                        if let Some(unindent) = block_indent {
+                            if let Some(mut state) = egui::TextEdit::load_state(ctx, editor_id) {
+                                if let Some(range) = state.cursor.char_range() {
+                                    let tab = &mut self.tabs[self.active];
+                                    let (min, max) = (
+                                        range.primary.index.0.min(range.secondary.index.0),
+                                        range.primary.index.0.max(range.secondary.index.0),
+                                    );
+                                    let (new_text, new_min, new_max) =
+                                        indent_selected_block(&tab.content, min, max, unindent);
+                                    tab.content = new_text;
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::two(
+                                            egui::text::CCursor::new(new_min),
+                                            egui::text::CCursor::new(new_max),
+                                        ),
+                                    ));
+                                    state.store(ctx, editor_id);
+                                    tab.dirty = true;
+                                }
+                            }
+                        }
                         if auto_indent {
                             if let Some(mut state) = egui::TextEdit::load_state(ctx, editor_id) {
                                 if let Some(range) = state.cursor.char_range() {
@@ -4020,6 +4064,82 @@ fn char_to_byte(text: &str, char_idx: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+/// Tab / Shift+Tab on a SELECTION: indent (+2 spaces) or unindent (−up to 2)
+/// every line the selection touches, returning the new text and the adjusted
+/// `(sel_min, sel_max)` char range.
+///
+/// The touched lines are those containing `sel_min..sel_max`, except a line
+/// whose START is exactly `sel_max`: selecting a whole line leaves the cursor
+/// at the next line's column 0, and indenting that next line too is never what
+/// the selection meant. Unindent removes only leading SPACES (up to 2 per
+/// line), never content. The selection is adjusted so it keeps covering the
+/// same lines afterwards.
+pub(crate) fn indent_selected_block(
+    text: &str,
+    sel_min: usize,
+    sel_max: usize,
+    unindent: bool,
+) -> (String, usize, usize) {
+    // Old-text geometry: each line's (start char index, char length incl \n).
+    let mut lines: Vec<(usize, &str)> = Vec::new();
+    let mut at = 0usize;
+    for line in text.split_inclusive('\n') {
+        lines.push((at, line));
+        at += line.chars().count();
+    }
+    if lines.is_empty() {
+        lines.push((0, ""));
+    }
+    let line_of = |pos: usize| -> usize {
+        match lines.iter().rposition(|(start, _)| *start <= pos) {
+            Some(i) => i,
+            None => 0,
+        }
+    };
+    let first = line_of(sel_min);
+    let mut last = line_of(sel_max);
+    // Selecting whole lines parks the cursor at the NEXT line's column 0 —
+    // that line was not part of what the selection meant.
+    if last > first && lines[last].0 == sel_max {
+        last -= 1;
+    }
+
+    // Per-line change: +2 (indent, skipping empty lines so no trailing
+    // whitespace is minted) or −removed (unindent eats up to 2 leading spaces).
+    let mut out = String::with_capacity(text.len() + (last - first + 1) * 2);
+    let mut change = vec![0i64; lines.len()];
+    for (i, (_, line)) in lines.iter().enumerate() {
+        if i < first || i > last {
+            out.push_str(line);
+        } else if unindent {
+            let removed = line.chars().take(2).take_while(|c| *c == ' ').count();
+            change[i] = -(removed as i64);
+            out.push_str(&line[removed..]);
+        } else if line.trim_end_matches('\n').is_empty() {
+            out.push_str(line);
+        } else {
+            change[i] = 2;
+            out.push_str("  ");
+            out.push_str(line);
+        }
+    }
+
+    // A selection end at column `c` of line `i` lands at column
+    // max(c + change, 0) of the same line in the new text; the line's new
+    // start is its old start plus every earlier line's change.
+    let reproject = |pos: usize| -> usize {
+        let i = line_of(pos);
+        let col = pos - lines[i].0;
+        let new_start = (lines[i].0 as i64 + change[..i].iter().sum::<i64>()) as usize;
+        let new_col = (col as i64 + change[i]).max(0) as usize;
+        new_start + new_col
+    };
+    let n = out.chars().count();
+    let new_min = reproject(sel_min).min(n);
+    let new_max = reproject(sel_max).min(n);
+    (out, new_min, new_max)
+}
+
 fn first_nonblank_column_indent(text: &str, cursor_byte: usize) -> String {
     let line_start = text[..cursor_byte.min(text.len())]
         .rfind('\n')
@@ -4869,6 +4989,65 @@ fn emit_word(
         c_plain
     };
     job.append(word, 0.0, fmt(color));
+}
+
+#[cfg(test)]
+mod block_indent_tests {
+    use super::indent_selected_block;
+
+    /// Tab on a two-line selection: both lines gain 2 spaces; the selection
+    /// keeps covering the same content.
+    #[test]
+    fn indent_shifts_every_selected_line() {
+        let text = "MOVE A TO B\nMOVE C TO D\nMOVE E TO F\n";
+        // Select from inside line 1 to inside line 2.
+        let (out, min, max) = indent_selected_block(text, 5, 17, false);
+        assert_eq!(out, "  MOVE A TO B\n  MOVE C TO D\nMOVE E TO F\n");
+        assert_eq!((min, max), (7, 21), "selection follows its content");
+    }
+
+    /// Shift+Tab removes up to two leading spaces per line — and only spaces.
+    #[test]
+    fn unindent_eats_at_most_two_spaces() {
+        let text = "  MOVE A TO B\n MOVE C TO D\nMOVE E TO F\n";
+        let (out, min, max) = indent_selected_block(text, 2, 30, true);
+        assert_eq!(out, "MOVE A TO B\nMOVE C TO D\nMOVE E TO F\n");
+        assert_eq!(min, 0, "start clamps to its line");
+        assert_eq!(max, 27, "end shifted by the removals before it");
+        // Idempotent once nothing is left to remove.
+        let (again, _, _) = indent_selected_block(&out, 0, 27, true);
+        assert_eq!(again, out);
+    }
+
+    /// Selecting whole lines parks the cursor at the next line's column 0 —
+    /// that line must not be touched.
+    #[test]
+    fn the_line_after_a_whole_line_selection_is_untouched() {
+        let text = "AAA\nBBB\nCCC\n";
+        // "AAA\nBBB\n" selected: min 0, max 8 (start of "CCC").
+        let (out, min, max) = indent_selected_block(text, 0, 8, false);
+        assert_eq!(out, "  AAA\n  BBB\nCCC\n");
+        assert_eq!((min, max), (2, 12));
+    }
+
+    /// Empty lines inside the block gain no trailing whitespace on indent.
+    #[test]
+    fn empty_lines_are_not_padded() {
+        let text = "AAA\n\nBBB\n";
+        let (out, _, _) = indent_selected_block(text, 0, 9, false);
+        assert_eq!(out, "  AAA\n\n  BBB\n");
+    }
+
+    /// A cursor inside the removed leading spaces clamps to its line start.
+    #[test]
+    fn unindent_clamps_a_cursor_inside_the_removed_spaces() {
+        let text = "  AAA\n  BBB\n";
+        // min at char 1 (inside line 1's leading spaces), max mid line 2.
+        let (out, min, max) = indent_selected_block(text, 1, 9, true);
+        assert_eq!(out, "AAA\nBBB\n");
+        assert_eq!(min, 0);
+        assert_eq!(max, 5);
+    }
 }
 
 #[cfg(test)]
