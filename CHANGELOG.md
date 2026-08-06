@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.16] — 2026-08-06
+
+### Fixed
+
+- **The `run_native` build error gave advice that was already out of date.** It
+  told you to "design a second form", which was the only answer when the check
+  was written in 1.60.14 — and stopped being true one version later, when
+  `cobolt_windows` arrived. An error that names the wrong remedy costs more than
+  no advice, because it is believed. It now shows the replacement code:
+
+  ```
+  To open a window from a block, use `cobolt_windows::open`:
+
+      let win = cobolt_windows::open(
+          "my-dialog",
+          eframe::egui::ViewportBuilder::default().with_title("Pick"),
+          move |ui, _class| { /* your egui, on the UI thread */ },
+      );
+      win.wait();
+  ```
+
 ## [PowerRustCOBOL 1.60.15] — 2026-08-06
 
 ### Added

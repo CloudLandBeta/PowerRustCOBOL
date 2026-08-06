@@ -792,17 +792,24 @@ fn build_core(
                 line: call.cobol_line,
                 col: call.cobol_col,
                 message: format!(
-                    "`{}` cannot open a window from a form application. This program \
+                    "`{call}` cannot open a window from a form application. This program \
                      has forms, so the one event loop a process is allowed already \
                      belongs to the form window, and every EXEC RUST block in an event \
                      handler runs on a worker thread. The second call returns an error \
                      instead of opening a window, and it does not panic — so nothing is \
-                     displayed, nothing is logged, and CATCH RUST-EXCEPTION never fires. \
-                     To change what is on screen from a block, write the control through \
-                     `cobolt_objects`; to show another window, design a second form. \
-                     `{}` belongs in a console program, where the interpreter owns the \
-                     main thread.",
-                    call.call, call.call
+                     displayed, nothing is logged, and CATCH RUST-EXCEPTION never fires.\
+                     \n\nTo open a window from a block, use `cobolt_windows::open`:\
+                     \n\n    let win = cobolt_windows::open(\
+                     \n        \"my-dialog\",\
+                     \n        eframe::egui::ViewportBuilder::default().with_title(\"Pick\"),\
+                     \n        move |ui, _class| {{ /* your egui, on the UI thread */ }},\
+                     \n    );\
+                     \n    win.wait();\
+                     \n\nShare the result with an Arc<Mutex<..>>, because that closure runs \
+                     on the UI thread. To change a control instead, write it through \
+                     `cobolt_objects`. `{call}` belongs in a console program, where the \
+                     interpreter owns the main thread.",
+                    call = call.call
                 ),
             });
         }
