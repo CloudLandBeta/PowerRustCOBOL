@@ -1577,6 +1577,29 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     let (fw, fh) = (first_form.width as f32, first_form.height as f32);
     let title = format!("{} v{}", APP_NAME, APP_VERSION);
 
+    // With diagnostics on, say what this window IS before anything runs: which
+    // form, its controls, and whether its background can be seen through. A
+    // fully transparent form shows whatever is behind it, so a control's
+    // legibility stops being a property of the design — which has cost real
+    // debugging time.
+    if std::env::var("COBOLT_FRAME_DIAGNOSTICS").map(|v| v == "1").unwrap_or(false) {
+        eprintln!(
+            "[prc] form '{}' {}x{} background={:?} controls={:?}",
+            first_form.name, fw as u32, fh as u32,
+            first_form.background_color,
+            flat.iter().map(|c| c.id.as_str()).collect::<Vec<_>>()
+        );
+        let bg = first_form.background_color.trim_start_matches('#');
+        let opaque = bg.len() < 8 || !bg.ends_with("00");
+        if !opaque {
+            eprintln!(
+                "[prc] WARNING: this form's background is fully transparent, so \
+                 every control is drawn over whatever is behind the window. A \
+                 caption can look correct in one place and invisible in another."
+            );
+        }
+    }
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(&title)
@@ -1647,6 +1670,9 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         input_tx,
         state_rx,
         display_rx,
+        diagnostics: std::env::var("COBOLT_FRAME_DIAGNOSTICS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
         start: std::time::Instant::now(),
         anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
         anim_started: false,
@@ -1690,6 +1716,12 @@ struct FormApp {
     input_tx:     std::sync::mpsc::Sender<cobolt_runtime::StateUpdate>,
     state_rx:     std::sync::mpsc::Receiver<cobolt_runtime::StateUpdate>,
     display_rx:   std::sync::mpsc::Receiver<String>,
+    /// `COBOLT_FRAME_DIAGNOSTICS=1` — report every property update the
+    /// interpreter sends and whether it landed on a real control. Without it
+    /// a built application is a black box: "the label did not change" cannot
+    /// be told apart from "the handler never ran" or "the write went to a name
+    /// that does not exist".
+    diagnostics:  bool,
     /// When the window opened. Input events are ignored for a short warm-up so
     /// that a click already in progress as the window appears cannot be mistaken
     /// for an intentional interaction.
@@ -1761,10 +1793,28 @@ impl eframe::App for FormApp {
                 drained += 1;
                 continue;
             }
-            let key = self.state.keys()
+            // Which designed control does this write land on? A miss means the
+            // update is stored under a key nothing renders — the difference
+            // between "the handler never ran" and "the handler wrote to a name
+            // that does not exist", which is invisible without saying so.
+            let matched = self.state.keys()
                 .find(|k| k.eq_ignore_ascii_case(&u.ctrl_id))
-                .cloned()
-                .unwrap_or_else(|| u.ctrl_id.clone());
+                .cloned();
+            if self.diagnostics {
+                match &matched {
+                    Some(k) => eprintln!(
+                        "[prc] state update: {} :: {} = {:?} -> control '{}'",
+                        u.ctrl_id, u.prop, u.value, k
+                    ),
+                    None => eprintln!(
+                        "[prc] state update: {} :: {} = {:?} -> NO SUCH CONTROL \
+                         (known: {:?}) — this write will never be seen",
+                        u.ctrl_id, u.prop, u.value,
+                        self.state.keys().collect::<Vec<_>>()
+                    ),
+                }
+            }
+            let key = matched.unwrap_or_else(|| u.ctrl_id.clone());
             self.state.entry(key).or_default().set(&u.prop, u.value);
             drained += 1;
         }
