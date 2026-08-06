@@ -6758,6 +6758,127 @@ mod tests {
         );
     }
 
+    /// Every text run painted for `controls`, with its colour — used to answer
+    /// "did the new caption reach the screen, and can it be read there?".
+    fn painted_text(controls: &[Control], backdrop_hex: &str) -> Vec<(String, Color32)> {
+        fn collect(shape: &egui::Shape, out: &mut Vec<(String, Color32)>) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    let colour = t
+                        .galley
+                        .job
+                        .sections
+                        .first()
+                        .map(|sec| sec.format.color)
+                        .unwrap_or(t.fallback_color);
+                    out.push((t.galley.text().to_owned(), colour));
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Static,
+                        active_tabs: &active,
+                        backdrop: Backdrop {
+                            color_hex: backdrop_hex.into(),
+                            ..Default::default()
+                        },
+                    };
+                    let _ = render_form(ui, &input);
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        out
+    }
+
+    /// The operator's label: same place, same colours as `RustDemo`'s form.
+    fn operator_label(caption: &str, foreground: &str) -> Control {
+        let mut c = ctrl("Label-1", ControlType::Label, 174, 376, 280, 20);
+        c.set_prop("Caption", crate::PropValue::String(caption.to_owned()));
+        c.set_prop(
+            "ForegroundColor",
+            crate::PropValue::String(foreground.to_owned()),
+        );
+        c.set_prop(
+            "BackgroundColor",
+            crate::PropValue::String("#F0F0F0".to_owned()),
+        );
+        c
+    }
+
+    /// A caption a handler just wrote IS painted — the write reaches the screen.
+    ///
+    /// Pairs with cobolt-runtime's
+    /// `setting_a_control_property_from_an_object_reference_emits_a_state_update`,
+    /// which proves the other end: the update leaves the interpreter carrying
+    /// the dereferenced value. Together they close the loop the operator kept
+    /// reporting as "the label never changes".
+    #[test]
+    fn a_handler_written_caption_is_painted() {
+        let texts = painted_text(&[operator_label("1", "#FFFFFF")], "#00000000");
+        assert!(
+            texts.iter().any(|(s, _)| s.trim() == "1"),
+            "the new caption must be painted, got {texts:?}"
+        );
+    }
+
+    /// …and on that form it is painted WHITE onto a fully transparent
+    /// backdrop, which is why it cannot be read.
+    ///
+    /// A Label's own face is transparent (it never paints its
+    /// `BackgroundColor`), so its text sits on whatever the FORM shows. A form
+    /// created with the default transparent background and a label created
+    /// with the default white foreground are invisible together — the COBOL is
+    /// correct, the update arrives, the glyphs are drawn in white over nothing.
+    #[test]
+    fn white_text_on_a_transparent_backdrop_is_the_invisible_pairing() {
+        let texts = painted_text(&[operator_label("1", "#FFFFFF")], "#00000000");
+        let (_, colour) = texts
+            .iter()
+            .find(|(s, _)| s.trim() == "1")
+            .expect("the caption is painted");
+        assert_eq!(
+            (colour.r(), colour.g(), colour.b()),
+            (255, 255, 255),
+            "painted white — unreadable over a transparent form"
+        );
+
+        // A dark ForegroundColor — the fix — reaches the painter.
+        let dark = painted_text(&[operator_label("1", "#202020")], "#00000000");
+        let (_, dark_colour) = dark
+            .iter()
+            .find(|(s, _)| s.trim() == "1")
+            .expect("the caption is painted");
+        assert!(
+            dark_colour.r() < 64 && dark_colour.g() < 64 && dark_colour.b() < 64,
+            "a dark ForegroundColor must reach the painter, got {dark_colour:?}"
+        );
+    }
+
     #[test]
     fn render_form_static_smoke() {
         // Headless: a form with a Panel ⊃ Button renders without panic and reports

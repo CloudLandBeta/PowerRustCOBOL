@@ -226,3 +226,67 @@ fn reading_an_object_reference_yields_the_value_not_the_handle() {
          the handle ids (2 and 1)"
     );
 }
+
+/// `SET <control>::Caption TO <object-reference>` must reach the UI.
+///
+/// The operator's handler is exactly this shape: a block writes a bound item,
+/// then COBOL copies it onto a label. `DISPLAY` proved the value was right
+/// while the label stayed put, so this pins the OTHER half — that the write
+/// actually emits a `StateUpdate` carrying the dereferenced value.
+#[test]
+fn setting_a_control_property_from_an_object_reference_emits_a_state_update() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SETPROP.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-I32 IS "Rust.i32"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 CLICKED-BUTTON USAGE IS OBJECT REFERENCE RUST-I32 VALUE 7.
+       PROCEDURE DIVISION.
+           SET Label-1::Caption TO CLICKED-BUTTON
+           DISPLAY "Button clicked:" CLICKED-BUTTON.
+           STOP RUN.
+"#;
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.run().expect("run failed");
+
+    let displayed: Vec<String> = display_rx.try_iter().collect();
+    assert_eq!(
+        displayed,
+        vec!["Button clicked:7".to_string()],
+        "the DISPLAY half already works — if this fails the dereference broke"
+    );
+
+    let updates: Vec<(String, String, String)> = state_rx
+        .try_iter()
+        .map(|u| (u.ctrl_id, u.prop, u.value))
+        .collect();
+    assert_eq!(
+        updates.len(),
+        1,
+        "exactly one property update should reach the UI, got {updates:?}"
+    );
+    let (ctrl, prop, value) = &updates[0];
+    assert!(
+        ctrl.eq_ignore_ascii_case("Label-1"),
+        "control id: {ctrl}"
+    );
+    assert!(prop.eq_ignore_ascii_case("Caption"), "property: {prop}");
+    assert_eq!(value.trim(), "7", "the VALUE must travel, not the handle id");
+}
