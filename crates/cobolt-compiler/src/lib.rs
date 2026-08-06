@@ -1597,10 +1597,15 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     let title = format!("{} v{}", APP_NAME, APP_VERSION);
 
     // With diagnostics on, say what this window IS before anything runs: which
-    // form, its controls, and whether its background can be seen through. A
-    // fully transparent form shows whatever is behind it, so a control's
-    // legibility stops being a property of the design — which has cost real
-    // debugging time.
+    // form, its controls and its background. The control roster is the useful
+    // part — it turns "the label never changed" into "that control id does not
+    // exist" at a glance.
+    //
+    // There was a transparency warning here. It was wrong: a transparent form
+    // renders its controls perfectly well, as the operator demonstrated by
+    // pointing out that the designed caption was always visible. The real
+    // fault was a duplicated property key (1.60.33), and the warning did
+    // nothing but send readers — me included — down the wrong path.
     if std::env::var("COBOLT_FRAME_DIAGNOSTICS").map(|v| v == "1").unwrap_or(false) {
         eprintln!(
             "[prc] form '{}' {}x{} background={:?} controls={:?}",
@@ -1608,15 +1613,6 @@ fn run_form_app(program: cobolt_ast::program::Program) {
             first_form.background_color,
             flat.iter().map(|c| c.id.as_str()).collect::<Vec<_>>()
         );
-        let bg = first_form.background_color.trim_start_matches('#');
-        let opaque = bg.len() < 8 || !bg.ends_with("00");
-        if !opaque {
-            eprintln!(
-                "[prc] WARNING: this form's background is fully transparent, so \
-                 every control is drawn over whatever is behind the window. A \
-                 caption can look correct in one place and invisible in another."
-            );
-        }
     }
 
     let native_options = eframe::NativeOptions {
