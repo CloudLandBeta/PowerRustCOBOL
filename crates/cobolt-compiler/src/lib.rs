@@ -1417,6 +1417,25 @@ impl CtrlState {
             "ENABLED" => self.enabled = value != "0" && value != "false",
             _ => {}
         }
+        // ONE entry per property, whatever its spelling. The state is seeded
+        // from the design ("Caption") while a handler's write arrives from the
+        // object registry upper-cased ("CAPTION"), so a plain insert left BOTH
+        // in the map — the designed value and the new one. `merge_props` then
+        // walks this map (a HashMap: arbitrary order) applying each through a
+        // case-insensitive `set_prop`, so whichever was visited last won. The
+        // label showed the new caption or the original one depending on the
+        // run: intermittent, patternless, and stable within a single process,
+        // which is exactly how it was reported.
+        if !self.props.contains_key(key) {
+            if let Some(existing) = self
+                .props
+                .keys()
+                .find(|k| k.eq_ignore_ascii_case(key))
+                .cloned()
+            {
+                self.props.remove(&existing);
+            }
+        }
         self.props.insert(key.to_owned(), value);
     }
 }
