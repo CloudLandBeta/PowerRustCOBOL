@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.19] — 2026-08-06
+
+### Fixed
+
+- **The freshly built program was killed by macOS the instant Run started it.**
+  1.60.18's launch tracking produced the first real evidence of the "nothing
+  anywhere" failure: `powerdemo3 failed: exit killed by signal`, nothing on
+  stderr. The killer was the build's own install step: it **copied the new
+  binary over the old one in place**, and on Apple Silicon rewriting a Mach-O
+  invalidates the kernel's cached code-signature for that file — a process
+  exec'd from it in the same instant is SIGKILLed with no stderr, no crash
+  report, nothing. The IDE's Run does exactly that instant exec (build, then
+  launch in the same frame), so every rebuilt program died at startup — while
+  the same binary ran fine from a terminal seconds later, which is what made
+  the failure look supernatural. The build now installs the binary by **copy to
+  a temp file + atomic rename** (fresh inode, fresh signature state) in both
+  install locations (`bin/` and the destination folder). Verified: rebuilt
+  installs land on a new inode, and an exec in the same instant survives.
+
+- **A signal death is now named.** The exit report said "killed by signal";
+  it now says which one — and for SIGKILL right after a build, it says what
+  that usually means, so this diagnosis never has to be repeated.
+
 ## [PowerRustCOBOL 1.60.18] — 2026-08-06
 
 ### Fixed

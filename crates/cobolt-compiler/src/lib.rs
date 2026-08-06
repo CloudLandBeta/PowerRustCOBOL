@@ -70,6 +70,42 @@ pub const RUNTIME_NOTICE_TEXT: &str = include_str!(
     "../../../docs/licensing/PACKAGE_NOTICE_TEMPLATE/POWER_RUST_COBOL_RUNTIME_NOTICE.txt"
 );
 
+/// Install an executable at `dst` **by rename, never by overwrite**.
+///
+/// `std::fs::copy` onto an existing executable rewrites the file in place, and
+/// on macOS (Apple Silicon) that invalidates the kernel's cached code-signature
+/// blob for the vnode: a process exec'd from the file in the instant after the
+/// rewrite is killed with SIGKILL — no stderr, no crash report, nothing. The
+/// IDE's Run does exactly that instant exec (build, then launch in the same
+/// frame), which made every rebuilt program die silently at startup, while the
+/// same binary ran fine from a terminal seconds later. Copying to a sibling
+/// temp file and renaming it into place gives `dst` a fresh inode with fresh
+/// signature state, atomically, and retires the whole failure class.
+fn install_executable(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let file_name = dst
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "binary".to_owned());
+    let tmp = dst.with_file_name(format!(".{file_name}.new-{}", std::process::id()));
+    std::fs::copy(src, &tmp)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&tmp)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&tmp, perms)?;
+    }
+    // Unix rename replaces an existing dst atomically; Windows refuses, so
+    // clear the way there first (best-effort — dst may not exist).
+    #[cfg(windows)]
+    let _ = std::fs::remove_file(dst);
+    let renamed = std::fs::rename(&tmp, dst);
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    renamed
+}
+
 /// Write `LICENSE`, `NOTICE` and the PowerRustCOBOL runtime notice into `dir`.
 /// Used so distributed binaries/packages carry the required notices.
 pub fn write_license_notices(dir: &Path) -> std::io::Result<()> {
@@ -945,16 +981,10 @@ fn build_core(
     };
     let src_bin = build_dir.join("target").join(profile_dir).join(&exe_name);
     let dst_bin = bin_dir.join(&exe_name);
-    std::fs::copy(&src_bin, &dst_bin)?;
-
-    // Make executable on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&dst_bin)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&dst_bin, perms)?;
-    }
+    // Rename-into-place, never copy-over: overwriting the previous binary in
+    // place got the very next launch SIGKILLed by macOS (see
+    // `install_executable`). Also sets 0o755 on Unix.
+    install_executable(&src_bin, &dst_bin)?;
 
     log(&format!("✅ Binary → {}", dst_bin.display()));
 
@@ -1018,9 +1048,10 @@ fn build_core(
     ));
     let _ = std::fs::create_dir_all(&dest_path);
 
-    // Copy project binary to destination folder
+    // Copy project binary to destination folder (rename-into-place — see
+    // `install_executable` for why a plain copy is a SIGKILL trap on macOS).
     let dest_bin = dest_path.join(&exe_name);
-    if let Err(e) = std::fs::copy(&dst_bin, &dest_bin) {
+    if let Err(e) = install_executable(&dst_bin, &dest_bin) {
         log(&format!(
             "⚠️  Failed to copy binary to destination folder: {e}"
         ));

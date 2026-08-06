@@ -1276,10 +1276,30 @@ impl BuiltAppRun {
         if status.success() {
             return None;
         }
-        let code = status
-            .code()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "killed by signal".to_owned());
+        let code = match status.code() {
+            Some(c) => c.to_string(),
+            None => {
+                // Name the signal — "killed by signal" alone cost a diagnostic
+                // round-trip when the answer (SIGKILL: macOS code-signing kill
+                // after an in-place binary overwrite) was in the number.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    match status.signal() {
+                        Some(9) => "killed by SIGKILL (9) — if this happened right \
+                                    after a build, the binary was overwritten in \
+                                    place (fixed in 1.60.19: rebuild)"
+                            .to_owned(),
+                        Some(n) => format!("killed by signal {n}"),
+                        None => "killed by signal".to_owned(),
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    "killed by signal".to_owned()
+                }
+            }
+        };
         let lines = self.stderr_buf.lock().map(|b| b.clone()).unwrap_or_default();
         Some(if lines.is_empty() {
             format!("exit {code} — the program printed nothing on stderr")
