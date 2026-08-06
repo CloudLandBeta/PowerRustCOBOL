@@ -471,6 +471,42 @@ pub struct BlockDiagnostic {
 ///
 /// Lines that are not JSON objects are skipped rather than erroring: cargo
 /// interleaves other artefact records in the same stream.
+/// Fold every error-level block diagnostic into one deterministic report:
+/// `(line, col, message)` of the FIRST error by source position, with any
+/// further errors appended to the message.
+///
+/// The build used to surface whichever error cargo's JSON stream mentioned
+/// first — and with parallel rustc that order changes run to run, so two
+/// builds of identical source showed *different* single errors. To the
+/// developer that read as new bugs appearing on every rebuild. Sorting by the
+/// developer's own (line, column) makes rebuilds repeat themselves, and
+/// appending the rest stops the one-at-a-time whack-a-mole.
+pub fn block_errors_report(diags: Vec<BlockDiagnostic>) -> Option<(u32, u32, String)> {
+    let mut errors: Vec<&BlockDiagnostic> = diags.iter().filter(|d| d.level == "error").collect();
+    if errors.is_empty() {
+        return None;
+    }
+    errors.sort_by(|a, b| (a.line, a.col, &a.message).cmp(&(b.line, b.col, &b.message)));
+    errors.dedup_by(|a, b| a.line == b.line && a.col == b.col && a.message == b.message);
+
+    let render = |d: &BlockDiagnostic| match &d.code {
+        Some(code) => format!("{} [{code}]", d.message),
+        None => d.message.clone(),
+    };
+    let first = errors[0];
+    let mut message = render(first);
+    if errors.len() > 1 {
+        message.push_str(&format!(
+            "\n\n─ {} more error(s) in EXEC RUST blocks ─",
+            errors.len() - 1
+        ));
+        for d in &errors[1..] {
+            message.push_str(&format!("\nline {}, column {}: {}", d.line, d.col, render(d)));
+        }
+    }
+    Some((first.line, first.col, message))
+}
+
 pub fn map_cargo_json(stdout: &str, blocks: &GeneratedBlocks) -> Vec<BlockDiagnostic> {
     let mut out = Vec::new();
     for line in stdout.lines() {
@@ -915,6 +951,43 @@ MAIN.
             blocks.source.contains("pub mod cobolt_windows"),
             "any block links egui, so the module comes with it"
         );
+    }
+
+    /// The reported error must not depend on cargo's parallel emission order.
+    ///
+    /// Two builds of identical source used to show *different* single errors,
+    /// which read as new bugs appearing on every rebuild.
+    #[test]
+    fn block_errors_are_deterministic_and_complete() {
+        let d = |line: u32, msg: &str| BlockDiagnostic {
+            level: "error".to_owned(),
+            message: msg.to_owned(),
+            code: Some("E0597".to_owned()),
+            line,
+            col: 5,
+        };
+        let a = vec![d(129, "`clicked` does not live long enough"), d(90, "first by position")];
+        let b = vec![d(90, "first by position"), d(129, "`clicked` does not live long enough")];
+
+        let ra = block_errors_report(a).expect("errors present");
+        let rb = block_errors_report(b).expect("errors present");
+        assert_eq!(ra, rb, "emission order must not change the report");
+        assert_eq!(ra.0, 90, "the headline is the first error by source line");
+        assert!(
+            ra.2.contains("does not live long enough"),
+            "every error appears: {}",
+            ra.2
+        );
+
+        // Warnings alone produce no error report.
+        let warn = BlockDiagnostic {
+            level: "warning".to_owned(),
+            message: "unused".to_owned(),
+            code: None,
+            line: 1,
+            col: 1,
+        };
+        assert!(block_errors_report(vec![warn]).is_none());
     }
 
     /// A program with no blocks, and one whose block opens no window, are clean.

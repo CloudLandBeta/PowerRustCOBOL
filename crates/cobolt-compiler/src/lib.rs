@@ -953,18 +953,17 @@ fn build_core(
         // A failure inside a developer's block is reported in their terms. Any
         // other failure — ours, or a dependency's — surfaces raw, because
         // dressing it up as a COBOL error would point them at innocent code.
-        if let Some(d) = exec_rust::map_cargo_json(&json, &blocks)
-            .into_iter()
-            .find(|d| d.level == "error")
+        // ALL block errors, deterministically ordered by the developer's own
+        // (line, column). Taking whichever error cargo's parallel JSON stream
+        // mentioned first made identical rebuilds show different single
+        // errors — which read as new bugs appearing on every build.
+        if let Some((line, col, message)) =
+            exec_rust::block_errors_report(exec_rust::map_cargo_json(&json, &blocks))
         {
-            let message = match &d.code {
-                Some(code) => format!("{} [{code}]", d.message),
-                None => d.message.clone(),
-            };
             return Err(CompilerError::ExecRustBlock {
                 file: main_rel.clone(),
-                line: d.line,
-                col: d.col,
+                line,
+                col,
                 message,
             });
         }

@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.24] — 2026-08-06
+
+### Fixed
+
+- **Identical rebuilds showed different `EXEC RUST` errors.** When a block had
+  several errors, the build reported exactly one — whichever error cargo's
+  JSON stream mentioned first, and with parallel rustc that order changes run
+  to run. Rebuilding without touching anything produced a *different* single
+  error, which read as new bugs appearing on every build. The report is now
+  deterministic (errors sorted by the developer's own line and column, the
+  first one as the headline) and complete — every further error is listed
+  below it, so fixing them is one pass instead of whack-a-mole.
+
 ## [PowerRustCOBOL 1.60.23] — 2026-08-06
 
 ### Fixed
