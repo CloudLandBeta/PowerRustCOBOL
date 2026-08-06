@@ -733,6 +733,11 @@ impl BindingEditControl {
     }
 }
 
+/// Rows the caption editor shows once a control's `WordWrap` is on — enough to
+/// see a wrapped caption as the paragraph it is, without the inspector row
+/// growing tall enough to push the rest of Appearance off-screen.
+pub(crate) const CAPTION_WRAP_ROWS: usize = 3;
+
 const DATA_BINDING_MODAL_SOURCES: [BindingEditorSourceKind; 4] = [
     BindingEditorSourceKind::IndexedFile,
     BindingEditorSourceKind::Sql,
@@ -3404,15 +3409,31 @@ impl PropertiesPanel {
             if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                 *buf = cur.clone();
             }
+            // A caption that WRAPS is written across lines, so it is edited
+            // across lines: a single-line box shows one strip of a paragraph
+            // and hides the rest behind the caret. Only when WordWrap is on —
+            // a non-wrapping caption is one line by definition, and a taller
+            // box there would just waste inspector height.
+            let wraps = ctrl
+                .get_prop("WordWrap")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
             property_row(ui, cap_key, |ui| {
-                if ui
-                    .add(
+                let resp = if wraps {
+                    ui.add(
+                        egui::TextEdit::multiline(buf)
+                            .id(wid)
+                            .desired_rows(CAPTION_WRAP_ROWS)
+                            .desired_width(ui.available_width()),
+                    )
+                } else {
+                    ui.add(
                         egui::TextEdit::singleline(buf)
                             .id(wid)
                             .desired_width(ui.available_width()),
                     )
-                    .lost_focus()
-                {
+                };
+                if resp.lost_focus() {
                     action.set_props.push((
                         id.to_owned(),
                         cap_key.into(),
@@ -9048,5 +9069,46 @@ mod tests {
                 "AddressBlock-1-Street"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod caption_editor_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, PropValue};
+
+    /// A wrapping caption is edited across lines; a non-wrapping one is not.
+    ///
+    /// The inspector's caption box was always single-line, so a Label with
+    /// WordWrap on — a caption written deliberately as a paragraph — showed
+    /// one strip of it with the rest scrolled out of sight behind the caret.
+    /// This pins the decision the editor makes, which is otherwise only
+    /// visible by eye.
+    #[test]
+    fn only_a_wrapping_caption_gets_the_taller_box() {
+        let wraps = |c: &Control| {
+            c.get_prop("WordWrap")
+                .map(|v| v.as_bool())
+                .unwrap_or(false)
+        };
+
+        let mut label = Control::new("Label-1", ControlType::Label, 0, 0);
+        label.set_prop("Caption", PropValue::String("one line".into()));
+
+        // A fresh Label does not wrap, so the box stays single-line.
+        assert!(!wraps(&label), "WordWrap is off until asked for");
+
+        label.set_prop("WordWrap", PropValue::Bool(true));
+        assert!(wraps(&label), "turning WordWrap on must switch the editor");
+
+        label.set_prop("WordWrap", PropValue::Bool(false));
+        assert!(!wraps(&label), "and turning it off must switch back");
+    }
+
+    /// Three rows: enough to read a wrapped caption as a paragraph, not so
+    /// many that Appearance's remaining rows are pushed off-screen.
+    #[test]
+    fn the_wrapped_caption_box_is_three_rows() {
+        assert_eq!(CAPTION_WRAP_ROWS, 3);
     }
 }
