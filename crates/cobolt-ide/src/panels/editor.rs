@@ -4124,14 +4124,21 @@ pub(crate) fn indent_selected_block(
         }
     }
 
-    // A selection end at column `c` of line `i` lands at column
-    // max(c + change, 0) of the same line in the new text; the line's new
-    // start is its old start plus every earlier line's change.
+    // A selection end at column `c` of line `i` lands at column c + change on
+    // the SAME line — and it must stay on that line whatever the arithmetic
+    // says. Unindenting repeatedly used to walk a position off the front of
+    // its line and onto the end of the previous one, so the block being
+    // unindented silently grew upwards. Column 0 is the floor and the line's
+    // own last character is the ceiling; the line never changes.
     let reproject = |pos: usize| -> usize {
         let i = line_of(pos);
         let col = pos - lines[i].0;
-        let new_start = (lines[i].0 as i64 + change[..i].iter().sum::<i64>()) as usize;
-        let new_col = (col as i64 + change[i]).max(0) as usize;
+        let new_start = (lines[i].0 as i64 + change[..i].iter().sum::<i64>()).max(0) as usize;
+        // Width of the line WITHOUT its newline: a position may sit just after
+        // the last character, never past the line break onto the next line.
+        let width = lines[i].1.trim_end_matches('\n').chars().count();
+        let new_width = (width as i64 + change[i]).max(0) as usize;
+        let new_col = (col as i64 + change[i]).clamp(0, new_width as i64) as usize;
         new_start + new_col
     };
     let n = out.chars().count();
@@ -5036,6 +5043,42 @@ mod block_indent_tests {
         let text = "AAA\n\nBBB\n";
         let (out, _, _) = indent_selected_block(text, 0, 9, false);
         assert_eq!(out, "  AAA\n\n  BBB\n");
+    }
+
+    /// Unindenting repeatedly must never walk the selection onto the previous
+    /// line — it stops at column 1 and stays there.
+    ///
+    /// It used to creep: each Shift+Tab moved the start a little further left
+    /// until it crossed the line break, and from then on the block being
+    /// unindented had silently grown upwards by a line.
+    #[test]
+    fn repeated_unindent_never_climbs_to_the_previous_line() {
+        let mut text = "AAA\n      BBB\n      CCC\n".to_string();
+        // Select from inside line 2's indent through line 3.
+        let (mut min, mut max) = (6usize, 20usize);
+        let line_of = |t: &str, pos: usize| t[..].chars().take(pos).filter(|c| *c == '\n').count();
+
+        let start_line = line_of(&text, min);
+        for step in 0..8 {
+            let (t, a, b) = indent_selected_block(&text, min, max, true);
+            text = t;
+            min = a;
+            max = b;
+            assert_eq!(
+                line_of(&text, min),
+                start_line,
+                "step {step}: the selection start left its line — text {text:?}"
+            );
+            assert!(
+                !text.starts_with("  "),
+                "step {step}: line 1 was never selected and must not move: {text:?}"
+            );
+        }
+        // Fully unindented and stable: further presses change nothing.
+        assert_eq!(text, "AAA\nBBB\nCCC\n");
+        let (again, a2, b2) = indent_selected_block(&text, min, max, true);
+        assert_eq!(again, text, "nothing left to remove");
+        assert_eq!((a2, b2), (min, max), "and the selection stops moving");
     }
 
     /// A cursor inside the removed leading spaces clamps to its line start.

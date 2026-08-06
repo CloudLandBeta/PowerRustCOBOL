@@ -393,3 +393,55 @@ fn a_set_after_a_block_inside_a_nested_program_still_reaches_the_ui() {
     );
     assert_eq!(updates[0].2.trim(), "1", "carrying the value, not the handle");
 }
+
+/// Mixed case on BOTH halves — `labeL-1::cApTion` — behaves like the canonical
+/// spelling. COBOL is case-insensitive and the developer should not have to
+/// remember which half is which.
+#[test]
+fn a_mixed_case_control_and_property_still_reach_the_ui() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MIXEDCASE.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-I32 IS "Rust.i32"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 CLICKED-BUTTON USAGE IS OBJECT REFERENCE RUST-I32 VALUE 3.
+       PROCEDURE DIVISION.
+           SET labeL-1::cApTion TO CLICKED-BUTTON.
+           STOP RUN.
+"#;
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, state_rx) = mpsc::channel();
+    let (display_tx, _display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.run().expect("run failed");
+
+    let updates: Vec<(String, String, String)> = state_rx
+        .try_iter()
+        .map(|u| (u.ctrl_id, u.prop, u.value))
+        .collect();
+    assert_eq!(updates.len(), 1, "one update, got {updates:?}");
+    let (ctrl, prop, value) = &updates[0];
+    assert!(
+        ctrl.eq_ignore_ascii_case("Label-1"),
+        "the control id must resolve whatever its case: {ctrl}"
+    );
+    assert!(
+        prop.eq_ignore_ascii_case("Caption"),
+        "the property must resolve whatever its case: {prop}"
+    );
+    assert_eq!(value.trim(), "3");
+}
