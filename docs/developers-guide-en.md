@@ -2394,10 +2394,23 @@ eframe tutorials showing `update` will not compile here.
            GOBACK.
 ```
 
-> **A window from a form's handler is a different matter.** A form application
-> already owns an event loop, and `run_native` starts another; nesting them
-> aborts the process. From a form, use the designer's own controls, or open a
-> second egui *viewport* rather than a second native app.
+> ### ⚠️ Do not copy this into a form's event handler
+>
+> It will build, and then do **nothing at all** — no window, no error, no output.
+>
+> A form application already owns the process's one winit event loop, created on
+> the main thread, while the COBOL interpreter runs on a worker thread. winit's
+> guard against a second event loop is process-global and returns
+> `Err(EventLoopError::RecreationAttempt)`. It does **not** panic, so
+> `CATCH RUST-EXCEPTION` never fires, and the customary
+> `let _ = eframe::run_native(...)` throws the error away. Every trace of the
+> failure disappears.
+>
+> There is no viewport workaround either: a block receives `env`, `objects` and
+> `bridge`, so it has no `egui::Context` with which to open one. **From a
+> handler, drive the form's own controls through `cobolt_objects`, or show a
+> second form built in the designer.** `run_native` is for console programs,
+> where the interpreter owns the main thread.
 
 ---
 

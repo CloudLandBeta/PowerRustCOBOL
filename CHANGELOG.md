@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.12] — 2026-08-06
+
+### Fixed
+
+- **A built form application could stop running and never say so.** The
+  interpreter thread *is* the program, and its result was discarded with
+  `let _ = interp.run()`. When it ended on an error the window kept painting
+  while every later click was dropped — an application that looks alive and
+  answers nothing, indistinguishable from "the handler did nothing". The failure
+  is now reported on stderr *and* through the display channel, followed by a
+  plain statement that no further events will be handled.
+
+### Changed
+
+- **Corrected a documented falsehood about `eframe::run_native` in a form.** The
+  guide and the System KB said a window opened from an event handler "aborts the
+  process". It does not. winit's `EVENT_LOOP_CREATED` guard is process-global and
+  is checked before any platform code, so a second call from the interpreter's
+  worker thread returns `Err(EventLoopError::RecreationAttempt)` — **no panic**.
+  `CATCH RUST-EXCEPTION` therefore never fires, and the customary
+  `let _ = eframe::run_native(...)` discards the error: no window, no message,
+  nothing. Verified by running a probe against winit 0.30.13, not by reading the
+  doc comment, which says "will panic" and describes an assertion the guard makes
+  unreachable.
+
+  Both documents also shipped the console example immediately after that advice,
+  which is exactly what gets copied into a handler. It is now marked
+  **console-only** with the failure spelled out, and the old suggestion to "open
+  a second egui viewport" is withdrawn — a block receives only `env`, `objects`
+  and `bridge`, so it has no `egui::Context` to open one with.
+
 ## [PowerRustCOBOL 1.60.11] — 2026-08-05
 
 ### Fixed

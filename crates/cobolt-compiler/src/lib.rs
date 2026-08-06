@@ -1466,6 +1466,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // The COBOL event loop runs on its own thread. The input channel lets the UI
     // push live control values (slider drag, text edit, …) so event handlers read
     // the current value rather than the seeded default.
+    let err_tx = display_tx.clone();
     std::thread::spawn(move || {
         let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
         // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9). One
@@ -1473,7 +1474,27 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         // including one in a form event handler — sees the same state.
         interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
         interp.set_input_channel(input_rx);
-        let _ = interp.run();
+        // This thread IS the program. If it stops, the window keeps painting
+        // while every later click is dropped — the application looks alive and
+        // answers nothing. That failure used to be discarded by `let _ =`, which
+        // is the most expensive silence in the build: it is indistinguishable
+        // from "the handler did nothing".
+        match interp.run() {
+            Ok(()) => {}
+            Err(e) if e.is_exit_signal() => {}
+            Err(e) => {
+                eprintln!("Runtime error: {e}");
+                let _ = err_tx.send(format!("Runtime error: {e}"));
+                eprintln!(
+                    "The program has stopped. The window stays open, but no \
+                     further events will be handled."
+                );
+                let _ = err_tx.send(
+                    "The program has stopped; no further events will be handled."
+                        .to_string(),
+                );
+            }
+        }
     });
 
     let app = FormApp {
@@ -2063,7 +2084,7 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
 - **Crates**: `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. A `use` of anything else is rejected, naming the crate.
 - **eframe here is 0.35.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
-- **A window opened from a form's handler aborts the process.** A form application already owns an event loop and `eframe::run_native` starts another. Opening a window with `run_native` is for console programs; from a form, use the designer's controls or a second egui viewport.
+- **`eframe::run_native` CANNOT be called from a form's event handler, and it fails SILENTLY.** A form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Result: no window, no error, no output — the handler appears to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread.
 - A block may appear **anywhere a statement may**, including inside `IF`, `EVALUATE`, `PERFORM`, `ON SIZE ERROR`, `INVALID KEY`, `AT END` and `TRY … END-TRY` — the last being where a block goes when its failure should be caught.
 - A block that is *not* built cannot run: an unregistered block is a hard error naming its id, never a silent no-op.
 
@@ -2077,7 +2098,7 @@ A developer-defined type must implement `Default` — that is what the first blo
            END-EXEC.
 ```
 
-A worked example — an `eframe` dialog defined in an item-level block and called from a statement-level one inside a `TRY`. This compiles as a console program:
+A worked example — an `eframe` dialog defined in an item-level block and called from a statement-level one inside a `TRY`. **CONSOLE PROGRAMS ONLY.** Copying this into a form's event handler is the mistake this page exists to prevent: it builds, and then does nothing at all, because `run_native` returns `Err(RecreationAttempt)` off the main thread and the `let _ =` throws that away. In a form, drive the controls through `cobolt_objects` instead.
 
 ```cobol
        REPOSITORY.
