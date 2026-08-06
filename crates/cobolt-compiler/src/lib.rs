@@ -1036,14 +1036,17 @@ fn build_core(
     }
 
     // ── 11c. Copy to destination folder ───────────────────────────────────────
-    let dest_name = if proj.project.destination_folder.trim().is_empty() {
-        if let Some(stripped) = proj.project.name.strip_suffix(".project") {
-            stripped.to_string()
+    // Unset → `dist/`, the conventional name for the deliverable and the folder
+    // the project scaffold already creates. It used to fall back to the
+    // project's own name, which produced a folder that looked like a second
+    // copy of the project while the scaffolded `dist/` stayed empty.
+    let dest_name = {
+        let d = proj.project.destination_folder.trim();
+        if d.is_empty() {
+            "dist".to_string()
         } else {
-            proj.project.name.clone()
+            d.to_string()
         }
-    } else {
-        proj.project.destination_folder.trim().to_string()
     };
 
     let dest_path = if Path::new(&dest_name).is_absolute() {

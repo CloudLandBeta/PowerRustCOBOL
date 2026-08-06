@@ -457,7 +457,8 @@ pub struct ProjectMeta {
     /// Full license text (editable).
     #[serde(default)]
     pub license_text: String,
-    /// Destination folder of the project.
+    /// Destination folder of the project — where the deliverable is installed.
+    /// Empty means [`DEFAULT_DESTINATION_FOLDER`].
     #[serde(default)]
     pub destination_folder: String,
     /// Is this a debug or release compilation
@@ -465,7 +466,24 @@ pub struct ProjectMeta {
     pub debug_compilation: bool,
 }
 
+/// Where a build installs the deliverable when the project does not say.
+///
+/// `dist/` is the conventional name, and the project scaffold already creates
+/// it. The old default was the project's own name, which produced a folder
+/// looking like a second copy of the project and left `dist/` empty forever.
+pub const DEFAULT_DESTINATION_FOLDER: &str = "dist";
+
 impl ProjectMeta {
+    /// The folder a build installs into — never empty.
+    pub fn destination_folder_or_default(&self) -> &str {
+        let d = self.destination_folder.trim();
+        if d.is_empty() {
+            DEFAULT_DESTINATION_FOLDER
+        } else {
+            d
+        }
+    }
+
     /// Parse `version` into `(major, minor, fix)`, tolerating missing parts.
     pub fn version_parts(&self) -> (u32, u32, u32) {
         let mut it = self
@@ -522,11 +540,12 @@ impl CoboltProject {
     /// Create a blank project with sensible defaults.
     pub fn new(name: impl Into<String>, main: impl Into<String>) -> Self {
         let name_str = name.into();
-        let destination_folder = if let Some(stripped) = name_str.strip_suffix(".project") {
-            stripped.to_string()
-        } else {
-            name_str.clone()
-        };
+        // `dist/` — the conventional name for "what you hand over", and the
+        // folder the project scaffold already creates. It used to default to
+        // the project's own name, which put the deliverable in a folder that
+        // looked like a second copy of the project and left the scaffolded
+        // `dist/` permanently empty.
+        let destination_folder = DEFAULT_DESTINATION_FOLDER.to_string();
         Self {
             project: ProjectMeta {
                 name: name_str,
@@ -1751,5 +1770,35 @@ main = "src/main.cbl"
         );
         let back: CoboltProject = toml::from_str(&s).expect("deserialize");
         assert_eq!(back.user_controls, vec![def]);
+    }
+}
+
+#[cfg(test)]
+mod destination_folder_tests {
+    use super::*;
+
+    /// A new project delivers into `dist/`, not into a folder named after
+    /// itself — which looked like a second copy of the project and left the
+    /// scaffolded `dist/` empty forever.
+    #[test]
+    fn a_new_project_delivers_into_dist() {
+        let p = CoboltProject::new("PowerDemo3.project", "main.cbl");
+        assert_eq!(p.project.destination_folder, "dist");
+        assert_eq!(p.project.destination_folder_or_default(), "dist");
+    }
+
+    /// An explicit folder is honoured; blank and whitespace fall back.
+    #[test]
+    fn an_explicit_folder_wins_and_blank_falls_back() {
+        let mut p = CoboltProject::new("Demo.project", "main.cbl");
+
+        p.project.destination_folder = "release-output".to_string();
+        assert_eq!(p.project.destination_folder_or_default(), "release-output");
+
+        p.project.destination_folder = "   ".to_string();
+        assert_eq!(p.project.destination_folder_or_default(), "dist");
+
+        p.project.destination_folder = String::new();
+        assert_eq!(p.project.destination_folder_or_default(), "dist");
     }
 }

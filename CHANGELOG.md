@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.27] — 2026-08-06
+
+### Changed
+
+- **A build delivers into `dist/`.** The destination folder defaulted to the
+  project's own name, so the deliverable landed in a folder that looked like a
+  second copy of the project while the `dist/` the scaffold creates stayed
+  empty forever. New projects now default to `dist`, and a project with no
+  destination set builds there. An explicitly chosen folder is still honoured —
+  **existing projects keep whatever is written in their `.project.toml`**;
+  change it in Settings → Destination folder to move the output.
+
 ## [PowerRustCOBOL 1.60.26] — 2026-08-06
 
 ### Fixed
