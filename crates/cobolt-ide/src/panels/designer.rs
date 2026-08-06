@@ -10724,49 +10724,60 @@ fn icon_check(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::line_segment([p1, p2], s));
 }
 
+/// Save — a floppy disk carrying a download badge.
+///
+/// The disk occupies the upper-left of the cell and the badge sits in the
+/// bottom-right corner, tangent to the disk's rounded corner rather than
+/// overlapping it: an icon function is handed only the foreground colour, so it
+/// has no background to punch a gap with, and crossing outlines read as noise at
+/// this size. The old drawing put the arrow *inside* the disk, where it collided
+/// with the label and looked like a scribble.
 fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    let s = Stroke::new(1.6, c);
-    out.push(Shape::rect_stroke(
-        r.shrink(2.0),
-        1.5,
-        s,
-        egui::StrokeKind::Middle,
-    ));
-    let bot = Rect::from_min_max(
-        Pos2::new(r.min.x + 4.0, r.max.y - r.height() * 0.32),
-        r.max - egui::vec2(4.0, 2.0),
+    let s = Stroke::new(1.8, c);
+    // 0.62 / 0.20 keeps the badge clear of the disk: with the badge centred at
+    // `max - rad`, the disk's far corner is `sqrt(2)·(0.80 - rad)` away, which
+    // has to stay above `rad`. At 0.70 / 0.21 the corner sat *inside* the
+    // circle.
+    let side = r.width().min(r.height()) * 0.62;
+    let body = Rect::from_min_size(r.min, Vec2::splat(side));
+
+    // The disk itself.
+    out.push(Shape::rect_stroke(body, 3.0, s, egui::StrokeKind::Middle));
+
+    // Shutter, and the hub slot inside it.
+    let shutter = Rect::from_min_max(
+        Pos2::new(body.min.x + side * 0.20, body.min.y),
+        Pos2::new(body.min.x + side * 0.74, body.min.y + side * 0.34),
     );
-    out.push(Shape::rect_stroke(bot, 0.0, s, egui::StrokeKind::Middle));
-    let notch = Rect::from_min_size(
-        Pos2::new(r.max.x - r.width() * 0.38, r.min.y + 2.0),
-        Vec2::new(r.width() * 0.25, r.height() * 0.30),
+    out.push(Shape::rect_stroke(shutter, 2.0, s, egui::StrokeKind::Middle));
+    let slot = Rect::from_min_max(
+        Pos2::new(body.min.x + side * 0.50, body.min.y + side * 0.07),
+        Pos2::new(body.min.x + side * 0.63, body.min.y + side * 0.26),
     );
-    out.push(Shape::rect_stroke(
-        notch,
-        0.0,
-        Stroke::new(1.4, c),
-        egui::StrokeKind::Middle,
-    ));
-    let mid_x = r.center().x - 1.0;
+    out.push(Shape::rect_filled(slot, 1.0, c));
+
+    // Label, open at the disk's bottom edge.
+    let label = Rect::from_min_max(
+        Pos2::new(body.min.x + side * 0.16, body.min.y + side * 0.54),
+        Pos2::new(body.max.x - side * 0.16, body.max.y),
+    );
+    out.push(Shape::rect_stroke(label, 1.0, s, egui::StrokeKind::Middle));
+
+    // Download badge.
+    let rad = r.width() * 0.20;
+    let ctr = Pos2::new(r.max.x - rad - 0.5, r.max.y - rad - 0.5);
+    out.push(Shape::circle_stroke(ctr, rad, s));
+    let tip = Pos2::new(ctr.x, ctr.y + rad * 0.50);
     out.push(Shape::line_segment(
-        [
-            Pos2::new(mid_x, r.min.y + 4.0),
-            Pos2::new(mid_x, bot.min.y - 2.0),
-        ],
+        [Pos2::new(ctr.x, ctr.y - rad * 0.52), tip],
         s,
     ));
     out.push(Shape::line_segment(
-        [
-            Pos2::new(mid_x - 3.0, bot.min.y - 5.0),
-            Pos2::new(mid_x, bot.min.y - 2.0),
-        ],
+        [tip, Pos2::new(ctr.x - rad * 0.38, ctr.y + rad * 0.06)],
         s,
     ));
     out.push(Shape::line_segment(
-        [
-            Pos2::new(mid_x + 3.0, bot.min.y - 5.0),
-            Pos2::new(mid_x, bot.min.y - 2.0),
-        ],
+        [tip, Pos2::new(ctr.x + rad * 0.38, ctr.y + rad * 0.06)],
         s,
     ));
 }
@@ -11473,6 +11484,64 @@ pub(crate) fn target_preset_size(name: &str) -> Option<(u32, u32)> {
 // capture the emitted `Shape`s, and assert that properties actually affect what
 // is painted. Phase 2 (runtime/interactive: typed grid cells, calendar popup,
 // animations) is covered separately via egui_kittest.
+#[cfg(test)]
+mod save_icon_tests {
+    use super::*;
+
+    /// The download badge must not eat into the disk.
+    ///
+    /// An icon function gets only the foreground colour, so it cannot paint a
+    /// gap behind the badge; if the circle reaches the disk the two outlines
+    /// cross and the icon turns to mush at 30 px. The first cut of this drawing
+    /// had exactly that bug — the disk's corner sat well inside the circle — and
+    /// it is invisible in a build, so it is pinned here.
+    #[test]
+    fn the_badge_clears_the_disk() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::splat(30.0));
+
+        let side = r.width().min(r.height()) * 0.62;
+        let body = Rect::from_min_size(r.min, Vec2::splat(side));
+        let rad = r.width() * 0.20;
+        let ctr = Pos2::new(r.max.x - rad - 0.5, r.max.y - rad - 0.5);
+
+        // Nearest point of the (square) disk to the badge centre is its far
+        // corner, since the centre lies beyond the disk on both axes.
+        assert!(ctr.x > body.max.x && ctr.y > body.max.y);
+        let d = ((ctr.x - body.max.x).powi(2) + (ctr.y - body.max.y).powi(2)).sqrt();
+        assert!(
+            d > rad,
+            "the badge (r={rad:.2}) overlaps the disk: corner is {d:.2} away"
+        );
+
+        // And both stay inside the cell they were given.
+        assert!(body.max.x <= r.max.x && body.max.y <= r.max.y);
+        assert!(ctr.x + rad <= r.max.x && ctr.y + rad <= r.max.y);
+    }
+
+    /// The drawing emits the parts the icon is made of, and nothing is empty.
+    #[test]
+    fn the_icon_draws_disk_shutter_label_and_badge() {
+        let mut out = Vec::new();
+        icon_save(
+            &mut out,
+            Rect::from_min_size(Pos2::ZERO, Vec2::splat(30.0)),
+            Color32::BLACK,
+        );
+        let circles = out
+            .iter()
+            .filter(|s| matches!(s, Shape::Circle(_)))
+            .count();
+        let rects = out.iter().filter(|s| matches!(s, Shape::Rect(_))).count();
+        let lines = out
+            .iter()
+            .filter(|s| matches!(s, Shape::LineSegment { .. }))
+            .count();
+        assert_eq!(circles, 1, "one badge circle");
+        assert_eq!(rects, 4, "disk, shutter, hub slot, label");
+        assert_eq!(lines, 3, "the arrow: stem plus two barbs");
+    }
+}
+
 #[cfg(test)]
 mod form_resize_tests {
     use super::*;

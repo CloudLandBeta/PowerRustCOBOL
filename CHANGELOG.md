@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.17] — 2026-08-06
+
+### Fixed
+
+- **The Form Designer's Save icon was a scribble.** The disk outline, its label
+  and a download arrow were all drawn on top of one another inside a 30 px cell,
+  so the arrow crossed the label and the whole thing read as a smudge. It is now
+  a floppy disk in the upper-left with the download arrow on a badge in the
+  bottom-right corner, clear of the disk.
+
+  The badge has to stay clear: an icon routine is handed only the foreground
+  colour, so it cannot paint a gap behind itself, and two crossing outlines are
+  illegible at this size. The clearance is now a geometric invariant with a test
+  behind it — the first attempt put the disk's corner well inside the badge, and
+  that kind of mistake does not show up in a build.
+
 ## [PowerRustCOBOL 1.60.16] — 2026-08-06
 
 ### Fixed
