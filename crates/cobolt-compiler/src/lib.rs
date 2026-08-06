@@ -202,6 +202,32 @@ fn default_debug_compilation() -> bool {
     true
 }
 
+/// Where a build installs the deliverable when the project does not choose.
+pub const DEFAULT_DESTINATION_FOLDER: &str = "dist";
+
+impl ProjectMeta {
+    /// The folder this build installs into — never empty.
+    ///
+    /// Before 1.60.27 the default was the project's own NAME, written into
+    /// every `.project.toml` at creation. That is not a choice anyone made, so
+    /// it is treated as unset: those projects deliver into `dist/` like new
+    /// ones, instead of into a folder that reads as a second copy of the
+    /// project while the scaffolded `dist/` stays empty. A destination the
+    /// developer actually picked — anything other than the project name — is
+    /// always honoured.
+    fn destination_folder_or_default(&self) -> &str {
+        let chosen = self.destination_folder.trim();
+        if chosen.is_empty() {
+            return DEFAULT_DESTINATION_FOLDER;
+        }
+        let legacy_default = self.name.strip_suffix(".project").unwrap_or(&self.name);
+        if chosen.eq_ignore_ascii_case(legacy_default) {
+            return DEFAULT_DESTINATION_FOLDER;
+        }
+        chosen
+    }
+}
+
 #[derive(Deserialize, Default)]
 struct ProjectFiles {
     #[serde(default)]
@@ -1036,18 +1062,10 @@ fn build_core(
     }
 
     // ── 11c. Copy to destination folder ───────────────────────────────────────
-    // Unset → `dist/`, the conventional name for the deliverable and the folder
-    // the project scaffold already creates. It used to fall back to the
-    // project's own name, which produced a folder that looked like a second
-    // copy of the project while the scaffolded `dist/` stayed empty.
-    let dest_name = {
-        let d = proj.project.destination_folder.trim();
-        if d.is_empty() {
-            "dist".to_string()
-        } else {
-            d.to_string()
-        }
-    };
+    // `dist/` unless the developer chose otherwise — see
+    // `destination_folder_or_default`, which also treats the pre-1.60.27
+    // auto-default (the project's own name) as unset.
+    let dest_name = proj.project.destination_folder_or_default().to_string();
 
     let dest_path = if Path::new(&dest_name).is_absolute() {
         PathBuf::from(&dest_name)

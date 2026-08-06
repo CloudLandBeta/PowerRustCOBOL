@@ -475,13 +475,23 @@ pub const DEFAULT_DESTINATION_FOLDER: &str = "dist";
 
 impl ProjectMeta {
     /// The folder a build installs into — never empty.
+    ///
+    /// Before 1.60.27 the default was the project's own NAME, written into
+    /// every `.project.toml` at creation. That is not a choice anyone made, so
+    /// it is treated as unset and those projects deliver into `dist/` like new
+    /// ones. A destination the developer actually picked — anything other than
+    /// the project name — is always honoured. Mirrors the compiler's copy;
+    /// both must answer "where does this build go" the same way.
     pub fn destination_folder_or_default(&self) -> &str {
-        let d = self.destination_folder.trim();
-        if d.is_empty() {
-            DEFAULT_DESTINATION_FOLDER
-        } else {
-            d
+        let chosen = self.destination_folder.trim();
+        if chosen.is_empty() {
+            return DEFAULT_DESTINATION_FOLDER;
         }
+        let legacy_default = self.name.strip_suffix(".project").unwrap_or(&self.name);
+        if chosen.eq_ignore_ascii_case(legacy_default) {
+            return DEFAULT_DESTINATION_FOLDER;
+        }
+        chosen
     }
 
     /// Parse `version` into `(major, minor, fix)`, tolerating missing parts.
@@ -1800,5 +1810,34 @@ mod destination_folder_tests {
 
         p.project.destination_folder = String::new();
         assert_eq!(p.project.destination_folder_or_default(), "dist");
+    }
+
+    /// A project carrying the OLD auto-default — its own name — delivers into
+    /// `dist/` too. That value was written by the scaffold, not chosen, and
+    /// leaving it in place would have made every existing project keep
+    /// shipping into `<project>/<project>/` while `dist/` sat empty.
+    #[test]
+    fn the_legacy_project_name_default_is_treated_as_unset() {
+        let mut p = CoboltProject::new("RustDemo.project", "main.cbl");
+
+        p.project.destination_folder = "RustDemo".to_string();
+        assert_eq!(p.project.destination_folder_or_default(), "dist");
+
+        // Case-insensitively, since the folder on disk may differ in case.
+        p.project.destination_folder = "rustdemo".to_string();
+        assert_eq!(p.project.destination_folder_or_default(), "dist");
+
+        // A project whose name has no `.project` suffix behaves the same.
+        p.project.name = "Payroll".to_string();
+        p.project.destination_folder = "Payroll".to_string();
+        assert_eq!(p.project.destination_folder_or_default(), "dist");
+
+        // But a genuinely chosen folder is still honoured, even one that only
+        // resembles the project name.
+        p.project.destination_folder = "Payroll-release".to_string();
+        assert_eq!(
+            p.project.destination_folder_or_default(),
+            "Payroll-release"
+        );
     }
 }
