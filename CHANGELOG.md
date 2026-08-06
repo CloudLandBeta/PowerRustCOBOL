@@ -1,5 +1,56 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.15] — 2026-08-06
+
+### Added
+
+- **An `EXEC RUST` block can open a window of its own.** A new `cobolt_windows`
+  module is in scope in every block of a program that has forms or blocks:
+
+  ```cobol
+       EXEC RUST
+       let picked = std::sync::Arc::new(std::sync::Mutex::new(0_i64));
+       let out = picked.clone();
+       let win = cobolt_windows::open(
+           "pick-a-number",
+           eframe::egui::ViewportBuilder::default().with_title("Pick"),
+           move |ui, _class| {
+               ui.horizontal(|ui| {
+                   for n in [1_i64, 2_i64] {
+                       if ui.button(n.to_string()).clicked() {
+                           *out.lock().unwrap() = n;
+                       }
+                   }
+               });
+           },
+       );
+       win.wait();
+       cobolt_objects.set_property("Label-1", "Caption",
+                                   picked.lock().unwrap().to_string());
+       END-EXEC.
+  ```
+
+  `open` returns a handle with `is_open`, `close` and `wait`; `wait` parks the
+  handler until the operator closes the window, which is safe because the
+  interpreter has its own thread and the form keeps painting. There are also
+  free `cobolt_windows::is_open(id)` and `close(id)`.
+
+  **Why a registration and not an `egui::Context` in the block.** `Context` is
+  `Send + Sync` and would travel to the interpreter's thread without complaint,
+  but `show_viewport_deferred` has to be called on the UI thread *every frame the
+  window should exist* — egui marks the viewport used for the current pass and
+  drops it otherwise, and where viewports are embedded the callback runs
+  immediately, inside a frame. A block runs once, off the main thread, and can
+  satisfy neither condition. So the block registers what to draw and the form
+  application replays it each frame. The drawing closure runs on the UI thread,
+  so state is shared with the block through an `Arc<Mutex<..>>` — the same shape
+  egui's own viewport documentation prescribes.
+
+  In a program with no form there is nothing to paint the window, and `open`
+  says so rather than registering into the void. Console programs keep
+  `eframe::run_native`, which works there because the interpreter owns the main
+  thread.
+
 ## [PowerRustCOBOL 1.60.14] — 2026-08-06
 
 ### Fixed

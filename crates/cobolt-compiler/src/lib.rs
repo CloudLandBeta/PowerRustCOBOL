@@ -808,7 +808,7 @@ fn build_core(
         }
     }
 
-    let blocks = exec_rust::generate(&program, &sem.symbols, main_src);
+    let blocks = exec_rust::generate(&program, &sem.symbols, main_src, has_forms);
     if blocks.block_count > 0 || blocks.item_count > 0 {
         log(&format!(
             "   {} EXEC RUST block(s), {} item-level block(s)",
@@ -1504,6 +1504,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         // interpreter per process means one object bridge, so every block —
         // including one in a form event handler — sees the same state.
         interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
+        // A form is painting, so a block may open a window of its own. Set
+        // before the first block can run: `open` refuses when nothing will
+        // paint, which is the honest answer in a console program.
+        crate::exec_rust_blocks::cobolt_windows::set_painter_ready();
         interp.set_input_channel(input_rx);
         // This thread IS the program. If it stops, the window keeps painting
         // while every later click is dropped — the application looks alive and
@@ -1625,6 +1629,12 @@ impl eframe::App for FormApp {
         // Liquid Glass here, so the shipped app looked nothing like the design.
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
+
+        // Windows opened by an EXEC RUST block. Replayed every frame because
+        // that is what `show_viewport_deferred` requires: miss a frame and the
+        // window closes. A block cannot do this itself — it runs once, on the
+        // interpreter's thread.
+        crate::exec_rust_blocks::cobolt_windows::show_all(ctx);
 
         // Apply property changes coming from the COBOL interpreter. COBOL
         // upper-cases control ids, so resolve each to the designer-case state
@@ -2115,8 +2125,9 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
 - **Crates**: `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. A `use` of anything else is rejected, naming the crate.
 - **eframe here is 0.35.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
-- **`eframe::run_native` CANNOT be called from a form's event handler — and since 1.60.14 the BUILD REJECTS IT.** A project with forms whose block calls `run_native` (or `EventLoop::new`) fails to build, reported at the developer's own line and column. Why it cannot work: a form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Before the build-time rejection the result was no window, no error, no output — the handler appeared to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread, and is not rejected there.
+- **`eframe::run_native` CANNOT be called from a form's event handler — and since 1.60.14 the BUILD REJECTS IT.** A project with forms whose block calls `run_native` (or `EventLoop::new`) fails to build, reported at the developer's own line and column. **To open a window from a handler use `cobolt_windows::open` instead** (see below) — that is the supported route, and the error says so. Why `run_native` cannot work: a form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Before the build-time rejection the result was no window, no error, no output — the handler appeared to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread, and is not rejected there.
 - **A block CAN change a control, through `cobolt_objects`.** Write the property and the window repaints when the block returns: `cobolt_objects.set_property("LABEL-1", "Caption", "Done");`. Property names are case-insensitive. ⚠️ **This did not work before 1.60.14**: block execution had no channel to the window, so the write landed in the registry and the form never showed it. Do not repeat the old advice to reach for `COBOL-SET-PROPERTY` *because* the block route is broken — it is not broken any more, though `COBOL-SET-PROPERTY` remains correct and unchanged. **Always use `set_property`; never advise `cobolt_objects.get_mut("X").unwrap()`** — a running form registers a control on first write, so `get_mut` returns `None` for one not yet written and the `unwrap` panics. For the same reason a block cannot READ a control's designed value, only one it set itself: to read what the operator typed, use `TextBox-1::Text` in COBOL and pass the item into the block.
+- **A block CAN open its own window, with `cobolt_windows` (1.60.15+).** This is the supported answer to "open a dialog from a handler", and it replaces every older workaround. `cobolt_windows::open(id, builder, ui)` takes an id, an `eframe::egui::ViewportBuilder`, and the closure that draws the window; it returns a handle with `wait()` (parks the handler until the operator closes it), `is_open()` and `close()`. Free functions `cobolt_windows::is_open(id)` / `close(id)` do the same by id. Re-opening a live id replaces what it draws. The drawing closure runs on the **UI thread** and must be `Send + Sync + 'static`, so share state with the block through an `Arc<Mutex<..>>` — that is how the chosen value gets back. `wait()` is safe: the interpreter has its own thread, so the form keeps painting while the handler waits. **Forms only** — with no form there is nothing painting, and `open` panics with that explanation (a catchable `RUST-EXCEPTION`) rather than registering a window that never appears; a console program still uses `eframe::run_native`. Never claim the block is given an `egui::Context`: it is not, and the reason is not `Send`ness — `show_viewport_deferred` must be called on the UI thread every frame the window exists, which a once-through block on a worker thread cannot do, so it registers what to draw and the form application replays it.
 - A block may appear **anywhere a statement may**, including inside `IF`, `EVALUATE`, `PERFORM`, `ON SIZE ERROR`, `INVALID KEY`, `AT END` and `TRY … END-TRY` — the last being where a block goes when its failure should be caught.
 - A block that is *not* built cannot run: an unregistered block is a hard error naming its id, never a silent no-op.
 
@@ -3859,7 +3870,10 @@ mod resolve_main_tests {
         let empty_symbols = cobolt_semantic::symbol_table::SymbolTable::build(&empty);
         std::fs::write(
             dir.join("src/exec_rust_blocks.rs"),
-            exec_rust::generate(&empty, &empty_symbols, "").source,
+            // `has_forms = true`, to match the `main.rs` above: a form
+            // application calls into `cobolt_windows` every frame, so the module
+            // has to be emitted even though this fixture has no blocks.
+            exec_rust::generate(&empty, &empty_symbols, "", true).source,
         )
         .unwrap();
 
@@ -3934,7 +3948,7 @@ mod resolve_main_tests {
         gz.write_all(&ast_bytes).unwrap();
         fs::write(dir.join("assets/program.bin"), gz.finish().unwrap()).unwrap();
 
-        let blocks = exec_rust::generate(&program, &sem.symbols, cobol);
+        let blocks = exec_rust::generate(&program, &sem.symbols, cobol, false);
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
@@ -3943,7 +3957,15 @@ mod resolve_main_tests {
         .unwrap();
         fs::write(
             dir.join("Cargo.toml"),
-            generate_cargo_toml(bin, "0.1.0", &crates_path, false),
+            // Linked exactly as `build_core` does it: any block pulls in the GUI
+            // crates, which is what lets a block open a window. Hardcoding
+            // `false` here made this harness disagree with the real build.
+            generate_cargo_toml(
+                bin,
+                "0.1.0",
+                &crates_path,
+                blocks.block_count > 0 || blocks.item_count > 0,
+            ),
         )
         .unwrap();
 
@@ -4102,11 +4124,8 @@ mod resolve_main_tests {
         let mut gz = GzEncoder::new(Vec::new(), Compression::best());
         gz.write_all(&bincode::serialize(&program).unwrap()).unwrap();
         fs::write(dir.join("assets/program.bin"), gz.finish().unwrap()).unwrap();
-        fs::write(
-            dir.join("src/exec_rust_blocks.rs"),
-            exec_rust::generate(&program, &sem.symbols, cobol).source,
-        )
-        .unwrap();
+        let blocks = exec_rust::generate(&program, &sem.symbols, cobol, false);
+        fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
             generate_main_rs(bin, "0.1.0", false, &[], &[], ""),
@@ -4114,7 +4133,13 @@ mod resolve_main_tests {
         .unwrap();
         fs::write(
             dir.join("Cargo.toml"),
-            generate_cargo_toml(bin, "0.1.0", &workspace_root.join("crates"), false),
+            // As `build_core` links it — a block brings the GUI crates with it.
+            generate_cargo_toml(
+                bin,
+                "0.1.0",
+                &workspace_root.join("crates"),
+                blocks.block_count > 0 || blocks.item_count > 0,
+            ),
         )
         .unwrap();
         let target_dir = workspace_root.join("target");
@@ -4553,7 +4578,7 @@ mod resolve_main_tests {
         .program
         .expect("the fixture should parse");
         let symbols = cobolt_semantic::symbol_table::SymbolTable::build(&program);
-        let blocks = exec_rust::generate(&program, &symbols, cobol);
+        let blocks = exec_rust::generate(&program, &symbols, cobol, false);
 
         let developer_line = blocks
             .source

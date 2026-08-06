@@ -96,6 +96,165 @@ impl GeneratedBlocks {
     }
 }
 
+// ── Block-owned windows ──────────────────────────────────────────────────────
+
+/// The `cobolt_windows` module emitted alongside a program's blocks.
+///
+/// Emitted when the program has forms or any block — exactly when the generated
+/// manifest links the GUI crates this module names.
+///
+/// Why a registry and not an `egui::Context` handed to the block: `Context` is
+/// `Send + Sync` and would travel to the interpreter's worker thread perfectly
+/// well, but `show_viewport_deferred` has to be called **on the UI thread, every
+/// frame the window should exist** — egui marks the viewport used for the
+/// current pass and drops it otherwise, and when viewports are embedded the
+/// callback runs immediately, inside a frame. A block runs once, off the main
+/// thread, so it cannot satisfy either condition. It registers what to draw
+/// instead, and the form application replays the registration each frame.
+const COBOLT_WINDOWS_MODULE: &str = r##"
+/// Windows opened by an `EXEC RUST` block.
+///
+/// A block registers what to draw; the form application paints it every frame.
+/// The drawing closure runs on the UI thread, so share state with the block
+/// through an `Arc<Mutex<..>>`, as egui's own viewport documentation prescribes.
+pub mod cobolt_windows {
+    use eframe::egui;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    type UiFn = Arc<dyn Fn(&mut egui::Ui, egui::ViewportClass) + Send + Sync>;
+
+    struct Entry {
+        id: String,
+        builder: egui::ViewportBuilder,
+        ui: UiFn,
+        open: Arc<AtomicBool>,
+    }
+
+    static REGISTRY: OnceLock<Mutex<Vec<Entry>>> = OnceLock::new();
+    static PAINTER_READY: AtomicBool = AtomicBool::new(false);
+
+    fn registry() -> &'static Mutex<Vec<Entry>> {
+        REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    /// Called by the generated form application before the interpreter starts.
+    pub fn set_painter_ready() {
+        PAINTER_READY.store(true, Ordering::SeqCst);
+    }
+
+    /// A window opened from a block.
+    pub struct Handle {
+        open: Arc<AtomicBool>,
+    }
+
+    impl Handle {
+        /// `true` until the operator closes the window, or `close` is called.
+        pub fn is_open(&self) -> bool {
+            self.open.load(Ordering::SeqCst)
+        }
+
+        /// Close the window.
+        pub fn close(&self) {
+            self.open.store(false, Ordering::SeqCst);
+        }
+
+        /// Wait for the window to close, then return.
+        ///
+        /// Safe to call from a block: the interpreter has a thread of its own,
+        /// so the form keeps painting and stays responsive while this waits.
+        pub fn wait(&self) {
+            while self.open.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+        }
+    }
+
+    /// Open a window, drawn by `ui` on the UI thread for as long as it lives.
+    ///
+    /// Opening an `id` that is already open replaces what that window draws.
+    ///
+    /// Panics — and so raises a catchable `RUST-EXCEPTION` — in a program with
+    /// no form, where nothing exists to paint it.
+    pub fn open(
+        id: &str,
+        builder: egui::ViewportBuilder,
+        ui: impl Fn(&mut egui::Ui, egui::ViewportClass) + Send + Sync + 'static,
+    ) -> Handle {
+        assert!(
+            PAINTER_READY.load(Ordering::SeqCst),
+            "cobolt_windows::open needs a form to paint the window, and this \
+             program has none. In a console program call eframe::run_native \
+             instead, which owns the main thread there."
+        );
+        let open = Arc::new(AtomicBool::new(true));
+        let mut reg = registry().lock().unwrap();
+        reg.retain(|e| e.id != id);
+        reg.push(Entry {
+            id: id.to_owned(),
+            builder,
+            ui: Arc::new(ui),
+            open: Arc::clone(&open),
+        });
+        Handle { open }
+    }
+
+    /// `true` while a window with this id is open.
+    pub fn is_open(id: &str) -> bool {
+        registry()
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e.id == id && e.open.load(Ordering::SeqCst))
+    }
+
+    /// Close a window by id. Does nothing if no such window is open.
+    pub fn close(id: &str) {
+        for e in registry().lock().unwrap().iter() {
+            if e.id == id {
+                e.open.store(false, Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// Paint every open window. Called once per frame by the form application.
+    pub fn show_all(ctx: &egui::Context) {
+        // Copied out before painting so that a block reached from the UI thread
+        // can open or close a window without deadlocking on the registry.
+        let live: Vec<(String, egui::ViewportBuilder, UiFn, Arc<AtomicBool>)> = {
+            let reg = registry().lock().unwrap();
+            reg.iter()
+                .filter(|e| e.open.load(Ordering::SeqCst))
+                .map(|e| {
+                    (
+                        e.id.clone(),
+                        e.builder.clone(),
+                        Arc::clone(&e.ui),
+                        Arc::clone(&e.open),
+                    )
+                })
+                .collect()
+        };
+        for (id, builder, ui, open) in live {
+            ctx.show_viewport_deferred(
+                egui::ViewportId::from_hash_of(&id),
+                builder,
+                move |u, class| {
+                    if u.ctx().input(|i| i.viewport().close_requested()) {
+                        open.store(false, Ordering::SeqCst);
+                    }
+                    ui(u, class);
+                },
+            );
+        }
+        registry()
+            .lock()
+            .unwrap()
+            .retain(|e| e.open.load(Ordering::SeqCst));
+    }
+}
+"##;
+
 // ── Event-loop calls in a form application (build-time rejection) ────────────
 
 /// A call in a developer's block that would build a second winit event loop.
@@ -168,7 +327,18 @@ pub fn find_event_loop_calls(program: &Program, cobol_source: &str) -> Vec<Event
 /// `cobol_source` is the text the program was parsed from; it is used only to
 /// locate each block's first line exactly. Pass `""` and the mapping falls back
 /// to the statement's own span, which is one line coarser.
-pub fn generate(program: &Program, symbols: &SymbolTable, cobol_source: &str) -> GeneratedBlocks {
+///
+/// `has_forms` decides, together with the block count, whether the
+/// `cobolt_windows` module is emitted: it names `eframe` and `egui`, and the
+/// generated manifest links those exactly when the program has forms or any
+/// block. A form application references the module unconditionally, so it must
+/// be there even for a form with no blocks at all.
+pub fn generate(
+    program: &Program,
+    symbols: &SymbolTable,
+    cobol_source: &str,
+    has_forms: bool,
+) -> GeneratedBlocks {
     let mut e = Emitter::default();
 
     e.line(
@@ -235,6 +405,16 @@ pub fn generate(program: &Program, symbols: &SymbolTable, cobol_source: &str) ->
 
     for (block_id, source, span, bindings) in &blocks {
         emit_block(&mut e, cobol_source, *block_id, source, *span, bindings);
+    }
+
+    // ── Block-owned windows ──────────────────────────────────────────────────
+    // Emitted exactly when the generated manifest links the GUI crates this
+    // module names — forms, or any block.
+    if has_forms || item_count > 0 || !blocks.is_empty() {
+        for l in COBOLT_WINDOWS_MODULE.lines() {
+            e.line(l);
+        }
+        e.line("");
     }
 
     // ── The dispatch table (R2) ──────────────────────────────────────────────
@@ -640,7 +820,7 @@ mod tests {
         );
         let program = parsed.program.expect("the fixture should parse");
         let symbols = SymbolTable::build(&program);
-        (generate(&program, &symbols, src), src.to_string())
+        (generate(&program, &symbols, src, false), src.to_string())
     }
 
     /// `run_native` is found in both kinds of block, at the developer's own
@@ -693,6 +873,48 @@ MAIN.
         };
         assert_eq!(found[0].cobol_line, line_of("eframe::run_native"));
         assert_eq!(found[1].cobol_line, line_of("EventLoop::new"));
+    }
+
+    /// `cobolt_windows` is emitted exactly when the GUI crates are linked:
+    /// with forms, or with any block. A console program with neither must not
+    /// get it — nothing would be there for it to name.
+    #[test]
+    fn the_windows_module_follows_the_gui_crates() {
+        const NO_BLOCKS: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. PLAIN.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-N PIC 9(4) VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+"#;
+        let program = parse(tokenize(NO_BLOCKS, SourceFormat::Free))
+            .program
+            .expect("the fixture should parse");
+        let symbols = SymbolTable::build(&program);
+
+        let console = generate(&program, &symbols, NO_BLOCKS, false);
+        assert!(
+            !console.source.contains("pub mod cobolt_windows"),
+            "a console program with no block does not link egui, so the module \
+             must not be emitted"
+        );
+
+        let with_form = generate(&program, &symbols, NO_BLOCKS, true);
+        assert!(
+            with_form.source.contains("pub mod cobolt_windows"),
+            "a form application references the module every frame, so it must be \
+             emitted even when the program has no blocks at all"
+        );
+
+        // And a console program that *does* have a block links the GUI crates.
+        let (blocks, _) = compile(WITH_ITEM_BLOCK);
+        assert!(
+            blocks.source.contains("pub mod cobolt_windows"),
+            "any block links egui, so the module comes with it"
+        );
     }
 
     /// A program with no blocks, and one whose block opens no window, are clean.

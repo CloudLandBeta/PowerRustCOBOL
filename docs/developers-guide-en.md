@@ -2450,6 +2450,73 @@ a control property there and the window is repainted when the block returns:
 > designed value — only one it set itself. To read what the operator typed, use
 > `TextBox-1::Text` in COBOL and pass the item into the block.
 
+### Opening a window from a block
+
+A block can open a window of its own and draw whatever egui it likes in it. Use
+`cobolt_windows`, which is in scope in every block:
+
+```cobol
+       PROCEDURE DIVISION.
+       MAIN.
+           EXEC RUST
+           let picked = std::sync::Arc::new(std::sync::Mutex::new(0_i64));
+           let out = picked.clone();
+
+           let win = cobolt_windows::open(
+               "pick-a-number",
+               eframe::egui::ViewportBuilder::default().with_title("Pick"),
+               move |ui, _class| {
+                   ui.horizontal(|ui| {
+                       for n in [1_i64, 2_i64] {
+                           if ui.button(n.to_string()).clicked() {
+                               *out.lock().unwrap() = n;
+                           }
+                       }
+                   });
+               },
+           );
+
+           win.wait();
+           cobolt_objects.set_property("Label-1", "Caption",
+                                       picked.lock().unwrap().to_string());
+           END-EXEC.
+
+           GOBACK.
+```
+
+`open` takes an id, an `egui::ViewportBuilder` and the closure that draws the
+window. It returns a handle:
+
+| Handle | What it does |
+|--------|--------------|
+| `win.wait()` | Parks the handler until the window closes |
+| `win.is_open()` | `true` while the window is still up |
+| `win.close()` | Closes the window from COBOL's side |
+
+`cobolt_windows::is_open(id)` and `cobolt_windows::close(id)` do the same by id,
+from anywhere. Opening an id that is already open replaces what it draws.
+
+> **`wait()` is safe.** Your handler blocks, but the form does not: the
+> interpreter runs on its own thread, so the window keeps painting and stays
+> responsive while the handler waits.
+
+> **Share state with an `Arc<Mutex<..>>`.** The drawing closure runs on the UI
+> thread, not the handler's, so that is how the two halves talk — exactly as in
+> the example above. It is also why the closure must be `Send + Sync`.
+
+> ⚠️ **Forms only.** In a program with no form there is nothing painting, and
+> `open` tells you so instead of registering a window that never appears. A
+> console program uses `eframe::run_native`, which works there because the
+> interpreter owns the main thread.
+
+**Why you register a closure instead of being handed an `egui::Context`.** The
+`Context` is not the obstacle — it would travel to your handler's thread quite
+happily. The obstacle is that egui's `show_viewport_deferred` must be called
+**on the UI thread, on every frame the window should exist**: it marks the
+viewport as used for the current pass and drops it otherwise. Your block runs
+once, off the main thread, so it cannot do that. It hands over what to draw, and
+the form application replays it every frame on your behalf.
+
 ---
 
 ## 14. Indexed files — a first-class resource
