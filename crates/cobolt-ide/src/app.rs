@@ -8565,6 +8565,16 @@ impl CoboltApp {
 
     /// "This project was last fully built by an older PowerRustCOBOL" — shown
     /// on every Run until a full build actually happens.
+    /// True while the pending stale-build prompt was raised by a still-open
+    /// designer's Run Form — that designer's viewport hosts the prompt, and
+    /// the main window must not render it a second time.
+    fn stale_prompt_hosted_by_open_designer(&self) -> bool {
+        matches!(
+            self.stale_build_prompt.as_ref().map(|p| &p.intent),
+            Some(StaleBuildIntent::RunForm(idx)) if *idx < self.designers.len()
+        )
+    }
+
     fn show_stale_build_prompt(&mut self, ctx: &Context) {
         let Some(prompt) = self.stale_build_prompt.clone() else {
             return;
@@ -8610,6 +8620,14 @@ impl CoboltApp {
             // The full build stamps the project on success; the developer
             // presses Run again once it finishes. Starting the run
             // automatically would race the build they just asked for.
+            // A prompt raised by a designer's Run Form hands the progress
+            // modal to that designer window too, so the whole flow stays
+            // under the operator's eyes.
+            if let StaleBuildIntent::RunForm(idx) = &prompt.intent {
+                if *idx < self.designers.len() {
+                    self.build_modal_host = Some(self.designers[*idx].0.clone());
+                }
+            }
             self.do_build_binary_with(true);
             return;
         }
@@ -10233,9 +10251,10 @@ impl eframe::App for CoboltApp {
         self.show_indexed_grid_viewports(ctx, &tr);
 
         // ── Apply Liquid Glass visuals every frame on the root context ─────────
-        // (preview window calls ctx.set_visuals() on its viewport which in egui
-        //  0.29 is global — re-applying here ensures the IDE shell always looks
-        //  correct even when a preview window is open.)
+        // (the indexed grid viewports above write the shared context style, and
+        //  a theme switch must land immediately — re-applying here keeps the
+        //  IDE shell correct in both cases. The preview window styles only its
+        //  own Ui subtree and no longer touches the context.)
         apply_glass_visuals(ctx, self.current_theme());
         self.glass_visuals_applied = true;
 
@@ -10505,8 +10524,13 @@ impl eframe::App for CoboltApp {
         self.show_proc_delete_confirmation(ctx);
         self.show_form_error(ctx);
         // "Built by an older PowerRustCOBOL" — offered before every Run until
-        // a full build clears it.
-        self.show_stale_build_prompt(ctx);
+        // a full build clears it. A prompt raised by a designer's Run Form is
+        // hosted by THAT designer window (the operator is looking there);
+        // this main window shows it for the toolbar's Run, or as the fallback
+        // when that designer has closed.
+        if !self.stale_prompt_hosted_by_open_designer() {
+            self.show_stale_build_prompt(ctx);
+        }
         // Duplicate COBOL ID / Validation alert — modal.
         self.show_alert_error(ctx);
         // Model benchmark offer/progress/report is global: the worker can finish
@@ -11011,6 +11035,15 @@ impl eframe::App for CoboltApp {
                     {
                         self.show_building_modal(vp_ctx);
                     }
+                    // Same rule for the stale-build prompt this designer's
+                    // Run Form raised: it must appear under the operator's
+                    // eyes, not in the main window behind this one.
+                    if matches!(
+                        self.stale_build_prompt.as_ref().map(|p| &p.intent),
+                        Some(StaleBuildIntent::RunForm(i)) if *i == idx
+                    ) {
+                        self.show_stale_build_prompt(vp_ctx);
+                    }
                 },
             );
         }
@@ -11423,10 +11456,14 @@ impl CoboltApp {
             }
         }
 
-        // ── Apply glass visuals to this preview viewport ──────────────────────
-        // NOTE: egui 0.29 shares visuals globally across all viewports.
-        // We override here for the preview, and show_designer_window re-applies
-        // the IDE glass visuals on every frame to counteract this.
+        // ── Apply glass visuals to this preview's OWN Ui subtree ──────────────
+        // The frosted-glass look must never be written context-wide
+        // (`ctx.set_visuals`): the Context style is shared by every viewport,
+        // so a context write left the IDE shell painting with preview glass —
+        // visibly stripping a neumorphic theme's chrome — for as long as a
+        // preview stayed open, and the shell could only fight back by
+        // re-applying its theme every frame. Scoped to this Ui, the preview
+        // keeps its glass and the rest of the IDE is structurally untouchable.
         // Start from the current IDE glass visuals so we inherit the base
         // colour scheme, then layer in the preview-specific transparency.
         let mut visuals = ctx.global_style().visuals.clone();
@@ -11456,7 +11493,9 @@ impl CoboltApp {
         visuals.panel_fill = Color32::TRANSPARENT;
         visuals.window_fill = Color32::TRANSPARENT;
         visuals.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
-        ctx.set_visuals(visuals);
+        let mut preview_style = (*ctx.global_style()).clone();
+        preview_style.visuals = visuals;
+        panel_ui.set_style(preview_style);
 
         // Read-only snapshot of what the engine's transform hook needs (the form
         // background is now owned by the engine's Backdrop, below).
@@ -12859,9 +12898,9 @@ impl CoboltApp {
             return;
         }
 
-        // Re-apply glass visuals to this designer viewport every frame.
-        // The preview viewport calls ctx.set_visuals() which is globally shared
-        // in egui 0.29, so we must restore them here each frame.
+        // Re-apply the theme to this designer viewport every frame: the
+        // designer window needs the opaque panel fills (no OS bleed-through),
+        // and a theme switch must land immediately.
         apply_opaque_viewport_theme(ctx, self.current_theme());
 
         // ── Unsaved-changes confirmation dialog ───────────────────────────────

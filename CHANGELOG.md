@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.39] — 2026-08-07
+
+### Fixed
+
+- **Opening a form Preview stripped the IDE of its theme until the preview
+  closed.** The preview window wrote its frosted-glass visuals into the egui
+  context that every window shares, so the IDE shell — most visibly a
+  neumorphic theme's soft-relief chrome — painted with preview glass for as
+  long as a preview stayed open, and the shell could only fight back by
+  re-applying its theme every frame. The preview's glass style is now scoped
+  to the preview's own UI subtree: the preview looks exactly as before, and
+  the rest of the IDE is structurally out of its reach.
+- **Run Form's "needs a full rebuild" flow opened its windows in the main IDE
+  window instead of the Form Designer where Run Form was clicked.** The
+  stale-build prompt, and the build-progress modal for the full build it
+  starts, both appeared behind the designer window the operator was actually
+  looking at. Both now render inside the designer that raised them — the
+  same ownership rule the 1.60.22 build modal already follows — with the
+  main window as the fallback if that designer is closed meanwhile. The IDE
+  toolbar's own Run keeps its prompt in the main window, where the operator
+  is.
+
 ## [PowerRustCOBOL 1.60.38] — 2026-08-07
 
 ### Fixed
