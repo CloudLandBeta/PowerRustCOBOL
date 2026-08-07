@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.38] — 2026-08-07
+
+### Fixed
+
+- **The Form Designer's Live Preview window was never restored to 60 frames
+  per second.** During the 1.27.79 "running form pegs an IDE core"
+  investigation, the preview's every-frame repaint was replaced by a flat
+  100 ms heartbeat — 10 frames per second — and stayed that way after the
+  real cause was fixed elsewhere (run-form process isolation, the reactive
+  root loop, exact Timer wake-ups). The preview now uses the same reactive
+  rule as the shared form host: full frame rate while any animation is
+  playing, the slow liveness heartbeat only once everything is still. This
+  also removes a real stutter: the first frame after OnFormLoad animations
+  were seeded advanced no animation (its frame delta is zero), so the flat
+  heartbeat held the opening animation frame back by up to 100 ms. An idle
+  preview still sleeps — restoring the frame rate does not bring back the
+  CPU spin the investigation cured. A code sweep confirmed every other
+  designer surface already runs unthrottled: canvas animation ticks, align/
+  distribute motion, placement effects, drag ghosts and click flashes all
+  request continuous repaints while active, and interaction is repainted at
+  input rate.
+
 ## [PowerRustCOBOL 1.60.37] — 2026-08-07
 
 ### Fixed

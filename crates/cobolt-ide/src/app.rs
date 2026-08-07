@@ -11590,10 +11590,20 @@ impl CoboltApp {
             }
         }
 
-        // Use a conservative heartbeat for the preview viewport. The animation
-        // block inside already advances on dt and only needs repaints during
-        // active entrance animations. This prevents max-FPS CPU spin.
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        // Reactive frame scheduling, the same rule as the shared form host:
+        // full frame rate (16 ms) while any preview animation is playing, a
+        // slow liveness heartbeat once everything is still, so an idle
+        // preview never spins a core. The busy check must run down here, not
+        // rely on the tick above alone: the first frame after OnFormLoad
+        // seeding has dt == 0, so the tick requests nothing and a flat slow
+        // heartbeat would hold the opening animation frame back visibly.
+        let busy = self.designers[idx]
+            .1
+            .preview_anim_states
+            .values()
+            .any(|s| s.playing);
+        let ms = if busy { 16 } else { 100 };
+        ctx.request_repaint_after(std::time::Duration::from_millis(ms));
     }
 }
 
