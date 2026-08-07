@@ -293,9 +293,10 @@ The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fad
   The code editor (when visible) carries a **status bar** along the bottom —
   caret `Ln, Col`, the **Insert/Overwrite** mode (toggle with the `Insert`
   key), a **Trim on save** toggle (strips trailing whitespace when you save),
-  and, for non-Markdown documents, a **Beautify** command (a safe whitespace
-  tidy that never disturbs COBOL's significant columns). Markdown files omit
-  Beautify because COBOL formatting does not apply to them.
+  and, for non-Markdown documents, a **Beautify** command that reformats the
+  COBOL to the layout rules described in *Beautify — the layout rules* below.
+  Markdown files omit Beautify because COBOL formatting does not apply to
+  them.
 
 > 📷 **Screenshot needed — `project-settings-form.png`**. Show the left tree
 > with the root node highlighted (hand cursor), and the main area with the
@@ -3088,6 +3089,45 @@ own, however long the block is. User procedures are
 listed below the sections — **➕ Add** creates one, the name and body are edited
 in the same popup, and 🗑 removes it. Every edit marks the form dirty, so the
 next **Build / Run / Debug / Check** regenerates the `.cbl` with your changes.
+
+### Beautify — the layout rules
+
+Every editor that offers **✨ Beautify** (the code editor tabs, the event
+editor, the COBOL Structure block popups, and the Indexed editor's canonical
+layout) reformats to one set of rules. If you have used a mainframe or
+PowerCOBOL pretty-printer, these will feel familiar:
+
+- **Paragraphs** sit at column 8; **procedure statements** start at column 12.
+- **Level numbers**: `01`/`77`/`78` at column 8, each nesting depth 3 more
+  spaces in (`88`/`66` sit one step under their item).
+- A **data entry occupies one line** — wrapped clauses are joined — and the
+  `PIC` and `VALUE` clauses of consecutive declarations **start on the same
+  column**, so a block of items reads as a table.
+- **Nesting is indented like structured code**, 4 spaces per level;
+  `END-IF`, `END-PERFORM`, `END-TRY`, `ELSE`, `WHEN`, `CATCH` and `FINALLY`
+  align with the verb that opened their scope.
+- **`EXEC … END-EXEC` interiors are never touched** — embedded code keeps
+  its own formatting, byte for byte.
+- Every **`SECTION` header gets one blank line above it** (never two), so
+  the divisions of a long program stay easy to scan.
+- A **missing sentence period** is added only where COBOL requires one
+  (before a paragraph header, before `CATCH`/`FINALLY`, at the end of a data
+  entry followed by the next); an existing period is never doubled.
+- Emitted lines are capped at **256 characters**: an overlong literal splits
+  onto a column-7 continuation line with the remainder re-quoted, anything
+  else wraps at a word boundary.
+
+Clicking Beautify first opens a small dialog with two choices, remembered as
+your defaults: how to case **COBOL verbs** (leave as written / UPPERCASE /
+lowercase / Capitalized — identifiers and literals are never touched), and
+whether **comments** stay exactly as authored or align with the surrounding
+code.
+
+⚠️ **Erroneous code is never beautified.** The code is checked first (whole
+programs through the real compiler front end); if it has errors, a dialog
+lists them and the text is left byte-for-byte untouched — reformatting broken
+code buries the very line you need to fix. And if a result ever surprises
+you, **undo (⌘Z / Ctrl+Z) restores the exact previous text** in one step.
 
 ### GLOBAL, EXTERNAL, and GLOBAL EXTERNAL
 

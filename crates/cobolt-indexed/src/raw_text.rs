@@ -9,19 +9,42 @@
 use crate::structure::{depth_from_level, flatten_record, rebuild_record, FlatEntry};
 use crate::{FieldUsage, IndexedDefinition, IndexedField};
 
-const INDENT: &str = "    ";
-
-/// Serialize record structure as editable COBOL-like text.
+/// Serialize record structure as editable COBOL-like text, in the canonical
+/// layout the IDE's Beautify rules use everywhere (spec 043): the record's
+/// `01` starts at column 8, each nesting depth indents 3 more spaces
+/// (rule 3), and every `PIC` clause starts on one shared column across the
+/// record (rule 5). `parse_record_text` reads trimmed lines, so the columns
+/// are presentation only.
 pub fn record_to_text(def: &IndexedDefinition) -> String {
+    // First pass: the head of each line (indent + level + name), so the PIC
+    // column can be the widest head + 2.
+    let entries = flatten_record(def);
+    let heads: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            let pad = " ".repeat(7 + entry.depth * 3);
+            format!("{pad}{:02} {}", entry.field.level, entry.field.name)
+        })
+        .collect();
+    let pic_col = entries
+        .iter()
+        .zip(&heads)
+        .filter(|(e, _)| e.field.is_leaf() && !e.field.pic.is_empty())
+        .map(|(_, h)| h.chars().count() + 2)
+        .max();
+
     let mut lines = Vec::new();
-    for entry in flatten_record(def) {
-        let pad = INDENT.repeat(entry.depth);
+    for (entry, head) in entries.iter().zip(heads) {
         let f = &entry.field;
-        let mut line = format!("{pad}{:02} {}", f.level, f.name);
+        let mut line = head;
         if f.is_leaf() {
             if !f.pic.is_empty() {
                 // Strip custom-entry marker (if present) so generated raw text / COBOL source is clean.
                 let pic = f.pic.trim_start_matches('\u{200B}');
+                let target = pic_col.unwrap_or(line.chars().count() + 2);
+                while line.chars().count() + 1 < target {
+                    line.push(' ');
+                }
                 line.push_str(&format!(" PIC {}", pic));
             }
             if f.usage != FieldUsage::Display {
@@ -140,12 +163,25 @@ fn insert_missing_pic(rest: &str) -> String {
 
 pub fn parse_record_text(text: &str) -> Result<Vec<FlatEntry>, String> {
     let mut flat = Vec::new();
+    // Depth from indentation via a Python-style indent stack, so any
+    // consistent scheme reads back identically: the legacy 4-space steps,
+    // the canonical column-8 + 3-space layout `record_to_text` emits, or a
+    // hand-typed mix. A deeper indent is one more depth; returning to a
+    // shallower known indent returns to its depth.
+    let mut indent_stack: Vec<usize> = Vec::new();
     for (lineno, raw) in text.lines().enumerate() {
         let line = raw.trim_end();
         if line.trim().is_empty() || line.trim_start().starts_with('*') {
             continue;
         }
-        let depth = raw.chars().take_while(|c| *c == ' ').count() / INDENT.len();
+        let spaces = raw.chars().take_while(|c| *c == ' ').count();
+        while indent_stack.last().is_some_and(|top| *top > spaces) {
+            indent_stack.pop();
+        }
+        if indent_stack.last() != Some(&spaces) {
+            indent_stack.push(spaces);
+        }
+        let depth = indent_stack.len() - 1;
         let mut line_no_comment = line;
         let mut comment = String::new();
         if let Some(pos) = line.find("*>") {

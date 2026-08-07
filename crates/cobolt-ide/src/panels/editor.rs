@@ -26,7 +26,7 @@ pub const EDITOR_FONT_SIZE: f32 = 16.0;
 
 // ── COBOL keyword tables ──────────────────────────────────────────────────────
 
-const VERBS: &[&str] = &[
+pub(crate) const VERBS: &[&str] = &[
     "MOVE",
     "ADD",
     "SUBTRACT",
@@ -123,7 +123,7 @@ const VERBS: &[&str] = &[
     "RAISE",
 ];
 
-const DIVISION_KEYWORDS: &[&str] = &[
+pub(crate) const DIVISION_KEYWORDS: &[&str] = &[
     "IDENTIFICATION",
     "ENVIRONMENT",
     "DATA",
@@ -155,7 +155,7 @@ const DIVISION_KEYWORDS: &[&str] = &[
     "SD",
 ];
 
-const DATA_KEYWORDS: &[&str] = &[
+pub(crate) const DATA_KEYWORDS: &[&str] = &[
     "PIC",
     "PICTURE",
     "COMP",
@@ -195,7 +195,7 @@ const DATA_KEYWORDS: &[&str] = &[
 /// storage, conditional-expression and program attributes). PowerRustCOBOL
 /// supports the COBOL-2002 subset used by the Rust-FFI bridge and form modules;
 /// these are offered for completion and treated as reserved by the beautifier.
-const COBOL2002_KEYWORDS: &[&str] = &[
+pub(crate) const COBOL2002_KEYWORDS: &[&str] = &[
     // Object orientation
     "CLASS",
     "CLASS-ID",
@@ -1065,6 +1065,16 @@ pub struct EditorPanel {
     overwrite: bool,
     /// Trim trailing whitespace from every line when saving.
     pub trim_on_save: bool,
+
+    // ── Beautify (spec 043) ──────────────────────────────────────────────────
+    /// The options modal is showing (rule 10 — every Beautify confirms its
+    /// verb-casing and comment choices first).
+    beautify_modal_open: bool,
+    /// Rule 8: the findings that blocked the last Beautify (non-empty ⇒ the
+    /// warning dialog is showing and the text was left untouched).
+    beautify_errors: Vec<String>,
+    beautify_verb_case: crate::panels::beautify::VerbCase,
+    beautify_align_comments: bool,
 }
 
 impl Default for EditorPanel {
@@ -1096,6 +1106,10 @@ impl Default for EditorPanel {
             cur_col: 1,
             overwrite: false,
             trim_on_save: true,
+            beautify_modal_open: false,
+            beautify_errors: Vec::new(),
+            beautify_verb_case: crate::panels::beautify::VerbCase::Upper,
+            beautify_align_comments: false,
         }
     }
 }
@@ -1901,20 +1915,121 @@ impl EditorPanel {
         Ok(())
     }
 
-    /// "Beautify" the active tab: a conservative whitespace tidy that never
-    /// touches COBOL area-A/B alignment — trim trailing spaces, collapse runs of
-    /// blank lines, and end with a single newline.
+    /// Beautify the active tab with the current options (spec 043). Erroneous
+    /// code is left untouched and the findings surface in the warning dialog
+    /// (rule 8); undo restores the previous text (rule 11 — the text widget
+    /// records the replacement as one undo step).
     pub fn beautify_active(&mut self) {
+        let opts = crate::panels::beautify::BeautifyOptions {
+            verb_case: self.beautify_verb_case,
+            align_comments: self.beautify_align_comments,
+        };
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
         if tab.read_only || tab.is_markdown() {
             return;
         }
-        let tidy = beautify_cobol(&tab.content);
-        if tidy != tab.content {
-            tab.content = tidy;
-            tab.dirty = true;
+        match crate::panels::beautify::beautify_with_rules(&tab.content, &opts) {
+            crate::panels::beautify::Beautified::Formatted(tidy) => {
+                if tidy != tab.content {
+                    tab.content = tidy;
+                    tab.dirty = true;
+                }
+            }
+            crate::panels::beautify::Beautified::Rejected(errors) => {
+                self.beautify_errors = errors;
+            }
+        }
+    }
+
+    /// Rule 10: the ✨ Beautify click opens the options modal (verb casing,
+    /// comment alignment), seeded from the machine-local preferences.
+    fn open_beautify_modal(&mut self) {
+        let (verbs, align) = crate::ui_prefs::load_beautify();
+        self.beautify_verb_case = verbs;
+        self.beautify_align_comments = align;
+        self.beautify_modal_open = true;
+    }
+
+    /// The two Beautify dialogs: the options confirmation (rule 10) and the
+    /// rule-8 "code has errors" warning. Rendered from the status row so every
+    /// surface hosting an `EditorPanel` gets them.
+    fn render_beautify_modals(&mut self, ui: &mut egui::Ui) {
+        use crate::panels::beautify::VerbCase;
+        if !self.beautify_modal_open && self.beautify_errors.is_empty() {
+            return;
+        }
+        let tr = crate::i18n::current_tr(ui.ctx());
+        if self.beautify_modal_open {
+            let mut run = false;
+            let mut cancel = false;
+            egui::Modal::new(egui::Id::new(("beautify_options", &self.ui_id_salt))).show(
+                ui.ctx(),
+                |ui| {
+                    ui.set_width(380.0);
+                    ui.heading(tr.bt_title);
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(tr.bt_verbs).strong());
+                    ui.radio_value(&mut self.beautify_verb_case, VerbCase::Leave, tr.bt_verbs_leave);
+                    ui.radio_value(&mut self.beautify_verb_case, VerbCase::Upper, tr.bt_verbs_upper);
+                    ui.radio_value(&mut self.beautify_verb_case, VerbCase::Lower, tr.bt_verbs_lower);
+                    ui.radio_value(&mut self.beautify_verb_case, VerbCase::Capitalize, tr.bt_verbs_cap);
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(tr.bt_comments).strong());
+                    ui.radio_value(&mut self.beautify_align_comments, false, tr.bt_comments_leave);
+                    ui.radio_value(&mut self.beautify_align_comments, true, tr.bt_comments_align);
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.bt_apply).clicked() {
+                            run = true;
+                        }
+                        if ui.button(tr.close_cancel).clicked() {
+                            cancel = true;
+                        }
+                    });
+                },
+            );
+            if run {
+                self.beautify_modal_open = false;
+                crate::ui_prefs::save_beautify(self.beautify_verb_case, self.beautify_align_comments);
+                self.beautify_active();
+            }
+            if cancel {
+                self.beautify_modal_open = false;
+            }
+        }
+        if !self.beautify_errors.is_empty() {
+            let mut close = false;
+            egui::Modal::new(egui::Id::new(("beautify_errors", &self.ui_id_salt))).show(
+                ui.ctx(),
+                |ui| {
+                    ui.set_width(480.0);
+                    ui.heading(tr.bt_err_title);
+                    ui.add_space(6.0);
+                    ui.label(tr.bt_err_intro);
+                    ui.add_space(4.0);
+                    for e in self.beautify_errors.iter().take(12) {
+                        ui.label(egui::RichText::new(e).monospace().size(12.5));
+                    }
+                    if self.beautify_errors.len() > 12 {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "… +{}",
+                                self.beautify_errors.len() - 12
+                            ))
+                            .weak(),
+                        );
+                    }
+                    ui.add_space(10.0);
+                    if ui.button(tr.bt_ok).clicked() {
+                        close = true;
+                    }
+                },
+            );
+            if close {
+                self.beautify_errors.clear();
+            }
         }
     }
 
@@ -2716,7 +2831,7 @@ impl EditorPanel {
                 if show_beautify
                     && ui
                         .add_enabled(!read_only, egui::Button::new(txt("✨ Beautify".into())))
-                        .on_hover_text("Tidy whitespace (safe for COBOL columns)")
+                        .on_hover_text("Reformat to the RustCOBOL layout rules")
                         .clicked()
                 {
                     do_beautify = true;
@@ -2729,8 +2844,9 @@ impl EditorPanel {
         });
 
         if do_beautify {
-            self.beautify_active();
+            self.open_beautify_modal();
         }
+        self.render_beautify_modals(ui);
     }
 
     pub fn show(
@@ -3867,191 +3983,8 @@ fn trim_trailing_ws(text: &str) -> String {
     out
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum CobolDiv {
-    Ident,
-    Env,
-    Data,
-    Proc,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum CobolScope {
-    If,
-    Evaluate,
-    When,
-    Perform,
-}
-
-/// **Beautify**: re-format free-format COBOL to the standard column layout.
-///
-///   * comment lines → indicator (`*` / `*>`) in **column 7**,
-///   * divisions, sections, paragraphs and `01`/`77`/`78` items → **Area A**
-///     (column 8),
-///   * PROCEDURE statements and lower-level data items → **Area B** (column 12),
-///   * nested blocks (`IF` / `EVALUATE` / inline `PERFORM`) indented **4 spaces**
-///     per level, honouring scope terminators (`END-…`, `ELSE`, `WHEN`) and the
-///     period that ends a sentence,
-///   * runs of spaces collapsed to one — **except** the gap that separates a
-///     `PIC` clause from its data name (alignment is preserved),
-///   * no fixed-format column-72 limit (free format), trailing blank lines and
-///     consecutive blank lines trimmed.
-fn beautify_cobol(text: &str) -> String {
-    let reserved: std::collections::HashSet<&'static str> = VERBS
-        .iter()
-        .chain(DIVISION_KEYWORDS.iter())
-        .chain(DATA_KEYWORDS.iter())
-        .chain(COBOL2002_KEYWORDS.iter())
-        .copied()
-        .collect();
-
-    let mut out = String::with_capacity(text.len());
-    let mut div = CobolDiv::Ident;
-    let mut scopes: Vec<CobolScope> = Vec::new();
-    let mut data_levels: Vec<u32> = Vec::new();
-    let mut prev_blank = false;
-
-    // Append `content` at 1-based `col` (col-1 leading spaces).
-    fn put(out: &mut String, col: usize, content: &str) {
-        for _ in 1..col {
-            out.push(' ');
-        }
-        out.push_str(content);
-        out.push('\n');
-    }
-    let word_at = |words: &[&str], i: usize| -> String {
-        words
-            .get(i)
-            .map(|w| w.trim_end_matches('.').to_string())
-            .unwrap_or_default()
-    };
-
-    for raw in text.lines() {
-        let t = raw.trim();
-        if t.is_empty() {
-            if !prev_blank {
-                out.push('\n');
-                prev_blank = true;
-            }
-            continue;
-        }
-        prev_blank = false;
-
-        // Full-line comment → indicator in column 7.
-        if t.starts_with("*>") || t.starts_with('*') || t.starts_with('/') {
-            put(&mut out, 7, t);
-            continue;
-        }
-
-        let content = uppercase_reserved_words(&collapse_spaces_keep_pic(t), &reserved);
-        let upper = content.to_ascii_uppercase();
-        let words: Vec<&str> = upper.split_whitespace().collect();
-        let first = words.first().copied().unwrap_or("");
-        let ends_period = content.trim_end().ends_with('.');
-
-        // Division header → Area A, and switch context.
-        if word_at(&words, 1) == "DIVISION"
-            && matches!(
-                first,
-                "IDENTIFICATION" | "ID" | "ENVIRONMENT" | "DATA" | "PROCEDURE"
-            )
-        {
-            put(&mut out, 8, &content);
-            div = match first {
-                "PROCEDURE" => CobolDiv::Proc,
-                "DATA" => CobolDiv::Data,
-                "ENVIRONMENT" => CobolDiv::Env,
-                _ => CobolDiv::Ident,
-            };
-            scopes.clear();
-            continue;
-        }
-
-        // Section header → Area A.
-        if word_at(&words, 1) == "SECTION" {
-            put(&mut out, 8, &content);
-            scopes.clear();
-            continue;
-        }
-
-        match div {
-            CobolDiv::Proc => {
-                // Paragraph header: a lone `name.` that is not a verb.
-                if words.len() == 1
-                    && first.ends_with('.')
-                    && !reserved.contains(first.trim_end_matches('.'))
-                {
-                    put(&mut out, 8, &content);
-                    scopes.clear();
-                    continue;
-                }
-
-                // Dedent-before for terminators / case labels.
-                if first.starts_with("END-") {
-                    if first == "END-EVALUATE" && matches!(scopes.last(), Some(CobolScope::When)) {
-                        scopes.pop(); // close a trailing WHEN body
-                    }
-                    scopes.pop();
-                } else if first == "WHEN" && matches!(scopes.last(), Some(CobolScope::When)) {
-                    scopes.pop(); // close the previous WHEN body
-                }
-
-                let mut level = scopes.len();
-                if first == "ELSE" {
-                    level = level.saturating_sub(1);
-                }
-                put(&mut out, 12 + level * 4, &content);
-
-                // Indent-after for openers (only when the scope continues onto
-                // following lines — no inline terminator and no closing period).
-                if !ends_period {
-                    match first {
-                        "IF" if !upper.contains("END-IF") => scopes.push(CobolScope::If),
-                        "EVALUATE" if !upper.contains("END-EVALUATE") => {
-                            scopes.push(CobolScope::Evaluate)
-                        }
-                        "WHEN" => scopes.push(CobolScope::When),
-                        "PERFORM"
-                            if !upper.contains("END-PERFORM") && is_inline_perform(&words) =>
-                        {
-                            scopes.push(CobolScope::Perform)
-                        }
-                        _ => {}
-                    }
-                }
-                // A period ends the sentence → all in-line scopes close.
-                if ends_period {
-                    scopes.clear();
-                }
-            }
-            CobolDiv::Data => {
-                if matches!(first, "FD" | "SD" | "RD" | "CD") {
-                    data_levels.clear();
-                    put(&mut out, 8, &content);
-                } else if let Some(level) = cobol_leading_level(&content) {
-                    let col = data_level_column(level, &mut data_levels);
-                    put(&mut out, col, &content);
-                } else {
-                    put(&mut out, 12, &content); // a continued clause
-                }
-            }
-            CobolDiv::Env | CobolDiv::Ident => {
-                // Paragraph entries (`PROGRAM-ID.`, `SOURCE-COMPUTER.`, …) sit in
-                // Area A; anything else (a clause) goes to Area B.
-                if first.ends_with('.') {
-                    put(&mut out, 8, &content);
-                } else {
-                    put(&mut out, 12, &content);
-                }
-            }
-        }
-    }
-
-    while out.ends_with("\n\n") {
-        out.pop();
-    }
-    out
-}
+// The line-based beautifier moved to `panels::beautify` (spec 043): one
+// rule-driven engine with an error gate, options, and per-rule tests.
 
 fn insert_auto_indented_newline(text: &mut String, range: egui::text::CCursorRange) -> usize {
     let start_char = range.primary.index.0.min(range.secondary.index.0);
@@ -4163,136 +4096,6 @@ fn first_nonblank_column_indent(text: &str, cursor_byte: usize) -> String {
     line.chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .collect()
-}
-
-fn data_level_column(level: u32, levels: &mut Vec<u32>) -> usize {
-    if matches!(level, 1 | 77 | 78 | 88) {
-        levels.clear();
-        levels.push(level);
-        return 8;
-    }
-    while levels.last().is_some_and(|prev| *prev >= level) {
-        levels.pop();
-    }
-    let col = 8 + levels.len() * 3;
-    levels.push(level);
-    col
-}
-
-fn uppercase_reserved_words(s: &str, reserved: &std::collections::HashSet<&'static str>) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut word = String::new();
-    let mut quote: Option<char> = None;
-
-    let flush_word = |out: &mut String, word: &mut String| {
-        if word.is_empty() {
-            return;
-        }
-        let trailing_period = word.ends_with('.');
-        let core = if trailing_period {
-            &word[..word.len() - 1]
-        } else {
-            word.as_str()
-        };
-        let upper = core.to_ascii_uppercase();
-        if reserved.contains(upper.as_str()) {
-            out.push_str(&upper);
-            if trailing_period {
-                out.push('.');
-            }
-        } else {
-            out.push_str(word);
-        }
-        word.clear();
-    };
-
-    for c in s.chars() {
-        if let Some(q) = quote {
-            flush_word(&mut out, &mut word);
-            out.push(c);
-            if c == q {
-                quote = None;
-            }
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            flush_word(&mut out, &mut word);
-            quote = Some(c);
-            out.push(c);
-        } else if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
-            word.push(c);
-        } else {
-            flush_word(&mut out, &mut word);
-            out.push(c);
-        }
-    }
-    flush_word(&mut out, &mut word);
-    out
-}
-
-/// Collapse runs of 2+ spaces to one, but preserve the gap immediately before a
-/// `PIC` / `PICTURE` clause (data-item alignment) and never touch the contents
-/// of `"…"` / `'…'` string literals.
-fn collapse_spaces_keep_pic(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    let mut out = String::with_capacity(s.len());
-    let mut i = 0;
-    let mut quote: Option<char> = None;
-    while i < chars.len() {
-        let c = chars[i];
-        if let Some(q) = quote {
-            out.push(c);
-            if c == q {
-                quote = None;
-            }
-            i += 1;
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            quote = Some(c);
-            out.push(c);
-            i += 1;
-            continue;
-        }
-        if c == ' ' {
-            let start = i;
-            while i < chars.len() && chars[i] == ' ' {
-                i += 1;
-            }
-            let run = i - start;
-            let rest: String = chars[i..].iter().collect();
-            let next = rest.trim_start().to_ascii_uppercase();
-            let before_pic = next.starts_with("PIC ") || next.starts_with("PICTURE");
-            if before_pic && run > 1 {
-                for _ in 0..run {
-                    out.push(' ');
-                } // keep alignment
-            } else {
-                out.push(' ');
-            }
-            continue;
-        }
-        out.push(c);
-        i += 1;
-    }
-    out
-}
-
-/// The leading level number of a data-description entry (e.g. `01`, `05`, `77`).
-fn cobol_leading_level(s: &str) -> Option<u32> {
-    s.split_whitespace().next()?.parse::<u32>().ok()
-}
-
-/// True when a `PERFORM` opens an *in-line* body (closed by `END-PERFORM`)
-/// rather than calling an out-of-line paragraph.
-fn is_inline_perform(words: &[&str]) -> bool {
-    match words.get(1).copied() {
-        None => true, // bare PERFORM
-        Some("UNTIL") | Some("VARYING") | Some("WITH") | Some("FOREVER") => true,
-        _ => words
-            .last()
-            .map_or(false, |w| w.trim_end_matches('.') == "TIMES"),
-    }
 }
 
 // ── Completion helpers ────────────────────────────────────────────────────────
@@ -5203,6 +5006,21 @@ mod goto_tests {
         assert!(!editor.tabs[0].dirty);
     }
 
+    /// Format with the spec-043 engine at its defaults, panicking on a gate
+    /// rejection (these fixtures are all valid).
+    fn fmt_043(input: &str) -> String {
+        match crate::panels::beautify::beautify_with_rules(
+            input,
+            &crate::panels::beautify::BeautifyOptions::default(),
+        ) {
+            crate::panels::beautify::Beautified::Formatted(s) => s,
+            crate::panels::beautify::Beautified::Rejected(e) => panic!("rejected: {e:?}"),
+        }
+    }
+    fn start_col(line: &str) -> usize {
+        line.chars().take_while(|c| *c == ' ').count() + 1
+    }
+
     #[test]
     fn beautify_indents_to_cobol_columns() {
         let input = "\
@@ -5218,47 +5036,37 @@ DISPLAY \"POS\"
 END-IF
 *> trailing note
 ";
-        let out = beautify_cobol(input);
-        // Area A (col 8 = 7 spaces): divisions, sections, 01 items.
+        let out = fmt_043(input);
+        // Area A (col 8): divisions, sections, 01 items.
         assert!(
             out.starts_with("       ENVIRONMENT DIVISION.\n"),
             "got: {out:?}"
         );
         assert!(out.contains("\n       WORKING-STORAGE SECTION.\n"));
-        assert!(out.contains("\n       01 WS-X PIC 9(4).\n"));
-        assert!(out.contains("\n          05 WS-NAME PIC X(20).\n"));
+        let lines: Vec<&str> = out.lines().collect();
+        let l01 = lines.iter().find(|l| l.contains("01 WS-X")).unwrap();
+        let l05 = lines.iter().find(|l| l.contains("05 WS-NAME")).unwrap();
+        assert_eq!(start_col(l01), 8, "{out}");
+        assert_eq!(start_col(l05), 11, "{out}");
+        // Rule 5: the two PIC clauses share one column.
+        assert_eq!(
+            l01.find("PIC"),
+            l05.find("PIC"),
+            "PIC columns must align:\n{out}"
+        );
         assert!(out.contains("\n       PROCEDURE DIVISION.\n"));
-        // Area B (col 12 = 11 spaces): statements.
+        // Area B (col 12): statements; nested body col 16; END-IF back at 12.
         assert!(out.contains("\n           MOVE 1 TO WS-X\n"));
         assert!(out.contains("\n           IF WS-X > 0\n"));
-        // Nested under IF → col 16 (15 spaces); END-IF back at col 12.
         assert!(out.contains("\n               DISPLAY \"POS\"\n"));
         assert!(out.contains("\n           END-IF\n"));
-        // Comment indicator in column 7 (6 spaces).
-        assert!(out.contains("\n      *> trailing note\n"));
-    }
-
-    #[test]
-    fn beautify_collapses_spaces_but_keeps_pic_gap() {
-        // Double spaces collapse, except the alignment gap before PIC.
-        assert_eq!(
-            collapse_spaces_keep_pic("01  WS-NAME      PIC X(20)."),
-            "01 WS-NAME      PIC X(20)."
-        );
-        assert_eq!(
-            collapse_spaces_keep_pic("MOVE    1   TO   WS-X"),
-            "MOVE 1 TO WS-X"
-        );
-        // Spaces inside a string literal are untouched.
-        assert_eq!(
-            collapse_spaces_keep_pic("DISPLAY \"a    b\""),
-            "DISPLAY \"a    b\""
-        );
+        // Comments are left exactly as authored by default (rule 10b).
+        assert!(out.contains("\n*> trailing note\n"), "{out}");
     }
 
     #[test]
     fn beautify_uppercases_reserved_words_outside_quotes() {
-        let out = beautify_cobol(
+        let out = fmt_043(
             "\
 identification division.
 program-id. demo.
@@ -5275,7 +5083,7 @@ move 1 to ws-x.
 
     #[test]
     fn beautify_data_levels_use_area_a_and_three_space_nesting() {
-        let out = beautify_cobol(
+        let out = fmt_043(
             "\
 DATA DIVISION.
 WORKING-STORAGE SECTION.
@@ -5288,13 +5096,26 @@ WORKING-STORAGE SECTION.
 78 max-count value 10.
 ",
         );
-        assert!(out.contains("\n       01 customer-record.\n"));
-        assert!(out.contains("\n          05 customer-name PIC x(50).\n"));
-        assert!(out.contains("\n             10 customer-first PIC x(25).\n"));
-        assert!(out.contains("\n          05 customer-flags.\n"));
-        assert!(out.contains("\n       88 customer-active VALUE \"Y\".\n"));
-        assert!(out.contains("\n       77 standalone PIC 9.\n"));
-        assert!(out.contains("\n       78 max-count VALUE 10.\n"));
+        let lines: Vec<&str> = out.lines().collect();
+        let col = |needle: &str| {
+            start_col(
+                lines
+                    .iter()
+                    .find(|l| l.contains(needle))
+                    .unwrap_or_else(|| panic!("missing {needle}:\n{out}")),
+            )
+        };
+        assert_eq!(col("01 customer-record"), 8, "{out}");
+        assert_eq!(col("05 customer-name"), 11, "{out}");
+        assert_eq!(col("10 customer-first"), 14, "{out}");
+        assert_eq!(col("05 customer-flags"), 11, "{out}");
+        // Rule 3: an 88 nests one step under its item — not back at col 8.
+        assert_eq!(col("88 customer-active"), 14, "{out}");
+        assert_eq!(col("77 standalone"), 8, "{out}");
+        assert_eq!(col("78 max-count"), 8, "{out}");
+        // Casing touches the reserved words, never the identifiers.
+        assert!(out.contains("PIC x(50)"), "{out}");
+        assert!(out.contains("88 customer-active"), "{out}");
     }
 
     #[test]
@@ -5329,7 +5150,7 @@ WHEN OTHER
 MOVE C TO D
 END-EVALUATE
 ";
-        let out = beautify_cobol(input);
+        let out = fmt_043(input);
         assert!(out.contains("\n           EVALUATE WS-X\n")); // col 12
         assert!(out.contains("\n               WHEN 1\n")); // col 16
         assert!(out.contains("\n                   MOVE A TO B\n")); // col 20

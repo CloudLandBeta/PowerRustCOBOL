@@ -25,6 +25,11 @@ pub struct UiPrefs {
     /// Language code (`en`, `es`, `pt`, `ja`, `zh`, `fr`). Empty or unknown ⇒
     /// the default language.
     pub language: String,
+    /// Beautify verb casing: `leave` / `upper` / `lower` / `capitalize`.
+    /// Empty or unknown ⇒ `upper` (spec 043 rule 10a).
+    pub beautify_verbs: String,
+    /// Beautify: align `*>` comments with the surrounding code (rule 10b).
+    pub beautify_align_comments: bool,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -57,12 +62,42 @@ pub fn load_language() -> Language {
     Language::from_code(&UiPrefs::load().language).unwrap_or_default()
 }
 
-/// Remember `lang` as the language to start in next time.
+/// Remember `lang` as the language to start in next time. Loads-then-saves so
+/// the other preferences in the file survive the write.
 pub fn save_language(lang: Language) {
-    UiPrefs {
-        language: lang.code().to_owned(),
+    let mut prefs = UiPrefs::load();
+    prefs.language = lang.code().to_owned();
+    prefs.save();
+}
+
+/// The remembered Beautify choices (spec 043 rule 10), defaulting to
+/// UPPERCASE verbs and comments left as written.
+pub fn load_beautify() -> (crate::panels::beautify::VerbCase, bool) {
+    use crate::panels::beautify::VerbCase;
+    let prefs = UiPrefs::load();
+    let verbs = match prefs.beautify_verbs.as_str() {
+        "leave" => VerbCase::Leave,
+        "lower" => VerbCase::Lower,
+        "capitalize" => VerbCase::Capitalize,
+        _ => VerbCase::Upper,
+    };
+    (verbs, prefs.beautify_align_comments)
+}
+
+/// Remember the Beautify choices for next time (load-then-save, like
+/// [`save_language`]).
+pub fn save_beautify(verbs: crate::panels::beautify::VerbCase, align_comments: bool) {
+    use crate::panels::beautify::VerbCase;
+    let mut prefs = UiPrefs::load();
+    prefs.beautify_verbs = match verbs {
+        VerbCase::Leave => "leave",
+        VerbCase::Upper => "upper",
+        VerbCase::Lower => "lower",
+        VerbCase::Capitalize => "capitalize",
     }
-    .save();
+    .to_owned();
+    prefs.beautify_align_comments = align_comments;
+    prefs.save();
 }
 
 #[cfg(test)]
@@ -95,6 +130,8 @@ mod tests {
     fn prefs_round_trip_through_toml() {
         let p = UiPrefs {
             language: "pt".into(),
+            beautify_verbs: "capitalize".into(),
+            beautify_align_comments: true,
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);

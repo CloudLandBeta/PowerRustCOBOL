@@ -605,6 +605,6 @@ fn run_debug_pipeline(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn detect_format(source: &str) -> SourceFormat {
+pub(crate) fn detect_format(source: &str) -> SourceFormat {
     SourceFormat::detect(source)
 }

@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.43] — 2026-08-07
+
+### Fixed
+
+- **Beautify now follows the operator's layout rules on every surface**
+  (spec 043) — before, ✨ Beautify was an ad-hoc whitespace tidy. One engine
+  now serves the code editor tabs, the event editor and the COBOL Structure
+  block popups, and the Indexed editor's canonical layout emits the same
+  columns:
+  - paragraphs at column 8, procedure code at column 12, nesting indented
+    4 spaces per level with `END-x`/`ELSE`/`WHEN`/`CATCH`/`FINALLY` aligned
+    to their opening verb;
+  - `01`/`77`/`78` at column 8 with 3-space nesting steps (`88`/`66` under
+    their item), each data entry joined onto one line, and `PIC`/`VALUE`
+    clauses aligned to shared columns across consecutive declarations;
+  - `EXEC … END-EXEC` interiors pass through byte-for-byte;
+  - every `SECTION` header is preceded by exactly one blank line;
+  - missing sentence periods are added only where the grammar demands one
+    (before a paragraph, before `CATCH`/`FINALLY`, closing a data entry) and
+    never doubled;
+  - emitted lines cap at 256 chars — overlong literals split onto column-7
+    continuations re-quoted, everything else wraps at a word boundary;
+  - a dialog (choices remembered) asks how to case COBOL verbs
+    (leave/UPPER/lower/Capitalized — identifiers and literals never change)
+    and whether comments stay as authored or align with the code;
+  - **erroneous code is never formatted**: whole programs are checked
+    through the real compiler front end (fragments structurally); on errors
+    a dialog lists them and the text stays byte-for-byte untouched. Undo
+    restores the pre-beautify text in one step.
+  Also fixed en route: saving the UI language no longer wipes the other
+  machine-local preferences in `ui.toml`.
+
 ## [PowerRustCOBOL 1.60.42] — 2026-08-07
 
 ### Fixed

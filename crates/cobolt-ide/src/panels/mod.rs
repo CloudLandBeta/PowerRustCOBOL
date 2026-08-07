@@ -7,6 +7,7 @@
 //! IDE panel modules.
 
 pub mod agents_modal;
+pub mod beautify;
 pub mod cobol_structure;
 pub mod containers;
 pub mod data_binding;
