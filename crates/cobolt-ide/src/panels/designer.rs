@@ -677,24 +677,22 @@ const MODAL_KEEP_ON_SCREEN: f32 = 120.0;
 /// Note this is about the CONSTRAINT. A window built with `.anchor(…)` is
 /// pinned outright and cannot be dragged at all, whatever it is constrained to —
 /// seed the position with `.default_pos(…)` instead.
-/// The COBOL Structure window's `(default_height, max_height)`.
-///
-/// These must not be the same number. egui clamps a resizable axis from ABOVE
-/// by `max_size` and from BELOW by the content it has to show
-/// (`Resize::show`, egui 0.35). The window used to open at `0.7 · screen` with
-/// `max_height` also `0.7 · screen`, and its editor was sized to fill exactly
-/// that — so the ceiling and the floor landed on the same value and the grip
-/// could not move the height in either direction. Width had no cap and its
-/// content followed `available_width`, which is why only width responded.
-///
-/// The default stays a comfortable 70 % of the screen; the cap leaves real
-/// headroom above it so there is somewhere to grow into.
-fn cs_window_heights(screen: egui::Rect) -> (f32, f32) {
-    let default_h = (screen.height() * 0.7).max(360.0);
-    // Room to grow, minus a margin so the title bar and the grip stay reachable.
-    let max_h = (screen.height() - 40.0).max(default_h + 120.0);
-    (default_h, max_h)
-}
+/// The COBOL Structure editor box opens tall enough for this many code lines.
+/// It is a SEED for the box's `egui::Resize` state: after the first frame only
+/// the user's grip drag changes the box. Content, language and screen size can
+/// never resize it — deriving the box from `available_*` space is the feedback
+/// loop that made this window inflate or pin itself in past releases.
+const CS_EDITOR_DEFAULT_ROWS: f32 = 12.0;
+/// The grip cannot shrink the editor box below this many code lines.
+const CS_EDITOR_MIN_ROWS: f32 = 4.0;
+/// Vertical chrome inside the editor box (the 2 px frame margins plus an
+/// allowance for the horizontal scrollbar), so the default really shows
+/// [`CS_EDITOR_DEFAULT_ROWS`] full lines.
+const CS_EDITOR_BOX_CHROME: f32 = 14.0;
+/// Nominal window chrome above+below the editor box (title bar, hint, status
+/// row, AI bar, buttons). Used ONLY to seed the centred `default_pos` and the
+/// roam constraint — never to size anything.
+const CS_WINDOW_CHROME_NOMINAL: f32 = 260.0;
 
 fn modal_roam_rect(screen: egui::Rect, w: f32, h: f32) -> egui::Rect {
     let slack_x = (w - MODAL_KEEP_ON_SCREEN).max(0.0);
@@ -1396,6 +1394,13 @@ pub struct DesignerPanel {
     /// currently in its buffer (reloaded only when the selection changes).
     cs_editor: super::editor::EditorPanel,
     cs_loaded: Option<super::cobol_structure::CsTarget>,
+    /// Last frame's COBOL Structure editor-box rect. Its WIDTH bounds the
+    /// window's other rows (`set_max_width`), so width-filling widgets (the
+    /// status row's right-aligner, separators, the AI bar) follow the BOX —
+    /// the user-dragged width authority — and never `available_width`, which
+    /// is window memory and ratchets. Written only from the `egui::Resize`
+    /// box (= grip drag / default seed), never from measured content.
+    cs_box_rect: Option<egui::Rect>,
 
     // ── Global AI Assistant (Designer bottom pane) ────────────────────────────
     pub ai_pane_open: bool,
@@ -1508,6 +1513,7 @@ impl DesignerPanel {
             ai_prompt_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
             cs_loaded: None,
+            cs_box_rect: None,
             ai_pane_open: false,
             ai_history: Vec::new(),
             ai_status: None,
@@ -8761,7 +8767,12 @@ impl DesignerPanel {
 
         let screen = ctx.content_rect();
         let default_w = (screen.width() * 0.6).max(420.0);
-        let (default_h, max_h) = cs_window_heights(screen);
+        // Nominal opened height, used ONLY to centre `default_pos` and to build
+        // the roam constraint. The window itself auto-sizes to its content,
+        // whose one variable part is the grip-owned editor box below.
+        let nominal_h = CS_EDITOR_DEFAULT_ROWS * self.cs_editor.code_row_height(ctx)
+            + CS_EDITOR_BOX_CHROME
+            + CS_WINDOW_CHROME_NOMINAL;
         let mut close = false;
 
         // `anchor` pins a window outright: egui re-places an anchored window
@@ -8769,21 +8780,41 @@ impl DesignerPanel {
         // constraining changes that. Seed the centred position with
         // `default_pos` instead and let egui remember where the developer drags
         // it, the same way the Event Editor modal does.
-        let default_pos = screen.center() - egui::vec2(default_w * 0.5, default_h * 0.5);
-        let roam = modal_roam_rect(screen, default_w, default_h);
+        let default_pos = screen.center() - egui::vec2(default_w * 0.5, nominal_h * 0.5);
+        let roam = modal_roam_rect(screen, default_w, nominal_h);
 
         egui::Window::new(format!("{} — {title}", tr.cs_open))
             .id(egui::Id::new("cobol_structure_window"))
             .collapsible(false)
-            .resizable(true)
+            // The window frame itself is NOT resizable: the editor box's grip
+            // below is the single size authority and the window hugs it. A
+            // resizable window renegotiates its rect against content every
+            // frame — the self-inflation this modal has relapsed into before
+            // (see CONVENTIONS.md, "a window may NEVER resize itself").
+            //
+            // `auto_sized`, not plain `resizable(false)`: a non-auto-sized
+            // window's TITLE BAR takes `available_width()` as its min width,
+            // and that available comes from the internal resize's
+            // `desired_size`, which egui only ever ratchets UP — the title
+            // would echo the widest the window has ever been and the modal
+            // could grow with the grip but never shrink back. An auto-sized
+            // window's title follows last frame's window rect instead, which
+            // converges when the box shrinks (egui 0.36 `window.rs`).
+            .auto_sized()
             .movable(true)
             .default_width(default_w)
-            .default_height(default_h)
-            .max_height(max_h)
             .default_pos(default_pos)
             .constrain_to(roam)
             .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
+                // Width authority = the editor box (grip state, seeded at
+                // `default_w`). Every width-FILLING row (the status row's
+                // right-aligner, separators, the AI bar) must follow the box,
+                // never `available_width`: an auto-sizing window echoes a row
+                // that fills its available width, and that echo is a ratchet —
+                // the window could grow but never shrink back.
+                let body_w = self.cs_box_rect.map(|r| r.width()).unwrap_or(default_w);
+                ui.set_max_width(body_w);
                 // Editable procedure name, or the fixed section keyword.
                 if let cs::CsTarget::Procedure(i) = target {
                     if let Some(up) = self.form.user_procedures.get_mut(i) {
@@ -8810,23 +8841,24 @@ impl DesignerPanel {
                 self.cs_editor.status_row(ui);
                 ui.add_space(4.0);
 
-                // The editor follows the WINDOW's height. It used to be sized
-                // from `default_h` — a constant off the screen — which pinned
-                // the content height and became the floor egui clamps a
-                // resizable axis against, so the height could not shrink either.
-                //
-                // Sizing from `available_height` is safe in ONE direction only,
-                // and that is the direction taken here. Reserving MORE than the
-                // footer needs leaves a gap and nothing else: a resizable axis
-                // renders at `desired_size`, so the window keeps the height the
-                // developer dragged to. Reserving LESS is what creeps, because
-                // egui grows `desired_size` to fit content it cannot show. So
-                // the reserve below is deliberately generous.
-                let ai_reserve = if llm.is_configured() { 92.0 } else { 0.0 };
-                const FOOTER_RESERVE: f32 = 72.0;
-                let editor_h =
-                    (ui.available_height() - ai_reserve - FOOTER_RESERVE).max(180.0);
-                let editor_w = ui.available_width();
+                // ── Hosted COBOL editor — a BOUNDED, user-resizable box. ─────
+                //    Same cure as the Event Editor modal and the debugger
+                //    window: the `egui::Resize` state (default seed + the
+                //    corner grip's drag, clamped) is the ONLY size authority.
+                //    The editor fills the box exactly and scrolls inside it, so
+                //    the reported content min-size equals the box and egui's
+                //    per-frame `max(desired, content)` ratchet has nothing to
+                //    grow on — the box cannot change size on its own, whatever
+                //    the content length or the IDE language.
+                let row_h = self.cs_editor.code_row_height(ui.ctx());
+                let box_default = egui::vec2(
+                    default_w,
+                    (CS_EDITOR_DEFAULT_ROWS * row_h + CS_EDITOR_BOX_CHROME).ceil(),
+                );
+                let box_min = egui::vec2(
+                    420.0,
+                    (CS_EDITOR_MIN_ROWS * row_h + CS_EDITOR_BOX_CHROME).ceil(),
+                );
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
                 let frame = egui::Frame::NONE
@@ -8834,11 +8866,34 @@ impl DesignerPanel {
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
                     .corner_radius(egui::CornerRadius::same(6))
                     .inner_margin(egui::Margin::same(2));
-                ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
-                    frame.show(ui, |ui| {
-                        self.cs_editor.render_code_area(&ectx, ui);
+                let box_rect = egui::Resize::default()
+                    // `Resize` keeps its state in `ctx.data()`, which all
+                    // viewports share — salt with the viewport so two open
+                    // designers don't fight over one box size.
+                    .id_salt(format!(
+                        "cobol_structure_code_box_{}",
+                        ui.ctx().viewport_id().0.value()
+                    ))
+                    .resizable([true, true])
+                    .min_size(box_min)
+                    .max_size(egui::vec2(4000.0, 4000.0))
+                    .default_size(box_default) // seed only
+                    .show(ui, |ui| {
+                        // `sz` is the Resize box: user/default state, bounded —
+                        // NOT "remaining space" of an auto-sizing container.
+                        let sz = ui.available_size();
+                        let origin = ui.max_rect().min;
+                        ui.allocate_ui(sz, |ui| {
+                            // Fill the box exactly so the content min-size
+                            // equals the box (no auto-grow, no auto-shrink).
+                            ui.set_min_size(sz);
+                            frame.show(ui, |ui| {
+                                self.cs_editor.render_code_area(&ectx, ui);
+                            });
+                        });
+                        egui::Rect::from_min_size(origin, sz)
                     });
-                });
+                self.cs_box_rect = Some(box_rect);
 
                 // ── AI assistant (inline) — same bar as the code editor, with
                 //    per-block conversation history, transcript, and save/compact/
@@ -13933,38 +13988,23 @@ mod modal_roam_tests {
         );
     }
 
-    /// The COBOL Structure window opened at exactly its own `max_height`, so
-    /// egui's upper clamp sat on the value the window already had and the grip
-    /// could not make it taller. The cap must leave real headroom above the
-    /// default, or the vertical grip has nowhere to travel.
+    /// The COBOL Structure editor box replaced the old screen-fraction window
+    /// heights (`cs_window_heights`): its bounds are code-line constants. The
+    /// grip must have real travel in BOTH directions from the 12-line default,
+    /// or the box opens pinned the way the window once did.
     #[test]
-    fn the_structure_window_cap_leaves_room_above_its_default_height() {
-        for h in [700.0, 1000.0, 1440.0, 2160.0] {
-            let s = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1600.0, h));
-            let (default_h, max_h) = cs_window_heights(s);
-            assert!(
-                max_h > default_h,
-                "screen {h}: the cap must exceed the default ({max_h} vs {default_h})"
-            );
-            assert!(
-                max_h - default_h >= 100.0,
-                "screen {h}: {} of headroom is not worth dragging for",
-                max_h - default_h
-            );
-        }
-    }
-
-    /// A very short screen must not invert the pair. The default has a 360 pt
-    /// floor, so on a small display the cap has to be lifted clear of it rather
-    /// than computed from the screen alone.
-    #[test]
-    fn the_cap_stays_above_the_default_on_a_short_screen() {
-        let s = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1600.0, 300.0));
-        let (default_h, max_h) = cs_window_heights(s);
+    fn the_structure_editor_box_bounds_leave_the_grip_room_to_travel() {
         assert!(
-            max_h > default_h,
-            "cap {max_h} must still clear the 360pt default floor {default_h}"
+            CS_EDITOR_MIN_ROWS + 1.0 <= CS_EDITOR_DEFAULT_ROWS,
+            "the default ({CS_EDITOR_DEFAULT_ROWS} rows) must sit clear above \
+             the floor ({CS_EDITOR_MIN_ROWS} rows) so the grip can shrink it"
         );
+        // ~12 code lines is the operator-requested default.
+        assert_eq!(CS_EDITOR_DEFAULT_ROWS, 12.0, "the requested default");
+        // The 4000 pt `max_size` cap in `show_cobol_structure_window` dwarfs
+        // any real font: even at 40 pt rows, 12 rows ≈ 480 pt — the grip can
+        // always grow the box from its default.
+        assert!(CS_EDITOR_DEFAULT_ROWS * 40.0 + CS_EDITOR_BOX_CHROME < 4000.0);
     }
 
     /// A modal smaller than the margin we insist on keeping visible must not
@@ -13976,6 +14016,253 @@ mod modal_roam_tests {
         let roam = modal_roam_rect(s, 80.0, 60.0);
         assert!(roam.left() <= s.left() && roam.right() >= s.right());
         assert!(roam.bottom() >= s.bottom());
+    }
+}
+
+/// The COBOL Structure modal's sizing contract (operator report, 2026-08-07):
+/// the editor box opens at ~12 code lines, and its corner grip is the ONLY
+/// thing that may change its size — not content, not language, not frames.
+/// These tests drive the real `show_cobol_structure_window` frame by frame.
+#[cfg(test)]
+mod cs_editor_resize_tests {
+    use super::*;
+    use crate::i18n::Language;
+    use crate::llm::LlmConfig;
+    use crate::panels::cobol_structure::CsTarget;
+
+    fn long_block() -> String {
+        (1..=300)
+            .map(|i| format!("       01  WS-FIELD-{i:03}      PIC X(40) VALUE SPACES."))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn panel_with_ws(ws: &str) -> DesignerPanel {
+        let mut form = Form::new("F1", "F1", 640, 480);
+        form.user_ws_source = ws.to_owned();
+        let mut dp = DesignerPanel::new(form);
+        dp.cobol_structure_edit = Some(CsTarget::WorkingStorage);
+        dp
+    }
+
+    /// One frame of the production window. Returns the window's area rect,
+    /// the editor box rect (`cs_box_rect`) and the editor's code row height.
+    fn frame(
+        ctx: &egui::Context,
+        dp: &mut DesignerPanel,
+        tr: &crate::i18n::Tr,
+        llm: &LlmConfig,
+        events: Vec<egui::Event>,
+    ) -> (Option<egui::Rect>, Option<egui::Rect>, f32) {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 1000.0),
+        ));
+        input.events = events;
+        let mut row_h = 0.0;
+        ctx.run_ui(input, |root| {
+            row_h = dp.cs_editor.code_row_height(root.ctx());
+            let c = root.ctx().clone();
+            dp.show_cobol_structure_window(&c, tr, llm, None);
+        })
+        .textures_delta
+        .clear();
+        let win = ctx.memory(|m| m.area_rect(egui::Id::new("cobol_structure_window")));
+        (win, dp.cs_box_rect, row_h)
+    }
+
+    fn press(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    /// Drag the box's corner grip from `from` to `to`, then settle.
+    fn drag_grip(
+        ctx: &egui::Context,
+        dp: &mut DesignerPanel,
+        tr: &crate::i18n::Tr,
+        llm: &LlmConfig,
+        from: egui::Pos2,
+        to: egui::Pos2,
+    ) -> (egui::Rect, egui::Rect) {
+        frame(ctx, dp, tr, llm, vec![egui::Event::PointerMoved(from)]);
+        frame(ctx, dp, tr, llm, vec![press(from, true)]);
+        frame(ctx, dp, tr, llm, vec![egui::Event::PointerMoved(to)]);
+        frame(ctx, dp, tr, llm, vec![press(to, false)]);
+        let mut last = (None, None, 0.0);
+        for _ in 0..8 {
+            last = frame(ctx, dp, tr, llm, vec![]);
+        }
+        (last.0.expect("window rect"), last.1.expect("box rect"))
+    }
+
+    /// (a) The editor opens at the 12-line default — the SEED, not a measure —
+    /// whatever the block's length and in every IDE language.
+    #[test]
+    fn the_editor_opens_at_twelve_rows_whatever_the_content_or_language() {
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let llm = LlmConfig::load_defaults_for_test();
+            for (name, ws) in [
+                ("short", "       01  WS-A PIC X.".to_string()),
+                ("long", long_block()),
+            ] {
+                let ctx = egui::Context::default();
+                let mut dp = panel_with_ws(&ws);
+                let mut got = (None, None, 0.0);
+                for _ in 0..8 {
+                    got = frame(&ctx, &mut dp, &tr, &llm, vec![]);
+                }
+                let (win, bx, row_h) = got;
+                assert!(win.is_some(), "{lang:?}/{name}: window must render");
+                let bx = bx.expect("box rect");
+                let expected = (CS_EDITOR_DEFAULT_ROWS * row_h + CS_EDITOR_BOX_CHROME).ceil();
+                assert!(
+                    (bx.height() - expected).abs() < 1.0,
+                    "{lang:?}/{name}: editor box opened at {}px, not the \
+                     12-line default {expected}px",
+                    bx.height()
+                );
+                assert!(
+                    (bx.width() - 960.0).abs() < 1.0,
+                    "{lang:?}/{name}: box width {} must be the 0.6·screen seed",
+                    bx.width()
+                );
+            }
+        }
+        println!(
+            "editor box opens at the 12-line default in all {} languages, \
+             for 1-line and 300-line blocks alike",
+            Language::ALL.len()
+        );
+    }
+
+    /// (b) 120 frames with a 300-line block and the AI bar visible: neither
+    /// the box nor the window may move a pixel — egui's `Resize` ratchets
+    /// `desired = max(desired, content)` every frame, so ANY over-report
+    /// becomes runaway growth. In every IDE language.
+    #[test]
+    fn long_content_and_frames_never_move_the_modal_in_any_language() {
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            // Worst-case chrome: a configured LLM shows the AI assistant rows.
+            let mut llm = LlmConfig::load_defaults_for_test();
+            llm.agentic_ai_enabled = true;
+            llm.provider = "ollama".into();
+            llm.model = "test-model".into();
+            assert!(llm.is_configured(), "test premise: AI bar visible");
+
+            let ctx = egui::Context::default();
+            let mut dp = panel_with_ws(&long_block());
+            let mut wins: Vec<egui::Rect> = Vec::new();
+            let mut boxes: Vec<egui::Rect> = Vec::new();
+            for _ in 0..120 {
+                let (w, b, _) = frame(&ctx, &mut dp, &tr, &llm, vec![]);
+                if let (Some(w), Some(b)) = (w, b) {
+                    wins.push(w);
+                    boxes.push(b);
+                }
+            }
+            assert!(wins.len() >= 110, "{lang:?}: window missing most frames");
+            let (w0, b0) = (wins[4], boxes[4]);
+            for (i, (w, b)) in wins.iter().zip(&boxes).enumerate().skip(4) {
+                assert!(
+                    (w.size() - w0.size()).length() < 0.5
+                        && (w.min - w0.min).length() < 0.5,
+                    "{lang:?}: window drifted at frame {i}: {w0:?} -> {w:?} \
+                     (self-inflation regression)"
+                );
+                assert!(
+                    (b.size() - b0.size()).length() < 0.5,
+                    "{lang:?}: editor box drifted at frame {i}: {b0:?} -> {b:?}"
+                );
+            }
+            println!(
+                "{lang:?}: stable at window {:.0}×{:.0}px / box {:.0}×{:.0}px \
+                 across {} frames",
+                w0.width(),
+                w0.height(),
+                b0.width(),
+                b0.height(),
+                wins.len()
+            );
+        }
+    }
+
+    /// (c) The grip DOES resize the editor — out AND back in — and the window
+    /// follows it both ways. A modal that grows but cannot ungrow is the same
+    /// ratchet wearing a grip.
+    #[test]
+    fn only_the_grip_resizes_the_editor_and_the_window_follows_both_ways() {
+        let tr = Language::English.tr();
+        let llm = LlmConfig::load_defaults_for_test();
+        let ctx = egui::Context::default();
+        let mut dp = panel_with_ws(&long_block());
+        let mut last = (None, None, 0.0);
+        for _ in 0..8 {
+            last = frame(&ctx, &mut dp, &tr, &llm, vec![]);
+        }
+        let (w0, b0) = (last.0.expect("window"), last.1.expect("box"));
+
+        // Out by (+140, +90). The grip's interact rect is the box corner.
+        let grip = b0.right_bottom() - egui::vec2(4.0, 4.0);
+        let (w1, b1) = drag_grip(&ctx, &mut dp, &tr, &llm, grip, grip + egui::vec2(140.0, 90.0));
+        assert!(
+            (b1.width() - (b0.width() + 140.0)).abs() < 20.0,
+            "grip must widen the box: {} -> {}",
+            b0.width(),
+            b1.width()
+        );
+        assert!(
+            (b1.height() - (b0.height() + 90.0)).abs() < 20.0,
+            "grip must deepen the box: {} -> {}",
+            b0.height(),
+            b1.height()
+        );
+        assert!(
+            w1.width() > w0.width() + 110.0 && w1.height() > w0.height() + 60.0,
+            "the window must follow the box out: {:?} -> {:?}",
+            w0.size(),
+            w1.size()
+        );
+
+        // Back in by (−180, −60): box AND window must shrink.
+        let grip2 = b1.right_bottom() - egui::vec2(4.0, 4.0);
+        let (w2, b2) =
+            drag_grip(&ctx, &mut dp, &tr, &llm, grip2, grip2 - egui::vec2(180.0, 60.0));
+        assert!(
+            (b2.width() - (b1.width() - 180.0)).abs() < 20.0,
+            "grip must narrow the box: {} -> {}",
+            b1.width(),
+            b2.width()
+        );
+        assert!(
+            (b2.height() - (b1.height() - 60.0)).abs() < 20.0,
+            "grip must shorten the box: {} -> {}",
+            b1.height(),
+            b2.height()
+        );
+        assert!(
+            w2.width() < w1.width() - 140.0 && w2.height() < w1.height() - 30.0,
+            "the window must follow the box back in (no ratchet): {:?} -> {:?}",
+            w1.size(),
+            w2.size()
+        );
+        println!(
+            "grip drag: box {:.0}×{:.0} -> {:.0}×{:.0} -> {:.0}×{:.0}px; \
+             window followed both ways",
+            b0.width(),
+            b0.height(),
+            b1.width(),
+            b1.height(),
+            b2.width(),
+            b2.height()
+        );
     }
 }
 

@@ -2685,6 +2685,13 @@ impl EditorPanel {
     /// Draw the status row (caret position · Insert/Overwrite · Trim-on-save,
     /// plus Beautify for non-Markdown documents) into an arbitrary `ui`, in
     /// dimmed green. Shared by the main editor and embedded RAD editor.
+    /// Height of one code row at the editor's current font — for hosts that
+    /// size themselves in code lines (e.g. the COBOL Structure editor box
+    /// opens at ~12 rows). Depends only on the font, never on content.
+    pub(crate) fn code_row_height(&self, ctx: &Context) -> f32 {
+        ctx.fonts_mut(|f| f.row_height(&FontId::monospace(self.font_size)))
+    }
+
     pub(crate) fn status_row(&mut self, ui: &mut egui::Ui) {
         let active_tab = self.tabs.get(self.active);
         let read_only = active_tab.map(|tab| tab.read_only).unwrap_or(false);

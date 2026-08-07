@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.41] — 2026-08-07
+
+### Fixed
+
+- **The COBOL Structure block editors (SPECIAL-NAMES, REPOSITORY, FILE
+  SECTION, WORKING-STORAGE SECTION) had no resize grip.** The editor sized
+  itself from the window's remaining space inside a resizable window — the
+  classic egui feedback path — so the modal opened at 70 % of the screen and
+  the editor could never be resized deliberately. The editor now opens at a
+  default of 12 code lines and is resized ONLY by dragging its corner grip:
+  the window auto-sizes around an inner resize box whose size comes from the
+  grip alone, so content length, language, and frames structurally cannot
+  change it. Behavioral tests drive the real window frame-by-frame in all
+  six IDE languages: opens at 12 rows for 1-line and 300-line blocks alike,
+  stays pixel-stable across 120 frames of long content, and follows grip
+  drags both out and back in.
+
 ## [PowerRustCOBOL 1.60.40] — 2026-08-07
 
 ### Fixed
