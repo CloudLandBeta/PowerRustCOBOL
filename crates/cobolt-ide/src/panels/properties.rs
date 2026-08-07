@@ -7458,8 +7458,7 @@ impl PropertiesPanel {
                         });
                 });
 
-                // ── Background Image ──────────────────────────────────────────────────
-                section_header(ui, tr.sec_bg_image);
+                // ── Background image (continues the Appearance section) ───────────────
                 {
                     // Namespace the buffer, widget id, and file-dialog key by viewport
                     // so the in-window inspector and a detached Designer window (each a

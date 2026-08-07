@@ -1,5 +1,14 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.42] — 2026-08-07
+
+### Fixed
+
+- **The form's background-image properties sat in their own "Background
+  Image" section of the property pane.** Image path and Mode (with the
+  Stretch/Fill/Fit/Center/Tile hint) now continue directly under the
+  🎨 Appearance section, where every other form-look property already lives.
+
 ## [PowerRustCOBOL 1.60.41] — 2026-08-07
 
 ### Fixed
