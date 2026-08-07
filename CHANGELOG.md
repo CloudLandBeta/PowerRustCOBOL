@@ -1,5 +1,56 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.37] — 2026-08-07
+
+### Fixed
+
+- **One form host for every surface (spec 042): a built application now behaves
+  like Run Form.** The `rcrun run-form` window, the compiled application's
+  window and the IDE's retired in-process runner were three hand-maintained
+  copies of one host that had drifted for months — the shipped binary carried
+  the poorest copy. The host now lives once, in the new build-internal
+  `cobolt-form-host` crate, and both live surfaces are thin glue over it.
+  What a built application gains — all of it documented behaviour that simply
+  did not happen before:
+
+  - **Window entrance/exit effects play** (spec 038) — the operator's report
+    "entrance/exit effects are not working in any case for any theme". The
+    project's settings are baked into the executable at build time (no
+    manifest needed beside a shipped binary), resolved exactly as Run Form
+    resolves them (project × the form's `WindowEffects` opt-out ×
+    `PRC_NO_WINDOW_FX`), and parsed by the ONE shared parser.
+  - **The window closes when the program ends** (through the exit effect when
+    one is configured). Before, `STOP RUN` left the window painting forever
+    with every click dropped.
+  - **The designed window is honoured**: the form's own `Title` (branded
+    "AppName vVersion" only for blank designs — before, the title was ALWAYS
+    the branded string), `TitleVisible`, minimize/maximize buttons,
+    `FullScreen`, opening `WindowState`, `StartPosition`, the taskbar icon
+    rule, and the exact designed size (the old +4 px gutter slack is gone).
+  - **The 037 lifecycle works**: `onShow`/`onActivate`/`onClose`/
+    `onCloseRejected`/`onFullScreenChanged`, `FormState` close vetoes, and
+    the `me::` window methods reach a real supervisor instead of doing
+    nothing.
+  - **The object registry is seeded**, so reading a property before the first
+    write returns the designed value (under Run Form it always did; the built
+    app returned nothing).
+  - **Repeating-group parity**: instanced card writes route to the drawn
+    card, instanced clicks dispatch with `CONTROL-ARRAY-INDEX`, and state
+    keys resolve case-insensitively.
+  - **DISPLAY output is flushed** (visible live when piped), timer `onTick`
+    coalesces against a backlog, and the diagnostics families are merged —
+    the live `COBOLT_FRAME_DIAGNOSTICS` trace AND the launch dump now exist
+    in every host, behind one truthiness rule (`1`/`true`/`on`).
+
+  The IDE's unreachable in-process runner (`FormRuntime`) was removed
+  (nothing had constructed it since external Run Form landed), taking the
+  third copy of the control-state type with it. A parity suite in
+  `cobolt-form-host` pins the shared behaviour headlessly — state merge
+  (including the 1.60.33 case-variant dedupe, which now cannot be lost by
+  one host again), seeding, effect gating, lifecycle order, window rules —
+  and the compiler's template tests assert the generated application stays
+  thin glue with no divergent host.
+
 ## [PowerRustCOBOL 1.60.36] — 2026-08-06
 
 ### Fixed

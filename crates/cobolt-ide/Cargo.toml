@@ -102,3 +102,9 @@ dirs = "5.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Syntax highlighting (optional — can be feature-gated later)
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
+
+[dev-dependencies]
+# Test-only: the roundtrip tests pin behaviour on the ONE shared control-state
+# type (spec 042 R2). The IDE itself is not a form host and takes no runtime
+# dependency on it — Run Form talks to it through the rcrun child process.
+cobolt-form-host = { path = "../cobolt-form-host" }

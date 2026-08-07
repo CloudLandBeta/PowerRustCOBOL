@@ -37,8 +37,9 @@ zip       = { version = "2", default-features = false, features = ["deflate"] } 
 # Phase 11 — binary compiler
 cobolt-compiler = { path = "../cobolt-compiler" }
 
-# Standalone GUI form runner (`rcrun run-form`) — the same renderer the IDE and
-# compiled binaries use, so Run Form in the IDE is a faithful external process.
+# Standalone GUI form runner (`rcrun run-form`) — the shared form host, so Run
+# Form in the IDE is exactly what `rcrun build` ships (spec 042).
+cobolt-form-host = { path = "../cobolt-form-host" }
 cobolt-forms = { path = "../cobolt-forms", features = ["render"] }
 cobolt-media = { path = "../cobolt-media" }
 egui         = "0.36"

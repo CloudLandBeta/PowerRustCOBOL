@@ -44,7 +44,6 @@ use cobolt_parser::parse;
 use cobolt_runtime::indexed_ide::{compare_schema, create_empty_from_definition, SchemaDrift};
 use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
 
-use crate::form_runtime::FormRuntime;
 use crate::i18n::{Language, Tr};
 use crate::panels::debugger::{DebugAction, DebuggerPanel};
 use crate::panels::{
@@ -241,8 +240,6 @@ pub struct CoboltApp {
     // "semaphore": a file edited since its last check shows yellow again).
     checked: std::collections::HashMap<PathBuf, u64>,
 
-    // Running form instances — each has its own OS window (Phase 6)
-    form_runtimes: Vec<FormRuntime>,
     /// Forms running as external `rcrun run-form` processes (the Run Form
     /// path): own window, own event loop — the IDE stays idle while they run.
     external_runs: Vec<crate::form_runtime::ExternalFormRun>,
@@ -291,7 +288,6 @@ pub struct CoboltApp {
     // Frame-rate/perf instrumentation (why is the IDE busy while a form runs?)
     perf_window_start: Option<std::time::Instant>,
     perf_frames: u32,
-    perf_busy_frames: u32,
     perf_ms_sum: f32,
     perf_ms_max: f32,
     /// Last completed 1-second window — displayed in the Run-Form Inspector.
@@ -1053,7 +1049,6 @@ impl CoboltApp {
             asset_preview: None,
             raw_preferred_indexed: std::collections::HashSet::new(),
             checked: std::collections::HashMap::new(),
-            form_runtimes: Vec::new(),
             external_runs: Vec::new(),
             built_runs: Vec::new(),
             build_modal_host: None,
@@ -1071,7 +1066,6 @@ impl CoboltApp {
 
             perf_window_start: None,
             perf_frames: 0,
-            perf_busy_frames: 0,
             perf_ms_sum: 0.0,
             perf_ms_max: 0.0,
             perf_fps: 0,
@@ -1673,18 +1667,10 @@ impl CoboltApp {
                 .unwrap_or("?")
         ));
 
-        // Kill any existing run for this form first (external + legacy).
+        // Kill any existing run for this form first.
         self.external_runs.retain_mut(|run| {
             if run.form_path == form_path {
                 run.stop();
-                false
-            } else {
-                true
-            }
-        });
-        self.form_runtimes.retain_mut(|rt| {
-            if rt.form_path == form_path {
-                rt.stop();
                 false
             } else {
                 true
@@ -11197,59 +11183,11 @@ impl eframe::App for CoboltApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
-        // ── Running form viewports (Phase 6) ─────────────────────────────────────
-        // Drain display output and state updates from every running runtime each frame.
-        let mut display_lines: Vec<String> = Vec::new();
-        let mut fatal_error: Option<String> = None;
-        for rt in self.form_runtimes.iter_mut() {
-            display_lines.extend(rt.drain_display());
-            rt.drain_state();
-            // Surface a fatal runtime error (already logged to the console by the
-            // interpreter thread) in a modal dialog — the IDE stays open.
-            if fatal_error.is_none() {
-                fatal_error = rt.take_error();
-            }
-        }
-        for line in display_lines {
-            self.output.push_line(line);
-        }
-        if let Some(err) = fatal_error {
-            self.form_error = Some(err);
-        }
-
-        // Collect indices of runtimes that are still alive.
-        let running_indices: Vec<usize> = (0..self.form_runtimes.len())
-            .filter(|&i| self.form_runtimes[i].is_running())
-            .collect();
-
-        for i in running_indices {
-            let vp_id = ViewportId::from_hash_of(("run_form", &self.form_runtimes[i].form_path));
-            let title = format!("▶ {}", self.form_runtimes[i].form_title);
-            let fw = self.form_runtimes[i].form_width as f32;
-            let fh = self.form_runtimes[i].form_height as f32;
-            let icon = self.project_icon_data();
-            let mut builder = ViewportBuilder::default()
-                .with_title(&title)
-                .with_inner_size([fw + 4.0, fh + 4.0])
-                .with_resizable(true)
-                .with_transparent(true);
-            if let Some(icon) = icon {
-                builder = builder.with_icon(icon);
-            }
-
-            ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
-                if vp_ctx.input(|inp| inp.viewport().close_requested()) {
-                    // User closed the window → cooperatively cancel + quit so
-                    // even a looping handler aborts and the window can close.
-                    self.form_runtimes[i].request_stop();
-                    vp_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                self.show_running_form_window(vp_ctx, i);
-            });
-        }
-
-        // Reap finished runtimes.
-        self.form_runtimes.retain(|rt| rt.is_running());
+        // ── Running forms ────────────────────────────────────────────────────────
+        // Run Form executes in an EXTERNAL `rcrun run-form` process hosting the
+        // shared `cobolt-form-host` window (spec 042); the in-IDE `FormRuntime`
+        // viewport host was retired with it (042 R4) — it had been unreachable
+        // since the external run landed.
 
         // Remove any designer windows the user has closed.
         self.designers.retain(|(_, d)| !d.close_requested);
@@ -11265,15 +11203,6 @@ impl eframe::App for CoboltApp {
         if self.runner.is_running() {
             // The console runner streams output over a channel; poll at ~20 Hz.
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
-        } else if !self.form_runtimes.is_empty() {
-            // A form is running: repaint fast (60 Hz) only while interpreter
-            // events are queued to drain; otherwise a slow 5 Hz safety heartbeat
-            // keeps timer ticks firing and channel output draining without
-            // pegging a core. When NO form runs, nothing is scheduled here and
-            // the app sleeps until the next user input (fully reactive).
-            let busy = self.form_runtimes.iter().any(|rt| rt.pending_events() > 0);
-            let ms = if busy { 16 } else { 200 };
-            ctx.request_repaint_after(std::time::Duration::from_millis(ms));
         } else if !self.external_runs.is_empty() {
             // External `rcrun run-form` processes do their own rendering — the
             // IDE only needs a slow heartbeat to drain their stdout into the
@@ -11292,9 +11221,6 @@ impl eframe::App for CoboltApp {
             if frame_ms > self.perf_ms_max {
                 self.perf_ms_max = frame_ms;
             }
-            if self.form_runtimes.iter().any(|rt| rt.pending_events() > 0) {
-                self.perf_busy_frames += 1;
-            }
             let elapsed = self
                 .perf_window_start
                 .get_or_insert_with(std::time::Instant::now)
@@ -11303,21 +11229,18 @@ impl eframe::App for CoboltApp {
                 self.perf_fps = self.perf_frames;
                 self.perf_avg_ms = self.perf_ms_sum / self.perf_frames.max(1) as f32;
                 self.perf_max_ms = self.perf_ms_max;
-                if !self.form_runtimes.is_empty() || !self.external_runs.is_empty() {
+                if !self.external_runs.is_empty() {
                     crate::runner::dbg_log(&format!(
-                        "[PERF] fps={} avg={:.1}ms max={:.1}ms busy_frames={} forms={} external={} designers={} inspector={}",
+                        "[PERF] fps={} avg={:.1}ms max={:.1}ms external={} designers={} inspector={}",
                         self.perf_fps,
                         self.perf_avg_ms,
                         self.perf_max_ms,
-                        self.perf_busy_frames,
-                        self.form_runtimes.len(),
                         self.external_runs.len(),
                         self.designers.len(),
                         self.show_inspector,
                     ));
                 }
                 self.perf_frames = 0;
-                self.perf_busy_frames = 0;
                 self.perf_ms_sum = 0.0;
                 self.perf_ms_max = 0.0;
                 self.perf_window_start = Some(std::time::Instant::now());
@@ -11400,50 +11323,6 @@ impl cobolt_forms::render::FormState for PreviewState<'_> {
             scale,
             alpha: anim_alpha * (1.0 - transparency as f32 / 100.0),
         }
-    }
-}
-
-/// `FormState` for the running (interpreted) form: merges each control's live
-/// `CtrlState` (values + SET-PROPERTY geometry) onto the designed control so the
-/// unified engine renders the run window exactly like the designer (spec 017 T5).
-struct RunState<'a> {
-    state: &'a std::collections::HashMap<String, crate::form_runtime::CtrlState>,
-    run_id: u64,
-}
-impl cobolt_forms::render::FormState for RunState<'_> {
-    fn run_id(&self) -> u64 {
-        self.run_id
-    }
-    fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
-        if base
-            .id
-            .to_ascii_lowercase()
-            .starts_with("groupbox-2.groupbox-2-")
-        {
-            let has_state = self.state.keys().any(|k| k.eq_ignore_ascii_case(&base.id));
-            tracing::debug!(target: "databinding", "LIVE for instance {} has_ctrl_state={}", base.id, has_state);
-        }
-        let key = self
-            .state
-            .keys()
-            .find(|k| k.eq_ignore_ascii_case(&base.id))
-            .cloned();
-        match key.and_then(|k| self.state.get(&k)) {
-            Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
-            None => base.clone(),
-        }
-    }
-    fn visible(&self, base: &cobolt_forms::Control) -> bool {
-        let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id));
-        key.and_then(|k| self.state.get(k))
-            .map(|s| s.visible)
-            .unwrap_or(true)
-    }
-    fn enabled(&self, base: &cobolt_forms::Control) -> bool {
-        let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id));
-        key.and_then(|k| self.state.get(k))
-            .map(|s| s.enabled)
-            .unwrap_or(true)
     }
 }
 
@@ -11728,11 +11607,11 @@ impl CoboltApp {
         if !self.show_inspector {
             return;
         }
-        let form_running = !self.form_runtimes.is_empty() || !self.external_runs.is_empty();
-        // Sample only while a form runs; `processing` = the interpreter has queued
-        // work, so growth-while-idle can be told apart from real processing.
+        let form_running = !self.external_runs.is_empty();
+        // Sample only while a form runs. The run is an external process, so the
+        // IDE has no view of its interpreter queue — `processing` is false and
+        // the inspector reads growth against wall-clock instead.
         if form_running {
-            let processing = self.form_runtimes.iter().any(|rt| rt.pending_events() > 0);
             // One CPU timeline per open external rcrun run-form process, keyed
             // by pid so the inspector can label + retire a series per form.
             let tracked: Vec<(u32, String)> = self
@@ -11740,7 +11619,7 @@ impl CoboltApp {
                 .iter()
                 .map(|run| (run.pid(), run.form_name.clone()))
                 .collect();
-            self.inspector.maybe_sample(processing, &tracked);
+            self.inspector.maybe_sample(false, &tracked);
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
@@ -12046,492 +11925,11 @@ impl CoboltApp {
     }
 }
 
-// ── Running form window (Phase 6) ────────────────────────────────────────────
-
-impl CoboltApp {
-    /// Render the live interactive form window for `form_runtimes[idx]`.
-    ///
-    /// Each egui frame:
-    ///  1. Control states were already updated by `drain_state()` in the main loop.
-    ///  2. We render each control from `FormRuntime::ctrl_state`.
-    ///  3. User interactions (clicks, text changes) fire `send_event()`.
-    fn show_running_form_window(&mut self, panel_ui: &mut egui::Ui, idx: usize) {
-        // Panels are Ui-hosted since egui 0.35; everything else in this
-        // method still wants a Context.
-        let ctx = panel_ui.ctx().clone();
-        let ctx = &ctx;
-
-        use cobolt_forms::ControlType as CT;
-        use cobolt_runtime::FormEvent;
-        use egui::Color32;
-
-        if idx >= self.form_runtimes.len() {
-            return;
-        }
-
-        // Match the designer's glass toggle live so the running form tracks the
-        // canvas (WYSIWYG, spec 003). Resolve the owning designer by path first,
-        // then by form name (robust to path-normalisation differences), and keep
-        // the runtime's snapshot in sync so a closed designer still renders right.
-        let glass = {
-            let fp = self.form_runtimes[idx].form_path.clone();
-            let fname = self.form_runtimes[idx].form_name.clone();
-            let found = self
-                .designers
-                .iter()
-                .find(|(p, _)| *p == fp)
-                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
-                .map(|(_, d)| d.glass_mode);
-            if let Some(g) = found {
-                self.form_runtimes[idx].glass = g;
-            }
-            found.unwrap_or(self.form_runtimes[idx].glass)
-        };
-
-        // Apply the owning designer's active theme pack to THIS viewport's context
-        // so charts and themed controls render identically to the canvas. Each
-        // run/preview window is a separate egui Context, so the theme set on the
-        // designer's context does not carry over (spec 017 parity).
-        let use_theme_background = {
-            let fp = self.form_runtimes[idx].form_path.clone();
-            let fname = self.form_runtimes[idx].form_name.clone();
-            let pack = self
-                .designers
-                .iter()
-                .find(|(p, _)| *p == fp)
-                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
-                .and_then(|(_, d)| d.active_theme_pack.clone());
-            let glass_style = self
-                .designers
-                .iter()
-                .find(|(p, _)| *p == fp)
-                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
-                .map(|(_, d)| d.form.glass_style)
-                .unwrap_or_default();
-            cobolt_forms::paint::set_active_theme(ctx, pack);
-            cobolt_forms::paint::set_glass_style(ctx, glass_style);
-            // The themed-background opt-in travels with the theme, from the same
-            // owning designer, so this viewport's backdrop matches the canvas.
-            self.designers
-                .iter()
-                .find(|(p, _)| *p == fp)
-                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
-                .map(|(_, d)| d.form.use_theme_background)
-                .unwrap_or(false)
-        };
-
-        // ── Form-level lifecycle events ───────────────────────────────────────
-        // onShow / onActivate fire once when the running form first appears;
-        // onResize fires whenever its canvas size changes. All addressed to the
-        // form's own id so the generated loop dispatches them.
-        {
-            let rt = &self.form_runtimes[idx];
-            let fname = rt.form_name.clone();
-            let cur_size = (rt.form_width, rt.form_height);
-            let shown_id = egui::Id::new(("form-shown", idx));
-            let already = ctx.memory(|m| m.data.get_temp::<bool>(shown_id).unwrap_or(false));
-            if !already {
-                self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onShow"));
-                self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onActivate"));
-                ctx.memory_mut(|m| m.data.insert_temp(shown_id, true));
-                ctx.memory_mut(|m| {
-                    m.data
-                        .insert_temp(egui::Id::new(("form-size", idx)), cur_size)
-                });
-            } else {
-                let size_id = egui::Id::new(("form-size", idx));
-                let prev = ctx.memory(|m| m.data.get_temp::<(u32, u32)>(size_id));
-                if prev.is_some() && prev != Some(cur_size) {
-                    self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onResize"));
-                }
-                ctx.memory_mut(|m| m.data.insert_temp(size_id, cur_size));
-            }
-        }
-
-        // Apply glass visuals identical to the preview window (or the light
-        // soft-UI visuals when the form's style is Neumorphic).
-        let mut vis = ctx.global_style().visuals.clone();
-        let gf = Color32::from_rgba_premultiplied(50, 55, 90, 55);
-        let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
-        vis.widgets.noninteractive.bg_fill = gf;
-        vis.widgets.noninteractive.bg_stroke = gs;
-        vis.widgets.inactive.bg_fill = gf;
-        vis.widgets.inactive.bg_stroke = gs;
-        vis.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
-        vis.widgets.hovered.bg_stroke =
-            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
-        vis.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
-        vis.widgets.active.bg_stroke =
-            egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
-        let rnd = egui::CornerRadius::same(8);
-        vis.widgets.noninteractive.corner_radius = rnd;
-        vis.widgets.inactive.corner_radius = rnd;
-        vis.widgets.hovered.corner_radius = rnd;
-        vis.widgets.active.corner_radius = rnd;
-        vis.override_text_color = Some(Color32::from_rgb(230, 235, 255));
-        vis.panel_fill = Color32::TRANSPARENT;
-        vis.window_fill = Color32::TRANSPARENT;
-        vis.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
-        ctx.set_visuals(vis);
-
-        // Snapshot what we need (avoids borrow-split issues with self).
-        let bg_image = self.form_runtimes[idx].background_image.clone();
-        let bg_mode = self.form_runtimes[idx].bg_image_mode;
-        let bg_transp = self.form_runtimes[idx].transparency;
-        let form_w = self.form_runtimes[idx].form_width as f32;
-        let form_h = self.form_runtimes[idx].form_height as f32;
-
-        // Derive the form background colour from the stored form metadata. This
-        // mirrors the preview window exactly (strip '#', take the first 6 hex
-        // digits, and treat pure black / unset as the default dark navy) so the
-        // running form sits on the same backdrop as the designer and preview —
-        // otherwise translucent (glass) content like charts looks washed out over
-        // a pure-black window.
-        let bg_color = {
-            let rt = &self.form_runtimes[idx];
-            let raw = rt.background_color.trim();
-            let s = if let Some(stripped) = raw.strip_prefix('#') {
-                stripped
-            } else {
-                raw
-            };
-            let hex = if s.len() >= 6 { &s[..6] } else { s };
-            let bg_alpha = (255.0 * (1.0 - rt.transparency as f32 / 100.0)) as u8;
-            if hex.len() == 6 {
-                let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(20);
-                let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(22);
-                let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(45);
-                // Pure black (000000) ⇒ default dark navy, matching the preview.
-                let (r, g, b) = if r == 0 && g == 0 && b == 0 {
-                    (20, 22, 45)
-                } else {
-                    (r, g, b)
-                };
-                Color32::from_rgba_premultiplied(
-                    (r as f32 * bg_alpha as f32 / 255.0) as u8,
-                    (g as f32 * bg_alpha as f32 / 255.0) as u8,
-                    (b as f32 * bg_alpha as f32 / 255.0) as u8,
-                    bg_alpha,
-                )
-            } else {
-                Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(200))
-            }
-        };
-
-        // ── Render the whole form through the unified engine (spec 017 T5). ────
-        // The old per-control run loop + `render_run_control` are gone; the engine
-        // owns the backdrop, render order, container clipping, faces, and the
-        // interactive widgets. `RunState` supplies live values from `CtrlState`.
-        let controls = self.form_runtimes[idx].controls.clone();
-        let states_snap = self.form_runtimes[idx].ctrl_state.clone();
-        // Run-form only: diagnose why groupbox cards not generated. Log effective ItemCount for any repeating GroupBox.
-        for c in &controls {
-            if matches!(c.control_type, cobolt_forms::ControlType::GroupBox) {
-                let is_rep = c
-                    .get_prop("IsRepeatingGroup")
-                    .map(|v| v.as_bool())
-                    .unwrap_or(false);
-                let mut item_cnt = c.get_prop("ItemCount").map(|v| v.as_i64()).unwrap_or(0);
-                // Check if live state overrode it
-                if let Some(live) = states_snap.get(&c.id) {
-                    let lv = live.get("ItemCount");
-                    if !lv.is_empty() {
-                        if let Ok(n) = lv.parse::<i64>() {
-                            item_cnt = n;
-                        }
-                    }
-                }
-                if is_rep || item_cnt > 0 || c.id.to_ascii_lowercase().contains("groupbox") {
-                    // debug during databind troubleshooting removed
-                }
-            }
-        }
-        let bg_hex = self.form_runtimes[idx].background_color.clone();
-        let bg_gradient_enabled = self.form_runtimes[idx].background_gradient_enabled;
-        let bg_gradient_start = self.form_runtimes[idx]
-            .background_gradient_start_color
-            .clone();
-        let bg_gradient_end = self.form_runtimes[idx]
-            .background_gradient_end_color
-            .clone();
-        let bg_gradient_direction = self.form_runtimes[idx]
-            .background_gradient_direction
-            .clone();
-        // Live tab selection per TabControl (so a runtime SET-PROPERTY SelectedTab
-        // or a tab click hides/shows the right page).
-        let active_tabs: cobolt_forms::containers::ActiveTabs = controls
-            .iter()
-            .filter(|c| matches!(c.control_type, CT::TabControl))
-            .filter_map(|c| {
-                states_snap
-                    .get(&c.id)
-                    .and_then(|s| s.props.get("SelectedTab"))
-                    .and_then(|v| v.trim().parse::<u32>().ok())
-                    .map(|t| (c.id.clone(), t))
-            })
-            .collect();
-        let st = RunState {
-            state: &states_snap,
-            run_id: self.form_runtimes[idx].run_id,
-        };
-
-        let mut output = cobolt_forms::render::RenderOutput::default();
-        // The run panel IS this form's window: its gradient / background image
-        // stretches over the whole panel when that is bigger than the form, and
-        // stays form-sized when the panel is smaller.
-        let panel_size = panel_ui.max_rect().size();
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(bg_color))
-            .show(panel_ui, |ui| {
-                // Scrollbars appear automatically when the form is larger than the
-                // window viewport; the content area is at least the form's size.
-                egui::ScrollArea::both()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.set_min_size(egui::vec2(form_w, form_h));
-                        // Background image texture (cached in egui memory).
-                        let image = if bg_image.trim().is_empty() {
-                            None
-                        } else {
-                            let cid = egui::Id::new(("runform_bg", bg_image.as_str()));
-                            let tex =
-                                match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(cid)) {
-                                    Some(t) => t,
-                                    None => {
-                                        let l = load_image_texture(ui.ctx(), &bg_image);
-                                        ui.data_mut(|d| d.insert_temp(cid, l.clone()));
-                                        l
-                                    }
-                                };
-                            tex.map(|t| (t.id(), t.size_vec2()))
-                        };
-                        let input = cobolt_forms::render::RenderInput {
-                            controls: &controls,
-                            state: &st,
-                            form_size: egui::vec2(form_w, form_h),
-                            glass,
-                            mode: cobolt_forms::render::RenderMode::Interactive,
-                            active_tabs: &active_tabs,
-                            backdrop: cobolt_forms::render::Backdrop {
-                                color_hex: bg_hex.clone(),
-                                transparency: bg_transp,
-                                gradient_enabled: bg_gradient_enabled,
-                                gradient_start_hex: bg_gradient_start.clone(),
-                                gradient_end_hex: bg_gradient_end.clone(),
-                                gradient_direction: bg_gradient_direction.clone(),
-                                image,
-                                image_mode: bg_mode,
-                                use_theme_background,
-                                window_size: Some(panel_size),
-                            },
-                        };
-                        output = cobolt_forms::render::render_form(ui, &input);
-                    });
-            });
-
-        // Apply value updates back to CtrlState, sync them to the interpreter (so
-        // an event handler reads the live value), then map UI events -> FormEvent
-        // and dispatch. Order matters: inputs before events.
-        {
-            let rt = &mut self.form_runtimes[idx];
-            for (id, key, val) in &output.prop_updates {
-                rt.ctrl_state
-                    .entry(id.clone())
-                    .or_default()
-                    .props
-                    .insert(key.clone(), val.clone());
-                rt.send_input(id, key, val);
-                // Capture *design-intent* layout adjustments (DataGrid column
-                // widths via AdvancedGrid, row height) so the "Apply layout to
-                // design" button can persist them as the control's new defaults.
-                // Runtime data (populated Rows, Value, selection) is never
-                // captured — only this whitelist.
-                if is_design_intent_prop(key) {
-                    rt.pending_design_props
-                        .entry(id.clone())
-                        .or_default()
-                        .insert(key.clone(), val.clone());
-                }
-            }
-            // A Timer keeps emitting `onTick` every frame the interval elapses,
-            // regardless of whether the previous tick's handler has finished.
-            // If the handler is slower than the interval those ticks would pile
-            // up in the unbounded event queue and starve close/quit — freezing
-            // the form (and the IDE, once a relaunch tried to join the thread).
-            // Coalesce: drop a new tick while any event is still queued, exactly
-            // like a WinForms timer skips ticks when the app is busy. User
-            // events (clicks, edits, focus, quit) are never dropped.
-            let busy = rt.pending_events() > 0;
-            for ev in output.events {
-                let is_tick = ev.event.eq_ignore_ascii_case("onTick");
-                if is_tick && busy {
-                    continue;
-                }
-                // For instanced members of repeating groups (ControlArray), the
-                // drawn event id is "Group.Group-N.Member". Route the *event* to the
-                // designed (base) member id so the generated handler is found, and
-                // forward the correct instance_index so the handler receives it via
-                // CONTROL-ARRAY-INDEX (property updates already used instance_index).
-                let (dispatch_id, inst) = if ev.ctrl_id.contains('.') {
-                    let base = ev
-                        .ctrl_id
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(&ev.ctrl_id)
-                        .to_string();
-                    // Format is "group.group-N.member" (the instanced id generated by
-                    // expand_repeating_groups). Extract the number after the last '-'
-                    // in the middle segment. This is more robust than simple nth.
-                    let inst = {
-                        let parts: Vec<&str> = ev.ctrl_id.split('.').collect();
-                        if parts.len() >= 2 {
-                            let mid = parts[1];
-                            mid.rsplit('-')
-                                .next()
-                                .and_then(|s| s.parse::<usize>().ok())
-                                .unwrap_or(0)
-                        } else {
-                            0
-                        }
-                    };
-                    (base, inst)
-                } else {
-                    (ev.ctrl_id.clone(), 0)
-                };
-                rt.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
-            }
-
-            // FileDropZone click → native picker (spec 039 T4). `cobolt-forms`
-            // has no native-dialog dependency by design (see render.rs's
-            // `RenderOutput::file_picker_requests` doc comment) — the host
-            // owns this. Reuses the existing non-blocking dialog
-            // infrastructure (`file_dialog.rs`) rather than a raw
-            // `rfd::FileDialog::pick_file()`, which would nest winit's event
-            // loop and abort the process (see that module's own doc comment).
-            for id in &output.file_picker_requests {
-                let key = format!("filedropzone:{id}");
-                crate::file_dialog::begin(&panel_ui.ctx(), &key, crate::file_dialog::DialogSpec::open());
-            }
-            for c in controls.iter().filter(|c| {
-                matches!(c.control_type, cobolt_forms::ControlType::FileDropZone)
-            }) {
-                let key = format!("filedropzone:{}", c.id);
-                if let Some(Some(path)) = crate::file_dialog::take(&key) {
-                    let val = path.display().to_string();
-                    rt.ctrl_state
-                        .entry(c.id.clone())
-                        .or_default()
-                        .props
-                        .insert("DroppedFiles".to_owned(), val.clone());
-                    rt.send_input(&c.id, "DroppedFiles", &val);
-                    rt.send_event(FormEvent::new(c.id.clone(), "onFilesDropped".to_owned()));
-                }
-            }
-        }
-
-        // ── Floating "Apply layout to design" affordance ──────────────────────
-        // When the user has interactively adjusted a DataGrid (column widths /
-        // row height) while the form runs with real data, offer to persist those
-        // as the control's new design defaults. Purely additive: if it is never
-        // clicked, the running form behaves exactly as before.
-        let pending_count: usize = self.form_runtimes[idx]
-            .pending_design_props
-            .values()
-            .map(|m| m.len())
-            .sum();
-        if pending_count > 0 {
-            let mut apply = false;
-            egui::Area::new(egui::Id::new(("apply-layout-to-design", idx)))
-                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-14.0, 14.0))
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        if ui
-                            .button(format!("✓ Apply layout to design ({pending_count})"))
-                            .on_hover_text(
-                                "Write the adjusted DataGrid column widths / row height back \
-                                 into the form as the control's new defaults, then Save (Ctrl+S).",
-                            )
-                            .clicked()
-                        {
-                            apply = true;
-                        }
-                    });
-                });
-            if apply {
-                self.apply_runtime_layout_to_design(idx);
-            }
-        }
-
-        // NOTE: do NOT self-request an unconditional repaint here. This runs
-        // once per frame inside the running-form viewport, and an unconditional
-        // `request_repaint()` asks for the next frame *immediately* — so the
-        // window spins at the machine's max frame rate and pegs a whole core
-        // even while the form sits idle (98% CPU). That defeats the reactive
-        // scheduling in `update()` and the per-tick `request_repaint_after` in
-        // the Timer/animation render arms.
-        //
-        // Frames are driven reactively instead:
-        //   • the root `update()` schedules 16 ms while interpreter events are
-        //     queued to drain, and a 200 ms heartbeat otherwise;
-        //   • the Timer arm wakes exactly when the next tick is due;
-        //   • animations and channel output schedule their own targeted repaints.
-        // Between those, the form sleeps.
-    }
-
-    /// Persist the interactively-adjusted, whitelisted layout properties captured
-    /// while the form at `idx` runs (DataGrid column widths / row height) back
-    /// into the owning designer's form model, as the control's new defaults. The
-    /// designer is marked dirty; the user Saves to write the `.cfrm`.
-    fn apply_runtime_layout_to_design(&mut self, idx: usize) {
-        if idx >= self.form_runtimes.len() {
-            return;
-        }
-        let form_path = self.form_runtimes[idx].form_path.clone();
-        let fname = self.form_runtimes[idx].form_name.clone();
-        let pending = std::mem::take(&mut self.form_runtimes[idx].pending_design_props);
-        if pending.is_empty() {
-            return;
-        }
-        // Resolve the owning designer by path, then by form name.
-        let pos = self
-            .designers
-            .iter()
-            .position(|(p, _)| *p == form_path)
-            .or_else(|| {
-                self.designers
-                    .iter()
-                    .position(|(_, d)| d.form.name == fname)
-            });
-        let Some(pos) = pos else {
-            self.output.push_status(
-                "Apply layout: the form's designer is not open — reopen the form, run, and try again.",
-            );
-            return;
-        };
-        let designer = &mut self.designers[pos].1;
-        let mut applied = 0usize;
-        let mut controls = 0usize;
-        for (ctrl_id, props) in &pending {
-            if let Some(ctrl) = designer.form.find_control_mut(ctrl_id) {
-                controls += 1;
-                for (key, val) in props {
-                    ctrl.set_prop(key.clone(), cobolt_forms::PropValue::String(val.clone()));
-                    applied += 1;
-                }
-            }
-        }
-        if applied > 0 {
-            designer.dirty = true;
-            self.output.push_status(format!(
-                "Applied {applied} layout adjustment(s) to {controls} control(s) in {fname} — Save (Ctrl+S) to keep."
-            ));
-        } else {
-            self.output
-                .push_status("Apply layout: no matching controls found in the form.");
-        }
-    }
-}
+// Host C — the in-IDE running-form viewport (`FormRuntime` +
+// `show_running_form_window`) — was retired by spec 042 R4: Run Form executes
+// in the external `rcrun run-form` process hosting the shared
+// `cobolt-form-host` window, and the in-process copy had been unreachable
+// since that landed (nothing ever constructed a `FormRuntime`).
 
 // ── Indexed grid window contents (structure editing is now only in the inline inspector) ───────────────────────────────────
 
@@ -13626,13 +13024,9 @@ impl CoboltApp {
                 // Exited external runs are reaped every frame in update(), so
                 // presence in the list means the process is alive.
                 let form_running = self
-                    .form_runtimes
+                    .external_runs
                     .iter()
-                    .any(|rt| rt.form_path == form_path && rt.is_running())
-                    || self
-                        .external_runs
-                        .iter()
-                        .any(|run| run.form_path == form_path);
+                    .any(|run| run.form_path == form_path);
 
                 // Icons (left) + language selector (right) on a SINGLE centred row.
                 // They must share one row: two stacked rows (icon row + a separate
@@ -13736,14 +13130,6 @@ impl CoboltApp {
                         self.external_runs.retain_mut(|run| {
                             if run.form_path == fp {
                                 run.stop();
-                                false
-                            } else {
-                                true
-                            }
-                        });
-                        self.form_runtimes.retain_mut(|rt| {
-                            if rt.form_path == fp {
-                                rt.stop();
                                 false
                             } else {
                                 true

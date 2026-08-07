@@ -1298,6 +1298,7 @@ dependencies = [
  "bincode",
  "cobolt-ast",
  "cobolt-compiler",
+ "cobolt-form-host",
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-media",
@@ -1347,6 +1348,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-form-host"
+version = "0.2.0"
+dependencies = [
+ "cobolt-forms",
+ "cobolt-media",
+ "cobolt-runtime",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "image 0.25.10",
+ "pollster 0.3.0",
+ "pretty_assertions",
+ "rfd",
+]
+
+[[package]]
 name = "cobolt-forms"
 version = "0.2.0"
 dependencies = [
@@ -1381,6 +1398,7 @@ dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-compiler",
+ "cobolt-form-host",
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-lexer",

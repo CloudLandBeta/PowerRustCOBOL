@@ -254,28 +254,21 @@ struct ProjectFiles {
 struct FormsConfig {
     #[serde(default)]
     theme: String,
-    // 038 window-effect settings — accepted here so the packaged binary's
-    // manifest parse round-trips them; consumed once the packaged host
-    // reaches 037/038 parity (tracked work item).
-    #[allow(dead_code)]
+    // 038 window-effect settings. Baked into the generated source at build
+    // time (see `fx_spec` / `generate_main_rs`), because a shipped binary has
+    // no `cobolt.toml` beside it to read them from (spec 042 R11).
     #[serde(default, rename = "entrance-effect")]
     entrance_effect: String,
-    #[allow(dead_code)]
     #[serde(default, rename = "entrance-ms")]
     entrance_ms: u32,
-    #[allow(dead_code)]
     #[serde(default, rename = "entrance-easing")]
     entrance_easing: String,
-    #[allow(dead_code)]
     #[serde(default, rename = "exit-effect")]
     exit_effect: String,
-    #[allow(dead_code)]
     #[serde(default, rename = "exit-ms")]
     exit_ms: u32,
-    #[allow(dead_code)]
     #[serde(default, rename = "exit-easing")]
     exit_easing: String,
-    #[allow(dead_code)]
     #[serde(default, rename = "entrance-on-restore")]
     entrance_on_restore: bool,
 }
@@ -938,6 +931,19 @@ fn build_core(
 
     // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
     let form_ids: Vec<&str> = forms.iter().map(|(id, _)| id.as_str()).collect();
+    // 038/042 — the project's window effects, baked into the generated source
+    // as `id:ms:easing` triples: a shipped binary has no `cobolt.toml` beside
+    // it, so settings it cannot read are settings it cannot honour (042 R11).
+    let entrance_fx = fx_triple(
+        &proj.forms.entrance_effect,
+        proj.forms.entrance_ms,
+        &proj.forms.entrance_easing,
+    );
+    let exit_fx = fx_triple(
+        &proj.forms.exit_effect,
+        proj.forms.exit_ms,
+        &proj.forms.exit_easing,
+    );
     let main_rs = generate_main_rs(
         &proj.project.name,
         &proj.project.version,
@@ -945,6 +951,9 @@ fn build_core(
         &form_ids,
         &staged_themes,
         &project_theme_default,
+        &entrance_fx,
+        &exit_fx,
+        proj.forms.entrance_on_restore,
     );
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
@@ -1309,8 +1318,13 @@ tracing         = "0.1"
     );
 
     if has_forms {
+        // `cobolt-form-host` is the SHARED window host (spec 042 R1/R3): the
+        // generated application is thin glue over it, exactly like run-form.
+        // eframe/egui stay direct dependencies — `EXEC RUST` blocks compile
+        // against them (cobolt_windows, ViewportBuilder, …).
         s.push_str(&format!(
-            r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
+            r#"cobolt-form-host = {{ path = "{cp}/cobolt-form-host" }}
+cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
 eframe          = {{ version = "0.36", features = ["default_fonts"] }}
 egui            = "0.36"
@@ -1324,6 +1338,20 @@ pollster        = "0.3"
     s
 }
 
+/// A `[forms]` window-effect setting as the `id:ms:easing` triple the shared
+/// host's `FxSpec::parse` speaks (spec 042 R11). Deliberately NOT typed here:
+/// `window_fx` is render-gated in `cobolt-forms` and the compiler must not
+/// drag egui in, so the values are baked raw and ONE parser — the same one
+/// the CLI's `--fx-entrance` goes through — validates ids, clamps durations
+/// to each effect's own bounds and defaults broken easings, at run time.
+/// Colons cannot survive inside the id/easing fields (they are the triple's
+/// separator), so they are stripped defensively.
+fn fx_triple(effect: &str, ms: u32, easing: &str) -> String {
+    let clean = |s: &str| s.trim().to_ascii_lowercase().replace(':', "");
+    format!("{}:{}:{}", clean(effect), ms, clean(easing))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn generate_main_rs(
     app_name: &str,
     version: &str,
@@ -1331,6 +1359,9 @@ fn generate_main_rs(
     form_ids: &[&str],
     themes: &[StagedTheme],
     project_theme_default: &str,
+    entrance_fx: &str,
+    exit_fx: &str,
+    entrance_on_restore: bool,
 ) -> String {
     // Build the FORMS constant entries
     let forms_entries: String = form_ids
@@ -1379,170 +1410,30 @@ fn generate_main_rs(
         "/// The project's default form theme (`[forms] theme` in cobolt.toml).\n#[allow(dead_code)]\nconst PROJECT_THEME_DEFAULT: &str = \"{}\";\n",
         project_theme_default.escape_default()
     );
+    // 042 R11 — the window effects, as the `id:ms:easing` triples the CLI's
+    // `--fx-entrance`/`--fx-exit` already speak, so both hosts parse ONE
+    // format with one parser (`FxSpec::parse`). `#[allow(dead_code)]`: a
+    // console-only project has no window to animate.
+    let window_fx_const = format!(
+        "/// The project's window entrance/exit effects (`[forms]` in cobolt.toml),\n\
+         /// baked in because a shipped binary has no manifest to read them from.\n\
+         #[allow(dead_code)]\nconst PROJECT_FX_ENTRANCE: &str = \"{}\";\n\
+         #[allow(dead_code)]\nconst PROJECT_FX_EXIT: &str = \"{}\";\n\
+         /// Replay the entrance when the window is restored after minimizing.\n\
+         #[allow(dead_code)]\nconst PROJECT_FX_ON_RESTORE: bool = {};\n",
+        entrance_fx.escape_default(),
+        exit_fx.escape_default(),
+        entrance_on_restore
+    );
 
     let form_runtime_code = if has_forms {
         r#"
-// ── Form application (spec 017: one renderer for every surface) ───────────────
-
-/// Mutable UI-side state of a single control (mirrors the IDE's CtrlState).
-/// An entry created on the fly starts VISIBLE and ENABLED: a derived Default
-/// would make it `false`, so a control the interpreter writes to before it
-/// exists in the map (a repeating-group card instance) would never be drawn.
-#[derive(Clone)]
-struct CtrlState {
-    props:   std::collections::HashMap<String, String>,
-    visible: bool,
-    enabled: bool,
-}
-impl Default for CtrlState {
-    fn default() -> Self {
-        CtrlState { props: std::collections::HashMap::new(), visible: true, enabled: true }
-    }
-}
-impl CtrlState {
-    fn from_control(ctrl: &cobolt_forms::Control) -> Self {
-        let mut props = std::collections::HashMap::new();
-        for (k, v) in &ctrl.properties {
-            props.insert(k.clone(), v.to_xml_string());
-        }
-        CtrlState { props, visible: ctrl.visible, enabled: ctrl.enabled }
-    }
-    fn set(&mut self, key: &str, value: String) {
-        // Matched case-insensitively: a property name reaches here from a COBOL
-        // literal, from member access, or from an EXEC RUST block by way of the
-        // object registry, which upper-cases its keys. An exact match dropped
-        // every spelling but one, and dropped it in silence.
-        match key.to_ascii_uppercase().as_str() {
-            "VISIBLE" => self.visible = value != "0" && value != "false",
-            "ENABLED" => self.enabled = value != "0" && value != "false",
-            _ => {}
-        }
-        // ONE entry per property, whatever its spelling. The state is seeded
-        // from the design ("Caption") while a handler's write arrives from the
-        // object registry upper-cased ("CAPTION"), so a plain insert left BOTH
-        // in the map — the designed value and the new one. `merge_props` then
-        // walks this map (a HashMap: arbitrary order) applying each through a
-        // case-insensitive `set_prop`, so whichever was visited last won. The
-        // label showed the new caption or the original one depending on the
-        // run: intermittent, patternless, and stable within a single process,
-        // which is exactly how it was reported.
-        if !self.props.contains_key(key) {
-            if let Some(existing) = self
-                .props
-                .keys()
-                .find(|k| k.eq_ignore_ascii_case(key))
-                .cloned()
-            {
-                self.props.remove(&existing);
-            }
-        }
-        self.props.insert(key.to_owned(), value);
-    }
-}
-
-fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_forms::Control>) {
-    for c in controls {
-        out.push(c.clone());
-        flatten_controls(&c.children, out);
-    }
-}
-
-/// Non-blocking native file dialogs (spec 039 T4) — a synchronous
-/// `rfd::FileDialog::pick_file()` nests the OS event loop and winit 0.35
-/// aborts the process with "tried to handle event while another event is
-/// currently being handled". `rfd::AsyncFileDialog` runs on a worker thread
-/// instead and delivers its result through a keyed inbox the UI polls on
-/// later frames. Same pattern as the IDE's own `file_dialog.rs`, inlined
-/// here since a compiled binary is one generated `main.rs`, not a crate
-/// with its own module files.
-mod file_dialog {
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-    use std::sync::mpsc::{Receiver, TryRecvError};
-    use std::sync::{Mutex, OnceLock};
-
-    type Pending = HashMap<String, Receiver<Option<PathBuf>>>;
-
-    fn pending() -> &'static Mutex<Pending> {
-        static P: OnceLock<Mutex<Pending>> = OnceLock::new();
-        P.get_or_init(|| Mutex::new(HashMap::new()))
-    }
-
-    fn is_open(key: &str) -> bool {
-        pending().lock().unwrap().contains_key(key)
-    }
-
-    /// Begin an "open file" dialog under `key`. A no-op if one is already
-    /// open under that key. Poll `take` on later frames for the result.
-    pub fn begin(ctx: &egui::Context, key: &str) {
-        if is_open(key) {
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let handle = pollster::block_on(rfd::AsyncFileDialog::new().pick_file());
-            let _ = tx.send(handle.map(|h| h.path().to_path_buf()));
-            ctx.request_repaint();
-        });
-        pending().lock().unwrap().insert(key.to_owned(), rx);
-    }
-
-    /// `Some(Some(path))` picked, `Some(None)` cancelled, `None` still open.
-    pub fn take(key: &str) -> Option<Option<PathBuf>> {
-        let mut map = pending().lock().unwrap();
-        let result = match map.get(key) {
-            Some(rx) => match rx.try_recv() {
-                Ok(result) => Some(result),
-                Err(TryRecvError::Empty) => return None,
-                Err(TryRecvError::Disconnected) => Some(None),
-            },
-            None => return None,
-        };
-        map.remove(key);
-        result
-    }
-}
-
-/// `FormState` over the compiled control-state map: merges live property values
-/// onto each designed control so the unified render engine paints the binary
-/// exactly like the IDE preview / running form (background, glass, charts,
-/// styled widgets — spec 017 T7).
-struct CompiledState<'a> {
-    state: &'a std::collections::HashMap<String, CtrlState>,
-    anim:  &'a cobolt_forms::anim::AnimRuntime,
-}
-impl<'a> cobolt_forms::render::FormState for CompiledState<'a> {
-    fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
-        match self.state.get(&base.id) {
-            Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
-            None => base.clone(),
-        }
-    }
-    fn visible(&self, base: &cobolt_forms::Control) -> bool {
-        self.state.get(&base.id).map(|s| s.visible).unwrap_or(true)
-    }
-    fn enabled(&self, base: &cobolt_forms::Control) -> bool {
-        self.state.get(&base.id).map(|s| s.enabled).unwrap_or(true)
-    }
-    fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
-        self.anim.transform(base)
-    }
-}
-
-/// What a COBOL animation verb asked for. `PLAY ANIMATION`, `STOP-ANIMATION`
-/// and `PAUSE` reach the UI as writes to these pseudo-properties.
-#[derive(Clone, Copy, PartialEq)]
-enum AnimCommand { Play, Stop, Pause }
-
-fn anim_command(prop: &str) -> Option<AnimCommand> {
-    match prop.trim() {
-        p if p.eq_ignore_ascii_case("_PlayAnimation")  => Some(AnimCommand::Play),
-        p if p.eq_ignore_ascii_case("_StopAnimation")  => Some(AnimCommand::Stop),
-        p if p.eq_ignore_ascii_case("_PauseAnimation") => Some(AnimCommand::Pause),
-        _ => None,
-    }
-}
+// ── Form application (spec 042: thin glue over the SHARED form host) ──────────
+// The window — control state, backdrop, 038 entrance/exit effects, 037
+// lifecycle, event routing, pacing — is `cobolt_form_host`, the same code
+// `rcrun run-form` runs. This generated file supplies only what is genuinely
+// per-host (042 R30): the embedded forms/themes, the interpreter thread with
+// its compiled EXEC RUST blocks, and the per-frame block-window replay.
 
 /// Resolve the form's asset-pack theme (`form ?? project ?? Liquid Glass`) to a
 /// pack built from the art embedded in this executable.
@@ -1569,12 +1460,26 @@ fn resolve_theme_pack(
     }
 }
 
+/// The per-frame block-window replay (042 R30 seam): windows opened by an
+/// EXEC RUST block must be re-shown every frame — that is what
+/// `show_viewport_deferred` requires; miss a frame and the window closes. A
+/// block cannot do this itself: it runs once, on the interpreter's thread.
+struct BlockWindows;
+impl cobolt_form_host::HostHooks for BlockWindows {
+    fn per_frame(&mut self, ctx: &egui::Context) {
+        crate::exec_rust_blocks::cobolt_windows::show_all(ctx);
+    }
+}
+
 fn run_form_app(program: cobolt_ast::program::Program) {
+    use cobolt_form_host::state::CtrlState;
     use cobolt_forms::load_form_from_str;
     use cobolt_runtime::{Interpreter, FormEvent, StateUpdate};
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
 
-    // Load the first embedded form — defines the window size + initial layout.
+    // Load the MAIN embedded form (the build embeds it first) — defines the
+    // window size + initial layout.
     let first_form = if let Some(&(_, bytes)) = FORMS.first() {
         let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
         load_form_from_str(xml).expect("parse embedded form")
@@ -1585,7 +1490,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
 
     // Flatten + z-order the controls and build the initial control state.
     let mut flat: Vec<cobolt_forms::Control> = Vec::new();
-    flatten_controls(&first_form.controls, &mut flat);
+    cobolt_form_host::flatten_controls(&first_form.controls, &mut flat);
     flat.sort_by_key(|c| c.z_order);
 
     let mut state: std::collections::HashMap<String, CtrlState> = std::collections::HashMap::new();
@@ -1593,403 +1498,119 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         state.insert(c.id.clone(), CtrlState::from_control(c));
     }
 
-    let (fw, fh) = (first_form.width as f32, first_form.height as f32);
-    let title = format!("{} v{}", APP_NAME, APP_VERSION);
+    // Seed the interpreter's visual-object registry with every control's
+    // designed properties (042 R20) — the same shared builder Run Form uses,
+    // so a property read before the first write returns the designed value.
+    let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
+    let seed = cobolt_form_host::seeding::build_object_seed(
+        &first_form,
+        &flat,
+        maps_api_key.as_deref(),
+        search_api_key.as_deref(),
+    );
 
-    // With diagnostics on, say what this window IS before anything runs: which
-    // form, its controls and its background. The control roster is the useful
-    // part — it turns "the label never changed" into "that control id does not
-    // exist" at a glance.
-    //
-    // There was a transparency warning here. It was wrong: a transparent form
-    // renders its controls perfectly well, as the operator demonstrated by
-    // pointing out that the designed caption was always visible. The real
-    // fault was a duplicated property key (1.60.33), and the warning did
-    // nothing but send readers — me included — down the wrong path.
-    if std::env::var("COBOLT_FRAME_DIAGNOSTICS").map(|v| v == "1").unwrap_or(false) {
-        eprintln!(
-            "[prc] form '{}' {}x{} background={:?} controls={:?}",
-            first_form.name, fw as u32, fh as u32,
-            first_form.background_color,
-            flat.iter().map(|c| c.id.as_str()).collect::<Vec<_>>()
-        );
-    }
-
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(&title)
-            .with_inner_size([fw + 4.0, fh + 4.0]),
-        ..Default::default()
+    // 042 R11 — window effects: the baked project settings × the form's own
+    // `WindowEffects` opt-out × the machine kill switch, the same resolution
+    // rule the IDE applies before Run Form.
+    let fx_killed = cobolt_form_host::diagnostics::env_flag("PRC_NO_WINDOW_FX");
+    let fx_on = first_form.window_effects && !fx_killed;
+    let (fx_entrance, fx_exit, fx_restore) = if fx_on {
+        (
+            cobolt_forms::window_fx::FxSpec::parse(PROJECT_FX_ENTRANCE),
+            cobolt_forms::window_fx::FxSpec::parse(PROJECT_FX_EXIT),
+            PROJECT_FX_ON_RESTORE,
+        )
+    } else {
+        (Default::default(), Default::default(), false)
     };
+
+    let theme_pack = resolve_theme_pack(&first_form);
 
     let (ev_tx, ev_rx)           = mpsc::channel::<FormEvent>();
     let (input_tx, input_rx)     = mpsc::channel::<StateUpdate>();
     let (state_tx, state_rx)     = mpsc::channel::<StateUpdate>();
     let (display_tx, display_rx) = mpsc::channel::<String>();
+    let pending  = Arc::new(AtomicUsize::new(0));
+    let finished = Arc::new(AtomicBool::new(false));
+    // 037/042 R12 — the interpreter's OpenForm*/`me::` window methods talk to
+    // the shared host's real FormSupervisor, exactly as under Run Form.
+    let (form_req_tx, form_req_rx) =
+        mpsc::channel::<cobolt_runtime::form_host::FormRequest>();
+    let (closed_tx, closed_rx) = mpsc::channel::<String>();
+    let form_object = first_form.name.trim().to_ascii_uppercase();
 
     // The COBOL event loop runs on its own thread. The input channel lets the UI
     // push live control values (slider drag, text edit, …) so event handlers read
-    // the current value rather than the seeded default.
+    // the current value rather than the seeded default. This thread is the
+    // per-host part (042 R30): compiled EXEC RUST blocks + painter-ready.
     let err_tx = display_tx.clone();
-    std::thread::spawn(move || {
-        let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
-        // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9). One
-        // interpreter per process means one object bridge, so every block —
-        // including one in a form event handler — sees the same state.
-        interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
-        // A form is painting, so a block may open a window of its own. Set
-        // before the first block can run: `open` refuses when nothing will
-        // paint, which is the honest answer in a console program.
-        crate::exec_rust_blocks::cobolt_windows::set_painter_ready();
-        interp.set_input_channel(input_rx);
-        // This thread IS the program. If it stops, the window keeps painting
-        // while every later click is dropped — the application looks alive and
-        // answers nothing. That failure used to be discarded by `let _ =`, which
-        // is the most expensive silence in the build: it is indistinguishable
-        // from "the handler did nothing".
-        match interp.run() {
-            Ok(()) => {}
-            Err(e) if e.is_exit_signal() => {}
-            Err(e) => {
-                eprintln!("Runtime error: {e}");
-                let _ = err_tx.send(format!("Runtime error: {e}"));
-                eprintln!(
-                    "The program has stopped. The window stays open, but no \
-                     further events will be handled."
-                );
-                let _ = err_tx.send(
-                    "The program has stopped; no further events will be handled."
-                        .to_string(),
-                );
+    {
+        let finished = Arc::clone(&finished);
+        let pending = Arc::clone(&pending);
+        let form_object = form_object.clone();
+        std::thread::spawn(move || {
+            let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9). One
+            // interpreter per process means one object bridge, so every block —
+            // including one in a form event handler — sees the same state.
+            interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
+            // A form is painting, so a block may open a window of its own. Set
+            // before the first block can run: `open` refuses when nothing will
+            // paint, which is the honest answer in a console program.
+            crate::exec_rust_blocks::cobolt_windows::set_painter_ready();
+            interp.set_input_channel(input_rx);
+            interp.set_event_counter(pending);
+            interp.set_form_host(
+                form_req_tx,
+                cobolt_runtime::form_host::ROOT_HANDLE,
+                &form_object,
+                closed_rx,
+            );
+            interp.seed_objects(seed);
+            // This thread IS the program. When it ends — STOP RUN or an error —
+            // the window closes (through the exit effect when one is
+            // configured, 042 R15) instead of staying open and answering
+            // nothing, which is indistinguishable from "the handler did
+            // nothing".
+            match interp.run() {
+                Ok(()) => {}
+                Err(e) if e.is_exit_signal() => {}
+                Err(e) => {
+                    eprintln!("Runtime error: {e}");
+                    let _ = err_tx.send(format!("Runtime error: {e}"));
+                }
             }
-        }
-    });
+            finished.store(true, Ordering::Relaxed);
+        });
+    }
 
-    let app = FormApp {
-        controls: flat,
+    // Everything from here is the SHARED host (042 R1/R3) — the same window
+    // code `rcrun run-form` runs: viewport assembly from the designed window
+    // properties, 038 effect playback, 037 lifecycle, state/event routing.
+    cobolt_form_host::run(cobolt_form_host::FormHostConfig {
+        form: first_form,
+        flat,
         state,
-        bg_hex: first_form.background_color.clone(),
-        bg_gradient_enabled: first_form.background_gradient_enabled,
-        bg_gradient_start: first_form.background_gradient_start_color.clone(),
-        bg_gradient_end: first_form.background_gradient_end_color.clone(),
-        bg_gradient_direction: first_form.background_gradient_direction.clone(),
-        transparency: first_form.transparency.clamp(0, 100) as u8,
-        bg_image: first_form.background_image.clone(),
-        bg_mode: first_form.bg_image_mode,
-        use_theme_background: first_form.use_theme_background,
-        glass_style: first_form.glass_style,
-        theme_pack: resolve_theme_pack(&first_form),
-        visuals_set: false,
-        form_size: egui::vec2(fw, fh),
         ev_tx,
         input_tx,
         state_rx,
         display_rx,
-        diagnostics: std::env::var("COBOLT_FRAME_DIAGNOSTICS")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false),
-        start: std::time::Instant::now(),
-        anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
-        anim_started: false,
-        last_frame: None,
-        hovered: std::collections::HashSet::new(),
-    };
-    let _ = eframe::run_native(
-        &title,
-        native_options,
-        Box::new(move |cc| {
-            // Broad-Latin + CJK system fallbacks, as the IDE installs: with
-            // egui's Latin-only defaults a katakana or CJK caption would draw
-            // as tofu boxes in the compiled application.
-            cc.egui_ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
-            Ok(Box::new(app) as Box<dyn eframe::App>)
-        }),
-    );
+        pending,
+        finished,
+        form_req_rx,
+        closed_tx,
+        fx_entrance,
+        fx_exit,
+        fx_restore,
+        theme_pack,
+        icon_path: None,
+        // 042 R17 — the designed `form.title` wins; the branded fallback shows
+        // only when the design left the title blank.
+        title_fallback: format!("{} v{}", APP_NAME, APP_VERSION),
+        hooks: Box::new(BlockWindows),
+    });
 }
 
-struct FormApp {
-    controls:     Vec<cobolt_forms::Control>,
-    state:        std::collections::HashMap<String, CtrlState>,
-    bg_hex:       String,
-    bg_gradient_enabled: bool,
-    bg_gradient_start: String,
-    bg_gradient_end: String,
-    bg_gradient_direction: String,
-    transparency: u8,
-    bg_image:     String,
-    bg_mode:      cobolt_forms::model::BgImageMode,
-    /// The form's `UseThemeBackground` opt-in — the pack's background art
-    /// replaces the form's own image when the active theme provides one.
-    use_theme_background: bool,
-    glass_style:  cobolt_forms::model::GlassStyle,
-    /// The form's asset-pack theme, built from art embedded in this binary.
-    /// `None` = the built-in procedural Liquid Glass.
-    theme_pack:   Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
-    visuals_set:  bool,
-    form_size:    egui::Vec2,
-    ev_tx:        std::sync::mpsc::Sender<cobolt_runtime::FormEvent>,
-    input_tx:     std::sync::mpsc::Sender<cobolt_runtime::StateUpdate>,
-    state_rx:     std::sync::mpsc::Receiver<cobolt_runtime::StateUpdate>,
-    display_rx:   std::sync::mpsc::Receiver<String>,
-    /// `COBOLT_FRAME_DIAGNOSTICS=1` — report every property update the
-    /// interpreter sends and whether it landed on a real control. Without it
-    /// a built application is a black box: "the label did not change" cannot
-    /// be told apart from "the handler never ran" or "the write went to a name
-    /// that does not exist".
-    diagnostics:  bool,
-    /// When the window opened. Input events are ignored for a short warm-up so
-    /// that a click already in progress as the window appears cannot be mistaken
-    /// for an intentional interaction.
-    start:        std::time::Instant,
-    /// Control animations (fly-in, fade, pulse, …), driven by the shared
-    /// `cobolt_forms::anim` runtime so a built binary animates exactly like the
-    /// designer preview and the run form.
-    anim:         cobolt_forms::anim::AnimRuntime,
-    /// One-shot guard for the load-time (`OnFormLoad` / `OnShow`) animations.
-    anim_started: bool,
-    /// Previous frame's timestamp — the animation clock's delta.
-    last_frame:   Option<std::time::Instant>,
-    /// Controls the pointer was inside last frame, so `OnHover` fires on entry
-    /// only. Pointer triggers come from the rendered rects because the engine
-    /// emits onClick/onHoverEnter only for events with a bound COBOL handler.
-    hovered:      std::collections::HashSet<String>,
-}
-
-impl eframe::App for FormApp {
-    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = root_ui.ctx().clone();
-        let ctx = &ctx;
-        // Light visuals baseline — egui defaults to dark mode, which leaks dark
-        // widget fills into the form and breaks parity with the designer.
-        if !self.visuals_set {
-            self.visuals_set = true;
-            ctx.set_visuals(egui::Visuals::light());
-        }
-        // Theme pack + glass style for the unified painter (per frame — the same
-        // contract the IDE's canvas, preview and run form follow). Without the
-        // theme pack a form skinned with an asset pack rendered as procedural
-        // Liquid Glass here, so the shipped app looked nothing like the design.
-        cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
-        cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
-
-        // Windows opened by an EXEC RUST block. Replayed every frame because
-        // that is what `show_viewport_deferred` requires: miss a frame and the
-        // window closes. A block cannot do this itself — it runs once, on the
-        // interpreter's thread.
-        crate::exec_rust_blocks::cobolt_windows::show_all(ctx);
-
-        // Apply property changes coming from the COBOL interpreter. COBOL
-        // upper-cases control ids, so resolve each to the designer-case state
-        // key — otherwise handler writes land in an orphan entry the renderer
-        // never reads and events appear not to fire.
-        //  Animation clock: load-time animations start with the window, then
-        //  `tick` advances everything and reports whether a frame is still owed.
-        if !self.anim_started {
-            self.anim_started = true;
-            self.anim.start_form_load(&self.controls);
-        }
-        let now = std::time::Instant::now();
-        let dt = self.last_frame
-            .map(|t| now.duration_since(t).as_secs_f32())
-            .unwrap_or(0.0);
-        self.last_frame = Some(now);
-        let animating = self.anim.tick(dt);
-
-        let mut drained = 0usize;
-        while let Ok(u) = self.state_rx.try_recv() {
-            // COBOL's PLAY ANIMATION / STOP-ANIMATION / PAUSE: act on the write,
-            // don't store it as a property.
-            if let Some(cmd) = anim_command(&u.prop) {
-                match cmd {
-                    AnimCommand::Play  => self.anim.play_programmatic(&self.controls, &u.ctrl_id, &u.value),
-                    AnimCommand::Stop  => self.anim.stop_all(&u.ctrl_id),
-                    AnimCommand::Pause => self.anim.pause_all(&u.ctrl_id),
-                }
-                drained += 1;
-                continue;
-            }
-            // Which designed control does this write land on? A miss means the
-            // update is stored under a key nothing renders — the difference
-            // between "the handler never ran" and "the handler wrote to a name
-            // that does not exist", which is invisible without saying so.
-            let matched = self.state.keys()
-                .find(|k| k.eq_ignore_ascii_case(&u.ctrl_id))
-                .cloned();
-            if self.diagnostics {
-                match &matched {
-                    Some(k) => eprintln!(
-                        "[prc] state update: {} :: {} = {:?} -> control '{}'",
-                        u.ctrl_id, u.prop, u.value, k
-                    ),
-                    None => eprintln!(
-                        "[prc] state update: {} :: {} = {:?} -> NO SUCH CONTROL \
-                         (known: {:?}) — this write will never be seen",
-                        u.ctrl_id, u.prop, u.value,
-                        self.state.keys().collect::<Vec<_>>()
-                    ),
-                }
-            }
-            let key = matched.unwrap_or_else(|| u.ctrl_id.clone());
-            self.state.entry(key).or_default().set(&u.prop, u.value);
-            drained += 1;
-        }
-        // DISPLAY output → stdout.
-        while let Ok(line) = self.display_rx.try_recv() {
-            println!("{}", line);
-        }
-
-        // Ignore input for a brief warm-up after the window appears.
-        let armed = self.start.elapsed().as_millis() > 450;
-
-        // Background image texture (cached in egui memory by path).
-        let backdrop_image = if self.bg_image.trim().is_empty() {
-            None
-        } else {
-            let path = self.bg_image.clone();
-            let id = egui::Id::new(("compiled_bg", path.as_str()));
-            let cached = ctx.memory(|m| m.data.get_temp::<Option<egui::TextureHandle>>(id));
-            let tex = match cached {
-                Some(t) => t,
-                None => {
-                    let loaded = cobolt_forms::paint::load_image_texture(ctx, &path);
-                    ctx.memory_mut(|m| m.data.insert_temp(id, loaded.clone()));
-                    loaded
-                }
-            };
-            tex.map(|t| (t.id(), t.size_vec2()))
-        };
-
-        let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
-        let form_size = self.form_size;
-
-        // Render the whole form through the unified engine (one renderer for the
-        // designer, preview, running form, and this compiled binary).
-        let output = {
-            let controls = self.controls.clone();
-            let st = CompiledState { state: &self.state, anim: &self.anim };
-            let active_tabs = cobolt_forms::containers::ActiveTabs::default();
-            let backdrop = cobolt_forms::render::Backdrop {
-                color_hex: self.bg_hex.clone(),
-                transparency: self.transparency,
-                gradient_enabled: self.bg_gradient_enabled,
-                gradient_start_hex: self.bg_gradient_start.clone(),
-                gradient_end_hex: self.bg_gradient_end.clone(),
-                gradient_direction: self.bg_gradient_direction.clone(),
-                image: backdrop_image,
-                image_mode: self.bg_mode,
-                use_theme_background: self.use_theme_background,
-                // The gradient / background image follows the WINDOW: it
-                // stretches over the whole thing when the user maximizes or
-                // drags it bigger, and stays form-sized when the window is
-                // dragged smaller. The controls keep their designed size.
-                window_size: Some(ctx.content_rect().size()),
-            };
-            let mut out = cobolt_forms::render::RenderOutput::default();
-            egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(bg_fill))
-                .show(root_ui, |ui| {
-                    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-                        ui.set_min_size(form_size);
-                        let input = cobolt_forms::render::RenderInput {
-                            controls: &controls,
-                            state: &st,
-                            form_size,
-                            glass: true,
-                            mode: cobolt_forms::render::RenderMode::Interactive,
-                            active_tabs: &active_tabs,
-                            backdrop,
-                        };
-                        out = cobolt_forms::render::render_form(ui, &input);
-                    });
-                });
-            out
-        };
-
-        // Animation triggers: pointer ones from the rendered rects (an animation
-        // is reason enough to react, with or without a COBOL handler), focus and
-        // timer ones from the event stream.
-        if armed {
-            let (clicked, pointer) = ctx.input(|i| (i.pointer.primary_clicked(), i.pointer.interact_pos()));
-            let mut still_hovered = std::collections::HashSet::new();
-            for (id, rect) in &output.control_rects {
-                // Repeating-group card instances carry their own placement effect.
-                if id.contains('.') { continue; }
-                if pointer.map(|p| rect.contains(p)).unwrap_or(false) {
-                    still_hovered.insert(id.clone());
-                    if !self.hovered.contains(id) {
-                        self.anim.fire_event(&self.controls, id, "onHoverEnter");
-                    }
-                    if clicked {
-                        self.anim.fire_event(&self.controls, id, "onClick");
-                    }
-                }
-            }
-            self.hovered = still_hovered;
-            for ev in &output.events {
-                // Already covered by the rect pass — firing again would restart
-                // the same animation twice in one frame.
-                if ev.event.eq_ignore_ascii_case("onClick")
-                    || ev.event.eq_ignore_ascii_case("onHoverEnter") {
-                    continue;
-                }
-                self.anim.fire_event(&self.controls, &ev.ctrl_id, &ev.event);
-            }
-        }
-
-        // Apply value updates locally, sync them to the interpreter (so handlers
-        // read the live value), and forward UI events — but only once warmed up,
-        // so phantom pointer input as the window opens can't mutate state or fire
-        // events (a click/drag already in progress when the window appears).
-        let mut interacted = false;
-        if armed {
-            for (id, key, val) in &output.prop_updates {
-                self.state.entry(id.clone()).or_default().set(key, val.clone());
-                let _ = self.input_tx.send(
-                    cobolt_runtime::StateUpdate::new(id.clone(), key.clone(), val.clone()));
-                interacted = true;
-            }
-            for ev in output.events {
-                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(ev.ctrl_id, ev.event));
-                interacted = true;
-            }
-
-            // FileDropZone click -> native picker (spec 039 T4). The render
-            // engine has no native-dialog dependency by design; this host
-            // owns it.
-            for id in &output.file_picker_requests {
-                file_dialog::begin(ctx, &format!("filedropzone:{id}"));
-            }
-            let file_drop_zone_ids: Vec<String> = self.controls.iter()
-                .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::FileDropZone))
-                .map(|c| c.id.clone())
-                .collect();
-            for id in file_drop_zone_ids {
-                let key = format!("filedropzone:{id}");
-                if let Some(Some(path)) = file_dialog::take(&key) {
-                    let val = path.display().to_string();
-                    self.state.entry(id.clone()).or_default().set("DroppedFiles", val.clone());
-                    let _ = self.input_tx.send(
-                        cobolt_runtime::StateUpdate::new(id.clone(), "DroppedFiles".to_owned(), val));
-                    let _ = self.ev_tx.send(
-                        cobolt_runtime::FormEvent::new(id, "onFilesDropped".to_owned()));
-                    interacted = true;
-                }
-            }
-        }
-
-        // Reactive frame scheduling — never spin at max FPS (an unconditional
-        // request_repaint() pegged a whole core even while the form sat idle).
-        // While interpreter traffic flows, poll fast; otherwise a slow
-        // heartbeat keeps DISPLAY output timely. Timer controls schedule their
-        // own precise wake-ups inside the render engine, and user input wakes
-        // egui automatically — between all of those, the process sleeps.
-        // A running animation needs frames of its own; without this the binary
-        // sleeps between interpreter traffic and a fly-in advances in 200 ms jumps.
-        let busy = drained > 0 || interacted || animating || self.anim.is_animating();
-        let ms = if busy { 16 } else { 200 };
-        ctx.request_repaint_after(std::time::Duration::from_millis(ms));
-    }
-}
 "#
     } else {
         ""
@@ -2022,7 +1643,7 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 /// Only the packs the forms actually resolve to are baked in, and only the art
 /// their manifests reference, so a themed app is self-contained without
 /// carrying the packs' authoring imagery.
-{themes_const}{theme_default_const}
+{themes_const}{theme_default_const}{window_fx_const}
 // ── Entry point ───────────────────────────────────────────────────────────────
 fn main() {{
     tracing_subscriber::fmt()
@@ -2066,6 +1687,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         forms_const = forms_const,
         themes_const = themes_const,
         theme_default_const = theme_default_const,
+        window_fx_const = window_fx_const,
         run_call = run_call,
         form_runtime_code = form_runtime_code,
     )
@@ -3451,7 +3073,20 @@ fn controls_reference_doc() -> String {
          actual close until the animation completes — `FormState` vetoes fire BEFORE the \
          animation, so a refused close plays nothing, and `onClose` still fires exactly once. \
          Machine-wide kill-switch: Help → Debug Settings → \"Disable window effects\" \
-         (`PRC_NO_WINDOW_FX=1` for a bare `rcrun run-form`).\n\n---\n\n",
+         (`PRC_NO_WINDOW_FX=1` for a bare `rcrun run-form` or a built application — both \
+         honour it).\n\n",
+    );
+    doc.push_str(
+        "Effects play in EVERY host of a form (spec 042): Run Form and the BUILT application \
+         run the same shared window host, so the entrance/exit behaviour is identical in \
+         both. The settings are baked into the executable at build time — a shipped binary \
+         reads no project file. The same shared host gives the built application the full \
+         designed window behaviour: the form's own `Title` (falling back to \"AppName \
+         vVersion\" only when the designed title is blank), `TitleVisible`, minimize/maximize \
+         buttons, `FullScreen`, the opening `WindowState` and `StartPosition`, window close \
+         at program end (through the exit effect when configured), the `me::` window \
+         methods, `FormState` close vetoes, and the `onShow`/`onActivate`/`onClose`/\
+         `onCloseRejected`/`onFullScreenChanged` events.\n\n---\n\n",
     );
 
     // ── Per-control sections ─────────────────────────────────────────────────
@@ -3951,13 +3586,17 @@ mod resolve_main_tests {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &themes, "neumorphic");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
-        assert!(src.contains("set_active_theme(ctx, self.theme_pack.clone())"));
-        assert!(src.contains("set_glass_style(ctx, self.glass_style)"));
-        assert!(src.contains("theme_pack: resolve_theme_pack(&first_form)"));
+        // Since spec 042 the per-frame `set_active_theme`/`set_glass_style`
+        // publication lives in the SHARED host (`cobolt-form-host`), so the
+        // glue's job — and this assertion — is handing the resolved embedded
+        // pack into the host's config.
+        assert!(src.contains("let theme_pack = resolve_theme_pack(&first_form);"));
+        assert!(src.contains("theme_pack,"));
+        assert!(src.contains("cobolt_form_host::run(cobolt_form_host::FormHostConfig {"));
 
         // The pack's manifest and art are embedded, keeping the binary
         // self-contained on a machine with no PowerRustCOBOL install.
@@ -3968,13 +3607,73 @@ mod resolve_main_tests {
         assert!(src
             .contains(r#"("button/b.png", include_bytes!("../assets/themes/cobalt-steel/button/b.png"))"#));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "neumorphic";"#));
-        // The form's themed-background opt-in reaches the render engine.
-        assert!(src.contains("use_theme_background: self.use_theme_background"));
+        // The whole designed form (incl. the themed-background opt-in) is
+        // handed to the shared host, which owns the render plumbing.
+        assert!(src.contains("form: first_form,"));
+    }
+
+    /// 042 R11/R3 — the generated glue bakes the project's window effects and
+    /// stays a THIN layer over the shared host: no divergent host markers, no
+    /// second CtrlState, no leftover parity placeholder.
+    #[test]
+    fn generated_glue_bakes_effects_and_carries_no_divergent_host() {
+        let src = generate_main_rs(
+            "Demo",
+            "1.2.3",
+            true,
+            &["MAIN"],
+            &[],
+            "",
+            "matrix-rain:1500:ease-in-out",
+            "fade:400:ease-in",
+            true,
+        );
+        // The baked triples parse through the ONE shared parser at run time.
+        assert!(src.contains(r#"const PROJECT_FX_ENTRANCE: &str = "matrix-rain:1500:ease-in-out";"#));
+        assert!(src.contains(r#"const PROJECT_FX_EXIT: &str = "fade:400:ease-in";"#));
+        assert!(src.contains("const PROJECT_FX_ON_RESTORE: bool = true;"));
+        // Resolution = baked settings × form opt-out × kill switch (R6).
+        assert!(src.contains("first_form.window_effects"));
+        assert!(src.contains("PRC_NO_WINDOW_FX"));
+        assert!(src.contains("cobolt_forms::window_fx::FxSpec::parse(PROJECT_FX_ENTRANCE)"));
+        // Thin glue over the shared host — the divergent-host era is over.
+        assert!(src.contains("cobolt_form_host::run(cobolt_form_host::FormHostConfig {"));
+        assert!(src.contains("cobolt_form_host::seeding::build_object_seed"));
+        assert!(src.contains("set_form_host"));
+        assert!(!src.contains("struct CtrlState"), "no second control-state copy");
+        assert!(
+            !src.contains("impl eframe::App"),
+            "the eframe::App lives in the shared host, not the glue"
+        );
+        assert!(!src.contains("037/038 parity"), "parity placeholder retired");
+        // The branded fallback title yields to the designed form.title (R17).
+        assert!(src.contains(r#"title_fallback: format!("{} v{}", APP_NAME, APP_VERSION)"#));
+        // The per-frame block-window replay rides the seam (R30).
+        assert!(src.contains("cobolt_windows::show_all(ctx)"));
+
+        // A project with no effects bakes inert triples — `none` parses to
+        // WindowEffect::None, so nothing plays.
+        let quiet = generate_main_rs(
+            "Demo", "1.2.3", true, &["MAIN"], &[], "",
+            "none:600:ease-out", "none:600:ease-out", false,
+        );
+        assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
+        assert!(quiet.contains("const PROJECT_FX_ON_RESTORE: bool = false;"));
+    }
+
+    /// The `[forms]` values reach the baked triples through `fx_triple` —
+    /// normalised, colon-stripped, never typed compiler-side.
+    #[test]
+    fn fx_triple_normalises_raw_settings() {
+        assert_eq!(fx_triple(" Matrix-Rain ", 1500, " Ease-In-Out "), "matrix-rain:1500:ease-in-out");
+        assert_eq!(fx_triple("", 0, ""), ":0:");
+        // A colon in a field cannot corrupt the triple.
+        assert_eq!(fx_triple("fa:de", 400, "ease:in"), "fade:400:easein");
     }
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], "");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], "", "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -4015,7 +3714,17 @@ mod resolve_main_tests {
         // this test exists to exercise; `form_ids: &[]` needs no real
         // `.cfrm`/`assets/forms` on disk (the FORMS const is empty either
         // way, so no `include_bytes!` path has to resolve).
-        let main_rs = generate_main_rs("GenCompileCheck", "0.1.0", true, &[], &[], "");
+        let main_rs = generate_main_rs(
+            "GenCompileCheck",
+            "0.1.0",
+            true,
+            &[],
+            &[],
+            "",
+            "matrix-rain:1500:ease-in-out",
+            "fade:400:ease-in",
+            true,
+        );
         let cargo_toml =
             generate_cargo_toml("gencompilecheck", "0.1.0", &crates_path, true);
         std::fs::write(dir.join("src/main.rs"), &main_rs).unwrap();
@@ -4113,7 +3822,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], ""),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(
@@ -4289,7 +3998,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], ""),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(

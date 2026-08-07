@@ -16,12 +16,11 @@
 //! panel on the main run loop between frames, so nothing is nested) and deliver
 //! the result through a keyed inbox that the UI polls on later frames.
 //!
-//! This is an intentional copy of `cobolt-ide/src/file_dialog.rs` — this crate
-//! (`rcrun run-form`, the actual process a running form executes in) does not
-//! depend on `cobolt-ide`, matching this codebase's existing convention of
-//! keeping small, host-agnostic modules duplicated rather than adding a
-//! cross-crate dependency for them (see `cobolt-cli/src/form_gui.rs`'s own
-//! `CtrlState`/`flatten_controls`/`append_data_binding_seed_props`).
+//! Shared by every form host (spec 042 R25) — moved here from `cobolt-cli` so
+//! run-form and compiled applications get the same dialog capability
+//! (open **and** save, filters, directory, suggested name). `cobolt-ide`
+//! keeps its own IDE-side copy: the IDE is not a form host and does not
+//! depend on this crate.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

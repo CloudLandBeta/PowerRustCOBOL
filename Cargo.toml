@@ -18,6 +18,7 @@ members = [
     "crates/cobolt-media",      # Animator widget — animated-image decode + playback
     "crates/cobolt-codegen",
     "crates/cobolt-compiler",   # Phase 11 — embed+bundle binary compiler
+    "crates/cobolt-form-host",  # spec 042 — the ONE form host (run-form + built apps)
     # "crates/cobolt-plugin-api",
     # "crates/cobolt-plugin-loader",
     "crates/cobolt-ide", "crates/cobolt-agents",

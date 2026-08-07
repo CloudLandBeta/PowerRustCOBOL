@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-form-host"
+description  = "The one form host shared by `rcrun run-form` and compiled applications (spec 042)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+cobolt-forms   = { path = "../cobolt-forms", features = ["render"] }
+cobolt-runtime = { path = "../cobolt-runtime" }
+cobolt-media   = { path = "../cobolt-media" }
+
+egui        = "0.36"
+eframe      = { version = "0.36", features = ["default_fonts"] }
+egui_extras = { version = "0.36", features = ["image"] }
+image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
+
+# Native file dialogs (FileDropZone click-to-browse) — opened asynchronously:
+# a synchronous dialog nests the OS event loop, which aborts winit 0.30 with
+# "tried to handle event while another event is currently being handled".
+rfd      = "0.14"
+pollster = "0.3"
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

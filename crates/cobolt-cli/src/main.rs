@@ -36,7 +36,6 @@
 //! | `COBOLT_LOG`      | Tracing filter (e.g. `cobolt=debug`, `warn`)          |
 //! | `COBOLT_FIXED`    | Force fixed-form source parsing (overrides auto-detect)|
 
-mod file_dialog;
 mod form_gui;
 
 use std::path::PathBuf;

@@ -547,13 +547,26 @@ effect plays before the window actually closes — but a form in `Waiting`
 FormState refuses the close *before* any animation, so a vetoed close plays
 nothing, and `onClose` still fires exactly once at the real close.
 
+Effects play in **every host of your form**: Run Form from the IDE and the
+**built application** alike (both run the same window host, so what you see
+under Run Form is what your users see from the executable in `dist/`). The
+settings travel into the binary at build time — a shipped application needs
+no project file beside it. The same is true of the designed **window
+properties and lifecycle**: the built application opens with the form's own
+title (falling back to *"AppName vVersion"* only when the designed title is
+blank), honours `TitleVisible`, the minimize/maximize buttons, full screen,
+the opening WindowState and StartPosition, closes its window when the program
+ends (through the exit effect, when one is set), and fires
+`onShow`/`onActivate`/`onClose` exactly as Run Form does.
+
 Two practical notes. Effects paint inside the window: with the native title
 bar visible, the animation covers the content area; a chromeless form
 (`TitleVisible` off) with transparency gives an effect the whole window
 rectangle. And a machine-wide kill-switch lives in **Help → Debug Settings →
 "Disable window effects"** — instant windows everywhere without touching any
 project, for motion sensitivity, weak GPUs, or automation
-(`PRC_NO_WINDOW_FX=1` does the same for a bare `rcrun run-form`).
+(`PRC_NO_WINDOW_FX=1` does the same for a bare `rcrun run-form` **or a built
+application**, which honours the same variable).
 
 **Embedding device.** One policy covers the System KB and every project KB,
 for indexing and searches alike: when a supported GPU is available the
