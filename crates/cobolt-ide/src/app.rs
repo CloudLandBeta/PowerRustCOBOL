@@ -8620,15 +8620,20 @@ impl CoboltApp {
             // The full build stamps the project on success; the developer
             // presses Run again once it finishes. Starting the run
             // automatically would race the build they just asked for.
-            // A prompt raised by a designer's Run Form hands the progress
-            // modal to that designer window too, so the whole flow stays
-            // under the operator's eyes.
-            if let StaleBuildIntent::RunForm(idx) = &prompt.intent {
-                if *idx < self.designers.len() {
-                    self.build_modal_host = Some(self.designers[*idx].0.clone());
+            self.do_build_binary_with(true);
+            // Claim the modal host only AFTER the call, and only when a build
+            // really started: do_build_binary_with resets the host to "main
+            // window" as part of its fresh-build state, so a claim made
+            // before it is silently wiped. A prompt raised by a designer's
+            // Run Form hands the progress modal to that designer window, so
+            // the whole flow stays under the operator's eyes.
+            if self.pending_build_rx.is_some() {
+                if let StaleBuildIntent::RunForm(idx) = &prompt.intent {
+                    if *idx < self.designers.len() {
+                        self.build_modal_host = Some(self.designers[*idx].0.clone());
+                    }
                 }
             }
-            self.do_build_binary_with(true);
             return;
         }
         if run_anyway {

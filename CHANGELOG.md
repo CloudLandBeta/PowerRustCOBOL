@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.40] — 2026-08-07
+
+### Fixed
+
+- **The full-rebuild progress modal still opened in the main IDE window when
+  the rebuild was confirmed from a Form Designer's Run Form (1.60.39
+  follow-up).** The 1.60.39 change claimed the designer as the modal's host
+  *before* starting the build — but starting the build resets the host to
+  "main window" as part of its fresh-build state, silently wiping the claim.
+  The claim is now made after the build has actually started, so the
+  "Building…" progress (and its outcome) appear in the designer window where
+  Run Form was clicked.
+
 ## [PowerRustCOBOL 1.60.39] — 2026-08-07
 
 ### Fixed
