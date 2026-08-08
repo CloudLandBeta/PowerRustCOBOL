@@ -3217,16 +3217,29 @@ impl EditorPanel {
                         && !search_has_focus
                     {
                         // Tab / Shift+Tab with a SELECTION indents / unindents
-                        // the touched block (+2 / −2 spaces per line). Only
-                        // with a selection: a bare caret keeps TextEdit's own
-                        // Tab. Checked BEFORE the event scan so an untouched
-                        // Tab passes through. NOT consume_key — it matches
-                        // logically and drops extra Shift, so it would eat
-                        // Shift+Tab as plain Tab (see `egui-consume-key` note).
+                        // the touched block (+2 / −2 spaces per line). With a
+                        // bare caret, Tab inserts TWO SPACES.
+                        //
+                        // The editor never emits a tab character. egui's own
+                        // TextEdit inserts a literal "\t" on Tab, and a tab in
+                        // COBOL source is actively harmful: fixed-form parsing
+                        // counts columns, so a tab-indented line can push its
+                        // text into the sequence/indicator area (columns 1-7)
+                        // and lose its first characters. That is what turned a
+                        // tab-indented `END-EXEC.` into `D-EXEC.` and broke a
+                        // build with a parse error pointing at the wrong place.
+                        // Two spaces is also what the block indent above uses,
+                        // so both routes agree.
+                        //
+                        // Checked BEFORE the event scan so state is read once.
+                        // NOT consume_key — it matches logically and drops
+                        // extra Shift, so it would eat Shift+Tab as plain Tab
+                        // (see the `egui-consume-key` note).
                         let has_selection = egui::TextEdit::load_state(ctx, editor_id)
                             .and_then(|st| st.cursor.char_range())
                             .is_some_and(|r| r.primary != r.secondary);
                         let mut auto_indent = false;
+                        let mut caret_indent = false;
                         let mut block_indent: Option<bool> = None; // Some(unindent?)
                         ctx.input_mut(|inp| {
                             inp.events.retain(|ev| match ev {
@@ -3250,6 +3263,18 @@ impl EditorPanel {
                                     block_indent = Some(modifiers.shift);
                                     false
                                 }
+                                // Bare caret + plain Tab -> two spaces, never
+                                // a tab character. Shift+Tab at a bare caret
+                                // is left alone (nothing to unindent from).
+                                egui::Event::Key {
+                                    key: Key::Tab,
+                                    pressed: true,
+                                    modifiers,
+                                    ..
+                                } if !has_selection && modifiers.is_none() => {
+                                    caret_indent = true;
+                                    false
+                                }
                                 _ => true,
                             });
                         });
@@ -3269,6 +3294,22 @@ impl EditorPanel {
                                             egui::text::CCursor::new(new_min),
                                             egui::text::CCursor::new(new_max),
                                         ),
+                                    ));
+                                    state.store(ctx, editor_id);
+                                    tab.dirty = true;
+                                }
+                            }
+                        }
+                        if caret_indent {
+                            if let Some(mut state) = egui::TextEdit::load_state(ctx, editor_id) {
+                                if let Some(range) = state.cursor.char_range() {
+                                    let tab = &mut self.tabs[self.active];
+                                    let new_cursor =
+                                        insert_indent_at_caret(&mut tab.content, range.primary.index.0);
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::one(egui::text::CCursor::new(
+                                            new_cursor,
+                                        )),
                                     ));
                                     state.store(ctx, editor_id);
                                     tab.dirty = true;
@@ -4015,6 +4056,27 @@ fn char_to_byte(text: &str, char_idx: usize) -> usize {
 /// the selection meant. Unindent removes only leading SPACES (up to 2 per
 /// line), never content. The selection is adjusted so it keeps covering the
 /// same lines afterwards.
+/// Insert one indent step (TWO SPACES) at the caret, returning the new caret
+/// char index.
+///
+/// The editor's Tab key routes here instead of letting egui insert a literal
+/// tab. A tab character in COBOL source is not cosmetic: fixed-form parsing
+/// counts columns, and a tab-indented line can push its text into the
+/// sequence/indicator area (columns 1-7), where the leading characters are
+/// stripped before parsing. Two spaces is the same step `indent_selected_block`
+/// applies, so typing Tab and indenting a selection agree.
+pub(crate) fn insert_indent_at_caret(text: &mut String, caret_char: usize) -> usize {
+    const INDENT: &str = "  ";
+    // Char index -> byte offset; a caret past the end clamps to the end.
+    let byte = text
+        .char_indices()
+        .nth(caret_char)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len());
+    text.insert_str(byte, INDENT);
+    caret_char + INDENT.chars().count()
+}
+
 pub(crate) fn indent_selected_block(
     text: &str,
     sel_min: usize,
@@ -4811,6 +4873,66 @@ fn emit_word(
 
 #[cfg(test)]
 mod block_indent_tests {
+    use super::insert_indent_at_caret;
+
+    /// FIX — Tab at a bare caret inserts two spaces, never a tab character.
+    ///
+    /// egui's TextEdit inserts a literal "\t" on Tab. In COBOL that is not
+    /// cosmetic: fixed-form parsing counts columns, so a tab-indented line can
+    /// push its text into the sequence/indicator area (columns 1-7) and lose
+    /// its leading characters — which is how a tab-indented `END-EXEC.` became
+    /// `D-EXEC.` and broke a build.
+    #[test]
+    fn tab_at_caret_inserts_two_spaces_never_a_tab() {
+        let mut text = String::from("MOVE A TO B.");
+        let caret = insert_indent_at_caret(&mut text, 0);
+        assert_eq!(text, "  MOVE A TO B.");
+        assert_eq!(caret, 2, "caret advances past the inserted indent");
+        assert!(!text.contains('\t'), "the editor must never emit a tab");
+    }
+
+    #[test]
+    fn tab_inserts_at_the_caret_not_the_line_start() {
+        let mut text = String::from("AB");
+        let caret = insert_indent_at_caret(&mut text, 1);
+        assert_eq!(text, "A  B");
+        assert_eq!(caret, 3);
+    }
+
+    /// Multi-byte text ahead of the caret must not corrupt the byte offset —
+    /// the caret is a CHAR index and the string is UTF-8.
+    #[test]
+    fn tab_after_multibyte_text_inserts_at_the_right_place() {
+        let mut text = String::from("ñé→X");
+        let caret = insert_indent_at_caret(&mut text, 3); // before 'X'
+        assert_eq!(text, "ñé→  X");
+        assert_eq!(caret, 5);
+    }
+
+    /// A caret parked past the end clamps rather than panicking.
+    #[test]
+    fn tab_at_or_past_end_of_text_appends() {
+        let mut text = String::from("AB");
+        assert_eq!(insert_indent_at_caret(&mut text, 2), 4);
+        assert_eq!(text, "AB  ");
+        let mut t2 = String::from("AB");
+        insert_indent_at_caret(&mut t2, 99);
+        assert_eq!(t2, "AB  ");
+    }
+
+    /// Typing Tab and indenting a selection must agree on the step, or the two
+    /// routes would drift apart.
+    #[test]
+    fn caret_tab_and_block_indent_use_the_same_step() {
+        let mut caret_text = String::from("X");
+        insert_indent_at_caret(&mut caret_text, 0);
+        let (block_text, _, _) = indent_selected_block("X", 0, 1, false);
+        assert_eq!(
+            caret_text, block_text,
+            "Tab at a caret and Tab over a selection must indent identically"
+        );
+    }
+
     use super::indent_selected_block;
 
     /// Tab on a two-line selection: both lines gain 2 spaces; the selection

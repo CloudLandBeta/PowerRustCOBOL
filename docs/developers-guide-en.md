@@ -2295,6 +2295,15 @@ Rust function inside the crate PowerRustCOBOL already builds for you.
            END-EXEC.
 ```
 
+> **Indent with spaces, not tabs.** The IDE's editors insert **two spaces** when
+> you press Tab, so code you type here is always tab-free. If you *paste* Rust
+> from elsewhere, paste it with spaces. A tab is not merely cosmetic in COBOL
+> source: when a file is read in fixed form, columns 1–6 are the sequence area
+> and column 7 the indicator, and both are stripped before parsing — so a
+> tab-indented line can lose its first characters. A tab-indented `END-EXEC.`
+> reaching the parser as `D-EXEC.` leaves the block unterminated, and the error
+> is then reported at the end of the program rather than at the offending line.
+
 **A program with a block is built before it runs.** *Run* performs that build and
 starts the built binary; the pause is reported in the Output panel. A program
 with no block keeps the fast interpreter path exactly as before. Building needs a

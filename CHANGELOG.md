@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.1] — 2026-08-08
+
+### Fixed
+
+- **A form with tab-indented Rust in an `EXEC RUST` block failed to build with
+  `expected PROCEDURE DIVISION`.** The build guessed whether a source was
+  fixed- or free-form, and every RAD-generated file fooled the guess: the
+  mandatory banner is six spaces then `*>`, putting `*` in column 7, which is
+  exactly the shape the heuristic read as fixed-form. `rcrun check` meanwhile
+  treats PowerRustCOBOL source as free form, so the CLI and the IDE disagreed
+  about whether the very same bytes were valid. Under fixed form columns 1–7
+  are stripped before parsing, so a tab-indented `END-EXEC.` arrived as
+  `D-EXEC.`; the block never closed and the parser ran to end-of-file,
+  reporting the failure far from the line that caused it. The build now treats
+  PowerRustCOBOL source as free form, as the CLI always has (`COBOLT_FIXED=1`
+  still opts a legacy fixed-column source into fixed-form parsing).
+- **The code editors inserted a tab character when you pressed Tab.** They now
+  insert **two spaces** — the same step Tab already applied when indenting a
+  selection, so both routes agree. This covers every hosted code editor,
+  including the COBOL Structure window where `REPOSITORY` and its `EXEC RUST`
+  block are written. A tab in COBOL source is not cosmetic: it can push a
+  line's text into the sequence/indicator columns, where the leading
+  characters are discarded.
+
 ## [PowerRustCOBOL 1.61.0] — 2026-08-08
 
 ### Added

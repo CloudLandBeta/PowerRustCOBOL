@@ -1801,16 +1801,30 @@ fn run_headless(program: cobolt_ast::program::Program) {{
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn detect_format(source: &str) -> cobolt_lexer::SourceFormat {
-    let looks_fixed = source.lines().any(|line| {
-        let b = line.as_bytes();
-        b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
-    });
-    if looks_fixed {
-        cobolt_lexer::SourceFormat::Fixed
-    } else {
-        cobolt_lexer::SourceFormat::Free
+/// PowerRustCOBOL source is free form — the same rule `rcrun` applies, so a
+/// file parses identically whether it is checked from the CLI or built from the
+/// IDE. `COBOLT_FIXED=1` opts a legacy fixed-column source into fixed-form
+/// parsing.
+///
+/// This used to *guess*, treating a file as fixed-form when any line had a
+/// non-blank column 7 preceded by blanks or digits. Every RAD-generated file
+/// matches that shape: the mandatory banner is six spaces then `*>`, which puts
+/// `*` in column 7. So the build silently parsed generated code as fixed-form
+/// while `rcrun check` parsed the very same bytes as free form — and disagreed
+/// about whether it was valid.
+///
+/// Fixed form is not a harmless reinterpretation. Columns 1-6 are the sequence
+/// area and column 7 the indicator, both stripped before parsing, so any line
+/// whose text starts before column 8 loses its first characters. Rust inside an
+/// `EXEC RUST` block is indented by whoever wrote it, and a tab-indented
+/// `END-EXEC.` lands its `EN` in that dead zone: the terminator became
+/// `D-EXEC.`, the block never closed, and the parser ran to end-of-file to
+/// report `expected PROCEDURE DIVISION` — pointing nowhere near the real line.
+fn detect_format(_source: &str) -> cobolt_lexer::SourceFormat {
+    if std::env::var("COBOLT_FIXED").as_deref() == Ok("1") {
+        return cobolt_lexer::SourceFormat::Fixed;
     }
+    cobolt_lexer::SourceFormat::Free
 }
 
 /// Walk up the directory tree from `start` looking for a `Cargo.toml` that
@@ -3691,6 +3705,90 @@ mod resolve_main_tests {
     /// not ask for one. Before this, only Liquid Glass was excluded, so an
     /// Elegance form sent the build hunting for `assets/themes/elegance/` and
     /// printed a spurious "falling back to Liquid Glass".
+    /// FIX — a RAD-generated form with tab-indented Rust in an `EXEC RUST`
+    /// block failed to build with `expected PROCEDURE DIVISION`, while
+    /// `rcrun check` on the identical bytes reported OK.
+    ///
+    /// Cause: the build guessed fixed-form because the generated banner puts
+    /// `*` in column 7. Under fixed form columns 1-7 are stripped, so a
+    /// tab-indented `END-EXEC.` arrived as `D-EXEC.`, the block never
+    /// terminated, and the parser ran to EOF.
+    ///
+    /// The fixture reproduces exactly that shape: the banner comment, then an
+    /// `EXEC RUST` body indented with TABS.
+    #[test]
+    fn generated_banner_and_tabbed_exec_rust_parse_as_free_form() {
+        let src = concat!(
+            "      *> generated banner - puts '*' in column 7\n",
+            "       IDENTIFICATION DIVISION.\n",
+            "       PROGRAM-ID. TABBY.\n",
+            "       ENVIRONMENT DIVISION.\n",
+            "       CONFIGURATION SECTION.\n",
+            "       REPOSITORY.\n",
+            "           CLASS RUST-STRING IS \"Rust.String\"\n",
+            "\n",
+            "           EXEC RUST\n",
+            "\t\t\t\tpub fn ferris_say(out: &str) -> String {\n",
+            "\t\t\t\t    String::from(out)\n",
+            "\t\t\t\t}\n",
+            "\t\t   END-EXEC.\n",
+            "\n",
+            "       DATA DIVISION.\n",
+            "       WORKING-STORAGE SECTION.\n",
+            "       01 WS-X PIC X(4) VALUE SPACE.\n",
+            "\n",
+            "       PROCEDURE DIVISION.\n",
+            "       MAIN.\n",
+            "           GOBACK.\n",
+        );
+
+        // The shape that used to fool the guess is still present...
+        let banner_tricks_the_old_heuristic = src.lines().any(|l| {
+            let b = l.as_bytes();
+            b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
+        });
+        assert!(
+            banner_tricks_the_old_heuristic,
+            "fixture must still contain the banner shape that caused the bug"
+        );
+
+        // ...but the format is free form regardless, so the parse succeeds.
+        assert_eq!(detect_format(src), cobolt_lexer::SourceFormat::Free);
+
+        let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(src, detect_format(src)));
+        let errors: Vec<String> = parsed
+            .diagnostics
+            .iter()
+            .map(|d| d.message.clone())
+            .collect();
+        println!("parse diagnostics: {}", errors.len());
+        for e in &errors {
+            println!("  {e}");
+        }
+        assert!(
+            errors.is_empty(),
+            "tab-indented EXEC RUST must parse; got {errors:?}"
+        );
+        assert!(parsed.program.is_some(), "a program must come out");
+
+        // And the exact failure mode is gone: parsed as FIXED it still breaks,
+        // which is what proves the format choice was the whole cause.
+        let as_fixed =
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Fixed));
+        assert!(
+            !as_fixed.diagnostics.is_empty(),
+            "sanity: fixed-form parsing of tabbed EXEC RUST should still fail"
+        );
+    }
+
+    /// The legacy opt-in still reaches fixed form.
+    #[test]
+    fn cobolt_fixed_env_still_selects_fixed_form() {
+        // Only assert the default here; the env var is process-global and
+        // setting it would race other tests.
+        assert_eq!(detect_format("       DISPLAY 'X'.\n"), cobolt_lexer::SourceFormat::Free);
+    }
+
     #[test]
     fn elegance_wanted_ids_skips_every_procedural_theme() {
         let forms = vec![
