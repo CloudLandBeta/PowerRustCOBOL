@@ -1,6 +1,81 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.0] — 2026-08-08
+
+### Added
+
+- **Elegance form theme** (spec 047) — a second built-in theme alongside
+  Liquid Glass, chosen from the same Theme dropdown (project default or
+  per-form override). Where Liquid Glass is translucent and frosted,
+  Elegance is flat and opaque: deep slate surfaces, a hairline border on
+  every control, and one cool accent used consistently for buttons,
+  selection and focus — suited to dense business forms where frosted panels
+  compete with the data. Every control family takes the theme at once, on
+  the designer canvas and the running form alike: panels and group boxes,
+  buttons, text boxes, check boxes and radio buttons, lists and combo
+  boxes, sliders, progress bars, tabs, menu/tool/status bars, tree views,
+  data grids, all six chart types (their series draw in the theme's accent
+  family, not the built-in colours), and the knob, gauge, switch and
+  file-drop controls. A control's own Back/Fore colour still overrides the
+  theme. Because Elegance is a theme in its own right rather than a Liquid
+  Glass variation, the Classic/Enhanced/Neumorphic setting has no effect
+  while it is active. Forms on Liquid Glass or an asset pack are completely
+  unchanged.
+
+## [PowerRustCOBOL 1.60.49] — 2026-08-08
+
+### Added
+
+- **Copy/Paste a form across projects** (spec 046) — right-click a form in
+  the Forms tree and **Copy Form**: every control's properties, every bound
+  event's complete COBOL handler body, animations, and data bindings go to
+  the OS clipboard — a real system-level copy, not just an in-app
+  scratchpad, so it survives across separate running PowerRustCOBOL windows.
+  Right-click the **Forms** category in a different project and **Paste
+  Form** to create it there, generated code and all, ready to Run
+  immediately. No control ID or paragraph is ever renamed on paste — each
+  form already compiles to its own self-contained COBOL program, so nothing
+  about a pasted form's names can collide with an unrelated form already in
+  the target project. If the target already has a form with the same name,
+  the dialog asks whether to rename the incoming form or replace the
+  existing one (with its own separate confirmation) — never a silent
+  overwrite. Copy reads the live Designer state when the source form is open
+  with unsaved edits, not a stale save.
+
 ## [PowerRustCOBOL 1.60.48] — 2026-08-08
+
+### Added
+
+- **Project's Crates: System awareness and collision aliasing** (spec 045) —
+  four related improvements to the Project's Crates (Beta) dialog, on top of
+  spec 044:
+  - a **System** column in the search results marks a result already part of
+    the application — dimmed **yellow** for a crate every program links
+    directly (`egui`, `eframe`, …), dimmed **gray** for one only pulled in
+    as a *dependency* of something linked, dimmed **green** for everything
+    addable; all three stay legible (WCAG AA graphical-object contrast) in
+    every one of the 16 IDE themes;
+  - a **"Show System crates"** toggle next to the search button, off by
+    default, hides System and System-dependency results (and the column
+    itself) so the table shows only what can actually be added; attempting
+    to add either anyway is refused before any network call;
+  - the crate-name field in the Add row is now **read-only** — its value can
+    only be set by clicking a result, never typed;
+  - the Downloads column shows **abbreviated** counts (`1.2K`, `3.4M`) and
+    both the **Crate** and **Downloads** headers are click-to-sort (and
+    click again to reverse), scoped to the page already on screen;
+  - a name that collides with a **directly**-linked crate at an
+    **incompatible** version — previously always refused — now offers an
+    **alias** instead: accepting registers it as `prj_<name>` (a
+    `package =`-renamed, independently-compiled copy beside the platform's
+    own), and the block writes `use prj_<name>::…`. Every other add still
+    unifies normally by plain name; a crate that is merely a dependency of
+    something linked is never offered an alias, only refused.
+  - the results table itself moved off the shared Markdown-table renderer
+    onto a native, typed grid — the same one `md_render.rs` already used
+    internally, just driven directly by search-result data instead of
+    parsed Markdown, so the column can carry per-row color and a sortable
+    header.
 
 ### Fixed
 

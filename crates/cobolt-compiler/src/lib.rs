@@ -1220,7 +1220,12 @@ fn wanted_theme_ids(forms: &[(String, Vec<u8>)], project_default: &str) -> Vec<S
             form_theme.as_deref(),
             Some(project_default),
         );
-        if id == cobolt_forms::theme::LIQUID_GLASS || ids.contains(&id) {
+        // Procedural themes (Liquid Glass, Elegance) are drawn in code and have
+        // no `assets/themes/<id>/` folder — asking for one would send the build
+        // hunting for art that does not exist and warn when it comes up empty.
+        if cobolt_forms::theme::ThemeCatalog::procedural_ids().contains(&id.as_str())
+            || ids.contains(&id)
+        {
             continue;
         }
         ids.push(id);
@@ -1549,6 +1554,16 @@ fn resolve_theme_pack(
     }
 }
 
+/// The procedural look this application's forms are painted in (spec 047),
+/// resolved from the same theme id as the pack above.
+fn resolve_surface_style(form: &cobolt_forms::Form) -> cobolt_forms::paint::SurfaceStyle {
+    let id = cobolt_forms::theme::resolve_theme_id(
+        form.theme.as_deref(),
+        Some(PROJECT_THEME_DEFAULT),
+    );
+    cobolt_forms::paint::SurfaceStyle::from_theme_id(&id)
+}
+
 /// The per-frame block-window replay (042 R30 seam): windows opened by an
 /// EXEC RUST block must be re-shown every frame — that is what
 /// `show_viewport_deferred` requires; miss a frame and the window closes. A
@@ -1614,6 +1629,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     };
 
     let theme_pack = resolve_theme_pack(&first_form);
+    let surface_style = resolve_surface_style(&first_form);
 
     let (ev_tx, ev_rx)           = mpsc::channel::<FormEvent>();
     let (input_tx, input_rx)     = mpsc::channel::<StateUpdate>();
@@ -1692,6 +1708,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         fx_exit,
         fx_restore,
         theme_pack,
+        surface_style,
         icon_path: None,
         // 042 R17 — the designed `form.title` wins; the branded fallback shows
         // only when the design left the title blank.
@@ -1995,7 +2012,7 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **A panic is catchable**: `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it, `DISPLAY e` prints the panic's plain text, and the program continues. A plain `CATCH EXCEPTION` does **not** catch a panic, and a COBOL `THROW` does not reach a `RUST-EXCEPTION` clause; a `TRY` may carry both clauses.
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
 - **COBOL reading a bound item sees its VALUE (1.60.23+).** `DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and `SET Label-1::Caption TO clicked-button` all yield what the block last wrote (`String`, any integer width, floats, bool). ⚠️ **Before 1.60.23 they yielded the item's internal handle id** — a small integer that reflected declaration order, so a program whose second item was read always showed "2" regardless of what the block computed. If a program built before 1.60.23 shows a constant small number where a result should be, that is this bug: rebuild. Types with no scalar rendering (Vec, HashMap, developer types) still read as the handle id. Writing to a bound item from plain COBOL (`MOVE 5 TO clicked-button`) does NOT reach the Rust value — write inside a block instead.
-- **Crates**: always `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. **Beyond that floor, a project may register any crate from the registry under Project's Crates (1.60.47+, shown in the tree as "Project's Crates (Beta)")** — the project tree category below Generated Code, whose dialog searches crates.io (or a configured mirror) and shows the matches as a paged table (50 per page, name · version · downloads · description) that the developer browses and clicks to pick. Adding pins an exact version, vendors the source into the project's `crates/`, and compiles it into the binary. A registered crate is then used with a plain `use`, writing a hyphenated name with underscores (`serde-json` → `use serde_json::…`). A `use` of a crate that is neither linked nor registered is still rejected, naming the crate — in a project the message points at Project's Crates, in a single-file `rcrun` build it says external crates require a project. Adding needs the network; building does not. Conflicts are decided when the developer adds: a name already linked (`egui`) is refused as already available, a crate that cannot coexist is refused with cargo's own reason, and one that would bring a second incompatible copy is allowed with a warning. Every build writes `rust_manifest.md` (name, exact version, registry URL) beside the binary in the destination folder. **Do not tell a developer that third-party crates are unsupported** — that was true only before 1.60.47; tell them to add it under Project's Crates.
+- **Crates**: always `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. **Beyond that floor, a project may register any crate from the registry under Project's Crates (1.60.47+, shown in the tree as "Project's Crates (Beta)")** — the project tree category below Generated Code, whose dialog searches crates.io (or a configured mirror) and shows the matches as a paged table (50 per page, name · version · downloads · description) that the developer browses and clicks to pick. Adding pins an exact version, vendors the source into the project's `crates/`, and compiles it into the binary. A registered crate is then used with a plain `use`, writing a hyphenated name with underscores (`serde-json` → `use serde_json::…`). A `use` of a crate that is neither linked nor registered is still rejected, naming the crate — in a project the message points at Project's Crates, in a single-file `rcrun` build it says external crates require a project. Adding needs the network; building does not. Conflicts are decided when the developer adds: a name already linked (`egui`) is refused as already available, a crate that cannot coexist is refused with cargo's own reason, and one that would bring a second incompatible copy is allowed with a warning. Every build writes `rust_manifest.md` (name, exact version, registry URL) beside the binary in the destination folder. **Do not tell a developer that third-party crates are unsupported** — that was true only before 1.60.47; tell them to add it under Project's Crates. **1.60.48+ — System awareness and collision aliasing (spec 045):** the dialog marks a result **System** (a name directly linked, e.g. `egui`) or **System dependency** (only pulled in transitively by something linked, e.g. `epaint` via `egui`) and hides both by default behind a "Show System crates" toggle; neither can be registered, and a System-dependency refusal never offers an alias. A **direct** collision at an incompatible version — the "clashes with the built-in" case above — now offers an **alias** instead of only refusing: accepting registers it as `prj_<name>` (a `package = "<name>"` rename, compiled as a second, independent copy beside the platform's own), and the block then writes `use prj_<name>::…`, not `use <name>::…`. Tell a developer who hits this refusal about the alias offer rather than saying the version is unsupported — but also warn them an aliased copy's values do not interoperate with the platform's own copy of the same crate.
 - **eframe here is 0.36.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
 - **`eframe::run_native` CANNOT be called from a form's event handler — and since 1.60.14 the BUILD REJECTS IT.** A project with forms whose block calls `run_native` (or `EventLoop::new`) fails to build, reported at the developer's own line and column. **To open a window from a handler use `cobolt_windows::open` instead** (see below) — that is the supported route, and the error says so. Why `run_native` cannot work: a form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Before the build-time rejection the result was no window, no error, no output — the handler appeared to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread, and is not rejected there.
 - **A block CAN change a control, through `cobolt_objects`.** Write the property and the window repaints when the block returns: `cobolt_objects.set_property("LABEL-1", "Caption", "Done");`. Property names are case-insensitive. ⚠️ **This did not work before 1.60.14**: block execution had no channel to the window, so the write landed in the registry and the form never showed it. Do not repeat the old advice to reach for `COBOL-SET-PROPERTY` *because* the block route is broken — it is not broken any more, though `COBOL-SET-PROPERTY` remains correct and unchanged. **Always use `set_property`; never advise `cobolt_objects.get_mut("X").unwrap()`** — a running form registers a control on first write, so `get_mut` returns `None` for one not yet written and the `unwrap` panics. For the same reason a block cannot READ a control's designed value, only one it set itself: to read what the operator typed, use `TextBox-1::Text` in COBOL and pass the item into the block.
@@ -3668,6 +3685,43 @@ mod resolve_main_tests {
             wanted_theme_ids(&forms, ""),
             vec!["cobalt-steel".to_owned()]
         );
+    }
+
+    /// Spec 047 T5 — a procedural theme has no pack on disk, so the build must
+    /// not ask for one. Before this, only Liquid Glass was excluded, so an
+    /// Elegance form sent the build hunting for `assets/themes/elegance/` and
+    /// printed a spurious "falling back to Liquid Glass".
+    #[test]
+    fn elegance_wanted_ids_skips_every_procedural_theme() {
+        let forms = vec![
+            ("A".to_owned(), form_xml("A", Some(cobolt_forms::theme::ELEGANCE))),
+            ("B".to_owned(), form_xml("B", Some(cobolt_forms::theme::LIQUID_GLASS))),
+            ("C".to_owned(), form_xml("C", Some("cobalt-steel"))),
+        ];
+        let wanted = wanted_theme_ids(&forms, cobolt_forms::theme::ELEGANCE);
+        println!("theme ids requested as packs: {wanted:?}");
+        assert_eq!(
+            wanted,
+            vec!["cobalt-steel".to_owned()],
+            "only asset-pack ids may be staged; procedural ids have no art"
+        );
+
+        // An all-procedural project stages nothing at all.
+        let only_procedural = vec![("A".to_owned(), form_xml("A", Some(cobolt_forms::theme::ELEGANCE)))];
+        assert!(
+            wanted_theme_ids(&only_procedural, cobolt_forms::theme::ELEGANCE).is_empty(),
+            "an Elegance-only project must stage no packs"
+        );
+    }
+
+    /// Spec 047 T5 — the compiled application publishes its surface style every
+    /// frame, exactly as it already does for the pack and the glass style.
+    #[test]
+    fn elegance_generated_binary_publishes_its_surface_style() {
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
+        assert!(src.contains("fn resolve_surface_style("));
+        assert!(src.contains("let surface_style = resolve_surface_style(&first_form);"));
+        assert!(src.contains("surface_style,"));
     }
 
     #[test]

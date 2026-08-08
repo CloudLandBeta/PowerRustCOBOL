@@ -21,6 +21,7 @@ pub mod agent_ratings;
 pub mod agent_inspection;
 pub mod agents_db;
 mod app;
+pub mod contrast;
 pub mod data_binding_guardian;
 pub mod debug_settings;
 pub mod flags;

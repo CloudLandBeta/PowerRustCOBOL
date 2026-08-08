@@ -1453,6 +1453,7 @@ mod tests {
             version: "1.4.0".into(),
             features: vec!["serde".into()],
             url: "https://crates.io/crates/csv".into(),
+            alias: None,
         });
         let text = toml::to_string_pretty(&p).unwrap();
         let back: CoboltProject = toml::from_str(&text).unwrap();

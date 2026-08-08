@@ -1443,7 +1443,15 @@ pub fn nv_card(
     a: u8,
 ) {
     if glass {
-        draw_glass_auto(painter, rect, NV_CARD, 12.0, selected, alpha_mul);
+        draw_surface_auto(
+            painter,
+            rect,
+            NV_CARD,
+            12.0,
+            selected,
+            alpha_mul,
+            SurfaceRole::Card,
+        );
     } else {
         let fill = Color32::from_rgba_premultiplied(NV_CARD.r(), NV_CARD.g(), NV_CARD.b(), a);
         let border = if selected {
@@ -1881,7 +1889,7 @@ pub fn draw_control(
             .get_prop("LineStyle")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| "Solid".into());
-        // FormStyle (default true): the shape follows the form's current style
+        // SurfaceStyle (default true): the shape follows the form's current style
         // (Classic/Enhanced glass, Neumorphic); off = flat classic fill.
         let glass = glass && ctrl.get_prop("FormStyle").map(|v| v.as_bool()).unwrap_or(true);
 
@@ -1958,7 +1966,15 @@ pub fn draw_control(
             } else if glass {
                 // Rectangle / RoundRect — style-aware surface (Classic/Enhanced
                 // frost or Neumorphic matte + relief) tinted by FillColor.
-                draw_glass_auto(painter, rect, fill_color, rr, selected, alpha_mul);
+                draw_surface_auto(
+                    painter,
+                    rect,
+                    fill_color,
+                    rr,
+                    selected,
+                    alpha_mul,
+                    SurfaceRole::Shape,
+                );
             } else if is_round {
                 painter.circle_filled(cc, circ_r, flat_fill);
             } else if is_tri {
@@ -2253,13 +2269,19 @@ pub fn draw_control(
         };
 
         // Glass track/knob colours (defaults), overridden by Back/Fore colour.
+        // 047 — under Elegance the defaults come from the palette instead.
+        let eleg_slider = elegance_active(painter.ctx()).then(elegance_palette);
         let track_body = user_track.map(|c| tint(c, 210.0)).unwrap_or_else(|| {
-            Color32::from_rgba_premultiplied(
-                (100.0 * alpha_mul) as u8,
-                (110.0 * alpha_mul) as u8,
-                (135.0 * alpha_mul) as u8,
-                (90.0 * alpha_mul) as u8,
-            )
+            if let Some(e) = &eleg_slider {
+                tint(e.p.input_bg, 255.0)
+            } else {
+                Color32::from_rgba_premultiplied(
+                    (100.0 * alpha_mul) as u8,
+                    (110.0 * alpha_mul) as u8,
+                    (135.0 * alpha_mul) as u8,
+                    (90.0 * alpha_mul) as u8,
+                )
+            }
         });
         let track_rim = user_track
             .map(|c| tint(shade(c, 0.45), 190.0))
@@ -2272,12 +2294,16 @@ pub fn draw_control(
                 )
             });
         let thumb_body = user_thumb.map(|c| tint(c, 235.0)).unwrap_or_else(|| {
-            Color32::from_rgba_premultiplied(
-                (150.0 * alpha_mul) as u8,
-                (160.0 * alpha_mul) as u8,
-                (195.0 * alpha_mul) as u8,
-                (140.0 * alpha_mul) as u8,
-            )
+            if let Some(e) = &eleg_slider {
+                tint(e.p.focus, 255.0)
+            } else {
+                Color32::from_rgba_premultiplied(
+                    (150.0 * alpha_mul) as u8,
+                    (160.0 * alpha_mul) as u8,
+                    (195.0 * alpha_mul) as u8,
+                    (140.0 * alpha_mul) as u8,
+                )
+            }
         });
         let thumb_rim = user_thumb
             .map(|c| tint(shade(c, 0.5), 210.0))
@@ -2505,11 +2531,24 @@ pub fn draw_control(
         ctrl.control_type,
         CT::Knob | CT::Gauge | CT::Switch | CT::FileDropZone
     ) {
-        // Approximate egui-elegance's fixed Accent palette (theme.rs) — a
-        // hand-picked visual match, not an import (that palette is private
-        // to the crate's Theme type, which needs a live `Ui`/`Context` to
-        // resolve dark/light variants; the designer canvas has neither).
+        // Under Elegance these read from the REAL palette — it turns out to be
+        // public and constructible without a `Ui`/`Context`, so the designer
+        // canvas can match the live widget exactly instead of approximating it
+        // (spec 047). Liquid Glass keeps the original hand-picked values so
+        // existing forms are untouched (AC8).
+        let eleg_039 = elegance_active(painter.ctx()).then(elegance_palette);
         let accent_color = |name: &str| -> Color32 {
+            if let Some(e) = &eleg_039 {
+                use elegance::Accent;
+                return e.p.accent_fill(match name {
+                    "Green" => Accent::Green,
+                    "Red" => Accent::Red,
+                    "Purple" => Accent::Purple,
+                    "Amber" => Accent::Amber,
+                    "Sky" => Accent::Sky,
+                    _ => Accent::Blue,
+                });
+            }
             match name {
                 "Green" => Color32::from_rgb(46, 125, 50),
                 "Red" => Color32::from_rgb(198, 40, 40),
@@ -2567,7 +2606,10 @@ pub fn draw_control(
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_else(|| "Blue".into()),
                 ));
-                let track = alpha_color(Color32::from_gray(140));
+                let track = alpha_color(match &eleg_039 {
+                    Some(e) => e.p.border,
+                    None => Color32::from_gray(140),
+                });
                 let center = rect.center();
                 let radius = (rect.width().min(rect.height()) * 0.5 - 4.0).max(6.0);
                 // Knob's own 270° sweep, centred at the bottom (135°..405°,
@@ -2609,7 +2651,10 @@ pub fn draw_control(
                 } else {
                     parse_color(&color_prop)
                 });
-                let track = alpha_color(Color32::from_gray(140));
+                let track = alpha_color(match &eleg_039 {
+                    Some(e) => e.p.border,
+                    None => Color32::from_gray(140),
+                });
                 match style.as_str() {
                     "Linear" => {
                         let h = ctrl
@@ -2664,7 +2709,10 @@ pub fn draw_control(
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_else(|| "Blue".into()),
                 ));
-                let off = alpha_color(Color32::from_gray(110));
+                let off = alpha_color(match &eleg_039 {
+                    Some(e) => e.p.border,
+                    None => Color32::from_gray(110),
+                });
                 let track_h = rect.height().min(18.0);
                 let track = egui::Rect::from_center_size(
                     rect.center(),
@@ -2685,7 +2733,13 @@ pub fn draw_control(
                 );
             }
             _ /* FileDropZone */ => {
-                let stroke = Stroke::new(1.5, Color32::from_rgba_premultiplied(140, 140, 140, a));
+                let stroke = Stroke::new(
+                    1.5,
+                    match &eleg_039 {
+                        Some(e) => eleg_alpha(e.p.border, alpha_mul),
+                        None => Color32::from_rgba_premultiplied(140, 140, 140, a),
+                    },
+                );
                 // A dashed rounded-rect border — egui has no built-in dashed
                 // rect stroke, so it is a handful of short segments per edge.
                 let r = rect.shrink(2.0);
@@ -2719,7 +2773,10 @@ pub fn draw_control(
                     egui::Align2::CENTER_CENTER,
                     label,
                     egui::FontId::proportional(12.0),
-                    Color32::from_rgba_premultiplied(180, 180, 180, a),
+                    match &eleg_039 {
+                        Some(e) => eleg_alpha(e.p.text_muted, alpha_mul),
+                        None => Color32::from_rgba_premultiplied(180, 180, 180, a),
+                    },
                 );
             }
         }
@@ -2794,16 +2851,23 @@ pub fn draw_control(
             .unwrap_or(100)
             .max(1) as f32;
         let pct = ((val - min) / (max - min)).clamp(0.0, 1.0);
+        // 047 — the trough is the control's well; under Elegance it takes the
+        // palette rather than the built-in light grey.
+        let bg_c = match elegance_active(painter.ctx()) {
+            true => eleg_alpha(elegance_palette().p.input_bg, alpha_mul),
+            false => bg_c,
+        };
         painter.rect_filled(rect, 2.0, bg_c);
         let bar = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width() * pct, rect.height()));
         if glass {
-            draw_glass_auto(
+            draw_surface_auto(
                 painter,
                 bar,
                 Color32::from_rgb(0, 170, 0),
                 2.0,
                 false,
                 alpha_mul * pct,
+                SurfaceRole::Accent,
             );
         } else {
             painter.rect_filled(bar, 2.0, bar_c);
@@ -2864,9 +2928,22 @@ pub fn draw_control(
     };
     let label_color = ctrl
         .get_prop("ForegroundColor")
+        // 047 — a control carries the `#FFFFFF` sentinel until the developer
+        // picks a colour, so "absent" here means "still the sentinel", not
+        // "no property". Under Elegance the sentinel resolves to the palette's
+        // text colour — which is the whole face of a frameless Label — while an
+        // actually-chosen colour still wins (R8).
+        .filter(|v| {
+            !(elegance_active(painter.ctx())
+                && v.as_str().trim().eq_ignore_ascii_case(
+                    crate::model::DEFAULT_FOREGROUND_COLOR,
+                ))
+        })
         .map(|v| parse_color(v.as_str()))
         .unwrap_or(if is_neumorphic {
             Color32::BLACK // Neumorphic default: black text on light surface
+        } else if elegance_active(painter.ctx()) {
+            elegance_palette().p.text
         } else {
             default_text
         });
@@ -3104,6 +3181,70 @@ pub fn draw_control(
                 frame_round,
                 selected,
                 face_alpha,
+            );
+        }
+    } else if elegance_active(painter.ctx()) {
+        // ── 047 — the Elegance face ───────────────────────────────────────
+        // Ordered after the asset-pack branch (a pack still wins where it
+        // covers a control) and before glass. Flat fill + hairline border, at
+        // the control's exact designed rect — which is why this is painted
+        // rather than delegated to a crate widget: a widget would render at its
+        // own intrinsic size and the designer canvas, which has no `Ui` at all,
+        // could not run one anyway (spec 047 Q5).
+        let eleg_rect = if is_container {
+            debug_frame(
+                painter,
+                frame_rect,
+                frame_round,
+                1,
+                "CONTAINER_ELEGANCE",
+                container_diag,
+            )
+        } else {
+            frame_rect
+        };
+        // An explicit BackgroundColor is the developer's call and outranks the
+        // theme (R8) — pass it as `base` under the caller-led Shape role.
+        let (role, base) = match user_bg {
+            Some(bg) => (SurfaceRole::Shape, bg),
+            None => (elegance_role_for(&ctrl.control_type), fill),
+        };
+        draw_elegance_surface(
+            painter,
+            eleg_rect,
+            base,
+            frame_round,
+            selected,
+            face_alpha,
+            role,
+        );
+        // A user-set BorderStyle/BorderWidth still draws on top, as under glass
+        // — same threshold and rect derivation the glass branch below uses.
+        if border_style != "None" && user_border_width > 0.5 {
+            let border_rect = if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    2,
+                    "CONTAINER_BORDER",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
+            painter.rect_stroke(
+                border_rect,
+                frame_round,
+                Stroke::new(
+                    if selected {
+                        2.0_f32.max(user_border_width)
+                    } else {
+                        user_border_width
+                    },
+                    stroke_color,
+                ),
+                egui::StrokeKind::Middle,
             );
         }
     } else if glass {
@@ -3531,7 +3672,15 @@ pub fn draw_control(
         // Neumorphic Dark) every other control's face already uses, so the
         // check glyph always matches the active GlassStyle instead of being
         // flat monospace brackets regardless of theme.
-        draw_glass_auto(painter, box_rect, fill, box_round, false, alpha_mul);
+        draw_surface_auto(
+            painter,
+            box_rect,
+            fill,
+            box_round,
+            false,
+            alpha_mul,
+            SurfaceRole::Input,
+        );
         if checked {
             let check_color = ctrl
                 .get_prop("CheckColor")
@@ -4003,7 +4152,15 @@ pub fn draw_groupbox_caption(
     let label_color = ctrl
         .get_prop("ForegroundColor")
         .map(|v| parse_color(v.as_str()))
-        .unwrap_or_else(|| control_colors(&ctrl.control_type, false).2);
+        .unwrap_or_else(|| {
+            // 047 — a Label is frameless: its text IS its face, so the theme's
+            // text colour has to reach it here or a label stays off-theme.
+            if elegance_active(painter.ctx()) {
+                elegance_palette().p.text
+            } else {
+                control_colors(&ctrl.control_type, false).2
+            }
+        });
     let caption_enabled = ctrl
         .get_prop("CaptionEnabled")
         .map(|v| v.as_bool())
@@ -4519,13 +4676,14 @@ pub fn draw_picturebox(
     corner: f32,
 ) {
     if show_frame {
-        draw_glass_auto(
+        draw_surface_auto(
             painter,
             rect,
             Color32::from_rgb(20, 30, 60),
             corner,
             false,
             alpha_mul * 0.7,
+            SurfaceRole::Card,
         );
     }
     if !draw_picturebox_image(painter, rect, image_path, size_mode, alpha_mul, corner) && show_frame
@@ -4945,13 +5103,14 @@ pub fn glass_combo_header(
     alpha: f32,
 ) -> bool {
     use egui::{Align2, FontId, Pos2};
-    draw_glass_auto(
+    draw_surface_auto(
         painter,
         rect,
         Color32::from_rgb(25, 38, 80),
         6.0,
         false,
         alpha,
+        SurfaceRole::Input,
     );
     painter.rect_stroke(
         rect,
@@ -5009,13 +5168,14 @@ pub fn glass_combo_popup(
 
     let pp = ui.painter_at(popup_rect);
     pp.rect_filled(popup_rect, 6.0, Color32::from_rgb(22, 30, 58));
-    draw_glass_auto(
+    draw_surface_auto(
         &pp,
         popup_rect,
         Color32::from_rgb(30, 42, 80),
         6.0,
         false,
         0.35,
+        SurfaceRole::Card,
     );
     pp.rect_stroke(
         popup_rect,
@@ -5831,10 +5991,20 @@ pub fn draw_chart_preview(
         .filter(|v| !v.is_empty())
         .map(|v| v.iter().map(|s| parse_color(s)).collect::<Vec<_>>())
         .unwrap_or_else(|| {
-            pal_raw
-                .iter()
-                .map(|&(r, g, b)| Color32::from_rgb(r, g, b))
-                .collect()
+            // 047 — Elegance supplies its own data-mark palette, the same way an
+            // asset pack does, so a chart reads as part of the theme rather than
+            // keeping the built-in accents. Its accent family is already a set
+            // of distinguishable hues, which is exactly what a series palette
+            // needs (spec 047 R4).
+            if elegance_active(painter.ctx()) {
+                let e = elegance_palette();
+                vec![e.p.blue, e.p.amber, e.p.green, e.p.purple, e.p.red, e.p.focus]
+            } else {
+                pal_raw
+                    .iter()
+                    .map(|&(r, g, b)| Color32::from_rgb(r, g, b))
+                    .collect()
+            }
         });
     let chart_stroke = active
         .as_ref()
@@ -7564,6 +7734,74 @@ fn glass_style_id() -> egui::Id {
     egui::Id::new("cobolt-active-glass-style")
 }
 
+// ── 047 Elegance — the active form style ─────────────────────────────────────
+//
+// `set_active_theme` carries `Option<Arc<ThemePack>>`, where `None` already
+// means "procedural Liquid Glass" — so it has no room to express a *second*
+// procedural theme. Rather than widen it (a breaking change across all three
+// hosts and their tests), Elegance rides its own channel, shaped exactly like
+// `set_glass_style` above: the host publishes once per frame, the painter reads
+// it per control.
+//
+// A context that was never told defaults to `LiquidGlass`, so any surface that
+// forgets to publish keeps today's behaviour precisely (spec 047 R10).
+
+/// Which procedural look the form's controls are painted in (spec 047).
+///
+/// Asset-pack themes are orthogonal: they are carried by [`set_active_theme`]
+/// and take precedence over this for the control kinds a pack covers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SurfaceStyle {
+    /// The original procedural look — and the behaviour of any surface that
+    /// never publishes a style at all.
+    #[default]
+    LiquidGlass,
+    /// Elegance: flat slate surfaces, cool accent family (spec 047).
+    Elegance,
+}
+
+impl SurfaceStyle {
+    /// Map a resolved theme id to the procedural style it selects.
+    ///
+    /// Anything that is not Elegance — including an asset-pack id, an unknown
+    /// id, or an empty string — maps to [`SurfaceStyle::LiquidGlass`], which is
+    /// both the historical default and the correct base for a pack theme (a
+    /// pack skins the controls it covers and falls back to glass for the rest).
+    pub fn from_theme_id(id: &str) -> Self {
+        if id.trim() == crate::theme::ELEGANCE {
+            SurfaceStyle::Elegance
+        } else {
+            SurfaceStyle::LiquidGlass
+        }
+    }
+}
+
+fn surface_style_id() -> egui::Id {
+    egui::Id::new("cobolt-active-form-style")
+}
+
+/// Set the procedural form style for the current frame. Call once before the
+/// control-draw loop on every rendering surface, alongside [`set_glass_style`]
+/// and [`set_active_theme`].
+pub fn set_surface_style(ctx: &egui::Context, style: SurfaceStyle) {
+    ctx.data_mut(|d| d.insert_temp(surface_style_id(), style as u8));
+}
+
+/// Read the active form style (defaults to Liquid Glass — see the note above).
+pub(crate) fn active_surface_style(ctx: &egui::Context) -> SurfaceStyle {
+    ctx.data(|d| d.get_temp::<u8>(surface_style_id()))
+        .map(|v| match v {
+            1 => SurfaceStyle::Elegance,
+            _ => SurfaceStyle::LiquidGlass,
+        })
+        .unwrap_or(SurfaceStyle::LiquidGlass)
+}
+
+/// `true` when Elegance is painting this frame.
+pub(crate) fn elegance_active(ctx: &egui::Context) -> bool {
+    active_surface_style(ctx) == SurfaceStyle::Elegance
+}
+
 /// Set the glass style for the current frame. Call once before the control-draw
 /// loop on every rendering surface.
 pub fn set_glass_style(ctx: &egui::Context, style: crate::model::GlassStyle) {
@@ -7593,6 +7831,222 @@ pub fn draw_glass_auto(
 ) {
     // Default glass: `base` tints the frost only, never a solid underlay.
     draw_glass_auto_bg(painter, rect, base, None, rounding, selected, alpha_mul);
+}
+
+// ── 047 R13 — the shared sub-element seam ────────────────────────────────────
+//
+// `draw_control`'s FRAME choice is an if/else-if chain (frameless → asset-pack
+// skin → glass), so a pack theme's frame correctly bypasses the glass style.
+// Sub-elements never got that: the checkbox tick box, the progress fill, the
+// combo header and friends called `draw_glass_auto` unconditionally, *after*
+// the frame dispatch — which is why a steel-skinned checkbox still drew a glass
+// tick box that changed with the glass style.
+//
+// All seven of those sites now route through `draw_surface_auto`, so the choice
+// is made in ONE place. Spec 047 implements only the Elegance arm; Liquid Glass
+// and asset packs pass straight through, byte-for-byte, so this refactor is
+// invisible to them (AC8/AC10, guarded by `elegance_baseline_*`). Filling in the
+// asset-pack arm is spec 007's Phase 6 (T15–T17) and deliberately not done here
+// — the seam only gives that work a defined home.
+
+/// What a sub-element *is*, so a theme can paint it in the right register.
+///
+/// Liquid Glass ignores this (every sub-element is frost tinted by `base`);
+/// Elegance needs it, because a recessed input well and a raised card are
+/// different colours in a flat palette rather than the same frost at different
+/// tints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SurfaceRole {
+    /// A raised card face — non-visual control cards, picture frames, popups.
+    Card,
+    /// A recessed well the user reads or types into — combo headers, tick boxes.
+    Input,
+    /// A pressable control face — the accent-filled button look.
+    Button,
+    /// An accent-filled indicator — the filled portion of a progress bar.
+    Accent,
+    /// A face whose colour the developer chose; the caller's `base` leads.
+    Shape,
+}
+
+/// Which Elegance register a control's face belongs in.
+///
+/// Containers and display surfaces read as raised cards; anything the operator
+/// reads values out of or types into reads as a recessed well; a button is the
+/// one accent-filled face. Kinds not listed here never reach this function —
+/// they are frameless (Label, Line) or paint themselves (charts do their own
+/// face, then their data marks).
+pub(crate) fn elegance_role_for(ct: &ControlType) -> SurfaceRole {
+    use ControlType as CT;
+    match ct {
+        CT::Button => SurfaceRole::Button,
+        CT::TextBox
+        | CT::ComboBox
+        | CT::ListBox
+        | CT::DataGrid
+        | CT::TreeView
+        | CT::NumericUpDown
+        | CT::DateTimePicker
+        | CT::Slider
+        | CT::ProgressBar => SurfaceRole::Input,
+        _ => SurfaceRole::Card,
+    }
+}
+
+/// Like [`draw_surface_auto`] but carrying an explicit user-chosen background,
+/// mirroring [`draw_glass_auto_bg`]. When the developer set a colour it leads
+/// (R8) — under Elegance that means the caller-led `Shape` register, whatever
+/// structural role the control would otherwise have taken.
+pub(crate) fn draw_surface_auto_bg(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    bg_underlay: Option<Color32>,
+    rounding: impl Into<egui::CornerRadius>,
+    selected: bool,
+    alpha_mul: f32,
+    role: SurfaceRole,
+) {
+    match active_surface_style(painter.ctx()) {
+        SurfaceStyle::Elegance => {
+            let (role, base) = match bg_underlay {
+                Some(bg) => (SurfaceRole::Shape, bg),
+                None => (role, base),
+            };
+            draw_elegance_surface(painter, rect, base, rounding, selected, alpha_mul, role);
+        }
+        SurfaceStyle::LiquidGlass => {
+            draw_glass_auto_bg(
+                painter,
+                rect,
+                base,
+                bg_underlay,
+                rounding,
+                selected,
+                alpha_mul,
+            );
+        }
+    }
+}
+
+/// Paint a control **sub-element** in the active form style.
+///
+/// The sub-element counterpart of [`draw_glass_auto`] — see the module note
+/// above for why it exists.
+pub(crate) fn draw_surface_auto(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    rounding: impl Into<egui::CornerRadius>,
+    selected: bool,
+    alpha_mul: f32,
+    role: SurfaceRole,
+) {
+    match active_surface_style(painter.ctx()) {
+        SurfaceStyle::Elegance => {
+            draw_elegance_surface(painter, rect, base, rounding, selected, alpha_mul, role);
+        }
+        // Liquid Glass (and every asset-pack form, which uses glass for the
+        // sub-elements a pack does not cover) — unchanged.
+        SurfaceStyle::LiquidGlass => {
+            draw_glass_auto(painter, rect, base, rounding, selected, alpha_mul);
+        }
+    }
+}
+
+// ── 047 — the Elegance palette ───────────────────────────────────────────────
+//
+// Elegance is procedural: it paints from a fixed palette rather than compositing
+// art. The palette is the crate's own `slate` (its default), read through this
+// ONE accessor so every Elegance painter — the shared `draw_control` faces, the
+// seam's sub-elements, and the hand-rolled live painters in `render.rs` — draws
+// from the same source. That single-source rule is what keeps a control's
+// designer face and its running face agreeing; a colour literal anywhere in an
+// Elegance path is a bug waiting to happen.
+//
+// Deliberately NOT `Theme::current(ctx)`: this must work from a bare `Painter`
+// on the designer canvas, where there is no `Ui` and no installed theme.
+
+/// The Elegance palette + the shape constants that go with it.
+pub(crate) struct ElegancePalette {
+    pub p: elegance::Palette,
+    /// Corner radius for ordinary controls (buttons, inputs, tabs).
+    pub control_radius: f32,
+    /// Corner radius for card-like surfaces (panels, group boxes, popups).
+    pub card_radius: f32,
+}
+
+/// The one place Elegance colours come from (spec 047 R5).
+pub(crate) fn elegance_palette() -> ElegancePalette {
+    let t = elegance::Theme::slate();
+    ElegancePalette {
+        p: t.palette,
+        control_radius: t.control_radius,
+        card_radius: t.card_radius,
+    }
+}
+
+/// Install the real Elegance theme on `ctx` (spec 047 R6).
+///
+/// Only the four crate-drawn widgets (Knob, Gauge, Switch, FileDropZone) need
+/// this — everything else is painted from [`elegance_palette`], which needs no
+/// context at all. It also registers the crate's bundled symbol font so those
+/// widgets' glyphs resolve.
+///
+/// ⚠️ **Call this only from a host whose `egui::Context` belongs solely to the
+/// form window.** It mutates the *global* style, so calling it from a surface
+/// that shares its Context with other UI (the IDE, which drives every form
+/// through `show_viewport_immediate`) would restyle that UI too. Surfaces that
+/// skip it lose nothing visually: the crate falls back to the same slate
+/// palette Elegance paints from.
+pub fn install_elegance_theme(ctx: &egui::Context) {
+    elegance::Theme::slate().install(ctx);
+}
+
+/// Scale a palette colour by the caller's overall alpha, preserving its own.
+pub(crate) fn eleg_alpha(c: Color32, alpha_mul: f32) -> Color32 {
+    let m = alpha_mul.clamp(0.0, 1.0);
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (c.a() as f32 * m).round() as u8)
+}
+
+/// Paint one Elegance sub-element surface.
+///
+/// Flat fill + a one-pixel border, in the register the role calls for — no
+/// frost, no relief, and **no dependence on `GlassStyle`** (spec 047 R12).
+#[allow(clippy::too_many_arguments)]
+fn draw_elegance_surface(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    rounding: impl Into<egui::CornerRadius>,
+    selected: bool,
+    alpha_mul: f32,
+    role: SurfaceRole,
+) {
+    let e = elegance_palette();
+    let rounding = rounding.into();
+
+    // `Shape` and `Accent` are colour-led by the caller: the developer picked a
+    // shape's fill, and a progress fill carries its own meaning. The structural
+    // roles take the palette.
+    let fill = match role {
+        SurfaceRole::Card => e.p.card,
+        SurfaceRole::Input => e.p.input_bg,
+        SurfaceRole::Button => e.p.blue,
+        SurfaceRole::Shape | SurfaceRole::Accent => base,
+    };
+    let border = if selected { e.p.focus } else { e.p.border };
+
+    painter.rect_filled(rect, rounding, eleg_alpha(fill, alpha_mul));
+    painter.rect_stroke(
+        rect,
+        rounding,
+        Stroke::new(
+            if selected { 1.5 } else { 1.0 },
+            eleg_alpha(border, alpha_mul),
+        ),
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// Like [`draw_glass_auto`] but paints an explicit user-chosen background
@@ -8864,7 +9318,7 @@ mod theme_render_tests {
         set_glass_style(&ctx, crate::model::GlassStyle::Classic);
         let mut c = Control::new("SHP", ControlType::Shape, 0, 0);
         c.rect = crate::model::Rect::new(60, 60, 120, 80);
-        // Flat classic fill: FormStyle off keeps the face a single filled rect.
+        // Flat classic fill: SurfaceStyle off keeps the face a single filled rect.
         c.set_prop("FormStyle", PropValue::Bool(false));
         c.set_prop("ShadowEnabled", PropValue::Bool(false));
         for &(key, value) in props {
@@ -9129,5 +9583,620 @@ mod theme_render_tests {
             thumb_center_x(&on) > thumb_center_x(&off),
             "Checked=true must paint the thumb on the right, not the left"
         );
+    }
+}
+
+// ── Spec 047 — Elegance form theme ───────────────────────────────────────────
+
+#[cfg(test)]
+mod elegance_tests {
+    use super::*;
+    use crate::model::{Control, ControlType as CT, GlassStyle as GS};
+
+    /// Every control family spec 047 R4 requires Elegance to cover, laid out on
+    /// a notional form. Used by the regression baseline (T3) and the coverage
+    /// gate (T13), so the two can never drift apart.
+    pub(super) fn r4_families() -> Vec<(&'static str, CT)> {
+        vec![
+            ("PANEL", CT::Panel),
+            ("GROUPBOX", CT::GroupBox),
+            ("BUTTON", CT::Button),
+            ("TEXTBOX", CT::TextBox),
+            ("LABEL", CT::Label),
+            ("CHECKBOX", CT::CheckBox),
+            ("RADIOBUTTON", CT::RadioButton),
+            ("LISTBOX", CT::ListBox),
+            ("COMBOBOX", CT::ComboBox),
+            ("SLIDER", CT::Slider),
+            ("PROGRESSBAR", CT::ProgressBar),
+            ("TABCONTROL", CT::TabControl),
+            ("MENUBAR", CT::MenuBar),
+            ("TOOLBAR", CT::ToolBar),
+            ("STATUSBAR", CT::StatusBar),
+            ("TREEVIEW", CT::TreeView),
+            ("DATAGRID", CT::DataGrid),
+            ("BARCHART", CT::BarChart),
+            ("LINECHART", CT::LineChart),
+            ("PIECHART", CT::PieChart),
+            ("AREACHART", CT::AreaChart),
+            ("SCATTERCHART", CT::ScatterChart),
+            ("DONUTCHART", CT::DonutChart),
+            ("KNOB", CT::Knob),
+            ("GAUGE", CT::Gauge),
+            ("SWITCH", CT::Switch),
+            ("FILEDROPZONE", CT::FileDropZone),
+        ]
+    }
+
+    /// The R4 fixture as real controls, tiled so none overlaps.
+    pub(super) fn r4_fixture() -> Vec<Control> {
+        r4_families()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (id, ct))| {
+                let mut c = Control::new(id, ct, 0, 0);
+                let col = (i % 5) as i32;
+                let row = (i / 5) as i32;
+                c.rect = crate::model::Rect::new(10 + col * 150, 10 + row * 90, 130, 70);
+                c
+            })
+            .collect()
+    }
+
+    /// Count the tessellated shape leaves produced by painting `controls`
+    /// under a given glass style / pack / surface style.
+    ///
+    /// A structural proxy for "what got drawn" — not a pixel diff. It is
+    /// sensitive to geometry changes (a different number of rects, strokes or
+    /// glyph runs) but blind to a pure colour swap, which is precisely the
+    /// right sensitivity for proving a **refactor** moved nothing.
+    pub(super) fn painted_leaf_count(
+        controls: &[Control],
+        glass_style: GS,
+        pack: Option<std::sync::Arc<ThemePack>>,
+        surface: SurfaceStyle,
+    ) -> usize {
+        let ctx = egui::Context::default();
+        set_glass_style(&ctx, glass_style);
+        set_active_theme(&ctx, pack);
+        set_surface_style(&ctx, surface);
+
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0)));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    for c in controls {
+                        draw_control(ui.painter(), Pos2::ZERO, c, false, true, 1.0, 1.0, None);
+                    }
+                });
+        });
+        full.textures_delta.clear();
+        fn leaves(s: &egui::Shape) -> usize {
+            match s {
+                egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
+                _ => 1,
+            }
+        }
+        full.shapes.iter().map(|cs| leaves(&cs.shape)).sum()
+    }
+
+    /// A minimal in-memory asset pack with real (decodable) art, so the
+    /// pack-themed baseline row exercises the 9-slice path rather than silently
+    /// falling back to glass on an undecodable image.
+    pub(super) fn fixture_pack() -> std::sync::Arc<ThemePack> {
+        const MANIFEST: &str = r#"
+id = "baseline-fixture"
+display_name = "Baseline Fixture"
+
+[controls.button]
+image = "art.png"
+slice = [4, 4, 4, 4]
+
+[controls.panel]
+image = "art.png"
+slice = [4, 4, 4, 4]
+"#;
+        // A real 16×16 RGBA PNG — encoded here so the texture actually loads.
+        let img = image::RgbaImage::from_pixel(16, 16, image::Rgba([90, 100, 120, 255]));
+        let mut png: Vec<u8> = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode fixture png");
+        std::sync::Arc::new(
+            ThemePack::from_embedded(MANIFEST, &[("art.png", &png)]).expect("fixture pack"),
+        )
+    }
+
+    /// The four glass styles, in a stable order for reporting.
+    pub(super) const ALL_GLASS_STYLES: [GS; 4] =
+        [GS::Classic, GS::Enhanced, GS::Neumorphic, GS::NeumorphicDark];
+
+    /// T6 — the palette accessor is a faithful mirror of the crate's own
+    /// `slate` theme.
+    ///
+    /// Every Elegance painter draws from `elegance_palette()`; if a future crate
+    /// upgrade shifts those colours, this fails loudly here rather than letting
+    /// the look drift silently across two dozen painting sites.
+    #[test]
+    fn elegance_palette_mirrors_the_crate_slate_theme() {
+        let t = elegance::Theme::slate();
+        let e = elegance_palette();
+
+        assert_eq!(e.p.bg, t.palette.bg);
+        assert_eq!(e.p.card, t.palette.card);
+        assert_eq!(e.p.input_bg, t.palette.input_bg);
+        assert_eq!(e.p.border, t.palette.border);
+        assert_eq!(e.p.text, t.palette.text);
+        assert_eq!(e.p.text_muted, t.palette.text_muted);
+        assert_eq!(e.p.text_faint, t.palette.text_faint);
+        assert_eq!(e.p.focus, t.palette.focus);
+        assert_eq!(e.p.blue, t.palette.blue);
+        assert_eq!(e.p.green, t.palette.green);
+        assert_eq!(e.p.red, t.palette.red);
+        assert_eq!(e.p.amber, t.palette.amber);
+        assert_eq!(e.p.purple, t.palette.purple);
+        assert_eq!(e.control_radius, t.control_radius);
+        assert_eq!(e.card_radius, t.card_radius);
+        assert!(e.p.is_dark, "Elegance ships the dark slate palette");
+
+        println!(
+            "Elegance palette: card={:?} input={:?} border={:?} text={:?} focus={:?} \
+             radius(control/card)={}/{}",
+            e.p.card, e.p.input_bg, e.p.border, e.p.text, e.p.focus, e.control_radius,
+            e.card_radius
+        );
+    }
+
+    /// T6 — alpha scaling preserves a colour's own transparency.
+    #[test]
+    fn elegance_alpha_scales_without_discarding_source_alpha() {
+        let opaque = Color32::from_rgb(10, 20, 30);
+        assert_eq!(eleg_alpha(opaque, 1.0).a(), 255);
+        assert_eq!(eleg_alpha(opaque, 0.5).a(), 128);
+        let half = Color32::from_rgba_unmultiplied(10, 20, 30, 128);
+        assert_eq!(eleg_alpha(half, 1.0).a(), 128);
+        assert_eq!(eleg_alpha(half, 0.5).a(), 64);
+    }
+
+    /// T7/AC9 — under Elegance the glass style is inert.
+    ///
+    /// The whole point of the R13 seam: before it, a checkbox's tick box (and
+    /// six other sub-elements) called `draw_glass_auto` unconditionally, so
+    /// they still changed with `GlassStyle` under a non-glass theme. If this
+    /// ever fails again, a sub-element has slipped back onto the glass path.
+    #[test]
+    fn elegance_is_unaffected_by_every_glass_style() {
+        let fixture = r4_fixture();
+        let counts: Vec<(crate::model::GlassStyle, usize)> = ALL_GLASS_STYLES
+            .iter()
+            .map(|gs| {
+                (
+                    *gs,
+                    painted_leaf_count(&fixture, *gs, None, SurfaceStyle::Elegance),
+                )
+            })
+            .collect();
+
+        println!("\n  Elegance under each glass style (must all match):");
+        for (gs, n) in &counts {
+            println!("    {:<16} {n}", format!("{gs:?}"));
+        }
+
+        let first = counts[0].1;
+        for (gs, n) in &counts {
+            assert_eq!(
+                *n, first,
+                "GlassStyle {gs:?} changed Elegance's painting ({n} vs {first}) \
+                 — a sub-element is still on the glass path (R12/R13)"
+            );
+        }
+
+        // And Elegance must actually differ from Liquid Glass, or this test
+        // would pass trivially by never having switched theme at all.
+        let glass = painted_leaf_count(
+            &fixture,
+            crate::model::GlassStyle::Classic,
+            None,
+            SurfaceStyle::LiquidGlass,
+        );
+        assert_ne!(first, glass, "Elegance is painting exactly like Liquid Glass");
+        println!("    (Liquid Glass, for contrast: {glass})\n");
+    }
+
+    /// T7/AC6 — the developer's own colour outranks the theme.
+    #[test]
+    fn elegance_honours_an_explicit_background_colour() {
+        use crate::model::PropValue;
+
+        fn face_colors(bg: Option<&str>) -> Vec<Color32> {
+            let ctx = egui::Context::default();
+            set_surface_style(&ctx, SurfaceStyle::Elegance);
+            let mut c = Control::new("P", CT::Panel, 0, 0);
+            c.rect = crate::model::Rect::new(10, 10, 120, 80);
+            if let Some(bg) = bg {
+                c.set_prop("BackgroundColor", PropValue::String(bg.into()));
+            }
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+            fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                    egui::Shape::Rect(r) => out.push(r.fill),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                collect(&cs.shape, &mut out);
+            }
+            out
+        }
+
+        // A vivid colour no palette entry could coincidentally equal.
+        let themed = face_colors(None);
+        let custom = face_colors(Some("#FF00FFFF"));
+        let magenta = Color32::from_rgb(0xFF, 0x00, 0xFF);
+        println!(
+            "themed panel fills: {:?}\n  custom-bg panel fills: {:?}",
+            themed, custom
+        );
+        assert!(
+            custom.iter().any(|c| c.r() > 200 && c.b() > 200 && c.g() < 60),
+            "an explicit BackgroundColor must reach the face, got {custom:?}"
+        );
+        assert!(
+            !themed.contains(&magenta),
+            "the themed default must not be the custom colour"
+        );
+    }
+
+    /// T8 — chart data marks take the Elegance palette, and only under Elegance.
+    #[test]
+    fn elegance_charts_use_the_theme_palette_for_data_marks() {
+        use crate::model::PropValue;
+
+        fn chart_fills(style: SurfaceStyle) -> Vec<Color32> {
+            let ctx = egui::Context::default();
+            set_surface_style(&ctx, style);
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(10, 10, 260, 160);
+            c.set_prop("Series", PropValue::String("4,9,2,7".into()));
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+            fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                    egui::Shape::Rect(r) => out.push(r.fill),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                collect(&cs.shape, &mut out);
+            }
+            out
+        }
+
+        let e = elegance_palette();
+        let eleg = chart_fills(SurfaceStyle::Elegance);
+        let glass = chart_fills(SurfaceStyle::LiquidGlass);
+        let has = |v: &[Color32], c: Color32| {
+            v.iter().any(|x| x.r() == c.r() && x.g() == c.g() && x.b() == c.b())
+        };
+        println!(
+            "chart bars — Elegance blue present: {}, under Liquid Glass: {}",
+            has(&eleg, e.p.blue),
+            has(&glass, e.p.blue)
+        );
+        assert!(
+            has(&eleg, e.p.blue),
+            "an Elegance chart must draw its first series in the theme accent"
+        );
+        assert!(
+            !has(&glass, e.p.blue),
+            "Liquid Glass charts must keep the built-in accents (R10)"
+        );
+    }
+
+    /// T13/AC5/R11 — every R4 family is actually painted by Elegance.
+    ///
+    /// The gate on the spec's "no partial-coverage ship point": a family that
+    /// silently sits on the Liquid Glass fallback fails the build here rather
+    /// than shipping looking wrong. Reports which families are covered by name,
+    /// not just a count.
+    #[test]
+    fn elegance_covers_every_r4_control_family() {
+        let e = elegance_palette();
+        let palette = [
+            e.p.card,
+            e.p.input_bg,
+            e.p.bg,
+            e.p.blue,
+            e.p.amber,
+            e.p.green,
+            e.p.purple,
+            e.p.red,
+            e.p.focus,
+            e.p.depth_tint(e.p.card, 0.04),
+            e.p.depth_tint(e.p.input_bg, 0.03),
+            // A frameless control (Label) has no surface at all — its themed
+            // face IS its glyph colour.
+            e.p.text,
+            e.p.text_muted,
+        ];
+        let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
+
+        fn fills_for(ct: &ControlType) -> Vec<Color32> {
+            let ctx = egui::Context::default();
+            set_surface_style(&ctx, SurfaceStyle::Elegance);
+            let mut c = Control::new("C", ct.clone(), 0, 0);
+            c.rect = crate::model::Rect::new(10, 10, 200, 110);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+            // Elegance shows up as a fill on framed controls, but as a STROKE on
+            // the ring/dial controls and as glyph colour on a bare label — so
+            // every channel a colour can arrive through is collected.
+            fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                    egui::Shape::Rect(r) => {
+                        out.push(r.fill);
+                        out.push(r.stroke.color);
+                    }
+                    egui::Shape::Circle(c) => {
+                        out.push(c.fill);
+                        out.push(c.stroke.color);
+                    }
+                    egui::Shape::Path(p) => {
+                        out.push(p.fill);
+                        if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                            out.push(c);
+                        }
+                    }
+                    egui::Shape::LineSegment { stroke, .. } => out.push(stroke.color),
+                    egui::Shape::Text(t) => {
+                        out.push(t.override_text_color.unwrap_or(t.fallback_color));
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                collect(&cs.shape, &mut out);
+            }
+            out
+        }
+
+        let mut covered: Vec<&str> = Vec::new();
+        let mut missing: Vec<&str> = Vec::new();
+        for (name, ct) in r4_families() {
+            let fills = fills_for(&ct);
+            // The palette border is on every Elegance face, so a themed control
+            // always carries at least one palette colour.
+            let hit = fills
+                .iter()
+                .any(|f| palette.iter().any(|p| same(*f, *p)) || same(*f, e.p.border));
+            if hit {
+                covered.push(name);
+            } else {
+                missing.push(name);
+            }
+        }
+
+        println!(
+            "\n  Elegance coverage: {}/{} R4 control families",
+            covered.len(),
+            covered.len() + missing.len()
+        );
+        println!("    covered: {}", covered.join(", "));
+        if !missing.is_empty() {
+            println!("    NOT covered: {}", missing.join(", "));
+        }
+        println!();
+
+        assert!(
+            missing.is_empty(),
+            "spec 047 R11 forbids shipping with a family on the Liquid Glass \
+             fallback — uncovered: {missing:?}"
+        );
+    }
+
+    /// T13/R7 — the fallback still degrades gracefully.
+    ///
+    /// R11 says no *R4* family may rely on it, not that it should not exist:
+    /// a control kind with no Elegance mapping must still render rather than
+    /// fail. Timer is non-visual and deliberately outside R4's list.
+    #[test]
+    fn elegance_falls_back_without_failing_for_an_unmapped_kind() {
+        let ctx = egui::Context::default();
+        set_surface_style(&ctx, SurfaceStyle::Elegance);
+        let mut c = Control::new("T", CT::Timer, 0, 0);
+        c.rect = crate::model::Rect::new(10, 10, 60, 60);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0)));
+        // The assertion is that this paints at all rather than panicking.
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                });
+        });
+        full.textures_delta.clear();
+        println!("unmapped kind rendered {} shape group(s)", full.shapes.len());
+    }
+
+    /// T2 — the style survives a round-trip through context storage.
+    #[test]
+    fn elegance_wire_round_trips() {
+        let ctx = egui::Context::default();
+        assert_eq!(
+            active_surface_style(&ctx),
+            SurfaceStyle::LiquidGlass,
+            "a context nobody published to must default to Liquid Glass"
+        );
+
+        set_surface_style(&ctx, SurfaceStyle::Elegance);
+        assert_eq!(active_surface_style(&ctx), SurfaceStyle::Elegance);
+        assert!(elegance_active(&ctx));
+
+        set_surface_style(&ctx, SurfaceStyle::LiquidGlass);
+        assert_eq!(active_surface_style(&ctx), SurfaceStyle::LiquidGlass);
+        assert!(!elegance_active(&ctx));
+    }
+
+    /// T2 — the "host forgot to publish" path keeps today's behaviour (R10).
+    ///
+    /// This is the load-bearing default: three separate hosts publish per
+    /// frame, and any surface that misses the call must render exactly as it
+    /// does today rather than silently changing look.
+    #[test]
+    fn elegance_wire_defaults_to_liquid_glass_when_never_published() {
+        let ctx = egui::Context::default();
+        assert_eq!(active_surface_style(&ctx), SurfaceStyle::LiquidGlass);
+        assert!(!elegance_active(&ctx));
+        assert_eq!(SurfaceStyle::default(), SurfaceStyle::LiquidGlass);
+    }
+
+    /// T2 — id → style mapping. Only the exact Elegance id selects Elegance;
+    /// pack ids and junk both fall to Liquid Glass (the correct base for a
+    /// pack, which falls back to glass for the kinds it does not cover).
+    #[test]
+    fn elegance_wire_maps_theme_ids_to_styles() {
+        use crate::theme::{ELEGANCE, LIQUID_GLASS};
+        assert_eq!(SurfaceStyle::from_theme_id(ELEGANCE), SurfaceStyle::Elegance);
+        assert_eq!(SurfaceStyle::from_theme_id(" elegance "), SurfaceStyle::Elegance);
+        assert_eq!(SurfaceStyle::from_theme_id(LIQUID_GLASS), SurfaceStyle::LiquidGlass);
+        assert_eq!(SurfaceStyle::from_theme_id("stainless-steel"), SurfaceStyle::LiquidGlass);
+        assert_eq!(SurfaceStyle::from_theme_id(""), SurfaceStyle::LiquidGlass);
+        assert_eq!(SurfaceStyle::from_theme_id("no-such-theme"), SurfaceStyle::LiquidGlass);
+    }
+}
+
+#[cfg(test)]
+mod elegance_baseline_tests {
+    use super::elegance_tests::*;
+    use super::*;
+    use crate::model::GlassStyle as GS;
+
+    /// T3/AC10 — the regression baseline.
+    ///
+    /// Paints the full R4 fixture under Liquid Glass and under an asset pack,
+    /// across all four glass styles, and reports the tessellated shape-leaf
+    /// count for each. These eight numbers are the contract the R13 seam
+    /// refactor (T4) must not move.
+    #[test]
+    fn elegance_baseline_reports_untouched_paths() {
+        let fixture = r4_fixture();
+        let pack = fixture_pack();
+
+        let mut rows: Vec<(String, GS, usize)> = Vec::new();
+        for gs in ALL_GLASS_STYLES {
+            rows.push((
+                "liquid-glass".to_owned(),
+                gs,
+                painted_leaf_count(&fixture, gs, None, SurfaceStyle::LiquidGlass),
+            ));
+            rows.push((
+                "asset-pack".to_owned(),
+                gs,
+                painted_leaf_count(&fixture, gs, Some(pack.clone()), SurfaceStyle::LiquidGlass),
+            ));
+        }
+
+        println!(
+            "\n  R4 fixture: {} controls\n  {:<14} {:<16} {}",
+            fixture.len(),
+            "theme",
+            "glass style",
+            "shape leaves"
+        );
+        for (theme, gs, n) in &rows {
+            println!("  {theme:<14} {:<16} {n}", format!("{gs:?}"));
+        }
+        println!();
+
+        for (theme, gs, n) in &rows {
+            assert!(
+                *n > 0,
+                "{theme} / {gs:?} painted nothing — the fixture is not exercising the painter"
+            );
+        }
+
+        // The asset-pack row must actually differ from the glass row, or this
+        // baseline would be silently testing the same path twice (an
+        // undecodable image falls back to glass — see R11).
+        let glass_classic = rows
+            .iter()
+            .find(|(t, gs, _)| t == "liquid-glass" && *gs == GS::Classic)
+            .map(|(_, _, n)| *n)
+            .unwrap();
+        let pack_classic = rows
+            .iter()
+            .find(|(t, gs, _)| t == "asset-pack" && *gs == GS::Classic)
+            .map(|(_, _, n)| *n)
+            .unwrap();
+        assert_ne!(
+            glass_classic, pack_classic,
+            "the pack fixture is not skinning anything — its art failed to decode"
+        );
+
+        // ── Golden values (spec 047 T3/AC10) ──────────────────────────────
+        //
+        // Captured before the R13 seam refactor. The seam rewires seven
+        // sub-element paint sites shared with Liquid Glass and asset packs; if
+        // any of these eight numbers moves, that refactor changed what gets
+        // drawn and AC8/AC10 are broken.
+        //
+        // A deliberate change to Liquid Glass's own painting may legitimately
+        // move them — re-bless only with that intent, never to get green.
+        let expected: [(&str, GS, usize); 8] = [
+            ("liquid-glass", GS::Classic, 1430),
+            ("asset-pack", GS::Classic, 1252),
+            ("liquid-glass", GS::Enhanced, 1546),
+            ("asset-pack", GS::Enhanced, 1342),
+            ("liquid-glass", GS::Neumorphic, 484),
+            ("asset-pack", GS::Neumorphic, 500),
+            ("liquid-glass", GS::NeumorphicDark, 484),
+            ("asset-pack", GS::NeumorphicDark, 500),
+        ];
+        for (theme, gs, want) in expected {
+            let got = rows
+                .iter()
+                .find(|(t, g, _)| t == theme && *g == gs)
+                .map(|(_, _, n)| *n)
+                .unwrap_or_else(|| panic!("missing baseline row {theme}/{gs:?}"));
+            assert_eq!(
+                got, want,
+                "baseline moved for {theme} / {gs:?}: expected {want}, got {got} \
+                 — the seam refactor must not change what is painted"
+            );
+        }
     }
 }

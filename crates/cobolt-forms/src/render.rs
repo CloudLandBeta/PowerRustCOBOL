@@ -3646,13 +3646,14 @@ fn render_interactive(
             }
         }
         CT::NumericUpDown => {
-            paint::draw_glass_auto(
+            paint::draw_surface_auto(
                 &painter,
                 screen,
                 Color32::from_rgb(30, 40, 80),
                 paint::corner_radius(ctrl),
                 false,
                 alpha,
+                paint::SurfaceRole::Input,
             );
             let min = sv(ctrl, "Minimum").parse::<f64>().unwrap_or(0.0);
             let max = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0);
@@ -3707,13 +3708,14 @@ fn render_interactive(
             }
         }
         CT::ListBox => {
-            paint::draw_glass_auto(
+            paint::draw_surface_auto(
                 &painter,
                 screen,
                 Color32::from_rgb(30, 40, 80),
                 paint::corner_radius(ctrl),
                 false,
                 alpha,
+                paint::SurfaceRole::Input,
             );
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
@@ -3970,10 +3972,22 @@ fn render_interactive(
                 .collect();
             let column_widths: Vec<f32> =
                 column_measures.iter().map(|column| column.width).collect();
-            let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor"))
-                .unwrap_or(Color32::from_rgb(60, 66, 96));
-            let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor"))
-                .unwrap_or(Color32::from_rgb(235, 238, 250));
+            // 047 — under Elegance the *defaults* come from the palette, so a
+            // themed grid reads as one surface instead of a themed frame around
+            // built-in blues. An explicitly set property still wins (R8).
+            let eleg = paint::elegance_active(painter.ctx()).then(paint::elegance_palette);
+            let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor")).unwrap_or(
+                match &eleg {
+                    Some(e) => e.p.depth_tint(e.p.card, 0.04),
+                    None => Color32::from_rgb(60, 66, 96),
+                },
+            );
+            let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor")).unwrap_or(
+                match &eleg {
+                    Some(e) => e.p.text,
+                    None => Color32::from_rgb(235, 238, 250),
+                },
+            );
             // The DataGrid is the one control that supports a solid grid background
             // (grid/column/row/cell fine control). A user-chosen colour paints solid
             // beneath the glass; a grid still on the default sentinel stays fully
@@ -3987,9 +4001,16 @@ fn render_interactive(
                         .trim_start_matches('#')
                         .eq_ignore_ascii_case(default_bg)
             });
-            let grid_bg = grid_bg_underlay.unwrap_or(Color32::from_rgb(26, 32, 58));
-            let alt_bg_base = paint::parse_hex(&sv(ctrl, "AlternatingRowColor"))
-                .unwrap_or(Color32::from_rgb(38, 44, 72));
+            let grid_bg = grid_bg_underlay.unwrap_or(match &eleg {
+                Some(e) => e.p.input_bg,
+                None => Color32::from_rgb(26, 32, 58),
+            });
+            let alt_bg_base = paint::parse_hex(&sv(ctrl, "AlternatingRowColor")).unwrap_or(
+                match &eleg {
+                    Some(e) => e.p.depth_tint(e.p.input_bg, 0.03),
+                    None => Color32::from_rgb(38, 44, 72),
+                },
+            );
             let alt_bg_opacity = sv(ctrl, "AlternatingRowOpacity")
                 .parse::<u8>()
                 .unwrap_or(20)
@@ -4039,7 +4060,7 @@ fn render_interactive(
             let frozen_rows_height = row_h * frozen_rows as f32;
             let scrollable_row_count = displayed_row_indices.len().saturating_sub(frozen_rows);
 
-            paint::draw_glass_auto_bg(
+            paint::draw_surface_auto_bg(
                 &painter,
                 screen,
                 grid_bg,
@@ -4047,6 +4068,7 @@ fn render_interactive(
                 paint::corner_radius(ctrl),
                 false,
                 alpha,
+                paint::SurfaceRole::Input,
             );
             let bg_image = sv(ctrl, "GridBackgroundImage");
             if !bg_image.trim().is_empty() {
@@ -5515,15 +5537,20 @@ fn render_interactive(
             }
         }
         CT::TreeView => {
-            paint::draw_glass_auto(
+            paint::draw_surface_auto(
                 &painter,
                 screen,
                 Color32::from_rgb(28, 36, 64),
                 paint::corner_radius(ctrl),
                 false,
                 alpha,
+                paint::SurfaceRole::Input,
             );
-            let fg = Color32::from_rgb(220, 226, 250);
+            let eleg = paint::elegance_active(painter.ctx()).then(paint::elegance_palette);
+            let fg = match &eleg {
+                Some(e) => e.p.text,
+                None => Color32::from_rgb(220, 226, 250),
+            };
             let selected = sv(ctrl, "SelectedNode");
             let mut y = screen.min.y + 12.0;
             for (line_index, line) in sv(ctrl, "Items").lines().enumerate() {
@@ -5547,7 +5574,15 @@ fn render_interactive(
                     painter.rect_filled(
                         row,
                         3.0,
-                        Color32::from_rgba_premultiplied(70, 110, 200, 70),
+                        match &eleg {
+                            Some(e) => Color32::from_rgba_unmultiplied(
+                                e.p.focus.r(),
+                                e.p.focus.g(),
+                                e.p.focus.b(),
+                                70,
+                            ),
+                            None => Color32::from_rgba_premultiplied(70, 110, 200, 70),
+                        },
                     );
                 }
                 if resp.clicked() && enabled {
@@ -5577,13 +5612,14 @@ fn render_interactive(
         }
         CT::Splitter => {
             let horiz = !sv(ctrl, "Orientation").starts_with('V');
-            paint::draw_glass_auto(
+            paint::draw_surface_auto(
                 &painter,
                 screen,
                 Color32::from_rgb(60, 66, 96),
                 paint::corner_radius(ctrl),
                 false,
                 alpha,
+                paint::SurfaceRole::Card,
             );
             let c = screen.center();
             let dot = Color32::from_rgba_premultiplied(200, 210, 240, 160);
@@ -5601,14 +5637,30 @@ fn render_interactive(
                 .get_prop("BackgroundColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::TRANSPARENT);
+            // Historically the bar surface was drawn only when the developer
+            // set a colour — with none, the bar is bare and the form shows
+            // through. Elegance is a flat theme with no frost to fall back on,
+            // so it always lays its own bar down; Liquid Glass keeps the
+            // original opt-in behaviour exactly (R10).
             if menu_bg.a() > 0 {
-                paint::draw_glass_auto(
+                paint::draw_surface_auto(
                     &painter,
                     screen,
                     menu_bg,
                     paint::corner_radius(ctrl),
                     false,
                     alpha,
+                    paint::SurfaceRole::Shape,
+                );
+            } else if paint::elegance_active(painter.ctx()) {
+                paint::draw_surface_auto(
+                    &painter,
+                    screen,
+                    menu_bg,
+                    paint::corner_radius(ctrl),
+                    false,
+                    alpha,
+                    paint::SurfaceRole::Card,
                 );
             }
             let fg = ctrl
@@ -5853,13 +5905,14 @@ fn render_interactive(
             }
         }
         CT::ToolBar | CT::StatusBar => {
-            paint::draw_glass_auto(
+            paint::draw_surface_auto(
                 &painter,
                 screen,
                 Color32::from_rgb(40, 46, 76),
                 paint::corner_radius(ctrl),
                 false,
                 alpha,
+                paint::SurfaceRole::Card,
             );
             let fg = Color32::from_rgb(225, 230, 250);
             let mut x = screen.min.x + 8.0;
@@ -9126,6 +9179,129 @@ mod shape_dump {
                 Some(p) => merge_props(base, p.iter()),
                 None => base.clone(),
             }
+        }
+    }
+}
+
+// ── Spec 047 — Elegance on the live (interactive) surface ────────────────────
+
+#[cfg(test)]
+mod elegance_live_tests {
+    use super::*;
+    use crate::model::{Control, ControlType as CT};
+    use crate::paint::SurfaceStyle;
+
+    /// The controls that hand-paint themselves on the live surface instead of
+    /// going through `paint::draw_control` — each has a second, independent
+    /// implementation there, which is exactly why they need their own check
+    /// (spec 047 plan R-1).
+    fn doubled_painters() -> Vec<(&'static str, CT)> {
+        vec![
+            ("NUMERICUPDOWN", CT::NumericUpDown),
+            ("LISTBOX", CT::ListBox),
+            ("DATAGRID", CT::DataGrid),
+            ("TREEVIEW", CT::TreeView),
+            ("SPLITTER", CT::Splitter),
+            ("MENUBAR", CT::MenuBar),
+            ("TOOLBAR", CT::ToolBar),
+            ("STATUSBAR", CT::StatusBar),
+        ]
+    }
+
+    /// Every rect fill painted by rendering `ct` interactively under `style`.
+    fn live_fills(ct: CT, style: SurfaceStyle) -> Vec<Color32> {
+        let mut c = Control::new("C", ct, 0, 0);
+        c.rect = crate::model::Rect::new(10, 10, 240, 120);
+        let controls = vec![c];
+        let ctx = egui::Context::default();
+        crate::paint::set_surface_style(&ctx, style);
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+        });
+        full.textures_delta.clear();
+        fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                egui::Shape::Rect(r) => out.push(r.fill),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    /// T10–T12 — the live-only painters actually take the theme.
+    ///
+    /// Each of these eight controls paints its own background on the running
+    /// form, separately from the designer face. If one is ever added back with
+    /// a hard-coded colour, it will not carry a palette fill and this fails.
+    #[test]
+    fn elegance_reaches_every_hand_rolled_live_painter() {
+        let e = crate::paint::elegance_palette();
+        let palette = [e.p.card, e.p.input_bg, e.p.bg, e.p.blue];
+        let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
+
+        let mut covered = Vec::new();
+        let mut missing = Vec::new();
+        for (name, ct) in doubled_painters() {
+            let fills = live_fills(ct, SurfaceStyle::Elegance);
+            if fills.iter().any(|f| palette.iter().any(|p| same(*f, *p))) {
+                covered.push(name);
+            } else {
+                missing.push(name);
+            }
+        }
+
+        println!(
+            "\n  live hand-rolled painters themed by Elegance: {}/{}",
+            covered.len(),
+            covered.len() + missing.len()
+        );
+        for n in &covered {
+            println!("    ✓ {n}");
+        }
+        for n in &missing {
+            println!("    ✗ {n}");
+        }
+        println!();
+
+        assert!(
+            missing.is_empty(),
+            "these live painters ignore the theme and still paint their own \
+             hard-coded colours: {missing:?}"
+        );
+    }
+
+    /// The same painters must be untouched under Liquid Glass (R10/AC8).
+    #[test]
+    fn liquid_glass_live_painters_are_unchanged_by_the_seam() {
+        let e = crate::paint::elegance_palette();
+        let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
+        for (name, ct) in doubled_painters() {
+            let fills = live_fills(ct, SurfaceStyle::LiquidGlass);
+            assert!(
+                !fills.iter().any(|f| same(*f, e.p.card) || same(*f, e.p.input_bg)),
+                "{name} painted an Elegance colour under Liquid Glass"
+            );
         }
     }
 }

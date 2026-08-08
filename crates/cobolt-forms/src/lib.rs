@@ -40,7 +40,7 @@ pub use model::{
     GuardianSeverity, MapMarkerField, MapMarkerRecord, MappingCompatibility, PropValue, Rect,
     DATAGRID_ADVANCED_PROP, DATA_BINDING_SCHEMA_VERSION,
 };
-pub use xml::{load_form, load_form_from_str, save_form, FormError};
+pub use xml::{form_to_string, load_form, load_form_from_str, save_form, FormError};
 
 #[cfg(feature = "render")]
 pub mod anim;

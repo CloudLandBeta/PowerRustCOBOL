@@ -846,6 +846,36 @@ schema.
 > automatically, and open read-only. Editing belongs in the form (the Designer),
 > the `.cidx` (Indexed File Editor), or in Common Code — never in generated output.
 
+### Copying a form between projects
+
+Right-click any form in the **Forms** tree and choose **Copy Form**. This
+copies *everything* about it — every control's properties, every bound
+event's complete COBOL handler body, animations, and data bindings — to your
+operating system's clipboard, not just an in-app scratch space. Switch to (or
+open) a different project — in the same running PowerRustCOBOL window, or in
+a second one entirely — right-click the **Forms** category, and choose
+**Paste Form**. The form is created there exactly as it was: no control ID or
+event paragraph needs renaming, because each form already compiles to its own
+self-contained COBOL program — a `BUTTON1` in the pasted form cannot collide
+with a `BUTTON1` some other, unrelated form in that project happens to use
+internally. Its Generated Code is produced immediately, so the pasted form is
+ready to Run without a separate Build step first.
+
+If the target project already has a form with the same name, PowerRustCOBOL
+asks what to do rather than guessing: **rename** the incoming form (typing a
+new name, re-checked live against what's already there) or **replace** the
+existing one — replacing asks for its own separate confirmation before
+anything is deleted, exactly like deleting a form from the tree directly.
+
+> **Note.** Copy Form reads whatever is currently on screen if the form is
+> open in a Designer with unsaved changes — "copy" always means "copy what
+> I'm looking at," not a stale save from earlier. Pasting a form whose blocks
+> reference something the target project doesn't have yet (a Project's
+> Crates pin, an asset, an indexed file a data binding names) carries the
+> *reference* faithfully, but not the referenced resource itself — add a
+> matching one in the target project, the same as if you'd typed the
+> reference there by hand.
+
 ### Indexed File Editor & Grid Browser
 
 > 📷 **Screenshot needed — `indexed-file-editor.png`** — Indexed File Editor
@@ -1460,6 +1490,50 @@ procedural style clears any per-form pack override for that form.
 - Per-form: Designer form *Appearance → Theme* (or leave to inherit).
 
 Resolution: per-form → project default → Classic/Liquid Glass.
+
+#### Elegance
+
+**Elegance** is a second built-in theme, chosen from the same Theme dropdown as
+Liquid Glass and any installed pack. Where Liquid Glass is translucent and
+frosted, Elegance is **flat and opaque**: deep slate surfaces, a hairline border
+on every control, and one cool accent colour used consistently for buttons,
+selection, and focus. It suits business forms — dense data entry, grids,
+dashboards — where frosted panels compete with the data for attention.
+
+Choosing it is no different from any other theme:
+
+```text
+Project-wide   Settings → Appearance → Default form theme → Elegance
+One form only  Designer → form Appearance → Theme → Elegance
+```
+
+Everything on the form takes the theme at once — panels and group boxes, buttons,
+text boxes, check boxes and radio buttons, lists and combo boxes, sliders,
+progress bars, tabs, menu/tool/status bars, tree views, data grids, all six chart
+types, and the knob, gauge, switch and file-drop controls. Charts draw their
+series in the theme's accent family instead of the built-in colours, so a chart
+sits inside the form rather than on top of it.
+
+Two things worth knowing:
+
+- **Your own colours still win.** A control with an explicit *Back color* or
+  *Fore color* keeps it. The theme only supplies the defaults, so you can theme a
+  whole form and still make one field red.
+- **The Classic / Enhanced / Neumorphic setting does nothing while Elegance is
+  active.** Those three are variations *of* Liquid Glass. Elegance is a separate
+  theme with its own flat surface treatment, so switching between them has no
+  visible effect until you go back to Liquid Glass — this is expected, not a
+  fault.
+
+Elegance is a control theme only: it does not supply a form background, so the
+form's own *Back color* / *Background Image* applies exactly as before.
+
+📷 Screenshot needed — `elegance-theme.png`
+Open a form containing a mix of controls (a group box with text boxes and a
+combo box, a data grid with a few rows, a couple of buttons, and one chart),
+set *Appearance → Theme* to **Elegance**, and capture the designer canvas.
+Capture the same form with Theme = Liquid Glass as `liquid-glass-theme.png` so
+the two can be shown side by side.
 
 When **Neumorphic** is active, the form page auto-defaults to the recipe's very
 light neutral background (#ECEFF4) unless you set an explicit background colour.
@@ -2595,11 +2669,25 @@ adding `csv`.)
    Enter. The matches arrive as a table — **crate, version, downloads,
    description** — 50 to a page, with `◀` / `▶` and a "Page 2/7 — 318
    results" counter beneath it, so you can browse everything the registry has
-   rather than a truncated handful. Download counts are the quickest way to
-   tell an established library from an abandoned experiment. **Click a crate
-   name** in the table to pick it. The first three columns are only as wide
-   as their contents so the description gets the rest of the room; drag any
+   rather than a truncated handful. Download counts show abbreviated
+   (`1.2K`, `3.4M`) so a glance tells an established library from an
+   abandoned experiment; click either the **Crate** or **Downloads** header
+   to sort the page by name or by true popularity, click again to reverse.
+   **Click a crate name** in the table to pick it — that is the *only* way
+   to fill the name field below; it cannot be typed into, so what you add is
+   always something you actually found. Value columns are only as wide as
+   their contents so the description gets the rest of the room; drag any
    column boundary to change that split.
+
+   A **System** column, hidden by default, marks results already part of
+   your application: yellow for a crate PowerRustCOBOL links directly
+   (`egui`, `eframe`, …), gray for one only pulled in as a dependency of
+   something linked. Neither can be registered — searching still finds them,
+   but Add refuses without touching the network, since there's nothing to
+   fetch. Tick **Show System crates** next to the search button to see the
+   column and browse them anyway (useful for checking what version of
+   something is already in your app before picking a compatible one of your
+   own).
 2. **Version requirement** (optional) — leave it empty to take the newest
    stable release, or write a cargo-style requirement such as `^1.3` or
    `=1.3.6` to hold a line.
@@ -2647,6 +2735,29 @@ requirement itself, remove and re-add.
 - *Allowed with a warning* — the library drags in a second, incompatible copy
   of something already present. It works, but the two copies do not mix; the
   warning names them so the surprise is now, not at three in the morning.
+
+**When you genuinely need a different version of something PowerRustCOBOL
+already links.** Say your block needs `egui` 0.29 for a reason of your own,
+but the platform itself links `egui` 0.36 — ordinarily that is a plain
+refusal ("already available" / "clashes with the built-in"). For exactly
+this case — a name that collides directly with a linked crate, at a version
+that genuinely cannot coexist with the linked one — the dialog offers an
+alternative instead of just refusing: add it under an **alias**
+(`prj_egui`), a second, independent copy living alongside the platform's
+own. Accept the offer and your block writes `use prj_egui::…` instead of
+`use egui::…`; both `rust_manifest.md` and the crate's entry in the tree
+note the alias. This is the *only* situation aliasing is offered — every
+other add still uses the library's own name and unifies normally, and a
+crate that is merely a **dependency** of something linked (the gray
+System-dependency case above) is never offered an alias at all; it is
+always refused outright, since your block was never going to reference it
+by name in the first place.
+
+> ⚠️ **An aliased copy does not interoperate with the platform's own.** A
+> value built with `prj_egui::Color32` cannot be handed to a PowerRustCOBOL
+> API expecting `egui::Color32` — they are, deliberately, two different
+> crates that happen to share a name. Reach for this only when your block's
+> use of the library is self-contained.
 
 **What ships.** Registered crates are compiled into your program's single
 binary like everything else — end users still install nothing. Every build

@@ -1355,6 +1355,10 @@ pub struct DesignerPanel {
     /// default + the per-form override; consumed by the canvas (and preview)
     /// draw loops via `cobolt_forms::paint::set_active_theme`.
     pub active_theme_pack: Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
+    /// The procedural style the form's controls are painted in this frame
+    /// (spec 047). Resolved by the app alongside `active_theme_pack` and
+    /// published to the canvas + preview contexts each frame.
+    pub active_surface_style: cobolt_forms::paint::SurfaceStyle,
 
     /// The font the user most recently set on a control in this form. New controls
     /// inherit it so a form keeps a consistent typeface.
@@ -1543,6 +1547,7 @@ impl DesignerPanel {
             preview_last_frame: None,
             preview_combo_open: HashMap::new(),
             active_theme_pack: None,
+            active_surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
             placement_release_starts: HashMap::new(),
         }
     }
@@ -4469,6 +4474,7 @@ impl DesignerPanel {
         // ⇒ procedural Liquid Glass.
         cobolt_forms::paint::set_active_theme(ui.ctx(), self.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ui.ctx(), self.form.glass_style);
+        cobolt_forms::paint::set_surface_style(ui.ctx(), self.active_surface_style);
 
         // Load menu YAML files for any MenuBar controls and cache them
         if let Some(dir) = &self.cfrm_dir {

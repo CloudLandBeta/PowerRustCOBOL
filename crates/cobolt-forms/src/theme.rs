@@ -23,6 +23,17 @@
 /// The stable id of the built-in default theme.
 pub const LIQUID_GLASS: &str = "liquid-glass";
 
+/// The stable id of the built-in **Elegance** theme (spec 047).
+///
+/// A second procedural look alongside Liquid Glass: flat slate surfaces with a
+/// cool accent family, drawn entirely in code (no asset pack). Selected exactly
+/// like any other catalog entry.
+///
+/// **Naming:** "Elegance" is the only user-facing name. The third-party crate
+/// whose palette it follows is an implementation detail and must never appear
+/// in UI text, docs, or generated COBOL (spec 047 R9).
+pub const ELEGANCE: &str = "elegance";
+
 /// Whether a theme is drawn procedurally or composited from an asset pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeKind {
@@ -56,6 +67,16 @@ impl FormTheme {
             pack: None,
         }
     }
+
+    /// The built-in procedural **Elegance** theme (spec 047 R1).
+    pub fn elegance() -> Self {
+        FormTheme {
+            id: ELEGANCE.to_owned(),
+            display_name: "Elegance".to_owned(),
+            kind: ThemeKind::Procedural,
+            pack: None,
+        }
+    }
 }
 
 /// The extensible catalog of selectable themes (R1, R2).
@@ -65,12 +86,28 @@ pub struct ThemeCatalog {
 }
 
 impl ThemeCatalog {
-    /// A catalog containing only the built-in procedural theme. Asset packs are
-    /// added by discovery (Phase 3) via [`ThemeCatalog::with_packs`].
+    /// A catalog containing the built-in **procedural** themes — Liquid Glass
+    /// (the default) then Elegance. Asset packs are added by discovery via
+    /// [`ThemeCatalog::with_packs`].
+    ///
+    /// Order is load-bearing: Liquid Glass must stay first, because
+    /// [`ThemeCatalog::resolve`] falls back to `themes[0]` and the pickers show
+    /// this order.
     pub fn builtin() -> Self {
         ThemeCatalog {
-            themes: vec![FormTheme::liquid_glass()],
+            themes: vec![FormTheme::liquid_glass(), FormTheme::elegance()],
         }
+    }
+
+    /// The ids of the built-in procedural themes — i.e. every catalog entry that
+    /// is drawn in code and has **no** asset pack on disk.
+    ///
+    /// Callers that map a theme id to a pack (the compiler's build-time staging,
+    /// the IDE's pack lookup) use this to skip the procedural ids instead of
+    /// hunting for an `assets/themes/<id>/` folder that will never exist and
+    /// warning when it is missing (spec 047 R-3).
+    pub fn procedural_ids() -> &'static [&'static str] {
+        &[LIQUID_GLASS, ELEGANCE]
     }
 
     /// Append discovered asset-pack themes to the built-in catalog, skipping any
@@ -157,6 +194,73 @@ mod tests {
         assert_eq!(cat.ids().first().copied(), Some(LIQUID_GLASS));
         assert!(cat.get(LIQUID_GLASS).is_some());
         assert_eq!(cat.get(LIQUID_GLASS).unwrap().kind, ThemeKind::Procedural);
+    }
+
+    /// Spec 047 T1 — the catalog ships **two** procedural themes, in order.
+    #[test]
+    fn elegance_catalog_lists_both_builtin_themes() {
+        let cat = ThemeCatalog::builtin();
+
+        // Report what the catalog actually contains, by name.
+        let listing: Vec<String> = cat
+            .themes()
+            .iter()
+            .map(|t| format!("{} ({:?}, pack={})", t.id, t.kind, t.pack.is_some()))
+            .collect();
+        println!(
+            "built-in catalog: {} entr{}\n  {}",
+            listing.len(),
+            if listing.len() == 1 { "y" } else { "ies" },
+            listing.join("\n  ")
+        );
+
+        assert_eq!(
+            cat.ids(),
+            vec![LIQUID_GLASS, ELEGANCE],
+            "Liquid Glass must stay first (resolve falls back to themes[0])"
+        );
+
+        let eleg = cat.get(ELEGANCE).expect("elegance is in the catalog");
+        assert_eq!(eleg.display_name, "Elegance");
+        assert_eq!(eleg.kind, ThemeKind::Procedural);
+        assert!(eleg.pack.is_none(), "Elegance is drawn in code, not a pack");
+
+        // R9 — the crate behind the palette never surfaces as a name.
+        for t in cat.themes() {
+            let lower = t.display_name.to_lowercase();
+            assert!(
+                !lower.contains("egui"),
+                "display name must not leak the crate name: {}",
+                t.display_name
+            );
+        }
+    }
+
+    /// Both built-ins are reported as procedural, so pack lookups skip them.
+    #[test]
+    fn elegance_catalog_procedural_ids_cover_both_builtins() {
+        let ids = ThemeCatalog::procedural_ids();
+        println!("procedural ids (never looked up as packs): {ids:?}");
+        assert_eq!(ids, [LIQUID_GLASS, ELEGANCE]);
+        for t in ThemeCatalog::builtin().themes() {
+            assert!(
+                ids.contains(&t.id.as_str()),
+                "built-in {} must be listed as procedural",
+                t.id
+            );
+        }
+    }
+
+    /// Selecting Elegance resolves to Elegance — the existing precedence rules
+    /// are untouched, it is just another id they can carry.
+    #[test]
+    fn elegance_is_selectable_through_normal_resolution() {
+        let cat = ThemeCatalog::builtin();
+        assert_eq!(cat.resolve(Some(ELEGANCE), None).id, ELEGANCE);
+        assert_eq!(cat.resolve(None, Some(ELEGANCE)).id, ELEGANCE);
+        // per-form override still beats the project default
+        assert_eq!(cat.resolve(Some(LIQUID_GLASS), Some(ELEGANCE)).id, LIQUID_GLASS);
+        assert_eq!(resolve_theme_id(Some(ELEGANCE), None), ELEGANCE);
     }
 
     #[test]

@@ -549,6 +549,64 @@ fn resolve_graph(
     Ok(graph)
 }
 
+// ── System awareness (spec 045 R5–R12) ───────────────────────────────────────
+
+/// The platform's own resolved dependency closure, split into what it links
+/// **directly** and everything else the closure pulls in only transitively.
+/// A search result matching a name in either set cannot be registered as an
+/// External Crate — `direct` refuses with (or, per R1, offers an alias for)
+/// today's `name_collision`; `transitive` refuses unconditionally (R11).
+#[derive(Debug, Clone, Default)]
+pub struct SystemClosure {
+    pub direct: std::collections::BTreeSet<String>,
+    pub transitive: std::collections::BTreeSet<String>,
+}
+
+impl SystemClosure {
+    pub fn classify(&self, name: &str) -> Option<SystemCategory> {
+        let wanted = lib_name(name);
+        if self.direct.contains(&wanted) {
+            Some(SystemCategory::Direct)
+        } else if self.transitive.contains(&wanted) {
+            Some(SystemCategory::Transitive)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemCategory {
+    /// Linked directly by every generated program (`DIRECT_LINKED`).
+    Direct,
+    /// Not linked directly, but pulled in by something that is.
+    Transitive,
+}
+
+/// Spec 045 R12 — computed by running the *same* resolver-probe machinery
+/// spec 044 built ([`resolve_graph`]) with an empty pin list and no
+/// candidate: that is exactly the platform's own base dependency graph, with
+/// nothing added. Reusing it (rather than a hand-maintained list) means this
+/// can never drift from what a real build actually links, the same guarantee
+/// `DIRECT_LINKED`'s own parity test gives the direct set.
+pub fn system_closure(workspace_root: &Path) -> Result<SystemClosure, String> {
+    let crates_path = workspace_root.join("crates");
+    let scratch = std::env::temp_dir().join("prc045-system-closure");
+    let graph = resolve_graph(&crates_path, workspace_root, &[], None, &scratch)?;
+    let direct_names: std::collections::BTreeSet<String> =
+        external_crates::direct_linked_lib_names().into_iter().collect();
+    let mut closure = SystemClosure::default();
+    for (name, _version) in graph {
+        let lib = lib_name(&name);
+        if direct_names.contains(&lib) {
+            closure.direct.insert(lib);
+        } else {
+            closure.transitive.insert(lib);
+        }
+    }
+    Ok(closure)
+}
+
 /// The last meaningful lines of a cargo error — the resolver's reason,
 /// without the scrollback (R13 shows this to the developer).
 fn tail(stderr: &str) -> String {
@@ -590,8 +648,22 @@ fn foreign_crates_dir(project_dir: &Path, registered: &[ExternalCrate]) -> Optio
     }
 }
 
+/// What `add` finished with — either it's registered, or (spec 045 R1) its
+/// name collided with a directly-linked platform crate at an incompatible
+/// version and it is offered as an alias instead of refused outright.
+#[derive(Debug)]
+pub enum AddOutcome {
+    Added(String),
+    AliasOffered {
+        candidate: ExternalCrate,
+        linked_requirement: String,
+        vendored: PathBuf,
+    },
+}
+
 /// R7–R15 — resolve, conflict-check, vendor, record. Returns the pinned
-/// version on success.
+/// version on success, or (spec 045 R1) an alias offer instead of a refusal
+/// for the one narrow collision case that qualifies.
 #[allow(clippy::too_many_arguments)]
 pub fn add(
     registry: &Registry,
@@ -600,8 +672,9 @@ pub fn add(
     name: &str,
     requirement: Option<&str>,
     features: Vec<String>,
+    system: Option<&SystemClosure>,
     log: Log,
-) -> Result<String, String> {
+) -> Result<AddOutcome, String> {
     let project_dir = project_dir_of(project_path)?;
     let mut project = load_project(project_path).map_err(|e| e.to_string())?;
     let name = name.trim().to_ascii_lowercase();
@@ -610,6 +683,19 @@ pub fn add(
     }
     if let Some(reason) = foreign_crates_dir(&project_dir, &project.crates) {
         return Err(reason);
+    }
+    // Spec 045 R11 — System/System-dependency crates are refused before any
+    // network call; unlike a direct incompatible collision (R1), there is
+    // no alias offer for this case (that only applies to a directly-linked
+    // name that collides — not to something merely pulled in by one).
+    if let Some(category) = system.and_then(|s| s.classify(&name)) {
+        let what = match category {
+            SystemCategory::Direct => "already part of the application (directly linked)",
+            SystemCategory::Transitive => {
+                "already part of the application (a dependency of a linked crate)"
+            }
+        };
+        return Err(format!("`{name}` is {what} — it cannot be registered"));
     }
 
     // Resolve first: the collision verdict depends on the exact version (R12).
@@ -625,20 +711,36 @@ pub fn add(
         version: resolved.version.to_string(),
         features,
         url: resolved.url.clone(),
+        alias: None,
     };
 
     // Vendor BEFORE the probe: the candidate then enters the staged graph
     // through its `[patch.crates-io]` path — exactly as a real build sees it
     // — which also lets a crate that exists only on a non-crates.io registry
-    // resolve (R4). A refusal cleans the download up again.
+    // resolve (R4). A refusal cleans the download up again — EXCEPT the R1
+    // alias offer below, which keeps it: the developer may still want it.
     info(log, "downloading into crates/ …");
     let vendored = registry
         .download_and_unpack(&resolved, &project_dir)
         .map_err(|e| e.to_string())?;
     info(log, format!("vendored at {}", vendored.display()));
 
+    // Layer 1 (R12) first, on its own: an `Incompatible` direct collision is
+    // an offer (spec 045 R1), not a refusal — `AlreadyAvailable`/`Reserved`
+    // are unchanged (R2).
+    match layer1_collision(&candidate)? {
+        Some(CollisionRefusal::Incompatible { linked_requirement, .. }) => {
+            return Ok(AddOutcome::AliasOffered { candidate, linked_requirement, vendored });
+        }
+        Some(refusal) => {
+            let _ = std::fs::remove_dir_all(&vendored);
+            return Err(refusal.to_string());
+        }
+        None => {}
+    }
+
     if let Err(reason) =
-        check_conflicts(&project_dir, workspace_root, &project.crates, &candidate, log)
+        probe_conflicts(&project_dir, workspace_root, &project.crates, &candidate, log)
     {
         let _ = std::fs::remove_dir_all(&vendored);
         return Err(reason);
@@ -646,15 +748,73 @@ pub fn add(
 
     project.crates.push(candidate);
     save_project(&project, project_path).map_err(|e| e.to_string())?;
-    Ok(format!(
+    Ok(AddOutcome::Added(format!(
         "added `{name}` {} — blocks can now `use {}::…;`",
         resolved.version,
         lib_name(&name)
+    )))
+}
+
+/// Spec 045 R1 — the developer accepted an `AddOutcome::AliasOffered`. The
+/// candidate is already resolved and vendored (from the `add` call that
+/// produced the offer); this only needs to stamp the alias on, run the
+/// layer-2 probe against the now alias-shaped candidate (its `pin_sections`
+/// form is a bare path dependency — see `external_crates::pin_sections`),
+/// and record it. Layer 1 does not run again: the candidate's whole reason
+/// for existing is that it collides, and `layer1_collision` already skips
+/// aliased pins for exactly that reason.
+pub fn confirm_alias(
+    project_path: &Path,
+    workspace_root: Option<PathBuf>,
+    mut candidate: ExternalCrate,
+    alias: &str,
+    log: Log,
+) -> Result<String, String> {
+    let project_dir = project_dir_of(project_path)?;
+    let mut project = load_project(project_path).map_err(|e| e.to_string())?;
+    let alias = alias.trim().to_string();
+    candidate.alias = Some(alias.clone());
+
+    probe_conflicts(&project_dir, workspace_root, &project.crates, &candidate, log)?;
+
+    let (name, version) = (candidate.name.clone(), candidate.version.clone());
+    project.crates.push(candidate);
+    save_project(&project, project_path).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "added `{name}` {version} as `{alias}` — blocks can now `use {}::…;`",
+        lib_name(&alias)
     ))
 }
 
+/// Spec 045 R1 — the developer declined the offer. The download from `add`'s
+/// resolve step never got a pin, so there's nothing to do but clear it —
+/// mirrors the cleanup every other refusal path in this file already does.
+pub fn discard_alias_offer(vendored: &Path) -> Result<(), String> {
+    if vendored.is_dir() {
+        std::fs::remove_dir_all(vendored)
+            .map_err(|e| format!("cannot remove {}: {e}", vendored.display()))?;
+    }
+    Ok(())
+}
+
+/// Layer 1 (spec R12; spec 045 R1) — the candidate's name against the
+/// reserved set. Skipped once a pin is already aliased: that pin exists
+/// specifically because its name collides, so re-tripping the same refusal
+/// on every later Update would leave an aliased pin permanently stuck.
+fn layer1_collision(candidate: &ExternalCrate) -> Result<Option<CollisionRefusal>, String> {
+    if candidate.alias.is_some() {
+        return Ok(None);
+    }
+    let version = Version::parse(&candidate.version)
+        .map_err(|e| format!("bad pinned version: {e}"))?;
+    Ok(name_collision(&candidate.name, &version))
+}
+
 /// Layer 1 + layer 2; refusals are `Err`, coexistence warnings pass through
-/// the log (R14 allows them).
+/// the log (R14 allows them). Used by `update_one` — unlike `add`, an update
+/// has nowhere to offer an alias mid-flow, so a direct incompatible
+/// collision here is still a plain refusal (this only happens if the linked
+/// platform version itself changed since the pin was added).
 fn check_conflicts(
     project_dir: &Path,
     workspace_root: Option<PathBuf>,
@@ -662,14 +822,20 @@ fn check_conflicts(
     candidate: &ExternalCrate,
     log: Log,
 ) -> Result<(), String> {
-    let version = Version::parse(&candidate.version)
-        .map_err(|e| format!("bad pinned version: {e}"))?;
-    if let Some(refusal) = name_collision(&candidate.name, &version) {
-        // AlreadyAvailable is informational, but still a refusal: nothing to
-        // add (R12).
-        let _: &CollisionRefusal = &refusal;
+    if let Some(refusal) = layer1_collision(candidate)? {
         return Err(refusal.to_string());
     }
+    probe_conflicts(project_dir, workspace_root, others, candidate, log)
+}
+
+/// Layer 2 only: the resolver probe (R11, R13–R15).
+fn probe_conflicts(
+    project_dir: &Path,
+    workspace_root: Option<PathBuf>,
+    others: &[ExternalCrate],
+    candidate: &ExternalCrate,
+    log: Log,
+) -> Result<(), String> {
     let workspace = cobolt_compiler::resolve_workspace_root(workspace_root)
         .ok_or("cannot locate the PowerRustCOBOL workspace for the resolver probe")?;
     info(log, "probing the full dependency graph (cargo metadata) …");
@@ -1035,9 +1201,12 @@ mod flow_tests {
 
         // Add — resolve/download from the mock; the probe runs for real.
         let t = Instant::now();
-        let added = add(&registry, &manifest_path, None, "mockcrate", None, vec![], &mut quiet())
+        let added = add(&registry, &manifest_path, None, "mockcrate", None, vec![], None, &mut quiet())
             .expect("mock add");
         let add_s = t.elapsed().as_secs_f32();
+        let AddOutcome::Added(added) = added else {
+            panic!("mockcrate must add cleanly, not offer an alias");
+        };
         assert!(added.contains("0.1.0"));
         assert!(vendor_dir(&dir, "mockcrate", "0.1.0").is_dir());
         let project = load_project(&manifest_path).unwrap();
@@ -1109,7 +1278,7 @@ mod flow_tests {
         // AC6 — egui is refused as already available; nothing recorded.
         let dir = temp_project("egui");
         let manifest_path = dir.join("cobolt.toml");
-        let err = add(&registry, &manifest_path, None, "egui", None, vec![], &mut quiet())
+        let err = add(&registry, &manifest_path, None, "egui", None, vec![], None, &mut quiet())
             .expect_err("egui must be refused");
         assert!(err.contains("already available"), "got: {err}");
         assert!(load_project(&manifest_path).unwrap().crates.is_empty());
@@ -1128,6 +1297,7 @@ mod flow_tests {
             "rusqlite",
             Some("=0.24.2"),
             vec![],
+            None,
             &mut quiet(),
         )
         .expect_err("conflicting rusqlite must be refused");
@@ -1148,7 +1318,7 @@ mod flow_tests {
         let manifest_path = dir.join("cobolt.toml");
         let mut warnings = Vec::new();
         let t = Instant::now();
-        add(&registry, &manifest_path, None, "itoa", Some("=1.0.10"), vec![], &mut |n| {
+        add(&registry, &manifest_path, None, "itoa", Some("=1.0.10"), vec![], None, &mut |n| {
             if let Note::Warn(text) = n {
                 warnings.push(text);
             }
@@ -1168,6 +1338,161 @@ mod flow_tests {
         println!("rusqlite =0.24.2 links clash: refused in {links_s:.1} s");
         println!("itoa =1.0.10 coexistence: warned in {warn_s:.1} s");
         println!("total: {:.1} s", t_all.elapsed().as_secs_f32());
+        println!("──────────────────────────────────────────────");
+    }
+
+    /// Spec 045 R1/AC1 — a direct, version-incompatible collision (the exact
+    /// case 044's R12 refused outright) is now an offer, not an `Err`; the
+    /// download survives it so accepting doesn't pay for it twice.
+    #[test]
+    fn incompatible_direct_collision_offers_alias_not_error() {
+        let registry = Registry::new(DEFAULT_REGISTRY);
+        let dir = temp_project("alias-offer");
+        let manifest_path = dir.join("cobolt.toml");
+        let outcome = add(&registry, &manifest_path, None, "egui", Some("=0.29.0"), vec![], None, &mut quiet())
+            .expect("an incompatible direct collision must be an offer, not an Err");
+        match outcome {
+            AddOutcome::AliasOffered { candidate, linked_requirement, vendored } => {
+                assert_eq!(candidate.name, "egui");
+                assert_eq!(candidate.version, "0.29.0");
+                assert_eq!(linked_requirement, "0.36");
+                assert!(vendored.is_dir(), "the download must survive the offer");
+            }
+            AddOutcome::Added(_) => panic!("egui 0.29.0 must collide with the linked 0.36"),
+        }
+        assert!(
+            load_project(&manifest_path).unwrap().crates.is_empty(),
+            "not registered until the offer is confirmed"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 045 R2 — the other two `CollisionRefusal` variants are unchanged
+    /// by R1: a compatible direct collision is still a plain refusal
+    /// (`AlreadyAvailable`, informational — nothing to add). The third
+    /// variant, `Reserved` (`cobolt-*`), can't be exercised through the live
+    /// `add()` path — there is no real crate on crates.io by that name to
+    /// resolve — so its regression coverage stays where it already is:
+    /// `cobolt-compiler`'s `cobolt_prefix_is_reserved`, pure and untouched by
+    /// this change (`layer1_collision` calls the same `name_collision` this
+    /// change didn't modify; only what `add` does with an `Incompatible`
+    /// result changed).
+    #[test]
+    fn compatible_and_reserved_collisions_still_refuse() {
+        let registry = Registry::new(DEFAULT_REGISTRY);
+        let dir = temp_project("still-refused-compat");
+        let manifest_path = dir.join("cobolt.toml");
+        let err = add(&registry, &manifest_path, None, "egui", None, vec![], None, &mut quiet())
+            .expect_err("a compatible direct collision must still be a plain refusal");
+        assert!(err.contains("already available"), "got: {err}");
+        assert!(load_project(&manifest_path).unwrap().crates.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 045 R1 — declining the offer leaves no trace under `crates/`.
+    #[test]
+    fn declining_the_alias_offer_removes_the_vendored_download() {
+        let registry = Registry::new(DEFAULT_REGISTRY);
+        let dir = temp_project("alias-decline");
+        let manifest_path = dir.join("cobolt.toml");
+        let outcome = add(&registry, &manifest_path, None, "egui", Some("=0.29.0"), vec![], None, &mut quiet())
+            .expect("must offer, not refuse");
+        let AddOutcome::AliasOffered { vendored, .. } = outcome else {
+            panic!("expected an alias offer");
+        };
+        assert!(vendored.is_dir());
+        discard_alias_offer(&vendored).expect("discard must succeed");
+        assert!(!vendored.exists(), "declining must remove the download");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 045 R1/R3 — accepting the offer pins the crate WITH its alias and
+    /// probes the alias-shaped candidate (a bare path dependency — see
+    /// `external_crates::pin_sections`), not the plain `version =` shape
+    /// that already failed layer 1.
+    #[test]
+    fn confirming_the_alias_offer_pins_with_alias_and_probes_the_alias_shape() {
+        let registry = Registry::new(DEFAULT_REGISTRY);
+        let dir = temp_project("alias-confirm");
+        let manifest_path = dir.join("cobolt.toml");
+        let outcome = add(&registry, &manifest_path, None, "egui", Some("=0.29.0"), vec![], None, &mut quiet())
+            .expect("must offer, not refuse");
+        let AddOutcome::AliasOffered { candidate, .. } = outcome else {
+            panic!("expected an alias offer");
+        };
+        let msg = confirm_alias(&manifest_path, None, candidate, "prj_egui", &mut quiet())
+            .expect("the alias-shaped candidate must probe clean");
+        assert!(msg.contains("prj_egui"), "got: {msg}");
+
+        let project = load_project(&manifest_path).unwrap();
+        assert_eq!(project.crates.len(), 1);
+        assert_eq!(project.crates[0].alias.as_deref(), Some("prj_egui"));
+        assert_eq!(project.crates[0].lib_name(), "prj_egui");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 045 R11/AC7 — a name marked System or System-dependency is
+    /// refused before any network call: the registry here points at an
+    /// unreachable host, so if the check were bypassed the failure would be
+    /// a network/DNS error, not the "cannot be registered" text this test
+    /// asserts on — a regression here fails loudly, not silently. Unlike a
+    /// direct incompatible collision (R1), it is NEVER an alias offer —
+    /// `Ok` in this test is already a failure by itself.
+    #[test]
+    fn adding_a_system_dependency_crate_is_refused_without_an_alias_offer() {
+        let registry = Registry::new("https://unreachable.invalid.example");
+        let dir = temp_project("system-refused");
+        let manifest_path = dir.join("cobolt.toml");
+        let closure = SystemClosure {
+            direct: ["egui".to_string()].into_iter().collect(),
+            transitive: ["epaint".to_string()].into_iter().collect(),
+        };
+
+        for name in ["egui", "epaint"] {
+            match add(
+                &registry,
+                &manifest_path,
+                None,
+                name,
+                None,
+                vec![],
+                Some(&closure),
+                &mut quiet(),
+            ) {
+                Err(reason) => assert!(
+                    reason.contains("cannot be registered"),
+                    "unexpected refusal text for {name}: {reason}"
+                ),
+                Ok(_) => panic!("{name} is System/System-dependency and must be refused"),
+            }
+        }
+        assert!(load_project(&manifest_path).unwrap().crates.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 045 R12/AC4 — the live platform closure (real `cargo metadata`,
+    /// same tier as `live_resolver_verdicts`): a name every generated program
+    /// links directly lands in `direct`; a name that only rides along inside
+    /// something directly linked (egui's own rendering crate, `epaint` — not
+    /// itself in `DIRECT_LINKED`) lands in `transitive`; an unrelated crate
+    /// lands in neither.
+    #[test]
+    fn system_closure_splits_direct_from_transitive() {
+        let workspace = cobolt_compiler::resolve_workspace_root(None)
+            .expect("cannot locate the PowerRustCOBOL workspace for this test");
+        let t = Instant::now();
+        let closure = system_closure(&workspace).expect("system_closure must resolve");
+        let elapsed = t.elapsed().as_secs_f32();
+
+        assert_eq!(closure.classify("egui"), Some(SystemCategory::Direct));
+        assert_eq!(closure.classify("eframe"), Some(SystemCategory::Direct));
+        assert_eq!(closure.classify("epaint"), Some(SystemCategory::Transitive));
+        assert_eq!(closure.classify("csv"), None);
+
+        println!("──────────────────────────────────────────────");
+        println!("spec 045 live system closure (AC4)");
+        println!("direct: {} crates, transitive: {} crates", closure.direct.len(), closure.transitive.len());
+        println!("resolved in {elapsed:.1} s");
         println!("──────────────────────────────────────────────");
     }
 }
@@ -1203,12 +1528,12 @@ mod tests {
         assert_eq!(r.crate_url("csv"), "https://mirror.example.com/crates/csv");
     }
 
-    /// Some crates.io descriptions carry a bare `\r` (e.g. `egui-cameras`,
-    /// `egui-thematic`); a `\n`-only replace let it through to the results
-    /// table, where it broke a row boundary. A raw CR reaching UI text is
-    /// never wanted regardless of how that text is later rendered, so it is
-    /// normalized once, here, at the source. Live: real registry data is what
-    /// actually carries this character.
+    /// FIX (pre-existing, found 2026-08-08) — some crates.io descriptions
+    /// carry a bare `\r` (e.g. `egui-cameras`, `egui-thematic`); a `\n`-only
+    /// replace let it through. A raw CR reaching UI text is never wanted
+    /// regardless of how that text is later rendered, so it is normalized
+    /// once, here, at the source. Live: real registry data is what actually
+    /// carries this character.
     #[test]
     fn search_results_never_carry_a_raw_carriage_return() {
         let registry = Registry::new(DEFAULT_REGISTRY);
@@ -1253,6 +1578,7 @@ mod tests {
                 version: version.into(),
                 features: vec![],
                 url: format!("https://crates.io/crates/{name}"),
+                alias: None,
             });
             std::fs::create_dir_all(vendor_dir(&dir, name, version)).unwrap();
         }
@@ -1320,6 +1646,7 @@ mod tests {
             version: "1.4.0".into(),
             features: vec![],
             url: String::new(),
+            alias: None,
         };
         std::fs::create_dir_all(project.join("crates/csv-1.4.0")).unwrap();
         assert!(foreign_crates_dir(&project, &[pin.clone()]).is_none());

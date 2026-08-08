@@ -29,7 +29,12 @@ pub const VENDOR_SUBDIR: &str = "crates";
 /// `version` is the exact pin every build uses until an explicit update
 /// (spec R10). `url` is the crate's page on the registry it came from,
 /// recorded at add time so a later registry switch cannot rewrite history
-/// (spec R5) — it is what `rust_manifest.md` prints (spec R24).
+/// (spec R5) — it is what `rust_manifest.md` prints (spec R24). `alias`
+/// (spec 045 R1/R3) is set only when this pin was added to escape a
+/// direct, version-incompatible collision with a platform-linked crate — the
+/// generated `[dependencies]` entry becomes a `package =` rename instead of
+/// the normal exact-version pin, and a block writes `use <alias>::…` instead
+/// of the crate's own name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternalCrate {
     pub name: String,
@@ -40,13 +45,17 @@ pub struct ExternalCrate {
     pub features: Vec<String>,
     #[serde(default)]
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
 }
 
 impl ExternalCrate {
-    /// The name a block writes in `use` lines (spec R20): registry `-`
-    /// becomes `_`, exactly cargo's lib-name convention.
+    /// The name a block writes in `use` lines (spec R20; spec 045 R3): an
+    /// aliased pin uses its alias's lib name, never the underlying crate's —
+    /// one `use` name must denote exactly one crate. Registry `-` becomes
+    /// `_`, exactly cargo's lib-name convention.
     pub fn lib_name(&self) -> String {
-        lib_name(&self.name)
+        lib_name(self.alias.as_deref().unwrap_or(&self.name))
     }
 }
 
@@ -89,6 +98,21 @@ pub(crate) fn toml_path(path: &Path) -> String {
 /// copy side by side. A pin without a vendored dir gets no patch entry (the
 /// resolver probe runs before the candidate is downloaded); builds reject
 /// that state via [`validate_pins`].
+///
+/// An **aliased** pin (spec 045 R1/R3 — the escape hatch for a name that
+/// collides with a platform-linked crate at an incompatible version) takes a
+/// deliberately different shape: a bare `package =` + `path =` dependency
+/// under its alias name, with **no** `[patch.crates-io]` entry. A patch entry
+/// keys on the crates.io source name and would apply to *every* consumer of
+/// that name — including the platform's own, compatible-version dependency —
+/// which would silently unify the two exactly where the alias exists to keep
+/// them apart. An unpatched path dependency under a different local name is
+/// how cargo resolves two genuinely semver-incompatible versions of the same
+/// underlying crate as two separate packages (the handoff's experiment for
+/// spec 045 proved this is only available when the versions are actually
+/// incompatible — a compatible alias trips the ordinary unify-and-reject
+/// cargo already does, which is why R1 only ever offers the alias for the
+/// incompatible case).
 pub(crate) fn pin_sections(project_dir: &Path, pins: &[ExternalCrate]) -> (String, String) {
     let mut deps = String::new();
     let mut patches = String::new();
@@ -105,11 +129,22 @@ pub(crate) fn pin_sections(project_dir: &Path, pins: &[ExternalCrate]) -> (Strin
                     .join(", ")
             )
         };
+        let vendored = vendor_dir(project_dir, &c.name, &c.version);
+        if let Some(alias) = &c.alias {
+            // Deliberately no `version =` — the vendored path pins it, and a
+            // registry requirement here would be misleading (this copy never
+            // resolves from crates.io). No patch entry either (see above).
+            deps.push_str(&format!(
+                "{alias} = {{ package = \"{}\", path = \"{}\"{features} }}\n",
+                c.name,
+                toml_path(&vendored)
+            ));
+            continue;
+        }
         deps.push_str(&format!(
             "{} = {{ version = \"={}\"{features} }}\n",
             c.name, c.version
         ));
-        let vendored = vendor_dir(project_dir, &c.name, &c.version);
         if vendored.is_dir() {
             patches.push_str(&format!(
                 "{} = {{ path = \"{}\" }}\n",
@@ -217,7 +252,13 @@ fn render_rust_manifest(project_name: &str, pins: &[ExternalCrate]) -> String {
     let mut sorted: Vec<&ExternalCrate> = pins.iter().collect();
     sorted.sort_by(|a, b| a.name.cmp(&b.name));
     for c in sorted {
-        s.push_str(&format!("| {} | {} | {} |\n", c.name, c.version, c.url));
+        // Spec 045 R4 — an aliased pin's Crate cell notes the rename a block
+        // actually `use`s; a non-aliased row is unchanged.
+        let crate_cell = match &c.alias {
+            Some(alias) => format!("{} (as `{alias}`)", c.name),
+            None => c.name.clone(),
+        };
+        s.push_str(&format!("| {} | {} | {} |\n", crate_cell, c.version, c.url));
     }
     s
 }
@@ -364,15 +405,30 @@ mod tests {
             version     = "1.0.229"
             features    = ["derive"]
             url         = "https://crates.io/crates/serde"
+
+            [[crates]]
+            name    = "egui"
+            version = "0.29.0"
+            alias   = "prj_egui"
         "#;
         let parsed: Wrapper = toml::from_str(text).unwrap();
-        assert_eq!(parsed.crates.len(), 2);
+        assert_eq!(parsed.crates.len(), 3);
         assert_eq!(parsed.crates[0].requirement, "");
         assert_eq!(parsed.crates[0].features, Vec::<String>::new());
+        assert_eq!(parsed.crates[0].alias, None);
         assert_eq!(parsed.crates[1].features, vec!["derive".to_string()]);
+        assert_eq!(parsed.crates[2].alias, Some("prj_egui".to_string()));
         let back = toml::to_string(&parsed).unwrap();
         let reparsed: Wrapper = toml::from_str(&back).unwrap();
         assert_eq!(reparsed.crates, parsed.crates);
+        // A pin with no alias never gains an `alias =` line — old projects'
+        // files stay byte-identical to what they were before this field
+        // existed. Only the one aliased pin above should emit it.
+        assert_eq!(
+            back.matches("alias").count(),
+            1,
+            "only the aliased pin may emit `alias =`; got:\n{back}"
+        );
         // And a manifest with no [[crates]] at all parses to empty.
         let empty: Wrapper = toml::from_str("").unwrap();
         assert!(empty.crates.is_empty());
@@ -390,10 +446,27 @@ mod tests {
                 version: "1.0.0".into(),
                 features: vec![],
                 url: String::new(),
+                alias: None,
             }
             .lib_name(),
             "serde_json"
         );
+    }
+
+    /// Spec 045 R3 — an aliased pin's `lib_name` is the alias, never the
+    /// underlying crate's own name: a block must `use prj_egui::…`, not
+    /// `use egui::…`, since that name already denotes the platform's copy.
+    #[test]
+    fn lib_name_honors_alias() {
+        let aliased = ExternalCrate {
+            name: "egui".into(),
+            requirement: String::new(),
+            version: "0.29.0".into(),
+            features: vec![],
+            url: String::new(),
+            alias: Some("prj_egui".into()),
+        };
+        assert_eq!(aliased.lib_name(), "prj_egui");
     }
 
     /// Spec R12 / AC6 — a compatible duplicate of a directly-linked crate is
@@ -445,7 +518,13 @@ mod tests {
             version: version.into(),
             features: features.iter().map(|f| f.to_string()).collect(),
             url: format!("https://crates.io/crates/{name}"),
+            alias: None,
         }
+    }
+
+    /// Spec 045 — an aliased pin, as `confirm_alias` would build it.
+    fn aliased_pin(name: &str, version: &str, alias: &str) -> ExternalCrate {
+        ExternalCrate { alias: Some(alias.into()), ..pin(name, version, &[]) }
     }
 
     fn temp_project(tag: &str) -> PathBuf {
@@ -477,6 +556,32 @@ mod tests {
             Path::new(quoted).is_absolute(),
             "patch paths must be absolute, got {quoted}"
         );
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    /// Spec 045 R1 — an aliased pin becomes a `package =` + `path =`
+    /// dependency under its alias name, never a `version =` pin, and never
+    /// gains a `[patch.crates-io]` entry (that would unify it with the
+    /// platform's own, compatible-version copy — exactly what the alias
+    /// exists to avoid). A co-present ordinary pin in the same call is
+    /// unaffected.
+    #[test]
+    fn alias_pin_emits_package_path_not_version_or_patch() {
+        let project = temp_project("alias-pins");
+        std::fs::create_dir_all(vendor_dir(&project, "egui", "0.29.0")).unwrap();
+        std::fs::create_dir_all(vendor_dir(&project, "csv", "1.4.0")).unwrap();
+        let pins = [aliased_pin("egui", "0.29.0", "prj_egui"), pin("csv", "1.4.0", &[])];
+
+        let (deps, patches) = pin_sections(&project, &pins);
+        assert!(
+            deps.contains("prj_egui = { package = \"egui\", path = \""),
+            "got: {deps}"
+        );
+        assert!(!deps.contains("prj_egui = { version"), "got: {deps}");
+        assert!(!patches.contains("egui"), "an aliased pin must not be patched: {patches}");
+        // The ordinary co-present pin keeps its normal shape.
+        assert!(deps.contains("csv = { version = \"=1.4.0\" }"));
+        assert!(patches.contains("csv = { path = \""));
         let _ = std::fs::remove_dir_all(&project);
     }
 
@@ -554,6 +659,22 @@ mod tests {
         assert!(text.contains("| serde | 1.0.229 | https://crates.io/crates/serde |"));
         // Sorted: csv's row precedes serde's.
         assert!(text.find("| csv |").unwrap() < text.find("| serde |").unwrap());
+    }
+
+    /// Spec 045 R4 / open question 2 — an aliased pin's row notes the alias;
+    /// a non-aliased row in the same manifest is byte-identical to today
+    /// (the common case did not shift).
+    #[test]
+    fn rust_manifest_notes_the_alias() {
+        let text = render_rust_manifest(
+            "Demo",
+            &[aliased_pin("egui", "0.29.0", "prj_egui"), pin("csv", "1.4.0", &[])],
+        );
+        assert!(
+            text.contains("| egui (as `prj_egui`) | 0.29.0 | https://crates.io/crates/egui |"),
+            "got: {text}"
+        );
+        assert!(text.contains("| csv | 1.4.0 | https://crates.io/crates/csv |"));
     }
 
     /// Spec R25 — zero pins removes a stale manifest instead of leaving the

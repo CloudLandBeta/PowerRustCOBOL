@@ -252,26 +252,11 @@ pub fn flag_widget(ui: &mut egui::Ui, lang: Language) -> egui::Response {
 }
 
 // ── Contrast ──────────────────────────────────────────────────────────────────
-
-/// WCAG 2.1 relative luminance.
-fn relative_luminance(c: Color32) -> f64 {
-    let channel = |v: u8| {
-        let v = v as f64 / 255.0;
-        if v <= 0.03928 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
-}
-
-/// WCAG 2.1 contrast ratio, 1.0 (identical) … 21.0 (black on white).
-fn contrast_ratio(a: Color32, b: Color32) -> f64 {
-    let (la, lb) = (relative_luminance(a), relative_luminance(b));
-    let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
-    (hi + 0.05) / (lo + 0.05)
-}
+//
+// The WCAG math itself lives in `crate::contrast` — shared with the Project's
+// Crates System-crate markers (spec 045 R10), which need the exact same
+// legibility floor against a themed background.
+use crate::contrast::contrast_ratio;
 
 #[cfg(test)]
 mod tests {

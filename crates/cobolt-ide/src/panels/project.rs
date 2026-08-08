@@ -92,6 +92,12 @@ pub enum ProjectPanelEvent {
     ConfirmDeleteKnowledgeFolder(PathBuf),
     /// User requested deleting a form file from the project tree.
     ConfirmRemoveForm(PathBuf),
+    /// Spec 046 R1/R2 — copy a form (controls, properties, event handler
+    /// bodies, animations, data bindings) to the OS clipboard.
+    CopyForm(PathBuf),
+    /// Spec 046 R3 — paste a form from the OS clipboard into `dir_rel`
+    /// (project-relative).
+    PasteForm { dir_rel: PathBuf },
     /// User requested deleting generated COBOL from the project tree.
     ConfirmRemoveGenerated(PathBuf),
     /// User requested deleting an asset from the project tree.
@@ -1054,6 +1060,19 @@ impl ProjectPanel {
         {
             self.hovered_dir = Some(cat.root_subdir().to_string());
         }
+        // Spec 046 R3 — Paste Form lives on the Forms category itself, not
+        // a per-file `[+]` (there's no source file to import from — the
+        // form comes from the OS clipboard).
+        if cat == Category::Forms {
+            header_inner.inner.context_menu(|ui| {
+                if ui.button(tr.tree_paste_form).clicked() {
+                    events.push(ProjectPanelEvent::PasteForm {
+                        dir_rel: PathBuf::from(cat.root_subdir()),
+                    });
+                    ui.close();
+                }
+            });
+        }
         ui.add_space(2.0);
     }
 
@@ -1599,6 +1618,16 @@ impl ProjectPanel {
                 events.push(ProjectPanelEvent::Select(form_key));
                 events.push(ProjectPanelEvent::InspectForm(p.clone()));
             }
+            // Spec 046 R1 — Copy Form: the whole form (controls, properties,
+            // every bound event's full COBOL body, animations, data
+            // bindings) to the OS clipboard.
+            let p = p.clone();
+            resp.context_menu(|ui| {
+                if ui.button(tr.tree_copy_form).clicked() {
+                    events.push(ProjectPanelEvent::CopyForm(p.clone()));
+                    ui.close();
+                }
+            });
         }
         ui.add_space(1.0);
     }
@@ -2741,6 +2770,7 @@ mod external_crates_category_rows {
             version: "1.4.0".into(),
             features: vec![],
             url: "https://crates.io/crates/csv".into(),
+            alias: None,
         });
         proj
     }

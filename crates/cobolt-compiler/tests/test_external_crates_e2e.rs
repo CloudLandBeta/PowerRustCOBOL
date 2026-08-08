@@ -268,3 +268,96 @@ fn external_crates_build_run_manifest_and_determinism() {
 
     let _ = std::fs::remove_dir_all(&project);
 }
+
+const ALIAS_EGUI_VERSION: &str = "0.29.0";
+
+/// Spec 045 R1/AC1 — an `egui` version that collides with the platform's own
+/// linked `0.36` at an INCOMPATIBLE version is registered as an alias
+/// (`prj_egui`) instead of refused; the generated build links both copies
+/// side by side (`package = "egui"` path dependency, no `[patch.crates-io]`
+/// entry — see `external_crates::pin_sections`), and a block's `use
+/// prj_egui::…` compiles and runs.
+const COBOLT_TOML_WITH_ALIAS: &str = r#"[project]
+name = "aliasdemo"
+version = "1.0.0"
+main = "src/main.cbl"
+
+[[crates]]
+name = "egui"
+requirement = "=0.29.0"
+version = "0.29.0"
+alias = "prj_egui"
+url = "https://crates.io/crates/egui"
+"#;
+
+const ALIAS_MAIN_CBL: &str = r#"       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ALIASDEMO.
+       PROCEDURE DIVISION.
+           EXEC RUST
+           let c = prj_egui::Color32::WHITE;
+           println!("ALIAS-OK={}", c.r());
+           END-EXEC.
+           STOP RUN.
+"#;
+
+#[test]
+fn external_crates_alias_build_and_run() {
+    let t_all = Instant::now();
+    let project = std::env::temp_dir().join(format!("prc045-alias-e2e-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&project);
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    std::fs::write(project.join("cobolt.toml"), COBOLT_TOML_WITH_ALIAS).unwrap();
+    std::fs::write(project.join("src/main.cbl"), ALIAS_MAIN_CBL).unwrap();
+
+    let t = Instant::now();
+    vendor(&project, "egui", ALIAS_EGUI_VERSION);
+    let vendor_ms = t.elapsed().as_millis();
+
+    let opts = BuildOptions {
+        verbose: false,
+        workspace_root: Some(workspace_root()),
+        ..Default::default()
+    };
+
+    let t = Instant::now();
+    let built = build_project(&project.join("cobolt.toml"), &opts)
+        .unwrap_or_else(|e| panic!("aliased build failed: {e}"));
+    let build_s = t.elapsed().as_secs_f32();
+
+    let out = run_binary(&built.binary_path, false);
+    assert!(out.contains("ALIAS-OK=255"), "aliased egui block wrong:\n{out}");
+
+    // The manifest notes the alias (spec 045 R4).
+    let manifest_path = project.join("dist").join(external_crates::RUST_MANIFEST_FILE);
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .unwrap_or_else(|e| panic!("missing {}: {e}", manifest_path.display()));
+    assert!(
+        manifest.contains("| egui (as `prj_egui`) | 0.29.0 | https://crates.io/crates/egui |"),
+        "manifest did not note the alias:\n{manifest}"
+    );
+
+    // The staged manifest carries a `package =` path dependency and no patch
+    // for it (spec 045 R1) — the platform's own egui 0.36 stays unpatched.
+    let build_dir = std::env::temp_dir().join("cobolt-build-aliasdemo");
+    let cargo_toml = std::fs::read_to_string(build_dir.join("Cargo.toml"))
+        .expect("staged build dir must carry the generated Cargo.toml");
+    assert!(
+        cargo_toml.contains("prj_egui = { package = \"egui\""),
+        "got:\n{cargo_toml}"
+    );
+    assert!(
+        !cargo_toml.contains("[patch.crates-io]") || !cargo_toml.contains("egui = { path"),
+        "the aliased egui must not be patched:\n{cargo_toml}"
+    );
+
+    println!("────────────────────────────────────────────────");
+    println!("spec 045 e2e — collision-alias build");
+    println!("cases: egui 0.29.0 registered as prj_egui (collides");
+    println!("       with the linked 0.36); block uses prj_egui::…");
+    println!("vendor egui:   {vendor_ms} ms");
+    println!("build (alias): {build_s:.1} s");
+    println!("total:         {:.1} s", t_all.elapsed().as_secs_f32());
+    println!("────────────────────────────────────────────────");
+
+    let _ = std::fs::remove_dir_all(&project);
+}

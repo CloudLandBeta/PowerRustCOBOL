@@ -1085,7 +1085,11 @@ fn parse_prop_value(s: &str) -> PropValue {
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
-pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
+/// Spec 046 R2/R11 — the file-free half of the round trip
+/// `load_form_from_str` already had: the exact `.cfrm` XML text `save_form`
+/// would write, without touching disk. This is what Copy Form puts on the
+/// OS clipboard.
+pub fn form_to_string(form: &Form) -> Result<String, FormError> {
     let mut output = Vec::new();
     {
         let mut w = Writer::new_with_indent(&mut output, b' ', 2);
@@ -1259,7 +1263,11 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
 
         w.write_event(Event::End(BytesEnd::new("Form")))?;
     }
-    fs::write(path, &output)?;
+    String::from_utf8(output).map_err(|e| FormError::Xml(e.to_string()))
+}
+
+pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
+    fs::write(path, form_to_string(form)?.as_bytes())?;
     Ok(())
 }
 
@@ -1697,6 +1705,51 @@ Actor Caption:string</Property>
         assert_eq!(btn.events[0].paragraph, "BTN-OK--CLICK");
         assert!(btn.events[0].code.contains("WS-COUNTER"));
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Spec 046 R2/R11 — `form_to_string` is the file-free half of the same
+    /// round trip `roundtrip_in_memory` proves through disk: everything a
+    /// pasted form needs (control properties, the bound event's full COBOL
+    /// body, form-level WS) survives a string round trip with no filesystem
+    /// involved.
+    #[test]
+    fn form_to_string_and_load_form_from_str_round_trip() {
+        let form = sample_form();
+        let xml = form_to_string(&form).expect("form_to_string failed");
+        let loaded = load_form_from_str(&xml).expect("load_form_from_str failed");
+
+        assert_eq!(loaded.name, form.name);
+        assert_eq!(loaded.title, form.title);
+        assert_eq!(loaded.width, form.width);
+        assert_eq!(loaded.height, form.height);
+        assert_eq!(loaded.background_color, form.background_color);
+        assert!(loaded.user_ws_source.contains("WS-COUNTER"));
+
+        let on_load = loaded.form_events.iter().find(|e| e.event == "onLoad");
+        assert!(on_load.is_some());
+        assert!(on_load.unwrap().code.contains("WS-COUNTER"));
+
+        assert_eq!(loaded.controls.len(), 1);
+        let btn = &loaded.controls[0];
+        assert_eq!(btn.id, "BTN-OK");
+        assert_eq!(btn.control_type, ControlType::Button);
+        assert_eq!(btn.events.len(), 1);
+        assert_eq!(btn.events[0].event, "onClick");
+        assert_eq!(btn.events[0].paragraph, "BTN-OK--CLICK");
+        assert!(btn.events[0].code.contains("WS-COUNTER"));
+    }
+
+    /// Spec 046 T1 — the `save_form`/`form_to_string` refactor must not
+    /// change a single byte of what actually lands on disk.
+    #[test]
+    fn save_form_and_form_to_string_agree() {
+        let form = sample_form();
+        let path = std::env::temp_dir().join("cobolt_test_form_to_string_agree.cfrm");
+        save_form(&form, &path).expect("save_form failed");
+        let from_disk = std::fs::read_to_string(&path).expect("read back");
+        let from_string = form_to_string(&form).expect("form_to_string failed");
+        assert_eq!(from_disk, from_string);
         let _ = std::fs::remove_file(&path);
     }
 

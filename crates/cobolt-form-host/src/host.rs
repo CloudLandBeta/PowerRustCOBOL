@@ -134,6 +134,10 @@ pub struct FormHostConfig {
     /// Resolved asset-pack theme (None = built-in Liquid Glass). The SOURCE is
     /// per-host (disk discovery vs embedded art) — the resolution rule is not.
     pub theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>>,
+    /// The procedural look the controls are painted in (spec 047). Resolved
+    /// from the same theme id as `theme_pack`; `LiquidGlass` is the historical
+    /// default, so a glue that does not set it renders exactly as before.
+    pub surface_style: cobolt_forms::paint::SurfaceStyle,
     /// Project icon path, if the glue has one (`--icon` / bundled asset).
     pub icon_path: Option<PathBuf>,
     /// Window title when the designed `form.title` is blank (spec 042 R17):
@@ -266,6 +270,7 @@ impl FormHost {
             fx_exit,
             fx_restore,
             theme_pack,
+            surface_style,
             icon_path: _,
             title_fallback: _,
             hooks,
@@ -288,6 +293,7 @@ impl FormHost {
         let host = FormHost {
             form_name: form.name.clone(),
             theme_pack,
+            surface_style,
             glass_style,
             visuals_set: false,
             controls: flat,
@@ -364,6 +370,7 @@ pub struct FormHost {
     /// glass style — pushed into the egui context so the unified painter reads
     /// the same theme state as under the IDE (spec 017 parity).
     theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>>,
+    surface_style: cobolt_forms::paint::SurfaceStyle,
     glass_style: cobolt_forms::model::GlassStyle,
     visuals_set: bool,
     controls: Vec<cobolt_forms::Control>,
@@ -871,6 +878,28 @@ impl FormHost {
         // contract every host follows).
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
+        cobolt_forms::paint::set_surface_style(ctx, self.surface_style);
+
+        // 047 R6 — Knob/Gauge/Switch/FileDropZone are real widgets from the
+        // palette crate; they read their theme from the context and otherwise
+        // fall back to an *un-installed* default. Installing it makes the
+        // palette explicit rather than accidental, and registers the bundled
+        // symbol font so their glyphs render instead of tofu.
+        //
+        // Deliberately host-only. `install` calls `global_style_mut`, and the
+        // IDE drives every form window through `show_viewport_immediate` — one
+        // shared Context for the whole application — so doing this there would
+        // restyle the IDE's own panels, toolbars and editor around the canvas.
+        // This process hosts nothing but the form, so the Context is ours to
+        // style. The IDE keeps the crate's documented slate fallback, which is
+        // the same palette Elegance uses, so those four widgets match there
+        // too (spec 047 plan R-5).
+        //
+        // Cheap per frame by design: it early-returns when the theme is
+        // unchanged.
+        if self.surface_style == cobolt_forms::paint::SurfaceStyle::Elegance {
+            cobolt_forms::paint::install_elegance_theme(ctx);
+        }
 
         // The per-host seam (R30): e.g. the compiled application replays its
         // EXEC RUST block windows here, every frame — that is what
@@ -1389,6 +1418,7 @@ mod parity {
             fx_exit: FxSpec::parse(exit),
             fx_restore: restore,
             theme_pack: None,
+            surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
             icon_path: None,
             title_fallback: String::new(),
             hooks: Box::new(NoHooks),

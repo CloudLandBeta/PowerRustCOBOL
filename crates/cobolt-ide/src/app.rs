@@ -26,9 +26,9 @@ use cobolt_ast::data::DataDecl;
 use cobolt_ast::expr::{FigurativeConstant, Literal};
 use cobolt_ast::program::DataSection;
 use cobolt_forms::{
-    load_form, save_form, BindingDataType, BindingField, BindingSourceDescriptor,
-    BindingTargetDescriptor, BindingTargetPath, ControlType, DataBindingDef, DataGridAdvanced,
-    DataGridColumn, Form, PropValue, DATAGRID_ADVANCED_PROP,
+    form_to_string, load_form, load_form_from_str, save_form, BindingDataType, BindingField,
+    BindingSourceDescriptor, BindingTargetDescriptor, BindingTargetPath, ControlType,
+    DataBindingDef, DataGridAdvanced, DataGridColumn, Form, PropValue, DATAGRID_ADVANCED_PROP,
 };
 // The run/preview per-control draw loops are gone — the unified render engine
 // owns control rendering (spec 017) — so only the form-level background-image
@@ -153,6 +153,19 @@ impl DesignerActivationRequests {
     }
 }
 
+/// Spec 046 R7/R8 — a Paste Form whose form name collides with one already
+/// in the project, awaiting the developer's rename-or-replace choice.
+struct PendingPasteConflict {
+    form: Form,
+    dest_dir: PathBuf,
+    new_name: String,
+    /// R8 — Replace needs its own confirmation, separate from the initial
+    /// rename/replace choice: true once the developer has clicked Replace
+    /// once, showing a second, plain confirmation before anything is
+    /// deleted.
+    confirming_replace: bool,
+}
+
 /// Pending "New folder" dialog state (spec 033).
 struct PendingFolderCreate {
     parent_rel: PathBuf,
@@ -218,6 +231,14 @@ pub struct CoboltApp {
     designer_activation_requests: DesignerActivationRequests,
     #[allow(dead_code)]
     pub(crate) clipboard: Option<DesignerClipboard>,
+    /// Spec 046 R3/R4 — the project-relative destination directory for a
+    /// Paste Form request awaiting the OS clipboard's `Event::Paste`, which
+    /// `RequestPaste` triggers but doesn't deliver until a later frame.
+    /// `None` = no paste request in flight.
+    pending_form_paste: Option<PathBuf>,
+    /// Spec 046 R7/R8 — a parsed paste awaiting the rename-or-replace
+    /// choice for a form-name collision.
+    pending_paste_conflict: Option<PendingPasteConflict>,
 
     // Grid browser viewports keyed by `.cidx` path
     indexed_grids: Vec<(PathBuf, IndexedGridState)>,
@@ -938,6 +959,25 @@ fn same_file_path(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// Spec 046 R5 — the `.cfrm` file name a pasted form registers under,
+/// matching `create_new_form`'s own convention (`form_name.to_lowercase()`)
+/// so a pasted and a hand-created form are indistinguishable on disk.
+fn pasted_form_file_name(form_name: &str) -> String {
+    format!("{}.cfrm", form_name.to_lowercase())
+}
+
+/// Spec 046 R3/R4 — the text of the first `Event::Paste` in this frame's
+/// raw input, if any. Pure and free of `egui::Context` so it's directly
+/// testable: `RequestPaste`'s delivered event (or an ordinary Cmd/Ctrl+V)
+/// sits alongside every other event a frame carries, and this is the exact
+/// scan `poll_form_paste` runs over `ctx.input(|i| &i.events)`.
+fn extract_pasted_text(events: &[egui::Event]) -> Option<String> {
+    events.iter().find_map(|e| match e {
+        egui::Event::Paste(text) => Some(text.clone()),
+        _ => None,
+    })
+}
+
 /// A one-line, human-readable label + accent colour for one agent operation
 /// (spec 025 T10 preview).
 fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, Color32) {
@@ -1047,6 +1087,8 @@ impl CoboltApp {
             designers: Vec::new(),
             designer_activation_requests: DesignerActivationRequests::default(),
             clipboard: None,
+            pending_form_paste: None,
+            pending_paste_conflict: None,
             indexed_grids: Vec::new(),
             inspect: None,
             indexed_inspect: None,
@@ -1227,10 +1269,14 @@ impl CoboltApp {
     /// asset packs in catalog order) into egui temp storage for this frame.
     fn publish_theme_choices(&mut self, ctx: &Context) {
         self.ensure_theme_packs();
-        let mut choices = vec![(
-            cobolt_forms::theme::LIQUID_GLASS.to_owned(),
-            "Liquid Glass".to_owned(),
-        )];
+        // The built-in procedural themes come from the catalog itself (Liquid
+        // Glass, then Elegance — spec 047 R1/AC1), so a new built-in surfaces in
+        // both pickers with no change here.
+        let mut choices: Vec<(String, String)> = cobolt_forms::theme::ThemeCatalog::builtin()
+            .themes()
+            .iter()
+            .map(|t| (t.id.clone(), t.display_name.clone()))
+            .collect();
         let mut packs: Vec<_> = self.theme_packs.values().collect();
         packs.sort_by(|a, b| a.id.cmp(&b.id));
         for p in packs {
@@ -1252,6 +1298,21 @@ impl CoboltApp {
             .and_then(|p| p.form_theme_default());
         let id = cobolt_forms::theme::resolve_theme_id(form_theme, proj_default);
         self.theme_packs.get(&id).cloned()
+    }
+
+    /// Resolve a form's effective theme to the procedural style its controls are
+    /// painted in (spec 047). Pairs with [`Self::resolve_theme_pack`]: that one
+    /// answers "which asset pack", this one "which procedural look underneath".
+    fn resolve_surface_style(
+        &self,
+        form_theme: Option<&str>,
+    ) -> cobolt_forms::paint::SurfaceStyle {
+        let proj_default = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| p.form_theme_default());
+        let id = cobolt_forms::theme::resolve_theme_id(form_theme, proj_default);
+        cobolt_forms::paint::SurfaceStyle::from_theme_id(&id)
     }
 
     // ── Code workspace actions ────────────────────────────────────────────────
@@ -9419,6 +9480,211 @@ impl CoboltApp {
         }
     }
 
+    /// Spec 046 R1/R2/R11 — Copy Form: serialize the complete form (every
+    /// control's properties, every bound event's full COBOL body,
+    /// animations, data bindings) to the `.cfrm` XML text and put it on the
+    /// OS clipboard. If `cfrm_path` is open in a Designer, its **live**
+    /// (possibly unsaved) state is copied — "copy" means "copy what I'm
+    /// looking at," not a stale on-disk snapshot.
+    fn copy_form(&mut self, ctx: &egui::Context, cfrm_path: &Path) {
+        let form = match self.designers.iter().find(|(p, _)| same_file_path(p, cfrm_path)) {
+            Some((_, dp)) => dp.form.clone(),
+            None => match load_form(cfrm_path) {
+                Ok(form) => form,
+                Err(e) => {
+                    self.output
+                        .push_status(format!("Could not copy form {}: {e}", cfrm_path.display()));
+                    return;
+                }
+            },
+        };
+        match form_to_string(&form) {
+            Ok(xml) => {
+                ctx.copy_text(xml);
+                self.output.push_status(format!("Copied form \"{}\" to the clipboard", form.name));
+            }
+            Err(e) => {
+                self.output.push_status(format!("Could not copy form \"{}\": {e}", form.name));
+            }
+        }
+    }
+
+    /// Spec 046 R3 — the developer clicked Paste Form. There is no
+    /// synchronous "read the clipboard now": `RequestPaste` asks the
+    /// platform layer for it, and the text arrives as `Event::Paste` on a
+    /// later frame (`poll_form_paste` below), the same path egui itself
+    /// uses for an ordinary Cmd/Ctrl+V.
+    fn paste_form_requested(&mut self, ctx: &egui::Context, dir: &Path) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+        self.pending_form_paste = Some(dir.to_path_buf());
+    }
+
+    /// Spec 046 R3/R4/R9 — consumes the `Event::Paste` a pending Paste Form
+    /// request produced. Gated on `pending_form_paste` being set so an
+    /// unrelated Cmd/Ctrl+V into some other focused field is left alone —
+    /// `ctx.input`'s event list is the same one every widget reads, this
+    /// does not "steal" the event from anything.
+    fn poll_form_paste(&mut self, ctx: &egui::Context, tr: &Tr) {
+        let Some(dir) = self.pending_form_paste.clone() else {
+            return;
+        };
+        let text = ctx.input(|i| extract_pasted_text(&i.events));
+        let Some(text) = text else {
+            return;
+        };
+        self.pending_form_paste = None;
+        match load_form_from_str(&text) {
+            Ok(form) => self.finish_form_paste(ctx, form, &dir),
+            Err(e) => {
+                self.output
+                    .push_status(format!("{}: {e}", tr.paste_form_invalid_clipboard));
+            }
+        }
+    }
+
+    /// Spec 046 R5/R7 — a form successfully parsed off the clipboard.
+    /// `form_cobol_id_conflict` (the same check `create_new_form` already
+    /// uses) decides whether this registers immediately or waits for T5's
+    /// rename/replace modal.
+    fn finish_form_paste(&mut self, _ctx: &egui::Context, form: Form, dest_dir: &Path) {
+        if self.form_cobol_id_conflict(&form.name, None).is_some() {
+            let new_name = format!("{} (2)", form.name);
+            self.pending_paste_conflict = Some(PendingPasteConflict {
+                new_name,
+                form,
+                dest_dir: dest_dir.to_path_buf(),
+                confirming_replace: false,
+            });
+            return;
+        }
+        self.register_pasted_form(form, dest_dir);
+    }
+
+    /// Spec 046 R7/R8 — the rename-or-replace prompt, same shape as
+    /// `show_form_delete_confirm`. Renaming re-checks the live-edited name
+    /// against the same `form_cobol_id_conflict` the initial detection used,
+    /// so both agree on what counts as a conflict; Replace requires its own
+    /// second click (`confirming_replace`) before `delete_form_path` — the
+    /// exact helper the tree's own form-delete confirmation already uses —
+    /// runs.
+    fn show_paste_form_conflict(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(conflict) = &self.pending_paste_conflict else {
+            return;
+        };
+        let original_name = conflict.form.name.clone();
+        let mut new_name = conflict.new_name.clone();
+        let confirming_replace = conflict.confirming_replace;
+
+        let mut cancel = false;
+        let mut do_rename = false;
+        let mut do_replace_confirm = false;
+        let mut do_replace_now = false;
+
+        egui::Window::new(tr.paste_form_name_conflict_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                if confirming_replace {
+                    ui.label(format!("{}: \"{original_name}\"?", tr.paste_form_replace));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.btn_cancel).clicked() {
+                            cancel = true;
+                        }
+                        if ui.button(tr.delete_confirm_ok).clicked() {
+                            do_replace_now = true;
+                        }
+                    });
+                } else {
+                    ui.label(tr.paste_form_name_conflict_body);
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{original_name} →"));
+                        ui.text_edit_singleline(&mut new_name);
+                    });
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.btn_cancel).clicked() {
+                            cancel = true;
+                        }
+                        if ui.button(tr.paste_form_replace).clicked() {
+                            do_replace_confirm = true;
+                        }
+                        let trimmed = new_name.trim();
+                        let can_rename = !trimmed.is_empty()
+                            && self.form_cobol_id_conflict(trimmed, None).is_none();
+                        if ui
+                            .add_enabled(can_rename, egui::Button::new(tr.paste_form_rename))
+                            .clicked()
+                        {
+                            do_rename = true;
+                        }
+                    });
+                }
+            });
+
+        if cancel {
+            self.pending_paste_conflict = None;
+        } else if do_replace_confirm {
+            if let Some(c) = &mut self.pending_paste_conflict {
+                c.confirming_replace = true;
+            }
+        } else if do_replace_now {
+            if let Some(c) = self.pending_paste_conflict.take() {
+                if let Some(existing) = self.form_cobol_id_conflict(&c.form.name, None) {
+                    self.delete_form_path(existing);
+                }
+                self.register_pasted_form(c.form, &c.dest_dir);
+            }
+        } else if do_rename {
+            if let Some(mut c) = self.pending_paste_conflict.take() {
+                c.form.name = new_name.trim().to_string();
+                self.register_pasted_form(c.form, &c.dest_dir);
+            }
+        } else if let Some(c) = &mut self.pending_paste_conflict {
+            c.new_name = new_name;
+        }
+    }
+
+    /// Spec 046 R5/R6/R10 — write the parsed form's `.cfrm`, register it in
+    /// the project, regenerate its COBOL immediately, and open it in a
+    /// Designer — the same sequence `save_new_form_to` uses for a
+    /// hand-created form. Control IDs and paragraph names are written
+    /// exactly as parsed (R6 — no remap: each form is its own `PROGRAM-ID`
+    /// and its own runtime process, so nothing here can collide with an
+    /// unrelated form already in the project).
+    fn register_pasted_form(&mut self, form: Form, dest_dir: &Path) {
+        let path = dest_dir.join(pasted_form_file_name(&form.name));
+        if let Err(e) = save_form(&form, &path) {
+            self.output.push_status(format!("Could not paste form: {e}"));
+            return;
+        }
+        if let Some(parent) = path.parent() {
+            self.forms_list.set_root(parent);
+        }
+        let proj_dir = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_owned());
+        if let Some(dir) = proj_dir {
+            if let Some(rel) = relative_to(&path, &dir) {
+                if let Some(proj) = &mut self.cobolt_project {
+                    proj.add_file(&rel);
+                }
+                self.do_save_project();
+            }
+        }
+        self.write_generated_for(&path, &form);
+        self.output
+            .push_status(format!("Pasted form \"{}\"", form.name));
+        let mut dp = DesignerPanel::new(form);
+        dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+        self.designers.push((path, dp));
+        self.apply_main_form_invariant();
+    }
+
     fn create_new_form(&mut self) {
         let w: u32 = self.new_form.width.parse().unwrap_or(640);
         let h: u32 = self.new_form.height.parse().unwrap_or(480);
@@ -10190,6 +10456,7 @@ impl eframe::App for CoboltApp {
         }
         self.poll_llm_benchmark();
         self.poll_capability_probe();
+        self.poll_form_paste(ctx, &tr);
         // Cleanups the designers performed on their own reach the Output panel
         // here — an automatic removal that leaves no trace is how a developer
         // loses work without knowing it.
@@ -10883,6 +11150,16 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::ConfirmRemoveForm(path) => {
                         self.pending_form_delete = Some(path);
                     }
+                    ProjectPanelEvent::CopyForm(path) => {
+                        self.copy_form(ctx, &path);
+                    }
+                    ProjectPanelEvent::PasteForm { dir_rel } => {
+                        if let Some(root) = self.project_dir() {
+                            let dest = root.join(&dir_rel);
+                            let _ = std::fs::create_dir_all(&dest);
+                            self.paste_form_requested(ctx, &dest);
+                        }
+                    }
                     ProjectPanelEvent::ConfirmRemoveGenerated(path) => {
                         self.pending_generated_delete = Some(path);
                     }
@@ -11021,6 +11298,7 @@ impl eframe::App for CoboltApp {
         }
 
         self.show_form_delete_confirm(ctx, &tr);
+        self.show_paste_form_conflict(ctx, &tr);
         self.show_generated_delete_confirm(ctx, &tr);
         self.show_asset_delete_confirm(ctx, &tr);
         self.show_knowledge_folder_dialog(ctx, &tr);
@@ -11440,6 +11718,7 @@ impl CoboltApp {
         let dform = &self.designers[idx].1.form;
         cobolt_forms::paint::set_active_theme(ctx, self.designers[idx].1.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, dform.glass_style);
+        cobolt_forms::paint::set_surface_style(ctx, self.designers[idx].1.active_surface_style);
 
         // ── Animation tick ────────────────────────────────────────────────────
         {
@@ -13580,6 +13859,8 @@ impl CoboltApp {
         let form_theme = self.designers[idx].1.form.theme.clone();
         let pack = self.resolve_theme_pack(form_theme.as_deref());
         self.designers[idx].1.active_theme_pack = pack;
+        self.designers[idx].1.active_surface_style =
+            self.resolve_surface_style(form_theme.as_deref());
         let llm_cfg = self.llm.clone();
         // Project directory (holds the `agentic_ai/` prompt + skills) for the
         // event-editor assistant. Cloned so the closure doesn't borrow `self`.
@@ -14693,6 +14974,53 @@ mod generated_path_tests {
         // An unknown stem falls through (caller uses the default path).
         assert_eq!(tracked_generated_rel(Some(&proj), "unknown.cbl"), None);
         assert_eq!(tracked_generated_rel(None, "order.cbl"), None);
+    }
+}
+
+#[cfg(test)]
+mod form_paste_tests {
+    use super::*;
+
+    /// Spec 046 R5 — a pasted form's destination file name matches
+    /// `create_new_form`'s own convention, so it's registered exactly as a
+    /// hand-created form would be.
+    #[test]
+    fn pasted_form_file_name_matches_the_create_convention() {
+        assert_eq!(pasted_form_file_name("MAIN-FORM"), "main-form.cfrm");
+        assert_eq!(pasted_form_file_name("Login"), "login.cfrm");
+    }
+
+    /// Spec 046 R3/R4 — `extract_pasted_text` finds the `Paste` event among
+    /// whatever else a frame's input carries, and correctly reports absence
+    /// when there isn't one — the exact scan `poll_form_paste` runs, tested
+    /// without needing an `egui::Context`.
+    #[test]
+    fn extract_pasted_text_finds_paste_among_other_events() {
+        let events = vec![
+            egui::Event::PointerMoved(egui::pos2(1.0, 2.0)),
+            egui::Event::Paste("<Form name=\"X\"></Form>".to_string()),
+            egui::Event::Text("ignored".to_string()),
+        ];
+        assert_eq!(
+            extract_pasted_text(&events),
+            Some("<Form name=\"X\"></Form>".to_string())
+        );
+        let none: Vec<egui::Event> = vec![egui::Event::PointerMoved(egui::pos2(0.0, 0.0))];
+        assert_eq!(extract_pasted_text(&none), None);
+    }
+
+    /// Spec 046 R9/AC5 — the same parser `poll_form_paste` calls on
+    /// whatever text a paste delivers refuses both arbitrary non-XML text
+    /// and well-formed XML that isn't a `<Form>` — the two ways a
+    /// developer's clipboard can hold something that isn't a copied form.
+    /// `poll_form_paste` only reaches this call on `Err`, does nothing else
+    /// (an early return, no file/project mutation reachable), so this
+    /// proves R9's "changes nothing" by construction.
+    #[test]
+    fn invalid_clipboard_text_is_refused_and_changes_nothing() {
+        assert!(load_form_from_str("this is not xml at all").is_err());
+        assert!(load_form_from_str("<NotAForm><Something/></NotAForm>").is_err());
+        assert!(load_form_from_str("").is_err());
     }
 }
 

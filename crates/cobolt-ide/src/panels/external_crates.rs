@@ -26,12 +26,89 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use crate::external_crates_service as service;
 use crate::i18n::Tr;
 use service::{
-    ExternalCratesSettings, Note, Registry, SearchHit, UpdateOutcome, RESULTS_PER_PAGE,
+    ExternalCratesSettings, Note, Registry, SearchHit, SystemCategory, UpdateOutcome,
+    RESULTS_PER_PAGE,
 };
 
-/// Link scheme the results table uses to make a row pick its crate. Any other
-/// destination in the rendered markdown is left to the renderer.
-const PICK_SCHEME: &str = "crate:";
+// ── System-crate marker colors (spec 045 R7–R10) ─────────────────────────────
+//
+// Fixed target hue/saturation per category — "dimmed", not neon — with the
+// *lightness* solved per theme so all 16 themes clear the WCAG AA
+// graphical-object contrast floor against their own panel background,
+// exactly the guarantee `flags.rs` already gives its two-tone flags
+// (`every_theme_paints_flags_with_high_contrast`), reusing the same
+// `crate::contrast` math rather than a second copy of it.
+
+/// WCAG AA's floor for graphical objects (text needs the stricter 4.5:1;
+/// a color marker is a charge, not text).
+const MIN_MARKER_CONTRAST: f64 = 3.0;
+
+/// A direct System crate (yellow), a System dependency (gray), or an
+/// addable, non-system crate (green) — `None` is the addable case.
+fn marker_color(theme: &crate::theme::Theme, category: Option<SystemCategory>) -> egui::Color32 {
+    let (hue, sat) = match category {
+        Some(SystemCategory::Direct) => (48.0 / 360.0, 0.55),
+        Some(SystemCategory::Transitive) => (0.0, 0.0),
+        None => (135.0 / 360.0, 0.45),
+    };
+    // Opaque, like `flags.rs::opaque()`: contrast is a property of the
+    // theme's own tone, not of whatever bleeds through a translucent panel.
+    let bg = egui::Color32::from_rgb(theme.bg_panel.r(), theme.bg_panel.g(), theme.bg_panel.b());
+    solve_marker_lightness(hue, sat, bg)
+}
+
+/// Walks `v` away from the background's own luminance until the pair clears
+/// [`MIN_MARKER_CONTRAST`], capped so a pathological theme still returns
+/// *something* (the most extreme value tried) instead of looping forever.
+/// The push direction comes from the background's actual measured
+/// luminance, not a theme's `dark` flag — a flag can be wrong for a
+/// particular panel tone; the measurement cannot.
+fn solve_marker_lightness(hue: f32, sat: f32, bg: egui::Color32) -> egui::Color32 {
+    let push_up = crate::contrast::relative_luminance(bg) < 0.5;
+    let to_color = |v: f32| {
+        let [r, g, b] = egui::ecolor::Hsva::new(hue, sat, v, 1.0).to_srgb();
+        egui::Color32::from_rgb(r, g, b)
+    };
+    let mut v: f32 = if push_up { 0.62 } else { 0.42 };
+    for _ in 0..48 {
+        let c = to_color(v);
+        if crate::contrast::contrast_ratio(c, bg) >= MIN_MARKER_CONTRAST {
+            return c;
+        }
+        v = if push_up { (v + 0.015).min(1.0) } else { (v - 0.015).max(0.0) };
+    }
+    to_color(v)
+}
+
+/// Spec 045 R14 — `1209` → `"1.2K"`, `1239897` → `"1.2M"`, `5000` → `"5K"`:
+/// one decimal, dropped when exactly `.0`. Rounding that pushes a value to
+/// the next unit's threshold (e.g. `999_999` rounding to `1000.0K`) carries
+/// over instead of printing an ugly four-digit prefix.
+fn abbreviate_downloads(n: u64) -> String {
+    let nf = n as f64;
+    let (mut scaled, mut suffix) = if nf < 1_000.0 {
+        return n.to_string();
+    } else if nf < 1_000_000.0 {
+        (nf / 1_000.0, "K")
+    } else if nf < 1_000_000_000.0 {
+        (nf / 1_000_000.0, "M")
+    } else {
+        (nf / 1_000_000_000.0, "B")
+    };
+    scaled = (scaled * 10.0).round() / 10.0;
+    if scaled >= 1000.0 {
+        (scaled, suffix) = match suffix {
+            "K" => (scaled / 1000.0, "M"),
+            "M" => (scaled / 1000.0, "B"),
+            other => (scaled, other),
+        };
+    }
+    if scaled.fract().abs() < 1e-9 {
+        format!("{}{suffix}", scaled as i64)
+    } else {
+        format!("{scaled:.1}{suffix}")
+    }
+}
 
 /// Worker → panel messages; one channel per running action.
 enum Msg {
@@ -42,12 +119,44 @@ enum Msg {
     /// `result: Ok(None)` finishes silently — a search's feedback is the
     /// results table itself, not a line in the log.
     Finished { result: Result<Option<String>, String>, mutated: bool },
+    /// Spec 045 R1 — `add` hit a direct, incompatible collision; the offer
+    /// waits for the developer's accept/decline, so (unlike `Finished`) this
+    /// never sets `project_changed` — nothing is recorded yet.
+    AliasOffered {
+        candidate: cobolt_compiler::ExternalCrate,
+        linked_requirement: String,
+        vendored: PathBuf,
+    },
+}
+
+/// What a `spawn`ed closure hands back. `Done` goes through the usual
+/// `Msg::Finished` path; `AlreadyHandled` means the closure already sent its
+/// own terminal message(s) (spec 045's alias offer) and `spawn` must not
+/// *also* send a `Finished` — that would apply this call's static `mutated`
+/// flag to an outcome that didn't actually mutate anything.
+enum SpawnOutcome {
+    Done(Option<String>),
+    AlreadyHandled,
 }
 
 enum LogLine {
     Info(String),
     Warn(String),
     Error(String),
+}
+
+/// Spec 045 R15/R16 — which column a click sorts the *current page* by, and
+/// which direction; `None` leaves the registry's own order untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortCol {
+    Crate,
+    Downloads,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortDir {
+    Asc,
+    Desc,
 }
 
 pub struct ExternalCratesPanel {
@@ -72,6 +181,34 @@ pub struct ExternalCratesPanel {
     confirm_remove: Option<(String, String)>,
     /// Set when a finished action changed `cobolt.toml`; drained by `show`.
     project_changed: bool,
+    /// Spec 045 R12 — the platform's own System/System-dependency closure;
+    /// `None` until the lazy, one-time background computation lands.
+    system: Option<service::SystemClosure>,
+    system_rx: Option<Receiver<Result<service::SystemClosure, String>>>,
+    /// Set once the background computation fails, so a permanent failure
+    /// (e.g. no workspace found) does not retry every single frame.
+    system_failed: bool,
+    /// Spec 045 R6 — default off: System/System-dependency rows (and the
+    /// System column itself) stay hidden until the developer asks for them.
+    show_system: bool,
+    /// Spec 045 R15–R18 — the active sort, applied to whichever page is
+    /// currently displayed and re-applied when a new page loads.
+    sort: Option<(SortCol, SortDir)>,
+    /// Spec 045 R1/R4 — an `AddOutcome::AliasOffered` awaiting the
+    /// developer's accept/decline.
+    alias_offer: Option<AliasOffer>,
+}
+
+/// Spec 045 R1 — everything the offer modal needs: what to show, and what to
+/// hand back to `confirm_alias`/`discard_alias_offer` on the developer's
+/// choice.
+struct AliasOffer {
+    candidate: cobolt_compiler::ExternalCrate,
+    linked_requirement: String,
+    vendored: PathBuf,
+    /// The alias name the modal offers — computed once when the offer
+    /// arrives (`prj_<lib_name>`), shown verbatim and sent back unchanged.
+    alias: String,
 }
 
 impl Default for ExternalCratesPanel {
@@ -97,6 +234,43 @@ impl ExternalCratesPanel {
             rx: None,
             confirm_remove: None,
             project_changed: false,
+            system: None,
+            system_rx: None,
+            system_failed: false,
+            show_system: false,
+            sort: None,
+            alias_offer: None,
+        }
+    }
+
+    /// Spec 045 R12 — kicks off the one-time background computation on the
+    /// first call, then just polls until it lands (or gives up for good).
+    /// Never blocks the UI thread and never touches `busy` — this runs
+    /// alongside search, not instead of it.
+    fn poll_system_closure(&mut self) {
+        if let Some(rx) = &self.system_rx {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(closure) => self.system = Some(closure),
+                    Err(e) => {
+                        self.log.push(LogLine::Warn(format!(
+                            "could not compute the System closure — the System \
+                             column stays unavailable: {e}"
+                        )));
+                        self.system_failed = true;
+                    }
+                }
+                self.system_rx = None;
+            }
+        } else if self.system.is_none() && !self.system_failed {
+            let (tx, rx) = channel();
+            self.system_rx = Some(rx);
+            std::thread::spawn(move || {
+                let result = cobolt_compiler::resolve_workspace_root(None)
+                    .ok_or_else(|| "cannot locate the PowerRustCOBOL workspace".to_string())
+                    .and_then(|root| service::system_closure(&root));
+                let _ = tx.send(result);
+            });
         }
     }
 
@@ -115,7 +289,7 @@ impl ExternalCratesPanel {
         &mut self,
         label: String,
         mutated: bool,
-        work: impl FnOnce(Registry, Sender<Msg>) -> Result<Option<String>, String> + Send + 'static,
+        work: impl FnOnce(Registry, Sender<Msg>) -> Result<SpawnOutcome, String> + Send + 'static,
     ) {
         let (tx, rx) = channel();
         self.rx = Some(rx);
@@ -123,8 +297,15 @@ impl ExternalCratesPanel {
         let base = self.settings.registry.clone();
         std::thread::spawn(move || {
             let registry = Registry::new(&base);
-            let result = work(registry, tx.clone());
-            let _ = tx.send(Msg::Finished { result, mutated });
+            match work(registry, tx.clone()) {
+                Ok(SpawnOutcome::AlreadyHandled) => {}
+                Ok(SpawnOutcome::Done(text)) => {
+                    let _ = tx.send(Msg::Finished { result: Ok(text), mutated });
+                }
+                Err(e) => {
+                    let _ = tx.send(Msg::Finished { result: Err(e), mutated });
+                }
+            }
         });
     }
 
@@ -154,6 +335,12 @@ impl ExternalCratesPanel {
                     }
                     done = true;
                 }
+                Msg::AliasOffered { candidate, linked_requirement, vendored } => {
+                    let alias =
+                        format!("prj_{}", cobolt_compiler::external_crates::lib_name(&candidate.name));
+                    self.alias_offer = Some(AliasOffer { candidate, linked_requirement, vendored, alias });
+                    done = true;
+                }
             }
         }
         if done {
@@ -173,7 +360,8 @@ impl ExternalCratesPanel {
         tr: &Tr,
     ) -> bool {
         self.drain_worker();
-        if self.busy.is_some() {
+        self.poll_system_closure();
+        if self.busy.is_some() || self.system_rx.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
 
@@ -224,6 +412,66 @@ impl ExternalCratesPanel {
                 });
         }
 
+        // Alias-offer modal (spec 045 R1/R4) — same shape as the R19
+        // confirmation above, outside the main window.
+        let mut alias_accept = false;
+        let mut alias_decline = false;
+        if let Some(offer) = &self.alias_offer {
+            let alias = offer.alias.clone();
+            let clash = format!(
+                "`{}` {} {} `{} {}`.",
+                offer.candidate.name,
+                offer.candidate.version,
+                tr.ec_alias_offer_body,
+                offer.candidate.name,
+                offer.linked_requirement
+            );
+            let use_line = format!(
+                "use {}::…;",
+                cobolt_compiler::external_crates::lib_name(&alias)
+            );
+            egui::Window::new(tr.ec_alias_offer_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label(&clash);
+                    ui.label(format!("`{alias}` — {use_line}"));
+                    ui.add_space(6.0);
+                    ui.weak(tr.ec_alias_caveat);
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("{} `{alias}`", tr.ec_alias_add)).clicked() {
+                            alias_accept = true;
+                        }
+                        if ui.button(tr.btn_cancel).clicked() {
+                            alias_decline = true;
+                        }
+                    });
+                });
+        }
+        if alias_accept {
+            if let (Some(offer), Some(path)) =
+                (self.alias_offer.take(), project_path.map(Path::to_path_buf))
+            {
+                let alias = offer.alias.clone();
+                self.spawn(format!("{} {alias}", tr.ec_alias_add), true, move |_registry, tx| {
+                    match service::confirm_alias(&path, None, offer.candidate, &offer.alias, &mut |n| {
+                        let _ = tx.send(Msg::Note(n));
+                    }) {
+                        Ok(text) => Ok(SpawnOutcome::Done(Some(text))),
+                        Err(e) => Err(e),
+                    }
+                });
+            }
+        } else if alias_decline {
+            if let Some(offer) = self.alias_offer.take() {
+                if let Err(e) = service::discard_alias_offer(&offer.vendored) {
+                    self.log.push(LogLine::Warn(e));
+                }
+            }
+        }
+
         std::mem::take(&mut self.project_changed)
     }
 
@@ -254,7 +502,7 @@ impl ExternalCratesPanel {
         ui.weak(tr.ec_registry_hint);
         ui.separator();
 
-        // ── Search (R6) ──────────────────────────────────────────────────
+        // ── Search (R6) + Show System crates (spec 045 R6) ────────────────
         let mut do_search = false;
         ui.horizontal(|ui| {
             ui.label(tr.ec_search);
@@ -274,47 +522,18 @@ impl ExternalCratesPanel {
             {
                 do_search = true;
             }
+            ui.separator();
+            ui.label(tr.ec_show_system);
+            ui.add(egui::Checkbox::without_text(&mut self.show_system));
         });
         if do_search && idle && !self.query.trim().is_empty() {
             self.run_search(self.query.trim().to_string(), 1, tr);
         }
 
-        // ── Results: a rendered markdown table, paged (R6) ───────────────
+        // ── Results: a native, typed table, paged (R6; spec 045 R5/R7–R10/
+        //    R13/R15–R18) ────────────────────────────────────────────────
         if !self.hits.is_empty() {
-            let markdown = self.results_markdown(tr);
-            let mut picked = None;
-            egui::ScrollArea::vertical()
-                .id_salt("ec_hits")
-                .max_height(300.0)
-                .show(ui, |ui| {
-                    let out = crate::panels::md_render::render(
-                        ui,
-                        &markdown,
-                        &crate::panels::md_render::RenderOpts {
-                            base: ui.style().text_styles[&egui::TextStyle::Body].size,
-                            search: "",
-                            scroll_to_heading: None,
-                            active_match: None,
-                            scroll_to_active: false,
-                            anchors: &[],
-                            // Tight value columns, description takes the rest
-                            // and is the only one that wraps; boundaries are
-                            // draggable and drawn.
-                            table_layout: crate::panels::md_render::TableLayout::TightResizable,
-                        },
-                        &mut |_, _| {},
-                    );
-                    // A crate-name cell is a `crate:<name>` link — clicking a
-                    // row is how the developer picks what they found.
-                    if let Some(target) = out.clicked_link {
-                        if let Some(name) = target.strip_prefix(PICK_SCHEME) {
-                            picked = Some(name.to_string());
-                        }
-                    }
-                });
-            if let Some(name) = picked {
-                self.sel_name = name;
-            }
+            self.draw_results_table(ui, tr);
 
             // Pager: total pages from the registry's own match count.
             let pages = self.total.div_ceil(RESULTS_PER_PAGE).max(1);
@@ -340,11 +559,14 @@ impl ExternalCratesPanel {
             ui.weak(tr.ec_no_results);
         }
 
-        // ── Add (R7) ─────────────────────────────────────────────────────
+        // ── Add (R7; spec 045 R13 — the name field is read-only) ──────────
         ui.separator();
         ui.horizontal(|ui| {
             ui.label(tr.ec_crate);
-            ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut self.sel_name));
+            ui.add_sized(
+                [150.0, 20.0],
+                egui::TextEdit::singleline(&mut self.sel_name).interactive(false),
+            );
             ui.label(tr.ec_req);
             ui.add_sized(
                 [80.0, 20.0],
@@ -364,16 +586,46 @@ impl ExternalCratesPanel {
                 .clicked()
             {
                 let name = self.sel_name.trim().to_string();
-                let req = self.sel_req.trim().to_string();
-                let features = self.features_vec();
-                let path = project_path.to_path_buf();
-                self.spawn(format!("{} {name}", tr.ec_add), true, move |registry, tx| {
-                    let req = (!req.is_empty()).then_some(req.as_str());
-                    service::add(&registry, &path, None, &name, req, features, &mut |n| {
-                        let _ = tx.send(Msg::Note(n));
-                    })
-                    .map(Some)
-                });
+                // Spec 045 R11 — System/System-dependency refused before any
+                // network call; unlike a direct incompatible collision
+                // (R1), there is no alias offer for this case. Checked here
+                // (fast, translated, no thread spawn) — `service::add`
+                // repeats the same check (plain English, R2's diagnostic-
+                // stream carve-out) as a defense-in-depth for any other
+                // caller.
+                if let Some(_category) = self.system.as_ref().and_then(|s| s.classify(&name)) {
+                    self.log.push(LogLine::Error(format!("`{name}` — {}", tr.ec_system_refused)));
+                } else {
+                    let req = self.sel_req.trim().to_string();
+                    let features = self.features_vec();
+                    let path = project_path.to_path_buf();
+                    let system = self.system.clone();
+                    self.spawn(format!("{} {name}", tr.ec_add), true, move |registry, tx| {
+                        let req = (!req.is_empty()).then_some(req.as_str());
+                        match service::add(
+                            &registry,
+                            &path,
+                            None,
+                            &name,
+                            req,
+                            features,
+                            system.as_ref(),
+                            &mut |n| {
+                                let _ = tx.send(Msg::Note(n));
+                            },
+                        )? {
+                            service::AddOutcome::Added(text) => Ok(SpawnOutcome::Done(Some(text))),
+                            // Spec 045 R1 — the offer, not a refusal; nothing
+                            // is recorded until the developer accepts (the
+                            // modal above).
+                            service::AddOutcome::AliasOffered { candidate, linked_requirement, vendored } => {
+                                let _ =
+                                    tx.send(Msg::AliasOffered { candidate, linked_requirement, vendored });
+                                Ok(SpawnOutcome::AlreadyHandled)
+                            }
+                        }
+                    });
+                }
             }
         });
 
@@ -478,32 +730,172 @@ impl ExternalCratesPanel {
                 total: found.total,
                 page,
             });
-            Ok(None)
+            Ok(SpawnOutcome::Done(None))
         });
     }
 
-    /// The current page as a markdown table. The crate name is a
-    /// `crate:<name>` link so the rendered row is clickable.
-    fn results_markdown(&self, tr: &Tr) -> String {
-        // A description containing `|` would otherwise start a new cell and
-        // shear the row; `\|` is the escape a table cell understands.
-        fn cell(text: &str) -> String {
-            text.replace('\\', "").replace('|', "\\|").replace('\n', " ")
+    /// Spec 045 R6/R15–R18 — the current page's rows, System-classified and
+    /// filtered/sorted per the live toggle+sort state. Recomputed each frame
+    /// (cheap: at most `RESULTS_PER_PAGE` rows) rather than cached, so a
+    /// toggle or sort click is visible immediately with no extra state to
+    /// keep in sync.
+    fn visible_rows(&self) -> Vec<(&SearchHit, Option<SystemCategory>)> {
+        let mut rows: Vec<(&SearchHit, Option<SystemCategory>)> = self
+            .hits
+            .iter()
+            .map(|h| (h, self.system.as_ref().and_then(|s| s.classify(&h.name))))
+            .filter(|(_, cat)| self.show_system || cat.is_none())
+            .collect();
+        if let Some((col, dir)) = self.sort {
+            rows.sort_by(|a, b| {
+                let ord = match col {
+                    SortCol::Crate => a.0.name.to_ascii_lowercase().cmp(&b.0.name.to_ascii_lowercase()),
+                    SortCol::Downloads => a.0.downloads.cmp(&b.0.downloads),
+                };
+                if dir == SortDir::Desc {
+                    ord.reverse()
+                } else {
+                    ord
+                }
+            });
         }
-        let mut s = format!(
-            "| {} | {} | {} | {} |\n|---|---|---|---|\n",
-            tr.ec_col_crate, tr.ec_col_version, tr.ec_col_downloads, tr.ec_col_description
-        );
-        for hit in &self.hits {
-            s.push_str(&format!(
-                "| [{name}]({PICK_SCHEME}{name}) | {version} | {downloads} | {description} |\n",
-                name = cell(&hit.name),
-                version = cell(&hit.newest),
-                downloads = thousands(hit.downloads),
-                description = cell(&hit.description),
-            ));
+        rows
+    }
+
+    /// A column header's label, with a sort arrow appended when this column
+    /// is the active sort (spec 045 R15/R16).
+    fn sort_header_text(label: &str, sort: Option<(SortCol, SortDir)>, col: SortCol) -> String {
+        match sort {
+            Some((c, dir)) if c == col => {
+                format!("{label} {}", if dir == SortDir::Asc { "▲" } else { "▼" })
+            }
+            _ => label.to_string(),
         }
-        s
+    }
+
+    /// Spec 045 R5/R7–R10/R13/R15–R18 — the results grid: System marker
+    /// (only while `show_system`) · Crate (click-to-pick — the Add row's
+    /// name field is read-only, so this is the only way to set it) ·
+    /// Version · Downloads (abbreviated, click-to-sort) · Description
+    /// (wraps). Follows `md_render.rs::draw_table_tight`'s
+    /// measure-widest-column / tight-resizable / last-column-wraps pattern —
+    /// the same underlying `egui_extras::TableBuilder`, just driven directly
+    /// by typed rows instead of parsed Markdown, so per-cell color and a
+    /// stateful sortable header are possible (044's Markdown-table pipeline
+    /// had no notion of either).
+    fn draw_results_table(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        let rows = self.visible_rows();
+        if rows.is_empty() {
+            return;
+        }
+        let theme = crate::theme::active();
+        let show_system = self.show_system;
+        let mut picked: Option<String> = None;
+        let mut clicked_sort: Option<SortCol> = None;
+        let current_sort = self.sort;
+
+        egui::ScrollArea::vertical().id_salt("ec_hits").max_height(300.0).show(ui, |ui| {
+            use egui_extras::{Column, TableBuilder};
+            let mut builder = TableBuilder::new(ui)
+                .id_salt("ec_hits_table")
+                .striped(true)
+                .resizable(true)
+                .vscroll(false)
+                .auto_shrink([false, false])
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center));
+            if show_system {
+                builder = builder.column(Column::initial(28.0).at_least(24.0));
+            }
+            builder = builder
+                .column(Column::initial(170.0).at_least(70.0).resizable(true))
+                .column(Column::initial(70.0).at_least(50.0).resizable(true))
+                .column(Column::initial(95.0).at_least(60.0).resizable(true))
+                .column(Column::remainder().at_least(120.0));
+
+            builder
+                .header(22.0, |mut hrow| {
+                    if show_system {
+                        hrow.col(|ui| {
+                            ui.strong(tr.ec_col_system);
+                        });
+                    }
+                    hrow.col(|ui| {
+                        let text = Self::sort_header_text(tr.ec_col_crate, current_sort, SortCol::Crate);
+                        if ui
+                            .add(egui::Label::new(egui::RichText::new(text).strong()).sense(egui::Sense::click()))
+                            .clicked()
+                        {
+                            clicked_sort = Some(SortCol::Crate);
+                        }
+                    });
+                    hrow.col(|ui| {
+                        ui.strong(tr.ec_col_version);
+                    });
+                    hrow.col(|ui| {
+                        let text =
+                            Self::sort_header_text(tr.ec_col_downloads, current_sort, SortCol::Downloads);
+                        if ui
+                            .add(egui::Label::new(egui::RichText::new(text).strong()).sense(egui::Sense::click()))
+                            .clicked()
+                        {
+                            clicked_sort = Some(SortCol::Downloads);
+                        }
+                    });
+                    hrow.col(|ui| {
+                        ui.strong(tr.ec_col_description);
+                    });
+                })
+                .body(|body| {
+                    body.rows(22.0, rows.len(), |mut row| {
+                        let (hit, category) = rows[row.index()];
+                        if show_system {
+                            row.col(|ui| {
+                                let (color, tag) = match category {
+                                    Some(SystemCategory::Direct) => {
+                                        (marker_color(&theme, category), tr.ec_system_tag)
+                                    }
+                                    Some(SystemCategory::Transitive) => {
+                                        (marker_color(&theme, category), tr.ec_system_dep_tag)
+                                    }
+                                    None => (marker_color(&theme, None), ""),
+                                };
+                                let resp =
+                                    ui.allocate_response(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                                ui.painter().circle_filled(resp.rect.center(), 5.0, color);
+                                if !tag.is_empty() {
+                                    resp.on_hover_text(tag);
+                                }
+                            });
+                        }
+                        row.col(|ui| {
+                            if ui.link(&hit.name).clicked() {
+                                picked = Some(hit.name.clone());
+                            }
+                        });
+                        row.col(|ui| {
+                            ui.label(&hit.newest);
+                        });
+                        row.col(|ui| {
+                            ui.label(abbreviate_downloads(hit.downloads));
+                        });
+                        row.col(|ui| {
+                            ui.add(egui::Label::new(&hit.description).wrap());
+                        });
+                    });
+                });
+        });
+
+        if let Some(name) = picked {
+            self.sel_name = name;
+        }
+        if let Some(col) = clicked_sort {
+            self.sort = Some(match self.sort {
+                Some((c, dir)) if c == col => {
+                    (col, if dir == SortDir::Asc { SortDir::Desc } else { SortDir::Asc })
+                }
+                _ => (col, SortDir::Asc),
+            });
+        }
     }
 
     fn spawn_update(&mut self, project_path: &Path, targets: Vec<String>, tr: &Tr) {
@@ -535,25 +927,11 @@ impl ExternalCratesPanel {
                     }
                 }
             }
-            Ok(Some(format!(
+            Ok(SpawnOutcome::Done(Some(format!(
                 "{updated} {word_updated}, {current} {word_current}, {failed} {word_failed}"
-            )))
+            ))))
         });
     }
-}
-
-/// `1234567` → `1 234 567`. A download count is a size cue, and seven
-/// undivided digits do not read as one.
-fn thousands(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push('\u{202f}'); // narrow no-break space
-        }
-        out.push(c);
-    }
-    out
 }
 
 // ── State-machine tests (no network, injected worker messages) ───────────────
@@ -569,6 +947,36 @@ mod tests {
             description: "d".into(),
             downloads: 1_234_567,
         }
+    }
+
+    /// Spec 045 R10/AC6 — every theme's three marker categories clear the
+    /// WCAG AA graphical-object floor against that theme's own panel
+    /// background, mirroring `flags.rs`'s
+    /// `every_theme_paints_flags_with_high_contrast`.
+    #[test]
+    fn every_theme_marks_system_crates_with_sufficient_contrast() {
+        let mut worst = (f64::MAX, "", "");
+        for theme in crate::theme::THEMES {
+            let bg =
+                egui::Color32::from_rgb(theme.bg_panel.r(), theme.bg_panel.g(), theme.bg_panel.b());
+            for (label, category) in [
+                ("direct", Some(SystemCategory::Direct)),
+                ("transitive", Some(SystemCategory::Transitive)),
+                ("addable", None),
+            ] {
+                let marker = marker_color(theme, category);
+                let ratio = crate::contrast::contrast_ratio(marker, bg);
+                assert!(
+                    ratio >= MIN_MARKER_CONTRAST,
+                    "theme {}: {label} marker vs panel is {ratio:.2}:1, below {MIN_MARKER_CONTRAST}:1",
+                    theme.id
+                );
+                if ratio < worst.0 {
+                    worst = (ratio, theme.id, label);
+                }
+            }
+        }
+        println!("worst System-marker contrast: {:.2}:1 ({} / {})", worst.0, worst.1, worst.2);
     }
 
     /// While a worker runs the panel is busy (buttons disable off this
@@ -641,117 +1049,245 @@ mod tests {
         assert_eq!(panel.total.div_ceil(RESULTS_PER_PAGE), 3);
     }
 
-    /// R6 — the results table is markdown: a header row, one row per hit,
-    /// each crate name a `crate:<name>` link so a click can pick it.
+    /// Spec 045 T9 — the results grid is now a native `TableBuilder` driven
+    /// directly by `visible_rows()`, not parsed Markdown, so there is no
+    /// text-based row/cell shape to assert on: the row's data IS the hit,
+    /// verbatim. This is the native equivalent of 044's
+    /// `results_render_as_a_markdown_table_with_pick_links` — the crate name
+    /// that appears is exactly the name `draw_results_table`'s row-click
+    /// hands to `sel_name`.
     #[test]
-    fn results_render_as_a_markdown_table_with_pick_links() {
-        let tr = crate::i18n::Language::English.tr();
+    fn visible_rows_carry_every_field_verbatim() {
         let mut panel = ExternalCratesPanel::new();
         panel.hits = vec![hit("csv")];
-        let md = panel.results_markdown(&tr);
-        let lines: Vec<&str> = md.lines().collect();
-        assert!(lines[0].starts_with("| ") && lines[0].contains(tr.ec_col_crate));
-        assert_eq!(lines[1], "|---|---|---|---|");
-        assert!(
-            lines[2].contains("[csv](crate:csv)"),
-            "the crate cell must be a pick link, got: {}",
-            lines[2]
-        );
-        assert!(lines[2].contains("1\u{202f}234\u{202f}567"), "downloads grouped");
+        let rows = panel.visible_rows();
+        assert_eq!(rows.len(), 1);
+        let (row, category) = rows[0];
+        assert_eq!(row.name, "csv");
+        assert_eq!(row.newest, "1.0.0");
+        assert_eq!(row.downloads, 1_234_567);
+        assert_eq!(category, None, "no System closure loaded ⇒ nothing is classified yet");
     }
 
-    /// Every row of a REAL search keeps its four cells with the first three
-    /// filled — the operator's screenshot showed a row whose crate, version
-    /// and downloads were blank while its description rendered.
+    /// Native equivalent of 044's `every_row_of_a_live_search_keeps_its_four_cells`
+    /// — every hit from a real search survives into `visible_rows()` with its
+    /// crate/version/downloads intact (the concern the old Markdown-parsing
+    /// test guarded against — a row whose first three cells rendered blank —
+    /// cannot happen here: there is no text row to shear in the first
+    /// place).
     #[test]
-    fn every_row_of_a_live_search_keeps_its_four_cells() {
-        let tr = crate::i18n::Language::English.tr();
+    fn every_hit_of_a_live_search_keeps_its_fields() {
         let registry = service::Registry::new(service::DEFAULT_REGISTRY);
-        let found = registry
-            .search("csv", RESULTS_PER_PAGE, 1)
-            .expect("live search");
+        let found = registry.search("csv", RESULTS_PER_PAGE, 1).expect("live search");
+        let expected = found.hits.len();
         let mut panel = ExternalCratesPanel::new();
         panel.hits = found.hits;
-        let md = panel.results_markdown(&tr);
-        for (i, line) in md.lines().skip(2).enumerate() {
-            let cells: Vec<&str> = line.trim_matches('|').split(" | ").collect();
-            assert_eq!(
-                cells.len(),
-                4,
-                "row {i} has {} cells, not 4: {line}",
-                cells.len()
+        let rows = panel.visible_rows();
+        assert_eq!(rows.len(), expected, "every hit must survive into visible_rows");
+        for (i, (hit, _)) in rows.iter().enumerate() {
+            assert!(!hit.name.trim().is_empty(), "row {i}'s crate name is empty");
+            assert!(!hit.newest.trim().is_empty(), "row {i}'s version is empty");
+        }
+    }
+
+    fn fixture_closure() -> service::SystemClosure {
+        service::SystemClosure {
+            direct: ["egui".to_string(), "eframe".to_string()].into_iter().collect(),
+            transitive: ["epaint".to_string()].into_iter().collect(),
+        }
+    }
+
+    /// Spec 045 R5/AC4 — a direct-linked name classifies `Direct`, a
+    /// transitive-only name classifies `Transitive`, and an unrelated name
+    /// classifies `None` (addable).
+    #[test]
+    fn system_column_classifies_direct_transitive_and_addable() {
+        let mut panel = ExternalCratesPanel::new();
+        panel.system = Some(fixture_closure());
+        panel.show_system = true;
+        panel.hits = vec![hit("egui"), hit("epaint"), hit("csv")];
+        let rows = panel.visible_rows();
+        let by_name: std::collections::HashMap<&str, Option<SystemCategory>> =
+            rows.iter().map(|(h, c)| (h.name.as_str(), *c)).collect();
+        assert_eq!(by_name["egui"], Some(SystemCategory::Direct));
+        assert_eq!(by_name["epaint"], Some(SystemCategory::Transitive));
+        assert_eq!(by_name["csv"], None);
+    }
+
+    /// Spec 045 R6/AC5 — off (the default) hides System and System-dependency
+    /// rows entirely; on brings them back. The System *column*'s visibility
+    /// is a draw-time decision (`draw_results_table` reads `show_system`
+    /// directly) — this test covers the row-filtering half, which is what
+    /// `visible_rows` controls.
+    #[test]
+    fn show_system_toggle_filters_results_and_column() {
+        let mut panel = ExternalCratesPanel::new();
+        panel.system = Some(fixture_closure());
+        panel.hits = vec![hit("egui"), hit("epaint"), hit("csv")];
+
+        panel.show_system = false;
+        let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
+        assert_eq!(names, vec!["csv"], "off must hide System and System-dependency rows");
+
+        panel.show_system = true;
+        let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
+        assert_eq!(names, vec!["egui", "epaint", "csv"], "on must show every row");
+    }
+
+    /// Spec 045 R14/AC9 — the worked examples from the spec, plus the
+    /// K→M carry-over boundary (`999_999` rounds to `1000.0K`, which must
+    /// promote to `1M` rather than print an ugly four-digit prefix).
+    #[test]
+    fn downloads_abbreviate_per_worked_examples() {
+        assert_eq!(abbreviate_downloads(999), "999");
+        assert_eq!(abbreviate_downloads(1000), "1K");
+        assert_eq!(abbreviate_downloads(1209), "1.2K");
+        assert_eq!(abbreviate_downloads(5000), "5K");
+        assert_eq!(abbreviate_downloads(999999), "1M");
+        assert_eq!(abbreviate_downloads(1000000), "1M");
+        assert_eq!(abbreviate_downloads(1239897), "1.2M");
+    }
+
+    /// Spec 045 R15–R18/AC10 — clicking "Crate" sorts the current page
+    /// alphabetically and reverses on a second click; clicking "Downloads"
+    /// sorts numerically by the true count; the active sort re-applies when
+    /// a new page's hits load, with no extra click needed.
+    #[test]
+    fn sort_toggles_direction_and_reapplies_across_pages() {
+        let mut panel = ExternalCratesPanel::new();
+        panel.hits = vec![hit("zed"), hit("ana"), hit("mid")];
+
+        panel.sort = Some((SortCol::Crate, SortDir::Asc));
+        let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
+        assert_eq!(names, vec!["ana", "mid", "zed"]);
+
+        panel.sort = Some((SortCol::Crate, SortDir::Desc));
+        let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
+        assert_eq!(names, vec!["zed", "mid", "ana"]);
+
+        let mut low = hit("low");
+        low.downloads = 10;
+        let mut high = hit("high");
+        high.downloads = 9_999_999;
+        panel.hits = vec![high, low];
+        panel.sort = Some((SortCol::Downloads, SortDir::Asc));
+        let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
+        assert_eq!(names, vec!["low", "high"], "ascending must sort by the TRUE count, not the label");
+
+        // A new page's hits land under the same, still-active Downloads-asc
+        // sort — no extra click needed (R18); distinct counts make the
+        // order unambiguous (name order alone would say the opposite).
+        let mut zzz = hit("zzz");
+        zzz.downloads = 500;
+        let mut aaa = hit("aaa");
+        aaa.downloads = 10;
+        panel.hits = vec![zzz, aaa];
+        let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["aaa", "zzz"],
+            "the still-active Downloads-asc sort must re-apply to the new page's hits"
+        );
+    }
+
+    /// Spec 045 T9 — a description carrying a pipe or a bare `\r` (real
+    /// crates.io data does this — e.g. `egui-cameras`, `egui-thematic`; see
+    /// the operator's screenshot that motivated this migration) passes
+    /// through untouched: there is no Markdown table being built from it
+    /// any more, so there is nothing for it to shear. The category of bug
+    /// `a_pipe_in_a_description_cannot_break_the_row` /
+    /// `a_carriage_return_in_a_description_cannot_break_the_row` guarded
+    /// against is now categorically impossible, not merely escaped.
+    #[test]
+    fn odd_description_text_reaches_visible_rows_unmodified() {
+        let mut panel = ExternalCratesPanel::new();
+        let mut h1 = hit("weird");
+        h1.description = "parses a | b pipes\r and a\r stray CR".into();
+        let h2 = hit("after");
+        panel.hits = vec![h1, h2];
+        let rows = panel.visible_rows();
+        assert_eq!(rows.len(), 2, "both hits must stay their own row");
+        assert_eq!(rows[0].0.description, "parses a | b pipes\r and a\r stray CR");
+        assert_eq!(rows[1].0.name, "after");
+    }
+
+    /// Runs `widget` for a couple of layout frames, then clicks into its own
+    /// rect and delivers a text-insert event, and returns the value it left
+    /// behind. Shared by the read-only field test and its interactive
+    /// control group.
+    fn click_and_type_into(value: &mut String, interactive: bool) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 100.0));
+        let mut rect = egui::Rect::NOTHING;
+        let build = |ui: &mut egui::Ui, value: &mut String| {
+            let resp = ui.add_sized(
+                [150.0, 20.0],
+                egui::TextEdit::singleline(value).interactive(interactive),
             );
-            for (c, name) in [(0, "crate"), (1, "version"), (2, "downloads")] {
-                assert!(
-                    !cells[c].trim().is_empty(),
-                    "row {i}'s {name} cell is empty: {line}"
-                );
-            }
+            resp.rect
+        };
+        // Frame 1: layout only, capture the field's screen rect.
+        ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                rect = build(ui, value);
+            });
+        })
+        .textures_delta
+        .clear();
+        // Frames 2-4: press, release (focus lands here), then a text-insert
+        // event on its own frame — split like `md_render.rs`'s
+        // `render_frames` click script; cramming press+release+text into one
+        // frame does not reliably focus the widget in time for the text
+        // event in the same frame.
+        let p = rect.center();
+        let scripts: Vec<Vec<egui::Event>> = vec![
+            vec![egui::Event::PointerMoved(p)],
+            vec![egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            }],
+            vec![egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            vec![egui::Event::Text("X".into())],
+        ];
+        for events in scripts {
+            ctx.run_ui(
+                egui::RawInput { screen_rect: Some(screen), events, ..Default::default() },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        build(ui, value);
+                    });
+                },
+            )
+            .textures_delta
+            .clear();
         }
     }
 
-    /// The generated markdown must parse back as ONE table row per hit —
-    /// four cells, in order. A description carrying a stray CR, a `[`, or
-    /// inline HTML must not shear the row (the operator's screenshot showed
-    /// a row whose first three cells rendered empty).
+    /// Spec 045 R13 — the Add row's crate-name field is built with
+    /// `TextEdit::interactive(false)` (`draw_results_table`'s row-click is
+    /// the only remaining way to change it): clicking into it and typing
+    /// must leave the value untouched. The `interactive_field_does_change`
+    /// control proves the harness itself would catch a regression — it's
+    /// the same click+type script against `interactive(true)`, which DOES
+    /// change, so a silent harness failure can't produce a false pass here.
     #[test]
-    fn live_results_parse_back_as_whole_rows() {
-        use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    fn crate_name_field_is_read_only() {
+        let mut read_only = "csv".to_string();
+        click_and_type_into(&mut read_only, false);
+        assert_eq!(read_only, "csv", "a read-only field must never change from typing");
 
-        let tr = crate::i18n::Language::English.tr();
-        let registry = service::Registry::new(service::DEFAULT_REGISTRY);
-        let found = registry
-            .search("csv", RESULTS_PER_PAGE, 1)
-            .expect("live search");
-        let expected_rows = found.hits.len();
-        let mut panel = ExternalCratesPanel::new();
-        panel.hits = found.hits;
-        let md = panel.results_markdown(&tr);
-
-        let mut cells_per_row: Vec<usize> = Vec::new();
-        let mut cur = 0usize;
-        let mut links = 0usize;
-        for ev in Parser::new_ext(&md, Options::ENABLE_TABLES) {
-            match ev {
-                Event::End(TagEnd::TableCell) => cur += 1,
-                Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
-                    cells_per_row.push(std::mem::take(&mut cur))
-                }
-                Event::Start(Tag::Link { dest_url, .. })
-                    if dest_url.starts_with(PICK_SCHEME) =>
-                {
-                    links += 1
-                }
-                _ => {}
-            }
-        }
-        assert_eq!(
-            cells_per_row.len(),
-            expected_rows + 1,
-            "expected a header plus one row per hit, got {:?} rows",
-            cells_per_row.len()
-        );
-        for (i, n) in cells_per_row.iter().enumerate() {
-            assert_eq!(*n, 4, "row {i} parsed as {n} cells, not 4");
-        }
-        assert_eq!(links, expected_rows, "every row needs its pick link");
-    }
-
-    /// A description containing a pipe would shear the row into extra cells;
-    /// it must arrive escaped.
-    #[test]
-    fn a_pipe_in_a_description_cannot_break_the_row() {
-        let tr = crate::i18n::Language::English.tr();
-        let mut panel = ExternalCratesPanel::new();
-        let mut h = hit("weird");
-        h.description = "parses a | b pipes".into();
-        panel.hits = vec![h];
-        let row = panel.results_markdown(&tr).lines().nth(2).unwrap().to_string();
-        assert!(row.contains("a \\| b"), "pipe must be escaped, got: {row}");
-        assert_eq!(
-            row.matches(" | ").count(),
-            3,
-            "an escaped pipe must not add a cell separator: {row}"
+        let mut interactive_field = "csv".to_string();
+        click_and_type_into(&mut interactive_field, true);
+        assert_ne!(
+            interactive_field, "csv",
+            "control group: an ordinary field must change, proving the harness delivers input"
         );
     }
 

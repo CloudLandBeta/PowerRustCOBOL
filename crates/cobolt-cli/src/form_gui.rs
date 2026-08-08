@@ -329,19 +329,24 @@ pub fn cmd_run_form(args: &[String]) {
     // the IDE performs — so the standalone window paints identically. The pack
     // SOURCE (disk here, embedded art in a compiled application) is the
     // per-host part; the resolution rule is not.
-    let theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>> = {
-        let themes_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
-            .filter(|d| d.is_dir())
-            .unwrap_or_else(|| PathBuf::from("assets/themes"));
-        let id =
-            cobolt_forms::theme::resolve_theme_id(form.theme.as_deref(), theme_default.as_deref());
-        cobolt_forms::theme_pack::discover_packs(&themes_dir)
-            .into_iter()
-            .find(|p| p.id == id)
-            .map(Arc::new)
-    };
+    let theme_id =
+        cobolt_forms::theme::resolve_theme_id(form.theme.as_deref(), theme_default.as_deref());
+    // A procedural theme has no pack on disk — do not go looking for one.
+    let theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>> =
+        if cobolt_forms::theme::ThemeCatalog::procedural_ids().contains(&theme_id.as_str()) {
+            None
+        } else {
+            let themes_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
+                .filter(|d| d.is_dir())
+                .unwrap_or_else(|| PathBuf::from("assets/themes"));
+            cobolt_forms::theme_pack::discover_packs(&themes_dir)
+                .into_iter()
+                .find(|p| p.id == theme_id)
+                .map(Arc::new)
+        };
+    let surface_style = cobolt_forms::paint::SurfaceStyle::from_theme_id(&theme_id);
 
     // ── GUI event loop (own process — the IDE stays idle) ─────────────────────
     // The window itself is the SHARED form host (spec 042 R1): everything from
@@ -365,6 +370,7 @@ pub fn cmd_run_form(args: &[String]) {
         fx_exit,
         fx_restore,
         theme_pack,
+        surface_style,
         icon_path,
         // R17 — a blank designed title stays blank under run-form, exactly as
         // it always has (the branded fallback belongs to built applications).
