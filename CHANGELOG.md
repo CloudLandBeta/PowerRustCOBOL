@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.47] — 2026-08-07
+
+### Fixed
+
+- **Generated GUI programs failed to compile on any fresh dependency
+  resolution** — newer `zune-jpeg` releases (≥ 0.5.15, pulled transitively by
+  the eframe image stack) build with their `log` feature off since their
+  logging shims then expand to nothing where an expression is required. Every
+  `cargo build` of a generated program that re-locked dependencies hit this
+  (all 041-era build tests were red on a clean checkout). The generated
+  manifest now unions the feature back in.
+
 ## [PowerRustCOBOL 1.60.43] — 2026-08-07
 
 ### Fixed

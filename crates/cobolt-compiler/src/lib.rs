@@ -1331,6 +1331,12 @@ egui            = "0.36"
 egui_extras     = {{ version = "0.36", features = ["image"] }}
 rfd             = "0.14"
 pollster        = "0.3"
+# FIX (pre-existing, found 2026-08-07): the eframe image stack pulls
+# zune-jpeg with default features off, and without its `log` feature the
+# warn!/error! shims expand to nothing where an expression is required —
+# every fresh lock resolution since zune-jpeg 0.5.15 fails to compile.
+# Naming it here unions the feature back in.
+zune-jpeg       = {{ version = "0.5", features = ["log"] }}
 "#
         ));
     }
