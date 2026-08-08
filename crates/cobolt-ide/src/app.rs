@@ -8645,6 +8645,21 @@ impl CoboltApp {
         )
     }
 
+    /// True while a still-open designer's Run Form owns the current build —
+    /// that designer's viewport hosts the build modal **and** the build-details
+    /// window, and the main window must not render either a second time.
+    ///
+    /// Details follows the modal because it is opened from it: shown in the main
+    /// window it appears *behind* the designer the operator is looking at, so
+    /// pressing Details looks like it did nothing. If the designer closed
+    /// mid-build this goes false and both fall back to the main window rather
+    /// than being orphaned.
+    fn build_hosted_by_open_designer(&self) -> bool {
+        self.build_modal_host
+            .as_ref()
+            .is_some_and(|host| self.designers.iter().any(|(p, _)| p == host))
+    }
+
     fn show_stale_build_prompt(&mut self, ctx: &Context) {
         let Some(prompt) = self.stale_build_prompt.clone() else {
             return;
@@ -10828,15 +10843,15 @@ impl eframe::App for CoboltApp {
         // Exactly one surface hosts the build modal: the designer window whose
         // Run Form started the build, else this main window. If that designer
         // closed mid-build, fall back here so the modal is never orphaned.
-        let hosted_by_open_designer = self
-            .build_modal_host
-            .as_ref()
-            .is_some_and(|host| self.designers.iter().any(|(p, _)| p == host));
+        let hosted_by_open_designer = self.build_hosted_by_open_designer();
         if !hosted_by_open_designer {
             self.show_building_modal(ctx);
         }
         self.show_kb_reindex_modal(ctx);
-        self.show_build_details_window(ctx);
+        // Build details goes wherever the modal it opens from goes.
+        if !hosted_by_open_designer {
+            self.show_build_details_window(ctx);
+        }
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
         self.show_proc_delete_confirmation(ctx);
         self.show_form_error(ctx);
@@ -11370,6 +11385,10 @@ impl eframe::App for CoboltApp {
                         == Some(self.designers[idx].0.as_path())
                     {
                         self.show_building_modal(vp_ctx);
+                        // …and so does the Build-details window it opens: in
+                        // the main window it lands BEHIND this one, so the
+                        // Details button read as doing nothing at all.
+                        self.show_build_details_window(vp_ctx);
                     }
                     // Same rule for the stale-build prompt this designer's
                     // Run Form raised: it must appear under the operator's

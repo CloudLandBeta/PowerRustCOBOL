@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.3] — 2026-08-08
+
+### Fixed
+
+- **"Details…" on a failed build started by Run Form looked like it did
+  nothing.** When a designer's Run Form needs a build, the Building dialog
+  correctly appears on top of that Form Designer window — but the Build-details
+  window it opens was only ever drawn in the IDE main window, which is *behind*
+  the designer. The log was there; it was just under another window, so unless
+  you went looking in the IDE nothing appeared to happen. Build details now
+  follows the dialog it is opened from: it is drawn in whichever window hosts
+  the Building dialog, and falls back to the main window if that designer is
+  closed while the log is still open.
+
 ## [PowerRustCOBOL 1.61.2] — 2026-08-08
 
 ### Fixed
