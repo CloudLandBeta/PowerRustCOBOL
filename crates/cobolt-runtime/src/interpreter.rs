@@ -299,6 +299,15 @@ impl Interpreter {
     }
 }
 
+/// A program's `REPOSITORY` bindings, keyed by uppercase COBOL class name.
+fn repository_map(program: &Program) -> HashMap<String, String> {
+    program
+        .repository
+        .iter()
+        .map(|(k, v)| (k.to_ascii_uppercase(), v.clone()))
+        .collect()
+}
+
 /// Construct the program's `OBJECT REFERENCE` items (spec 005 Rust-FFI bridge):
 /// resolve each item's class via the program's `REPOSITORY` bindings to a Rust
 /// type, create the object (seeded from the item's `VALUE`, if any), store the
@@ -308,13 +317,72 @@ fn build_object_refs(
     env: &mut CobolEnvironment,
     bridge: &mut crate::rust_bridge::RustBridge,
 ) -> HashMap<String, String> {
-    use cobolt_ast::program::DataSection;
-    let repo: HashMap<String, String> = program
-        .repository
-        .iter()
-        .map(|(k, v)| (k.to_ascii_uppercase(), v.clone()))
-        .collect();
+    let repo = repository_map(program);
     let mut refs = HashMap::new();
+    for (key, id) in create_object_refs(program, &repo, bridge, &mut refs) {
+        env.set_i64(&key, id);
+    }
+    refs
+}
+
+/// Give every `USAGE OBJECT REFERENCE` item declared **inside a nested program**
+/// its own live object, and record the handle in that program's local template.
+///
+/// Every RAD event handler is a nested program with its own DATA DIVISION, so
+/// this is where a handler's `OBJECT REFERENCE` items live — and only the
+/// outermost program's were ever constructed, leaving a handler-local item with
+/// no handle at all ("EXEC RUST cannot bind …: handle 0 is not live").
+///
+/// The handle goes into the program's local template, not the environment: a
+/// nested program's locals are pushed on CALL and popped on GOBACK, so a handle
+/// written straight into the shared environment would leak the item into the
+/// containing program's scope. Seeding the template also gives the object the
+/// same static lifetime as the item — one object per item, preserved across
+/// calls, exactly like a top-level one.
+///
+/// Classes resolve against the containing program's `REPOSITORY` as well as the
+/// nested program's own, since a generated handler declares none of its own.
+fn seed_nested_object_refs(
+    program: &Program,
+    outer_repo: &HashMap<String, String>,
+    registry: &mut HashMap<String, NestedProgram>,
+    bridge: &mut crate::rust_bridge::RustBridge,
+    refs: &mut HashMap<String, String>,
+) {
+    for nested in &program.nested_programs {
+        let mut repo = outer_repo.clone();
+        repo.extend(repository_map(nested));
+
+        let handles = create_object_refs(nested, &repo, bridge, refs);
+        if let Some(np) = registry.get_mut(&nested.identification.program_id.to_ascii_uppercase()) {
+            for (key, id) in handles {
+                let handle = CobolValue::from_i64(id);
+                match np
+                    .local_items
+                    .iter_mut()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+                {
+                    Some((_, slot)) => *slot = handle,
+                    None => np.local_items.push((key, handle)),
+                }
+            }
+        }
+
+        seed_nested_object_refs(nested, &repo, registry, bridge, refs);
+    }
+}
+
+/// Create one object per `OBJECT REFERENCE` item declared in `program`'s own
+/// DATA DIVISION, recording `item-key → rust-type` in `refs`. Returns the
+/// `(item-key, handle id)` pairs for the caller to store where the item lives.
+fn create_object_refs(
+    program: &Program,
+    repo: &HashMap<String, String>,
+    bridge: &mut crate::rust_bridge::RustBridge,
+    refs: &mut HashMap<String, String>,
+) -> Vec<(String, i64)> {
+    use cobolt_ast::program::DataSection;
+    let mut handles = Vec::new();
     if let Some(data) = &program.data {
         for section in &data.sections {
             if let DataSection::WorkingStorage(items)
@@ -322,20 +390,20 @@ fn build_object_refs(
             | DataSection::Linkage(items) = section
             {
                 for decl in items {
-                    collect_object_ref(decl, &repo, env, bridge, &mut refs);
+                    collect_object_ref(decl, repo, bridge, refs, &mut handles);
                 }
             }
         }
     }
-    refs
+    handles
 }
 
 fn collect_object_ref(
     decl: &cobolt_ast::data::DataDecl,
     repo: &HashMap<String, String>,
-    env: &mut CobolEnvironment,
     bridge: &mut crate::rust_bridge::RustBridge,
     refs: &mut HashMap<String, String>,
+    handles: &mut Vec<(String, i64)>,
 ) {
     use cobolt_ast::data::Usage;
     if matches!(decl.usage, Usage::ObjectReference) {
@@ -351,13 +419,13 @@ fn collect_object_ref(
                     _ => bridge.create_uninitialised(rust_type),
                 };
                 let key = name.to_ascii_uppercase();
-                env.set_i64(&key, id);
-                refs.insert(key, rust_type.clone());
+                refs.insert(key.clone(), rust_type.clone());
+                handles.push((key, id));
             }
         }
     }
     for child in &decl.children {
-        collect_object_ref(child, repo, env, bridge, refs);
+        collect_object_ref(child, repo, bridge, refs, handles);
     }
 }
 
@@ -771,7 +839,7 @@ impl Interpreter {
         // `OBJECT REFERENCE` item gets a live Rust object (from its VALUE, if any)
         // and its handle id stored in the environment.
         let mut rust_bridge = crate::rust_bridge::RustBridge::new();
-        let object_refs = build_object_refs(&program, &mut env, &mut rust_bridge);
+        let mut object_refs = build_object_refs(&program, &mut env, &mut rust_bridge);
         let (para_map, para_order) = build_para_map(&program.procedure.body);
 
         // Register all COBOL-85 nested programs (recursively).
@@ -779,6 +847,16 @@ impl Interpreter {
         for nested in &program.nested_programs {
             register_nested(nested, &mut nested_registry);
         }
+        // A nested program — every RAD event handler is one — declares its own
+        // `OBJECT REFERENCE` items; they need objects too, seeded into the
+        // program's local template so they are in place from its first CALL.
+        seed_nested_object_refs(
+            &program,
+            &repository_map(&program),
+            &mut nested_registry,
+            &mut rust_bridge,
+            &mut object_refs,
+        );
 
         let (file_specs, record_to_file) = build_file_specs(&program);
 
@@ -2477,6 +2555,15 @@ impl Interpreter {
                 self.env.set_renames(&name, &val.as_display_string());
                 continue;
             }
+            // An OBJECT REFERENCE receiver names an *object*; its storage slot
+            // holds the bridge handle. The value has to be written through that
+            // handle — storing it in the slot would overwrite the id and strand
+            // the object, and the item would then fail to bind in the next block
+            // ("handle 0 is not live").
+            if self.object_refs.contains_key(&name) {
+                self.assign_object_ref(&name, &val)?;
+                continue;
+            }
             match &src_digits {
                 Some(digits) if self.env.is_alphanumeric_field(&name) => {
                     self.env.set_str_left(&name, digits);
@@ -2485,6 +2572,22 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    /// Write `val` into the Rust object an `OBJECT REFERENCE` item names.
+    ///
+    /// A class the bridge cannot build from a COBOL value — a collection, or a
+    /// developer-defined type — is a type error the developer needs to see: the
+    /// alternative is to keep the write and lose the object, which is the defect
+    /// this replaced.
+    fn assign_object_ref(&mut self, key: &str, val: &CobolValue) -> Result<(), RuntimeError> {
+        let id = self.env.get_i64(key).unwrap_or(0);
+        let class = self.object_refs.get(key).cloned().unwrap_or_default();
+        self.rust_bridge
+            .assign(id, &cobol_to_bridge(val))
+            .map_err(|e| RuntimeError::General {
+                message: format!("cannot move a value into {key} ({class}): {e}"),
+            })
     }
 
     /// Set the host item of an 88-level condition-name so the condition becomes

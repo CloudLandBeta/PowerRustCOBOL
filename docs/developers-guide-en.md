@@ -2375,9 +2375,33 @@ through `INVOKE`/`::methods` for them instead.
 > always showed "2" no matter what the block computed. If a label shows a
 > constant small number where a result should be, rebuild with a current
 > version.
->
-> Writing a bound item from plain COBOL (`MOVE 5 TO clicked-button`) does
-> **not** reach the Rust value — assign inside a block (`*clicked_button = 5;`).
+
+**Writing a bound item from COBOL reaches the Rust value.** `MOVE 5 TO
+clicked-button` and `SET cobol-text TO TextBox-1::Text` update the object the
+item names, so the next block sees what COBOL wrote — that is how you hand the
+operator's input to a block:
+
+```cobol
+       01 cobol-text  USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 rust-result USAGE IS OBJECT REFERENCE RUST-STRING.
+       ...
+           SET cobol-text TO TextBox-1::Text
+           EXEC RUST
+           *rust_result = ferris_say(cobol_text);
+           END-EXEC
+           SET Label-1::Caption TO rust-result
+```
+
+The classes that accept such a write are the ones with a single scalar value:
+`RUST-STRING`, every integer width, the floats, and `RUST-BOOL`. A collection or
+one of your own types has no scalar to write, so a `MOVE` into one is reported as
+an error — fill those inside a block.
+
+> ⚠️ **Before 1.61.2 the write landed on the item's internal handle instead of
+> its object**, which left the object unreachable: the next block that bound the
+> item failed with `EXEC RUST cannot bind <ITEM>: handle 0 is not live`, usually
+> seen as `FFI failed:` from the handler's `CATCH RUST-EXCEPTION`. Rebuild with a
+> current version.
 
 #### Where a block may appear
 
@@ -2417,6 +2441,14 @@ item starts it from.
   each gets its own kind.
 - **State is shared for the whole run.** Two blocks in different paragraphs, or
   in a form event handler, see the same objects. `CANCEL` does not reset it.
+- **An event handler may declare its own `OBJECT REFERENCE` items.** A handler is
+  a nested program with its own `WORKING-STORAGE`; an item declared there is
+  bindable exactly like one declared in the form, and its object lives as long as
+  the run — the handler's next click sees what the last one left. Declare it in
+  the handler when only that handler uses it, and in the form as `GLOBAL` when
+  several do. ⚠️ **Before 1.61.2 only the form's own items were given objects**,
+  so a handler-local one failed with `handle 0 is not live`; moving it to the
+  form and marking it `GLOBAL` was the workaround, and is no longer needed.
 - **Crates**: `std`, plus `eframe`, `egui`, `egui_extras` and PowerRustCOBOL's own
   crates. A program containing any block links the GUI crates even when it has no
   forms, so a console program can open a window. A `use` of anything else is

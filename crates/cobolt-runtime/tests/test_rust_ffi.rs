@@ -445,3 +445,140 @@ fn a_mixed_case_control_and_property_still_reach_the_ui() {
     );
     assert_eq!(value.trim(), "3");
 }
+
+/// Writing to an `OBJECT REFERENCE` item must reach the **object**, not replace
+/// the handle in its storage slot.
+///
+/// `MOVE`/`SET … TO <object-reference>` used to store the moved value straight
+/// into the item's slot — which is where the bridge handle lives. The object was
+/// then unreachable: the next `INVOKE` looked the value up as an id and found
+/// nothing, and a compiled block binding the item panicked with "handle 0 is not
+/// live". The write has to land in the object the handle names.
+#[test]
+fn moving_a_value_into_an_object_reference_updates_the_object() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MOVEINTO.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32 IS "Rust.i32"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 S USAGE IS OBJECT REFERENCE RUST-STRING VALUE "hello".
+       01 K USAGE IS OBJECT REFERENCE RUST-I32.
+       01 N PIC 9(4).
+       PROCEDURE DIVISION.
+           MOVE "world" TO S.
+           DISPLAY S.
+           INVOKE S "len" RETURNING N.
+           DISPLAY N.
+           MOVE 42 TO K.
+           DISPLAY K.
+           STOP RUN.
+"#;
+    let (out, live) = run(src);
+    assert_eq!(
+        out,
+        vec![
+            "world".to_string(),
+            "0005".to_string(),
+            "42".to_string(),
+        ],
+        "the write must update the object behind the handle, leaving it callable"
+    );
+    assert_eq!(live, 2, "both items keep exactly one live object");
+}
+
+/// The operator's real handler shape: the `OBJECT REFERENCE` items are declared
+/// in the **event handler's own** WORKING-STORAGE, not the form program's.
+///
+/// The RAD generator emits exactly this — a nested `COMMON` program with its own
+/// data items — and only the outermost program's items were ever given bridge
+/// handles. A handler-local item therefore held no handle at all, so the first
+/// compiled block that bound it panicked with "handle 0 is not live", which is
+/// what the developer saw as `FFI failed: EXEC RUST cannot bind COBOL-TEXT`.
+#[test]
+fn an_object_reference_declared_in_a_handler_binds_inside_a_block() {
+    use cobolt_runtime::exec_rust::ExecRustContext;
+
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLERLOCAL.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ERROR PIC X(120).
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           CALL "BUTTON-1--ONCLICK"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COBOL-TEXT  USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 RUST-RESULT USAGE IS OBJECT REFERENCE RUST-STRING.
+       LINKAGE SECTION.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "ferris" TO COBOL-TEXT
+
+           EXEC RUST
+           END-EXEC
+
+           DISPLAY RUST-RESULT
+
+           GOBACK.
+
+       END PROGRAM BUTTON-1--ONCLICK.
+       END PROGRAM HANDLERLOCAL.
+"#;
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, _state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+
+    // Stand in for the compiled block, doing exactly what the generated preamble
+    // does: check every binding, take the values, run the body, put them back.
+    fn body(ctx: &mut ExecRustContext<'_>) {
+        let h_in = ctx.env.get_i64("COBOL-TEXT").unwrap_or(0);
+        let h_out = ctx.env.get_i64("RUST-RESULT").unwrap_or(0);
+        for (h, name) in [(h_in, "COBOL-TEXT"), (h_out, "RUST-RESULT")] {
+            if let Err(e) = ctx.bridge.check_binding::<String>(h, name, "Rust.String") {
+                panic!("{e}");
+            }
+        }
+        let cobol_text: String = ctx.bridge.take_or_init(h_in, String::new);
+        let rust_result = format!("{cobol_text} says hello");
+        ctx.bridge.put_value(h_in, "Rust.String", cobol_text);
+        ctx.bridge.put_value(h_out, "Rust.String", rust_result);
+    }
+    interp.register_exec_rust_blocks(|reg| reg.register(0, body));
+    interp
+        .run()
+        .expect("the handler's own OBJECT REFERENCE items must be bindable");
+
+    let displayed: Vec<String> = display_rx.try_iter().map(|s| s.trim().to_owned()).collect();
+    assert_eq!(
+        displayed,
+        vec!["ferris says hello".to_string()],
+        "the block's result must come back through the handler-local item"
+    );
+}

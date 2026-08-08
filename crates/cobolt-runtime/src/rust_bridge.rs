@@ -293,6 +293,37 @@ impl RustBridge {
         Ok(BridgeValue::Handle(self.store(type_name, value)))
     }
 
+    /// Write a COBOL value into the object `id` names, **keeping the handle**.
+    ///
+    /// `MOVE x TO item` / `SET item TO x` on an `OBJECT REFERENCE` item names the
+    /// *object*, not the storage slot the handle lives in. Writing the value into
+    /// the slot instead overwrites the id and strands the object: every later
+    /// read, `INVOKE`, and block binding looks the value up as a handle and finds
+    /// nothing — which is what "handle 0 is not live" reports.
+    ///
+    /// Only the classes [`Self::create`] can build from a COBOL value are
+    /// accepted. Assigning a scalar to a collection or a developer-defined type
+    /// has no defined meaning, so it is reported rather than guessed at.
+    pub fn assign(&mut self, id: i64, value: &BridgeValue) -> Result<(), BridgeError> {
+        let Some(obj) = self.objects.get(&id) else {
+            return Err(BridgeError::NoSuchHandle(id));
+        };
+        let type_name = obj.type_name.clone();
+        let args = [value.clone()];
+        let value: Box<dyn Any> = match type_name.as_str() {
+            "Rust.String" => Box::new(string_new(&args)?),
+            "Rust.i8" | "Rust.i16" | "Rust.i32" | "Rust.i64" | "Rust.i128" | "Rust.isize"
+            | "Rust.u8" | "Rust.u16" | "Rust.u32" | "Rust.u64" | "Rust.u128" | "Rust.usize" => {
+                Box::new(int_new(&args)?)
+            }
+            "Rust.f32" | "Rust.f64" => Box::new(float_new(&args)?),
+            "Rust.bool" => Box::new(bool_new(&args)?),
+            other => return Err(BridgeError::UnknownType(other.to_owned())),
+        };
+        self.objects.insert(id, BridgeObject { type_name, value });
+        Ok(())
+    }
+
     /// Invoke a method on a live handle, marshaling `args` in and the result out.
     /// Runs inside `catch_unwind`, so a panic surfaces as [`BridgeError::Panicked`]
     /// rather than tearing down the interpreter.
@@ -681,6 +712,56 @@ mod tests {
             b.invoke(id, "add", &[BridgeValue::Int(5)]).unwrap(),
             BridgeValue::Int(15)
         );
+    }
+
+    /// `assign` writes through the handle: the id stays valid and the object
+    /// behind it changes. Storing the value in the COBOL slot instead is what
+    /// used to strand the object.
+    #[test]
+    fn assign_updates_the_object_and_keeps_the_handle() {
+        let mut b = RustBridge::new();
+        let BridgeValue::Handle(id) = b
+            .create("Rust.String", &[BridgeValue::Str("hello".into())])
+            .unwrap()
+        else {
+            panic!("expected handle")
+        };
+        b.assign(id, &BridgeValue::Str("world".into())).unwrap();
+        assert_eq!(b.peek(id), Some(BridgeValue::Str("world".into())));
+        assert_eq!(b.invoke(id, "len", &[]).unwrap(), BridgeValue::Int(5));
+        assert_eq!(b.live_count(), 1, "assign must not create a second object");
+
+        // A COBOL numeric arrives as text for a string item, and as a number for
+        // an integer one; both are the item's declared class, not the value's.
+        let BridgeValue::Handle(n) = b.create("Rust.i32", &[]).unwrap() else {
+            panic!("expected handle")
+        };
+        b.assign(n, &BridgeValue::Int(42)).unwrap();
+        assert_eq!(b.peek(n), Some(BridgeValue::Int(42)));
+    }
+
+    /// A class the bridge cannot build from a COBOL value is reported, and the
+    /// object it holds is left alone — the caller names the item in the error.
+    #[test]
+    fn assign_to_an_unbuildable_class_is_an_error() {
+        let mut b = RustBridge::new();
+        let BridgeValue::Handle(v) = b.create("Rust.Vec", &[]).unwrap() else {
+            panic!("expected handle")
+        };
+        b.invoke(v, "push", &[BridgeValue::Int(1)]).unwrap();
+        assert!(matches!(
+            b.assign(v, &BridgeValue::Str("x".into())),
+            Err(BridgeError::UnknownType(_))
+        ));
+        assert_eq!(
+            b.invoke(v, "len", &[]).unwrap(),
+            BridgeValue::Int(1),
+            "a refused assign must not disturb the object"
+        );
+        assert!(matches!(
+            b.assign(9999, &BridgeValue::Int(1)),
+            Err(BridgeError::NoSuchHandle(9999))
+        ));
     }
 
     #[test]

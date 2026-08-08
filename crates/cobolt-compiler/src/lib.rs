@@ -2025,7 +2025,9 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **A block body is a Rust function body returning `Result<(), Box<dyn Error>>`.** That is what makes `?` usable inside it. To leave early, write `return Ok(())`, not `return;`. An error that propagates out becomes a `RUST-EXCEPTION`.
 - **A panic is catchable**: `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it, `DISPLAY e` prints the panic's plain text, and the program continues. A plain `CATCH EXCEPTION` does **not** catch a panic, and a COBOL `THROW` does not reach a `RUST-EXCEPTION` clause; a `TRY` may carry both clauses.
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
-- **COBOL reading a bound item sees its VALUE (1.60.23+).** `DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and `SET Label-1::Caption TO clicked-button` all yield what the block last wrote (`String`, any integer width, floats, bool). ⚠️ **Before 1.60.23 they yielded the item's internal handle id** — a small integer that reflected declaration order, so a program whose second item was read always showed "2" regardless of what the block computed. If a program built before 1.60.23 shows a constant small number where a result should be, that is this bug: rebuild. Types with no scalar rendering (Vec, HashMap, developer types) still read as the handle id. Writing to a bound item from plain COBOL (`MOVE 5 TO clicked-button`) does NOT reach the Rust value — write inside a block instead.
+- **COBOL reading a bound item sees its VALUE (1.60.23+).** `DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and `SET Label-1::Caption TO clicked-button` all yield what the block last wrote (`String`, any integer width, floats, bool). ⚠️ **Before 1.60.23 they yielded the item's internal handle id** — a small integer that reflected declaration order, so a program whose second item was read always showed "2" regardless of what the block computed. If a program built before 1.60.23 shows a constant small number where a result should be, that is this bug: rebuild. Types with no scalar rendering (Vec, HashMap, developer types) still read as the handle id.
+- **COBOL writing a bound item reaches the Rust value (1.61.2+).** `MOVE 5 TO clicked-button` and `SET cobol-text TO TextBox-1::Text` update the object the item names, so the next block sees what COBOL wrote — that is how the operator's input gets into a block. ⚠️ **Before 1.61.2 the write landed on the item's internal handle and destroyed it**: the object became unreachable and the next block to bind that item failed with `EXEC RUST cannot bind <ITEM>: handle 0 is not live`. Only the classes with a scalar form accept a write — `RUST-STRING`, any integer width, the floats, `RUST-BOOL`. Writing into a collection or a developer-defined item is a type error and is reported as one; fill those inside a block.
+- **A handler's OWN `OBJECT REFERENCE` items are bindable (1.61.2+).** An item declared in an event handler's `WORKING-STORAGE` behaves exactly like one declared in the form. ⚠️ **Before 1.61.2 only the outermost program's items were given objects**, so a handler-local one had no handle at all and every block binding it failed with `handle 0 is not live` — the reason the same block worked when the item was moved to the form and marked `GLOBAL`. Both placements are correct now: declare it in the handler when only that handler uses it, in the form as `GLOBAL` when several do.
 - **Crates**: always `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. **Beyond that floor, a project may register any crate from the registry under Project's Crates (1.60.47+, shown in the tree as "Project's Crates (Beta)")** — the project tree category below Generated Code, whose dialog searches crates.io (or a configured mirror) and shows the matches as a paged table (50 per page, name · version · downloads · description) that the developer browses and clicks to pick. Adding pins an exact version, vendors the source into the project's `crates/`, and compiles it into the binary. A registered crate is then used with a plain `use`, writing a hyphenated name with underscores (`serde-json` → `use serde_json::…`). A `use` of a crate that is neither linked nor registered is still rejected, naming the crate — in a project the message points at Project's Crates, in a single-file `rcrun` build it says external crates require a project. Adding needs the network; building does not. Conflicts are decided when the developer adds: a name already linked (`egui`) is refused as already available, a crate that cannot coexist is refused with cargo's own reason, and one that would bring a second incompatible copy is allowed with a warning. Every build writes `rust_manifest.md` (name, exact version, registry URL) beside the binary in the destination folder. **Do not tell a developer that third-party crates are unsupported** — that was true only before 1.60.47; tell them to add it under Project's Crates. **1.60.48+ — System awareness and collision aliasing (spec 045):** the dialog marks a result **System** (a name directly linked, e.g. `egui`) or **System dependency** (only pulled in transitively by something linked, e.g. `epaint` via `egui`) and hides both by default behind a "Show System crates" toggle; neither can be registered, and a System-dependency refusal never offers an alias. A **direct** collision at an incompatible version — the "clashes with the built-in" case above — now offers an **alias** instead of only refusing: accepting registers it as `prj_<name>` (a `package = "<name>"` rename, compiled as a second, independent copy beside the platform's own), and the block then writes `use prj_<name>::…`, not `use <name>::…`. Tell a developer who hits this refusal about the alias offer rather than saying the version is unsupported — but also warn them an aliased copy's values do not interoperate with the platform's own copy of the same crate.
 - **eframe here is 0.36.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
 - **`eframe::run_native` CANNOT be called from a form's event handler — and since 1.60.14 the BUILD REJECTS IT.** A project with forms whose block calls `run_native` (or `EventLoop::new`) fails to build, reported at the developer's own line and column. **To open a window from a handler use `cobolt_windows::open` instead** (see below) — that is the supported route, and the error says so. Why `run_native` cannot work: a form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Before the build-time rejection the result was no window, no error, no output — the handler appeared to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread, and is not rejected there.
@@ -4572,6 +4574,66 @@ mod resolve_main_tests {
         assert!(
             out.contains("HITS=2"),
             "a block in a nested program did not run twice; output was:\n{out}"
+        );
+    }
+
+    /// The RAD generator's real handler shape, built and run: the handler's
+    /// `OBJECT REFERENCE` items are declared in **its own** WORKING-STORAGE, a
+    /// COBOL statement writes one, the block reads it and writes the other, and
+    /// COBOL reads that back.
+    ///
+    /// Both halves failed before, and both reported the same thing — `FFI
+    /// failed: EXEC RUST cannot bind COBOL-TEXT: handle 0 is not live`. Only the
+    /// outermost program's items were given objects, so a handler-local item had
+    /// no handle at all; and `SET item TO …` stored the value in the slot the
+    /// handle lives in, destroying it. The nested test above passes with GLOBAL
+    /// items in the outer program, which is why neither showed up there.
+    #[test]
+    fn a_handler_local_object_reference_survives_a_cobol_write_and_a_block() {
+        let out = build_and_run_cobol(
+            "execrusthandlerlocal",
+            r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FORMPROG.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ERROR PIC X(120) GLOBAL.
+       PROCEDURE DIVISION.
+           CALL "BUTTON-1--ONCLICK".
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COBOL-TEXT  USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 RUST-RESULT USAGE IS OBJECT REFERENCE RUST-STRING.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "ferris" TO COBOL-TEXT
+           TRY
+               EXEC RUST
+               *rust_result = format!("{} says hello", cobol_text);
+               END-EXEC
+           CATCH RUST-EXCEPTION WS-ERROR
+               DISPLAY "FFI failed: " WS-ERROR
+           END-TRY
+           DISPLAY "SAID=" RUST-RESULT
+           GOBACK.
+       END PROGRAM BUTTON-1--ONCLICK.
+       END PROGRAM FORMPROG.
+"#,
+        );
+
+        assert!(
+            out.contains("SAID=ferris says hello"),
+            "the handler's own OBJECT REFERENCE items did not survive the \
+             COBOL write and the block; output was:\n{out}"
         );
     }
 

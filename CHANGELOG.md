@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.2] — 2026-08-08
+
+### Fixed
+
+- **An `EXEC RUST` block in an event handler failed with `FFI failed: EXEC RUST
+  cannot bind <ITEM>: handle 0 is not live`.** An event handler is a nested
+  program with its own `WORKING-STORAGE`, and only the outermost program's
+  `USAGE OBJECT REFERENCE` items were given Rust objects. An item declared in
+  the handler therefore had no handle at all, so the first block to bind it
+  failed — while the same block worked as soon as the item was moved to the form
+  and marked `GLOBAL`, which is what made the fault look like a block problem
+  rather than a declaration one. Every nested program's items now get their own
+  object, created once and preserved across calls like the item itself, and
+  their `CLASS` resolves against the containing program's `REPOSITORY` (a
+  generated handler declares none of its own).
+- **`MOVE`/`SET` into a `USAGE OBJECT REFERENCE` item destroyed the object.** An
+  object-reference item's storage holds the handle that names its Rust object,
+  and the write was landing there — overwriting the handle, so the object became
+  unreachable: the next `INVOKE` found nothing and the next block reported the
+  `handle 0 is not live` panic above. `SET cobol-text TO TextBox-1::Text` — how a
+  form hands the operator's input to a block — hit this every time. The write now
+  goes through the handle into the object, so the block sees what COBOL wrote and
+  the item stays callable. Writing a value into a class that has no scalar form (a
+  collection, or your own type) is a type error and is now reported as one,
+  naming the item and its class, instead of silently breaking the handle.
+
 ## [PowerRustCOBOL 1.61.1] — 2026-08-08
 
 ### Fixed
