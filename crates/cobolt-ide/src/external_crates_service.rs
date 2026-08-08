@@ -295,7 +295,10 @@ impl Registry {
                     .max_stable_version
                     .or(c.max_version)
                     .unwrap_or_else(|| "?".into()),
-                description: c.description.unwrap_or_default().replace('\n', " "),
+                description: c
+                    .description
+                    .unwrap_or_default()
+                    .replace(['\n', '\r'], " "),
                 downloads: c.downloads,
                 name: c.name,
             })
@@ -1198,6 +1201,26 @@ mod tests {
         let r = Registry::new("https://mirror.example.com/");
         assert_eq!(r.base(), "https://mirror.example.com");
         assert_eq!(r.crate_url("csv"), "https://mirror.example.com/crates/csv");
+    }
+
+    /// Some crates.io descriptions carry a bare `\r` (e.g. `egui-cameras`,
+    /// `egui-thematic`); a `\n`-only replace let it through to the results
+    /// table, where it broke a row boundary. A raw CR reaching UI text is
+    /// never wanted regardless of how that text is later rendered, so it is
+    /// normalized once, here, at the source. Live: real registry data is what
+    /// actually carries this character.
+    #[test]
+    fn search_results_never_carry_a_raw_carriage_return() {
+        let registry = Registry::new(DEFAULT_REGISTRY);
+        let page = registry.search("egui", 100, 1).expect("live search");
+        for hit in &page.hits {
+            assert!(
+                !hit.description.contains('\r'),
+                "`{}`'s description still carries a raw CR: {:?}",
+                hit.name,
+                hit.description
+            );
+        }
     }
 
     /// R4/Q7 — the setting round-trips through its IDE-wide file and a

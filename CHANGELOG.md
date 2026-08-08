@@ -1,5 +1,16 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.60.48] — 2026-08-08
+
+### Fixed
+
+- **A crate description containing a raw carriage return could garble every
+  search result after it.** Some crates.io descriptions carry a bare `\r`
+  (e.g. `egui-cameras`, `egui-thematic`); normalizing only `\n` let it
+  through to the results table, where it broke a row boundary and merged
+  everything downstream into one unreadable block. Registry search results
+  now normalize both `\n` and `\r`.
+
 ## [PowerRustCOBOL 1.60.47] — 2026-08-07
 
 ### Added
