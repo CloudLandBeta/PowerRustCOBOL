@@ -2,6 +2,53 @@
 
 ## [PowerRustCOBOL 1.60.47] — 2026-08-07
 
+### Added
+
+- **Project's Crates for `EXEC RUST`** (spec 044) — a project can now register
+  third-party Rust crates and use them from blocks with a plain `use` line.
+  Shipped as **Beta**: the tree and dialog read *Project's Crates (Beta)*,
+  since the pin format, conflict wording and dialog may still move.
+  - a new fixed project-tree category **Project's Crates (Beta)** (after
+    Generated Code) showing one `name version` row per registered crate; its
+    `[+]` and rows open the new dialog;
+  - the dialog searches the configured registry from inside the IDE and shows
+    the matches as a **rendered markdown table** — crate, version, downloads,
+    description — **50 per page** with `◀`/`▶` and a "Page 2/7 — 318 results"
+    counter, so every match is browsable instead of a truncated handful;
+    clicking a crate name picks it. Value columns are sized to their content
+    and **draggable by the user** (a line marks each boundary), leaving the
+    description column the rest of the width as the only one that wraps. The
+    dialog also takes an optional cargo-style version requirement and feature
+    list, and narrates resolve → conflict check → download in a log pane;
+    localized in all six languages;
+  - the registry endpoint is **pluggable** — an IDE-wide setting shown in the
+    dialog header, `https://crates.io` by default; a company mirror works by
+    changing one field, and every crate records the URL it was added from;
+  - versions are **pinned at add time** and the crate's source is vendored
+    under the project's `crates/`, so builds are deterministic and never
+    re-resolve; **Update / Update All** move pins forward within each crate's
+    recorded requirement and report `old → new` / `current` / `failed`;
+  - conflicts are settled **when adding, not when building**: names already
+    linked by every program (egui, eframe, …) are refused as already
+    available or incompatible; cargo's own resolver probes the full generated
+    dependency graph and its refusal reason is shown verbatim (e.g. two
+    claimants for one native `links` library); a resolvable-but-duplicated
+    incompatible copy is allowed **with a warning**;
+  - registered crates compile statically into the program's single binary at
+    the same optimization profile — end users still install nothing — and a
+    crate the base tree also uses (serde) unifies to exactly **one** copy via
+    the vendored `[patch.crates-io]` mechanism;
+  - every successful build writes **`rust_manifest.md`** into the destination
+    folder beside the binary — name, exact version, and registry URL of every
+    external crate — and removes a stale manifest when the project has none;
+  - `Check`/`Run`/`Debug`/`Build` accept registered crates in blocks on every
+    surface; an unregistered crate still fails at the developer's line, now
+    naming Project's Crates as the remedy (or "requires a project" for
+    single-file `rcrun` builds);
+  - removal is explicit and confirmed, deletes the record and vendored source,
+    and never touches COBOL; a pre-existing user-owned `crates/` folder is
+    refused, never overwritten.
+
 ### Fixed
 
 - **Generated GUI programs failed to compile on any fresh dependency

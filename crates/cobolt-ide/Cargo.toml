@@ -78,6 +78,14 @@ cobolt-agents = { path = "../cobolt-agents" }
 schemars = "1"
 tokio = { workspace = true, features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
+# External Crates (spec 044): the dialog's registry client — the runtime's
+# blocking HTTP stack (ureq + explicit native-tls, never rustls/ring), plus
+# tar to unpack downloaded `.crate` files into the project's crates/.
+ureq       = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"] }
+native-tls = "0.2"
+tar        = "0.4"
+flate2     = { workspace = true }
+semver     = "1"
 
 # Data structures
 indexmap    = { workspace = true }

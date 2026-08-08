@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Spec 044 prototype — External Crates for EXEC RUST.
+# Standalone on purpose (the empty [workspace] detaches it from the
+# PowerRustCOBOL workspace): this is a spec-folder prototype, not product code.
+# The dependency choices mirror the product so the modules transplant as-is:
+# ureq 2 + native-tls is exactly cobolt-runtime's blocking HTTP stack.
+
+[package]
+name    = "external-crates-prototype"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+ureq       = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"] }
+native-tls = "0.2"
+semver     = "1"
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml       = "0.8"
+flate2     = "1"
+tar        = "0.4"
+eframe     = "0.36"
+egui       = "0.36"
+
+# Feature-union fix: tiff pulls zune-jpeg with default-features off, and
+# without `log` its warn!/error! shims expand to nothing where an expression
+# is required — a build error. Naming it here unions the feature back in.
+zune-jpeg  = { version = "0.5", features = ["log"] }

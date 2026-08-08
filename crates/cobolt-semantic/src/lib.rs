@@ -129,9 +129,28 @@ impl SemanticResult {
 /// The returned [`SemanticResult`] always contains a symbol table (even on
 /// error), allowing downstream tools to present partial information.
 pub fn analyze(program: &Program) -> SemanticResult {
+    analyze_with(program, &AnalyzeOptions::default())
+}
+
+/// Context the analysis cannot read from the program itself (spec 044).
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeOptions {
+    /// The `use`-line names of the project's registered External Crates
+    /// (spec 044 R20; `serde-json` registers as `serde_json`).
+    ///
+    /// `Some(list)` = project context: blocks may name these crates, and an
+    /// unregistered crate's error points at External Crates (R21). `None` =
+    /// no project (single-file builds): the error says external crates
+    /// require a project (R22). The default is `None`, which keeps every
+    /// pre-044 caller's behaviour: only the always-linked crates pass.
+    pub external_crates: Option<Vec<String>>,
+}
+
+/// [`analyze`], with project context (spec 044).
+pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult {
     // The outermost program of a compilation unit inherits nothing: there is no
     // enclosing program to declare a GLOBAL item for it.
-    analyze_contained(program, &[])
+    analyze_contained(program, &[], opts)
 }
 
 /// [`analyze`], for a program CONTAINED in another, told which `GLOBAL` items
@@ -145,7 +164,11 @@ pub fn analyze(program: &Program) -> SemanticResult {
 /// keeps one shared environment and the outer program's items are in it. Only
 /// the analyzer disagreed, which is the worst place for the disagreement to be,
 /// because the agents write against it and correct code kept being rejected.
-fn analyze_contained(program: &Program, inherited_globals: &[DataItemInfo]) -> SemanticResult {
+fn analyze_contained(
+    program: &Program,
+    inherited_globals: &[DataItemInfo],
+    opts: &AnalyzeOptions,
+) -> SemanticResult {
     let mut diagnostics = Vec::new();
 
     // Pass 1: build the symbol table from DATA + PROCEDURE divisions, plus the
@@ -166,7 +189,7 @@ fn analyze_contained(program: &Program, inherited_globals: &[DataItemInfo]) -> S
 
     // Pass 4: EXEC RUST binding resolution.
     exec_rust::check_repository_classes(program, &mut diagnostics);
-    exec_rust::resolve_bindings(program, &symbols, &mut diagnostics);
+    exec_rust::resolve_bindings(program, &symbols, &mut diagnostics, opts);
 
     // Pass 5: every contained program, analyzed in its own right.
     //
@@ -202,7 +225,7 @@ fn analyze_contained(program: &Program, inherited_globals: &[DataItemInfo]) -> S
         visible
     };
     for nested in &program.nested_programs {
-        diagnostics.extend(analyze_contained(nested, &visible_globals).diagnostics);
+        diagnostics.extend(analyze_contained(nested, &visible_globals, opts).diagnostics);
     }
 
     SemanticResult {

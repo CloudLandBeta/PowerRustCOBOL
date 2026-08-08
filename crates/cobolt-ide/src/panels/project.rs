@@ -78,6 +78,10 @@ pub enum ProjectPanelEvent {
     /// directly inside the project-relative folder `dir_rel`, instead of the
     /// category root the category-level `[+]` uses.
     CreateIn { kind: FileKind, dir_rel: PathBuf },
+    /// Open the External Crates dialog (spec 044 R3) — the category's `[+]`
+    /// and its crate rows both route here; crates are managed in the dialog,
+    /// never through file operations.
+    OpenExternalCrates,
     /// User chose "Import existing…" — add an existing file of this kind.
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
@@ -728,6 +732,34 @@ pub(crate) fn draw_indexed_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     );
 }
 
+/// Package cube for External Crates (spec 044, Q6): a closed shipping box —
+/// hexagonal silhouette with the top-face fold lines and front seam.
+pub(crate) fn draw_crate_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
+    let s = egui::Stroke::new(1.5, c);
+    let thin = egui::Stroke::new(1.0, c);
+    let h = r.height();
+    let top = egui::pos2(r.center().x, r.min.y);
+    let left = egui::pos2(r.min.x, r.min.y + h * 0.27);
+    let right = egui::pos2(r.max.x, r.min.y + h * 0.27);
+    let seam = egui::pos2(r.center().x, r.min.y + h * 0.54);
+    let bottom_left = egui::pos2(r.min.x, r.max.y - h * 0.20);
+    let bottom_right = egui::pos2(r.max.x, r.max.y - h * 0.20);
+    let bottom = egui::pos2(r.center().x, r.max.y);
+    for seg in [
+        [top, left],
+        [top, right],
+        [left, bottom_left],
+        [right, bottom_right],
+        [bottom_left, bottom],
+        [bottom_right, bottom],
+    ] {
+        p.line_segment(seg, s);
+    }
+    p.line_segment([left, seam], thin);
+    p.line_segment([right, seam], thin);
+    p.line_segment([seam, bottom], thin);
+}
+
 /// Simple document / file icon for forms, sources, assets, docs etc.
 fn draw_document_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let s = egui::Stroke::new(1.5, c);
@@ -873,6 +905,7 @@ impl ProjectPanel {
             Category::IndexedFiles => tr.cat_indexed_files,
             Category::CommonCode => tr.cat_common_code,
             Category::Generated => tr.cat_generated_code,
+            Category::ExternalCrates => tr.cat_external_crates,
             Category::Assets => tr.panel_assets,
             Category::Documentation => tr.cat_documentation,
         };
@@ -888,6 +921,7 @@ impl ProjectPanel {
             .show_header(ui, |ui| {
                 match cat {
                     Category::IndexedFiles => tree_icon(ui, draw_indexed_icon),
+                    Category::ExternalCrates => tree_icon(ui, draw_crate_icon),
                     _ => tree_icon(ui, draw_folder_icon),
                 }
                 let header_hover =
@@ -909,12 +943,24 @@ impl ProjectPanel {
                                 ui.close();
                             }
                         });
+                    } else if cat == Category::ExternalCrates {
+                        // Spec 044 R3 — the `[+]` opens the External Crates
+                        // dialog, never a file creator.
+                        if ui
+                            .small_button("+")
+                            .on_hover_text(format!("{}: {label}", tr.tree_create_hover))
+                            .clicked()
+                        {
+                            events.push(ProjectPanelEvent::OpenExternalCrates);
+                        }
                     }
-                    // New-folder affordance for every category (spec 033, R1).
-                    if ui
-                        .small_button("📁+")
-                        .on_hover_text(tr.tree_new_folder)
-                        .clicked()
+                    // New-folder affordance for every category (spec 033, R1) —
+                    // except External Crates, whose rows are pins, not files.
+                    if cat != Category::ExternalCrates
+                        && ui
+                            .small_button("📁+")
+                            .on_hover_text(tr.tree_new_folder)
+                            .clicked()
                     {
                         if is_knowledge_base {
                             // Documentation keeps its Knowledge-Base-aware create
@@ -933,6 +979,40 @@ impl ProjectPanel {
                 header_hover
             })
             .body(|ui| {
+                if cat == Category::ExternalCrates {
+                    // Spec 044 R2 — one row per registered crate: name +
+                    // pinned exact version. Rows open the dialog, where
+                    // update/remove live (R3).
+                    if proj.crates.is_empty() {
+                        ui.label(
+                            RichText::new(format!("  {}", tr.tree_empty))
+                                .color(crate::theme::active().text_dim)
+                                .small(),
+                        );
+                        return;
+                    }
+                    for c in &proj.crates {
+                        ui.horizontal(|ui| {
+                            ui.add_space(6.0);
+                            tree_icon(ui, draw_crate_icon);
+                            let row = ui.selectable_label(
+                                false,
+                                RichText::new(format!("{} {}", c.name, c.version)).monospace(),
+                            );
+                            #[cfg(test)]
+                            ui.data_mut(|d| {
+                                d.insert_temp(
+                                    egui::Id::new(("crate_row_probe", c.name.as_str())),
+                                    row.rect,
+                                )
+                            });
+                            if row.on_hover_text(&c.url).clicked() {
+                                events.push(ProjectPanelEvent::OpenExternalCrates);
+                            }
+                        });
+                    }
+                    return;
+                }
                 if is_knowledge_base {
                     if let Some(root) = &root {
                         self.show_knowledge_base(ui, root, cur, events, tr);
@@ -966,7 +1046,12 @@ impl ProjectPanel {
         // Category header as a fallback OS-drop / move target = the category root
         // (dropping a file here moves it out of any subfolder). A more specific
         // subfolder under the pointer overrides this (set later in the frame).
-        if self.hovered_dir.is_none() && header_inner.inner.contains_pointer() {
+        // External Crates is excluded: `crates/` holds vendored pins, and a
+        // dropped file must never be moved into it (spec 044 R3).
+        if cat != Category::ExternalCrates
+            && self.hovered_dir.is_none()
+            && header_inner.inner.contains_pointer()
+        {
             self.hovered_dir = Some(cat.root_subdir().to_string());
         }
         ui.add_space(2.0);
@@ -1711,6 +1796,9 @@ fn creatable_kind(cat: Category) -> Option<FileKind> {
         Category::IndexedFiles => Some(FileKind::Indexed),
         Category::CommonCode => Some(FileKind::Source),
         Category::Generated => None,
+        // The category's `[+]` opens the External Crates dialog, not a file
+        // creator (spec 044 R3) — see `show_category`'s add routing.
+        Category::ExternalCrates => None,
         Category::Assets => Some(FileKind::Asset),
         Category::Documentation => Some(FileKind::Documentation),
     }
@@ -2637,6 +2725,137 @@ mod control_node_in_real_wrappers {
             open,
             "clicking the arrow at {p:?} must expand Button-1's Events subtree \
              inside SidePanel/ScrollArea/CollapsingState"
+        );
+    }
+}
+
+#[cfg(test)]
+mod external_crates_category_rows {
+    use super::*;
+
+    fn demo_project() -> CoboltProject {
+        let mut proj = CoboltProject::new("Demo", "src/main.cbl");
+        proj.crates.push(cobolt_compiler::ExternalCrate {
+            name: "csv".into(),
+            requirement: String::new(),
+            version: "1.4.0".into(),
+            features: vec![],
+            url: "https://crates.io/crates/csv".into(),
+        });
+        proj
+    }
+
+    /// One frame of the category inside the panel's real wrappers, with its
+    /// collapsing state forced open so the rows render.
+    fn frame(
+        ctx: &egui::Context,
+        at: f64,
+        events_in: Vec<egui::Event>,
+        panel: &mut ProjectPanel,
+        proj: &CoboltProject,
+        out: &mut Vec<ProjectPanelEvent>,
+    ) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(900.0, 700.0),
+            )),
+            time: Some(at),
+            events: events_in,
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
+            let tr = crate::i18n::Language::English.tr();
+            Panel::left("project_panel")
+                .default_size(410.0)
+                .show(root_ui, |ui| {
+                    ScrollArea::vertical().show(ui, |ui| {
+                        // `make_persistent_id` is pure, so this is the same id
+                        // `show_category` derives — pre-store it open.
+                        let id = ui
+                            .make_persistent_id(("project_cat", tr.cat_external_crates));
+                        egui::collapsing_header::CollapsingState::load_with_default_open(
+                            ctx, id, true,
+                        )
+                        .store(ctx);
+                        let cur = None;
+                        panel.show_category(
+                            ui,
+                            Category::ExternalCrates,
+                            proj,
+                            &cur,
+                            out,
+                            &tr,
+                        );
+                    });
+                });
+        })
+        .textures_delta
+        .clear();
+    }
+
+    /// Spec 044 R2/R3 (AC2's tree half) — a registered pin renders as a
+    /// `name version` row under External Crates, and clicking it asks for the
+    /// dialog rather than any file operation.
+    #[test]
+    fn a_pin_renders_as_a_row_and_a_click_opens_the_dialog() {
+        let ctx = egui::Context::default();
+        let proj = demo_project();
+        let mut panel = ProjectPanel::new();
+        let mut out: Vec<ProjectPanelEvent> = Vec::new();
+
+        frame(&ctx, 0.00, vec![], &mut panel, &proj, &mut out);
+        frame(&ctx, 0.40, vec![], &mut panel, &proj, &mut out);
+        let row: egui::Rect = ctx
+            .data(|d| d.get_temp(egui::Id::new(("crate_row_probe", "csv"))))
+            .expect("crate row probe not set — the csv 1.4.0 row did not render");
+
+        let p = row.center();
+        frame(
+            &ctx,
+            0.45,
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            &mut panel,
+            &proj,
+            &mut out,
+        );
+        frame(
+            &ctx,
+            0.50,
+            vec![egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            &mut panel,
+            &proj,
+            &mut out,
+        );
+
+        assert!(
+            out.iter()
+                .any(|e| matches!(e, ProjectPanelEvent::OpenExternalCrates)),
+            "clicking the crate row at {p:?} must ask for the External \
+             Crates dialog ({} events seen)",
+            out.len()
+        );
+        assert!(
+            !out.iter().any(|e| matches!(
+                e,
+                ProjectPanelEvent::Open(_) | ProjectPanelEvent::Create(_)
+            )),
+            "a crate row must never route to file events"
         );
     }
 }

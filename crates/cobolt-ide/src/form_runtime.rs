@@ -625,7 +625,8 @@ mod form_codegen_roundtrip_tests {
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::{parse, Severity as PSev};
     use cobolt_runtime::{FormEvent, Interpreter};
-    use cobolt_semantic::analyze;
+    // Spec 044 R20 — the service wrapper allows registered External Crates.
+    use crate::external_crates_service::analyze_project as analyze;
     use std::sync::mpsc;
     use std::thread;
 

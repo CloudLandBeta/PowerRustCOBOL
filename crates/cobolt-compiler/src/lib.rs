@@ -54,6 +54,9 @@ use serde::Deserialize;
 use thiserror::Error;
 
 pub mod exec_rust;
+pub mod external_crates;
+
+pub use external_crates::ExternalCrate;
 
 // ── License / NOTICE assets ─────────────────────────────────────────────────────
 //
@@ -147,6 +150,11 @@ pub enum CompilerError {
 
     #[error("cargo build failed (exit {code}):\n{stderr}")]
     CargoBuild { code: i32, stderr: String },
+
+    /// A registered External Crate cannot be used as recorded (spec 044) —
+    /// e.g. its vendored source under the project's `crates/` is missing.
+    #[error("external crate error: {0}")]
+    ExternalCrate(String),
 
     /// A `rustc` error inside a developer's `EXEC RUST` block, reported against
     /// their COBOL source rather than the generated file (spec 041 R10).
@@ -280,6 +288,10 @@ struct CoboltProject {
     files: ProjectFiles,
     #[serde(default)]
     forms: FormsConfig,
+    /// Registered External Crates (spec 044) — `[[crates]]` pins vendored
+    /// under the project's `crates/`. Absent in old projects ⇒ empty.
+    #[serde(default)]
+    crates: Vec<ExternalCrate>,
 }
 
 /// Resolve the project's entry program as a path relative to the project root.
@@ -463,7 +475,7 @@ pub fn build_project(
         .map(|p| p.to_owned())
         .unwrap_or_else(|| PathBuf::from("."));
 
-    build_core(proj, project_dir, opts)
+    build_core(proj, project_dir, opts, true)
 }
 
 /// Compile a single standalone COBOL source file (no `cobolt.toml`) into a
@@ -497,8 +509,11 @@ pub fn build_single_file(
         },
         files: ProjectFiles::default(),
         forms: FormsConfig::default(),
+        // Single-file builds have no project, hence no External Crates
+        // (spec 044 R22).
+        crates: Vec::new(),
     };
-    build_core(proj, project_dir, opts)
+    build_core(proj, project_dir, opts, false)
 }
 
 /// The generated crate/binary name from the project name. Cargo package
@@ -596,6 +611,10 @@ fn build_core(
     proj: CoboltProject,
     project_dir: PathBuf,
     opts: &BuildOptions,
+    // Spec 044 R21/R22 — whether a real `cobolt.toml` backs this build. It
+    // decides the unregistered-crate message: a project is told to use
+    // External Crates, a lone `.cbl` that external crates require a project.
+    has_project: bool,
 ) -> Result<BuildResult, CompilerError> {
     // Detail lines (file counts, sizes) stream to the UI too, flagged so
     // they land in the build-details log rather than on the progress bar.
@@ -678,7 +697,7 @@ fn build_core(
     // ── 3. Parse + semantic-check every source ────────────────────────────────
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
-    use cobolt_semantic::{analyze, Severity};
+    use cobolt_semantic::{analyze_with, AnalyzeOptions, Severity};
 
     // We compile the main source into the primary Program.
     // Additional sources are currently compiled independently and merged via
@@ -705,7 +724,15 @@ fn build_core(
     })?;
 
     report(0.30, "Semantic analysis…");
-    let sem = analyze(&program);
+    // Spec 044 R20 — registered External Crates extend the block allowlist;
+    // their `use`-line names come from the project's pins.
+    let sem = analyze_with(
+        &program,
+        &AnalyzeOptions {
+            external_crates: has_project
+                .then(|| proj.crates.iter().map(|c| c.lib_name()).collect()),
+        },
+    );
     for d in &sem.diagnostics {
         if d.severity == Severity::Error {
             return Err(CompilerError::Semantic {
@@ -770,27 +797,7 @@ fn build_core(
     log(&format!("   {} form(s)", forms.len()));
 
     // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
-    let has_crates = |root: &Path| root.join("crates").join("cobolt-ast").is_dir();
-    let workspace_root = opts
-        .workspace_root
-        .clone()
-        // Walk up from the running exe — works when launched from the source tree.
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| find_workspace_root(&p))
-        })
-        .filter(|p| has_crates(p))
-        // Compile-time fallback: the PowerRustCOBOL workspace this compiler was
-        // built in. Works when the IDE runs from an installed location (e.g. a
-        // macOS .app) whose path is outside the source tree.
-        .or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors()
-                .nth(2) // crates/cobolt-compiler → crates → workspace
-                .map(Path::to_path_buf)
-                .filter(|p| has_crates(p))
-        });
+    let workspace_root = resolve_workspace_root(opts.workspace_root.clone());
 
     let workspace_root = match workspace_root {
         Some(root) => root,
@@ -926,7 +933,19 @@ fn build_core(
     // a dialog from an otherwise console program, which is the reason to want
     // them there.
     let links_gui = has_forms || blocks.block_count > 0 || blocks.item_count > 0;
-    let cargo_toml = generate_cargo_toml(&bin_name, &proj.project.version, &crates_path, links_gui);
+    // Spec 044 R10 — every pin must have its vendored source before staging;
+    // a missing dir fails here with the fix named, never a silent registry
+    // fallback that would un-pin the build.
+    external_crates::validate_pins(&project_dir, &proj.crates)
+        .map_err(CompilerError::ExternalCrate)?;
+    let cargo_toml = generate_cargo_toml(
+        &bin_name,
+        &proj.project.version,
+        &crates_path,
+        links_gui,
+        &project_dir,
+        &proj.crates,
+    );
     write_if_changed(&build_dir.join("Cargo.toml"), cargo_toml.as_bytes())?;
 
     // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
@@ -1157,6 +1176,14 @@ fn build_core(
         ));
     }
 
+    // Spec 044 R24/R25 — the External Crates manifest ships with the binary;
+    // with no registered crates a stale one from an earlier build is removed.
+    match external_crates::write_rust_manifest(&dest_path, &proj.project.name, &proj.crates) {
+        Ok(Some(path)) => log(&format!("📄 Wrote {}", path.display())),
+        Ok(None) => {}
+        Err(e) => log(&format!("⚠️  Could not write the crate manifest: {e}")),
+    }
+
     report(1.0, "Done");
     Ok(BuildResult {
         binary_path: dst_bin,
@@ -1290,25 +1317,40 @@ fn stage_theme_packs(
 
 // ── Code generators ───────────────────────────────────────────────────────────
 
-fn generate_cargo_toml(
-    bin_name: &str,
-    version: &str,
-    crates_path: &Path,
-    has_forms: bool,
-) -> String {
-    let cp = crates_path.display();
+/// Where the `cobolt-*` workspace crates live — the exact resolution
+/// `build_core` uses, exported so the External Crates resolver probe (spec
+/// 044 R11) stages against the same paths a real build would: an explicit
+/// override first, then walking up from the running executable (source-tree
+/// launches), then the compile-time workspace path (installed IDE). `None`
+/// when no candidate has `crates/cobolt-ast`.
+pub fn resolve_workspace_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
+    let has_crates = |root: &Path| root.join("crates").join("cobolt-ast").is_dir();
+    explicit
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| find_workspace_root(&p))
+        })
+        .filter(|p| has_crates(p))
+        .or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .nth(2) // crates/cobolt-compiler → crates → workspace
+                .map(Path::to_path_buf)
+                .filter(|p| has_crates(p))
+        })
+}
+
+/// The `[dependencies]` block every generated program shares. Also the base
+/// of the External Crates resolver probe (spec 044 R11) — the probe stages
+/// this exact text, so its verdict cannot drift from the real build. Paths go
+/// through `external_crates::toml_path` (absolute, forward-slashed): cargo
+/// resolves `path =` against the manifest that names it, and backslashes are
+/// TOML escapes.
+pub(crate) fn base_dependency_block(crates_path: &Path, has_forms: bool) -> String {
+    let cp = external_crates::toml_path(crates_path);
     let mut s = format!(
-        r#"[package]
-name    = "{bin_name}"
-version = "{version}"
-edition = "2021"
-
-[[bin]]
-name = "{bin_name}"
-path = "src/main.rs"
-
-[dependencies]
-cobolt-ast      = {{ path = "{cp}/cobolt-ast" }}
+        r#"cobolt-ast      = {{ path = "{cp}/cobolt-ast" }}
 cobolt-runtime  = {{ path = "{cp}/cobolt-runtime" }}
 flate2          = "1"
 bincode         = "1"
@@ -1339,6 +1381,47 @@ pollster        = "0.3"
 zune-jpeg       = {{ version = "0.5", features = ["log"] }}
 "#
         ));
+    }
+
+    s
+}
+
+fn generate_cargo_toml(
+    bin_name: &str,
+    version: &str,
+    crates_path: &Path,
+    has_forms: bool,
+    project_dir: &Path,
+    pins: &[ExternalCrate],
+) -> String {
+    // The empty `[workspace]` table detaches the generated package: a user's
+    // project can live under someone else's cargo workspace, and without it
+    // cargo adopts the build into that workspace and refuses to resolve
+    // (spec 044, prototype-found).
+    let mut s = format!(
+        r#"[package]
+name    = "{bin_name}"
+version = "{version}"
+edition = "2021"
+
+[workspace]
+
+[[bin]]
+name = "{bin_name}"
+path = "src/main.rs"
+
+[dependencies]
+"#
+    );
+    s.push_str(&base_dependency_block(crates_path, has_forms));
+
+    // Registered External Crates (spec 044 R7/R10/R15): exact pins, with the
+    // vendored source patched in as THE copy cargo uses everywhere.
+    let (pin_deps, patches) = external_crates::pin_sections(project_dir, pins);
+    s.push_str(&pin_deps);
+    if !patches.is_empty() {
+        s.push_str("\n[patch.crates-io]\n");
+        s.push_str(&patches);
     }
 
     s
@@ -1912,7 +1995,7 @@ A developer-defined type must implement `Default` — that is what the first blo
 - **A panic is catchable**: `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it, `DISPLAY e` prints the panic's plain text, and the program continues. A plain `CATCH EXCEPTION` does **not** catch a panic, and a COBOL `THROW` does not reach a `RUST-EXCEPTION` clause; a `TRY` may carry both clauses.
 - **State is shared for the whole process.** Two blocks — in different paragraphs, or in a form event handler — see the same objects. `CANCEL` does not reset it.
 - **COBOL reading a bound item sees its VALUE (1.60.23+).** `DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and `SET Label-1::Caption TO clicked-button` all yield what the block last wrote (`String`, any integer width, floats, bool). ⚠️ **Before 1.60.23 they yielded the item's internal handle id** — a small integer that reflected declaration order, so a program whose second item was read always showed "2" regardless of what the block computed. If a program built before 1.60.23 shows a constant small number where a result should be, that is this bug: rebuild. Types with no scalar rendering (Vec, HashMap, developer types) still read as the handle id. Writing to a bound item from plain COBOL (`MOVE 5 TO clicked-button`) does NOT reach the Rust value — write inside a block instead.
-- **Crates**: `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. A `use` of anything else is rejected, naming the crate.
+- **Crates**: always `std`, plus `eframe`, `egui`, `egui_extras`, `cobolt_forms`, `cobolt_runtime`. A program containing any block links the GUI crates even with no forms, so a console program can open a window. **Beyond that floor, a project may register any crate from the registry under Project's Crates (1.60.47+, shown in the tree as "Project's Crates (Beta)")** — the project tree category below Generated Code, whose dialog searches crates.io (or a configured mirror) and shows the matches as a paged table (50 per page, name · version · downloads · description) that the developer browses and clicks to pick. Adding pins an exact version, vendors the source into the project's `crates/`, and compiles it into the binary. A registered crate is then used with a plain `use`, writing a hyphenated name with underscores (`serde-json` → `use serde_json::…`). A `use` of a crate that is neither linked nor registered is still rejected, naming the crate — in a project the message points at Project's Crates, in a single-file `rcrun` build it says external crates require a project. Adding needs the network; building does not. Conflicts are decided when the developer adds: a name already linked (`egui`) is refused as already available, a crate that cannot coexist is refused with cargo's own reason, and one that would bring a second incompatible copy is allowed with a warning. Every build writes `rust_manifest.md` (name, exact version, registry URL) beside the binary in the destination folder. **Do not tell a developer that third-party crates are unsupported** — that was true only before 1.60.47; tell them to add it under Project's Crates.
 - **eframe here is 0.36.** Its `App` trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` — there is no `update`. Tutorials written for older eframe will not compile; port them to `ui`, and use `ui.ctx()` where they use `ctx`.
 - **`eframe::run_native` CANNOT be called from a form's event handler — and since 1.60.14 the BUILD REJECTS IT.** A project with forms whose block calls `run_native` (or `EventLoop::new`) fails to build, reported at the developer's own line and column. **To open a window from a handler use `cobolt_windows::open` instead** (see below) — that is the supported route, and the error says so. Why `run_native` cannot work: a form application already owns the process's one winit event loop, created on the main thread; the COBOL interpreter — and therefore every block in a handler — runs on a worker thread. winit's `EVENT_LOOP_CREATED` guard is process-global and is checked before any platform code, so the second call returns **`Err(EventLoopError::RecreationAttempt)`**. It does **not** panic, so `CATCH RUST-EXCEPTION` never fires; and the usual `let _ = eframe::run_native(...)` discards the `Err`. Before the build-time rejection the result was no window, no error, no output — the handler appeared to do nothing. Never advise `run_native` from a handler, and never suggest "open a second egui viewport" as the alternative: a block receives only `env`, `objects` and `bridge`, so it has no `egui::Context` to open one with. From a handler, drive the form's own controls through `cobolt_objects`, or show a second form designed in the RAD. `run_native` belongs to **console** programs, where the interpreter owns the main thread, and is not rejected there.
 - **A block CAN change a control, through `cobolt_objects`.** Write the property and the window repaints when the block returns: `cobolt_objects.set_property("LABEL-1", "Caption", "Done");`. Property names are case-insensitive. ⚠️ **This did not work before 1.60.14**: block execution had no channel to the window, so the write landed in the registry and the form never showed it. Do not repeat the old advice to reach for `COBOL-SET-PROPERTY` *because* the block route is broken — it is not broken any more, though `COBOL-SET-PROPERTY` remains correct and unchanged. **Always use `set_property`; never advise `cobolt_objects.get_mut("X").unwrap()`** — a running form registers a control on first write, so `get_mut` returns `None` for one not yet written and the `unwrap` panics. For the same reason a block cannot READ a control's designed value, only one it set itself: to read what the operator typed, use `TextBox-1::Text` in COBOL and pass the item into the block.
@@ -3531,6 +3614,7 @@ mod resolve_main_tests {
                 ..Default::default()
             },
             forms: FormsConfig::default(),
+            crates: Vec::new(),
         }
     }
 
@@ -3732,7 +3816,7 @@ mod resolve_main_tests {
             true,
         );
         let cargo_toml =
-            generate_cargo_toml("gencompilecheck", "0.1.0", &crates_path, true);
+            generate_cargo_toml("gencompilecheck", "0.1.0", &crates_path, true, &dir, &[]);
         std::fs::write(dir.join("src/main.rs"), &main_rs).unwrap();
         std::fs::write(dir.join("Cargo.toml"), &cargo_toml).unwrap();
         // `main.rs` declares `mod exec_rust_blocks;` unconditionally, so the
@@ -3841,6 +3925,8 @@ mod resolve_main_tests {
                 "0.1.0",
                 &crates_path,
                 blocks.block_count > 0 || blocks.item_count > 0,
+                &dir,
+                &[],
             ),
         )
         .unwrap();
@@ -4015,6 +4101,8 @@ mod resolve_main_tests {
                 "0.1.0",
                 &workspace_root.join("crates"),
                 blocks.block_count > 0 || blocks.item_count > 0,
+                &dir,
+                &[],
             ),
         )
         .unwrap();

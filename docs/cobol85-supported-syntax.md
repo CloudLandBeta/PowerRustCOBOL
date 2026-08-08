@@ -88,6 +88,11 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 File verbs) · `CANCEL` (re‑initialises the program's storage) ·
 ⚠️ `INVOKE` (parsed as no‑op)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
+A block may `use` the always-linked crates (std, egui, eframe and the linked
+runtime set) **plus any crate the project registers under Project's Crates**
+(spec 044): registered crates are pinned to an exact version, vendored in the
+project's `crates/`, and compiled into the binary; unregistered crates fail
+Check/Build at the developer's line with the remedy named.
 
 ✅ `SEARCH` (serial) / `SEARCH ALL` (binary search over an `ASCENDING`/
 `DESCENDING KEY` table — runs the first matching `WHEN`, else `AT END`).

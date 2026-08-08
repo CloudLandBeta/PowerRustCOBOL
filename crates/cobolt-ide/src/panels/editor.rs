@@ -1505,6 +1505,7 @@ fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f
                             active_match: None,
                             scroll_to_active: false,
                             anchors: &[],
+                            table_layout: crate::panels::md_render::TableLayout::Equal,
                         };
                         crate::panels::md_render::render(
                             ui,

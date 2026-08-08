@@ -1145,7 +1145,8 @@ fn validate_handler_semantics(
     let Some(program) = parsed.program else {
         return Vec::new();
     };
-    let sem = cobolt_semantic::analyze(&program);
+    // Spec 044 R20 — the service wrapper allows registered External Crates.
+    let sem = crate::external_crates_service::analyze_project(&program);
 
     // Locate this handler's nested program (`PROGRAM-ID. <id>.` … `END PROGRAM
     // <id>.`) so only its diagnostics are attributed to the candidate.

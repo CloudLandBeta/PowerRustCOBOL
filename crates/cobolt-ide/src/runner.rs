@@ -38,7 +38,9 @@ use std::thread::{self, JoinHandle};
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 use cobolt_runtime::{new_breakpoints, Breakpoints, DebugCmd, DebugEvent, Interpreter};
-use cobolt_semantic::analyze;
+// Spec 044 R20 — analysis goes through the service wrapper so registered
+// External Crates are allowed in blocks on every surface.
+use crate::external_crates_service::analyze_project as analyze;
 
 // ── Debug instrumentation ─────────────────────────────────────────────────────
 

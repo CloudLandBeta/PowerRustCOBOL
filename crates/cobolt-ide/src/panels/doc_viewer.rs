@@ -656,6 +656,7 @@ impl DocViewer {
                     active_match: active,
                     scroll_to_active: scroll_active,
                     anchors: &anchors,
+                    table_layout: md_render::TableLayout::Equal,
                 };
                 md_render::render(ui, &source, &opts, &mut |ui, code| {
                     draw_mermaid(mermaid, ui, code, mtr);

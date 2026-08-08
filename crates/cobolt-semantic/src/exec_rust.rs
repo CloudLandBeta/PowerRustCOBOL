@@ -43,6 +43,7 @@ pub fn resolve_bindings(
     program: &Program,
     symbols: &SymbolTable,
     diagnostics: &mut Vec<SemanticDiagnostic>,
+    opts: &crate::AnalyzeOptions,
 ) {
     walk_stmts_in_program(program, &mut |stmt| {
         if let Stmt::ExecRust { source, span, .. } = stmt {
@@ -52,16 +53,23 @@ pub fn resolve_bindings(
             // handing one to compiled Rust would mean re-implementing COBOL's
             // numeric and padding rules inside generated code. Move it through
             // an object with `INVOKE` / `::` instead, outside the block.
-            // R16 — a crate the build does not link cannot compile, and saying
-            // so here names the crate the developer wrote rather than leaving
-            // `rustc` to complain about generated code.
-            for krate in unlinked_crates(source) {
+            // 041 R16 + 044 R20/R21/R22 — a crate the build does not link
+            // cannot compile; saying so here names the crate the developer
+            // wrote rather than leaving `rustc` to complain about generated
+            // code, and names the remedy: the project's External Crates when
+            // there is a project, "use a project" when there is not.
+            let registered = opts.external_crates.as_deref();
+            for krate in unlinked_crates(source, registered.unwrap_or(&[])) {
+                let remedy = if registered.is_some() {
+                    "add it under Project's Crates in the project tree to use it"
+                } else {
+                    "external crates require a project"
+                };
                 diagnostics.push(SemanticDiagnostic {
                     severity: Severity::Error,
                     message: format!(
                         "EXEC RUST uses crate `{krate}`, which this build does not \
-                         link — arbitrary crates are not yet supported; std, egui \
-                         and eframe are available"
+                         link — {remedy}; std, egui and eframe are always available"
                     ),
                     span: *span,
                 });
@@ -179,14 +187,17 @@ pub fn collect_bindings(source: &str, symbols: &SymbolTable) -> Vec<(String, Str
     out
 }
 
-/// Crates a block may draw on (spec 041 R16).
+/// Crates a block may always draw on (spec 041 R16).
 ///
 /// Not `std` alone: **every** generated program already links these, because
 /// `generate_cargo_toml` emits them into the crate `cargo` builds. egui is the
-/// standard GUI for PowerRustCOBOL — the IDE *and* the application — so a block
-/// using it needs no vendoring and compiles today. What v1 defers is an
-/// arbitrary third-party dependency, which needs a manifest story first.
-const LINKED_CRATES: &[&str] = &[
+/// standard GUI for PowerRustCOBOL — the IDE *and* the application. Beyond
+/// this floor, a project extends the set by registering External Crates
+/// (spec 044) — those names arrive through [`crate::AnalyzeOptions`].
+///
+/// `pub` for the parity test in `cobolt-compiler`: every real crate named
+/// here must be one the generated manifest actually links (plan 044 §4d).
+pub const LINKED_CRATES: &[&str] = &[
     // Always available to any Rust code.
     "std",
     "core",
@@ -204,12 +215,13 @@ const LINKED_CRATES: &[&str] = &[
 ];
 
 /// Report any `use <crate>::…` in `source` naming a crate the build does not
-/// link (spec 041 R16).
+/// link (spec 041 R16) and the project has not registered (spec 044 R20 —
+/// `registered` carries the External Crates' `use`-line names).
 ///
 /// Only `use` declarations are inspected — the clear, greppable signal. A bare
 /// `some_crate::f()` with no `use` would slip through and be caught by `rustc`
 /// instead, with a worse message but a correct verdict.
-fn unlinked_crates(source: &str) -> Vec<String> {
+fn unlinked_crates(source: &str, registered: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     for line in source.lines() {
         let line = line.trim();
@@ -222,7 +234,10 @@ fn unlinked_crates(source: &str) -> Vec<String> {
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
             .collect();
-        if root.is_empty() || LINKED_CRATES.contains(&root.as_str()) {
+        if root.is_empty()
+            || LINKED_CRATES.contains(&root.as_str())
+            || registered.iter().any(|r| r == &root)
+        {
             continue;
         }
         if !out.contains(&root) {

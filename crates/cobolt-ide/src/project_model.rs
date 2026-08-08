@@ -55,6 +55,11 @@ pub struct CoboltProject {
     /// Project-scoped reusable composite controls (spec 020).
     #[serde(default, rename = "user-controls")]
     pub user_controls: Vec<UserControlDef>,
+    /// Registered External Crates (spec 044) — `[[crates]]` pins whose source
+    /// is vendored under the project's `crates/`. The type is the compiler's:
+    /// `rcrun build` reads the same records with no IDE involved.
+    #[serde(default)]
+    pub crates: Vec<cobolt_compiler::ExternalCrate>,
     /// Project-scoped third-party integration settings (spec 039) — the
     /// non-secret half only; the google_maps and Custom Search API keys
     /// stay in the machine-local secret store like every other credential
@@ -621,6 +626,7 @@ impl CoboltProject {
             forms: FormsConfig::new_project_defaults(),
             ai: ProjectAiSettings::new(),
             user_controls: Vec::new(),
+            crates: Vec::new(),
             integrations: ProjectIntegrationSettings::default(),
         }
     }
@@ -631,6 +637,11 @@ impl CoboltProject {
     /// (so a `.cbl` can be added as Common Code even though its extension is the
     /// same as a generated file).
     pub fn add_file_to(&mut self, rel: &str, category: Category) {
+        // External Crates holds registered crates, not tracked files — its
+        // add action is the dialog, never a file (spec 044 R3).
+        if matches!(category, Category::ExternalCrates) {
+            return;
+        }
         let rel = rel.replace('\\', "/");
         let list = self.list_mut(category);
         if !list.contains(&rel) {
@@ -661,6 +672,11 @@ impl CoboltProject {
             Category::Documentation => &mut self.files.documentation,
             Category::Generated => &mut self.files.generated,
             Category::IndexedFiles => &mut self.files.indexed,
+            // Unreachable: `add_file_to` returns before routing here, and no
+            // `FileKind` maps to the category (spec 044 R3 — crates ≠ files).
+            Category::ExternalCrates => {
+                unreachable!("External Crates is not a file category")
+            }
         }
     }
 
@@ -803,6 +819,9 @@ impl CoboltProject {
             Category::Documentation => &self.files.documentation,
             Category::Generated => &self.files.generated,
             Category::IndexedFiles => &self.files.indexed,
+            // Crates are pins, not tracked files (spec 044 R3); the tree
+            // renders them from `self.crates` instead.
+            Category::ExternalCrates => &[],
         }
     }
 
@@ -873,18 +892,24 @@ pub enum Category {
     CommonCode,
     /// RAD output — its own read-only top category (one file per form).
     Generated,
+    /// Registered third-party Rust crates (spec 044) — one node per pin, not
+    /// a file list; its rows come from `CoboltProject::crates` and its `[+]`
+    /// opens the External Crates dialog instead of a file picker.
+    ExternalCrates,
     Assets,
     Documentation,
 }
 
 impl Category {
     /// The fixed top categories, in display order. `Generated` is IDE-owned and
-    /// read-only (developers cannot add to it — forms populate it).
-    pub const TOP: [Category; 6] = [
+    /// read-only (developers cannot add to it — forms populate it). External
+    /// Crates sits after it, before Assets (spec 044 R1/Q5).
+    pub const TOP: [Category; 7] = [
         Category::Forms,
         Category::IndexedFiles,
         Category::CommonCode,
         Category::Generated,
+        Category::ExternalCrates,
         Category::Assets,
         Category::Documentation,
     ];
@@ -904,6 +929,7 @@ impl Category {
             Category::IndexedFiles => "indexed",
             Category::CommonCode => "src",
             Category::Generated => "generated",
+            Category::ExternalCrates => cobolt_compiler::external_crates::VENDOR_SUBDIR,
             Category::Assets => "Assets",
             Category::Documentation => cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
         }
@@ -1397,6 +1423,58 @@ mod tests {
         CoboltProject::new("T", "src/main.cbl")
     }
 
+    /// Spec 044 R1/Q5 — External Crates is a fixed top category after
+    /// Generated Code and before Assets, rooted at the project's `crates/`,
+    /// addable (its add action is the dialog, not a file picker).
+    #[test]
+    fn external_crates_category_shape() {
+        let pos = Category::TOP
+            .iter()
+            .position(|c| *c == Category::ExternalCrates)
+            .expect("External Crates must be a TOP category");
+        assert_eq!(Category::TOP[pos - 1], Category::Generated);
+        assert_eq!(Category::TOP[pos + 1], Category::Assets);
+        assert!(Category::ExternalCrates.is_addable());
+        assert_eq!(Category::ExternalCrates.root_subdir(), "crates");
+        assert_eq!(
+            Category::from_root_component("crates/csv-1.4.0"),
+            Some(Category::ExternalCrates)
+        );
+    }
+
+    /// Spec 044 R8/R10 — pins round-trip through the IDE's own serialization,
+    /// and a pre-044 manifest (no `[[crates]]`) loads as empty.
+    #[test]
+    fn crate_pins_round_trip_through_project_save() {
+        let mut p = proj();
+        p.crates.push(cobolt_compiler::ExternalCrate {
+            name: "csv".into(),
+            requirement: String::new(),
+            version: "1.4.0".into(),
+            features: vec!["serde".into()],
+            url: "https://crates.io/crates/csv".into(),
+        });
+        let text = toml::to_string_pretty(&p).unwrap();
+        let back: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(back.crates.len(), 1);
+        assert_eq!(back.crates[0].version, "1.4.0");
+        assert_eq!(back.crates[0].features, vec!["serde".to_string()]);
+
+        let pre044 = toml::to_string_pretty(&proj()).unwrap();
+        let old: CoboltProject = toml::from_str(&pre044).unwrap();
+        assert!(old.crates.is_empty());
+    }
+
+    /// Spec 044 R3 — the category is not a file list: `add_file_to` routed at
+    /// it is a no-op and `files_in` is empty.
+    #[test]
+    fn external_crates_is_not_a_file_list() {
+        let mut p = proj();
+        p.add_file_to("crates/rogue.rs", Category::ExternalCrates);
+        assert!(p.files_in(Category::ExternalCrates).is_empty());
+        assert!(p.all_files().all(|f| f != "crates/rogue.rs"));
+    }
+
     /// 038 — window-effect settings: pre-038 toml ⇒ no effects; a NEW project
     /// starts with the Matrix entrance; explicit values round-trip.
     #[test]
@@ -1680,6 +1758,8 @@ main = "src/main.cbl"
                 Category::IndexedFiles,
                 Category::CommonCode,
                 Category::Generated,
+                // Spec 044 R1/Q5 — External Crates after Generated Code.
+                Category::ExternalCrates,
                 Category::Assets,
                 Category::Documentation,
             ]

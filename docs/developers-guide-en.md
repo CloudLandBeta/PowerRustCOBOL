@@ -2567,6 +2567,114 @@ viewport as used for the current pass and drops it otherwise. Your block runs
 once, off the main thread, so it cannot do that. It hands over what to draw, and
 the form application replays it every frame on your behalf.
 
+### Project's Crates (Beta) — third-party libraries for your blocks
+
+> **Beta.** The feature is complete and tested, and the tree calls it
+> *Project's Crates (Beta)* so you know its edges are still being found —
+> the pin format in `cobolt.toml`, the conflict wording and the dialog may
+> still move. What a project records today keeps working.
+
+Out of the box a block may use the Rust standard library and the GUI stack
+every program already links. Everything else comes from **Project's Crates**:
+a project-level catalogue of third-party libraries you pick from the community
+registry (crates.io), the way you once picked OCXs or `.jar` files for
+PowerCOBOL or isCOBOL projects — except the catalogue is searchable from
+inside the IDE and the download, version pinning and licensing paperwork are
+handled for you.
+
+**Adding one.** In the project tree, the **Project's Crates (Beta)** node
+sits below Generated Code. Click its `[+]` (or any crate row) to open the
+dialog:
+
+📷 Screenshot needed — project-crates-dialog.png (the Project's Crates dialog
+over a project: a search for "csv" showing the results table, one crate
+registered in the list below, the log pane narrating an add. Capture after
+adding `csv`.)
+
+1. **Search** — type what you need ("csv", "regex", "barcode") and press
+   Enter. The matches arrive as a table — **crate, version, downloads,
+   description** — 50 to a page, with `◀` / `▶` and a "Page 2/7 — 318
+   results" counter beneath it, so you can browse everything the registry has
+   rather than a truncated handful. Download counts are the quickest way to
+   tell an established library from an abandoned experiment. **Click a crate
+   name** in the table to pick it. The first three columns are only as wide
+   as their contents so the description gets the rest of the room; drag any
+   column boundary to change that split.
+2. **Version requirement** (optional) — leave it empty to take the newest
+   stable release, or write a cargo-style requirement such as `^1.3` or
+   `=1.3.6` to hold a line.
+3. **Features** (optional, comma-separated) — some libraries keep parts of
+   themselves behind named switches; the crate's own page (the ↗ link) lists
+   them. `serde` needs its `derive` feature to be useful, for example.
+4. **Add** — the IDE resolves the newest version matching your requirement,
+   checks it against everything PowerRustCOBOL itself links, downloads its
+   source into the project's `crates/` folder, and records it in the project.
+
+From then on the block simply names it — no other ceremony:
+
+```cobol
+           EXEC RUST
+           use csv::ReaderBuilder;
+           let mut rows = 0_i64;
+           let mut rdr = ReaderBuilder::new()
+               .from_reader(order_data.as_bytes());
+           for rec in rdr.records() {
+               let _ = rec?;
+               rows += 1;
+           }
+           END-EXEC.
+```
+
+A library name with a hyphen is written with an underscore inside the block:
+register `serde-json`, write `use serde_json::…;`.
+
+**Pinned means pinned.** The add records the *exact* version and keeps its
+source inside your project. Builds use that copy and nothing else — a release
+on the internet next month changes nothing here. When *you* want newer, press
+**Update** on one crate or **Update All** on the category; each crate moves to
+the newest version its recorded requirement allows and the dialog reports
+`old → new`, `current`, or `failed` per crate. A crate added with `=1.3.6`
+reports `current` forever — that is what an exact pin is for; to change the
+requirement itself, remove and re-add.
+
+**Conflicts are settled when you add, not when you build.** Three outcomes:
+
+- *Already available* — you asked for something every program links anyway
+  (`egui`, `eframe`, …). Nothing to add; use it directly.
+- *Refused* — the library cannot coexist with what PowerRustCOBOL links, for
+  example two claimants for one native library. The dialog shows the exact
+  reason. Your project is left untouched.
+- *Allowed with a warning* — the library drags in a second, incompatible copy
+  of something already present. It works, but the two copies do not mix; the
+  warning names them so the surprise is now, not at three in the morning.
+
+**What ships.** Registered crates are compiled into your program's single
+binary like everything else — end users still install nothing. Every build
+also writes **`rust_manifest.md`** next to the binary in the destination
+folder (`dist/` unless you chose otherwise): a table of every external crate
+in the binary — name, exact version, and the registry page it came from — the
+document an auditor asks for. A build with no external crates removes a stale
+manifest, so the folder never claims code the binary does not contain.
+
+**Removing.** The ✖ button asks for confirmation, then deletes the record and
+the downloaded source — never your COBOL. A block still naming the crate
+fails the next Check with a message pointing back at Project's Crates.
+
+> **Notes**
+>
+> - Adding and updating need the network; building does not (the source is
+>   already in your project). The first build after an add may still fetch
+>   the library's own dependencies.
+> - The registry searched is an IDE-wide setting shown at the top of the
+>   dialog — point it at a company mirror and every search, add and update
+>   uses the mirror; crates already pinned are untouched until you update.
+> - The `crates/` folder belongs to Project's Crates. Don't hand-edit what is
+>   vendored there (updates replace it), and if a folder of your own already
+>   sits at `crates/`, the dialog refuses to touch it and says so.
+> - ⚠️ Opening a project that uses Project's Crates in an **older**
+>   PowerRustCOBOL builds without them, and blocks then fail Check with an
+>   unregistered-crate error — upgrade the IDE rather than re-adding.
+
 ---
 
 ## 14. Indexed files — a first-class resource

@@ -301,6 +301,10 @@ pub struct CoboltApp {
     // Project model
     cobolt_project: Option<CoboltProject>,
     project_path: Option<PathBuf>,
+    /// External Crates dialog visibility (spec 044) — opened from the
+    /// project tree's category; state lives in `external_crates_panel`.
+    show_external_crates: bool,
+    external_crates_panel: crate::panels::external_crates::ExternalCratesPanel,
     pending_form_delete: Option<PathBuf>,
     pending_generated_delete: Option<PathBuf>,
     pending_asset_delete: Option<PathBuf>,
@@ -1075,6 +1079,8 @@ impl CoboltApp {
 
             cobolt_project: None,
             project_path: None,
+            show_external_crates: false,
+            external_crates_panel: crate::panels::external_crates::ExternalCratesPanel::new(),
             pending_form_delete: None,
             pending_generated_delete: None,
             pending_asset_delete: None,
@@ -1989,7 +1995,8 @@ impl CoboltApp {
     /// false-flags another.
     fn validate_form_source(form: &Form) -> Vec<crate::runner::DiagMsg> {
         use crate::runner::{DiagMsg, DiagSeverity};
-        use cobolt_semantic::analyze;
+        // Spec 044 R20 — the service wrapper allows registered External Crates.
+        use crate::external_crates_service::analyze_project as analyze;
         // Generated form source is always free-form.
         let src = cobolt_codegen::generate(form);
         let parse_result = parse(tokenize(&src, SourceFormat::Free));
@@ -2115,7 +2122,8 @@ impl CoboltApp {
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
         use cobolt_lexer::{tokenize, SourceFormat};
         use cobolt_parser::parse;
-        use cobolt_semantic::analyze;
+        // Spec 044 R20 — the service wrapper allows registered External Crates.
+        use crate::external_crates_service::analyze_project as analyze;
 
         let fmt = if source.lines().any(|l| {
             let b = l.as_bytes();
@@ -7009,6 +7017,7 @@ impl CoboltApp {
                                 active_match: None,
                                 scroll_to_active: false,
                                 anchors: &[],
+                                table_layout: crate::panels::md_render::TableLayout::Equal,
                             };
                             Self::render_benchmark_metadata(ui, &benchmark_cfg, &metrics, &report);
                             ui.add_space(12.0);
@@ -10165,6 +10174,14 @@ impl eframe::App for CoboltApp {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
+        // Spec 044 R20 — publish the project's registered crates for every
+        // semantic-analysis site (Check/Run/Debug/Build workers included),
+        // the same per-frame in-process sync the theme and debug switches use.
+        crate::external_crates_service::set_active_project_crates(
+            self.cobolt_project
+                .as_ref()
+                .map(|p| p.crates.iter().map(|c| c.lib_name()).collect()),
+        );
         // Remember the language across restarts. Written only on a real change,
         // so this costs nothing on a normal frame.
         if self.lang != self.lang_persisted {
@@ -10509,6 +10526,34 @@ impl eframe::App for CoboltApp {
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
         self.show_ai_setup_modal(ctx, &tr);
+        // External Crates (spec 044): the service mutates `cobolt.toml` on
+        // disk; when an action finished, reload so the tree shows the pins
+        // (the project was saved before the dialog opened — see the
+        // OpenExternalCrates event arm).
+        if self.show_external_crates {
+            let crates = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.crates.clone())
+                .unwrap_or_default();
+            let mut open = self.show_external_crates;
+            let changed = self.external_crates_panel.show(
+                ctx,
+                &mut open,
+                self.project_path.as_deref(),
+                &crates,
+                &tr,
+            );
+            self.show_external_crates = open;
+            if changed {
+                if let Some(path) = self.project_path.clone() {
+                    match crate::project_model::load_project(&path) {
+                        Ok(project) => self.cobolt_project = Some(project),
+                        Err(e) => tracing::warn!("cannot reload project after crate change: {e}"),
+                    }
+                }
+            }
+        }
         // Save alert: render it in the MAIN window only when it doesn't belong
         // to a designer viewport (those render it themselves, on top).
         // "Building…" modal — blocks the IDE and stays up, showing the
@@ -10817,6 +10862,14 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
                     ProjectPanelEvent::CreateIn { kind, dir_rel } => {
                         self.do_create_in_folder(kind, &dir_rel)
+                    }
+                    // Spec 044 R3 — the External Crates category routes every
+                    // affordance to its dialog. The service works on
+                    // `cobolt.toml` directly, so persist any in-memory project
+                    // state first (the panel's state contract).
+                    ProjectPanelEvent::OpenExternalCrates => {
+                        self.do_save_project();
+                        self.show_external_crates = true;
                     }
                     ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
