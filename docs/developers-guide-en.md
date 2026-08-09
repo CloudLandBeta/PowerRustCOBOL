@@ -369,14 +369,17 @@ Ollama needs no key at all — a reachable endpoint is enough.
 > the Model Providers Manager if it was the one you wanted.
 
 **Agents Manager.** The *AI agents* row opens the project's provisioned agent
-database. At the top is the **runtime table**: one row per agent — Grace, every
-specialist, every reviewer and the COBOL Proficiency Judge — with the four
-things that decide how that agent runs.
+database, in three tabs.
+
+**Tab 1 — Agent × Model.** One row per agent — Grace, every specialist, every
+reviewer and the COBOL Proficiency Judge — with the things that decide how that
+agent runs.
 
 | Column | Meaning |
 |--------|---------|
 | **Agents** | The agent the row configures. |
 | **Models** | Which model it runs on, chosen from the provider selected in the **Model provider** box above the table. Choose **— no model —** to leave an agent unconfigured on purpose. |
+| **Rating** | What the Leaderboard knows about that model, or *Not tested* if it has never been benchmarked. |
 | **Temp** | Sampling randomness for this agent alone (0 = deterministic). |
 | **Output Tokens** | The largest answer this agent may produce. |
 | **Timeout** | How long to wait for it, in seconds. |
@@ -392,8 +395,22 @@ A row whose model is reserved for another role shows a warning beside the agent
 name: a specialist may not run Grace's model, nor the Judge's. (The Judge *may*
 share Grace's model, as long as no specialist is on it.)
 
-Below the table, each agent still has its prompt, capabilities and
-knowledge. The internal `agentic_ai/` directory is intentionally hidden from
+**Tab 2 — Agent Configuration.** The agent list on the left drives the detail
+pane on the right: **Agent Details** (id, name, kind, specialisation, purpose,
+enabled), the prompt editor, capabilities, knowledge and relationships.
+
+**Tab 3 — User Guide.** A written guide to how models and agents fit together,
+in your interface language. Each of its four sections opens with a plain
+explanation, then goes deeper, then states the precise version — read as far as
+is useful and stop. It covers pairing agents with models and the sharing rule,
+what each setting does, why your strongest model belongs on the reviewers and
+the Judge rather than the writer, and the vocabulary (models, agents, Pedantic
+reviewers, the Judge, tokens and what they cost, local models, quantization,
+and why VRAM is the number that decides whether a local model is usable).
+Search highlights matches and steps between them, the text size is adjustable,
+the table of contents jumps, and **Export PDF** writes the whole guide out.
+
+The footer carries **Cancel**, **Apply** (save and keep working) and **Save**. The internal `agentic_ai/` directory is intentionally hidden from
 the project tree; use Agents Manager for agent configuration while Grace keeps
 its workflow records there automatically. The prompt editor is vertically
 resizable from four to twenty text rows; longer prompts scroll inside the

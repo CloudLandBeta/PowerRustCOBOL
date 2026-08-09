@@ -81,9 +81,58 @@ fn prompt_editor(ui: &mut egui::Ui, id: egui::Id, prompt: &mut String) -> Prompt
         })
 }
 
+/// Which of the manager's three jobs is on screen.
+///
+/// The window used to do all three at once — pick models, edit an agent's
+/// identity, and be the only place explaining how models and agents relate.
+/// Nothing told you which part you were looking at.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum AgentsTab {
+    /// Which model each agent runs on, and how it is tuned.
+    #[default]
+    AgentModel,
+    /// One agent's identity, prompt, capabilities and relationships.
+    Configuration,
+    /// What any of this means, and how to choose well.
+    UserGuide,
+}
+
+/// A heading turned into an in-document anchor. Lower-case, spaces to hyphens,
+/// punctuation dropped — the conventional markdown slug, so the table of
+/// contents and the headings agree without a lookup table to keep in step.
+fn slug(heading: &str) -> String {
+    heading
+        .chars()
+        .filter_map(|c| {
+            if c.is_alphanumeric() {
+                Some(c.to_ascii_lowercase())
+            } else if c.is_whitespace() || c == '-' {
+                Some('-')
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub struct AgentsModal {
     pub open: bool,
     pub db: AgentsDb,
+    tab: AgentsTab,
+    /// Search text for the User Guide; matches are highlighted in place.
+    guide_search: String,
+    /// Body font size for the User Guide, in points.
+    guide_font: f32,
+    /// Which search match the nav buttons last landed on.
+    guide_match: usize,
+    /// Total matches from the last render, so nav can wrap.
+    guide_match_count: usize,
+    /// Scroll the active match into view on the next frame.
+    guide_scroll_to_active: bool,
+    /// Heading to scroll to next frame, set by a table-of-contents click.
+    guide_scroll_to_heading: Option<usize>,
+    /// Last PDF export result, shown beside the button.
+    guide_export_msg: Option<String>,
     sel: usize,
     prompt_buf: String,
     key_buf: String,
@@ -173,6 +222,14 @@ impl AgentsModal {
         let mut m = Self {
             open: true,
             db,
+            tab: AgentsTab::default(),
+            guide_search: String::new(),
+            guide_font: 14.0,
+            guide_match: 0,
+            guide_match_count: 0,
+            guide_scroll_to_active: false,
+            guide_scroll_to_heading: None,
+            guide_export_msg: None,
             sel: 0,
             prompt_buf: String::new(),
             key_buf: String::new(),
@@ -256,7 +313,13 @@ impl AgentsModal {
     }
 
     /// One frame. Call every frame while `open`.
-    pub fn show(&mut self, ctx: &egui::Context, llm: &mut LlmConfig, tr: &Tr) -> AgentsModalAction {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        llm: &mut LlmConfig,
+        board: &crate::leaderboard::Leaderboard,
+        tr: &Tr,
+    ) -> AgentsModalAction {
         let mut action = AgentsModalAction::default();
         if !self.open {
             return action;
@@ -354,7 +417,7 @@ impl AgentsModal {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if ui
-                                        .add_enabled(can_commit, egui::Button::new("OK"))
+                                        .add_enabled(can_commit, egui::Button::new(tr.btn_save_raw))
                                         .clicked()
                                     {
                                         if self.apply(llm) {
@@ -381,44 +444,72 @@ impl AgentsModal {
                         ui.add_space(4.0);
                     });
 
-                egui::Panel::left(egui::Id::new("agents_rail_panel"))
-                    .resizable(true)
-                    // Wider default now the agent name is a large headline.
-                    .default_size(360.0)
-                    .min_size(260.0)
-                    // Hard upper bound so the rail can never swallow the detail
-                    // pane even if some content is unexpectedly wide.
-                    .max_size(520.0)
-                    .show(ui, |ui| self.rail_ui(ui, llm, tr));
-
-                // The runtime table (spec 048 R9): every agent's model and
-                // tuning, readable top to bottom, above the per-agent detail.
-                // A FIXED height — never sized from the content — so a project
-                // with thirty agents cannot ratchet the window taller each
-                // frame (the egui self-inflation trap).
-                egui::Panel::top(ui.id().with("agents_runtime_panel"))
-                    .resizable(true)
-                    .default_size(260.0)
-                    .min_size(120.0)
-                    .max_size(460.0)
+                // ── Tabs ──────────────────────────────────────────────────
+                //
+                // One window was doing three unrelated jobs at once: choosing
+                // models, editing an agent's identity, and explaining the
+                // whole model/agent system. Splitting them means each surface
+                // can be read on its own.
+                egui::Panel::top(ui.id().with("agents_tabbar"))
+                    .resizable(false)
                     .show_separator_line(true)
                     .show(ui, |ui| {
-                        if self.runtime_table_ui(ui, llm, tr) {
-                            self.dirty = true;
-                            if let Err(e) = self.db.save_all() {
-                                self.set_error(e);
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            for (tab, label) in [
+                                (AgentsTab::AgentModel, tr.agents_tab_agent_model),
+                                (AgentsTab::Configuration, tr.agents_tab_configuration),
+                                (AgentsTab::UserGuide, tr.agents_tab_user_guide),
+                            ] {
+                                if ui.selectable_label(self.tab == tab, label).clicked() {
+                                    self.tab = tab;
+                                }
                             }
-                        }
+                        });
+                        ui.add_space(4.0);
                     });
 
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::NONE)
-                    .show(ui, |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("agents_detail_scroll")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.detail_ui(ui, llm, tr));
-                    });
+                match self.tab {
+                    // Which model each agent runs on, and how it is tuned.
+                    AgentsTab::AgentModel => {
+                        egui::CentralPanel::default()
+                            .frame(egui::Frame::NONE)
+                            .show(ui, |ui| {
+                                if self.runtime_table_ui(ui, llm, board, tr) {
+                                    self.dirty = true;
+                                    if let Err(e) = self.db.save_all() {
+                                        self.set_error(e);
+                                    }
+                                }
+                            });
+                    }
+                    // The rail picks an agent; the pane shows its details.
+                    AgentsTab::Configuration => {
+                        egui::Panel::left(egui::Id::new("agents_rail_panel"))
+                            .resizable(true)
+                            // Wider default now the agent name is a large headline.
+                            .default_size(360.0)
+                            .min_size(260.0)
+                            // Hard upper bound so the rail can never swallow the
+                            // detail pane even if some content is unexpectedly wide.
+                            .max_size(520.0)
+                            .show(ui, |ui| self.rail_ui(ui, llm, tr));
+
+                        egui::CentralPanel::default()
+                            .frame(egui::Frame::NONE)
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("agents_detail_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| self.detail_ui(ui, llm, tr));
+                            });
+                    }
+                    AgentsTab::UserGuide => {
+                        egui::CentralPanel::default()
+                            .frame(egui::Frame::NONE)
+                            .show(ui, |ui| self.guide_ui(ui, tr, &mut action));
+                    }
+                }
 
                 if close {
                     self.open = false;
@@ -426,6 +517,172 @@ impl AgentsModal {
             });
         self.open &= open;
         action
+    }
+
+    // ── User Guide ────────────────────────────────────────────────────────
+
+    /// The guide, as markdown, assembled from the translated blocks.
+    ///
+    /// Markdown rather than hand-laid widgets because it buys three of the
+    /// four things this tab needs for free — [`md_render`] already does search
+    /// highlighting, heading anchors and a font scale — and the fourth,
+    /// printing, is [`crate::pdf_export::export`], which takes markdown.
+    fn guide_markdown(tr: &Tr) -> String {
+        let sections = [
+            (
+                tr.guide_s1_h,
+                tr.guide_s1_basic,
+                tr.guide_s1_adv,
+                tr.guide_s1_tech,
+            ),
+            (
+                tr.guide_s2_h,
+                tr.guide_s2_basic,
+                tr.guide_s2_adv,
+                tr.guide_s2_tech,
+            ),
+            (
+                tr.guide_s3_h,
+                tr.guide_s3_basic,
+                tr.guide_s3_adv,
+                tr.guide_s3_tech,
+            ),
+            (
+                tr.guide_s4_h,
+                tr.guide_s4_basic,
+                tr.guide_s4_adv,
+                tr.guide_s4_tech,
+            ),
+        ];
+        let mut md = format!("# {}\n\n{}\n\n", tr.guide_title, tr.guide_intro);
+        // Table of contents — the anchors md_render resolves for in-document
+        // links, so a reader can jump instead of scrolling.
+        for (h, _, _, _) in &sections {
+            md.push_str(&format!("- [{h}](#{})\n", slug(h)));
+        }
+        md.push('\n');
+        for (h, basic, adv, tech) in &sections {
+            md.push_str(&format!("## {h}\n\n{basic}\n\n"));
+            md.push_str(&format!("### {}\n\n{adv}\n\n", tr.guide_level_more));
+            md.push_str(&format!("### {}\n\n{tech}\n\n", tr.guide_level_precise));
+        }
+        md
+    }
+
+    fn guide_ui(&mut self, ui: &mut egui::Ui, tr: &Tr, _action: &mut AgentsModalAction) {
+        let md = Self::guide_markdown(tr);
+
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            // Search, with match count and wrap-around navigation.
+            ui.label(tr.guide_search);
+            let changed = ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.guide_search)
+                        .hint_text(tr.guide_search_hint)
+                        .desired_width(220.0),
+                )
+                .changed();
+            if changed {
+                self.guide_match = 0;
+                self.guide_scroll_to_active = true;
+            }
+            if self.guide_match_count > 0 {
+                ui.label(
+                    tr.guide_matches
+                        .replacen("{}", &(self.guide_match + 1).to_string(), 1)
+                        .replacen("{}", &self.guide_match_count.to_string(), 1),
+                );
+                if ui.small_button("◀").clicked() {
+                    self.guide_match = self
+                        .guide_match
+                        .checked_sub(1)
+                        .unwrap_or(self.guide_match_count - 1);
+                    self.guide_scroll_to_active = true;
+                }
+                if ui.small_button("▶").clicked() {
+                    self.guide_match = (self.guide_match + 1) % self.guide_match_count;
+                    self.guide_scroll_to_active = true;
+                }
+            } else if !self.guide_search.trim().is_empty() {
+                ui.weak(tr.guide_no_matches);
+            }
+
+            ui.add_space(14.0);
+            // Font size, bounded so the text can never become unreadable in
+            // either direction.
+            ui.label(tr.guide_font_size);
+            if ui.small_button("A-").clicked() {
+                self.guide_font = (self.guide_font - 1.0).max(10.0);
+            }
+            ui.label(format!("{:.0}", self.guide_font));
+            if ui.small_button("A+").clicked() {
+                self.guide_font = (self.guide_font + 1.0).min(28.0);
+            }
+
+            ui.add_space(14.0);
+            if ui.button(tr.guide_export_pdf).clicked() {
+                let out = std::env::temp_dir().join("PowerRustCOBOL-agents-guide.pdf");
+                match crate::pdf_export::export(tr.guide_title, &md, &out) {
+                    Ok(()) => {
+                        self.guide_export_msg =
+                            Some(tr.guide_exported.replacen("{}", &out.display().to_string(), 1));
+                    }
+                    Err(e) => {
+                        crate::error_log::record(&e);
+                        self.guide_export_msg = Some(e);
+                    }
+                }
+            }
+        });
+        if let Some(msg) = &self.guide_export_msg {
+            ui.label(egui::RichText::new(msg).small());
+        }
+        ui.add_space(6.0);
+        ui.separator();
+
+        let anchors = Self::guide_anchors(tr);
+        let mut out = crate::panels::md_render::RenderOutput::default();
+        egui::ScrollArea::vertical()
+            .id_salt("agents_guide_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                out = crate::panels::md_render::render(
+                    ui,
+                    &md,
+                    &crate::panels::md_render::RenderOpts {
+                        search: &self.guide_search.trim().to_ascii_lowercase(),
+                        base: self.guide_font,
+                        scroll_to_heading: self.guide_scroll_to_heading.take(),
+                        active_match: Some(self.guide_match),
+                        scroll_to_active: self.guide_scroll_to_active,
+                        anchors: &anchors,
+                        table_layout: crate::panels::md_render::TableLayout::Equal,
+                    },
+                    &mut |ui, _code| {
+                        ui.weak("—");
+                    },
+                );
+            });
+        self.guide_scroll_to_active = false;
+        self.guide_match_count = out.match_count;
+        if self.guide_match_count > 0 && self.guide_match >= self.guide_match_count {
+            self.guide_match = 0;
+        }
+        if let Some(h) = out.clicked_heading {
+            self.guide_scroll_to_heading = Some(h);
+        }
+    }
+
+    /// `(slug, heading index)` for the four section headings, so the table of
+    /// contents can jump to them. Index 0 is the document title, and each
+    /// section contributes three headings (its own plus two depth levels).
+    fn guide_anchors(tr: &Tr) -> Vec<(String, usize)> {
+        [tr.guide_s1_h, tr.guide_s2_h, tr.guide_s3_h, tr.guide_s4_h]
+            .iter()
+            .enumerate()
+            .map(|(i, h)| (slug(h), 1 + i * 3))
+            .collect()
     }
 
     // ── Runtime table (spec 048 R9/R10/R14) ───────────────────────────────
@@ -442,7 +699,13 @@ impl AgentsModal {
     ///
     /// Returns whether anything changed, so the caller persists once per frame
     /// rather than once per widget.
-    fn runtime_table_ui(&mut self, ui: &mut egui::Ui, llm: &LlmConfig, tr: &Tr) -> bool {
+    fn runtime_table_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        llm: &LlmConfig,
+        board: &crate::leaderboard::Leaderboard,
+        tr: &Tr,
+    ) -> bool {
         let mut changed = false;
         ui.add_space(6.0);
 
@@ -497,12 +760,13 @@ impl AgentsModal {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Grid::new("agents_runtime_grid")
-                    .num_columns(5)
+                    .num_columns(6)
                     .spacing([12.0, 6.0])
                     .striped(true)
                     .show(ui, |ui| {
                         ui.label(egui::RichText::new(tr.agents_tbl_agent).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_model).strong());
+                        ui.label(egui::RichText::new(tr.agents_tbl_rating).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_temp).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_max_tokens).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_timeout).strong());
@@ -570,6 +834,29 @@ impl AgentsModal {
                                     }
                                 });
 
+                            // Rating — what the Leaderboard knows about this
+                            // model. An untested model says so plainly rather
+                            // than showing a blank or a zero, which would read
+                            // as "scored badly".
+                            {
+                                let agent = &self.db.agents[i];
+                                let rated = if agent.no_model || agent.model.trim().is_empty() {
+                                    None
+                                } else {
+                                    board
+                                        .get(&agent.provider, &agent.model)
+                                        .filter(|e| e.runs > 0)
+                                        .and_then(|e| e.overall())
+                                };
+                                match rated {
+                                    Some(score) => ui.label(format!("{score:.0}")),
+                                    None => ui.label(
+                                        egui::RichText::new(tr.agents_tbl_untested).weak(),
+                                    ),
+                                };
+                            }
+
+                            let agent = &mut self.db.agents[i];
                             // Temperature / output tokens / timeout. The ranges
                             // ARE the validation (R14): a DragValue cannot leave
                             // its range, so a rejected value never replaces the
@@ -906,7 +1193,7 @@ impl AgentsModal {
             ui.set_min_width(ui.available_width() - 12.0);
 
             // Identity ------------------------------------------------------
-            egui::CollapsingHeader::new(egui::RichText::new(tr.agents_sec_identity).strong())
+            egui::CollapsingHeader::new(egui::RichText::new(tr.agents_sec_details).strong())
                 .default_open(true)
                 .show(ui, |ui| {
                     egui::Grid::new("ag_identity").num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| {
@@ -1358,6 +1645,81 @@ fn string_list_ui(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, chang
 }
 
 #[cfg(test)]
+mod guide_tests {
+    use super::*;
+
+    /// The guide must be complete and navigable in **every** language: four
+    /// sections, each at three depths, with a table of contents whose links
+    /// resolve. A language whose translation was half-filled would otherwise
+    /// ship a guide with blank sections and dead anchors.
+    #[test]
+    fn the_guide_is_whole_in_every_language() {
+        let mut summary = Vec::new();
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            let md = AgentsModal::guide_markdown(&tr);
+
+            // Four sections × (heading + two depth headings) + the title.
+            assert_eq!(
+                md.matches("\n## ").count(),
+                4,
+                "{lang:?}: expected four sections"
+            );
+            assert_eq!(
+                md.matches("\n### ").count(),
+                8,
+                "{lang:?}: each section needs both depth levels"
+            );
+
+            // Every table-of-contents link must land on a heading that exists.
+            for (slug_text, _) in AgentsModal::guide_anchors(&tr) {
+                assert!(
+                    md.contains(&format!("](#{slug_text})")),
+                    "{lang:?}: table of contents is missing {slug_text}"
+                );
+                assert!(!slug_text.is_empty(), "{lang:?}: empty anchor");
+            }
+
+            // No block may be left blank or as an untranslated placeholder.
+            for (name, text) in [
+                ("intro", tr.guide_intro),
+                ("s1_basic", tr.guide_s1_basic),
+                ("s1_tech", tr.guide_s1_tech),
+                ("s2_basic", tr.guide_s2_basic),
+                ("s2_tech", tr.guide_s2_tech),
+                ("s3_basic", tr.guide_s3_basic),
+                ("s3_tech", tr.guide_s3_tech),
+                ("s4_basic", tr.guide_s4_basic),
+                ("s4_tech", tr.guide_s4_tech),
+            ] {
+                assert!(
+                    text.chars().count() > 80,
+                    "{lang:?}: {name} is too short to be real content"
+                );
+                assert!(!text.contains("TODO"), "{lang:?}: {name} is a placeholder");
+            }
+            summary.push(format!("{lang:?}:{}", md.chars().count()));
+        }
+        println!("guide length by language (chars) — {}", summary.join(" "));
+    }
+
+    /// Headings become anchors the table of contents can link to. A slug that
+    /// dropped its non-ASCII characters would silently break navigation in
+    /// Japanese and Chinese, where the whole heading is non-ASCII.
+    #[test]
+    fn heading_slugs_survive_non_ascii_headings() {
+        assert_eq!(slug("1. Give each agent a model"), "1-give-each-agent-a-model");
+        assert_eq!(slug("4. Los términos, explicados"), "4-los-términos-explicados");
+        let ja = slug("1. 各エージェントにモデルを割り当てる");
+        assert!(
+            ja.contains("各エージェントにモデルを割り当てる"),
+            "a Japanese heading lost its text: {ja}"
+        );
+        assert!(!ja.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod resize_tests {
     use super::*;
     use crate::agents_db::{AgentKind, AgentsDb};
@@ -1437,6 +1799,10 @@ mod resize_tests {
 
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
         let mut modal = AgentsModal::open_for(&proj, &mut llm);
+        // The rail lives on the Configuration tab; the manager opens on
+        // Agent × Model. Select it explicitly so this guard still exercises
+        // the panel it was written for.
+        modal.tab = AgentsTab::Configuration;
         let tr = crate::i18n::Language::English.tr();
 
         let ctx = egui::Context::default();
@@ -1450,7 +1816,7 @@ mod resize_tests {
             ));
             ctx.run_ui(input, |root_ui| {
                 let c = root_ui.ctx().clone();
-                modal.show(&c, &mut llm, &tr);
+                modal.show(&c, &mut llm, &crate::leaderboard::Leaderboard::default(), &tr);
             })
             .textures_delta
             .clear();

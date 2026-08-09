@@ -5574,15 +5574,10 @@ impl CoboltApp {
             }
             self.start_proficiency_benchmark(cfg);
         }
-        if let Some((provider, model)) = act.apply_to_grace {
-            self.assign_model_to_agents(&provider, &model, true);
-        }
-        if let Some((provider, model)) = act.apply_to_judge {
-            self.assign_model_to_judge(&provider, &model);
-        }
-        if let Some((provider, model)) = act.apply_to_specialists {
-            self.assign_model_to_agents(&provider, &model, false);
-        }
+        // The board's "Use for Grace / Judge / All Specialists" actions are
+        // gone (operator, 2026-08-09) — assigning a model is the Agent × Model
+        // table's job, where every agent is visible and the separation rule is
+        // checked as you pick.
         if let Some((provider, model)) = act.add_model {
             // Spec 048 R20 — a model can be benchmarked without any agent
             // running it, so the board takes it on the developer's say-so.
@@ -5692,183 +5687,12 @@ impl CoboltApp {
         cfg
     }
 
-    /// Give the COBOL Proficiency Judge this model (spec 040).
-    ///
-    /// Refused when a specialist already runs it: the judge would then be
-    /// scoring a model the project depends on, which is the separation rule
-    /// read from the other direction.
-    fn assign_model_to_judge(&mut self, provider: &str, model: &str) {
-        let tr = self.lang.tr();
-        let Some(root) = self.project_dir() else {
-            if let Some(m) = self.leaderboard_modal.as_mut() {
-                m.set_status("Open a project first — agents belong to a project.".to_string());
-            }
-            return;
-        };
-        let mut db = crate::agents_db::AgentsDb::load(&root);
-        let key = format!(
-            "{}::{}",
-            provider.trim().to_ascii_lowercase(),
-            model.trim().to_ascii_lowercase()
-        );
-        if let Some(user) = db.agents.iter().find(|a| {
-            a.kind == crate::agents_db::AgentKind::Specialist
-                && a.enabled
-                && db.agent_model_key(&a.name, &self.llm).as_deref() == Some(key.as_str())
-        }) {
-            let msg = tr
-                .leaderboard_judge_model_taken
-                .replacen("{}", model, 1)
-                .replacen("{}", &user.name, 1);
-            self.output.push_status(msg.clone());
-            if let Some(m) = self.leaderboard_modal.as_mut() {
-                m.set_status(msg);
-            }
-            return;
-        }
-
-        let endpoint = self
-            .leaderboard
-            .get(provider, model)
-            .map(|e| e.endpoint.clone())
-            .filter(|e| !e.trim().is_empty())
-            .or_else(|| {
-                crate::llm::Provider::from_id(provider)
-                    .map(|p| p.default_endpoint().to_string())
-            })
-            .unwrap_or_default();
-        {
-            let cfg = self.llm.ensure_provider_config(provider);
-            if cfg.endpoint.trim().is_empty() && !endpoint.trim().is_empty() {
-                cfg.endpoint = endpoint.clone();
-                cfg.endpoint_user_edited =
-                    !crate::llm::endpoint_is_provider_default(provider, &endpoint);
-            }
-        }
-        let Some(judge) = db
-            .agents
-            .iter_mut()
-            .find(|a| a.name.eq_ignore_ascii_case(crate::agents_db::PROFICIENCY_JUDGE))
-        else {
-            return;
-        };
-        // The judge owns its connection like every other agent (spec 048 R8).
-        judge.model_profile = None;
-        judge.no_model = false;
-        judge.provider = provider.to_string();
-        judge.endpoint = endpoint.clone();
-        judge.model = model.to_string();
-        if let Err(e) = db.save_all() {
-            self.output
-                .push_status(format!("Could not save the agents: {e}"));
-            return;
-        }
-        self.persist_active_project_ai();
-        let status = tr.leaderboard_applied_judge.replacen("{}", model, 1);
-        self.output.push_status(status.clone());
-        if let Some(m) = self.leaderboard_modal.as_mut() {
-            m.set_status(status);
-            // The judge can judge now — the next Run tests must not ask again.
-            m.set_judge_ready(true);
-        }
-    }
-
-    /// Point Grace, or every specialist, at this model — creating the project
-    /// model profile if the model has never been used here (spec 040).
-    fn assign_model_to_agents(&mut self, provider: &str, model: &str, grace_only: bool) {
-        let tr = self.lang.tr();
-        let Some(root) = self.project_dir() else {
-            if let Some(m) = self.leaderboard_modal.as_mut() {
-                m.set_status("Open a project first — agents belong to a project.".to_string());
-            }
-            return;
-        };
-        let endpoint = self
-            .leaderboard
-            .get(provider, model)
-            .map(|e| e.endpoint.clone())
-            .filter(|e| !e.trim().is_empty())
-            .or_else(|| {
-                crate::llm::Provider::from_id(provider)
-                    .map(|p| p.default_endpoint().to_string())
-            })
-            .unwrap_or_default();
-        // Spec 048: the connection is the agent's own, and the provider carries
-        // the host. Configuring the provider here means "apply to Grace" from
-        // the board is enough on its own — no separate visit to the Model
-        // Providers Manager just to record an endpoint the board already knows.
-        {
-            let cfg = self.llm.ensure_provider_config(provider);
-            if cfg.endpoint.trim().is_empty() && !endpoint.trim().is_empty() {
-                cfg.endpoint = endpoint.clone();
-                cfg.endpoint_user_edited =
-                    !crate::llm::endpoint_is_provider_default(provider, &endpoint);
-            }
-        }
-
-        let mut db = crate::agents_db::AgentsDb::load(&root);
-        // Spec 040 R10: a specialist may not stand on Grace's or the judge's
-        // model. Giving the whole specialist pool the judge's model would leave
-        // the judge scoring a model the project runs on — refused here rather
-        // than reported afterwards.
-        if !grace_only {
-            let key = format!(
-                "{}::{}",
-                provider.trim().to_ascii_lowercase(),
-                model.trim().to_ascii_lowercase()
-            );
-            if let Some(reserved_for) = db.model_is_reserved(&self.llm, &key) {
-                let msg = tr
-                    .leaderboard_model_reserved
-                    .replacen("{}", model, 1)
-                    .replacen("{}", reserved_for, 1);
-                self.output.push_status(msg.clone());
-                if let Some(m) = self.leaderboard_modal.as_mut() {
-                    m.set_status(msg);
-                }
-                return;
-            }
-        }
-        let mut touched = 0usize;
-        for agent in &mut db.agents {
-            let wanted = if grace_only {
-                agent.kind == crate::agents_db::AgentKind::Orchestrator
-            } else {
-                agent.kind == crate::agents_db::AgentKind::Specialist
-            };
-            if !wanted {
-                continue;
-            }
-            // The agent owns its connection (spec 048 R8/R12); its existing
-            // temperature, token cap and timeout are its own and are left
-            // alone — only the model moves.
-            agent.model_profile = None;
-            agent.provider = provider.to_string();
-            agent.endpoint = endpoint.clone();
-            agent.model = model.to_string();
-            // An explicit "(no model)" is a decision; handing it one silently
-            // would undo it. Assigning a model clears the marker on purpose.
-            agent.no_model = false;
-            touched += 1;
-        }
-        if let Err(e) = db.save_all() {
-            self.output
-                .push_status(format!("Could not save the agents: {e}"));
-            return;
-        }
-        self.persist_active_project_ai();
-        let status = if grace_only {
-            tr.leaderboard_applied_grace.replacen("{}", model, 1)
-        } else {
-            tr.leaderboard_applied_specialists
-                .replacen("{}", model, 1)
-                .replacen("{}", &touched.to_string(), 1)
-        };
-        self.output.push_status(status.clone());
-        if let Some(m) = self.leaderboard_modal.as_mut() {
-            m.set_status(status);
-        }
-    }
+    // `assign_model_to_judge` and `assign_model_to_agents` lived here. They
+    // existed only for the Leaderboard's "Use for Grace / Judge / All
+    // Specialists" buttons, removed by the operator on 2026-08-09 — assigning
+    // a model is the Agent × Model table's job, where every agent is on screen
+    // and the separation rule is checked as you choose, rather than three
+    // buttons silently rewriting a pool of agents none of which is visible.
 
     /// The most recent stored report for this model in the open project.
     fn stored_benchmark_report(&self, provider: &str, model: &str) -> Option<String> {
@@ -7490,7 +7314,7 @@ impl CoboltApp {
         self.apply_grace_form_output();
         // Agents Manager modal (spec 028) — taken out of self to split borrows.
         if let Some(mut m) = self.agents_modal.take() {
-            let act = m.show(ctx, &mut self.llm, &self.lang.tr());
+            let act = m.show(ctx, &mut self.llm, &self.leaderboard, &self.lang.tr());
             if m.open {
                 self.agents_modal = Some(m);
             } else if self.leaderboard_modal.is_some() {

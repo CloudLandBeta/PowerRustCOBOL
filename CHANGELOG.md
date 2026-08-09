@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.11] — 2026-08-09
+
+### Added
+
+- **The Agents Manager is three tabs instead of one crowded window.** It was
+  doing three unrelated jobs at once — choosing models, editing an agent's
+  identity, and being the only place that explained how any of it fits together
+  — with nothing to tell you which part you were looking at.
+  - **Agent × Model** — the runtime table, now with a **Rating** column showing
+    what the Leaderboard knows about each agent's model, or *Not tested* when
+    it has never been benchmarked. A blank or a zero would have read as "scored
+    badly".
+  - **Agent Configuration** — the agent list drives the detail pane, and the
+    *Identity* section is renamed **Agent Details**, since it covers rather
+    more than a name and an id.
+  - **User Guide** — a written guide to models and agents, in all six
+    languages, with search and match navigation, adjustable text size, a
+    table of contents that jumps, and **Export PDF**. Each of its four sections
+    opens plainly, then goes deeper, then states the precise version, so an
+    LLM expert and a first-time user can each stop where it suits them. It
+    covers pairing agents with models and the sharing rule, what each setting
+    does, why your strongest model belongs on the reviewers and the Judge, and
+    the vocabulary — models, agents, Pedantic reviewers, tokens and their cost,
+    local models, quantization and why VRAM is the number that matters.
+- The footer buttons are now **Cancel · Apply · Save**; the old untranslated
+  "OK" is gone.
+
+### Changed
+
+- **The Leaderboard's "Use for Grace / Judge / All Specialists" buttons are
+  removed.** Assigning a model belongs to the Agent × Model table, where every
+  agent is on screen and the separation rule is checked as you choose. Three
+  buttons that silently rewrote a pool of agents, from a screen that displayed
+  none of them, was the wrong home for it. The code behind them went too.
+
 ## [PowerRustCOBOL 1.61.10] — 2026-08-09
 
 ### Added

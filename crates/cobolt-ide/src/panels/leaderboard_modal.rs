@@ -75,12 +75,11 @@ pub struct LeaderboardModal {
 pub struct LeaderboardAction {
     /// Re-run the proficiency test for this `(provider, model)`.
     pub run_tests: Option<(String, String)>,
-    /// Assign this `(provider, model)` to Grace.
-    pub apply_to_grace: Option<(String, String)>,
-    /// Assign this `(provider, model)` to the COBOL Proficiency Judge.
-    pub apply_to_judge: Option<(String, String)>,
-    /// Assign this `(provider, model)` to every specialist agent.
-    pub apply_to_specialists: Option<(String, String)>,
+    // `apply_to_grace` / `apply_to_judge` / `apply_to_specialists` are gone
+    // (operator, 2026-08-09). Assigning a model belongs to the Agent × Model
+    // table, which shows every agent at once and checks the separation rule as
+    // you pick; three buttons that silently rewrote several agents from a
+    // screen displaying none of them was the wrong home for it.
     /// Reopen the stored benchmark report for this `(provider, model)`.
     pub open_report: Option<(String, String)>,
     /// Open the Agents Manager at the COBOL Proficiency Judge so a model can be
@@ -527,47 +526,15 @@ impl LeaderboardModal {
                                         self.pending_run = Some(id.clone());
                                     }
                                 }
-                                // A model that could not be reached is not a
-                                // model to hand the project's work to.
-                                if ui
-                                    .add_enabled(
-                                        rated,
-                                        egui::Button::new(
-                                            egui::RichText::new(tr.leaderboard_apply_grace)
-                                                .size(SZ_BODY),
-                                        ),
-                                    )
-                                    .on_hover_text(tr.leaderboard_apply_grace_hint)
-                                    .clicked()
-                                {
-                                    action.apply_to_grace = Some(id.clone());
-                                }
-                                if ui
-                                    .add_enabled(
-                                        rated,
-                                        egui::Button::new(
-                                            egui::RichText::new(tr.leaderboard_apply_judge)
-                                                .size(SZ_BODY),
-                                        ),
-                                    )
-                                    .on_hover_text(tr.leaderboard_apply_judge_hint)
-                                    .clicked()
-                                {
-                                    action.apply_to_judge = Some(id.clone());
-                                }
-                                if ui
-                                    .add_enabled(
-                                        rated,
-                                        egui::Button::new(
-                                            egui::RichText::new(tr.leaderboard_apply_specialists)
-                                                .size(SZ_BODY),
-                                        ),
-                                    )
-                                    .on_hover_text(tr.leaderboard_apply_specialists_hint)
-                                    .clicked()
-                                {
-                                    action.apply_to_specialists = Some(id);
-                                }
+                                // "Use for Grace / Judge / All Specialists"
+                                // used to sit here. Assigning a model is the
+                                // Agent × Model table's job, where you can see
+                                // which agent gets what and the separation rule
+                                // is checked as you choose. Three buttons that
+                                // silently rewrote several agents from a screen
+                                // that shows none of them was the wrong place
+                                // for it (operator, 2026-08-09).
+                                let _ = &id;
                             });
                             ui.end_row();
                         }
