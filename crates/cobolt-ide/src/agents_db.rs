@@ -1380,6 +1380,34 @@ impl AgentsDb {
         }
     }
 
+    /// Every `(provider, model, endpoint)` an agent currently runs on,
+    /// de-duplicated (spec 048 R17).
+    ///
+    /// This is what the leaderboard is populated from now that model profiles
+    /// are gone: the board lists what the project actually uses, plus whatever
+    /// has been tested, rather than every model a provider happens to offer —
+    /// a single provider can list hundreds.
+    pub fn assigned_models(&self, llm: &crate::llm::LlmConfig) -> Vec<(String, String, String)> {
+        let mut out: Vec<(String, String, String)> = Vec::new();
+        for a in &self.agents {
+            let Some(cfg) = resolve_agent_connection(a, llm) else {
+                continue;
+            };
+            if cfg.provider.trim().is_empty() || cfg.model.trim().is_empty() {
+                continue;
+            }
+            let triple = (
+                cfg.provider.trim().to_string(),
+                cfg.model.trim().to_string(),
+                cfg.endpoint.trim().to_string(),
+            );
+            if !out.iter().any(|(p, m, _)| *p == triple.0 && *m == triple.1) {
+                out.push(triple);
+            }
+        }
+        out
+    }
+
     /// Whether `model_key` may be given to a specialist agent.
     pub fn model_is_reserved(
         &self,
@@ -1403,6 +1431,173 @@ impl AgentsDb {
     ) -> Option<crate::llm::LlmConfig> {
         let judge = self.by_name(PROFICIENCY_JUDGE).filter(|a| a.enabled)?;
         resolve_agent_connection(judge, llm)
+    }
+
+    /// Retire the model-profile layer (spec 048 R24–R29).
+    ///
+    /// Spec 031 moved every agent's connection into a shared
+    /// [`ModelProfile`](crate::llm::ModelProfile) and left the agent's own
+    /// `provider`/`endpoint`/`model`/tuning fields dormant. This walks that
+    /// back: each agent takes its profile's settings as its own, and each
+    /// distinct provider becomes one
+    /// [`ProviderConfig`](crate::llm::ProviderConfig) carrying the endpoint and
+    /// a single credential.
+    ///
+    /// The lossy step is the credential. A provider that had three profiles had
+    /// up to three keys and can now hold one, so the **most recently stored**
+    /// wins (R25) and every discarded slot is named in the returned report
+    /// (R26). Nothing is asked of the developer (R27).
+    ///
+    /// Idempotent: it clears `model_profiles` as its last act, so a second call
+    /// finds nothing to do. Agents are written before the profiles are dropped,
+    /// so a run interrupted midway is finished by the next one.
+    pub fn migrate_profiles_to_providers(
+        &mut self,
+        llm: &mut crate::llm::LlmConfig,
+    ) -> MigrationReport {
+        let mut report = MigrationReport::default();
+        if llm.model_profiles.is_empty()
+            && !self.agents.iter().any(|a| a.model_profile.is_some())
+        {
+            return report;
+        }
+        let profiles = llm.model_profiles.clone();
+
+        // ── 1. Each agent takes its profile's connection as its own ───────
+        for agent in &mut self.agents {
+            let Some(profile_id) = agent.model_profile.clone() else {
+                continue;
+            };
+            // An explicit "(no model)" is a decision, not a gap (R28).
+            if agent.no_model {
+                agent.model_profile = None;
+                continue;
+            }
+            match profiles.iter().find(|p| p.id == profile_id) {
+                Some(p) => {
+                    agent.provider = p.provider.clone();
+                    agent.endpoint = p.endpoint.clone();
+                    agent.model = p.model.clone();
+                    agent.temperature = p.temperature;
+                    agent.max_tokens = p.max_tokens;
+                    agent.timeout_secs = p.timeout_secs;
+                    agent.model_profile = None;
+                    report.agents_migrated += 1;
+                }
+                None => {
+                    // A dangling reference already meant "no model configured";
+                    // inventing one here would be worse than saying so.
+                    agent.model_profile = None;
+                    report.dangling.push(agent.name.clone());
+                }
+            }
+        }
+
+        // ── 2. One ProviderConfig per distinct provider ───────────────────
+        let mut providers: Vec<String> = Vec::new();
+        for p in &profiles {
+            let id = p.provider.trim();
+            if !id.is_empty() && !providers.iter().any(|q| q == id) {
+                providers.push(id.to_string());
+            }
+        }
+        // Agents that never had a profile (pre-031 embedded config) still need
+        // their provider on file, or they would resolve against nothing.
+        for a in &self.agents {
+            let id = a.provider.trim();
+            if !a.no_model && !id.is_empty() && !providers.iter().any(|q| q == id) {
+                providers.push(id.to_string());
+            }
+        }
+
+        for provider in providers {
+            let mine: Vec<&crate::llm::ModelProfile> = profiles
+                .iter()
+                .filter(|p| p.provider.trim() == provider)
+                .collect();
+
+            // Endpoint: a hand-typed host beats a defaulted one. Where several
+            // hand-typed hosts disagree, the most recently keyed profile wins
+            // and the disagreement is reported rather than silently resolved.
+            let edited: Vec<&crate::llm::ModelProfile> = mine
+                .iter()
+                .copied()
+                .filter(|p| p.endpoint_user_edited && !p.endpoint.trim().is_empty())
+                .collect();
+            let distinct_hosts: Vec<&str> = {
+                let mut hosts: Vec<&str> = edited.iter().map(|p| p.endpoint.trim()).collect();
+                hosts.sort_unstable();
+                hosts.dedup();
+                hosts
+            };
+            let chosen = edited
+                .iter()
+                .copied()
+                .max_by_key(|p| Self::credential_stamp(llm, p))
+                .or_else(|| {
+                    mine.iter()
+                        .copied()
+                        .find(|p| !p.endpoint.trim().is_empty())
+                });
+
+            let existed = llm.provider_config(&provider).is_some();
+            {
+                let cfg = llm.ensure_provider_config(&provider);
+                if let Some(p) = chosen {
+                    cfg.endpoint = p.endpoint.clone();
+                    cfg.endpoint_user_edited = p.endpoint_user_edited;
+                }
+            }
+            if !existed {
+                report.providers_created.push(provider.clone());
+            }
+            if distinct_hosts.len() > 1 {
+                report
+                    .endpoint_conflicts
+                    .push((provider.clone(), llm.provider_endpoint(&provider)));
+            }
+
+            // Credential: newest wins, the rest are named and forgotten (R25/R26).
+            let mut ranked: Vec<&crate::llm::ModelProfile> = mine.clone();
+            ranked.sort_by_key(|p| std::cmp::Reverse(Self::credential_stamp(llm, p)));
+            let target = crate::llm::provider_key_slot(&provider);
+            let mut winner_taken = false;
+            for p in ranked {
+                let slot = crate::llm::profile_api_key_slot(&p.id);
+                if !winner_taken {
+                    llm.rekey_credential(&slot, &target);
+                    winner_taken = true;
+                    continue;
+                }
+                let had_something = llm.credential_saved_at(&slot).is_some()
+                    || !llm.api_keys.get(&slot).map(|k| k.trim().is_empty()).unwrap_or(true);
+                if had_something {
+                    let label = if p.name.trim().is_empty() {
+                        p.model.clone()
+                    } else {
+                        p.name.clone()
+                    };
+                    report.discarded.push((provider.clone(), label));
+                }
+                llm.forget_credential_slot(&slot);
+            }
+        }
+
+        // ── 3. Agents first, then drop the retired layer ──────────────────
+        let _ = self.save_all();
+        llm.model_profiles.clear();
+        report
+    }
+
+    /// When a profile's credential was last stored, for "newest wins" ranking.
+    /// A profile with no stamp sorts oldest rather than being skipped — it may
+    /// still be the only credential there is.
+    fn credential_stamp(llm: &crate::llm::LlmConfig, p: &crate::llm::ModelProfile) -> (i64, String) {
+        let slot = crate::llm::profile_api_key_slot(&p.id);
+        (
+            llm.credential_saved_at(&slot).unwrap_or(i64::MIN),
+            p.id.clone(),
+        )
     }
 
     pub fn ensure_grace_reviewer(&mut self, _llm: &crate::llm::LlmConfig) -> bool {
@@ -2330,38 +2525,71 @@ pub fn agent_effective_config(
 }
 
 /// Resolve an agent's connection (provider/endpoint/model/params + key) into an
-/// [`LlmConfig`] view (spec 031). Prefers the referenced **model profile**;
-/// falls back to the agent's dormant embedded fields for agents not yet
-/// migrated, so resolution never hard-breaks on upgrade. `None` when neither is
-/// configured (a clear "no model" state — spec 031 R8).
+/// [`LlmConfig`] view.
+///
+/// **The agent's own fields are authoritative (spec 048 R8).** Spec 031 made
+/// them dormant behind a shared profile reference; spec 048 reversed that, so
+/// the model, temperature, output-token cap and timeout live on the agent and
+/// the endpoint and credential come from its provider's
+/// [`ProviderConfig`](crate::llm::ProviderConfig). Two agents on two providers
+/// therefore resolve independently (R11).
+///
+/// The profile branch survives only for an agent that has not been through
+/// [`AgentsDb::migrate_profiles_to_providers`] yet — a project file read before
+/// migration runs. `None` means "no model configured", which is a real state
+/// (R13), not a failure.
 pub fn resolve_agent_connection(
     a: &AgentDef,
     llm: &crate::llm::LlmConfig,
 ) -> Option<crate::llm::LlmConfig> {
-    // An explicit "(no model)" wins over everything, including any dormant
-    // embedded config left over from before the choice.
+    // An explicit "(no model)" wins over everything, including any config left
+    // over from before the choice.
     if a.no_model {
         return None;
     }
-    // A set profile reference is authoritative: if it dangles (the profile was
-    // deleted), the agent is "no model configured" (R8) — we do NOT silently
-    // fall back to stale embedded config in that case.
+    // A profile reference means this agent has NOT been through migration yet,
+    // and spec 031 put the truth in the profile — so it still wins here, and a
+    // dangling one still means "no model" rather than falling through to
+    // embedded fields that may be years stale. Migration clears the reference,
+    // after which the branch below is the live path for every agent.
     if let Some(id) = a.model_profile.as_ref() {
         return llm.profile(id).map(|p| p.resolve(llm));
     }
-    // No reference at all ⇒ un-migrated agent: fall back to its dormant embedded
-    // fields so resolution never hard-breaks on upgrade.
+    // The agent's own connection (R8/R12) — authoritative post-migration.
     if !a.provider.trim().is_empty() && !a.model.trim().is_empty() {
         let mut cfg = llm.clone();
         cfg.provider = a.provider.clone();
-        cfg.endpoint = a.endpoint.clone();
         cfg.model = a.model.clone();
         cfg.temperature = a.temperature;
         cfg.max_tokens = a.max_tokens;
         cfg.timeout_secs = a.timeout_secs;
+        // The provider owns the host (R3). The agent's stored endpoint is used
+        // only when the provider has none on file, which is how a project
+        // migrated on another machine still reaches the right place.
+        let provider_endpoint = llm.provider_endpoint(&a.provider);
+        cfg.endpoint = if provider_endpoint.trim().is_empty() {
+            a.endpoint.clone()
+        } else {
+            provider_endpoint
+        };
+        cfg.endpoint_user_edited = llm
+            .provider_config(&a.provider)
+            .map(|p| p.endpoint_user_edited)
+            .unwrap_or(false);
+        // Credential: the provider's slot, falling back to the legacy
+        // provider+model slot so a key entered before the redesign still works
+        // for the rest of this session.
+        let provider_slot = crate::llm::provider_key_slot(&a.provider);
+        let legacy_slot = crate::llm::api_key_slot(&a.provider, &a.model);
+        cfg.api_key_slot = if llm.api_keys.contains_key(&provider_slot) {
+            provider_slot.clone()
+        } else {
+            legacy_slot.clone()
+        };
         cfg.api_key = llm
             .api_keys
-            .get(&crate::llm::api_key_slot(&a.provider, &a.model))
+            .get(&provider_slot)
+            .or_else(|| llm.api_keys.get(&legacy_slot))
             .cloned()
             .unwrap_or_default();
         return Some(cfg);
@@ -2369,10 +2597,40 @@ pub fn resolve_agent_connection(
     None
 }
 
-/// Whether an agent has a usable model configured (a profile reference or
-/// dormant embedded fields) — used for the "unreviewed" heuristic (spec 031).
+/// What [`AgentsDb::migrate_profiles_to_providers`] did, for the Output panel
+/// (spec 048 R26). Migration asks nothing and blocks nothing, but it does not
+/// go unrecorded — a discarded credential in particular must be nameable.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct MigrationReport {
+    /// Agents moved off a profile onto their own fields.
+    pub agents_migrated: usize,
+    /// Provider ids configured as a result.
+    pub providers_created: Vec<String>,
+    /// `(provider, profile label)` for each credential NOT kept, because a
+    /// newer one for the same provider won (R25).
+    pub discarded: Vec<(String, String)>,
+    /// `(provider, endpoint kept)` where profiles disagreed about the host.
+    pub endpoint_conflicts: Vec<(String, String)>,
+    /// Agents whose profile reference pointed at nothing.
+    pub dangling: Vec<String>,
+}
+
+impl MigrationReport {
+    /// Nothing to say — migration was a no-op.
+    pub fn is_empty(&self) -> bool {
+        self.agents_migrated == 0
+            && self.providers_created.is_empty()
+            && self.discarded.is_empty()
+            && self.endpoint_conflicts.is_empty()
+            && self.dangling.is_empty()
+    }
+}
+
+/// Whether an agent has a usable model configured — used for the "unreviewed"
+/// heuristic (spec 031). Since spec 048 the agent's own `model` is the answer;
+/// a profile reference only counts for an agent awaiting migration.
 fn agent_has_model(a: &AgentDef) -> bool {
-    !a.no_model && (a.model_profile.is_some() || !a.model.trim().is_empty())
+    !a.no_model && (!a.model.trim().is_empty() || a.model_profile.is_some())
 }
 
 /// Migrate agents with embedded model config but no profile reference onto
@@ -2681,6 +2939,479 @@ mod tests {
         a.no_model = false;
         a.provider.clear();
         a.model.clear();
+    }
+
+    // ── spec 048: retiring the profile layer ─────────────────────────────
+
+    /// A profile on an arbitrary provider, so migration tests can build more
+    /// than one provider's worth of configuration.
+    fn profile_on(
+        llm: &mut crate::llm::LlmConfig,
+        name: &str,
+        provider: &str,
+        endpoint: &str,
+        model: &str,
+    ) -> String {
+        let id = new_uuid();
+        llm.model_profiles.push(crate::llm::ModelProfile {
+            id: id.clone(),
+            name: name.into(),
+            provider: provider.into(),
+            endpoint: endpoint.into(),
+            endpoint_user_edited: !crate::llm::endpoint_is_provider_default(provider, endpoint),
+            model: model.into(),
+            temperature: 0.7,
+            max_tokens: 8192,
+            timeout_secs: 30,
+        });
+        id
+    }
+
+    /// Store a credential for a profile with an explicit stored-at stamp, so
+    /// "most recently stored wins" can be tested without sleeping.
+    fn key_at(llm: &mut crate::llm::LlmConfig, profile_id: &str, secret: &str, stamp: i64) {
+        let slot = crate::llm::profile_api_key_slot(profile_id);
+        llm.store_api_key(slot.clone(), secret);
+        llm.api_key_saved_at.insert(slot, stamp);
+    }
+
+    /// The direct AI surfaces call the top-level model, which profiles used to
+    /// seed. With them gone the agents are the only statement of what the
+    /// project runs on, and Grace is the one it should follow (spec 048).
+    #[test]
+    fn the_top_level_default_model_comes_from_grace() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.endpoint.clear();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        llm.ensure_provider_config("anthropic");
+        for a in db.agents.iter_mut() {
+            a.model_profile = None;
+            a.no_model = false;
+            a.provider = "anthropic".into();
+            a.model = if a.name == GRACE {
+                "claude-grace".into()
+            } else {
+                "claude-other".into()
+            };
+        }
+
+        llm.ensure_default_model_from_agents(&db);
+        assert_eq!(llm.provider, "anthropic");
+        assert_eq!(llm.model, "claude-grace", "Grace sets the default");
+
+        // An agent-less project must still not be dead: the first model of the
+        // first configured provider stands in.
+        let mut bare = crate::llm::LlmConfig::load_defaults_for_test();
+        bare.provider.clear();
+        bare.model.clear();
+        bare.ensure_provider_config("anthropic");
+        bare.store_api_key(crate::llm::provider_key_slot("anthropic"), "sk");
+        bare.set_models_for("anthropic", vec!["claude-only".into()]);
+        let empty = AgentsDb::load(&tmp_project());
+        bare.ensure_default_model_from_agents(&empty);
+        assert_eq!(bare.model, "claude-only", "fallback to a configured provider");
+        println!("default model: Grace -> claude-grace; agent-less -> claude-only");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Post-migration, an agent runs on its OWN model and tuning, reaching the
+    /// host and credential its PROVIDER owns (spec 048 R8/R3/R12).
+    #[test]
+    fn an_agent_resolves_from_its_own_fields_and_its_providers_endpoint() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        let id = db.create("Solo", "p").unwrap();
+        {
+            let a = db.agents.iter_mut().find(|a| a.id == id).unwrap();
+            a.provider = "anthropic".into();
+            a.model = "claude-sonnet-5".into();
+            a.temperature = 0.25;
+            a.max_tokens = 4096;
+            a.timeout_secs = 90;
+        }
+        {
+            let p = llm.ensure_provider_config("anthropic");
+            p.endpoint = "https://anthropic.internal/v1".into();
+            p.endpoint_user_edited = true;
+        }
+        llm.store_api_key(crate::llm::provider_key_slot("anthropic"), "sk-provider");
+
+        let cfg = resolve_agent_connection(db.by_id(&id).unwrap(), &llm).expect("resolves");
+        assert_eq!(cfg.model, "claude-sonnet-5");
+        assert_eq!(
+            cfg.endpoint, "https://anthropic.internal/v1",
+            "the provider owns the host"
+        );
+        assert_eq!(cfg.api_key, "sk-provider");
+        // The agent owns the tuning (AC12).
+        assert_eq!(cfg.temperature, 0.25);
+        assert_eq!(cfg.max_tokens, 4096);
+        assert_eq!(cfg.timeout_secs, 90);
+        println!(
+            "resolved: {} @ {} temp={} tokens={} timeout={}s",
+            cfg.model, cfg.endpoint, cfg.temperature, cfg.max_tokens, cfg.timeout_secs
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The provider scope is a picker convenience, not a project-wide switch:
+    /// Grace on a cloud provider and a specialist on local Ollama must both
+    /// resolve correctly at the same time (spec 048 R11, AC9).
+    #[test]
+    fn two_agents_on_different_providers_resolve_independently() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        llm.ensure_provider_config("anthropic");
+        llm.store_api_key(crate::llm::provider_key_slot("anthropic"), "sk-cloud");
+        llm.ensure_provider_config("ollama");
+
+        let specialist = db
+            .agents
+            .iter()
+            .find(|a| a.kind == AgentKind::Specialist)
+            .map(|a| a.name.clone())
+            .expect("a seeded specialist");
+        for (name, provider, model) in [
+            (GRACE, "anthropic", "claude-sonnet-5"),
+            (specialist.as_str(), "ollama", "gemma4:31b"),
+        ] {
+            let a = db
+                .agents
+                .iter_mut()
+                .find(|a| a.name.eq_ignore_ascii_case(name))
+                .unwrap();
+            a.model_profile = None;
+            a.no_model = false;
+            a.provider = provider.into();
+            a.model = model.into();
+        }
+
+        let grace = resolve_agent_connection(db.by_name(GRACE).unwrap(), &llm).unwrap();
+        let spec = resolve_agent_connection(db.by_name(&specialist).unwrap(), &llm).unwrap();
+
+        assert_eq!((grace.provider.as_str(), grace.model.as_str()), ("anthropic", "claude-sonnet-5"));
+        assert_eq!(grace.api_key, "sk-cloud");
+        assert_eq!((spec.provider.as_str(), spec.model.as_str()), ("ollama", "gemma4:31b"));
+        assert_eq!(
+            spec.endpoint,
+            crate::llm::Provider::from_id("ollama").unwrap().default_endpoint(),
+            "local Ollama reaches its own default host"
+        );
+        assert!(spec.api_key.is_empty(), "local Ollama needs no key");
+        println!(
+            "mixed providers: {GRACE} -> anthropic/{}, {specialist} -> ollama/{}",
+            grace.model, spec.model
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The separation rule (spec 040 R10) is computed from the RESOLVED
+    /// connection, so it must survive the resolution change untouched
+    /// (spec 048 R21, AC17).
+    #[test]
+    fn a_specialist_on_graces_model_still_clashes_after_the_redesign() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        llm.ensure_provider_config("anthropic");
+
+        let specialist = db
+            .agents
+            .iter()
+            .find(|a| a.kind == AgentKind::Specialist && a.enabled)
+            .map(|a| a.name.clone())
+            .expect("a seeded specialist");
+        for name in [GRACE, specialist.as_str()] {
+            let a = db
+                .agents
+                .iter_mut()
+                .find(|a| a.name.eq_ignore_ascii_case(name))
+                .unwrap();
+            a.model_profile = None;
+            a.no_model = false;
+            a.provider = "anthropic".into();
+            a.model = "claude-shared".into();
+        }
+
+        let sep = db.model_separation(&llm);
+        assert!(!sep.is_valid(), "a specialist on Grace's model is a clash");
+        let clash = sep
+            .clashes
+            .iter()
+            .find(|c| c.agent == specialist && c.reserved_for == GRACE)
+            .expect("the clash names the agent and the reserving role");
+        assert_eq!(clash.model, "anthropic::claude-shared");
+        assert_eq!(
+            db.model_is_reserved(&llm, "anthropic::claude-shared"),
+            Some(GRACE)
+        );
+        println!(
+            "separation: {} on {} clashes, reserved for {}",
+            clash.agent, clash.model, clash.reserved_for
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Every agent takes its profile's connection as its own, and the profile
+    /// layer disappears (spec 048 R24).
+    #[test]
+    fn profiles_migrate_onto_their_agents() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        let claude = profile_on(
+            &mut llm,
+            "Anthropic · sonnet",
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "claude-sonnet-5",
+        );
+        let local = profile_on(
+            &mut llm,
+            "Ollama · gemma",
+            "ollama",
+            "http://localhost:11434/api",
+            "gemma4:31b",
+        );
+        assign(&mut db, GRACE, &claude);
+        let specialist = db
+            .agents
+            .iter()
+            .find(|a| a.kind == AgentKind::Specialist)
+            .map(|a| a.name.clone())
+            .expect("a seeded specialist");
+        assign(&mut db, &specialist, &local);
+
+        let before: Vec<String> = [GRACE, specialist.as_str()]
+            .iter()
+            .map(|n| db.agent_model_key(n, &llm).unwrap_or_default())
+            .collect();
+
+        let report = db.migrate_profiles_to_providers(&mut llm);
+
+        assert_eq!(report.agents_migrated, 2);
+        assert!(llm.model_profiles.is_empty(), "the layer is gone");
+        for name in [GRACE, specialist.as_str()] {
+            let a = db.by_name(name).unwrap();
+            assert!(a.model_profile.is_none(), "{name} still references a profile");
+            assert!(!a.provider.is_empty() && !a.model.is_empty());
+        }
+        let after: Vec<String> = [GRACE, specialist.as_str()]
+            .iter()
+            .map(|n| db.agent_model_key(n, &llm).unwrap_or_default())
+            .collect();
+        assert_eq!(before, after, "the effective model must not move");
+
+        let mut created = report.providers_created.clone();
+        created.sort();
+        assert_eq!(created, vec!["anthropic".to_string(), "ollama".into()]);
+        println!(
+            "migration: {} agents, providers {:?}\n  {GRACE} -> {}\n  {specialist} -> {}",
+            report.agents_migrated, created, after[0], after[1]
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// One provider can hold one credential, so the newest wins and the rest
+    /// are named rather than vanishing (spec 048 R25/R26).
+    #[test]
+    fn the_newest_key_per_provider_survives() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        let old = profile_on(
+            &mut llm,
+            "Anthropic · old",
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "claude-a",
+        );
+        let new = profile_on(
+            &mut llm,
+            "Anthropic · new",
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "claude-b",
+        );
+        key_at(&mut llm, &old, "sk-old", 100);
+        key_at(&mut llm, &new, "sk-new", 200);
+        assign(&mut db, GRACE, &new);
+
+        let report = db.migrate_profiles_to_providers(&mut llm);
+
+        let slot = crate::llm::provider_key_slot("anthropic");
+        assert_eq!(llm.provider_api_key("anthropic"), "sk-new");
+        assert_eq!(
+            llm.credential_saved_at(&slot),
+            Some(200),
+            "the winner keeps its stored-at stamp, not a fresh one"
+        );
+        assert!(
+            llm.credential_saved_at(&crate::llm::profile_api_key_slot(&old))
+                .is_none(),
+            "the retired slot is forgotten"
+        );
+        assert_eq!(
+            report.discarded,
+            vec![("anthropic".to_string(), "Anthropic · old".to_string())],
+            "the discarded credential is named"
+        );
+        println!(
+            "credential migration: kept stamp 200 (sk-new), discarded {:?}",
+            report.discarded
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// A reference to a profile that no longer exists already meant "no model".
+    /// Migration must say so, not invent a connection (spec 048 R24).
+    #[test]
+    fn a_dangling_profile_reference_leaves_the_agent_unconfigured() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        assign(&mut db, GRACE, "a-profile-that-was-deleted");
+
+        let report = db.migrate_profiles_to_providers(&mut llm);
+
+        assert_eq!(report.dangling, vec![GRACE.to_string()]);
+        assert_eq!(report.agents_migrated, 0);
+        let grace = db.by_name(GRACE).unwrap();
+        assert!(grace.model_profile.is_none());
+        assert!(grace.model.trim().is_empty(), "no model was invented");
+        assert!(db.agent_model_key(GRACE, &llm).is_none());
+        println!("dangling references reported: {:?}", report.dangling);
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// "(no model)" is a decision the developer made; migration preserves it
+    /// (spec 048 R28).
+    #[test]
+    fn an_explicit_no_model_choice_survives_migration() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        let p = profile_on(
+            &mut llm,
+            "Anthropic · sonnet",
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "claude-sonnet-5",
+        );
+        assign(&mut db, GRACE, &p);
+        {
+            let grace = db.agents.iter_mut().find(|a| a.name == GRACE).unwrap();
+            grace.no_model = true;
+        }
+
+        db.migrate_profiles_to_providers(&mut llm);
+
+        let grace = db.by_name(GRACE).unwrap();
+        assert!(grace.no_model, "the choice stands");
+        assert!(grace.model_profile.is_none());
+        assert!(
+            db.agent_model_key(GRACE, &llm).is_none(),
+            "(no model) still resolves to nothing"
+        );
+        println!("(no model) preserved through migration");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Running twice must change nothing the second time — a project opened
+    /// repeatedly must not re-migrate (spec 048 R24).
+    #[test]
+    fn migration_is_idempotent() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        let p = profile_on(
+            &mut llm,
+            "Anthropic · sonnet",
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "claude-sonnet-5",
+        );
+        key_at(&mut llm, &p, "sk-only", 500);
+        assign(&mut db, GRACE, &p);
+
+        let first = db.migrate_profiles_to_providers(&mut llm);
+        let key_after_first = llm.provider_api_key("anthropic");
+        let model_after_first = db.agent_model_key(GRACE, &llm);
+
+        let second = db.migrate_profiles_to_providers(&mut llm);
+
+        assert_eq!(first.agents_migrated, 1);
+        assert!(second.is_empty(), "second run is a no-op: {second:?}");
+        assert_eq!(llm.provider_api_key("anthropic"), key_after_first);
+        assert_eq!(db.agent_model_key(GRACE, &llm), model_after_first);
+        println!("idempotent: run 1 migrated 1 agent, run 2 migrated nothing");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Two hand-typed hosts for one provider cannot both survive. The newest
+    /// keyed one is kept and the disagreement is reported, never silently
+    /// resolved (spec 048 R26).
+    #[test]
+    fn endpoint_conflicts_are_reported_not_guessed() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        let intl = profile_on(
+            &mut llm,
+            "Alibaba · intl",
+            "alibaba",
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            "qwen-max",
+        );
+        let mainland = profile_on(
+            &mut llm,
+            "Alibaba · mainland",
+            "alibaba",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "qwen-plus",
+        );
+        // The international host is the shipped default, so only the mainland
+        // one counts as hand-typed; give both a key to rank them.
+        key_at(&mut llm, &intl, "sk-intl", 100);
+        key_at(&mut llm, &mainland, "sk-mainland", 300);
+
+        let report = db.migrate_profiles_to_providers(&mut llm);
+
+        assert_eq!(
+            llm.provider_endpoint("alibaba"),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "the hand-typed host wins over the shipped default"
+        );
+        assert_eq!(llm.provider_api_key("alibaba"), "sk-mainland");
+        assert_eq!(
+            report.discarded,
+            vec![("alibaba".to_string(), "Alibaba · intl".to_string())]
+        );
+        println!(
+            "endpoint resolution: kept {}, discarded {:?}",
+            llm.provider_endpoint("alibaba"),
+            report.discarded
+        );
+        let _ = std::fs::remove_dir_all(proj);
     }
 
     /// Move every specialist onto one profile. Seeding puts them all on the

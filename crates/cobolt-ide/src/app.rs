@@ -3516,6 +3516,59 @@ impl CoboltApp {
                 "Prepared {changed} fixed-agent or project-knowledge capability update(s)."
             ));
         }
+        // Retire the model-profile layer before anything resolves a connection
+        // (spec 048 R24). Asks nothing, blocks nothing — but every credential it
+        // has to drop is named, because a key that quietly disappeared is a
+        // support call nobody can answer.
+        self.migrate_model_profiles(&mut db);
+    }
+
+    /// Run the spec 048 profiles→providers migration and report it (R24–R27).
+    ///
+    /// Silent and promptless by design: on an already-migrated project this is
+    /// a no-op that prints nothing, so the Output panel only ever mentions it
+    /// on the one open where it actually did something.
+    fn migrate_model_profiles(&mut self, db: &mut crate::agents_db::AgentsDb) {
+        let report = db.migrate_profiles_to_providers(&mut self.llm);
+        if report.is_empty() {
+            return;
+        }
+        if report.agents_migrated > 0 {
+            self.output.push_status(format!(
+                "Model providers: moved {} agent(s) off model profiles onto their own settings.",
+                report.agents_migrated
+            ));
+        }
+        if !report.providers_created.is_empty() {
+            self.output.push_status(format!(
+                "Model providers: configured {}.",
+                report.providers_created.join(", ")
+            ));
+        }
+        for (provider, label) in &report.discarded {
+            self.output.push_status(format!(
+                "Model providers: {provider} keeps one key — the credential from \"{label}\" was \
+                 dropped. Re-enter it in the Model Providers Manager if it was the one you wanted."
+            ));
+        }
+        for (provider, endpoint) in &report.endpoint_conflicts {
+            self.output.push_status(format!(
+                "Model providers: {provider} had more than one endpoint on file; kept {endpoint}."
+            ));
+        }
+        for agent in &report.dangling {
+            self.output.push_status(format!(
+                "Model providers: {agent} referenced a model profile that no longer exists and \
+                 now has no model."
+            ));
+        }
+        // The direct AI surfaces read the top-level model, which profiles used
+        // to seed (spec 048 T4).
+        self.llm.ensure_default_model_from_agents(db);
+        if let Err(error) = self.llm.save() {
+            self.output
+                .push_status(format!("Could not save model providers: {error}"));
+        }
     }
 
     fn sync_project_documentation_membership(&mut self, project_root: &Path) {
@@ -5591,26 +5644,38 @@ impl CoboltApp {
     }
 
     /// The model-under-test half of a leaderboard run.
+    ///
+    /// Since spec 048 the connection comes from the model's PROVIDER: one key
+    /// and one endpoint serve every model that provider offers, so a model can
+    /// be benchmarked without any per-model configuration existing for it.
     fn leaderboard_primary_config(&self, provider: &str, model: &str) -> crate::llm::LlmConfig {
-        if let Some(profile) = self
-            .llm
-            .model_profiles
-            .iter()
-            .find(|p| p.provider == provider && p.model == model)
-        {
-            return profile.resolve(&self.llm);
-        }
         let mut cfg = self.llm.clone();
         cfg.provider = provider.to_string();
         cfg.model = model.to_string();
-        if let Some(e) = self.leaderboard.get(provider, model) {
+        let provider_endpoint = self.llm.provider_endpoint(provider);
+        if !provider_endpoint.trim().is_empty() {
+            cfg.endpoint = provider_endpoint;
+        } else if let Some(e) = self.leaderboard.get(provider, model) {
+            // A row tested before its provider was configured still knows the
+            // host it reached.
             if !e.endpoint.trim().is_empty() {
                 cfg.endpoint = e.endpoint.clone();
             }
         }
-        let slot = crate::llm::api_key_slot(provider, model);
-        cfg.api_key = self.llm.api_keys.get(&slot).cloned().unwrap_or_default();
-        cfg.api_key_slot = slot;
+        let provider_slot = crate::llm::provider_key_slot(provider);
+        let legacy_slot = crate::llm::api_key_slot(provider, model);
+        cfg.api_key_slot = if self.llm.api_keys.contains_key(&provider_slot) {
+            provider_slot.clone()
+        } else {
+            legacy_slot.clone()
+        };
+        cfg.api_key = self
+            .llm
+            .api_keys
+            .get(&provider_slot)
+            .or_else(|| self.llm.api_keys.get(&legacy_slot))
+            .cloned()
+            .unwrap_or_default();
         cfg
     }
 
@@ -5659,14 +5724,14 @@ impl CoboltApp {
                     .map(|p| p.default_endpoint().to_string())
             })
             .unwrap_or_default();
-        let profile_id = self.llm.find_or_create_profile(
-            provider,
-            &endpoint,
-            model,
-            crate::llm::default_temperature(),
-            crate::llm::default_max_tokens(),
-            crate::llm::default_timeout_secs(),
-        );
+        {
+            let cfg = self.llm.ensure_provider_config(provider);
+            if cfg.endpoint.trim().is_empty() && !endpoint.trim().is_empty() {
+                cfg.endpoint = endpoint.clone();
+                cfg.endpoint_user_edited =
+                    !crate::llm::endpoint_is_provider_default(provider, &endpoint);
+            }
+        }
         let Some(judge) = db
             .agents
             .iter_mut()
@@ -5674,10 +5739,12 @@ impl CoboltApp {
         else {
             return;
         };
-        judge.model_profile = Some(profile_id);
+        // The judge owns its connection like every other agent (spec 048 R8).
+        judge.model_profile = None;
         judge.no_model = false;
-        judge.provider.clear();
-        judge.model.clear();
+        judge.provider = provider.to_string();
+        judge.endpoint = endpoint.clone();
+        judge.model = model.to_string();
         if let Err(e) = db.save_all() {
             self.output
                 .push_status(format!("Could not save the agents: {e}"));
@@ -5713,14 +5780,18 @@ impl CoboltApp {
                     .map(|p| p.default_endpoint().to_string())
             })
             .unwrap_or_default();
-        let profile_id = self.llm.find_or_create_profile(
-            provider,
-            &endpoint,
-            model,
-            crate::llm::default_temperature(),
-            crate::llm::default_max_tokens(),
-            crate::llm::default_timeout_secs(),
-        );
+        // Spec 048: the connection is the agent's own, and the provider carries
+        // the host. Configuring the provider here means "apply to Grace" from
+        // the board is enough on its own — no separate visit to the Model
+        // Providers Manager just to record an endpoint the board already knows.
+        {
+            let cfg = self.llm.ensure_provider_config(provider);
+            if cfg.endpoint.trim().is_empty() && !endpoint.trim().is_empty() {
+                cfg.endpoint = endpoint.clone();
+                cfg.endpoint_user_edited =
+                    !crate::llm::endpoint_is_provider_default(provider, &endpoint);
+            }
+        }
 
         let mut db = crate::agents_db::AgentsDb::load(&root);
         // Spec 040 R10: a specialist may not stand on Grace's or the judge's
@@ -5755,7 +5826,13 @@ impl CoboltApp {
             if !wanted {
                 continue;
             }
-            agent.model_profile = Some(profile_id.clone());
+            // The agent owns its connection (spec 048 R8/R12); its existing
+            // temperature, token cap and timeout are its own and are left
+            // alone — only the model moves.
+            agent.model_profile = None;
+            agent.provider = provider.to_string();
+            agent.endpoint = endpoint.clone();
+            agent.model = model.to_string();
             // An explicit "(no model)" is a decision; handing it one silently
             // would undo it. Assigning a model clears the marker on purpose.
             agent.no_model = false;
@@ -5801,42 +5878,53 @@ impl CoboltApp {
             })
     }
 
-    /// Bring the board up to date with what this machine actually has
-    /// configured (spec 040): every model profile gets a row, and any
-    /// proficiency report this project archived before the board existed is
-    /// folded back in.
+    /// The `(provider, model, endpoint)` list the open project's agents run on
+    /// (spec 048 R17) — what the board is populated and pruned against now that
+    /// model profiles are gone.
+    fn assigned_models(&self) -> Vec<(String, String, String)> {
+        let Some(root) = self.project_dir() else {
+            return Vec::new();
+        };
+        crate::agents_db::AgentsDb::load(&root).assigned_models(&self.llm)
+    }
+
+    /// Bring the board up to date with what this project actually runs on
+    /// (spec 040, re-sourced by spec 048): every model an agent is assigned
+    /// gets a row, and any proficiency report this project archived before the
+    /// board existed is folded back in.
     ///
     /// Cheap and idempotent — it only writes when something changed — so it can
     /// run on startup, on project open, and whenever the panel is opened.
     fn sync_leaderboard_models(&mut self) {
-        let profiles = self.llm.model_profiles.clone();
-        let mut changed = self.leaderboard.ensure_models(&profiles);
+        let assigned = self.assigned_models();
+        let mut changed = self.leaderboard.ensure_models(&assigned);
         changed |= self.backfill_leaderboard_from_archive();
         if changed {
             self.save_leaderboard();
         }
     }
 
-    /// Housekeeping when the board is OPENED (operator, 2026-08-08): a model
-    /// that is no longer in the Models Manager keeps no row on the board.
+    /// Housekeeping when the board is OPENED: a row that no agent uses **and**
+    /// that was never tested is noise, and goes (spec 048 R18).
     ///
     /// Deliberately not folded into [`Self::sync_leaderboard_models`], which
-    /// also runs at startup and on project open: this one is destructive, and
-    /// it belongs to the moment the developer asked to look at the board.
+    /// also runs at startup and on project open: this one removes rows, and it
+    /// belongs to the moment the developer asked to look at the board.
     ///
-    /// ⚠️ The board is machine-wide while the registry it is checked against
-    /// belongs to the OPEN PROJECT, so a model registered only in another
-    /// project is an orphan here and its scores go with it. The operator chose
-    /// this over per-project boards with that stated. The removals are named in
-    /// the Output panel — the prune asks nothing, but it does not go unrecorded.
+    /// A row with runs on it is **never** removed (R19). That is the change
+    /// from 1.61.6, which pruned on registry membership alone and could delete
+    /// a model's whole score history because an agent had moved on. The board
+    /// is machine-wide while the assignments belong to the open project, so
+    /// that rule made another project's results collateral damage; with scores
+    /// protected, the worst this can now do is drop an empty row.
     fn prune_leaderboard_orphans(&mut self) {
-        let profiles = self.llm.model_profiles.clone();
-        let removed = self.leaderboard.prune_unregistered(&profiles);
+        let assigned = self.assigned_models();
+        let removed = self.leaderboard.prune_untested_orphans(&assigned);
         if removed.is_empty() {
             return;
         }
         self.output.push_status(format!(
-            "Leaderboard housekeeping: dropped {} model(s) no longer registered — {}",
+            "Leaderboard housekeeping: dropped {} untested model(s) no agent uses — {}",
             removed.len(),
             removed.join(", ")
         ));

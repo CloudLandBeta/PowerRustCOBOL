@@ -120,8 +120,28 @@ pub struct LlmConfig {
     pub pedantic_event_prompt: String,
     /// Reusable model profiles for the active project (spec 031): a connection
     /// defined once and referenced by that project's agents.
+    ///
+    /// **Legacy as of spec 048.** Read so an existing project can be migrated
+    /// onto [`Self::provider_configs`]; never written any more. See
+    /// [`crate::agents_db::AgentsDb::migrate_profiles_to_providers`].
     #[serde(default)]
     pub model_profiles: Vec<ModelProfile>,
+    /// The configured providers (spec 048 R1). **Machine-wide**, stored beside
+    /// the credentials in `llm_config.json` rather than per project: a key and
+    /// the host it authenticates against belong together, and configuring
+    /// Anthropic once should serve every project.
+    #[serde(default)]
+    pub provider_configs: Vec<ProviderConfig>,
+    /// Models most recently listed for each provider, keyed by provider id
+    /// (spec 048 R4).
+    ///
+    /// Persisted because it holds no secret and because a populated dropdown on
+    /// launch is worth more than a guaranteed-fresh one; "Refresh models"
+    /// replaces it on demand. [`Self::models_for`] still returns nothing for an
+    /// unconfigured provider (R6), so a stale list cannot outlive its
+    /// credential.
+    #[serde(default)]
+    pub provider_models: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// A named, reusable project model connection (spec 031). Carries **no
@@ -183,6 +203,63 @@ impl ModelProfile {
 /// edits better than the legacy provider+model key.
 pub fn profile_api_key_slot(profile_id: &str) -> String {
     format!("profile::{}", profile_id.trim())
+}
+
+/// One configured provider: the host to reach and, by
+/// [`provider_key_slot`], the credential that opens it (spec 048 R1/R3).
+///
+/// This is the unit of model configuration. A provider is configured **once**,
+/// and from then on every model it offers is selectable by any agent — which is
+/// the whole point of retiring [`ModelProfile`]. It deliberately carries no
+/// model and no tuning: those belong to the agent
+/// ([`crate::agents_db::AgentDef`]), not to the connection.
+///
+/// It carries **no secret** either. The key lives in the machine-local store
+/// under `providerkey::<id>`, never in a project file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    /// A [`PROVIDERS`] id.
+    pub provider: String,
+    /// Host to reach, defaulting to the provider's `default_endpoint`.
+    #[serde(default)]
+    pub endpoint: String,
+    /// The developer typed this endpoint rather than accepting the shipped
+    /// default — so a later change to the default must not overwrite it.
+    #[serde(default)]
+    pub endpoint_user_edited: bool,
+}
+
+impl ProviderConfig {
+    /// A provider at its shipped default endpoint.
+    pub fn new(provider: &str) -> Self {
+        Self {
+            provider: provider.trim().to_string(),
+            endpoint: Provider::from_id(provider.trim())
+                .map(|p| p.default_endpoint().to_string())
+                .unwrap_or_default(),
+            endpoint_user_edited: false,
+        }
+    }
+}
+
+/// Credential slot for a configured provider (spec 048 R1).
+///
+/// The prefix is `providerkey::`, **not** `provider::`: the legacy slot shape is
+/// `<provider>::<model>` ([`api_key_slot`]), so `provider::anthropic` would be
+/// indistinguishable from "the provider literally named `provider`, model
+/// `anthropic`". The two namespaces must never be able to collide — a collision
+/// would hand one provider's credential to another.
+pub fn provider_key_slot(provider: &str) -> String {
+    format!("providerkey::{}", provider.trim())
+}
+
+/// Whether this provider needs an API key before it can be used.
+///
+/// Local Ollama serves on `localhost` and authenticates nothing, so demanding a
+/// key would make a working setup look unconfigured (spec 048 R6a). Every
+/// hosted provider — `ollama_cloud` included — needs one.
+pub fn provider_requires_key(provider: &str) -> bool {
+    provider.trim() != "ollama"
 }
 
 /// Wall-clock seconds since the epoch, for stamping when a credential was
@@ -258,7 +335,87 @@ impl LlmConfig {
             pedantic_ui_prompt: default_pedantic_ui_prompt(),
             pedantic_event_prompt: default_pedantic_event_prompt(),
             model_profiles: Vec::new(),
+            provider_configs: Vec::new(),
+            provider_models: std::collections::HashMap::new(),
         }
+    }
+
+    // ── Provider configuration (spec 048) ────────────────────────────────
+
+    /// The configuration for `provider`, if it has one.
+    pub fn provider_config(&self, provider: &str) -> Option<&ProviderConfig> {
+        let id = provider.trim();
+        self.provider_configs.iter().find(|p| p.provider == id)
+    }
+
+    /// The configuration for `provider`, creating it at the shipped default
+    /// endpoint if this is the first time it has been touched.
+    pub fn ensure_provider_config(&mut self, provider: &str) -> &mut ProviderConfig {
+        let id = provider.trim().to_string();
+        if !self.provider_configs.iter().any(|p| p.provider == id) {
+            self.provider_configs.push(ProviderConfig::new(&id));
+        }
+        self.provider_configs
+            .iter_mut()
+            .find(|p| p.provider == id)
+            .expect("just ensured")
+    }
+
+    /// The endpoint to reach `provider` on: its configured host, else the
+    /// shipped default. Never empty for a known provider.
+    pub fn provider_endpoint(&self, provider: &str) -> String {
+        self.provider_config(provider)
+            .map(|p| p.endpoint.clone())
+            .filter(|e| !e.trim().is_empty())
+            .or_else(|| {
+                Provider::from_id(provider.trim()).map(|p| p.default_endpoint().to_string())
+            })
+            .unwrap_or_default()
+    }
+
+    /// This provider's stored credential, or empty when none is on file.
+    pub fn provider_api_key(&self, provider: &str) -> String {
+        self.api_keys
+            .get(&provider_key_slot(provider))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Whether `provider` is usable right now (spec 048 R6/R6a): a hosted
+    /// provider needs a key on file; local Ollama needs only an endpoint.
+    pub fn provider_is_configured(&self, provider: &str) -> bool {
+        let id = provider.trim();
+        if !provider_requires_key(id) {
+            return !self.provider_endpoint(id).trim().is_empty();
+        }
+        !self.provider_api_key(id).trim().is_empty()
+    }
+
+    /// Every configured provider id, in [`PROVIDERS`] order so the UI is stable.
+    pub fn configured_providers(&self) -> Vec<String> {
+        PROVIDERS
+            .iter()
+            .map(|p| p.id.to_string())
+            .filter(|id| self.provider_is_configured(id))
+            .collect()
+    }
+
+    /// The models `provider` offers. Empty while the provider is unconfigured —
+    /// a cached list must not outlive the credential that produced it (R6).
+    pub fn models_for(&self, provider: &str) -> &[String] {
+        if !self.provider_is_configured(provider) {
+            return &[];
+        }
+        self.provider_models
+            .get(provider.trim())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Record the result of a model listing for `provider` (R4).
+    pub fn set_models_for(&mut self, provider: &str, models: Vec<String>) {
+        self.provider_models
+            .insert(provider.trim().to_string(), models);
     }
 
     fn repair_model_profiles(&mut self) -> bool {
@@ -439,6 +596,9 @@ impl LlmConfig {
     /// the way Grace does), so without this a profile-only project would show the
     /// AI rows but every direct call would fail. Call this after `model_profiles`
     /// is populated and before resolving the API key.
+    ///
+    /// **Legacy (spec 048):** only reaches a project that has not been migrated
+    /// yet. [`Self::ensure_default_model_from_agents`] is the live path.
     pub fn ensure_default_model_from_profiles(&mut self) {
         if !self.provider.trim().is_empty() && !self.model.trim().is_empty() {
             return;
@@ -452,6 +612,56 @@ impl LlmConfig {
             self.model = profile.model.clone();
             if self.endpoint.trim().is_empty() {
                 self.endpoint = profile.endpoint.clone();
+            }
+        }
+    }
+
+    /// Seed the top-level default model from the project's agents (spec 048).
+    ///
+    /// The direct AI surfaces call the top-level `provider`/`model` rather than
+    /// resolving an agent, so something has to fill it. Profiles used to; with
+    /// them gone the agents are the only remaining statement of what this
+    /// project runs on.
+    ///
+    /// **Grace first**, deliberately: she is the orchestrator and the one model
+    /// choice a project always makes, so the direct surfaces behave like the
+    /// assistant the developer already configured. Failing that, any agent with
+    /// a model; failing that, the first model of any configured provider, so a
+    /// project with providers but no agents still answers.
+    pub fn ensure_default_model_from_agents(&mut self, agents: &crate::agents_db::AgentsDb) {
+        if !self.provider.trim().is_empty() && !self.model.trim().is_empty() {
+            return;
+        }
+        let snapshot = self.clone();
+        let pick = agents
+            .by_name(crate::agents_db::GRACE)
+            .and_then(|g| crate::agents_db::resolve_agent_connection(g, &snapshot))
+            .or_else(|| {
+                agents
+                    .agents
+                    .iter()
+                    .filter_map(|a| crate::agents_db::resolve_agent_connection(a, &snapshot))
+                    .find(|c| !c.provider.trim().is_empty() && !c.model.trim().is_empty())
+            });
+        if let Some(cfg) = pick {
+            if !cfg.provider.trim().is_empty() && !cfg.model.trim().is_empty() {
+                self.provider = cfg.provider;
+                self.model = cfg.model;
+                if self.endpoint.trim().is_empty() {
+                    self.endpoint = cfg.endpoint;
+                }
+                return;
+            }
+        }
+        // No agent has a model: fall back to the first model of the first
+        // configured provider, so the direct surfaces are not dead.
+        if let Some(provider) = self.configured_providers().first().cloned() {
+            if let Some(model) = self.models_for(&provider).first().cloned() {
+                self.provider = provider.clone();
+                self.model = model;
+                if self.endpoint.trim().is_empty() {
+                    self.endpoint = self.provider_endpoint(&provider);
+                }
             }
         }
     }
@@ -476,6 +686,64 @@ impl LlmConfig {
             }
             self.api_keys.insert(slot, key.to_string());
         }
+    }
+
+    /// When the credential in `slot` was stored, as unix seconds. `None` for a
+    /// slot that is unknown or predates the stamping.
+    ///
+    /// Migration needs this to answer "which of these keys is the newest?"
+    /// (spec 048 R25) — a question the age-in-days accessor rounds away.
+    pub fn credential_saved_at(&self, slot: &str) -> Option<i64> {
+        self.api_key_saved_at.get(slot).copied()
+    }
+
+    /// Move a credential from one slot name to another, carrying everything the
+    /// old name owned: the secret, its stored-at stamp, and its vault marker
+    /// (spec 048 R25).
+    ///
+    /// All three matter. The secret is what authenticates; the stamp is what
+    /// lets a later 401 say "this key has been on file four months", which is
+    /// usually what settles it; the marker is what tells the loader the value
+    /// lives in the OS vault rather than in this process. Re-keying only the
+    /// secret would silently downgrade the other two — and since credentials do
+    /// not currently survive a restart at all, the stamp and the marker are
+    /// often the ONLY things there are to move.
+    ///
+    /// Returns whether anything was carried across. A `to` slot that already
+    /// holds a credential is left alone: migration picks its winner before
+    /// calling this, and a second call must not overwrite that choice.
+    pub fn rekey_credential(&mut self, from: &str, to: &str) -> bool {
+        if from == to || self.api_keys.contains_key(to) {
+            return false;
+        }
+        let mut moved = false;
+        if let Some(secret) = self.api_keys.remove(from) {
+            self.api_keys.insert(to.to_string(), secret);
+            moved = true;
+        }
+        if let Some(stamp) = self.api_key_saved_at.remove(from) {
+            self.api_key_saved_at.insert(to.to_string(), stamp);
+            moved = true;
+        }
+        if self.natively_stored_slots.remove(from) {
+            self.natively_stored_slots.insert(to.to_string());
+            moved = true;
+        }
+        // A deletion marker is a decision about a slot that no longer exists;
+        // it is dropped rather than carried, or a provider configured after the
+        // migration would inherit a refusal aimed at a retired profile.
+        self.deleted_api_key_slots.remove(from);
+        moved
+    }
+
+    /// Forget everything a retired slot owned (spec 048 R25): used for the
+    /// credentials migration discards, so a dead `profile::<uuid>` slot cannot
+    /// linger and be reported as a live key's age.
+    pub fn forget_credential_slot(&mut self, slot: &str) {
+        self.api_keys.remove(slot);
+        self.api_key_saved_at.remove(slot);
+        self.natively_stored_slots.remove(slot);
+        self.deleted_api_key_slots.remove(slot);
     }
 
     /// How many days ago the credential in `slot` was stored. `None` when the
@@ -580,6 +848,10 @@ impl LlmConfig {
             .map(|(cfg, _)| cfg)
             .unwrap_or_else(Self::defaults);
         machine.inspection_port = self.inspection_port;
+        // Provider configuration is machine-wide (spec 048 D1): it lives here,
+        // beside the credentials it pairs with, not in any project file.
+        machine.provider_configs = self.provider_configs.clone();
+        machine.provider_models = self.provider_models.clone();
 
         for slot in &self.deleted_api_key_slots {
             machine.api_keys.remove(slot);
@@ -7542,6 +7814,122 @@ mod tests {
         assert!(used_backup);
         assert_eq!(recovered.model, "first-model");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The new provider credential namespace must be unreachable from the old
+    /// one (spec 048 R1).
+    ///
+    /// The legacy slot shape is `<provider>::<model>`, so a provider slot spelt
+    /// `provider::anthropic` would be the same string as "provider `provider`,
+    /// model `anthropic`". Two namespaces that can collide will eventually hand
+    /// one provider's credential to another, so the prefix is `providerkey::`
+    /// and this test holds it there for every shipped provider.
+    #[test]
+    fn a_provider_slot_can_never_collide_with_a_legacy_model_slot() {
+        let mut checked = 0;
+        for p in PROVIDERS {
+            let provider_slot = provider_key_slot(p.id);
+            assert!(
+                provider_slot.starts_with("providerkey::"),
+                "{provider_slot} must live in its own namespace"
+            );
+            for q in PROVIDERS {
+                // Every legacy slot this provider could ever produce for a
+                // model named after another provider id.
+                assert_ne!(
+                    provider_slot,
+                    api_key_slot(q.id, p.id),
+                    "provider slot for {} collides with legacy {}::{}",
+                    p.id,
+                    q.id,
+                    p.id
+                );
+                checked += 1;
+            }
+            assert_ne!(provider_slot, profile_api_key_slot(p.id));
+        }
+        println!(
+            "provider slot namespace: {} providers, {checked} legacy combinations, 0 collisions",
+            PROVIDERS.len()
+        );
+    }
+
+    /// A provider starts at its shipped endpoint and keeps an edited one across
+    /// a save/load round trip (spec 048 R3).
+    #[test]
+    fn a_provider_endpoint_defaults_then_survives_an_edit() {
+        let dir =
+            std::env::temp_dir().join(format!("prc_llm_provider_{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("llm_config.json");
+
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        let created = cfg.ensure_provider_config("anthropic").clone();
+        assert_eq!(
+            created.endpoint,
+            Provider::from_id("anthropic").unwrap().default_endpoint(),
+            "a fresh provider starts at the shipped default"
+        );
+        assert!(!created.endpoint_user_edited);
+
+        let edited = "https://anthropic.internal/v1";
+        {
+            let p = cfg.ensure_provider_config("anthropic");
+            p.endpoint = edited.into();
+            p.endpoint_user_edited = true;
+        }
+        cfg.save_machine_at(&path).unwrap();
+
+        let loaded = load_machine_config_at(&path);
+        let back = loaded.provider_config("anthropic").expect("round trip");
+        assert_eq!(back.endpoint, edited);
+        assert!(back.endpoint_user_edited);
+        assert_eq!(loaded.provider_endpoint("anthropic"), edited);
+        println!("provider endpoint: default -> edited -> reloaded as {edited}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A provider offers models only while it is configured (R6), and local
+    /// Ollama counts as configured without a key (R6a).
+    #[test]
+    fn only_a_configured_provider_offers_its_models() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.set_models_for("anthropic", vec!["claude-a".into(), "claude-b".into()]);
+
+        assert!(
+            !cfg.provider_is_configured("anthropic"),
+            "no key on file yet"
+        );
+        assert!(
+            cfg.models_for("anthropic").is_empty(),
+            "a cached list must not outlive its credential"
+        );
+
+        cfg.store_api_key(provider_key_slot("anthropic"), "sk-test");
+        assert!(cfg.provider_is_configured("anthropic"));
+        assert_eq!(cfg.models_for("anthropic").len(), 2);
+
+        // Local Ollama authenticates nothing: an endpoint is enough.
+        assert!(provider_requires_key("ollama_cloud"));
+        assert!(!provider_requires_key("ollama"));
+        cfg.set_models_for("ollama", vec!["gemma4:31b".into()]);
+        assert!(
+            cfg.provider_is_configured("ollama"),
+            "a local endpoint needs no key"
+        );
+        assert_eq!(cfg.models_for("ollama"), ["gemma4:31b"]);
+        assert!(
+            !cfg.provider_is_configured("ollama_cloud"),
+            "the hosted variant still needs one"
+        );
+
+        let configured = cfg.configured_providers();
+        println!(
+            "configured providers: {:?} (of {} shipped)",
+            configured,
+            PROVIDERS.len()
+        );
+        assert_eq!(configured, vec!["anthropic".to_string(), "ollama".into()]);
     }
 
     #[test]
