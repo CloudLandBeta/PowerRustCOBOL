@@ -510,8 +510,14 @@ impl AgentsModal {
                 for (i, name, model, provider, enabled, is_linked_companion, kind) in entries {
                     let selected = i == self.sel;
                     // A pedantic reviewer not attached to any primary — flagged.
-                    let orphan_pedantic =
-                        kind == crate::agents_db::AgentKind::Pedantic && !is_linked_companion;
+                    // The COBOL Proficiency Judge is the exception: it reviews
+                    // the proficiency test, not another agent's output, so it
+                    // has no primary BY DESIGN and being unpaired is correct.
+                    // Flagging it painted a permanently red row nobody could
+                    // ever clear.
+                    let orphan_pedantic = kind == crate::agents_db::AgentKind::Pedantic
+                        && !is_linked_companion
+                        && !crate::agents_db::is_proficiency_judge(&name);
                     let dot = if enabled { "●" } else { "○" };
                     let badge = match kind {
                         crate::agents_db::AgentKind::Orchestrator => "👑 ",
@@ -897,7 +903,18 @@ impl AgentsModal {
             ui.separator();
 
             // Companion -------------------------------------------------------
-            if agent.kind == AgentKind::Pedantic {
+            // The Judge gets neither picker: it is paired with nothing (the
+            // Test proficiency button invokes it directly), so offering to
+            // attach it to a primary only invites a misconfiguration.
+            if crate::agents_db::is_proficiency_judge(&agent.name) {
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(tr.agents_sec_companion_for).strong(),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.weak(tr.agents_judge_unpaired_hint);
+                });
+            } else if agent.kind == AgentKind::Pedantic {
                 egui::CollapsingHeader::new(
                     egui::RichText::new(tr.agents_sec_companion_for).strong(),
                 )
@@ -1001,6 +1018,11 @@ impl AgentsModal {
                                         .filter(|x| {
                                             x.id != agent.id
                                                 && x.kind == AgentKind::Pedantic
+                                                // The Judge reviews the
+                                                // proficiency test, never an
+                                                // agent — it is not on offer
+                                                // as anybody's companion.
+                                                && !crate::agents_db::is_proficiency_judge(&x.name)
                                         })
                                         .map(|x| {
                                             // Show the companion's resolved model (spec 031),

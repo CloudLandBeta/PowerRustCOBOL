@@ -5787,6 +5787,32 @@ impl CoboltApp {
         }
     }
 
+    /// Housekeeping when the board is OPENED (operator, 2026-08-08): a model
+    /// that is no longer in the Models Manager keeps no row on the board.
+    ///
+    /// Deliberately not folded into [`Self::sync_leaderboard_models`], which
+    /// also runs at startup and on project open: this one is destructive, and
+    /// it belongs to the moment the developer asked to look at the board.
+    ///
+    /// ⚠️ The board is machine-wide while the registry it is checked against
+    /// belongs to the OPEN PROJECT, so a model registered only in another
+    /// project is an orphan here and its scores go with it. The operator chose
+    /// this over per-project boards with that stated. The removals are named in
+    /// the Output panel — the prune asks nothing, but it does not go unrecorded.
+    fn prune_leaderboard_orphans(&mut self) {
+        let profiles = self.llm.model_profiles.clone();
+        let removed = self.leaderboard.prune_unregistered(&profiles);
+        if removed.is_empty() {
+            return;
+        }
+        self.output.push_status(format!(
+            "Leaderboard housekeeping: dropped {} model(s) no longer registered — {}",
+            removed.len(),
+            removed.join(", ")
+        ));
+        self.save_leaderboard();
+    }
+
     /// Replay `agentic_ai/model-benchmarks.jsonl` into the board.
     ///
     /// Every proficiency test ever run in this project was archived there with
@@ -7527,6 +7553,9 @@ impl CoboltApp {
             // Pick up models configured since the last sync, so the board is
             // never a shorter list than the Models Manager.
             self.sync_leaderboard_models();
+            // …and drop the rows nothing registers any more, so it is never a
+            // LONGER list either.
+            self.prune_leaderboard_orphans();
             let judge_ready = self.judge_has_model();
             self.leaderboard_modal = Some(
                 crate::panels::leaderboard_modal::LeaderboardModal::new(judge_ready),

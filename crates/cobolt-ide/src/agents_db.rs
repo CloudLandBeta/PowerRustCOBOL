@@ -56,6 +56,19 @@ pub const GRACE: &str = "Grace";
 /// leaderboard ranks.
 pub const PROFICIENCY_JUDGE: &str = "COBOL Proficiency Judge";
 
+/// Whether `name` is the COBOL Proficiency Judge.
+///
+/// The Judge is stored with [`AgentKind::Pedantic`] because that is the kind
+/// that carries a reviewer's prompt and model, but it is **not** a reviewer
+/// companion and must never be treated as one: it belongs to no primary, it is
+/// invoked by the Test proficiency button rather than by an agent it shadows,
+/// and its verdict is the score the leaderboard ranks. Anything that asks a
+/// pedantic agent "which agent are you paired with?" has to make an exception
+/// here — an unpaired Judge is correctly configured, not an orphan.
+pub fn is_proficiency_judge(name: &str) -> bool {
+    name.trim().eq_ignore_ascii_case(PROFICIENCY_JUDGE)
+}
+
 /// One specialist standing on a model reserved for Grace or the judge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelClash {
@@ -2517,6 +2530,51 @@ mod tests {
                 .iter()
                 .all(|a| a.companion.as_deref() != Some(judge_id.as_str())),
             "the judge reviews the test, not another agent's output"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// The Judge is never required to pair with an agent (operator,
+    /// 2026-08-08).
+    ///
+    /// It is stored as `Pedantic` because that is the kind that carries a
+    /// reviewer's prompt and model, but it reviews the proficiency TEST, not
+    /// another agent's output. Everything that asks a pedantic agent "which
+    /// agent are you paired with?" must exempt it: unpaired is its correct
+    /// state, and the Test proficiency button invokes it on nothing more than
+    /// existing, being enabled, and having a model.
+    #[test]
+    fn the_judge_is_invocable_without_being_paired_with_any_agent() {
+        assert!(is_proficiency_judge(PROFICIENCY_JUDGE));
+        assert!(is_proficiency_judge("  cobol proficiency judge  "));
+        assert!(!is_proficiency_judge("Pedantic Grace Reviewer"));
+        assert!(!is_proficiency_judge(""));
+
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        // Give it a model of its own and nothing else — no companion link in
+        // either direction.
+        let model = profile(&mut llm, "Judge", "model-j");
+        assign(&mut db, PROFICIENCY_JUDGE, &model);
+        assert!(
+            db.agents
+                .iter()
+                .all(|a| a.companion.as_deref()
+                    != db.by_name(PROFICIENCY_JUDGE).map(|j| j.id.as_str())),
+            "nothing should point at the judge"
+        );
+        assert!(
+            db.by_name(PROFICIENCY_JUDGE)
+                .and_then(|j| j.companion.clone())
+                .is_none(),
+            "the judge should point at nothing"
+        );
+        assert!(
+            db.proficiency_judge_config(&llm).is_some(),
+            "an unpaired judge with a model must still be invocable"
         );
         let _ = std::fs::remove_dir_all(proj);
     }

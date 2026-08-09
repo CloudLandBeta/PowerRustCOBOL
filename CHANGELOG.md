@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.6] — 2026-08-08
+
+### Fixed
+
+- **The leaderboard kept ranking models that are no longer registered.**
+  Opening it now sweeps the board: any ranked model that is not in the Models
+  Manager list loses its row, so the board is never a longer list than the
+  registry (it was already never a shorter one — `ensure_models` sees to that).
+  The removals are named in the Output panel. ⚠️ **The board is machine-wide
+  and the registry belongs to the open project**, so a model registered only in
+  another project counts as unregistered here and its scores go with it; this
+  is the chosen behaviour over per-project boards. An *empty* registry prunes
+  nothing — before a project has loaded, "nothing is registered" would
+  otherwise mean "everything is an orphan" and one startup would erase the
+  whole board.
+- **The COBOL Proficiency Judge was shown as a misconfigured reviewer.** It is
+  stored as a Pedantic agent because that is the kind carrying a reviewer's
+  prompt and model, but it reviews the proficiency *test*, not another agent's
+  output, and belongs to no primary by design. The Agents Manager nevertheless
+  flagged it as an unattached reviewer — a permanently red row nothing could
+  clear — offered a "Companion for" picker inviting you to attach it to an
+  agent, and listed it among the reviewers other agents could adopt. It is now
+  exempt from all three: unpaired is its correct state, and the Test
+  proficiency button invokes it on nothing more than existing, being enabled,
+  and having a model of its own (which was already true — only the presentation
+  disagreed).
+
 ## [PowerRustCOBOL 1.61.5] — 2026-08-08
 
 ### Fixed

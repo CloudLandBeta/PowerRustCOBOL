@@ -351,6 +351,41 @@ impl Leaderboard {
         self.get(provider, model).is_some()
     }
 
+    /// Housekeeping: drop every row whose model is no longer registered.
+    /// Returns the labels of what went, so the caller can put the removals on
+    /// the record.
+    ///
+    /// The reciprocal of [`Self::ensure_models`] — that one adds a row for
+    /// every registered model, this one takes away the rows nothing registers
+    /// any more, so the board and the Models Manager hold the same list.
+    ///
+    /// ⚠️ **Scope.** The board is machine-wide; `profiles` is the OPEN
+    /// PROJECT's registry (`apply_to_llm` swaps that list on every project
+    /// switch). A model registered only in some other project therefore counts
+    /// as unregistered here and loses its results — the operator's decision,
+    /// taken with that trade-off stated.
+    ///
+    /// An EMPTY `profiles` prunes nothing. No registry is not the same as an
+    /// empty one: before a project has loaded, "nothing is registered" would
+    /// mean "everything is an orphan", and a single startup would erase a board
+    /// that took real tokens and real time to fill.
+    pub fn prune_unregistered(&mut self, profiles: &[crate::llm::ModelProfile]) -> Vec<String> {
+        if profiles.is_empty() {
+            return Vec::new();
+        }
+        let mut removed = Vec::new();
+        self.entries.retain(|e| {
+            let registered = profiles
+                .iter()
+                .any(|p| e.matches(&p.provider, &p.model));
+            if !registered {
+                removed.push(e.label());
+            }
+            registered
+        });
+        removed
+    }
+
     /// Record a run that finished and produced scores.
     pub fn record_success(
         &mut self,
@@ -469,6 +504,67 @@ mod tests {
             Tier::CloudPaid,
             "an unknown route must be assumed to bill"
         );
+    }
+
+    /// Housekeeping on open: a model that is no longer registered keeps no
+    /// row, even a rated one — that is the point of the sweep. Registered
+    /// models are untouched, whatever state they are in.
+    #[test]
+    fn opening_the_board_drops_models_that_are_no_longer_registered() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-5", "https://x", outcome(90.0));
+        lb.record_success("openai", "retired-model", "https://y", outcome(71.0));
+        lb.ensure_models(&[profile("ollama", "never-tested")]);
+        assert_eq!(lb.entries.len(), 3);
+
+        let removed = lb.prune_unregistered(&[
+            profile("anthropic", "claude-opus-5"),
+            profile("ollama", "never-tested"),
+        ]);
+
+        assert_eq!(removed.len(), 1, "exactly the unregistered row goes");
+        assert!(
+            removed[0].contains("retired-model"),
+            "the removal must name the model: {removed:?}"
+        );
+        assert!(lb.get("openai", "retired-model").is_none(), "orphan survived");
+        assert!(
+            lb.get("anthropic", "claude-opus-5").is_some(),
+            "a registered rated model must survive"
+        );
+        assert!(
+            lb.get("ollama", "never-tested").is_some(),
+            "a registered untested model must survive"
+        );
+        println!("pruned: {}", removed.join(", "));
+    }
+
+    /// **The guard that stops one startup erasing the board.**
+    ///
+    /// The board is machine-wide and the registry is the open project's, so an
+    /// EMPTY registry means "not loaded yet", never "everything is an orphan".
+    /// Without this, opening the board before a project had applied its
+    /// profiles would delete every result on the machine.
+    #[test]
+    fn an_empty_registry_prunes_nothing() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-5", "", outcome(90.0));
+        lb.record_success("openai", "gpt-5", "", outcome(88.0));
+
+        assert!(lb.prune_unregistered(&[]).is_empty(), "it reported removals");
+        assert_eq!(lb.entries.len(), 2, "an empty registry emptied the board");
+    }
+
+    /// Registration matches the way every other lookup on the board does —
+    /// case-insensitively, ignoring surrounding space — so a profile that
+    /// differs only in spelling is not mistaken for a missing one.
+    #[test]
+    fn registration_matching_ignores_case_and_padding() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("Anthropic", "Claude-Opus-5", "", outcome(90.0));
+        let removed = lb.prune_unregistered(&[profile(" anthropic ", " claude-opus-5 ")]);
+        assert!(removed.is_empty(), "a spelling difference read as an orphan");
+        assert_eq!(lb.entries.len(), 1);
     }
 
     #[test]
