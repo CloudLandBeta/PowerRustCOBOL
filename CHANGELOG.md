@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.4] — 2026-08-08
+
+### Added
+
+- **`transporter-ii` window entrance/exit effect.** A cinematic materialisation
+  reveal, in the project's effect catalogue beside `matrix-rain` and `genie`,
+  running for exactly 4000 ms in two phases. **Phase 1:** two thin horizontal
+  beams — each about half the form's width, horizontally centred — start
+  overlapped on the vertical centre line and separate to the top and bottom
+  edges, while the gap opening between them fills with a dense cloud of
+  flickering white-and-yellow particles. **Phase 2:** the horizontal beams fade
+  out as they land, two full-height vertical beams fade in at the horizontal
+  centre and sweep outward to the left and right edges, revealing the form in
+  the band widening between them while the cloud dissolves wherever a beam has
+  passed; through the closing stretch particles, glow and beams ease to nothing
+  so the light is gone exactly as the beams reach the borders. Every beam is a
+  layered translucent gradient with a soft bloom — white on the axis, warm
+  yellow at the flanks — never a solid bar or a hard edge. It plays over a
+  **see-through** window (the reveal is a clip, not a cover), and as an *exit*
+  it runs the sequence backwards and dematerialises the form, which makes it
+  the one effect worth setting in both directions. Fixed length and linear
+  time: the phases, the beam hand-over and the fade are all cut to the one
+  clock, so the duration spinner offers only 4000 ms and the easing setting
+  does not apply.
+
 ## [PowerRustCOBOL 1.61.3] — 2026-08-08
 
 ### Fixed

@@ -3161,7 +3161,8 @@ fn controls_reference_doc() -> String {
     doc.push_str(
         "Window entrance/exit effects are configured ONCE PER PROJECT (project settings → \
          Appearance) and apply to every form: an entrance effect, an exit effect, each with a \
-         duration (100–3000 ms; `matrix-rain` uses its own 1500–4000 ms band) and an easing \
+         duration (100–3000 ms; `matrix-rain` uses its own 1500–4000 ms band, and \
+         `transporter-ii` is fixed at exactly 4000 ms) and an easing \
          (`linear` | `ease-in` | `ease-out` | `ease-in-out`). The effect catalogue: `none`, \
          `fade`, `zoom` (dBASE-style box zoom), `slide-left/right/top/bottom`, \
          `expand-title-bar`, `radar-wipe`, `iris-wipe`, `blinds`, `checkerboard`, \
@@ -3171,14 +3172,27 @@ fn controls_reference_doc() -> String {
          exactly when the last character leaves; lines arrive 25 ms apart at first, then \
          10-25 ms behind each other; this effect ignores the easing setting and runs on \
          linear time), `genie` \
-         (squash-and-bend approximation). New projects default to a `matrix-rain` entrance \
-         and no exit effect.\n\n",
+         (squash-and-bend approximation), `transporter-ii` (a two-phase cinematic \
+         materialisation over a see-through window, fixed at 4000 ms and running on linear \
+         time whatever the easing says: PHASE 1 — two thin horizontal beams, each about half \
+         the form's width and horizontally centred, start overlapped on the vertical centre \
+         line and separate to the top and bottom edges, while the gap opening between them \
+         fills with a dense cloud of flickering white-and-yellow particles; PHASE 2 — the \
+         horizontal beams fade out as they land, two FULL-HEIGHT vertical beams fade in at \
+         the horizontal centre and sweep outward to the left and right edges, revealing the \
+         form in the band widening between them while the cloud dissolves wherever a beam \
+         has passed. Through the last stretch particles, glow and beams ease to nothing, so \
+         the light is gone exactly as the beams reach the borders. Every beam is a layered \
+         translucent gradient with a bloom — never a solid bar. An exit runs the sequence \
+         backwards and dematerialises the form). New projects default to a `matrix-rain` \
+         entrance and no exit effect.\n\n",
     );
     doc.push_str(
         "While an effect runs the window wears NO title bar (nothing stands still during the \
          animation); it arrives with the finished form, and only if that form shows one. The \
-         face-only effects (`fade`, `zoom`, the slides, `expand-title-bar`, `genie`) and \
-         `matrix-rain` also open a SEE-THROUGH window, so the form animates over the desktop \
+         face-only effects (`fade`, `zoom`, the slides, `expand-title-bar`, `genie`), \
+         `matrix-rain` and `transporter-ii` also open a SEE-THROUGH window, so the form \
+         animates over the desktop \
          — on those windows the form's `transparency` reaches the desktop for real. Only the \
          masked reveals (`radar-wipe`, `iris-wipe`, `blinds`, `checkerboard`) keep an opaque \
          window: they hide the form by painting covers over it, which nothing transparent \

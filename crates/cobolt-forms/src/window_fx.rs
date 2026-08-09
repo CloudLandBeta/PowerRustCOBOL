@@ -42,10 +42,11 @@ pub enum WindowEffect {
     Checkerboard,
     MatrixRain,
     Genie,
+    TransporterII,
 }
 
 impl WindowEffect {
-    pub const ALL: [WindowEffect; 14] = [
+    pub const ALL: [WindowEffect; 15] = [
         WindowEffect::None,
         WindowEffect::Fade,
         WindowEffect::Zoom,
@@ -60,6 +61,7 @@ impl WindowEffect {
         WindowEffect::Checkerboard,
         WindowEffect::MatrixRain,
         WindowEffect::Genie,
+        WindowEffect::TransporterII,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -78,6 +80,7 @@ impl WindowEffect {
             WindowEffect::Checkerboard => "checkerboard",
             WindowEffect::MatrixRain => "matrix-rain",
             WindowEffect::Genie => "genie",
+            WindowEffect::TransporterII => "transporter-ii",
         }
     }
 
@@ -106,6 +109,9 @@ impl WindowEffect {
     /// MatrixRain qualifies because it never covers anything: each falling
     /// line paints the form only down to its own tail, and its band is a
     /// plain rectangle, so ground no tail has reached is simply not painted.
+    /// Transporter qualifies for the same reason from the other direction: it
+    /// dims the face's own opacity and ADDS beam and sparkles on top, so a
+    /// half-materialised form is genuinely half-there rather than veiled.
     pub fn plays_over_desktop(self) -> bool {
         matches!(
             self,
@@ -118,6 +124,7 @@ impl WindowEffect {
                 | WindowEffect::ExpandTitleBar
                 | WindowEffect::Genie
                 | WindowEffect::MatrixRain
+                | WindowEffect::TransporterII
         )
     }
 
@@ -129,6 +136,11 @@ impl WindowEffect {
     pub fn progress(self, easing: Easing, raw: f32) -> f32 {
         match self {
             WindowEffect::MatrixRain => raw.clamp(0.0, 1.0),
+            // Transporter II is choreographed against its own 4 s clock: an
+            // easing on top would slide the beam hand-over and the fade-out
+            // off the beats they are cut to, so the sequence keeps real time
+            // for the same reason the rain does.
+            WindowEffect::TransporterII => raw.clamp(0.0, 1.0),
             _ => easing.apply(raw),
         }
     }
@@ -140,6 +152,12 @@ impl WindowEffect {
     pub fn duration_bounds(self) -> (u32, u32) {
         match self {
             WindowEffect::MatrixRain => (MATRIX_MIN_MS, MATRIX_MAX_MS),
+            // Transporter II is a choreographed two-phase sequence cut to a
+            // fixed clock, not a wipe that can be sped up or slowed down: its
+            // beam travel, hand-over and fade-out are all fractions of the
+            // same 4 s. Offered at exactly that length — min == max, so the
+            // settings spinner has nothing to adjust.
+            WindowEffect::TransporterII => (BEAM_MS, BEAM_MS),
             _ => (FX_MIN_MS, FX_MAX_MS),
         }
     }
@@ -528,6 +546,242 @@ pub fn matrix_wipe_front(t: f32, delay: f32, dur: f32) -> f32 {
     ((t.clamp(0.0, 1.0) - delay) / dur.max(0.001)).clamp(0.0, 1.0)
 }
 
+// ── Transporter II ───────────────────────────────────────────────────────────
+//
+// A cinematic materialisation reveal, in two phases over a fixed 4 s:
+//
+//   Phase 1 — two thin horizontal beams start overlapped at the vertical
+//   centre, each half the form's width. They separate, one climbing to the top
+//   edge and one falling to the bottom, and the space opening between them
+//   fills with a dense cloud of shimmering white-and-yellow particles.
+//
+//   Phase 2 — as the horizontal beams land on the edges they fade out, and two
+//   FULL-HEIGHT vertical beams fade in at the horizontal centre. Those sweep
+//   outward to the left and right edges, and the form is revealed in the band
+//   widening between them; the particle cloud dissolves as each beam passes
+//   over it. Through the last stretch the particles, the glow and the beams
+//   themselves ease down to nothing, so the light is gone exactly as the beams
+//   reach the borders and the finished form stands alone.
+//
+// Nothing here is a solid fill. Every beam is a stack of translucent strips
+// under a bell falloff (epaint has no gradient shader and no blur, so the
+// gradient IS the stack) with a wide dim bloom around it, white at the core
+// and warm yellow at the flanks. Reversed — an exit runs t 1→0 — the same math
+// dematerialises the form: the reveal band closes, the cloud gathers, and the
+// horizontal beams converge back to the centre line.
+
+/// The effect's fixed length. It is a choreographed sequence, not a wipe: the
+/// phases are cut to this clock, so it is offered at exactly one duration
+/// rather than a band (the settings spinner has nothing to adjust).
+pub const BEAM_MS: u32 = 4_000;
+
+// Phase 1 — the horizontal pair.
+const H_IN: (f32, f32) = (0.00, 0.05); // bloom in, overlapped at the centre
+const H_TRAVEL: (f32, f32) = (0.04, 0.50); // centre → top and bottom edges
+const H_OUT: (f32, f32) = (0.46, 0.56); // fade as they land
+
+// The particle field, opening with the gap between the horizontal beams.
+const FIELD_IN: (f32, f32) = (0.04, 0.50);
+
+// Phase 2 — the vertical pair.
+const V_IN: (f32, f32) = (0.48, 0.58); // fade in at the horizontal centre
+const V_TRAVEL: (f32, f32) = (0.56, 0.97); // centre → left and right edges
+
+/// The closing stretch: particles, glow and beams ease to nothing, reaching
+/// exactly zero as the vertical beams arrive at the borders.
+const FADE_OUT: (f32, f32) = (0.82, 1.00);
+
+/// Beam thickness as a fraction of the form's shorter side, and how far the
+/// bloom reaches past the core.
+const BEAM_THICK: f32 = 0.055;
+const BEAM_BLOOM: f32 = 4.0;
+/// Strips per beam. The gradient is drawn, not shaded, so this is the
+/// resolution of its soft edge — too few and the "beam" is a stack of bars.
+const BEAM_STRIPS: usize = 16;
+
+/// One particle per this much field area, capped for the paint budget.
+const BEAM_MOTE_AREA_PX: f32 = 420.0;
+const BEAM_MOTES_MAX: usize = 900;
+
+/// A single particle of the materialisation field, in window coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Mote {
+    pub pos: Pos2,
+    /// 0..=1 — the particle's current alpha, flicker included.
+    pub glow: f32,
+    pub radius: f32,
+    /// 0 = white, 1 = warm yellow. Fixed per particle, so the cloud is mixed
+    /// rather than uniformly tinted.
+    pub warmth: f32,
+}
+
+/// A ramp that is 0 at or below `a`, 1 at or above `b`, and smooth between.
+/// Every stage below is cut from this one shape, which is what keeps them
+/// meeting smoothly instead of stepping.
+fn ramp(t: f32, (a, b): (f32, f32)) -> f32 {
+    if b <= a {
+        return if t >= b { 1.0 } else { 0.0 };
+    }
+    let x = ((t - a) / (b - a)).clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x) // smoothstep
+}
+
+/// The closing dimmer: 1 for most of the run, easing to exactly 0 at t=1 so
+/// no light survives the moment the vertical beams reach the borders.
+fn closing(t: f32) -> f32 {
+    1.0 - ramp(t, FADE_OUT)
+}
+
+/// How far the horizontal pair has separated, as a fraction of the half-height
+/// (0 = overlapped on the centre line, 1 = landed on the top and bottom edges).
+pub fn beam_h_offset(t: f32) -> f32 {
+    ramp(t.clamp(0.0, 1.0), H_TRAVEL)
+}
+
+/// Brightness of the horizontal pair: blooms in over the centre line, holds
+/// through the climb, fades out as the beams land on the edges.
+pub fn beam_h_intensity(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    ramp(t, H_IN) * (1.0 - ramp(t, H_OUT))
+}
+
+/// How far the vertical pair has swept, as a fraction of the half-width
+/// (0 = overlapped on the centre line, 1 = arrived at the left and right
+/// edges).
+pub fn beam_v_offset(t: f32) -> f32 {
+    ramp(t.clamp(0.0, 1.0), V_TRAVEL)
+}
+
+/// Brightness of the vertical pair: fades in at the centre exactly as the
+/// horizontal pair is fading out at the edges, then eases away with the rest
+/// of the light at the end.
+pub fn beam_v_intensity(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    ramp(t, V_IN) * closing(t)
+}
+
+/// The band the form is REVEALED in — the widening space between the two
+/// vertical beams. `None` until they have started to separate; the whole form
+/// at t=1. This is a clip, not a cover, so what it has not reached is simply
+/// never painted and a see-through window stays see-through there.
+pub fn beam_reveal(rect: Rect, t: f32) -> Option<Rect> {
+    let half = rect.width() * 0.5 * beam_v_offset(t);
+    if half <= 0.5 {
+        return None;
+    }
+    let cx = rect.center().x;
+    Some(Rect::from_min_max(
+        Pos2::new((cx - half).max(rect.left()), rect.top()),
+        Pos2::new((cx + half).min(rect.right()), rect.bottom()),
+    ))
+}
+
+/// The band the particle field occupies — the space opening between the two
+/// horizontal beams.
+///
+/// It starts at the beams' own width (half the form, centred) and widens to
+/// the full form as the field energises: the cloud is what the reveal in phase
+/// 2 uncovers, so by the time the vertical beams start their sweep it has to
+/// stand across the whole form, not just the half the horizontal beams span.
+pub fn beam_field(rect: Rect, t: f32) -> Option<Rect> {
+    let t = t.clamp(0.0, 1.0);
+    let open = ramp(t, FIELD_IN);
+    let half_h = rect.height() * 0.5 * open;
+    if half_h <= 0.5 {
+        return None;
+    }
+    let half_w = rect.width() * 0.5 * (0.5 + 0.5 * open);
+    let c = rect.center();
+    Some(Rect::from_min_max(
+        Pos2::new((c.x - half_w).max(rect.left()), (c.y - half_h).max(rect.top())),
+        Pos2::new(
+            (c.x + half_w).min(rect.right()),
+            (c.y + half_h).min(rect.bottom()),
+        ),
+    ))
+}
+
+/// How many particles this window's field holds.
+pub fn beam_mote_count(rect: Rect) -> usize {
+    let area = (rect.width() * rect.height()).max(1.0);
+    ((area / BEAM_MOTE_AREA_PX).round() as usize).clamp(40, BEAM_MOTES_MAX)
+}
+
+/// The particle field at progress `t`, `time` seconds into the run.
+///
+/// Each particle owns a fixed home in the form, keyed by `seed` so a window
+/// always rebuilds the same cloud. It drifts around that home and flickers on
+/// its own phase — keyed to `time`, so the shimmer keeps moving on its own
+/// clock rather than freezing whenever the timeline does.
+///
+/// Two things take a particle away, and both are the spec's: it is DISSOLVED
+/// once the vertical beam sweeping its side has passed over it (that is what
+/// "the cloud dissolves as the beams pass" means geometrically), and whatever
+/// survives that is eased out by the closing dimmer.
+pub fn beam_motes(rect: Rect, t: f32, seed: u32, time: f64, count: usize) -> Vec<Mote> {
+    let t = t.clamp(0.0, 1.0);
+    let Some(field) = beam_field(rect, t) else {
+        return Vec::new();
+    };
+    let density = ramp(t, FIELD_IN) * closing(t);
+    if density <= 0.001 || count == 0 {
+        return Vec::new();
+    }
+    // Everything nearer the centre line than this has been swept clean.
+    let swept = rect.width() * 0.5 * beam_v_offset(t);
+    let cx = rect.center().x;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let h = mix32(seed ^ mix32(i as u32 + 1));
+        let hx = (h & 0xFFFF) as f32 / 65535.0;
+        let hy = ((h >> 16) & 0xFFFF) as f32 / 65535.0;
+        let phase = (mix32(h) & 0xFFFF) as f32 / 65535.0;
+        // Homes are laid out across the FORM, then only those inside the
+        // current field are drawn — so the cloud grows into the opening gap
+        // instead of the whole cloud stretching with it.
+        let home = Pos2::new(
+            rect.left() + rect.width() * hx,
+            rect.top() + rect.height() * hy,
+        );
+        if !field.contains(home) {
+            continue;
+        }
+        if (home.x - cx).abs() < swept {
+            continue; // a vertical beam has already passed over this one
+        }
+        // A slow wander, each particle on its own heading.
+        let wob = time as f32 * 1.6 + phase * 6.283;
+        let pos = Pos2::new(home.x + wob.sin() * 5.0, home.y + (wob * 0.73).cos() * 4.0);
+        // Flicker: fast, per-particle, never quite out and never quite full.
+        let flick = 0.45 + 0.55 * (time as f32 * 7.5 + phase * 12.566).sin().abs();
+        out.push(Mote {
+            pos,
+            glow: (density * flick).clamp(0.0, 1.0),
+            radius: 0.9 + 1.9 * phase,
+            // Warmth mixes white through to yellow across the cloud.
+            warmth: phase,
+        });
+    }
+    out
+}
+
+/// The soft-edge profile of a beam: `(offset from the centre line as a
+/// fraction of the half-thickness, weight 0..=1)` per strip, outward.
+///
+/// A bell falloff, so the beam is brightest on its axis and dies away into
+/// nothing at its edge — there is no hard boundary anywhere in it. Pure, so
+/// the shape is testable without a painter.
+pub fn beam_profile(steps: usize) -> Vec<(f32, f32)> {
+    let steps = steps.max(1);
+    (0..steps)
+        .map(|i| {
+            let f = (i as f32 + 0.5) / steps as f32;
+            // 1 at the axis, 0 at the rim, with shoulders rather than a cone.
+            (f, (1.0 - f * f) * (1.0 - f * f))
+        })
+        .collect()
+}
+
 /// Genie approximation rows: horizontal slices of the source face, each
 /// mapped to a target strip squashed toward the bottom-right corner with a
 /// quadratic bend. Returns `(source_clip, target_rect)` pairs; at t=1 each
@@ -720,6 +974,13 @@ pub fn paint_window_fx(
             let _ = (bg, time, transparent); // rain is t-driven, world is empty
             paint_matrix_rain(painter, rect, t, seed, duration_ms, face);
         }
+        WindowEffect::TransporterII => {
+            let _ = duration_ms; // the beam's stages are timeline fractions
+            if !transparent {
+                painter.rect_filled(rect, 0.0, bg);
+            }
+            paint_transporter(painter, rect, t, seed, time, face);
+        }
         WindowEffect::Genie => {
             if !transparent {
                 painter.rect_filled(rect, 0.0, bg);
@@ -754,6 +1015,151 @@ pub fn paint_window_fx(
 /// ones dead ahead last, complete at t = 1 when the last column has left
 /// the frame. The characters themselves are NEVER faded out: they keep
 /// their brightness and leave only by flying out of the window.
+/// The beam palette: white on the axis, warm yellow at the flanks.
+const BEAM_CORE: Color32 = Color32::from_rgb(255, 253, 242);
+const BEAM_WARM: Color32 = Color32::from_rgb(255, 206, 104);
+
+fn mix_rgb(a: Color32, b: Color32, f: f32) -> Color32 {
+    let f = f.clamp(0.0, 1.0);
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * f) as u8;
+    Color32::from_rgb(
+        l(a.r(), b.r()),
+        l(a.g(), b.g()),
+        l(a.b(), b.b()),
+    )
+}
+
+/// Paint one soft energy beam as a stack of translucent strips under
+/// [`beam_profile`]'s bell — white on the axis, warm at the flanks — wrapped
+/// in a wider, dimmer pass that stands in for bloom.
+///
+/// `axis` is the beam's centre line (y for a horizontal beam, x for a
+/// vertical one) and `span` its extent along its own length. Nothing is drawn
+/// opaque and no strip has a hard edge: the outermost carries almost no alpha,
+/// so the beam dies into the background rather than ending at a line.
+fn paint_soft_beam(
+    painter: &egui::Painter,
+    bounds: Rect,
+    horizontal: bool,
+    axis: f32,
+    span: (f32, f32),
+    thickness: f32,
+    intensity: f32,
+) {
+    if intensity <= 0.004 || thickness <= 0.0 {
+        return;
+    }
+    let profile = beam_profile(BEAM_STRIPS);
+    // Two passes: the wide dim bloom first, the tight bright core over it.
+    for (scale, gain) in [(BEAM_BLOOM, 0.16_f32), (1.0, 0.75)] {
+        let half = thickness * 0.5 * scale;
+        let step = half / profile.len() as f32;
+        for (f, w) in &profile {
+            let a = intensity * gain * w;
+            if a <= 0.002 {
+                continue;
+            }
+            let colour = mix_rgb(BEAM_CORE, BEAM_WARM, *f).gamma_multiply(a);
+            let off = half * f;
+            // One strip either side of the axis (they meet on it).
+            for sign in [-1.0_f32, 1.0] {
+                let c = axis + off * sign;
+                let strip = if horizontal {
+                    Rect::from_min_max(
+                        Pos2::new(span.0, c - step * 0.5),
+                        Pos2::new(span.1, c + step * 0.5),
+                    )
+                } else {
+                    Rect::from_min_max(
+                        Pos2::new(c - step * 0.5, span.0),
+                        Pos2::new(c + step * 0.5, span.1),
+                    )
+                };
+                if strip.intersects(bounds) {
+                    painter.rect_filled(strip, 0.0, colour);
+                }
+            }
+        }
+    }
+}
+
+/// Transporter II. Nothing here COVERS: the form is revealed by CLIPPING to
+/// the band between the vertical beams, and every beam and particle is added
+/// over it. What the reveal has not reached is simply never painted, so a
+/// see-through window stays see-through there.
+///
+/// Painted back to front — form, particles, beams — so the light always stands
+/// in front of what it is revealing.
+fn paint_transporter(
+    painter: &egui::Painter,
+    rect: Rect,
+    t: f32,
+    seed: u32,
+    time: f64,
+    face: &mut dyn FnMut(&egui::Painter, Rect),
+) {
+    let clipped = painter.with_clip_rect(rect);
+    let c = rect.center();
+    let thickness = rect.width().min(rect.height()) * BEAM_THICK;
+
+    // 1. The form, in the band the vertical beams have opened.
+    if let Some(band) = beam_reveal(rect, t) {
+        face(&clipped.with_clip_rect(band), rect);
+    }
+
+    // 2. The particle field, over whatever is behind it and under the beams.
+    for m in beam_motes(rect, t, seed, time, beam_mote_count(rect)) {
+        if m.glow <= 0.004 {
+            continue;
+        }
+        let tint = mix_rgb(BEAM_CORE, BEAM_WARM, m.warmth);
+        // A wide faint halo under a small bright centre — the particle's own
+        // little bloom, which is what keeps the cloud reading as light rather
+        // than as dots.
+        clipped.circle_filled(m.pos, m.radius * 3.0, tint.gamma_multiply(m.glow * 0.13));
+        clipped.circle_filled(m.pos, m.radius * 1.7, tint.gamma_multiply(m.glow * 0.28));
+        clipped.circle_filled(m.pos, m.radius, tint.gamma_multiply(m.glow * 0.85));
+    }
+
+    // 3. Phase 1 — the horizontal pair, half the form's width, centred,
+    // separating toward the top and bottom edges.
+    let hi = beam_h_intensity(t);
+    if hi > 0.004 {
+        let reach = rect.height() * 0.5 * beam_h_offset(t);
+        let half_w = rect.width() * 0.25; // "approximately 50% of the width"
+        let span = (c.x - half_w, c.x + half_w);
+        for sign in [-1.0_f32, 1.0] {
+            paint_soft_beam(
+                &clipped,
+                rect,
+                true,
+                c.y + reach * sign,
+                span,
+                thickness,
+                hi,
+            );
+        }
+    }
+
+    // 4. Phase 2 — the full-height vertical pair sweeping out to the borders.
+    let vi = beam_v_intensity(t);
+    if vi > 0.004 {
+        let reach = rect.width() * 0.5 * beam_v_offset(t);
+        let span = (rect.top(), rect.bottom());
+        for sign in [-1.0_f32, 1.0] {
+            paint_soft_beam(
+                &clipped,
+                rect,
+                false,
+                c.x + reach * sign,
+                span,
+                thickness,
+                vi,
+            );
+        }
+    }
+}
+
 fn paint_matrix_rain(
     painter: &egui::Painter,
     rect: Rect,
@@ -872,8 +1278,10 @@ mod tests {
             assert!(e.plays_over_desktop(), "{e:?} should play over the desktop");
         }
         // MatrixRain qualifies too: it covers nothing, it just paints the
-        // form down to each falling line's tail.
+        // form down to each falling line's tail. Transporter likewise: it
+        // dims the face and adds light, so it never has pixels to erase.
         assert!(WindowEffect::MatrixRain.plays_over_desktop());
+        assert!(WindowEffect::TransporterII.plays_over_desktop());
         for e in [
             WindowEffect::None,
             WindowEffect::RadarWipe,
@@ -889,6 +1297,220 @@ mod tests {
             .map(|e| e.as_str())
             .collect();
         println!("plays over the desktop: {}", over.join(", "));
+    }
+
+    /// Transporter II runs at exactly 4 s, and on real time.
+    ///
+    /// The phases are cut to that clock — beam travel, hand-over, fade-out are
+    /// all fractions of it — so it is offered at one length rather than a band,
+    /// and an easing would slide the beats off the beams. Whatever a stored
+    /// project says, the parse lands on 4000.
+    #[test]
+    fn transporter_ii_runs_at_exactly_four_seconds_on_real_time() {
+        assert_eq!(
+            WindowEffect::TransporterII.duration_bounds(),
+            (BEAM_MS, BEAM_MS)
+        );
+        for stored in ["transporter-ii:200", "transporter-ii:9999", "transporter-ii"] {
+            assert_eq!(
+                FxSpec::parse(stored).duration_ms,
+                BEAM_MS,
+                "{stored} did not land on the fixed length"
+            );
+        }
+        let s = FxSpec::parse("transporter-ii:4000:ease-in-out");
+        assert_eq!(s.effect, WindowEffect::TransporterII);
+        assert_eq!(FxSpec::parse(&s.format()), s, "format→parse round-trip");
+        // Real time, whatever easing is configured.
+        for e in [Easing::Linear, Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut] {
+            assert_eq!(
+                WindowEffect::TransporterII.progress(e, 0.25),
+                0.25,
+                "{e:?} warped the choreography"
+            );
+        }
+        println!("transporter-ii: fixed {BEAM_MS} ms, linear");
+    }
+
+    /// Both ENDS of the timeline are dark and empty: no beams, no particles,
+    /// and the form either wholly unrevealed or wholly revealed. An exit
+    /// replays this same math from 1 down to 0, so light left over at an
+    /// endpoint would flash the instant the window appears or closes.
+    #[test]
+    fn transporter_ii_is_quiet_at_both_ends() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+
+        assert_eq!(beam_h_intensity(0.0), 0.0, "horizontal beams lit at t=0");
+        assert_eq!(beam_h_intensity(1.0), 0.0, "horizontal beams lit at t=1");
+        assert_eq!(beam_v_intensity(0.0), 0.0, "vertical beams lit at t=0");
+        assert_eq!(beam_v_intensity(1.0), 0.0, "vertical beams still lit at t=1");
+        assert!(beam_reveal(r, 0.0).is_none(), "the form shows at t=0");
+        assert_eq!(
+            beam_reveal(r, 1.0).map(|b| b.width()),
+            Some(r.width()),
+            "the whole form must stand revealed at t=1"
+        );
+        for t in [0.0, 1.0] {
+            assert!(
+                beam_motes(r, t, 7, 0.0, beam_mote_count(r)).is_empty(),
+                "particles at t={t}"
+            );
+        }
+        println!(
+            "ends quiet; mid-run particles: {}",
+            beam_motes(r, 0.45, 7, 0.0, beam_mote_count(r)).len()
+        );
+    }
+
+    /// Phase 1 — the horizontal pair starts overlapped on the centre line and
+    /// separates to the top and bottom edges, and the particle field opens
+    /// with the gap between them.
+    #[test]
+    fn phase_one_splits_the_horizontal_pair_and_opens_the_field() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+
+        assert_eq!(beam_h_offset(0.0), 0.0, "the pair starts overlapped");
+        assert!(beam_h_intensity(0.03) > 0.0, "the pair must bloom in early");
+        let mut prev = -1.0;
+        for i in 0..=100 {
+            let o = beam_h_offset(i as f32 / 100.0);
+            assert!(o >= prev - 1e-6, "the split reversed at t={i}");
+            prev = o;
+        }
+        assert_eq!(beam_h_offset(1.0), 1.0, "the pair must reach the edges");
+        assert!(
+            beam_h_intensity(0.60) <= 0.0,
+            "the pair must be gone once it has landed"
+        );
+
+        // The field opens with the gap, from nothing to the whole form.
+        assert!(beam_field(r, 0.0).is_none(), "field open before the split");
+        let early = beam_field(r, 0.12).expect("field should be open at t=0.12");
+        let late = beam_field(r, 0.50).expect("field should be open at t=0.50");
+        assert!(early.height() < late.height(), "the field did not grow");
+        assert!(
+            (late.height() - r.height()).abs() < 1.0,
+            "by the hand-over the field spans the form: {}",
+            late.height()
+        );
+        println!(
+            "field: {:.0}x{:.0} at t=0.12 → {:.0}x{:.0} at t=0.50",
+            early.width(),
+            early.height(),
+            late.width(),
+            late.height()
+        );
+    }
+
+    /// Phase 2 — the vertical pair fades in as the horizontal pair fades out,
+    /// then sweeps outward, and the form is revealed in the band between them.
+    #[test]
+    fn phase_two_hands_over_and_sweeps_the_form_into_view() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+
+        // The hand-over overlaps: neither pair is ever alone in the dark.
+        let cross = (0..=100)
+            .map(|i| i as f32 / 100.0)
+            .any(|t| beam_h_intensity(t) > 0.05 && beam_v_intensity(t) > 0.05);
+        assert!(cross, "the two pairs never overlap — the hand-over is a cut");
+
+        // The reveal only ever widens, from nothing to the whole form.
+        let mut prev = 0.0_f32;
+        for i in 0..=100 {
+            let t = i as f32 / 100.0;
+            let w = beam_reveal(r, t).map(|b| b.width()).unwrap_or(0.0);
+            assert!(w >= prev - 1e-3, "the reveal narrowed at t={t}");
+            prev = w;
+        }
+        assert!(
+            beam_reveal(r, 0.50).is_none(),
+            "nothing may be revealed before the vertical pair moves"
+        );
+        println!(
+            "reveal: {:.0}px at t=0.70, {:.0}px at t=0.90, {:.0}px at t=1.0",
+            beam_reveal(r, 0.70).map(|b| b.width()).unwrap_or(0.0),
+            beam_reveal(r, 0.90).map(|b| b.width()).unwrap_or(0.0),
+            beam_reveal(r, 1.0).map(|b| b.width()).unwrap_or(0.0),
+        );
+    }
+
+    /// The cloud dissolves where a vertical beam has passed: no particle ever
+    /// survives inside the revealed band, and the count only falls once the
+    /// sweep is under way.
+    #[test]
+    fn the_cloud_dissolves_behind_the_vertical_beams() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+        let n = beam_mote_count(r);
+        let cx = r.center().x;
+
+        for t in [0.62_f32, 0.75, 0.88] {
+            let swept = r.width() * 0.5 * beam_v_offset(t);
+            for m in beam_motes(r, t, 5, 0.0, n) {
+                assert!(
+                    (m.pos.x - cx).abs() >= swept - 6.0, // 6px of drift wander
+                    "a particle survived inside the revealed band at t={t}"
+                );
+            }
+        }
+        let full = beam_motes(r, 0.50, 5, 0.0, n).len();
+        let swept = beam_motes(r, 0.80, 5, 0.0, n).len();
+        assert!(
+            swept < full,
+            "the cloud did not thin as the beams passed: {full} → {swept}"
+        );
+        println!("cloud: {full} particles at t=0.50 → {swept} at t=0.80");
+    }
+
+    /// Every beam is drawn as a soft gradient, never a solid bar: brightest on
+    /// its axis, dying to nothing at its rim.
+    #[test]
+    fn beams_are_gradients_not_solid_bars() {
+        let p = beam_profile(BEAM_STRIPS);
+        assert_eq!(p.len(), BEAM_STRIPS);
+        assert!(p[0].1 > 0.9, "the axis strip should be near-full: {}", p[0].1);
+        assert!(
+            p[BEAM_STRIPS - 1].1 < 0.02,
+            "the rim strip must be all but invisible: {}",
+            p[BEAM_STRIPS - 1].1
+        );
+        let mut prev = f32::MAX;
+        for (off, w) in &p {
+            assert!(*w <= prev + 1e-6, "the falloff rose again at offset {off}");
+            assert!((0.0..=1.0).contains(w));
+            prev = *w;
+        }
+        println!(
+            "beam profile: axis {:.2} → rim {:.3} over {BEAM_STRIPS} strips",
+            p[0].1,
+            p[BEAM_STRIPS - 1].1
+        );
+    }
+
+    /// The cloud scales with the window but is bounded at both ends: a tiny
+    /// form must not look bare, and a huge one must not paint 20 000 circles.
+    #[test]
+    fn the_cloud_scales_with_the_window_within_bounds() {
+        let small = beam_mote_count(Rect::from_min_size(Pos2::ZERO, Vec2::new(60.0, 40.0)));
+        let normal = beam_mote_count(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let huge = beam_mote_count(Rect::from_min_size(Pos2::ZERO, Vec2::new(3840.0, 2160.0)));
+        assert!(small >= 40, "a small form got a bare cloud: {small}");
+        assert!(small < normal && normal < huge, "{small} {normal} {huge}");
+        assert_eq!(huge, BEAM_MOTES_MAX, "the paint budget cap did not hold");
+        println!("particles: 60x40 → {small}, 400x300 → {normal}, 4K → {huge}");
+    }
+
+    /// The shimmer is driven by the wall clock, not the timeline, so it keeps
+    /// moving even where progress is momentarily flat.
+    #[test]
+    fn the_shimmer_moves_on_the_clock() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+        let n = beam_mote_count(r);
+        let a = beam_motes(r, 0.4, 9, 0.00, n);
+        let b = beam_motes(r, 0.4, 9, 0.13, n);
+        assert!(
+            a.iter().zip(&b).any(|(x, y)| (x.glow - y.glow).abs() > 0.01),
+            "the swarm did not twinkle between frames at the same progress"
+        );
     }
 
     #[test]

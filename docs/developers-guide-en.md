@@ -507,7 +507,8 @@ records)`) so a long index never looks stuck.
 Every project can give its windows a signature **entrance and exit effect**,
 configured once in the project settings (Appearance section) and applied to
 **all** the project's forms: pick an effect, a duration (100–3000 ms; the
-Matrix rain uses its own 1500–4000 ms band) and an easing for each
+Matrix rain uses its own 1500–4000 ms band, and Transporter II is fixed at
+exactly 4000 ms) and an easing for each
 direction. The catalogue ranges from classic transitions — fade, a
 dBASE-style box **zoom**, slides, expand-from-title-bar — through masked
 reveals (**radar wipe**, iris, venetian blinds, checkerboard) to the
@@ -517,19 +518,52 @@ end of trail — the faint top glyph — walks down its band and progressively
 uncovers what stands behind it, so the form is complete exactly when the
 last character leaves. Lines arrive on a real clock, the first ones 25 ms
 apart and the rest 10–25 ms behind each other at their own speeds; this one
-effect ignores the easing setting and runs on linear time) and a
-genie-style squash. New projects start with the Matrix
-entrance and no exit effect; projects created before this feature keep
+effect ignores the easing setting and runs on linear time), a
+genie-style squash, and **Transporter II**. New projects start with the
+Matrix entrance and no exit effect; projects created before this feature keep
 instant windows until you choose otherwise.
+
+**Transporter II** is a cinematic materialisation reveal, and the one effect
+with a fixed length: it runs for exactly **4000 ms**, in two phases.
+
+1. Two thin horizontal beams, each about half the form's width and
+   horizontally centred, start **overlapped on the vertical centre line** and
+   separate — one climbing to the top edge, one falling to the bottom. The gap
+   opening between them fills with a dense cloud of white and yellow particles
+   that flicker, drift and glow at varying opacity: an energetic but wholly
+   transparent materialisation field.
+2. As the horizontal beams land on the edges they fade out, and two
+   **full-height vertical beams** fade in at the horizontal centre. Those sweep
+   outward to the left and right edges, and your form is revealed in the band
+   widening between them, the particle cloud dissolving wherever a beam has
+   passed. Through the closing stretch the particles, the glow and the beams
+   themselves ease down to nothing, so the light is gone at the instant the
+   beams reach the borders and the finished form stands alone.
+
+Every beam is a layered translucent gradient — white on its axis, warm yellow
+at its flanks, wrapped in a soft bloom — never a solid bar or a hard-edged
+line. The effect plays over a see-through window, so the form is revealed
+against your desktop rather than against a filled rectangle. As an exit it runs
+the whole sequence backwards and **dematerialises** the form, which makes it
+the one effect worth setting in both directions: the same beams that put a
+window on screen take it away again.
+
+> **Note.** The duration spinner is fixed at 4000 ms for this effect, and the
+> easing setting does not apply — the two phases, the beam hand-over and the
+> final fade are all cut to that one clock, and stretching or easing it would
+> slide them off their beats. This is the same reasoning that makes the Matrix
+> rain run on linear time.
 
 While an entrance or exit effect runs, the window wears **no title bar**, so
 nothing stands still while the animation plays; the bar arrives together with
 the finished form (and only if that form was designed to show one). The
 effects that simply move, scale or fade the form's own face — fade, zoom, the
 slides, expand-from-title-bar and genie — go further and open a **see-through
-window**, so the form animates loose on the desktop, and so does the Matrix
+window**, so the form animates loose on the desktop, and so do the Matrix
 rain (it paints the form only down to each falling line's tail, so untouched
-ground is never painted at all). On those windows the form's **Transparency**
+ground is never painted at all) and Transporter II (it reveals the form by
+clipping to the band between its beams, so ground the beams have not reached
+is never painted either). On those windows the form's **Transparency**
 property also reaches the desktop for real, and macOS draws no drop shadow
 around the window (it would outline the invisible window, and the platform
 only offers that switch when the window is created). Only the masked reveals
