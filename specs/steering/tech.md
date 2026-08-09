@@ -70,8 +70,12 @@ Always build **and** test the touched crates before declaring a task done.
 - **Tests:** user-provided tests are *report-or-fix*, never silently changed.
   New tests report quantified, human-readable results. **Verify-first** — never
   assert a measurement the run didn't produce.
-- **Versioning:** features bump the **minor** (`y`) in
-  `crates/cobolt-ide/src/version.rs` + a `CHANGELOG.md` entry; fixes are `z`.
+- **Versioning:** **only the operator raises `x` or `y`.** Every agent-made
+  change — feature or fix — bumps the fix number `z` in
+  `crates/cobolt-ide/src/version.rs` and adds a `CHANGELOG.md` entry. *(This
+  file used to say a feature bumps the minor, which contradicted the operator's
+  standing rule and had to be settled by hand during spec 048; corrected
+  2026-08-09.)*
 - **Commits:** never mix fixes and features in one commit. Respect the push
   window and forum-announcement rules in the operator's CLAUDE.md.
 

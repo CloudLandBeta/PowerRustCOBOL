@@ -1874,7 +1874,7 @@ pub fn unauthorized_help_for(provider: &str, model: &str, key_age_days: Option<i
     };
     format!(
         "the provider rejected the credential (401 Unauthorized). Check, in this order:\n\
-         1. that a VALID API key for \"{provider}\" is registered for this model — Models Manager, the model's API key field;\n\
+         1. that a VALID API key for \"{provider}\" is configured — Model Providers Manager, that provider's API key field;\n\
          2. whether that key has EXPIRED or been rotated at the provider: the one on file {registered}, and providers commonly expire keys on a schedule;\n\
          3. that the model \"{model}\" is still offered by \"{provider}\" — a retired or renamed model answers 401 as readily as a bad key.\n\
          The fix for an expired key is to renew it at the provider and update it in the model's registration.",

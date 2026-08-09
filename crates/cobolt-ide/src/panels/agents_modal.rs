@@ -98,6 +98,16 @@ pub struct AgentsModal {
     /// `true` once anything changed (enables Apply).
     dirty: bool,
     seeded: usize,
+    /// Which provider the runtime table's Model column offers (spec 048 R10).
+    ///
+    /// A **picker scope**, not a project switch: it changes what the dropdowns
+    /// list while configuring, and never touches an agent's stored provider
+    /// (R11). Grace can sit on a cloud provider while a specialist runs local
+    /// Ollama; switching the scope to look at one does not disturb the other.
+    provider_scope: String,
+    /// Free-text filter for the Model column. One provider can offer several
+    /// hundred models, and a flat dropdown that long hides the one you came for.
+    model_filter: String,
 }
 
 /// What the caller (app.rs) must do after a frame of the modal.
@@ -142,14 +152,24 @@ impl AgentsModal {
     pub fn open_for(project_dir: &Path, llm: &mut LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
         let mut seeded = db.ensure_fixed_agents(llm);
-        // Spec 031: convert any agents still carrying embedded model config onto
-        // reusable global model profiles (idempotent). Persist both stores.
-        let migrated = crate::agents_db::migrate_to_profiles(&mut db, llm);
-        if migrated > 0 {
+        // Spec 048: retire the profile layer, the opposite of what spec 031's
+        // `migrate_to_profiles` used to do here. Leaving that call in place
+        // would rebuild profiles out of the agents' own fields on every open,
+        // undoing the migration project-open just performed.
+        let report = db.migrate_profiles_to_providers(llm);
+        if !report.is_empty() {
             let _ = db.save_all();
             let _ = llm.save();
-            seeded += migrated;
+            seeded += report.agents_migrated;
         }
+        // Start the picker on a provider that is actually usable, so the Model
+        // column is not empty on the first frame.
+        let provider_scope = db
+            .by_name(crate::agents_db::GRACE)
+            .map(|g| g.provider.clone())
+            .filter(|p| !p.trim().is_empty())
+            .or_else(|| llm.configured_providers().first().cloned())
+            .unwrap_or_default();
         let mut m = Self {
             open: true,
             db,
@@ -163,6 +183,8 @@ impl AgentsModal {
             error: None,
             dirty: seeded > 0,
             seeded,
+            provider_scope,
+            model_filter: String::new(),
         };
         m.load_selected(llm);
         m
@@ -369,6 +391,26 @@ impl AgentsModal {
                     .max_size(520.0)
                     .show(ui, |ui| self.rail_ui(ui, llm, tr));
 
+                // The runtime table (spec 048 R9): every agent's model and
+                // tuning, readable top to bottom, above the per-agent detail.
+                // A FIXED height — never sized from the content — so a project
+                // with thirty agents cannot ratchet the window taller each
+                // frame (the egui self-inflation trap).
+                egui::Panel::top(ui.id().with("agents_runtime_panel"))
+                    .resizable(true)
+                    .default_size(260.0)
+                    .min_size(120.0)
+                    .max_size(460.0)
+                    .show_separator_line(true)
+                    .show(ui, |ui| {
+                        if self.runtime_table_ui(ui, llm, tr) {
+                            self.dirty = true;
+                            if let Err(e) = self.db.save_all() {
+                                self.set_error(e);
+                            }
+                        }
+                    });
+
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ui, |ui| {
@@ -384,6 +426,193 @@ impl AgentsModal {
             });
         self.open &= open;
         action
+    }
+
+    // ── Runtime table (spec 048 R9/R10/R14) ───────────────────────────────
+
+    /// One row per agent — Grace, every specialist, every reviewer and the
+    /// COBOL Proficiency Judge — carrying the four things that decide how that
+    /// agent runs: its model, temperature, output-token cap and timeout.
+    ///
+    /// The provider combobox above scopes which models the Model column
+    /// offers. It is a picker convenience and nothing more: it never rewrites
+    /// an agent's stored provider (R11), so a table can hold agents on several
+    /// providers at once and switching the scope to configure one leaves the
+    /// others exactly as they were.
+    ///
+    /// Returns whether anything changed, so the caller persists once per frame
+    /// rather than once per widget.
+    fn runtime_table_ui(&mut self, ui: &mut egui::Ui, llm: &LlmConfig, tr: &Tr) -> bool {
+        let mut changed = false;
+        ui.add_space(6.0);
+
+        // Provider scope + model search.
+        ui.horizontal(|ui| {
+            ui.label(tr.agents_tbl_provider_scope);
+            let configured = llm.configured_providers();
+            let current = if self.provider_scope.trim().is_empty() {
+                "—".to_string()
+            } else {
+                crate::llm::Provider::from_id(&self.provider_scope)
+                    .map(|p| p.label.to_string())
+                    .unwrap_or_else(|| self.provider_scope.clone())
+            };
+            egui::ComboBox::from_id_salt("agents_provider_scope")
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    if configured.is_empty() {
+                        ui.weak(tr.providers_unconfigured);
+                    }
+                    for id in &configured {
+                        let label = crate::llm::Provider::from_id(id)
+                            .map(|p| p.label.to_string())
+                            .unwrap_or_else(|| id.clone());
+                        ui.selectable_value(&mut self.provider_scope, id.clone(), label);
+                    }
+                });
+            ui.add_space(12.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.model_filter)
+                    .hint_text(tr.agents_tbl_model_search)
+                    .desired_width(200.0),
+            );
+        });
+        ui.add_space(6.0);
+
+        // The models on offer for the scoped provider, filtered.
+        let scope = self.provider_scope.clone();
+        let needle = self.model_filter.trim().to_ascii_lowercase();
+        let offered: Vec<String> = llm
+            .models_for(&scope)
+            .iter()
+            .filter(|m| needle.is_empty() || m.to_ascii_lowercase().contains(&needle))
+            .cloned()
+            .collect();
+
+        // Who is standing on whose model, computed once for the whole table.
+        let separation = self.db.model_separation(llm);
+
+        egui::ScrollArea::vertical()
+            .id_salt("agents_runtime_table")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("agents_runtime_grid")
+                    .num_columns(5)
+                    .spacing([12.0, 6.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(tr.agents_tbl_agent).strong());
+                        ui.label(egui::RichText::new(tr.agents_tbl_model).strong());
+                        ui.label(egui::RichText::new(tr.agents_tbl_temp).strong());
+                        ui.label(egui::RichText::new(tr.agents_tbl_max_tokens).strong());
+                        ui.label(egui::RichText::new(tr.agents_tbl_timeout).strong());
+                        ui.end_row();
+
+                        for i in 0..self.db.agents.len() {
+                            let name = self.db.agents[i].name.clone();
+                            let clash = separation
+                                .clashes
+                                .iter()
+                                .find(|c| c.agent == name)
+                                .map(|c| c.reserved_for);
+
+                            ui.horizontal(|ui| {
+                                ui.label(&name);
+                                if let Some(reserved_for) = clash {
+                                    ui.label(
+                                        egui::RichText::new(
+                                            tr.agents_tbl_clash.replacen("{}", reserved_for, 1),
+                                        )
+                                        .small()
+                                        .color(ui.visuals().error_fg_color),
+                                    );
+                                }
+                            });
+
+                            // Model — (no model) plus the scoped provider's list.
+                            let agent = &mut self.db.agents[i];
+                            let shown = if agent.no_model {
+                                tr.agents_tbl_no_model.to_string()
+                            } else if agent.model.trim().is_empty() {
+                                tr.agents_tbl_no_model.to_string()
+                            } else {
+                                agent.model.clone()
+                            };
+                            egui::ComboBox::from_id_salt(("agent_model", i))
+                                .selected_text(shown)
+                                .width(240.0)
+                                .show_ui(ui, |ui| {
+                                    if ui
+                                        .selectable_label(agent.no_model, tr.agents_tbl_no_model)
+                                        .clicked()
+                                    {
+                                        agent.no_model = true;
+                                        agent.model.clear();
+                                        agent.model_profile = None;
+                                        changed = true;
+                                    }
+                                    for model in &offered {
+                                        let selected =
+                                            !agent.no_model && &agent.model == model;
+                                        if ui.selectable_label(selected, model).clicked()
+                                            && !selected
+                                        {
+                                            // The agent takes the model AND the
+                                            // provider it was picked from (R12);
+                                            // other rows keep theirs (R11).
+                                            agent.no_model = false;
+                                            agent.model_profile = None;
+                                            agent.provider = scope.clone();
+                                            agent.endpoint = llm.provider_endpoint(&scope);
+                                            agent.model = model.clone();
+                                            changed = true;
+                                        }
+                                    }
+                                });
+
+                            // Temperature / output tokens / timeout. The ranges
+                            // ARE the validation (R14): a DragValue cannot leave
+                            // its range, so a rejected value never replaces the
+                            // one already there.
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut agent.temperature)
+                                        .range(0.0..=2.0)
+                                        .speed(0.01)
+                                        .fixed_decimals(2),
+                                )
+                                .on_hover_text(tr.agents_val_temp_range)
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut agent.max_tokens)
+                                        .range(1..=200_000)
+                                        .speed(64.0),
+                                )
+                                .on_hover_text(tr.agents_val_tokens_range)
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut agent.timeout_secs)
+                                        .range(1..=3600)
+                                        .suffix(" s"),
+                                )
+                                .on_hover_text(tr.agents_val_timeout_range)
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        changed
     }
 
     // ── Left rail ─────────────────────────────────────────────────────────

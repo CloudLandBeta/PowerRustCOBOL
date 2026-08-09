@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.10] — 2026-08-09
+
+### Added
+
+- **Model Providers Manager — configure a provider once, get all its models.**
+  The *Models Manager* is renamed and rebuilt around the thing you actually
+  have: a provider. Enter its endpoint and API key, and **every model that
+  provider offers becomes available** to any agent. There is no per-model setup
+  left to do. Previously a connection was defined once per *model* as a named
+  "model profile", so using a second model from a provider you had already paid
+  for meant building a whole second profile and pasting the same key again.
+  Provider configuration is machine-wide, so one Anthropic key serves every
+  project; a local Ollama needs no key at all.
+- **Agents Manager runtime table.** One row per agent — Grace, every specialist,
+  every reviewer and the COBOL Proficiency Judge — with **Models · Temp · Output
+  Tokens · Timeout**, readable top to bottom. The **Model provider** box above
+  the table is a *picker scope*, not a project switch: it decides which models
+  the Models column offers and changes no agent you do not touch, so Grace can
+  run on a cloud provider while specialists run local Ollama. A searchable model
+  list keeps providers that offer hundreds usable, and a row whose model is
+  reserved for Grace or the Judge is flagged in place.
+- **Proficiency testing belongs to the Leaderboard alone.** It scores a *model*,
+  and the Leaderboard is where models are compared and their history kept.
+  Running it from the model manager benchmarked the same model repeatedly, and
+  from the Agents Manager could not benchmark Grace at all.
+
+### Fixed
+
+- **The Leaderboard no longer deletes a model's score history.** Housekeeping now
+  removes only rows that have **never been tested** and that no agent uses; a row
+  with results on it is history and is kept whatever the current assignments say.
+  This supersedes 1.61.6, which pruned on registry membership alone and could
+  therefore erase a model's entire record because an agent had moved off it.
+
+### Migration
+
+Existing projects migrate themselves on first open, with nothing asked of you:
+each agent takes over the provider, model, temperature, output-token cap and
+timeout of the profile it referenced, and each provider is configured from what
+those profiles knew. ⚠️ A provider can now hold **one** key, so where several
+profiles on the same provider held *different* keys the most recently stored one
+is kept and every discarded one is named in the Output panel. `cobolt.toml`
+stops carrying model profiles; an older project file is still read so the
+migration has its input.
+
 ## [PowerRustCOBOL 1.61.9] — 2026-08-09
 
 ### Fixed

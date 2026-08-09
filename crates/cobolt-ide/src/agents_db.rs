@@ -2633,34 +2633,13 @@ fn agent_has_model(a: &AgentDef) -> bool {
     !a.no_model && (!a.model.trim().is_empty() || a.model_profile.is_some())
 }
 
-/// Migrate agents with embedded model config but no profile reference onto
-/// synthesised global [`ModelProfile`](crate::llm::ModelProfile)s (spec 031 R6):
-/// each distinct embedded connection becomes one profile (identical configs
-/// collapse), and the agent is pointed at it. Idempotent — agents that already
-/// reference a profile are left alone. Returns the number of agents migrated.
-/// The caller persists `llm` and the agents afterwards.
-pub fn migrate_to_profiles(db: &mut AgentsDb, llm: &mut crate::llm::LlmConfig) -> usize {
-    let mut migrated = 0;
-    for a in &mut db.agents {
-        if a.no_model || a.model_profile.is_some() {
-            continue;
-        }
-        if a.provider.trim().is_empty() || a.model.trim().is_empty() {
-            continue; // nothing to synthesise from
-        }
-        let id = llm.find_or_create_profile(
-            &a.provider,
-            &a.endpoint,
-            &a.model,
-            a.temperature,
-            a.max_tokens,
-            a.timeout_secs,
-        );
-        a.model_profile = Some(id);
-        migrated += 1;
-    }
-    migrated
-}
+// `migrate_to_profiles` (spec 031 R6) was removed by spec 048. It walked the
+// opposite direction — synthesising a ModelProfile from each agent's embedded
+// connection — and ran on every Agents Manager open. Left in place it would
+// rebuild the profile layer out of the agents' own fields immediately after
+// `AgentsDb::migrate_profiles_to_providers` had retired it, so the two would
+// undo each other on alternate opens. Its tests went with it; the reverse
+// direction is covered by `profiles_migrate_onto_their_agents` and friends.
 
 /// Enabled primary agents (not companions of anyone) that have NO pedantic
 /// companion — their responses ship unreviewed.
@@ -2709,48 +2688,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn migration_synthesises_minimal_profiles_and_preserves_config() {
-        let proj = tmp_project();
-        let mut db = AgentsDb::load(&proj);
-        // A and B share an identical embedded connection; C differs.
-        let a = db.create("A", "p").unwrap();
-        let b = db.create("B", "p").unwrap();
-        let c = db.create("C", "p").unwrap();
-        set_embedded(&mut db, &a, "prov", "https://e", "m1");
-        set_embedded(&mut db, &b, "prov", "https://e", "m1");
-        set_embedded(&mut db, &c, "prov", "https://e", "m2");
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-
-        // Effective model BEFORE migration (via embedded fallback).
-        let before: Vec<String> = ["A", "B", "C"]
-            .iter()
-            .map(|n| agent_effective_config(&db, &llm, n).unwrap().model)
-            .collect();
-
-        let migrated = migrate_to_profiles(&mut db, &mut llm);
-        assert_eq!(migrated, 3, "all three agents migrated");
-        assert_eq!(
-            llm.model_profiles.len(),
-            2,
-            "identical configs collapse to 2 profiles"
-        );
-        for n in ["A", "B", "C"] {
-            assert!(
-                db.by_name(n).unwrap().model_profile.is_some(),
-                "{n} references a profile"
-            );
-        }
-        // Effective config is unchanged post-migration (AC5 invariant).
-        let after: Vec<String> = ["A", "B", "C"]
-            .iter()
-            .map(|n| agent_effective_config(&db, &llm, n).unwrap().model)
-            .collect();
-        assert_eq!(before, after);
-        // Idempotent.
-        assert_eq!(migrate_to_profiles(&mut db, &mut llm), 0);
-        let _ = std::fs::remove_dir_all(proj);
-    }
+    // `migration_synthesises_minimal_profiles_and_preserves_config` tested
+    // spec 031's embedded→profile direction, which spec 048 reversed and
+    // deleted along with `migrate_to_profiles`. The direction that exists now
+    // is covered by `profiles_migrate_onto_their_agents` and the five tests
+    // beside it.
 
     /// Choosing "(no model)" for a built-in agent must survive the next project
     fn profile(llm: &mut crate::llm::LlmConfig, name: &str, model: &str) -> String {
@@ -3647,13 +3589,20 @@ mod tests {
             .unwrap()
             .no_model = true;
         assert!(resolve_agent_connection(db.by_name("Solo").unwrap(), &llm).is_none());
-        // …and it is not silently migrated onto a synthesised profile either.
-        assert_eq!(migrate_to_profiles(&mut db, &mut llm), 0);
+        // …and spec 048's migration leaves the choice alone too (R28).
+        db.migrate_profiles_to_providers(&mut llm);
+        assert!(db.by_name("Solo").unwrap().no_model);
+        assert!(resolve_agent_connection(db.by_name("Solo").unwrap(), &llm).is_none());
         let _ = std::fs::remove_dir_all(proj);
     }
 
+    /// **No credential ever reaches an agent manifest** (spec 031 AC4, spec 048
+    /// R7). An agent carries the connection it runs on — provider, model,
+    /// tuning — and the key stays in the machine-local store keyed by provider.
+    /// `agent.json` lives in the project and gets committed; a key in it would
+    /// be published with the repository.
     #[test]
-    fn seeded_agents_migrate_onto_profiles_without_config_change() {
+    fn an_agent_manifest_never_carries_a_credential() {
         let proj = tmp_project();
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
         llm.provider = "anthropic".into();
@@ -3662,40 +3611,57 @@ mod tests {
         llm.reviewer_provider = "anthropic".into();
         llm.reviewer_model = "claude-opus-4-8".into();
         llm.reviewer_endpoint = llm.endpoint.clone();
+        llm.store_api_key(crate::llm::provider_key_slot("anthropic"), "sk-secret");
         let mut db = AgentsDb::load(&proj);
         db.seed_from_legacy(&llm);
+        db.migrate_profiles_to_providers(&mut llm);
+        db.save_all().unwrap();
 
-        let before = designer_agent_config(&db, &llm).model;
-        let n = migrate_to_profiles(&mut db, &mut llm);
-        assert!(
-            n >= 4,
-            "seeded specialists + companions migrated onto profiles"
-        );
-        let d = db.by_name("Form Designer Agent").unwrap();
-        assert!(
-            d.model_profile.is_some(),
-            "seeded Form Designer references a profile (AC7)"
-        );
-        // Resolved config is unchanged, now via the profile.
-        assert_eq!(designer_agent_config(&db, &llm).model, before);
-        // No API key is ever stored in agent.json (AC4).
-        assert!(!serde_json::to_string(d).unwrap().contains("api_key"));
+        let mut checked = 0;
+        for agent in &db.agents {
+            let json = serde_json::to_string(agent).unwrap();
+            assert!(!json.contains("api_key"), "{} carries a key field", agent.name);
+            assert!(!json.contains("sk-secret"), "{} carries the secret", agent.name);
+            checked += 1;
+        }
+        // …and not on disk either, where it would be committed.
+        for agent in &db.agents {
+            let path = proj.join("agentic_ai").join(&agent.name).join("agent.json");
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                assert!(!text.contains("sk-secret"), "{} leaked the key to disk", agent.name);
+            }
+        }
+        println!("{checked} agent manifests checked, no credential in any");
         let _ = std::fs::remove_dir_all(proj);
     }
 
+    /// An agent still holding a profile reference (one spec 048's migration has
+    /// not reached yet) resolves through it, and a DANGLING reference means
+    /// "no model" rather than a crash or a silent fall-back to stale embedded
+    /// fields (spec 031 R8, preserved by spec 048).
     #[test]
     fn deleted_profile_leaves_agent_without_model() {
         let proj = tmp_project();
         let mut db = AgentsDb::load(&proj);
         let a = db.create("A", "p").unwrap();
-        set_embedded(&mut db, &a, "prov", "https://e", "m1");
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        migrate_to_profiles(&mut db, &mut llm);
+        let profile_id = profile_on(
+            &mut llm,
+            "Anthropic · sonnet",
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "claude-sonnet-5",
+        );
+        db.agents
+            .iter_mut()
+            .find(|x| x.id == a)
+            .unwrap()
+            .model_profile = Some(profile_id);
         assert!(
             agent_effective_config(&db, &llm, "A").is_some(),
             "resolves via its profile"
         );
-        // Delete the referenced profile → clear "no model" state, not a crash (R8).
+        // Delete the referenced profile → clean "no model" state (R8).
         llm.model_profiles.clear();
         assert!(agent_effective_config(&db, &llm, "A").is_none());
         let _ = std::fs::remove_dir_all(proj);

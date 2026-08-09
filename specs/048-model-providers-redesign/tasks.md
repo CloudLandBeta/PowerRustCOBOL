@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — Model Providers redesign
 
-- **Status:** draft → in progress → done
+- **Status:** ~~draft → in progress~~ → **done** (2026-08-09, shipped as 1.61.10)
 - **Plan:** ./plan.md   **Date:** 2026-08-09
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches,
@@ -110,11 +110,10 @@ the end of every task.
   - Verify: `cargo test -p cobolt-ide` green; opening the board lists every
     assigned model.
 
-- [ ] **T8 — Leaderboard owns proficiency testing** (R15, R20, and plan D5)
-      *(partly done: the assignment paths now write the agent's own connection
-      and configure the provider; plan D5's clash guard turned out to already
-      exist in `assign_model_to_agents`. The "add a model to test" picker (R20)
-      is the remaining UI half.)*
+- [x] **T8 — Leaderboard owns proficiency testing** (R15, R20, and plan D5)
+      *(plan D5's clash guard turned out to already exist in
+      `assign_model_to_agents`. The assignment paths now write the agent's own
+      connection, and the "add a model to test" row is in the board header.)*
   - Files: `crates/cobolt-ide/src/panels/leaderboard_modal.rs`
   - Do: add an "add a model to test" picker (configured provider → model, R20).
     Guard `apply_to_specialists`: when the chosen model is Grace's or the
@@ -143,7 +142,7 @@ the end of every task.
 
 ## Stage D — user interface
 
-- [ ] **T10 — Model Providers Manager** (R1, R2, R3, R4, R5, R6, R6a, R16)
+- [x] **T10 — Model Providers Manager** (R1, R2, R3, R4, R5, R6, R6a, R16)
   - Files: `crates/cobolt-ide/src/panels/models_modal.rs`
   - Do: rebuild as one row per `PROVIDERS` entry, configured ones first: API key,
     endpoint (defaulted, resettable), "Refresh models", a model-count or error
@@ -157,7 +156,7 @@ the end of every task.
     listing shows the error and a typed id still works (AC4); a keyless provider
     offers nothing while a reachable Ollama offers its models (AC5).
 
-- [ ] **T11 — The agents table** (R9, R10, R11, R12, R13, R14, R23, R16)
+- [x] **T11 — The agents table** (R9, R10, R11, R12, R13, R14, R23, R16)
   - Files: `crates/cobolt-ide/src/panels/agents_modal.rs`
   - Do: build the five-column table — **Agents · Models · Temp · Output Tokens ·
     Timeout** — one row per agent including Grace and the Judge, with the
@@ -173,7 +172,7 @@ the end of every task.
     Observable: one row per agent with the five columns (AC7); (no model)
     survives reopen (AC10).
 
-- [ ] **T12 — App wiring** (R15, R16)
+- [x] **T12 — App wiring** (R15, R16)
   - Files: `crates/cobolt-ide/src/app.rs`
   - Do: update the three modal wiring blocks for the new action shapes; delete
     the `run_proficiency` handling for the providers manager and the agents
@@ -184,7 +183,7 @@ the end of every task.
 
 ## Stage E — retire the profile layer
 
-- [ ] **T13 — `cobolt.toml` stops carrying model config** (R7, D2)
+- [x] **T13 — `cobolt.toml` stops carrying model config** (R7, D2)
   - Files: `crates/cobolt-ide/src/project_model.rs`
   - Do: mark `ProjectAiSettings.model_profiles` `#[serde(default,
     skip_serializing)]` so old files still migrate but new saves stop writing
@@ -194,7 +193,10 @@ the end of every task.
     `cobolt.toml` contains no `model_profiles` block, and an old one still opens.
     Grep the project directory for any API key and find none (AC6).
 
-- [ ] **T14 — Remove profile write paths** (D2)
+- [x] **T14 — Remove profile write paths** (D2)
+      *(also removed `agents_db::migrate_to_profiles`, spec 031's
+      embedded→profile migration, which ran on every Agents Manager open and
+      would have rebuilt the layer 048 had just retired.)*
   - Files: `crates/cobolt-ide/src/llm.rs`
   - Do: delete `add_profile`, `delete_model_profile`, `profile()` and the
     profile-restore branch in the backup path. Keep `ModelProfile` **deserialisable
@@ -205,7 +207,7 @@ the end of every task.
 
 ## Stage F — documentation and release
 
-- [ ] **T15 — Developer's Guide** (R2, R15, R24)
+- [x] **T15 — Developer's Guide** (R2, R15, R24)
   - Files: `docs/developers-guide-en.md`
   - Do: rewrite the Models Manager / model configuration / proficiency-testing
     sections for provider configuration, the agents table and Leaderboard-only
@@ -215,14 +217,16 @@ the end of every task.
   - Verify: the guide has no stale reference to "Models Manager", model profiles
     or a proficiency button outside the leaderboard.
 
-- [ ] **T16 — Correct the versioning steering** (plan §7)
+- [x] **T16 — Correct the versioning steering** (plan §7)
   - Files: `specs/steering/tech.md`
   - Do: change "features bump the **minor** (`y`)" to the operator's standing
     rule — only the operator raises `x` or `y`; every agent-made change, feature
     or fix, bumps `z`. This contradiction is what made spec Q1 necessary.
   - Verify: `tech.md` and the operator's rule now agree.
 
-- [ ] **T17 — Finalize** (all)
+- [x] **T17 — Finalize** (all)
+      *(shipped as **1.61.10**, not the 1.61.8 the plan named: 1.61.8 and
+      1.61.9 were taken by two fixes that landed while 048 was parked.)*
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`
   - Do: bump `VERSION` to **`1.61.8`** (settled: only the operator raises `x`/`y`).
     Add the CHANGELOG entry under `### Added`, stating plainly that the

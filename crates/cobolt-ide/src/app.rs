@@ -5583,6 +5583,19 @@ impl CoboltApp {
         if let Some((provider, model)) = act.apply_to_specialists {
             self.assign_model_to_agents(&provider, &model, false);
         }
+        if let Some((provider, model)) = act.add_model {
+            // Spec 048 R20 — a model can be benchmarked without any agent
+            // running it, so the board takes it on the developer's say-so.
+            let endpoint = self.llm.provider_endpoint(&provider);
+            if self
+                .leaderboard
+                .ensure_models(&[(provider.clone(), model.clone(), endpoint)])
+            {
+                self.save_leaderboard();
+                self.output
+                    .push_status(format!("Leaderboard: added {provider}/{model}."));
+            }
+        }
         if let Some((provider, model)) = act.open_report {
             // The full report text lives in the project archive, not in the
             // ranked store; re-running is the only way to see it if this
@@ -7506,7 +7519,7 @@ impl CoboltApp {
         // Model Leaderboard (spec 040) — taken out of self to split borrows.
         if let Some(mut m) = self.leaderboard_modal.take() {
             let theme = self.current_theme();
-            let act = m.show(ctx, &self.leaderboard, theme, &self.lang.tr());
+            let act = m.show(ctx, &self.leaderboard, &self.llm, theme, &self.lang.tr());
             if m.open {
                 self.leaderboard_modal = Some(m);
             }
@@ -7549,12 +7562,11 @@ impl CoboltApp {
                     self.agent_preview = None;
                 }
             }
-            // "Check proficiency" on a model profile: benchmark that model on
-            // its own (no reviewer — the manager cleared it), with the report
-            // window opening over the manager exactly as it does elsewhere.
-            if let Some(cfg) = act.run_proficiency {
-                self.start_proficiency_benchmark(cfg.clone());
-            }
+            // Proficiency testing lives in the Leaderboard and nowhere else
+            // (spec 048 R15/R16). It scores a MODEL, and the Leaderboard is
+            // where models are compared and their history kept — running it
+            // from the provider manager benchmarked the same model repeatedly
+            // and recorded it in a window that could not show the result.
             if act.semantic_download_requested && self.semantic_download.is_none() {
                 self.start_semantic_download();
             }

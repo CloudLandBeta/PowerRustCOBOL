@@ -402,8 +402,8 @@ pub struct Tr {
     pub agents_val_temp_range: &'static str,
     pub agents_val_tokens_range: &'static str,
     pub agents_val_timeout_range: &'static str,
-    /// Models Manager modal + profile dropdown strings (spec 031).
-    pub models_title: &'static str,
+    /// Models Manager modal + profile dropdown strings (spec 031). The title
+    /// itself retired with spec 048 — see `providers_title`.
     pub models_new: &'static str,
     pub models_new_name: &'static str,
     pub models_none: &'static str,
@@ -478,6 +478,9 @@ pub struct Tr {
     pub leaderboard_open: &'static str,
     pub leaderboard_open_hint: &'static str,
     pub leaderboard_title: &'static str,
+    /// Button that puts a chosen provider+model on the board so it can be
+    /// benchmarked without any agent running it (spec 048 R20).
+    pub leaderboard_add_model: &'static str,
     pub leaderboard_subtitle: &'static str,
     /// `{}` — how many models the store holds.
     pub leaderboard_count: &'static str,
@@ -1494,7 +1497,6 @@ const EN: Tr = Tr {
     agents_val_temp_range: "Temperature must be between 0.0 and 2.0.",
     agents_val_tokens_range: "Output tokens must be between 1 and 200000.",
     agents_val_timeout_range: "Timeout must be between 1 and 3600 seconds.",
-    models_title: "Models Manager",
     models_new: "New profile",
     models_new_name: "New model profile",
     models_none: "No model profiles yet. Create one to get started.",
@@ -1565,6 +1567,7 @@ const EN: Tr = Tr {
     leaderboard_open: "Model Leaderboard",
     leaderboard_open_hint: "Ranks every model that has taken the COBOL proficiency test, on this machine.",
     leaderboard_title: "Model Leaderboard",
+    leaderboard_add_model: "Add to board",
     leaderboard_subtitle: "COBOL proficiency test results",
     leaderboard_count: "{} models tested on this machine",
     leaderboard_empty: "No model has taken the proficiency test yet. Run one from the Models Manager, or from Check proficiency on an agent.",
@@ -2494,7 +2497,6 @@ const ES: Tr = Tr {
     agents_val_temp_range: "La temperatura debe estar entre 0.0 y 2.0.",
     agents_val_tokens_range: "Los tokens de salida deben estar entre 1 y 200000.",
     agents_val_timeout_range: "El tiempo límite debe estar entre 1 y 3600 segundos.",
-    models_title: "Gestor de modelos",
     models_new: "Nuevo perfil",
     models_new_name: "Nuevo perfil de modelo",
     models_none: "Aún no hay perfiles de modelo. Crea uno para empezar.",
@@ -2565,6 +2567,7 @@ const ES: Tr = Tr {
     leaderboard_open: "Clasificación de modelos",
     leaderboard_open_hint: "Clasifica todos los modelos que han hecho la prueba de competencia COBOL en esta máquina.",
     leaderboard_title: "Clasificación de modelos",
+    leaderboard_add_model: "Añadir al tablero",
     leaderboard_subtitle: "Resultados de la prueba de competencia COBOL",
     leaderboard_count: "{} modelos probados en esta máquina",
     leaderboard_empty: "Ningún modelo ha hecho todavía la prueba de competencia. Ejecute una desde el Gestor de modelos o con Comprobar competencia en un agente.",
@@ -3494,7 +3497,6 @@ const PT: Tr = Tr {
     agents_val_temp_range: "A temperatura deve estar entre 0.0 e 2.0.",
     agents_val_tokens_range: "Os tokens de saída devem estar entre 1 e 200000.",
     agents_val_timeout_range: "O tempo limite deve estar entre 1 e 3600 segundos.",
-    models_title: "Gerenciador de modelos",
     models_new: "Novo perfil",
     models_new_name: "Novo perfil de modelo",
     models_none: "Ainda não há perfis de modelo. Crie um para começar.",
@@ -3565,6 +3567,7 @@ const PT: Tr = Tr {
     leaderboard_open: "Classificação de modelos",
     leaderboard_open_hint: "Classifica todos os modelos que fizeram o teste de competência COBOL nesta máquina.",
     leaderboard_title: "Classificação de modelos",
+    leaderboard_add_model: "Adicionar ao quadro",
     leaderboard_subtitle: "Resultados do teste de competência COBOL",
     leaderboard_count: "{} modelos testados nesta máquina",
     leaderboard_empty: "Nenhum modelo fez ainda o teste de competência. Execute um pelo Gestor de modelos ou por Verificar competência num agente.",
@@ -4492,7 +4495,6 @@ const JA: Tr = Tr {
     agents_val_temp_range: "温度は 0.0 から 2.0 の間で指定してください。",
     agents_val_tokens_range: "出力トークンは 1 から 200000 の間で指定してください。",
     agents_val_timeout_range: "タイムアウトは 1 から 3600 秒の間で指定してください。",
-    models_title: "モデル マネージャー",
     models_new: "新しいプロファイル",
     models_new_name: "新しいモデル プロファイル",
     models_none: "モデル プロファイルがありません。作成して始めましょう。",
@@ -4563,6 +4565,7 @@ const JA: Tr = Tr {
     leaderboard_open: "モデルリーダーボード",
     leaderboard_open_hint: "このマシンで COBOL 習熟度テストを受けたすべてのモデルを順位付けします。",
     leaderboard_title: "モデルリーダーボード",
+    leaderboard_add_model: "ボードに追加",
     leaderboard_subtitle: "COBOL 習熟度テストの結果",
     leaderboard_count: "このマシンでテスト済みのモデル: {} 件",
     leaderboard_empty: "まだ習熟度テストを受けたモデルはありません。モデルマネージャー、またはエージェントの「習熟度チェック」から実行してください。",
@@ -5493,7 +5496,6 @@ const ZH: Tr = Tr {
     agents_val_temp_range: "温度必须介于 0.0 与 2.0 之间。",
     agents_val_tokens_range: "输出令牌必须介于 1 与 200000 之间。",
     agents_val_timeout_range: "超时必须介于 1 与 3600 秒之间。",
-    models_title: "模型管理器",
     models_new: "新建配置",
     models_new_name: "新建模型配置",
     models_none: "尚无模型配置。创建一个以开始。",
@@ -5568,6 +5570,7 @@ const ZH: Tr = Tr {
     leaderboard_open: "模型排行榜",
     leaderboard_open_hint: "对本机上参加过 COBOL 熟练度测试的所有模型进行排名。",
     leaderboard_title: "模型排行榜",
+    leaderboard_add_model: "加入排行榜",
     leaderboard_subtitle: "COBOL 熟练度测试结果",
     leaderboard_count: "本机已测试 {} 个模型",
     leaderboard_empty: "尚无模型参加熟练度测试。可从模型管理器运行，或在代理上使用「检查熟练度」。",
@@ -6497,7 +6500,6 @@ const FR: Tr = Tr {
     agents_val_temp_range: "La température doit être comprise entre 0.0 et 2.0.",
     agents_val_tokens_range: "Les jetons de sortie doivent être compris entre 1 et 200000.",
     agents_val_timeout_range: "Le délai doit être compris entre 1 et 3600 secondes.",
-    models_title: "Gestionnaire de modèles",
     models_new: "Nouveau profil",
     models_new_name: "Nouveau profil de modèle",
     models_none: "Aucun profil de modèle pour l'instant. Créez-en un pour commencer.",
@@ -6568,6 +6570,7 @@ const FR: Tr = Tr {
     leaderboard_open: "Classement des modèles",
     leaderboard_open_hint: "Classe tous les modèles ayant passé le test de compétence COBOL sur cette machine.",
     leaderboard_title: "Classement des modèles",
+    leaderboard_add_model: "Ajouter au classement",
     leaderboard_subtitle: "Résultats du test de compétence COBOL",
     leaderboard_count: "{} modèles testés sur cette machine",
     leaderboard_empty: "Aucun modèle n'a encore passé le test de compétence. Lancez-en un depuis le Gestionnaire de modèles ou via Vérifier la compétence sur un agent.",
@@ -7400,6 +7403,48 @@ mod i18n_tests {
         uniq.sort();
         uniq.dedup();
         assert_eq!(uniq.len(), names.len(), "native names are not unique");
+    }
+
+    /// Spec 048 R2/AC1 — the surface is the **Model Providers Manager** in
+    /// every language, and the old name is gone from all six tables.
+    ///
+    /// A provider is now configured once and every model it offers becomes
+    /// available, so "Models Manager" no longer describes what the window does.
+    /// Renaming five of six languages and leaving one behind is exactly the
+    /// kind of miss a completeness sweep exists to catch.
+    #[test]
+    fn no_surface_still_says_models_manager() {
+        let expected: &[(Language, &str)] = &[
+            (Language::English, "Model Providers Manager"),
+            (Language::Spanish, "Gestor de proveedores de modelos"),
+            (Language::Portuguese, "Gerenciador de provedores de modelos"),
+            (Language::Japanese, "モデル プロバイダー マネージャー"),
+            (Language::Chinese, "模型提供商管理器"),
+            (Language::French, "Gestionnaire de fournisseurs de modèles"),
+        ];
+        assert_eq!(expected.len(), Language::ALL.len());
+        for (lang, title) in expected {
+            assert_eq!(
+                lang.tr().providers_title,
+                *title,
+                "{lang:?} must name the provider manager"
+            );
+        }
+        // The retired English wording must not survive anywhere, in any
+        // language's table, under any key.
+        for &lang in Language::ALL {
+            let t = lang.tr();
+            for field in sample(&t) {
+                assert!(
+                    !field.contains("Models Manager"),
+                    "{lang:?} still says \"Models Manager\": {field}"
+                );
+            }
+        }
+        println!(
+            "provider manager named in {} languages; \"Models Manager\" absent from all",
+            Language::ALL.len()
+        );
     }
 
     #[test]

@@ -324,39 +324,75 @@ prompt bar never appears.
 
 **Configure it via the project root settings form.** Click the top node of the
 project tree (the 📁 line with your project name). In the **AI assistant** section
-of the form you can enter the connection details. Model profiles, AI behavior,
-and agents belong to the open project and travel in its `cobolt.toml` and
-`agentic_ai/` directory. API keys remain machine-local and never travel in a
+of the form you can enter the connection details. AI behavior and agents belong
+to the open project and travel in its `cobolt.toml` and `agentic_ai/` directory;
+provider configuration and API keys are machine-local and never travel in a
 repository:
 
 | Field | Meaning |
 |-------|---------|
 | **Endpoint URL** | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. An untouched provider default receives its conventional request path automatically; after you edit this field, the IDE uses the URL exactly as entered. |
-| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. Keys are remembered by the project's stable model-profile id but stored only on this machine. Selecting a saved profile restores its key; an empty field means no credential is stored for that profile on this machine. |
+| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. A key entered here configures its **provider**, exactly as the Model Providers Manager does, and is stored only on this machine. An empty field means no credential is stored for that provider here. |
 | **Model** | The model identifier passed in each request. |
 | **Reviewer model (Pedantic Agent)** | Optional second model that reviews the primary agent's answers with uncompromising scrutiny. If set, it must differ from the primary model (the IDE enforces this). With a reviewer configured, the **COBOL Proficiency** check runs in tandem: the primary model answers, the Pedantic Agent reviews it against the primary prompt as the authoritative specification, demands a full corrected resubmission when defects are found, re-reviews the revision, and produces the final brutally honest assessment — the dashboard then shows the *reviewer's* scores, not the model's self-scores. |
 | **Temperature** | Sampling randomness (0 = deterministic). The connection test uses this exact value because some models accept only their provider-defined default, commonly `1.0`. |
 | **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
 
-**Models Manager.** Next to *Manage agents…* in Project settings is **Models
-Manager…**. A *model profile* is a connection defined once — provider, endpoint,
-model id, sampling (temperature / max tokens / timeout) and, on your machine
-only, its API key — and given a name (e.g. "Anthropic · claude-sonnet-5"). Create,
-duplicate, test, and delete profiles here, and check a model's COBOL proficiency
-straight from the profile. **Save** commits the edited profile and closes Models
-Manager. Profiles are **project-scoped**: define a model once and reuse it for
-every agent in the current project, instead of re-typing the same endpoint, key,
-and model for each agent. The profile metadata is stored in the project's
-`cobolt.toml`; its API key lives only in your machine-local settings, keyed to
-that profile id. It is **never** written into a project file, generated COBOL,
-or a compiled/packaged application. Switching projects loads that project's own
-profiles. Existing projects receive a one-time, non-destructive import of legacy
-global profile metadata. Missing keyed profiles can also be recovered from the
-machine's valid backup unless you explicitly deleted them.
+**Model Providers Manager.** Next to *Manage agents…* in Project settings is
+**Model Providers Manager…**. You configure a **provider** here — its endpoint
+and its API key — and nothing else. From the moment a provider's key works,
+**every model that provider offers becomes available** to any agent; there is
+no per-model setup to do. Pick a provider from the list on the left (a filled
+dot marks one that is configured), adjust its endpoint if you need a different
+host, paste the key, and use **Refresh models** to pull the current catalogue.
+**Test** sends one request so you can confirm the credential before relying on
+it.
+
+Provider configuration is **machine-wide**, stored beside your other
+machine-local settings rather than in the project. Configure Anthropic once and
+every project on this machine can use it. The API key is **never** written into
+a project file, generated COBOL, or a compiled or packaged application. A local
+Ollama needs no key at all — a reachable endpoint is enough.
+
+> **Note.** This replaces the older *Models Manager*, where a connection was
+> defined once per *model* as a named "model profile" and agents referenced it.
+> Using a second model from a provider you had already paid for meant building
+> a whole second profile and pasting the same key again.
+>
+> **Your existing projects migrate themselves.** The first time you open one,
+> each agent takes over the provider, model, temperature, output-token cap and
+> timeout of the profile it referenced, and each provider is configured from
+> what those profiles knew. Nothing is asked of you and nothing needs
+> re-entering. ⚠️ One provider can now hold **one** key, so if you had several
+> profiles on the same provider with *different* keys, the most recently stored
+> one is kept and the others are named in the Output panel — re-enter one in
+> the Model Providers Manager if it was the one you wanted.
 
 **Agents Manager.** The *AI agents* row opens the project's provisioned agent
-database. Every agent has a **model profile** (picked from a dropdown — the
-proficiency-check button sits right beside it), prompt, capabilities, and
+database. At the top is the **runtime table**: one row per agent — Grace, every
+specialist, every reviewer and the COBOL Proficiency Judge — with the four
+things that decide how that agent runs.
+
+| Column | Meaning |
+|--------|---------|
+| **Agents** | The agent the row configures. |
+| **Models** | Which model it runs on, chosen from the provider selected in the **Model provider** box above the table. Choose **— no model —** to leave an agent unconfigured on purpose. |
+| **Temp** | Sampling randomness for this agent alone (0 = deterministic). |
+| **Output Tokens** | The largest answer this agent may produce. |
+| **Timeout** | How long to wait for it, in seconds. |
+
+The **Model provider** box is a *picker scope*, not a project-wide switch. It
+decides which provider's models the Models column offers while you are
+configuring, and changes no agent that you do not touch — so Grace can run on a
+cloud provider while your specialists run a local Ollama. Each agent remembers
+the provider its model came from. With hundreds of models on offer from some
+providers, the search box beside the picker narrows the list.
+
+A row whose model is reserved for another role shows a warning beside the agent
+name: a specialist may not run Grace's model, nor the Judge's. (The Judge *may*
+share Grace's model, as long as no specialist is on it.)
+
+Below the table, each agent still has its prompt, capabilities and
 knowledge. The internal `agentic_ai/` directory is intentionally hidden from
 the project tree; use Agents Manager for agent configuration while Grace keeps
 its workflow records there automatically. The prompt editor is vertically
@@ -410,9 +446,9 @@ prompt for **Grace Pedantic Reviewer** reviews request coverage, task
 decomposition, ownership, dependencies, documentation governance, evidence,
 cross-agent integration, failures, and completion claims. The project-local
 reviewer prompts remain editable in Agents Manager and fixed-agent repair
-preserves those edits. Select a model profile for each reviewer before enabling
-its review connection; a primary and its Pedantic companion cannot use the
-same model.
+preserves those edits. Give each reviewer a model in the runtime table before
+enabling its review connection; a primary and its Pedantic companion cannot use
+the same model.
 
 The built-in routing contracts are explicit: Form Designer Agent owns RAD form
 design and delegates event implementation; COBOL Event Handler Script Agent
@@ -426,7 +462,7 @@ Empty or known legacy defaults are repaired,
 while non-empty project-edited prompts remain authoritative. Existing
 `DocumentationAgent`, `Pedantic Grace Reviewer`, `Grace Pedantic Reviewer
 Agent`, `Pedantic UI Agent`, and `Pedantic COBOL Companion` records are renamed
-on disk without changing their stable IDs or model profiles. A redundant
+on disk without changing their stable IDs or their models. A redundant
 `Orchestrator Pedantic Reviewer Agent` is merged into **Grace Pedantic
 Reviewer** and removed.
 

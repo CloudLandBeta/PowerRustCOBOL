@@ -1410,7 +1410,7 @@ impl DbAgentInvoker {
                                 || msg.contains("no assistant text"))
                         {
                             format!(
-                                " — {}/{} returned empty responses repeatedly for this agent's prompts; consider assigning \u{201c}{agent}\u{201d} a different model in the Models Manager",
+                                " — {}/{} returned empty responses repeatedly for this agent's prompts; consider assigning \u{201c}{agent}\u{201d} a different model in the Agents Manager",
                                 cfg.provider, cfg.model
                             )
                         } else {

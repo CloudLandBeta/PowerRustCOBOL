@@ -57,6 +57,10 @@ pub struct LeaderboardModal {
     judge_ready: bool,
     /// A Run tests click held back while the judge question is answered.
     pending_run: Option<(String, String)>,
+    /// Provider chosen in the "add a model to test" row (spec 048 R20).
+    add_provider: String,
+    /// Model chosen in that row.
+    add_model: String,
     /// The window's size, owned here rather than by egui.
     ///
     /// This is the whole defence against the self-inflating window: the size
@@ -82,6 +86,9 @@ pub struct LeaderboardAction {
     /// Open the Agents Manager at the COBOL Proficiency Judge so a model can be
     /// given to it.
     pub open_judge_setup: bool,
+    /// Put this `(provider, model)` on the board so it can be tested, even
+    /// though no agent runs it (spec 048 R20).
+    pub add_model: Option<(String, String)>,
 }
 
 impl LeaderboardModal {
@@ -94,6 +101,8 @@ impl LeaderboardModal {
             status: None,
             judge_ready,
             pending_run: None,
+            add_provider: String::new(),
+            add_model: String::new(),
             size: egui::vec2(DEFAULT_W, DEFAULT_H),
         }
     }
@@ -179,6 +188,7 @@ impl LeaderboardModal {
         &mut self,
         ctx: &egui::Context,
         board: &Leaderboard,
+        llm: &crate::llm::LlmConfig,
         theme: &Theme,
         tr: &Tr,
     ) -> LeaderboardAction {
@@ -224,6 +234,57 @@ impl LeaderboardModal {
             let width = self.size.x - margin - stroke;
             ui.set_width(width);
             self.header(ui, board, theme, tr);
+            // Spec 048 R20 — a model can be benchmarked without any agent
+            // using it. The board is where models are compared, so this is
+            // where one is put forward for testing.
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(tr.agents_tbl_provider_scope);
+                let configured = llm.configured_providers();
+                let current = if self.add_provider.trim().is_empty() {
+                    "—".to_string()
+                } else {
+                    crate::llm::Provider::from_id(&self.add_provider)
+                        .map(|p| p.label.to_string())
+                        .unwrap_or_else(|| self.add_provider.clone())
+                };
+                egui::ComboBox::from_id_salt("lb_add_provider")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        if configured.is_empty() {
+                            ui.weak(tr.providers_unconfigured);
+                        }
+                        for id in &configured {
+                            let label = crate::llm::Provider::from_id(id)
+                                .map(|p| p.label.to_string())
+                                .unwrap_or_else(|| id.clone());
+                            ui.selectable_value(&mut self.add_provider, id.clone(), label);
+                        }
+                    });
+                let offered = llm.models_for(&self.add_provider);
+                egui::ComboBox::from_id_salt("lb_add_model")
+                    .selected_text(if self.add_model.is_empty() {
+                        tr.agents_tbl_model
+                    } else {
+                        &self.add_model
+                    })
+                    .width(240.0)
+                    .show_ui(ui, |ui| {
+                        for model in offered {
+                            ui.selectable_value(&mut self.add_model, model.clone(), model);
+                        }
+                    });
+                let ready = !self.add_provider.trim().is_empty()
+                    && !self.add_model.trim().is_empty()
+                    && !board.contains(&self.add_provider, &self.add_model);
+                if ui
+                    .add_enabled(ready, egui::Button::new(tr.leaderboard_add_model))
+                    .clicked()
+                {
+                    action.add_model =
+                        Some((self.add_provider.clone(), self.add_model.clone()));
+                }
+            });
             ui.add_space(8.0);
             // Everything below is measured from `self.size`, never from the Ui.
             let rows_h = (self.size.y - HEADER_H).max(120.0);
@@ -1154,7 +1215,7 @@ mod tests {
                 egui::vec2(3000.0, 2000.0),
             ));
             ctx.begin_pass(input);
-            m.show(&ctx, &lb, theme, &tr);
+            m.show(&ctx, &lb, &crate::llm::LlmConfig::load_defaults_for_test(), theme, &tr);
             // epaint 0.36 asserts on dropping unapplied texture deltas.
             ctx.end_pass().textures_delta.clear();
             let rect = ctx
@@ -1193,7 +1254,7 @@ mod tests {
                 egui::vec2(2000.0, 1200.0),
             ));
             ctx.begin_pass(input);
-            m.show(&ctx, &lb, theme, &tr);
+            m.show(&ctx, &lb, &crate::llm::LlmConfig::load_defaults_for_test(), theme, &tr);
             let mut full = ctx.end_pass();
             // epaint 0.36 asserts on dropping unapplied texture deltas.
             full.textures_delta.clear();

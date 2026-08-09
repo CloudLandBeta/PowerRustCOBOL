@@ -206,23 +206,26 @@ impl SettingsDraft {
         if !self.llm_api_key.trim().is_empty() {
             llm.api_key = self.llm_api_key.clone();
         }
-        // This draft may have been opened before Models Manager saved another
-        // profile. Merge non-empty credentials instead of replacing the live
-        // map, so saving Project Settings can never erase those newer keys.
+        // This draft may have been opened before the Model Providers Manager
+        // saved another credential. Merge non-empty credentials instead of
+        // replacing the live map, so saving Project Settings can never erase
+        // those newer keys.
         llm.merge_api_keys(&self.llm_api_keys);
-        if !self.llm_model.trim().is_empty() && !self.llm_api_key.trim().is_empty() {
-            let profile_id = llm.find_or_create_profile(
-                &self.llm_provider,
-                &self.llm_endpoint,
-                &self.llm_model,
-                llm.temperature,
-                self.llm_max_tokens.max(1),
-                self.llm_timeout.max(1),
-            );
-            llm.store_api_key(
-                crate::llm::profile_api_key_slot(&profile_id),
-                &self.llm_api_key,
-            );
+        // Spec 048: a credential belongs to its PROVIDER, not to a per-model
+        // profile. Entering one here configures that provider, which is what
+        // makes every model it offers available.
+        if !self.llm_provider.trim().is_empty() && !self.llm_api_key.trim().is_empty() {
+            let provider = self.llm_provider.trim().to_string();
+            let endpoint = self.llm_endpoint.trim().to_string();
+            {
+                let cfg = llm.ensure_provider_config(&provider);
+                if !endpoint.is_empty() {
+                    cfg.endpoint = endpoint.clone();
+                    cfg.endpoint_user_edited =
+                        !crate::llm::endpoint_is_provider_default(&provider, &endpoint);
+                }
+            }
+            llm.store_api_key(crate::llm::provider_key_slot(&provider), &self.llm_api_key);
         }
         llm.reviewer_provider = self.llm_reviewer_provider.clone();
         llm.reviewer_endpoint = self.llm_reviewer_endpoint.clone();
@@ -234,17 +237,21 @@ impl SettingsDraft {
         {
             llm.reviewer_model.clear();
         }
-        if !self.llm_reviewer_model.trim().is_empty() {
-            let profile_id = llm.find_or_create_profile(
-                &self.llm_reviewer_provider,
-                &self.llm_reviewer_endpoint,
-                &self.llm_reviewer_model,
-                llm.temperature,
-                self.llm_max_tokens.max(1),
-                self.llm_timeout.max(1),
-            );
+        if !self.llm_reviewer_provider.trim().is_empty()
+            && !self.llm_reviewer_api_key.trim().is_empty()
+        {
+            let provider = self.llm_reviewer_provider.trim().to_string();
+            let endpoint = self.llm_reviewer_endpoint.trim().to_string();
+            {
+                let cfg = llm.ensure_provider_config(&provider);
+                if !endpoint.is_empty() {
+                    cfg.endpoint = endpoint.clone();
+                    cfg.endpoint_user_edited =
+                        !crate::llm::endpoint_is_provider_default(&provider, &endpoint);
+                }
+            }
             llm.store_api_key(
-                crate::llm::profile_api_key_slot(&profile_id),
+                crate::llm::provider_key_slot(&provider),
                 &self.llm_reviewer_api_key,
             );
         }

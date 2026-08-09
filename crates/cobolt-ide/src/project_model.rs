@@ -126,7 +126,16 @@ pub struct ProjectAiSettings {
     pub pedantic_ui_prompt: String,
     #[serde(default = "crate::llm::default_pedantic_event_prompt")]
     pub pedantic_event_prompt: String,
-    #[serde(default)]
+    /// **Legacy (spec 048): read, never written.**
+    ///
+    /// Model profiles were the spec 031 unit of configuration and lived here,
+    /// in the project file. Spec 048 replaced them with machine-wide provider
+    /// configuration, so this field exists only to feed
+    /// [`AgentsDb::migrate_profiles_to_providers`](crate::agents_db::AgentsDb::migrate_profiles_to_providers)
+    /// when an older project is opened. `skip_serializing` stops a saved
+    /// project growing a block nothing reads any more — and stops a migrated
+    /// project resurrecting the profiles it just retired on the next save.
+    #[serde(default, skip_serializing)]
     pub model_profiles: Vec<crate::llm::ModelProfile>,
 }
 
@@ -1621,13 +1630,48 @@ entrance-on-restore = true
         p.ai = ProjectAiSettings::from_llm(&llm);
 
         let text = toml::to_string_pretty(&p).unwrap();
-        assert!(text.contains("project-profile"));
+        // The invariant that has always mattered: no credential, ever.
         assert!(!text.contains("never-write-this-secret"));
         assert!(!text.contains("api_key"));
+        // Spec 048: model profiles are no longer written. A saved project must
+        // not resurrect the layer the migration just retired.
+        assert!(
+            !text.contains("project-profile"),
+            "cobolt.toml still carries model profiles:\n{text}"
+        );
 
         let loaded: CoboltProject = toml::from_str(&text).unwrap();
         assert_eq!(loaded.ai.schema_version, 1);
+        assert!(loaded.ai.model_profiles.is_empty());
+    }
+
+    /// …but an OLDER project file still hands its profiles over, because that
+    /// is the migration's only input (spec 048 R24).
+    #[test]
+    fn a_pre_048_project_file_still_yields_its_profiles_for_migration() {
+        let text = r#"
+[project]
+name = "Legacy"
+main = "main.cbl"
+version = "1.0.0"
+
+[ai]
+schema_version = 1
+
+[[ai.model_profiles]]
+id = "project-profile"
+name = "Project model"
+provider = "openai"
+endpoint = "https://api.openai.com/v1"
+model = "gpt-5"
+temperature = 0.4
+max_tokens = 8192
+timeout_secs = 120
+"#;
+        let loaded: CoboltProject = toml::from_str(text).expect("an old project still parses");
+        assert_eq!(loaded.ai.model_profiles.len(), 1);
         assert_eq!(loaded.ai.model_profiles[0].model, "gpt-5");
+        println!("pre-048 project read: 1 profile available to migrate");
     }
 
     #[test]
