@@ -330,17 +330,21 @@ impl Leaderboard {
     ///
     /// Returns whether anything was added, so the caller only writes the file
     /// when there is something new in it.
-    pub fn ensure_models(&mut self, profiles: &[crate::llm::ModelProfile]) -> bool {
+    /// `assigned` is the `(provider, model, endpoint)` list the project's agents
+    /// actually run on — [`crate::agents_db::AgentsDb::assigned_models`]
+    /// (spec 048 R17). It replaced the model-profile registry, which no longer
+    /// exists; listing every model a provider *offers* is not an option, since
+    /// one provider can offer several hundred.
+    pub fn ensure_models(&mut self, assigned: &[(String, String, String)]) -> bool {
         let mut added = false;
-        for p in profiles {
-            if p.model.trim().is_empty() || p.provider.trim().is_empty() {
+        for (provider, model, endpoint) in assigned {
+            if model.trim().is_empty() || provider.trim().is_empty() {
                 continue;
             }
-            if self.get(&p.provider, &p.model).is_some() {
+            if self.get(provider, model).is_some() {
                 continue;
             }
-            self.entries
-                .push(Entry::new(&p.provider, &p.model, &p.endpoint));
+            self.entries.push(Entry::new(provider, model, endpoint));
             added = true;
         }
         added
@@ -351,37 +355,40 @@ impl Leaderboard {
         self.get(provider, model).is_some()
     }
 
-    /// Housekeeping: drop every row whose model is no longer registered.
-    /// Returns the labels of what went, so the caller can put the removals on
-    /// the record.
+    /// Housekeeping: drop the rows that are neither used nor tested. Returns
+    /// the labels of what went, so the caller can put the removals on record.
     ///
-    /// The reciprocal of [`Self::ensure_models`] — that one adds a row for
-    /// every registered model, this one takes away the rows nothing registers
-    /// any more, so the board and the Models Manager hold the same list.
+    /// **A row with runs on it is never removed (spec 048 R19).** This is the
+    /// important half of the rule and it supersedes 1.61.6, which pruned by
+    /// registry membership alone and could therefore delete a model's entire
+    /// score history because an agent had moved on. A score costs real tokens
+    /// and real time; an empty row costs nothing to recreate. Only the empty
+    /// ones are swept.
     ///
-    /// ⚠️ **Scope.** The board is machine-wide; `profiles` is the OPEN
-    /// PROJECT's registry (`apply_to_llm` swaps that list on every project
-    /// switch). A model registered only in some other project therefore counts
-    /// as unregistered here and loses its results — the operator's decision,
-    /// taken with that trade-off stated.
+    /// ⚠️ **Scope.** The board is machine-wide; `assigned` belongs to the OPEN
+    /// PROJECT. A model used only by some other project counts as unassigned
+    /// here — but since it can only be pruned when it has never been tested,
+    /// the consequence is now trivial rather than destructive.
     ///
-    /// An EMPTY `profiles` prunes nothing. No registry is not the same as an
-    /// empty one: before a project has loaded, "nothing is registered" would
-    /// mean "everything is an orphan", and a single startup would erase a board
-    /// that took real tokens and real time to fill.
-    pub fn prune_unregistered(&mut self, profiles: &[crate::llm::ModelProfile]) -> Vec<String> {
-        if profiles.is_empty() {
+    /// An EMPTY `assigned` prunes nothing. No project loaded is not the same as
+    /// a project that uses nothing.
+    pub fn prune_untested_orphans(&mut self, assigned: &[(String, String, String)]) -> Vec<String> {
+        if assigned.is_empty() {
             return Vec::new();
         }
         let mut removed = Vec::new();
         self.entries.retain(|e| {
-            let registered = profiles
+            // Tested at least once ⇒ history, kept regardless of assignment.
+            if e.runs > 0 {
+                return true;
+            }
+            let in_use = assigned
                 .iter()
-                .any(|p| e.matches(&p.provider, &p.model));
-            if !registered {
+                .any(|(provider, model, _)| e.matches(provider, model));
+            if !in_use {
                 removed.push(e.label());
             }
-            registered
+            in_use
         });
         removed
     }
@@ -506,63 +513,103 @@ mod tests {
         );
     }
 
-    /// Housekeeping on open: a model that is no longer registered keeps no
-    /// row, even a rated one — that is the point of the sweep. Registered
-    /// models are untouched, whatever state they are in.
+    /// **A score is history and is never swept (spec 048 R19).**
+    ///
+    /// This supersedes the 1.61.6 rule, which pruned on registry membership
+    /// alone and would therefore delete a model's entire score history the
+    /// moment the last agent moved off it. A result costs real tokens and real
+    /// time; an empty row costs nothing to recreate. So runs > 0 is kept,
+    /// whatever the current assignments say.
     #[test]
-    fn opening_the_board_drops_models_that_are_no_longer_registered() {
+    fn a_row_with_runs_is_never_pruned() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("openai", "retired-model", "https://y", outcome(71.0));
+        assert_eq!(lb.get("openai", "retired-model").unwrap().runs, 1);
+
+        // Nothing is assigned to it any more, and it still stays.
+        let removed = lb.prune_untested_orphans(&[assigned("anthropic", "claude-opus-5")]);
+
+        assert!(
+            removed.is_empty(),
+            "a scored row was pruned: {removed:?} — 1.61.6's rule is back"
+        );
+        assert!(lb.get("openai", "retired-model").is_some());
+        println!("scored row survived reassignment: openai/retired-model, 1 run kept");
+    }
+
+    /// The other half: a row nobody uses and nobody ever tested is noise, and
+    /// goes — named on the way out (spec 048 R18).
+    #[test]
+    fn an_untested_row_no_agent_uses_is_pruned_and_named() {
         let mut lb = Leaderboard::default();
         lb.record_success("anthropic", "claude-opus-5", "https://x", outcome(90.0));
-        lb.record_success("openai", "retired-model", "https://y", outcome(71.0));
-        lb.ensure_models(&[profile("ollama", "never-tested")]);
+        lb.ensure_models(&[
+            assigned("ollama", "still-assigned"),
+            assigned("openai", "dropped-and-untested"),
+        ]);
         assert_eq!(lb.entries.len(), 3);
 
-        let removed = lb.prune_unregistered(&[
-            profile("anthropic", "claude-opus-5"),
-            profile("ollama", "never-tested"),
+        let removed = lb.prune_untested_orphans(&[
+            assigned("anthropic", "claude-opus-5"),
+            assigned("ollama", "still-assigned"),
         ]);
 
-        assert_eq!(removed.len(), 1, "exactly the unregistered row goes");
+        assert_eq!(removed.len(), 1, "exactly the untested orphan goes");
         assert!(
-            removed[0].contains("retired-model"),
+            removed[0].contains("dropped-and-untested"),
             "the removal must name the model: {removed:?}"
         );
-        assert!(lb.get("openai", "retired-model").is_none(), "orphan survived");
-        assert!(
-            lb.get("anthropic", "claude-opus-5").is_some(),
-            "a registered rated model must survive"
-        );
-        assert!(
-            lb.get("ollama", "never-tested").is_some(),
-            "a registered untested model must survive"
-        );
-        println!("pruned: {}", removed.join(", "));
+        assert!(lb.get("ollama", "still-assigned").is_some());
+        assert!(lb.get("anthropic", "claude-opus-5").is_some());
+        println!("pruned untested orphans: {}", removed.join(", "));
+    }
+
+    /// The models the project's agents run on get a row, so the board is never
+    /// a shorter list than the agents table (spec 048 R17).
+    #[test]
+    fn assigned_models_populate_the_board() {
+        let mut lb = Leaderboard::default();
+        let added = lb.ensure_models(&[
+            assigned("anthropic", "claude-sonnet-5"),
+            assigned("ollama", "gemma4:31b"),
+        ]);
+        assert!(added);
+        assert_eq!(lb.entries.len(), 2);
+        assert!(lb.get("anthropic", "claude-sonnet-5").is_some());
+        assert!(lb.get("ollama", "gemma4:31b").is_some());
+
+        // Idempotent: opening the board again adds nothing.
+        assert!(!lb.ensure_models(&[assigned("anthropic", "claude-sonnet-5")]));
+        assert_eq!(lb.entries.len(), 2);
+        println!("board seeded from 2 assigned models; reopening added none");
     }
 
     /// **The guard that stops one startup erasing the board.**
     ///
-    /// The board is machine-wide and the registry is the open project's, so an
-    /// EMPTY registry means "not loaded yet", never "everything is an orphan".
-    /// Without this, opening the board before a project had applied its
-    /// profiles would delete every result on the machine.
+    /// The board is machine-wide and the assignment list is the open project's,
+    /// so an EMPTY list means "not loaded yet", never "everything is an
+    /// orphan".
     #[test]
-    fn an_empty_registry_prunes_nothing() {
+    fn an_empty_assignment_list_prunes_nothing() {
         let mut lb = Leaderboard::default();
         lb.record_success("anthropic", "claude-opus-5", "", outcome(90.0));
-        lb.record_success("openai", "gpt-5", "", outcome(88.0));
+        lb.ensure_models(&[assigned("openai", "untested")]);
 
-        assert!(lb.prune_unregistered(&[]).is_empty(), "it reported removals");
-        assert_eq!(lb.entries.len(), 2, "an empty registry emptied the board");
+        assert!(
+            lb.prune_untested_orphans(&[]).is_empty(),
+            "it reported removals"
+        );
+        assert_eq!(lb.entries.len(), 2, "an empty list emptied the board");
     }
 
-    /// Registration matches the way every other lookup on the board does —
-    /// case-insensitively, ignoring surrounding space — so a profile that
-    /// differs only in spelling is not mistaken for a missing one.
+    /// Assignment matches the way every other lookup on the board does —
+    /// case-insensitively, ignoring surrounding space — so a model that differs
+    /// only in spelling is not mistaken for an orphan.
     #[test]
-    fn registration_matching_ignores_case_and_padding() {
+    fn assignment_matching_ignores_case_and_padding() {
         let mut lb = Leaderboard::default();
-        lb.record_success("Anthropic", "Claude-Opus-5", "", outcome(90.0));
-        let removed = lb.prune_unregistered(&[profile(" anthropic ", " claude-opus-5 ")]);
+        lb.ensure_models(&[assigned("Anthropic", "Claude-Opus-5")]);
+        let removed = lb.prune_untested_orphans(&[assigned(" anthropic ", " claude-opus-5 ")]);
         assert!(removed.is_empty(), "a spelling difference read as an orphan");
         assert_eq!(lb.entries.len(), 1);
     }
@@ -669,26 +716,22 @@ mod tests {
         assert_eq!(caps.params_b, Some(24.0));
     }
 
-    fn profile(provider: &str, model: &str) -> crate::llm::ModelProfile {
-        crate::llm::ModelProfile {
-            id: format!("{provider}-{model}"),
-            name: format!("{provider} · {model}"),
-            provider: provider.to_string(),
-            endpoint: "https://example".to_string(),
-            endpoint_user_edited: false,
-            model: model.to_string(),
-            temperature: 0.7,
-            max_tokens: 8192,
-            timeout_secs: 30,
-        }
+    /// One entry of the "models the project's agents run on" list that replaced
+    /// the model-profile registry (spec 048 R17).
+    fn assigned(provider: &str, model: &str) -> (String, String, String) {
+        (
+            provider.to_string(),
+            model.to_string(),
+            "https://example".to_string(),
+        )
     }
 
     #[test]
     fn every_configured_model_is_listed_even_when_never_tested() {
         let mut lb = Leaderboard::default();
         assert!(lb.ensure_models(&[
-            profile("ollama", "qwen2.5-coder:32b"),
-            profile("anthropic", "claude-opus-5"),
+            assigned("ollama", "qwen2.5-coder:32b"),
+            assigned("anthropic", "claude-opus-5"),
         ]));
         assert_eq!(
             lb.ranked(Board::Overall).len(),
@@ -705,10 +748,10 @@ mod tests {
     fn listing_models_is_idempotent_and_keeps_results() {
         let mut lb = Leaderboard::default();
         lb.record_success("ollama", "tested", "", outcome(84.0));
-        let profiles = [profile("ollama", "tested"), profile("ollama", "fresh")];
-        assert!(lb.ensure_models(&profiles));
+        let models = [assigned("ollama", "tested"), assigned("ollama", "fresh")];
+        assert!(lb.ensure_models(&models));
         assert!(
-            !lb.ensure_models(&profiles),
+            !lb.ensure_models(&models),
             "a second pass must report no change so the file is not rewritten"
         );
         assert_eq!(lb.entries.len(), 2);
@@ -720,16 +763,16 @@ mod tests {
     }
 
     #[test]
-    fn a_profile_with_no_model_id_is_not_listed() {
+    fn an_assignment_with_no_model_id_is_not_listed() {
         let mut lb = Leaderboard::default();
-        assert!(!lb.ensure_models(&[profile("ollama", "   ")]));
+        assert!(!lb.ensure_models(&[assigned("ollama", "   ")]));
         assert!(lb.entries.is_empty());
     }
 
     #[test]
     fn never_tested_and_failed_are_different_states() {
         let mut lb = Leaderboard::default();
-        lb.ensure_models(&[profile("ollama", "fresh")]);
+        lb.ensure_models(&[assigned("ollama", "fresh")]);
         lb.record_failure("ollama", "broken", "", "connection refused");
         assert!(lb.get("ollama", "fresh").unwrap().never_tested());
         assert!(!lb.get("ollama", "broken").unwrap().never_tested());
@@ -738,7 +781,7 @@ mod tests {
     #[test]
     fn untested_models_rank_below_tested_ones() {
         let mut lb = Leaderboard::default();
-        lb.ensure_models(&[profile("ollama", "fresh")]);
+        lb.ensure_models(&[assigned("ollama", "fresh")]);
         lb.record_success("anthropic", "scored", "", outcome(60.0));
         let order = lb.ranked(Board::Overall);
         assert_eq!(lb.entries[order[0]].model, "scored");
