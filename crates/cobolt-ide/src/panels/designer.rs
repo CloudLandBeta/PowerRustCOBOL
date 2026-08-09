@@ -45,6 +45,71 @@ pub fn set_ai_pane_debug(on: bool) {
     AI_PANE_DEBUG.store(if on { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Emit an `[ai-pane]` trace line, but only when it differs from the last one.
+///
+/// The pane lays itself out every frame, so the trace fired ~60 times a second
+/// with identical text — enough to make the terminal useless and to bury any
+/// other output, including the change the developer was watching for. A layout
+/// trace is interesting exactly when the layout *changes*, so that is when it
+/// prints. Repeats are counted and reported once, when something finally moves,
+/// so a stuck layout is still visible as a stuck layout.
+fn trace_ai_pane_layout(line: String) {
+    use std::sync::Mutex;
+    static STATE: Mutex<TraceDedupe> = Mutex::new(TraceDedupe::new());
+    let Ok(mut state) = STATE.lock() else {
+        return;
+    };
+    for out in state.next(line) {
+        eprintln!("{out}");
+    }
+}
+
+/// Collapses a repeating trace line down to "print it when it changes".
+#[derive(Default)]
+struct TraceDedupe {
+    last: Option<String>,
+    repeats: u64,
+}
+
+impl TraceDedupe {
+    const fn new() -> Self {
+        Self {
+            last: None,
+            repeats: 0,
+        }
+    }
+
+    /// What to print for `line`, if anything. A repeat prints nothing and is
+    /// counted; the count is reported when the value finally changes, so a
+    /// layout that is stuck still reads as stuck rather than as silence.
+    fn next(&mut self, line: String) -> Vec<String> {
+        match &self.last {
+            Some(prev) if *prev == line => {
+                self.repeats += 1;
+                Vec::new()
+            }
+            Some(_) => {
+                let mut out = Vec::new();
+                if self.repeats > 0 {
+                    out.push(format!(
+                        "[ai-pane] (unchanged for {} more frame(s))",
+                        self.repeats
+                    ));
+                }
+                out.push(line.clone());
+                self.last = Some(line);
+                self.repeats = 0;
+                out
+            }
+            None => {
+                self.last = Some(line.clone());
+                self.repeats = 0;
+                vec![line]
+            }
+        }
+    }
+}
+
 fn ai_pane_debug() -> bool {
     use std::sync::atomic::Ordering;
     match AI_PANE_DEBUG.load(Ordering::Relaxed) {
@@ -4664,13 +4729,18 @@ impl DesignerPanel {
                         egui::Sense::hover(),
                     );
                     if ai_pane_debug() {
-                        eprintln!(
+                        // Only when something MOVED. This is a layout trace, and
+                        // a layout that is not changing has nothing to report —
+                        // but the pane lays out every frame, so an unconditional
+                        // print emitted the same line sixty times a second and
+                        // buried whatever the developer turned it on to see.
+                        trace_ai_pane_layout(format!(
                             "[ai-pane] max_rect={:?} h={:.1} hist_rect={:?} turns={}",
                             ui.max_rect(),
                             history_h,
                             history_rect,
                             self.ai_history.len(),
-                        );
+                        ));
                     }
                     // Follow the transcript down whenever something is appended to
                     // it — a turn, a Grace/specialist progress line, the
@@ -14038,6 +14108,54 @@ mod modal_roam_tests {
 /// the editor box opens at ~12 code lines, and its corner grip is the ONLY
 /// thing that may change its size — not content, not language, not frames.
 /// These tests drive the real `show_cobol_structure_window` frame by frame.
+#[cfg(test)]
+mod ai_pane_trace_tests {
+    use super::TraceDedupe;
+
+    /// **A layout trace reports layout CHANGES.** The AI pane lays out every
+    /// frame, so the unconditional version printed the same line ~60 times a
+    /// second — enough to make the terminal unusable and to bury the change the
+    /// developer had switched it on to watch for (operator, 2026-08-09).
+    #[test]
+    fn an_unchanging_layout_prints_once() {
+        let mut d = TraceDedupe::new();
+        let line = "[ai-pane] h=50.0".to_string();
+
+        assert_eq!(d.next(line.clone()), vec![line.clone()], "first is printed");
+        for _ in 0..59 {
+            assert!(d.next(line.clone()).is_empty(), "a repeat must be silent");
+        }
+
+        // One second of a still layout: one line, not sixty.
+        let moved = "[ai-pane] h=90.0".to_string();
+        let out = d.next(moved.clone());
+        assert_eq!(
+            out,
+            vec![
+                "[ai-pane] (unchanged for 59 more frame(s))".to_string(),
+                moved
+            ],
+            "the change reports how long nothing moved, then the new value"
+        );
+        println!("60 identical frames -> 1 line + a suppressed-count note");
+    }
+
+    /// Every change is still reported: dedupe must not swallow a value that
+    /// returns to a previous one, which is exactly the oscillation a layout
+    /// bug produces.
+    #[test]
+    fn alternating_values_are_all_reported() {
+        let mut d = TraceDedupe::new();
+        let a = "a".to_string();
+        let b = "b".to_string();
+        assert_eq!(d.next(a.clone()), vec![a.clone()]);
+        assert_eq!(d.next(b.clone()), vec![b.clone()]);
+        assert_eq!(d.next(a.clone()), vec![a.clone()]);
+        assert_eq!(d.next(b.clone()), vec![b]);
+        println!("a/b/a/b oscillation reported in full — 4 lines, none suppressed");
+    }
+}
+
 #[cfg(test)]
 mod cs_editor_resize_tests {
     use super::*;

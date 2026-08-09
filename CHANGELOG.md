@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.13] — 2026-08-09
+
+### Fixed
+
+- **The AI-pane layout trace flooded the terminal.** With *AI-pane layout
+  debug* switched on (Help → Debug Settings), the pane printed its measurements
+  on every frame — the same `[ai-pane] max_rect=… h=… hist_rect=… turns=…` line
+  roughly sixty times a second, whether or not anything had moved. That made
+  the terminal unusable and buried the very change the switch was turned on to
+  watch for. The trace now prints when the layout **changes**, and reports how
+  many frames passed unchanged when it next moves — so a layout that is stuck
+  still reads as stuck rather than as silence, and an oscillating one is
+  reported in full. The switch is unchanged and still off by default.
+
 ## [PowerRustCOBOL 1.61.12] — 2026-08-09
 
 ### Fixed
