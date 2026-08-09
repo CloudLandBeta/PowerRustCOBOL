@@ -1898,6 +1898,23 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 - The method vocabulary is **closed** — only the methods listed in the Control Methods Reference exist. A `::name(arg)` with an unrecognised name is treated as a PROPERTY WRITE of `name`, not a method call, so inventing a method silently does nothing useful.
 - **IndexedFile controls have no `::` methods**, and their generated helpers (`<id>-OPEN`, `<id>-READ-NEXT`, …) are paragraphs of the OUTER program. A handler is a nested program, so it cannot `PERFORM` them: the compiler rejects it with "'<id>-OPEN' is not a paragraph or section of this program". **There is currently no supported way to drive an IndexedFile control from an event handler** — do not emit `PERFORM <id>-OPEN` in a handler and do not invent `<id>::Open()`, which is not a method this platform has. Use `SqlDatabase` (which does have `::` methods) when a handler must reach stored data.
 - A method that returns a value can be used inline (`MOVE C::GetText() TO WS-X`) or with `RETURNING`.
+- **A METHOD CALL IS A STATEMENT, NEVER A RECEIVING FIELD.** `<control>::<property>` may receive a value; `<control>::<method>(…)` may not. Writing a method call where a receiver belongs raises the runtime error *"'<control>::<method>' is a method call, not a receiving field — call it as a statement instead of using it as a MOVE/assignment target"*. It fails at the click, not at generation, so the handler reads correctly and throws. A method used as a SOURCE is fine (`MOVE C::GetText() TO WS-X`); only the receiving side is closed to it.
+- **The usual way this happens is a missing period, not a misunderstanding.** A COBOL sentence runs to its period, so a `::` call written under an unclosed `MOVE`/`SET` becomes that statement's SECOND RECEIVER, however many blank lines separate them:
+
+```cobol
+      *> WRONG — the MOVE has no period, so `AddRow(...)` is a second
+      *> receiving field of it, and the run raises the exception above.
+       MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED
+
+       dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+
+      *> RIGHT — the MOVE is closed; the call is a statement of its own.
+       MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED.
+
+       dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+```
+
+  Several receiving fields under one `MOVE` remain perfectly legal when every one of them IS a receiver: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` correctly writes the edited item AND the `X` property. Only a method among the receivers is the defect. The fix is a period on the preceding statement, or the explicit `INVOKE <control> "<method>" USING <parameters>` form, which cannot be read as a receiving field.
 
 ## Value Conventions (types and domains)
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.

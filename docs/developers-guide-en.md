@@ -1874,6 +1874,35 @@ Arguments go in parentheses (inline / expression form) or after `USING`
 expression or captured with `RETURNING`. The editor's IntelliSense lists a
 control's methods after you type `::`, each with a one-line description.
 
+> ⚠️ **A method call is a statement, never a receiving field — mind the period.**
+> A property can receive a value; a method call cannot. Using one as a
+> `MOVE`/`SET` target raises *"is a method call, not a receiving field"* at run
+> time, so the handler compiles, reads correctly, and throws on the click.
+>
+> You will almost never write that on purpose. What happens instead is a missing
+> period: a COBOL sentence runs until its period, so a `::` call written under an
+> unclosed `MOVE` becomes that statement's **second receiving field**, however
+> many blank lines sit between them.
+>
+> ```cobol
+>       *> WRONG — the MOVE never ended, so AddRow(...) is one of its receivers
+>            MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED
+>
+>            dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+>
+>       *> RIGHT — close the MOVE, and the call stands on its own
+>            MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED.
+>
+>            dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+> ```
+>
+> Several receivers under one `MOVE` stay perfectly legal as long as all of them
+> *are* receivers: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` writes
+> the edited item **and** the `X` property, which is a useful idiom. Only a
+> method among them is the mistake. Fix it with a period on the line above, or by
+> writing the spelled-out `INVOKE dgReceipt "AddRow" USING …`, which can never be
+> read as a receiving field.
+
 **Universal methods** (every visible control):
 
 | Method | Effect |

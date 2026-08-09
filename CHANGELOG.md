@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.7] — 2026-08-08
+
+### Fixed
+
+- **Generated handlers used an inline method call as a `MOVE` receiver.** A
+  property may receive a value; a method call may not — and it fails as a
+  runtime exception on the click, not at generation, so the handler reads
+  correctly and throws. The usual cause is not a misunderstanding of the syntax
+  but a **missing period**: a COBOL sentence runs to its period, so
+  `dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).` written under an unclosed
+  `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED` becomes that MOVE's *second receiving
+  field*, whatever blank lines separate them. The rule now sits in the Event
+  Handler Script Agent's `::` section (with both spellings side by side), in its
+  Pedantic Reviewer's defect list so a submission carrying it is caught before
+  it reaches the developer, and in the System Knowledge Base's Method Invocation
+  Syntax section. Several receivers under one `MOVE` remain legal when all of
+  them *are* receivers — `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.`
+  writes the edited item and the property, and the reviewer is told not to raise
+  that. The stated fixes are a period on the preceding statement, or the
+  explicit `INVOKE <control> "<method>" USING …` form, which cannot be parsed as
+  a receiving field. Existing projects pick the rule up through the prompt
+  stamp; a prompt the developer has edited is left alone.
+
 ## [PowerRustCOBOL 1.61.6] — 2026-08-08
 
 ### Fixed

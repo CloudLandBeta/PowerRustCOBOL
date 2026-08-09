@@ -4675,6 +4675,31 @@ Local scratch goes in the handler's own `WORKING-STORAGE SECTION`. State shared 
 
 `PERFORM` and `CALL` are not interchangeable. `PERFORM` transfers control to a PARAGRAPH or SECTION declared in the SAME program — the body you are writing right now — and can reach nothing else; a `PERFORM` that names anything outside this body has no target and the handler is rejected. A common procedure created by `create_procedure` is a SEPARATE nested program, not a paragraph of yours, so `CALL "ITS-NAME"` is the only way in. Write `CALL "UPDATE-TOTAL".` for a common procedure and `PERFORM CHECK-RANGE.` for a paragraph you declared yourself; swapping the two is the most common way a handler that reads correctly still fails.
 
+8b. A METHOD CALL IS A STATEMENT, NEVER A RECEIVING FIELD
+
+`<control>::<property>` may receive a value. `<control>::<method>(...)` may not. A method call written where a receiving field belongs raises a runtime exception — *"is a method call, not a receiving field"* — so the handler fails on the click, not at generation time, and the developer sees a working-looking handler that throws.
+
+The trap is that a COBOL sentence does not end until its period, so a method call written under an UNTERMINATED `MOVE` silently becomes that `MOVE`'s second receiver:
+
+```cobol
+      *> WRONG — no period after the MOVE, so `AddRow(...)` is parsed as a
+      *> second receiving field of that MOVE. Raises an exception at runtime.
+           MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED
+
+           dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+
+      *> RIGHT — the MOVE is closed, so the call stands as its own statement.
+           MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED.
+
+           dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+```
+
+A blank line does not end a sentence; only a period does. Before writing `<control>::<method>(...)`, check that the statement above it is terminated.
+
+Several receiving fields under one `MOVE` remain perfectly legal when every one of them IS a receiver — `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` correctly moves the value into the edited item AND into the `X` property. Only a method call among them is the defect.
+
+When a method call has ended up as a `MOVE`/`SET` target, fix it by making it a statement in its own right: close the preceding sentence with a period, or write the explicit `INVOKE <control> "<method>" USING <parameters>` form, which cannot be mistaken for a receiving field.
+
 9. Files — control methods first
 
 For indexed-file work, prefer the IndexedFile control methods (`::Open`, `::Start`, `::ReadNext`, `::Write`, `::Rewrite`, `::Delete`, `::Commit`, `::Rollback`, `::Close`, …) over hand-rolled low-level boilerplate, unless raw COBOL is explicitly requested.
@@ -5742,6 +5767,7 @@ That section is the language specification, and it enumerates exactly what this 
 * `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK` or `END PROGRAM` inside a handler body, or a body missing any of `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, `PROCEDURE DIVISION.`;
 * a `CONFIGURATION SECTION` or `SPECIAL-NAMES` paragraph inside a handler or a common procedure — `DECIMAL-POINT IS COMMA` is declared on the FORM, the main program of the nesting, and a nested body that redeclares it is rejected;
 * control access through `CALL "COBOL-SET-PROPERTY"` / `"COBOL-GET-PROPERTY"` or a legacy `INVOKE Control "Method"` form instead of the inline `::` syntax — this clause names those two runtime entry points and that `INVOKE` form ONLY; `CALL "SOME-PROCEDURE"` at a common procedure is correct and is not this defect;
+* an inline method call standing where a RECEIVING FIELD belongs — `MOVE … TO <control>::<method>(…)`, or, far more often, a `<control>::<method>(…)` written under a `MOVE`/`SET` that was never closed with a period, which makes the call that statement's SECOND RECEIVER. A property may receive a value; a method call may not, and this fails as a runtime exception rather than at generation, so the handler looks right and throws on the click. Read every `::` call against the sentence ABOVE it: if that sentence carries no period, the call is a receiver and the handler is broken. Several receivers under one `MOVE` stay legal when all of them ARE receivers — `MOVE X TO X-ED  Grid::Value.` is correct — so raise this only for a method among them. The fix is a period on the preceding statement, or the explicit `INVOKE <control> "<method>" USING …` form;
 * a bare `*` comment line, or any stray character in column 7 above a blank or numeric sequence area — either one silently switches the whole file to fixed format, where everything past column 72 is discarded;
 * an unterminated scoped statement, or a missing `.` where the grammar requires one.
 
