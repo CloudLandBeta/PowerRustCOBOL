@@ -699,6 +699,25 @@ impl AgentsModal {
     ///
     /// Returns whether anything changed, so the caller persists once per frame
     /// rather than once per widget.
+    /// Every provider the scope picker offers, as `(id, is_configured)` in
+    /// [`crate::llm::PROVIDERS`] order.
+    ///
+    /// **All of them, always.** Offering only *configured* providers is what
+    /// broke this control: credentials do not survive a restart yet, so on the
+    /// next launch the list collapsed to the one keyless provider — and an
+    /// agent sitting on any other one could never be scoped back to, because
+    /// its provider was no longer in the list. Moving away from a provider
+    /// silently became a one-way trip.
+    ///
+    /// Configuration decides which *models* a provider can offer, not whether
+    /// you may look at it. The flag drives the marker beside each entry.
+    fn scope_providers(llm: &LlmConfig) -> Vec<(String, bool)> {
+        crate::llm::PROVIDERS
+            .iter()
+            .map(|p| (p.id.to_string(), llm.provider_is_configured(p.id)))
+            .collect()
+    }
+
     fn runtime_table_ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -712,7 +731,7 @@ impl AgentsModal {
         // Provider scope + model search.
         ui.horizontal(|ui| {
             ui.label(tr.agents_tbl_provider_scope);
-            let configured = llm.configured_providers();
+            let choices = Self::scope_providers(llm);
             let current = if self.provider_scope.trim().is_empty() {
                 "—".to_string()
             } else {
@@ -723,16 +742,28 @@ impl AgentsModal {
             egui::ComboBox::from_id_salt("agents_provider_scope")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
-                    if configured.is_empty() {
-                        ui.weak(tr.providers_unconfigured);
-                    }
-                    for id in &configured {
+                    for (id, configured) in &choices {
                         let label = crate::llm::Provider::from_id(id)
                             .map(|p| p.label.to_string())
                             .unwrap_or_else(|| id.clone());
-                        ui.selectable_value(&mut self.provider_scope, id.clone(), label);
+                        // A filled dot marks a provider you can actually draw
+                        // models from — same convention as the Model Providers
+                        // Manager's list, so the two read alike.
+                        let dot = if *configured { "●" } else { "○" };
+                        ui.selectable_value(
+                            &mut self.provider_scope,
+                            id.clone(),
+                            format!("{dot} {label}"),
+                        );
                     }
                 });
+            // Scoped to a provider with nothing to offer: say why, rather than
+            // leaving the Model column mysteriously empty.
+            if !self.provider_scope.trim().is_empty()
+                && !llm.provider_is_configured(&self.provider_scope)
+            {
+                ui.label(egui::RichText::new(tr.providers_unconfigured).small());
+            }
             ui.add_space(12.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.model_filter)
@@ -1642,6 +1673,69 @@ fn string_list_ui(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, chang
         }
         ui.data_mut(|d| d.insert_temp(id, buf));
     });
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    /// **The provider scope must never be a one-way trip** (operator,
+    /// 2026-08-09).
+    ///
+    /// The picker used to list only *configured* providers. Credentials do not
+    /// survive a restart yet, so on the next launch the list collapsed to the
+    /// single keyless provider: an agent running on any other one could not be
+    /// scoped back to, because its provider had vanished from the list.
+    /// Choosing a different provider was therefore irreversible.
+    #[test]
+    fn every_provider_stays_selectable_even_with_no_credentials() {
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        // Nothing is configured except keyless local Ollama.
+        let configured = llm.configured_providers();
+        assert_eq!(
+            configured,
+            vec!["ollama".to_string()],
+            "fixture assumption: only the keyless provider is usable"
+        );
+
+        let choices = AgentsModal::scope_providers(&llm);
+        assert_eq!(
+            choices.len(),
+            crate::llm::PROVIDERS.len(),
+            "the picker must offer every provider, not just the usable ones"
+        );
+        // The provider an agent is most likely to be sitting on after a
+        // restart — hosted, so unconfigured — is still reachable.
+        let cloud = choices
+            .iter()
+            .find(|(id, _)| id == "ollama_cloud")
+            .expect("a hosted provider disappeared from the picker");
+        assert!(!cloud.1, "it is correctly marked unconfigured");
+
+        // …and the marker still distinguishes the usable one.
+        let local = choices.iter().find(|(id, _)| id == "ollama").unwrap();
+        assert!(local.1);
+        println!(
+            "scope picker offers {} providers, {} of them configured",
+            choices.len(),
+            choices.iter().filter(|(_, c)| *c).count()
+        );
+    }
+
+    /// Configuring a provider changes only its marker, never whether it is
+    /// listed — so the list cannot shrink under the developer mid-session.
+    #[test]
+    fn configuring_a_provider_does_not_change_the_list_length() {
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let before = AgentsModal::scope_providers(&llm).len();
+        llm.store_api_key(crate::llm::provider_key_slot("anthropic"), "sk-test");
+        let after = AgentsModal::scope_providers(&llm);
+        assert_eq!(before, after.len());
+        assert!(
+            after.iter().any(|(id, c)| id == "anthropic" && *c),
+            "anthropic should now be marked configured"
+        );
+    }
 }
 
 #[cfg(test)]

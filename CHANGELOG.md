@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.12] — 2026-08-09
+
+### Fixed
+
+- **Choosing a different model provider in the Agents Manager was a one-way
+  trip.** The **Model provider** picker listed only providers it considered
+  *configured*, and a provider counts as configured when it has an API key on
+  file. Credentials do not survive a restart yet, so on the next launch the
+  list collapsed to whatever needs no key — in practice the single local Ollama
+  entry. Any agent sitting on another provider could then never be scoped back
+  to it, because that provider had disappeared from the list: you could move
+  away, and not return. The picker now lists **every** provider, marking the
+  ones that can actually supply models with a filled dot — the same convention
+  the Model Providers Manager already uses — and says so plainly when you scope
+  to one that has nothing to offer. Whether a provider is configured decides
+  which *models* it can list, not whether you are allowed to look at it.
+
 ## [PowerRustCOBOL 1.61.11] — 2026-08-09
 
 ### Added
