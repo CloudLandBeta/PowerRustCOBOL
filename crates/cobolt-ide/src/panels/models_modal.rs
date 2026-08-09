@@ -89,6 +89,14 @@ fn profile_can_list_models(profile: &ModelProfile, api_key: &str) -> bool {
 }
 
 impl ModelsModal {
+    /// Show an error, and record it in the IDE console (operator, 2026-08-09).
+    /// Closing the manager takes the message with it; the console keeps it.
+    fn set_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        crate::error_log::record(&message);
+        self.error = Some(message);
+    }
+
     pub fn new() -> Self {
         Self {
             open: true,
@@ -262,7 +270,7 @@ impl ModelsModal {
                         Err(e) => {
                             let msg = format!("Models Manager: failed to fetch models: {e}");
                             self.models_msg = None;
-                            self.error = Some(e.clone());
+                            self.set_error(e.clone());
                             action.log_lines.push(msg);
                             action.alert_error = Some(e);
                         }

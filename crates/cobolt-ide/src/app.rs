@@ -1547,7 +1547,7 @@ impl CoboltApp {
                 let msg = format!("Error starting {}: {e}", binary.display());
                 self.output.push_status(msg.clone());
                 self.set_element_status(form_path, ElementStatus::Failed);
-                self.form_error = Some(msg);
+                self.set_form_error(msg);
                 // The error dialog is an Order::Foreground window; the Build
                 // modal's backdrop would block it. Get the modal out of the way
                 // so the failure is the thing on screen, not "Build succeeded".
@@ -1758,7 +1758,7 @@ impl CoboltApp {
                 self.output
                     .push_status(format!("Error launching form: {err}"));
                 self.set_element_status(&form_path, ElementStatus::Failed);
-                self.form_error = Some(format!(
+                self.set_form_error(format!(
                     "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{err}"
                 ));
                 return;
@@ -1784,7 +1784,7 @@ impl CoboltApp {
                 // rather than starting a session that cannot step into it.
                 let msg = tr.status_exec_rust_debug_unsupported.to_owned();
                 self.output.push_status(msg.clone());
-                self.form_error = Some(msg);
+                self.set_form_error(msg);
                 return;
             }
             if self.cobolt_project.is_none() {
@@ -1891,7 +1891,7 @@ impl CoboltApp {
                 self.output
                     .push_status(format!("Error launching form: {e}"));
                 self.set_element_status(&form_path, ElementStatus::Failed);
-                self.form_error = Some(e);
+                self.set_form_error(e);
             }
         }
     }
@@ -2684,7 +2684,7 @@ impl CoboltApp {
             if bad_forms.len() > SHOWN {
                 lines.push(format!("  … and {} more", bad_forms.len() - SHOWN));
             }
-            self.form_error = Some(format!(
+            self.set_form_error(format!(
                 "Build blocked — {} form(s) have code errors that must be fixed first:\n\n{}",
                 bad_forms.len(),
                 lines.join("\n")
@@ -3473,6 +3473,36 @@ impl CoboltApp {
         }
     }
 
+    // ── Error surfaces (operator, 2026-08-09) ────────────────────────────
+    //
+    // Every error shown to the developer is also written to the Output panel.
+    // A dialog is dismissed and the text goes with it; the console is what can
+    // still be scrolled back to and pasted into a bug report. These three
+    // write straight to the console because the app owns it — the panels that
+    // cannot reach it record through `crate::error_log` instead, and the frame
+    // loop drains that into the same place.
+
+    /// Show the build/form error dialog, and record it.
+    fn set_form_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        self.output.push_status(format!("✗ {message}"));
+        self.form_error = Some(message);
+    }
+
+    /// Show the general alert dialog, and record it.
+    fn set_alert_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        self.output.push_status(format!("✗ {message}"));
+        self.alert_error = Some(message);
+    }
+
+    /// Show a model connection/proficiency failure, and record it.
+    fn set_llm_test_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        self.output.push_status(format!("✗ {message}"));
+        self.llm_test_error = Some(message);
+    }
+
     fn ai_setup_needed(&self, project_root: &Path) -> bool {
         let db = crate::agents_db::AgentsDb::load(project_root);
         ai_setup_needed_for(&self.llm, &db.agents)
@@ -3653,7 +3683,7 @@ impl CoboltApp {
                 conflict.display()
             );
             self.output.push_status(msg.clone());
-            self.alert_error = Some(msg);
+            self.set_alert_error(msg);
             true
         } else {
             false
@@ -5337,7 +5367,7 @@ impl CoboltApp {
                     // Surface the failure in a modal (the full request/response is
                     // in the connection log, reachable via the modal's Details).
                     self.llm_test_status = Some(e.clone());
-                    self.llm_test_error = Some(e);
+                    self.set_llm_test_error(e);
                     self.llm_test_from_model_selection = false;
                     self.llm_test_rx = None;
                 }
@@ -5385,7 +5415,7 @@ impl CoboltApp {
             Err(e) => {
                 self.llm_benchmark_status = Some(e.clone());
                 self.record_benchmark_failure(&e);
-                self.llm_test_error = Some(format!("COBOL proficiency check failed: {e}"));
+                self.set_llm_test_error(format!("COBOL proficiency check failed: {e}"));
             }
         }
     }
@@ -7405,6 +7435,12 @@ impl CoboltApp {
             }
             if let Some(err) = act.alert_error {
                 crate::llm::push_connection_log(&format!("=== MODELS MANAGER ERROR ===\n{err}\n"));
+                // The dialog shows the whole connection log, which is the right
+                // thing to READ while diagnosing and the wrong thing to copy
+                // into the console — it is already kept, in full, by
+                // `push_connection_log` above. What the console records is the
+                // error itself (operator, 2026-08-09).
+                self.output.push_status(format!("✗ {err}"));
                 self.alert_error = Some(crate::llm::connection_log_text());
             }
             if act.applied {
@@ -10498,6 +10534,14 @@ impl eframe::App for CoboltApp {
         let ctx = &ctx;
         let frame_start = std::time::Instant::now();
 
+        // Every error shown to the developer also lands in the console
+        // (operator, 2026-08-09). The panels that raise them cannot reach the
+        // Output panel, so they record instead and this drains the record —
+        // once a frame, before anything else can add to it.
+        for message in crate::error_log::drain() {
+            self.output.push_status(format!("✗ {message}"));
+        }
+
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
@@ -11565,7 +11609,7 @@ impl eframe::App for CoboltApp {
                 ctx.request_repaint();
             }
             if let Some(err) = ext_error {
-                self.form_error = Some(err);
+                self.set_form_error(err);
             }
         }
 
@@ -11612,7 +11656,7 @@ impl eframe::App for CoboltApp {
                 }
             }
             if let Some(err) = built_error {
-                self.form_error = Some(err);
+                self.set_form_error(err);
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
@@ -12517,7 +12561,7 @@ impl CoboltApp {
                     self.knowledge_folder_name.clear();
                 }
                 Err(error) => {
-                    self.alert_error = Some(format!(
+                    self.set_alert_error(format!(
                         "Could not create Knowledge Base folder.\n\n{error}"
                     ))
                 }
@@ -12581,7 +12625,7 @@ impl CoboltApp {
                     ));
                 }
                 Err(error) => {
-                    self.alert_error = Some(format!(
+                    self.set_alert_error(format!(
                         "Could not delete Knowledge Base folder.\n\n{error}"
                     ))
                 }
@@ -12681,7 +12725,10 @@ impl CoboltApp {
                         .push_status(format!("Created folder {}", rel.display()));
                     self.folder_create = None;
                 }
-                Err(err) => self.alert_error = Some(self.folder_err_message(tr, &err)),
+                Err(err) => {
+                    let message = self.folder_err_message(tr, &err);
+                    self.set_alert_error(message);
+                }
             }
         }
     }
@@ -12748,7 +12795,10 @@ impl CoboltApp {
                         .push_status(format!("Renamed folder to {new}"));
                     self.folder_rename = None;
                 }
-                Err(err) => self.alert_error = Some(self.folder_err_message(tr, &err)),
+                Err(err) => {
+                    let message = self.folder_err_message(tr, &err);
+                    self.set_alert_error(message);
+                }
             }
         }
     }
@@ -12814,7 +12864,10 @@ impl CoboltApp {
                     self.output
                         .push_status(format!("Deleted folder {dir}"));
                 }
-                Err(err) => self.alert_error = Some(self.folder_err_message(tr, &err)),
+                Err(err) => {
+                    let message = self.folder_err_message(tr, &err);
+                    self.set_alert_error(message);
+                }
             }
         }
     }
@@ -12840,7 +12893,8 @@ impl CoboltApp {
             }
             Err(err) => {
                 let tr = self.lang.tr();
-                self.alert_error = Some(self.folder_err_message(&tr, &err));
+                let message = self.folder_err_message(&tr, &err);
+                self.set_alert_error(message);
             }
         }
     }
@@ -12863,7 +12917,7 @@ impl CoboltApp {
             if let Some(dest_cat) = dest_cat {
                 if Category::of_kind(kind) != dest_cat {
                     let tr = self.lang.tr();
-                    self.alert_error = Some(tr.folder_err_incompatible_kind.to_string());
+                    self.set_alert_error(tr.folder_err_incompatible_kind);
                     continue;
                 }
             }
@@ -12882,7 +12936,7 @@ impl CoboltApp {
         let dest = dest_dir.join(fname);
         if dest.exists() {
             let tr = self.lang.tr();
-            self.alert_error = Some(tr.folder_err_exists.to_string());
+            self.set_alert_error(tr.folder_err_exists);
             return;
         }
         if let Err(e) = std::fs::copy(&src, &dest) {

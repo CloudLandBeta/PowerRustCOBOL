@@ -40,6 +40,14 @@ pub struct IndexedEditorPanel {
 }
 
 impl IndexedEditorPanel {
+    /// Show an indentation/validation error, and record it in the IDE console
+    /// (operator, 2026-08-09) — it clears on the next keystroke otherwise.
+    fn set_indent_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        crate::error_log::record(&message);
+        self.indent_error = Some(message);
+    }
+
     pub fn new() -> Self {
         Self {
             selection: IndexedSelection::File,
@@ -161,7 +169,7 @@ impl IndexedEditorPanel {
                         }
                         IndentCommand::Outdent => {
                             if !outdent_entry(&mut self.flat, idx) {
-                                self.indent_error = Some(tr.err_idx_illegal_indent.into());
+                                self.set_indent_error(tr.err_idx_illegal_indent);
                                 self.show_indent_alert = true;
                             } else {
                                 action = StructureAction::StructureChanged;
@@ -230,7 +238,7 @@ impl IndexedEditorPanel {
                     result = RawDialogResult::Applied;
                 }
                 Err(e) => {
-                    self.indent_error = Some(e);
+                    self.set_indent_error(e);
                     self.show_indent_alert = true;
                 }
             }
@@ -280,7 +288,7 @@ impl IndexedEditorPanel {
                         applied = true;
                     }
                     Err(e) => {
-                        self.indent_error = Some(e);
+                        self.set_indent_error(e);
                         self.show_indent_alert = true;
                         self.apply_success_msg = None;
                     }
@@ -320,7 +328,7 @@ impl IndexedEditorPanel {
                         self.apply_success_msg = None;
                     }
                     Err(e) => {
-                        self.indent_error = Some(e);
+                        self.set_indent_error(e);
                         self.show_indent_alert = true;
                         self.apply_success_msg = None;
                     }

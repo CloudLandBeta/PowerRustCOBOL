@@ -4372,7 +4372,13 @@ impl PropertiesPanel {
                         {
                             match editor.validate() {
                                 Ok(()) => apply_binding = true,
-                                Err(err) => editor.validation_error = Some(err),
+                                Err(err) => {
+                                    // Recorded too: this clears on the next
+                                    // edit, so the console is the only lasting
+                                    // trace (operator, 2026-08-09).
+                                    crate::error_log::record(&err);
+                                    editor.validation_error = Some(err);
+                                }
                             }
                         }
                         if ui.button(tr.btn_cancel).clicked() {

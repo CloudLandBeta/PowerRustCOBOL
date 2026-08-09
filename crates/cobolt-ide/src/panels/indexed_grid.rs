@@ -37,6 +37,15 @@ pub struct IndexedGridPanel {
 }
 
 impl IndexedGridPanel {
+    /// Show an error, and record it in the IDE console (operator, 2026-08-09).
+    /// This one clears on the next successful operation, so without the console
+    /// entry there would be no trace of it at all.
+    pub(crate) fn set_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        crate::error_log::record(&message);
+        self.error = Some(message);
+    }
+
     pub fn new() -> Self {
         Self {
             session: None,
@@ -63,7 +72,7 @@ impl IndexedGridPanel {
             }
             Err(e) => {
                 self.session = None;
-                self.error = Some(e);
+                self.set_error(e);
             }
         }
         self.selected_row = None;
@@ -243,7 +252,7 @@ impl IndexedGridPanel {
                                             }
                                             Err(e) => {
                                                 status = Some(e.clone());
-                                                self.error = Some(e);
+                                                self.set_error(e);
                                             }
                                         }
                                     }
@@ -256,7 +265,7 @@ impl IndexedGridPanel {
                                             }
                                             Err(e) => {
                                                 status = Some(e.clone());
-                                                self.error = Some(e);
+                                                self.set_error(e);
                                             }
                                         }
                                     }
@@ -264,7 +273,7 @@ impl IndexedGridPanel {
                             }
                             Err(e) => {
                                 status = Some(e.clone());
-                                self.error = Some(e);
+                                self.set_error(e);
                             }
                         }
                     }

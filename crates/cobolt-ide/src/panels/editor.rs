@@ -1578,6 +1578,7 @@ pub(crate) fn chat_bubble_with_response_actions(
                 }
                 Err(error) => {
                     state.status = None;
+                    crate::error_log::record(&error);
                     state.error = Some(error);
                 }
             }
@@ -1621,9 +1622,10 @@ pub(crate) fn chat_bubble_with_response_actions(
                 ),
                 Err(error) => {
                     state.status = None;
-                    state.error = Some(format!(
-                        "Could not prepare the project Knowledge Base: {error}"
-                    ));
+                    let message =
+                        format!("Could not prepare the project Knowledge Base: {error}");
+                    crate::error_log::record(&message);
+                    state.error = Some(message);
                 }
             }
         }

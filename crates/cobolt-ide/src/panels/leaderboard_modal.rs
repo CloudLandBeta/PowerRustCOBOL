@@ -778,8 +778,11 @@ impl LeaderboardModal {
         }
     }
 
-    /// Surface a test that could not run.
+    /// Surface a test that could not run — and record it in the IDE console
+    /// (operator, 2026-08-09), naming the model so the line still means
+    /// something once this window is gone.
     pub fn show_error(&mut self, model: String, message: String) {
+        crate::error_log::record(format!("{model}: {message}"));
         self.error = Some((model, message));
     }
 

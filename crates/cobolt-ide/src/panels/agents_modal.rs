@@ -112,6 +112,14 @@ pub struct AgentsModalAction {
 }
 
 impl AgentsModal {
+    /// Show an error, and record it in the IDE console (operator, 2026-08-09).
+    /// Closing the manager takes the message with it; the console keeps it.
+    fn set_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        crate::error_log::record(&message);
+        self.error = Some(message);
+    }
+
     /// Load (and first-time seed, R7) the project's agents and open.
     /// Open the manager with one agent already selected — used by the AI setup
     /// wizard's **Judge** button, which exists to take the developer straight to
@@ -214,11 +222,11 @@ impl AgentsModal {
     fn apply(&mut self, llm: &mut LlmConfig) -> bool {
         self.stash_selected(llm);
         if let Err(e) = self.db.save_all() {
-            self.error = Some(e);
+            self.set_error(e);
             return false;
         }
         if let Err(e) = llm.save() {
-            self.error = Some(e);
+            self.set_error(e);
             return false;
         }
         self.dirty = false;
@@ -451,7 +459,7 @@ impl AgentsModal {
                         }
                     }
                     Err(e) => {
-                        self.error = Some(e);
+                        self.set_error(e);
                         self.new_name = Some(name);
                     }
                 }
@@ -985,7 +993,7 @@ impl AgentsModal {
                                 changed |= did_change;
                                 relationship_changed |= did_change;
                             }
-                            Err(error) => self.error = Some(error),
+                            Err(error) => self.set_error(error),
                         }
                     }
                     ui.weak(tr.agents_companion_for_hint);
@@ -1060,7 +1068,7 @@ impl AgentsModal {
                                     changed |= did_change;
                                     relationship_changed |= did_change;
                                 }
-                                Err(error) => self.error = Some(error),
+                                Err(error) => self.set_error(error),
                             }
                         }
                         ui.weak(tr.agents_companion_hint);

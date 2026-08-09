@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.9] — 2026-08-09
+
+### Fixed
+
+- **An error you were shown could not be read again once it went away.** Every
+  error the IDE puts on screen is now also written to the Output panel. A modal
+  is dismissed, and an inline message — a property that failed validation, a
+  record description that would not parse, an indexed row that could not be
+  written — clears on the next keystroke; either way the text was gone, along
+  with the only description of what went wrong. That made a problem you had
+  just seen impossible to quote in a bug report, and impossible to compare
+  against the one before it. The console keeps them all, prefixed `✗`, in the
+  order they happened. This covers the modals (Agents, Model, Leaderboard, New
+  Indexed File, build-blocked, connection test, folder operations) **and** the
+  inline errors in docked panels (properties validation, the COBOL editor, the
+  Form Designer's user-control dialog, the indexed grid and editor) — the
+  reasoning is the same for both, so the rule is the same for both. ⚠️ One
+  deliberate exception: a failed model connection shows the whole connection
+  log in its dialog, and the console records the error line rather than
+  duplicating a log that is already kept in full elsewhere.
+
 ## [PowerRustCOBOL 1.61.8] — 2026-08-09
 
 ### Fixed

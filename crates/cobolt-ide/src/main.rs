@@ -26,6 +26,7 @@ pub mod data_binding_guardian;
 pub mod debug_settings;
 pub mod flags;
 pub mod docs_embed;
+pub mod error_log;
 pub mod exec_rust_run;
 pub mod external_crates_service;
 pub mod file_dialog;

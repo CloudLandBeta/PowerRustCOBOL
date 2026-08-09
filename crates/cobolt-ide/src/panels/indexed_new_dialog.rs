@@ -53,6 +53,14 @@ pub struct NewIndexedDialog {
 }
 
 impl NewIndexedDialog {
+    /// Show an error, and record it in the IDE console (operator, 2026-08-09).
+    /// The dialog is dismissed; the console keeps the text.
+    pub(crate) fn set_raw_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        crate::error_log::record(&message);
+        self.raw_error = Some(message);
+    }
+
     pub fn new() -> Self {
         Self {
             open: false,
@@ -351,7 +359,7 @@ impl NewIndexedDialog {
         if let Some(_) = self.get_definition_from_raw() {
             self.raw_error = None;
         } else if self.raw_text.trim().is_empty() {
-            self.raw_error = Some("Enter a COBOL-85 record description (01 group + key).".into());
+            self.set_raw_error("Enter a COBOL-85 record description (01 group + key).");
         } else {
             // Provide a generic or more specific error by attempting parse.
             let mut temp = IndexedDefinition {
@@ -386,13 +394,13 @@ impl NewIndexedDialog {
                 Ok(()) => {
                     temp.recompute_offsets();
                     if let Err(e) = cobolt_indexed::validate_definition(&temp) {
-                        self.raw_error = Some(e);
+                        self.set_raw_error(e);
                     } else {
-                        self.raw_error = Some("Definition parsed but is missing a record group (01) or compliant RECORD KEY.".into());
+                        self.set_raw_error("Definition parsed but is missing a record group (01) or compliant RECORD KEY.");
                     }
                 }
                 Err(e) => {
-                    self.raw_error = Some(e);
+                    self.set_raw_error(e);
                 }
             }
         }

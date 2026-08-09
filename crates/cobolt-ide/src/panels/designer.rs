@@ -264,6 +264,19 @@ enum UserControlNameError {
     Circular,
 }
 
+impl UserControlNameError {
+    /// The message the developer reads. One source for both the dialog label
+    /// and the IDE console entry (operator, 2026-08-09), so the console can
+    /// never quote different wording from the dialog it came from.
+    fn message(self, tr: crate::i18n::Tr) -> &'static str {
+        match self {
+            UserControlNameError::Empty | UserControlNameError::Invalid => tr.uc_name_invalid,
+            UserControlNameError::Duplicate => tr.uc_name_duplicate,
+            UserControlNameError::Circular => tr.uc_circular_ref,
+        }
+    }
+}
+
 // ── Grid ──────────────────────────────────────────────────────────────────────
 /// Snap `v` to the nearest multiple of `grid_px` (only when snap is enabled).
 fn snap(v: i32, grid_px: i32, enabled: bool) -> i32 {
@@ -6567,14 +6580,7 @@ impl DesignerPanel {
                 ui.label(tr.uc_name_prompt);
                 ui.text_edit_singleline(&mut dialog.name);
                 if let Some(error) = dialog.error {
-                    let text = match error {
-                        UserControlNameError::Empty | UserControlNameError::Invalid => {
-                            tr.uc_name_invalid
-                        }
-                        UserControlNameError::Duplicate => tr.uc_name_duplicate,
-                        UserControlNameError::Circular => tr.uc_circular_ref,
-                    };
-                    ui.colored_label(ui.visuals().error_fg_color, text);
+                    ui.colored_label(ui.visuals().error_fg_color, error.message(tr));
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -6610,6 +6616,7 @@ impl DesignerPanel {
                     &def.controls,
                     user_controls,
                 ) {
+                    crate::error_log::record(UserControlNameError::Circular.message(tr));
                     dialog.error = Some(UserControlNameError::Circular);
                     self.create_user_control = Some(dialog);
                     None
@@ -6618,6 +6625,7 @@ impl DesignerPanel {
                 }
             }
             Err(error) => {
+                crate::error_log::record(error.message(tr));
                 dialog.error = Some(error);
                 self.create_user_control = Some(dialog);
                 None
