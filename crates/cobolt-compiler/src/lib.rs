@@ -3205,7 +3205,12 @@ fn controls_reference_doc() -> String {
          first opening; the project option `entrance-on-restore` additionally replays it when \
          a window is restored after being minimized (no form events fire on a restore \
          replay). Control load-time animations start immediately AFTER the entrance effect \
-         finishes; the COBOL `onLoad` event timing is unchanged. An exit effect delays the \
+         finishes, and the controls they animate are HELD BACK until then: a control with an \
+         `OnFormLoad`/`OnShow` animation is not painted into the entrance at all, so it \
+         arrives under its own power instead of materialising with the window and then \
+         jumping back to fly in a second time (1.61.5+; before that it did exactly that). \
+         Controls with no load animation appear with the window as always. The COBOL \
+         `onLoad` event timing is unchanged. An exit effect delays the \
          actual close until the animation completes — `FormState` vetoes fire BEFORE the \
          animation, so a refused close plays nothing, and `onClose` still fires exactly once. \
          Machine-wide kill-switch: Help → Debug Settings → \"Disable window effects\" \

@@ -577,10 +577,22 @@ plays on a window's first opening; enable **"Play entrance when restored"**
 to also replay it when the user restores a minimized window (a visual replay
 only — no form events fire). Control load-time animations wait for the
 entrance to finish, so the window materialises first and the controls come
-alive immediately after; the COBOL `onLoad` timing is unchanged. An exit
-effect plays before the window actually closes — but a form in `Waiting`
-FormState refuses the close *before* any animation, so a vetoed close plays
-nothing, and `onClose` still fires exactly once at the real close.
+alive immediately after; the COBOL `onLoad` timing is unchanged.
+
+A control that *has* a load-time animation is **held back until the entrance
+finishes** — it is not painted into the entrance at all, and it arrives under
+its own power the instant the effect ends. That is what you want: a button set
+to fly in from the left should not already be sitting in place while the window
+materialises, only to jump back to the left edge and travel in a second time.
+Controls with no load animation appear with the window, as always.
+
+> ⚠️ **Before 1.61.5** every control was painted into the entrance, so an
+> animated one did materialise with the window and then fly in again. If you
+> designed around that by giving a control a delay, remove the delay.
+
+An exit effect plays before the window actually closes — but a form in
+`Waiting` FormState refuses the close *before* any animation, so a vetoed close
+plays nothing, and `onClose` still fires exactly once at the real close.
 
 Effects play in **every host of your form**: Run Form from the IDE and the
 **built application** alike (both run the same window host, so what you see

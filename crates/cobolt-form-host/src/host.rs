@@ -749,12 +749,18 @@ impl FormHost {
     /// every visible control via the shared `draw_control` pipeline, scaled
     /// into whatever geometry the effect chooses) transformed by progress
     /// `t`. Pixel parity with the designer comes free — same painter.
+    ///
+    /// `entrance` says which direction is playing: on the way IN the controls
+    /// that have their own load animation queued behind this effect are left
+    /// out of the face entirely (038 R8 — they arrive under their own power
+    /// the moment it ends).
     fn paint_fx_frame(
         &self,
         root_ui: &egui::Ui,
         effect: cobolt_forms::window_fx::WindowEffect,
         duration_ms: u32,
         t: f32,
+        entrance: bool,
     ) {
         let rect = root_ui.ctx().content_rect();
         let painter = root_ui
@@ -779,7 +785,7 @@ impl FormHost {
             time,
             self.fx_transparent,
             duration_ms,
-            &mut |p, target| Self::paint_face(p, target, rect, controls, &backdrop),
+            &mut |p, target| Self::paint_face(p, target, rect, controls, &backdrop, entrance),
         );
     }
 
@@ -790,17 +796,30 @@ impl FormHost {
     /// geometry the effect chose. Scaling the controls against the form size
     /// instead would blow them up on a window bigger than the form and snap
     /// them back the moment the animation ended.
+    ///
+    /// `hide_load_animated` leaves out the controls whose own load animation
+    /// is still waiting on this effect (see
+    /// [`cobolt_forms::anim::has_load_animation`]): set for an ENTRANCE, where
+    /// showing them would stand them at their finished position only for them
+    /// to jump back and fly in again the instant the effect ended. Never set
+    /// for an exit — by then those animations have long since played, and
+    /// hiding the controls would blank them just as the form leaves.
     fn paint_face(
         painter: &egui::Painter,
         target: egui::Rect,
         base: egui::Rect,
         controls: &[cobolt_forms::Control],
         backdrop: &cobolt_forms::render::Backdrop,
+        hide_load_animated: bool,
     ) {
         cobolt_forms::render::paint_backdrop(painter, target, backdrop);
         let sx = target.width() / base.width().max(1.0);
         let sy = target.height() / base.height().max(1.0);
-        for c in controls.iter().filter(|c| c.visible) {
+        for c in controls
+            .iter()
+            .filter(|c| c.visible)
+            .filter(|c| !(hide_load_animated && cobolt_forms::anim::has_load_animation(c)))
+        {
             let mut scaled = c.clone();
             scaled.rect.x = (c.rect.x as f32 * sx).round() as i32;
             scaled.rect.y = (c.rect.y as f32 * sy).round() as i32;
@@ -980,7 +999,7 @@ impl FormHost {
                     .fx_exit
                     .effect
                     .progress(self.fx_exit.easing, t_lin as f32);
-                self.paint_fx_frame(root_ui, self.fx_exit.effect, exit_ms, t);
+                self.paint_fx_frame(root_ui, self.fx_exit.effect, exit_ms, t, false);
                 ctx.request_repaint();
             }
             return;
@@ -1163,6 +1182,15 @@ impl FormHost {
             let t_lin = (started.elapsed().as_secs_f64() / dur).min(1.0);
             if t_lin >= 1.0 {
                 self.fx_entrance_done = true; // live UI takes over this frame
+                // …and the load animations start on THIS frame, not the next
+                // one. The gate above runs earlier in the pass, so waiting for
+                // it would let the live UI paint one frame of every control
+                // standing at its finished position — a single-frame flash of
+                // exactly the picture the entrance just took care to withhold.
+                if !self.anim_started {
+                    self.anim_started = true;
+                    self.anim.start_form_load(&self.controls);
+                }
                 // The window wears its chrome again, arriving together with
                 // the finished form (038 — the title bar was off so nothing
                 // stood still while the effect played).
@@ -1175,7 +1203,7 @@ impl FormHost {
                     .fx_entrance
                     .effect
                     .progress(self.fx_entrance.easing, t_lin as f32);
-                self.paint_fx_frame(root_ui, self.fx_entrance.effect, ent_ms, t);
+                self.paint_fx_frame(root_ui, self.fx_entrance.effect, ent_ms, t, true);
                 ctx.request_repaint();
                 return;
             }
@@ -1484,9 +1512,7 @@ mod parity {
         );
 
         // Force the playback clock past the end: the next frame completes the
-        // entrance and restores the chrome. The animation gate sits ABOVE the
-        // playback block in the frame, so it opens on the FOLLOWING frame —
-        // the same one-frame handover the run-form host always had.
+        // entrance and restores the chrome.
         app.fx_entrance_start = Some(Instant::now() - Duration::from_millis(3200));
         let cmds = frame(&mut app, &ctx, raw());
         assert!(app.fx_entrance_done, "entrance completes past its duration");
@@ -1495,10 +1521,59 @@ mod parity {
                 .any(|c| matches!(c, egui::ViewportCommand::Decorations(true))),
             "the designed chrome comes back with the finished form; got {cmds:?}"
         );
-        frame(&mut app, &ctx, raw());
+        // …on the SAME frame, not the next one. The gate sits above the
+        // playback block, so waiting for it would let the live UI paint one
+        // frame of every load-animated control standing at its finished
+        // position — a single-frame flash of exactly the picture the entrance
+        // withheld.
         assert!(
             app.anim_started,
-            "load animations start on the first live-UI frame (038 R8)"
+            "load animations must start on the frame the entrance completes"
+        );
+    }
+
+    /// The other half of that rule: a control the entrance is holding back
+    /// must not be painted into the entrance's face, while its neighbours are.
+    #[test]
+    fn the_entrance_face_leaves_out_load_animated_controls() {
+        use cobolt_forms::model::{AnimKind, AnimTrigger, AnimationDef};
+
+        let mut animated = cobolt_forms::Control::new(
+            "Button-1",
+            cobolt_forms::ControlType::Button,
+            10,
+            10,
+        );
+        let mut def = AnimationDef::new("intro");
+        def.trigger = AnimTrigger::OnFormLoad;
+        def.kind = AnimKind::FlyFromLeft;
+        animated.add_animation(def);
+        let plain =
+            cobolt_forms::Control::new("Label-1", cobolt_forms::ControlType::Label, 10, 60);
+
+        // The same filter `paint_face` applies, over both directions. (That
+        // the painter passes `true` for an entrance and `false` for an exit is
+        // fixed at its two call sites and checked by the compiler.)
+        let controls = [animated, plain];
+        let painted = |hide_load_animated: bool| -> Vec<&str> {
+            controls
+                .iter()
+                .filter(|c| c.visible)
+                .filter(|c| {
+                    !(hide_load_animated && cobolt_forms::anim::has_load_animation(c))
+                })
+                .map(|c| c.id.as_str())
+                .collect()
+        };
+        assert_eq!(
+            painted(true),
+            vec!["Label-1"],
+            "the entrance must show the plain control and hold the flying one back"
+        );
+        assert_eq!(
+            painted(false),
+            vec!["Button-1", "Label-1"],
+            "an exit holds nothing back — those animations played long ago"
         );
     }
 

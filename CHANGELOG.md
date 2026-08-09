@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.5] — 2026-08-08
+
+### Fixed
+
+- **A control with an `onLoad` animation was visible during the window's
+  entrance effect.** Load-time animations already waited for the entrance to
+  finish, but the control was painted into the entrance's face meanwhile — so
+  it materialised with the window, standing at its finished position, and then
+  jumped back to the start of its own animation and travelled in a second time.
+  A control whose `OnFormLoad`/`OnShow` animation is still queued now stays out
+  of the entrance entirely and arrives under its own power. Exits are
+  unaffected: by then those animations have long since played, and hiding the
+  controls would blank them just as the form leaves. The animations also now
+  start on the very frame the entrance completes rather than the next one,
+  which removed a single-frame flash of every such control at its final
+  position.
+- **"Build blocked" did not say WHICH form was broken.** The modal reported
+  only a count — the names were pushed to the Output panel, but the developer
+  is looking at the modal, and on a project with a dozen forms "1 form has code
+  errors" is a search rather than a fix. The modal now lists the offending
+  forms and their errors (up to six, then "… and N more"; the Output panel
+  still carries the full list).
+
 ## [PowerRustCOBOL 1.61.4] — 2026-08-08
 
 ### Added

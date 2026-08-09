@@ -40,6 +40,25 @@ fn zoomout_scale(t: f32) -> f32 {
     (1.0 - A * (-D * t).exp() * osc).max(0.02)
 }
 
+/// Whether `ctrl` has a load-time animation (`OnFormLoad` / `OnShow`) that
+/// will actually move it — the ones [`Animator::start_form_load`] fires.
+///
+/// A control that is about to fly, zoom or fade in has no business being on
+/// screen before it does so. Load animations wait for the window's entrance
+/// effect to finish (038 R8), so painting such a control into the entrance's
+/// face would show it standing at its finished position, and the moment the
+/// effect ended it would jump back to the start of its own animation and
+/// travel in a second time. It stays out of the face until its turn.
+///
+/// `AnimKind::None` does not count: it plays nothing, so hiding the control
+/// would simply lose it for the length of the entrance.
+pub fn has_load_animation(ctrl: &Control) -> bool {
+    ctrl.animations.iter().any(|a| {
+        matches!(a.trigger, AnimTrigger::OnFormLoad | AnimTrigger::OnShow)
+            && !matches!(a.kind, AnimKind::None)
+    })
+}
+
 /// Compute the offset in form-space for an animation at progress `t`.
 /// Returns `(dx, dy, scale, alpha_mul)` where `alpha_mul` is 0..1.
 pub fn anim_transform(
@@ -184,6 +203,10 @@ impl AnimRuntime {
 
     /// Fire the load-time triggers (`OnFormLoad`, `OnShow`) across the whole form.
     /// Call once, when the form window comes up.
+    ///
+    /// A control this will animate must not have been on screen beforehand —
+    /// see [`has_load_animation`], which the window-effect face uses to leave
+    /// those controls out until the entrance is over.
     pub fn start_form_load(&mut self, controls: &[Control]) {
         for c in controls {
             self.play_matching(c, |t| {
@@ -394,6 +417,36 @@ mod tests {
         let end = rt.transform(&c);
         assert_eq!(end.dx, 0.0, "settles on the designed position");
         assert!(!rt.is_animating(), "Once stops when it lands");
+    }
+
+    /// Which controls the window's entrance effect must leave out.
+    ///
+    /// Only the ones that will actually travel when the entrance ends: a
+    /// control painted into the entrance and THEN animated is seen twice —
+    /// once standing at its finished position, once flying in from wherever
+    /// its animation starts. A control with nothing to play must not be
+    /// hidden, or the entrance would simply lose it.
+    #[test]
+    fn only_controls_with_a_real_load_animation_are_held_back() {
+        assert!(has_load_animation(&ctrl_with(fly_in(AnimTrigger::OnFormLoad))));
+        assert!(has_load_animation(&ctrl_with(fly_in(AnimTrigger::OnShow))));
+
+        let plain = Control::new("Label-2", ControlType::Label, 0, 0);
+        assert!(!has_load_animation(&plain), "nothing to play, nothing to hide");
+
+        // A click animation says nothing about load time.
+        assert!(!has_load_animation(&ctrl_with(fly_in(AnimTrigger::OnClick))));
+
+        // A load trigger carrying AnimKind::None plays nothing, so hiding the
+        // control would lose it for the length of the entrance.
+        let mut none_kind = fly_in(AnimTrigger::OnFormLoad);
+        none_kind.kind = AnimKind::None;
+        assert!(!has_load_animation(&ctrl_with(none_kind)));
+
+        // One qualifying animation among several is enough.
+        let mut mixed = ctrl_with(fly_in(AnimTrigger::OnClick));
+        mixed.add_animation(fly_in(AnimTrigger::OnFormLoad));
+        assert!(has_load_animation(&mixed));
     }
 
     /// A control with no animation, and one whose trigger has not fired, both draw

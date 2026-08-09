@@ -2667,10 +2667,27 @@ impl CoboltApp {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("form");
                 self.output.push_status(format!("  ✗ {name}: {msg}"));
             }
+            // Name them HERE, in the modal. The Output panel has carried the
+            // list all along, but the modal is what the developer is looking
+            // at, and "a form has errors" with no name is a search rather than
+            // a fix — on a project with a dozen forms there is nothing to go
+            // on. Long lists stay bounded; the panel still has all of them.
+            const SHOWN: usize = 6;
+            let mut lines: Vec<String> = bad_forms
+                .iter()
+                .take(SHOWN)
+                .map(|(path, msg)| {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("form");
+                    format!("  • {name}: {msg}")
+                })
+                .collect();
+            if bad_forms.len() > SHOWN {
+                lines.push(format!("  … and {} more", bad_forms.len() - SHOWN));
+            }
             self.form_error = Some(format!(
-                "Build blocked — {} form(s) have code errors that must be fixed first \
-                 (see the Output panel).",
-                bad_forms.len()
+                "Build blocked — {} form(s) have code errors that must be fixed first:\n\n{}",
+                bad_forms.len(),
+                lines.join("\n")
             ));
             return;
         }
