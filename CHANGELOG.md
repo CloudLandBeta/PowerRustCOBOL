@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.8] — 2026-08-09
+
+### Fixed
+
+- **On Windows, no crate could be added and the System column never worked.**
+  Both came from one defect. Every manifest PowerRustCOBOL generates — the real
+  build and the resolver probe behind Project's Crates — writes the platform's
+  own crates as `path =` dependencies, and those paths were produced by
+  `canonicalize`, which on Windows *always* returns the extended-length form
+  `\\?\D:\…`. That prefix is a valid thing to hand the operating system and a
+  meaningless one to hand cargo: cargo turns every `path =` entry into a URL,
+  finds `\\?\` in it, and rejects the whole manifest with **"invalid path
+  url"** before resolving a single dependency. The Crates window reported it as
+  *"could not compute the System closure"*, but the same manifest is what an
+  Add goes through, so adding a crate failed too. The prefix is now stripped
+  before the path is written, including the `\\?\UNC\server\share` spelling of
+  a network location, which becomes `\\server\share` rather than a local folder
+  called `UNC`. macOS and Linux were never affected — they have no such prefix
+  — which is why this survived until a Windows developer tried it.
+
 ## [PowerRustCOBOL 1.61.7] — 2026-08-08
 
 ### Fixed

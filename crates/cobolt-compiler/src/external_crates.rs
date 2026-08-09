@@ -74,9 +74,10 @@ pub fn vendor_dir(project_dir: &Path, name: &str, version: &str) -> PathBuf {
 // ── Generated-manifest additions (spec R7, R10, R15) ─────────────────────────
 
 /// A path as cargo must see it in a staged manifest: absolute (canonical when
-/// it exists) and forward-slashed. Cargo resolves `path =` entries relative
-/// to the manifest that names them — the staged build and probe manifests
-/// live elsewhere — and a raw Windows backslash is a TOML escape sequence.
+/// it exists), free of Windows' extended-length prefix, and forward-slashed.
+/// Cargo resolves `path =` entries relative to the manifest that names them —
+/// the staged build and probe manifests live elsewhere — and a raw Windows
+/// backslash is a TOML escape sequence.
 pub(crate) fn toml_path(path: &Path) -> String {
     let abs = std::fs::canonicalize(path).unwrap_or_else(|_| {
         if path.is_absolute() {
@@ -87,7 +88,35 @@ pub(crate) fn toml_path(path: &Path) -> String {
                 .unwrap_or_else(|_| path.to_path_buf())
         }
     });
-    abs.display().to_string().replace('\\', "/")
+    strip_verbatim_prefix(&abs.display().to_string()).replace('\\', "/")
+}
+
+/// Remove Windows' extended-length ("verbatim") path prefix.
+///
+/// `std::fs::canonicalize` on Windows always returns a verbatim path —
+/// `\\?\D:\Code\…`, or `\\?\UNC\server\share\…` for a network location. The
+/// prefix exists to opt out of the legacy 260-character limit, and it is a
+/// perfectly valid path to hand to the OS. It is **not** valid in a cargo
+/// manifest: cargo turns every `path =` dependency into a URL, and `\\?\`
+/// has no meaning there, so the whole manifest is rejected with
+/// *"invalid path url"* before a single dependency resolves.
+///
+/// That failure took out more than it looked like. Every generated manifest —
+/// the real build, and the resolver probe behind Project's Crates — routes its
+/// paths through [`toml_path`], so on Windows the System closure could not be
+/// computed AND no crate could be added: same defect, two symptoms.
+///
+/// A pure string function on purpose: the verbatim form can then be tested on
+/// any host, so the bug stays covered from a machine that never produces one.
+fn strip_verbatim_prefix(rendered: &str) -> String {
+    // `\\?\UNC\server\share` is the verbatim spelling of `\\server\share`.
+    if let Some(rest) = rendered.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = rendered.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    rendered.to_string()
 }
 
 /// The two sections a build adds for registered pins: exact-versioned
@@ -593,6 +622,53 @@ mod tests {
         let rendered = toml_path(odd);
         assert!(!rendered.contains('\\'), "got {rendered}");
         assert!(Path::new(&rendered).is_absolute());
+    }
+
+    /// **Windows' extended-length prefix must never reach a manifest.**
+    ///
+    /// `std::fs::canonicalize` on Windows always returns `\\?\D:\…`. Cargo
+    /// turns every `path =` dependency into a URL, where `\\?\` means nothing,
+    /// so the manifest was rejected outright with "invalid path url" — which
+    /// left the System closure uncomputable and blocked adding any crate at
+    /// all, from the one defect.
+    ///
+    /// The verbatim spellings are exercised as literals rather than by
+    /// canonicalizing something, so a host that never produces one still holds
+    /// the line.
+    #[test]
+    fn a_windows_verbatim_path_is_stripped_before_it_reaches_cargo() {
+        // The exact shape from the operator's report (2026-08-09).
+        let reported = r"\\?\D:\Code\COBOL\Implementations\PowerRustCOBOL\crates\cobolt-ast";
+        let stripped = strip_verbatim_prefix(reported);
+        assert_eq!(
+            stripped,
+            r"D:\Code\COBOL\Implementations\PowerRustCOBOL\crates\cobolt-ast"
+        );
+        let emitted = stripped.replace('\\', "/");
+        assert!(
+            !emitted.starts_with("//?/"),
+            "cargo cannot parse a verbatim path url: {emitted}"
+        );
+        assert_eq!(
+            emitted,
+            "D:/Code/COBOL/Implementations/PowerRustCOBOL/crates/cobolt-ast"
+        );
+
+        // A network location: `\\?\UNC\server\share` IS `\\server\share`, and
+        // stripping the prefix alone would silently retarget it at a local
+        // directory called `UNC`.
+        assert_eq!(
+            strip_verbatim_prefix(r"\\?\UNC\buildserver\rust\crates"),
+            r"\\buildserver\rust\crates"
+        );
+
+        // Ordinary paths, on either platform, are returned untouched.
+        assert_eq!(strip_verbatim_prefix(r"D:\Code\x"), r"D:\Code\x");
+        assert_eq!(strip_verbatim_prefix("/Users/dev/x"), "/Users/dev/x");
+
+        println!(
+            "verbatim prefix: {reported}\n              -> {emitted}"
+        );
     }
 
     /// Spec R10 — a pin with no vendored source fails validation naming the
