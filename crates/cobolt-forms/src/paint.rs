@@ -3610,6 +3610,9 @@ pub fn draw_control(
                 "☰ MenuBar (empty)".into()
             }
         }
+        // A SideMenu centres NOTHING: its ☰, its items and its empty hint are
+        // all painted top-anchored down the rail, further below.
+        CT::SideMenu => String::new(),
         CT::ToolBar => "⬛ ToolBar".into(),
         CT::StatusBar => "▬ StatusBar".into(),
         // GroupBox draws its caption as a "legend" on the top-left border (below),
@@ -4047,6 +4050,111 @@ pub fn draw_control(
                     x += w + 18.0;
                 }
             }
+        }
+    }
+
+    // ── SideMenu: the ☰ toggle, then top-level labels down the rail (049) ────
+    //
+    // Everything a sidebar draws is anchored to its TOP and grows downward: a
+    // sidebar is a rail, not a centred caption, and with `FullHeight` on it is
+    // as tall as the form — content centred in that would float in the middle
+    // of nothing. The ☰ is drawn whether or not the menu has items, mirroring
+    // the running shell, where collapsing the pane is the operator's control
+    // over the window and never a function of what the menu contains.
+    if matches!(ctrl.control_type, CT::SideMenu) {
+        let fg_base = ctrl
+            .get_prop("ForegroundColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::from_rgb(225, 230, 250));
+        let fg = Color32::from_rgba_premultiplied(fg_base.r(), fg_base.g(), fg_base.b(), a);
+        let fsize = ctrl_font_size(ctrl);
+        let font_name = ctrl
+            .get_prop("FontName")
+            .map(|v| v.as_str())
+            .unwrap_or_default();
+        let fid = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
+        let row = fsize * 1.9;
+        let mut y = rect.min.y + row * 0.5;
+
+        // The toggle, always, at the top.
+        let toggle = painter.layout_no_wrap("☰".to_owned(), fid.clone(), fg);
+        painter.galley(
+            Pos2::new(rect.min.x + 12.0, y - toggle.size().y * 0.5),
+            toggle,
+            fg,
+        );
+        y += row;
+
+        // Items draw with their icons (styled by the control's `IconEffect`
+        // property), exactly like the running shell. Collapsed shows the
+        // icon-only rail: an item's icon — or its first letter when it has
+        // none — so the canvas tells the truth about the state the
+        // application will open in.
+        let collapsed = ctrl.side_menu_collapsed();
+        let icon_style = crate::icons::icon_style_for_effect(
+            ctrl.get_prop("IconEffect").map(|v| v.as_str()).unwrap_or("None"),
+            fg,
+        );
+        let icon_sz = fsize * 1.3;
+        let def = get_menu_cache(painter.ctx(), &ctrl.id);
+        let items: &[crate::menu::MenuItem] =
+            def.as_ref().map(|d| d.menu.as_slice()).unwrap_or(&[]);
+        let any_icon = items.iter().any(|i| i.icon.is_some());
+        if items.is_empty() && !collapsed {
+            // Say so where the first item would go, not in the middle.
+            let hint = Color32::from_rgba_premultiplied(fg.r(), fg.g(), fg.b(), a / 2);
+            let galley = painter.layout_no_wrap("(empty)".to_owned(), fid.clone(), hint);
+            if y + row * 0.5 <= rect.max.y {
+                painter.galley(
+                    Pos2::new(rect.min.x + 12.0, y - galley.size().y * 0.5),
+                    galley,
+                    hint,
+                );
+            }
+        }
+        for entry in items {
+            if entry.item_type == crate::menu::MenuItemType::Separator {
+                y += row * 0.4;
+                continue;
+            }
+            // A rail clips at its bottom edge rather than overflowing.
+            if y + row * 0.5 > rect.max.y {
+                break;
+            }
+            let icon_rect = egui::Rect::from_min_size(
+                Pos2::new(rect.min.x + 10.0, y - icon_sz * 0.5),
+                egui::Vec2::splat(icon_sz),
+            );
+            match &entry.icon {
+                Some(icon) => {
+                    crate::icons::draw_menu_icon_styled(painter, icon_rect, icon, &icon_style);
+                }
+                None if collapsed => {
+                    // Icon-only rail, no icon: the first letter stands in.
+                    let initial =
+                        entry.label.chars().next().map(String::from).unwrap_or_default();
+                    let galley = painter.layout_no_wrap(initial, fid.clone(), fg);
+                    painter.galley(
+                        Pos2::new(
+                            icon_rect.center().x - galley.size().x * 0.5,
+                            y - galley.size().y * 0.5,
+                        ),
+                        galley,
+                        fg,
+                    );
+                }
+                None => {}
+            }
+            if !collapsed {
+                let label_x = if any_icon {
+                    rect.min.x + 12.0 + icon_sz + 4.0
+                } else {
+                    rect.min.x + 12.0
+                };
+                let galley = painter.layout_no_wrap(entry.label.clone(), fid.clone(), fg);
+                painter.galley(Pos2::new(label_x, y - galley.size().y * 0.5), galley, fg);
+            }
+            y += row;
         }
     }
 
@@ -8324,7 +8432,9 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
         CT::NumericUpDown => "numericupdown",
         CT::TreeView => "treeview",
         CT::Splitter => "splitter",
-        CT::MenuBar => "menubar",
+        // A SideMenu reuses the MenuBar theme family — a pack that styles menus
+        // styles both, and no pack needs a new key to support the shell.
+        CT::MenuBar | CT::SideMenu => "menubar",
         CT::ToolBar => "toolbar",
         CT::StatusBar => "statusbar",
         CT::PictureBox => "picturebox",

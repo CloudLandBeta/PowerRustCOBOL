@@ -37,9 +37,12 @@ pub mod diagnostics;
 pub mod file_dialog;
 pub mod host;
 pub mod seeding;
+pub mod shell;
 pub mod state;
 
-pub use host::{fx_duration_ms, load_host_icon, run, FormHost, FormHostConfig, HostHooks, NoHooks};
+pub use host::{
+    fx_duration_ms, load_host_icon, run, FormHost, FormHostConfig, HostHooks, NoHooks, Surface,
+};
 
 /// Depth-first flatten of a designed control tree into draw order input —
 /// every host renders from the flat list, z-sorted by the caller.

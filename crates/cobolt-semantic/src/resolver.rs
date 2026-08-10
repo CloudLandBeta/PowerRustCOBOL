@@ -25,16 +25,40 @@ use cobolt_ast::{
 
 use crate::{symbol_table::SymbolTable, SemanticDiagnostic, Severity};
 
+/// 049 R33 — the universal form surface: the property set EVERY form carries,
+/// so a bare `me::X` / `super::…::X` is checkable at build time whatever form
+/// the receiver turns out to be. Must match the form-entry seed in
+/// `cobolt-form-host::seeding::build_object_seed`.
+pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
+    "Name",
+    "Title",
+    "Width",
+    "Height",
+    "X",
+    "Y",
+    "WindowState",
+    "FullScreen",
+    "TitleVisible",
+    "CanMinimize",
+    "CanMaximize",
+    "FormState",
+    "FormFormat",
+    "BackgroundColor",
+    "Transparency",
+];
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn resolve(
     program: &Program,
     symbols: &SymbolTable,
     diagnostics: &mut Vec<SemanticDiagnostic>,
+    form_formats: Option<&std::collections::HashMap<String, crate::FormLoadFormat>>,
 ) {
     let mut ctx = ResolveCtx {
         symbols,
         diagnostics,
+        form_formats,
     };
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
@@ -61,6 +85,9 @@ pub fn resolve(
 struct ResolveCtx<'a> {
     symbols: &'a SymbolTable,
     diagnostics: &'a mut Vec<SemanticDiagnostic>,
+    /// 049 R17 — the project's form formats (UPPERCASE id → format), when a
+    /// project supplied them. `None` disables the load-path check.
+    form_formats: Option<&'a std::collections::HashMap<String, crate::FormLoadFormat>>,
 }
 
 impl<'a> ResolveCtx<'a> {
@@ -336,6 +363,10 @@ impl<'a> ResolveCtx<'a> {
                 if !comma_form {
                     self.check_open_form_signature(method, args, *span);
                 }
+                // 049 R17 — the load-path check applies to BOTH spellings:
+                // however the call is written, its target must be openable as
+                // a window.
+                self.check_open_form_target(method, args);
                 for a in args {
                     self.resolve_expr(a);
                 }
@@ -425,6 +456,110 @@ impl<'a> ResolveCtx<'a> {
         }
     }
 
+    /// 049 R17 — `OpenFormSync`/`OpenFormAsync` may only target a form whose
+    /// FormFormat allows the standalone path (`Standalone` | `Both`). Checked
+    /// when the target is a literal and the project supplied its form map;
+    /// a data-item target is dynamic and stays a runtime concern.
+    fn check_open_form_target(&mut self, method: &str, args: &[Expr]) {
+        let m = method.trim().to_ascii_uppercase();
+        if m != "OPENFORMSYNC" && m != "OPENFORMASYNC" {
+            return;
+        }
+        let Some(formats) = self.form_formats else {
+            return;
+        };
+        let Some(Expr::Literal(Literal::String(id), span)) = args.first() else {
+            return;
+        };
+        let key = id.trim().to_ascii_uppercase();
+        if let Some(fmt) = formats.get(&key) {
+            if !fmt.allows_standalone() {
+                self.error(
+                    format!(
+                        "INVOKE {}: form '{}' has FormFormat Embedded — it is loaded \
+                         from a sidebar menu, never opened as a window. Set its \
+                         FormFormat to Standalone or Both to open it with {} (049 R17).",
+                        method.trim(),
+                        id.trim(),
+                        method.trim(),
+                    ),
+                    *span,
+                );
+            }
+        }
+    }
+
+    /// 049 R33/R34 — a BARE property on a `me`/`super` receiver must belong to
+    /// the universal form surface, at any `super` chain depth. Method calls
+    /// (parens) pass through: form-specific procedures dispatch at run time
+    /// (R34). Only literal `ME`/`SUPER` roots are statically knowable — a
+    /// chain rooted in a control or the form's own name is not touched.
+    fn check_form_receiver_property(&mut self, expr: &Expr) {
+        // Flatten: walk to the root, collecting (member, parens, span)
+        // outermost-last.
+        let mut segs: Vec<(&str, bool, cobolt_lexer::Span)> = Vec::new();
+        let mut cur = expr;
+        while let Expr::Member {
+            recv,
+            member,
+            parens,
+            span,
+            ..
+        } = cur
+        {
+            segs.push((member.as_str(), *parens, *span));
+            cur = recv;
+        }
+        let Expr::Identifier(root, _) = cur else {
+            return;
+        };
+        let root_upper = root.trim().to_ascii_uppercase();
+        if root_upper != "ME" && root_upper != "SUPER" {
+            return;
+        }
+        segs.reverse(); // root-to-leaf
+        // Strip the leading `super` SEGMENTS of a super chain (R31) — each is
+        // one step up the loader chain, not a property.
+        let mut i = 0;
+        if root_upper == "SUPER" {
+            while segs
+                .get(i)
+                .map(|(m, parens, _)| !parens && m.eq_ignore_ascii_case("SUPER"))
+                .unwrap_or(false)
+            {
+                i += 1;
+            }
+        }
+        // The checkable shape is exactly one remaining BARE property. A
+        // parens tail is a method (runtime dispatch, R34); a deeper path is
+        // not a form property and is left to the runtime as well.
+        match &segs[i..] {
+            [(name, false, span)] => {
+                if !UNIVERSAL_FORM_PROPS
+                    .iter()
+                    .any(|p| p.eq_ignore_ascii_case(name))
+                {
+                    let receiver = if root_upper == "SUPER" {
+                        "super"
+                    } else {
+                        "me"
+                    };
+                    self.error(
+                        format!(
+                            "'{receiver}::{name}' is not a form property. The form \
+                             surface is: {}. Form-specific procedures are called \
+                             with parentheses ({receiver}::\"{name}\"(…)) and \
+                             dispatch at run time (049 R33/R34).",
+                            UNIVERSAL_FORM_PROPS.join(", ")
+                        ),
+                        *span,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Warn when a member-access chain used as a **receiving field** ends in a
     /// method call (`MOVE name TO obj::UpperCase()`): a method-call result is an
     /// rvalue, not a receiving field (spec 011). An empty-parens tail is
@@ -502,8 +637,10 @@ impl<'a> ResolveCtx<'a> {
             // Member-access chain (`obj::Caption`, `Grid::Rows(I)::Value`): the
             // root object is a form control, not a DATA DIVISION item, so the
             // receiver chain is not name-resolved here — only the subscript /
-            // call argument expressions are.
+            // call argument expressions are. A `me`/`super` root gets the 049
+            // R33 universal-surface check first.
             Expr::Member { args, .. } => {
+                self.check_form_receiver_property(expr);
                 for a in args {
                     self.resolve_expr(a);
                 }

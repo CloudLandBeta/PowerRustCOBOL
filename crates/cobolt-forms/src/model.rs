@@ -1211,7 +1211,14 @@ pub fn derive_paragraph_name(control_id: &str, event: &str) -> String {
 
 /// A control id valid as a COBOL paragraph-name prefix / member-access root:
 /// starts with a letter, then letters / digits / hyphens.
+///
+/// `me` and `super` are reserved (any case): both are object receivers in
+/// RustCOBOL member access (spec 037 D4 / spec 049 R28-R30), so a control
+/// under either name could never be addressed.
 pub fn is_valid_control_id(id: &str) -> bool {
+    if id.eq_ignore_ascii_case("me") || id.eq_ignore_ascii_case("super") {
+        return false;
+    }
     let mut chars = id.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() => {}
@@ -1997,6 +2004,11 @@ pub enum ControlType {
     // Batch 039, phase 3 (T14): non-visual Google Custom Search JSON API
     // client — INVOKE 'SEARCH' (T15), same async lifecycle as RestClient.
     WebSearch,
+    // Spec 049: the application shell's sidebar menu. Deliberately a type of its
+    // own rather than a mode of `MenuBar` — a form that already carries a
+    // MenuBar must keep opening in its own window, so the shell can only be
+    // triggered by a control that no existing project has (049 R3, R45).
+    SideMenu,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -2082,6 +2094,7 @@ impl ControlType {
             ControlType::Animator => "Animator",
             ControlType::ProgressBar => "ProgressBar",
             ControlType::MenuBar => "MenuBar",
+            ControlType::SideMenu => "SideMenu",
             ControlType::ToolBar => "ToolBar",
             ControlType::StatusBar => "StatusBar",
             ControlType::Line => "Line",
@@ -2132,6 +2145,7 @@ impl ControlType {
             "Animator" => ControlType::Animator,
             "ProgressBar" => ControlType::ProgressBar,
             "MenuBar" => ControlType::MenuBar,
+            "SideMenu" => ControlType::SideMenu,
             "ToolBar" => ControlType::ToolBar,
             "StatusBar" => ControlType::StatusBar,
             "Line" => ControlType::Line,
@@ -2191,6 +2205,8 @@ impl ControlType {
             ControlType::Animator => (160, 120),
             ControlType::ProgressBar => (200, 22),
             ControlType::MenuBar => (400, 24),
+            // A sidebar rail: tall and narrow, the mirror of MenuBar's strip.
+            ControlType::SideMenu => (200, 400),
             ControlType::ToolBar => (400, 32),
             ControlType::StatusBar => (400, 22),
             ControlType::Line => (200, 4),
@@ -2842,7 +2858,7 @@ impl ControlType {
                 "onEnabledChanged",
                 "onLoad",
             ],
-            ControlType::MenuBar => &[
+            ControlType::MenuBar | ControlType::SideMenu => &[
                 "onMenuClick",
                 "onMenuItemClick",
                 "onMenuOpen",
@@ -2943,6 +2959,11 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             // Waiting (or a Sync child of this form is Waiting).
             "onCloseRejected",
             "onClosed",
+            // 049 R26 — fired immediately before the form's storage is
+            // released (a navigation-chain pop, a non-preserved sibling
+            // replacement, a root-slot unwind). The teardown point: close
+            // files, COMMIT, free resources. NEVER fired on a mere
+            // swap-out — that is onDeactivate.
             "onDestroy",
         ],
     ),
@@ -2951,6 +2972,10 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
         &[
             "onActivate",
             "onActivated",
+            // 049 R26/R27 — in the shell, fired when the form's body leaves
+            // the ContentPane while the form STAYS RESIDENT (it became an
+            // ancestor, or was parked by PreservePreviousForm). Not a
+            // teardown point: storage and menu handlers stay live.
             "onDeactivate",
             "onDeactivated",
             "onGotFocus",
@@ -3523,7 +3548,7 @@ impl Control {
                     PropValue::String(TAB_CONTROL_MCP_TOOL.into()),
                 );
             }
-            ControlType::MenuBar => {
+            ControlType::MenuBar | ControlType::SideMenu => {
                 props.insert(
                     "BackgroundColor".into(),
                     PropValue::String("#00000000".into()),
@@ -3548,6 +3573,18 @@ impl Control {
                     "SelectedFgColor".into(),
                     PropValue::String("#FFFFFF".into()),
                 );
+                // 049 — a SideMenu fills the window's whole vertical extent by
+                // default. A MenuBar is a horizontal strip and has no such
+                // choice, so the property belongs to the SideMenu alone.
+                if matches!(control_type, ControlType::SideMenu) {
+                    props.insert("FullHeight".into(), PropValue::Bool(true));
+                    // The pane state the application OPENS in. At run time the
+                    // operator's own last choice is remembered per application
+                    // and wins over this; this is the starting point.
+                    props.insert("Collapsed".into(), PropValue::Bool(false));
+                    // How menu-item icons are painted: None | Shadow | Neumorphic.
+                    props.insert("IconEffect".into(), PropValue::String("None".into()));
+                }
             }
             ControlType::ToolBar | ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
@@ -4150,6 +4187,25 @@ impl Control {
         })
     }
 
+    /// 049 — does this SideMenu fill the window's whole vertical extent?
+    /// **Absent means yes**: the property defaults to on, and a `.cfrm`
+    /// written before it existed must behave like a freshly dropped SideMenu.
+    /// Meaningless (and always `false`) on any other control type.
+    pub fn side_menu_full_height(&self) -> bool {
+        if self.control_type != ControlType::SideMenu {
+            return false;
+        }
+        self.get_prop("FullHeight").map(|v| v.as_bool()).unwrap_or(true)
+    }
+
+    /// 049 — does this SideMenu start collapsed? The designed state the
+    /// application opens in; at run time the operator's remembered choice
+    /// takes precedence. Absent means open. Always `false` off a SideMenu.
+    pub fn side_menu_collapsed(&self) -> bool {
+        self.control_type == ControlType::SideMenu
+            && self.get_prop("Collapsed").map(|v| v.as_bool()).unwrap_or(false)
+    }
+
     pub fn set_prop(&mut self, name: impl Into<String>, value: impl Into<PropValue>) {
         let name = name.into();
         if !self.properties.contains_key(&name) {
@@ -4486,6 +4542,93 @@ impl WindowState {
     }
 }
 
+/// How a form may be loaded (spec 049 R1).
+///
+/// `Standalone` is the default, and it is what every `.cfrm` written before this
+/// field parses to — so an existing project keeps opening one window per form
+/// and nothing about it changes (049 R3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormFormat {
+    /// Its own OS window, per spec 037. Reached by `OpenFormSync`/`OpenFormAsync`.
+    #[default]
+    Standalone,
+    /// Loaded into the application shell's ContentPane by a menu item.
+    Embedded,
+    /// Valid on either path — a reusable lookup screen that is a modal dialog in
+    /// one place and a pane occupant in another.
+    Both,
+}
+
+impl FormFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FormFormat::Standalone => "Standalone",
+            FormFormat::Embedded => "Embedded",
+            FormFormat::Both => "Both",
+        }
+    }
+
+    /// Lenient parse; anything unrecognised is `Standalone`, so an old or
+    /// hand-edited `.cfrm` never fails to load over this field.
+    pub fn from_str(value: &str) -> Self {
+        let v = value.trim();
+        if v.eq_ignore_ascii_case("Embedded") {
+            FormFormat::Embedded
+        } else if v.eq_ignore_ascii_case("Both") {
+            FormFormat::Both
+        } else {
+            FormFormat::Standalone
+        }
+    }
+
+    /// May a menu item load this form into the ContentPane? (049 R17)
+    pub fn allows_embedded(self) -> bool {
+        matches!(self, FormFormat::Embedded | FormFormat::Both)
+    }
+
+    /// May `OpenFormSync`/`OpenFormAsync` open this form as a window? (049 R17)
+    pub fn allows_standalone(self) -> bool {
+        matches!(self, FormFormat::Standalone | FormFormat::Both)
+    }
+}
+
+/// The shell MenuPane's own background (spec 049 R39), persisted on the main
+/// form — the shell's owner (spec Q7). Deliberately the same field shapes as the
+/// form background so `paint_backdrop` renders both: one background dialect.
+///
+/// This is a model-side mirror of `render::Backdrop`, which cannot be persisted
+/// directly because it holds a resolved egui `TextureId` instead of the image
+/// path. `None` on the form ⇒ the shell's default chrome fill.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuPaneBackground {
+    /// `#RRGGBB[AA]`.
+    pub color: String,
+    pub gradient_enabled: bool,
+    pub gradient_start_color: String,
+    pub gradient_end_color: String,
+    pub gradient_direction: String,
+    /// 0–100 (0 = opaque), the form-background convention.
+    pub transparency: u8,
+    /// Image path; empty = none.
+    pub image: String,
+    pub image_mode: BgImageMode,
+}
+
+impl Default for MenuPaneBackground {
+    fn default() -> Self {
+        Self {
+            color: DEFAULT_FORM_BACKGROUND_COLOR.into(),
+            gradient_enabled: false,
+            gradient_start_color: String::new(),
+            gradient_end_color: String::new(),
+            gradient_direction: "South".into(),
+            transparency: 0,
+            image: String::new(),
+            image_mode: BgImageMode::default(),
+        }
+    }
+}
+
 /// Where a form's window opens on screen (operator, 2026-07-31). `Form::x` /
 /// `Form::y` are the design-time coordinates; whether they are ever USED
 /// depends on this.
@@ -4697,6 +4840,14 @@ pub struct Form {
     /// Show the native title bar; false = chromeless window (R15).
     pub title_visible: bool,
 
+    // ── 049 Application shell ───────────────────────────────────────────────
+    /// How this form may be loaded: its own window, the shell's ContentPane, or
+    /// either (spec 049 R1). Defaults to `Standalone`.
+    pub form_format: FormFormat,
+    /// The shell MenuPane's background (049 R39) — only meaningful on the main
+    /// form, which owns the shell. `None` = the default chrome fill.
+    pub menu_pane_background: Option<MenuPaneBackground>,
+
     // ── 038 Window effects ──────────────────────────────────────────────────
     /// Play the PROJECT's window entrance/exit effects (spec 038 R3). Forms
     /// never choose effects — only this on/off; false opens/closes instantly.
@@ -4773,6 +4924,8 @@ impl Form {
             window_state: WindowState::default(),
             full_screen: false,
             title_visible: true,
+            form_format: FormFormat::default(),
+            menu_pane_background: None,
             window_effects: true,
             x: 0,
             y: 0,
@@ -4780,6 +4933,59 @@ impl Form {
         };
         form.seed_repository_if_empty();
         form
+    }
+
+    /// 049 R2 — does this form carry a SideMenu control (anywhere in its
+    /// tree)? On the MAIN form this is what puts the application in shell
+    /// mode; a `MenuBar` deliberately does NOT count (R3/R45 — an existing
+    /// project must never become a shell app by accident).
+    pub fn has_side_menu(&self) -> bool {
+        fn walk(controls: &[Control]) -> bool {
+            controls
+                .iter()
+                .any(|c| c.control_type == ControlType::SideMenu || walk(&c.children))
+        }
+        walk(&self.controls)
+    }
+
+    /// 049 R2 — the first SideMenu control's id, for mounting its sidecar
+    /// menu and routing its events.
+    pub fn side_menu_control_id(&self) -> Option<String> {
+        fn walk(controls: &[Control]) -> Option<String> {
+            for c in controls {
+                if c.control_type == ControlType::SideMenu {
+                    return Some(c.id.clone());
+                }
+                if let Some(id) = walk(&c.children) {
+                    return Some(id);
+                }
+            }
+            None
+        }
+        walk(&self.controls)
+    }
+
+    /// 049 — pin every `FullHeight` SideMenu to the form's whole vertical
+    /// extent. `FullHeight` says the sidebar IS the window's full height, so
+    /// its `Y` and `Height` are not the developer's to place: this keeps the
+    /// designed geometry telling the truth instead of leaving a 400 px stub
+    /// that renders full-height anyway.
+    ///
+    /// Idempotent, and cheap enough to call every designer frame — that is
+    /// what keeps the control following a form resize. A SideMenu whose
+    /// `FullHeight` is off keeps whatever the developer placed.
+    pub fn sync_side_menu_full_height(&mut self) {
+        let form_h = self.height as i32;
+        fn walk(controls: &mut [Control], form_h: i32) {
+            for c in controls {
+                if c.control_type == ControlType::SideMenu && c.side_menu_full_height() {
+                    c.rect.y = 0;
+                    c.rect.h = form_h.max(1);
+                }
+                walk(&mut c.children, form_h);
+            }
+        }
+        walk(&mut self.controls, form_h);
     }
 
     pub fn apply_neumorphic_defaults(&mut self) {

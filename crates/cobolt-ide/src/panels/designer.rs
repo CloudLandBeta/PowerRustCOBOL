@@ -4398,6 +4398,70 @@ impl DesignerPanel {
                 self.dirty = true;
             }
 
+            // ── 049 Application shell ─────────────────────────────────────
+            "FormFormat" => {
+                // R5: the main form owns the window; its format is pinned.
+                if !self.form.main_form {
+                    self.form.form_format = cobolt_forms::model::FormFormat::from_str(&value);
+                    self.dirty = true;
+                }
+            }
+            "MenuPaneCustom" => {
+                // The R39 group: checking materialises defaults, unchecking
+                // returns the pane to the shell's default chrome fill.
+                if value == "true" || value == "1" {
+                    self.form
+                        .menu_pane_background
+                        .get_or_insert_with(Default::default);
+                } else {
+                    self.form.menu_pane_background = None;
+                }
+                self.dirty = true;
+            }
+            "MenuPaneColor" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.color = value;
+                self.dirty = true;
+            }
+            "MenuPaneGradientEnabled" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_enabled = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "MenuPaneGradientStartColor" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_start_color = value;
+                self.dirty = true;
+            }
+            "MenuPaneGradientEndColor" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_end_color = value;
+                self.dirty = true;
+            }
+            "MenuPaneGradientDirection" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_direction = value;
+                self.dirty = true;
+            }
+            "MenuPaneTransparency" => {
+                if let Ok(v) = value.parse::<u8>() {
+                    let mp =
+                        self.form.menu_pane_background.get_or_insert_with(Default::default);
+                    mp.transparency = v.min(100);
+                    self.dirty = true;
+                }
+            }
+            "MenuPaneImage" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.image = value;
+                self.dirty = true;
+            }
+            "MenuPaneImageMode" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.image_mode = cobolt_forms::model::BgImageMode::from_str(&value);
+                self.dirty = true;
+            }
+
             // ── Window start position ────────────────────────────────────
             "X" => {
                 if let Ok(v) = value.parse::<i32>() {
@@ -4454,6 +4518,64 @@ impl DesignerPanel {
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
+            "FormFormat" => Some(self.form.form_format.as_str().to_string()),
+            "MenuPaneCustom" => Some(bool_str(self.form.menu_pane_background.is_some())),
+            "MenuPaneColor" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.color.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneGradientEnabled" => Some(bool_str(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_enabled)
+                    .unwrap_or(false),
+            )),
+            "MenuPaneGradientStartColor" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_start_color.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneGradientEndColor" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_end_color.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneGradientDirection" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_direction.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneTransparency" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.transparency.to_string())
+                    .unwrap_or_else(|| "0".into()),
+            ),
+            "MenuPaneImage" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.image.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneImageMode" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.image_mode.as_str().to_string())
+                    .unwrap_or_else(|| "Stretch".into()),
+            ),
             "X" => Some(self.form.x.to_string()),
             "Y" => Some(self.form.y.to_string()),
             "StartPosition" => Some(self.form.start_position.as_str().to_string()),
@@ -4547,6 +4669,12 @@ impl DesignerPanel {
         let mut result = DesignerShowResult::default();
         let mut selection_changed = false;
 
+        // 049 — re-pin every FullHeight SideMenu to the form's height before
+        // anything reads a rect this frame. Idempotent, and one call here is
+        // what makes the sidebar follow a form resize, a Height edit or a
+        // FullHeight toggle without each of those knowing about the others.
+        self.form.sync_side_menu_full_height();
+
         // 007 Form themes — publish the resolved asset-pack theme for this frame
         // so the shared `draw_control` skins controls (canvas + preview). `None`
         // ⇒ procedural Liquid Glass.
@@ -4569,7 +4697,13 @@ impl DesignerPanel {
                 cobolt_forms::paint::set_menu_cache(ui.ctx(), id, std::sync::Arc::new(def));
             }
             for ctrl in &self.form.controls {
-                if ctrl.control_type == ControlType::MenuBar {
+                // 049 — a SideMenu keeps its structure in the same sidecar as
+                // a MenuBar, so it warms the same cache; without this the
+                // canvas would report every SideMenu as empty.
+                if matches!(
+                    ctrl.control_type,
+                    ControlType::MenuBar | ControlType::SideMenu
+                ) {
                     let yaml_path = cobolt_forms::menu::menu_yaml_path(dir, &ctrl.id);
                     if yaml_path.exists() {
                         if cobolt_forms::paint::get_menu_cache(ui.ctx(), &ctrl.id).is_none() {
@@ -6790,6 +6924,49 @@ impl DesignerPanel {
                             *modal.selected.last_mut().unwrap() = idx + 1;
                         }
                     }
+                    // ── Indent / Outdent: restructure across sections ────
+                    // Indent makes the item a child of its previous sibling;
+                    // outdent promotes it next to its parent. Together with
+                    // Up/Down they move an item anywhere in the tree.
+                    if ui.small_button(tr.menu_indent).clicked() && !modal.selected.is_empty() {
+                        let idx = *modal.selected.last().unwrap();
+                        if idx > 0 {
+                            let depth = modal.selected.len() - 1;
+                            let list = MenuEditorModal::parent_list_mut(
+                                &mut modal.def,
+                                &modal.selected,
+                            );
+                            fn height(it: &cobolt_forms::menu::MenuItem) -> usize {
+                                1 + it.items.iter().map(height).max().unwrap_or(0)
+                            }
+                            // 3 levels max (0-based depth ≤ 2), subtree included.
+                            if depth + height(&list[idx]) <= 2 {
+                                let item = list.remove(idx);
+                                let prev = &mut list[idx - 1];
+                                prev.items.push(item);
+                                let child_ix = prev.items.len() - 1;
+                                *modal.selected.last_mut().unwrap() = idx - 1;
+                                modal.selected.push(child_ix);
+                            }
+                        }
+                    }
+                    if ui.small_button(tr.menu_outdent).clicked() && modal.selected.len() >= 2 {
+                        let idx = *modal.selected.last().unwrap();
+                        let parent_path = modal.selected[..modal.selected.len() - 1].to_vec();
+                        let item = {
+                            let list = MenuEditorModal::parent_list_mut(
+                                &mut modal.def,
+                                &modal.selected,
+                            );
+                            list.remove(idx)
+                        };
+                        let parent_idx = *parent_path.last().unwrap();
+                        let glist =
+                            MenuEditorModal::parent_list_mut(&mut modal.def, &parent_path);
+                        glist.insert(parent_idx + 1, item);
+                        modal.selected = parent_path;
+                        *modal.selected.last_mut().unwrap() = parent_idx + 1;
+                    }
                     if ui.small_button(tr.menu_delete).clicked() && !modal.selected.is_empty() {
                         let idx = *modal.selected.last().unwrap();
                         let list =
@@ -6944,6 +7121,7 @@ impl DesignerPanel {
                                     MenuEditorModal::action_type_of(item).to_string();
                                 let cur_icon = item.icon.clone().unwrap_or_default();
                                 let cur_enabled = item.enabled;
+                                let cur_preserve = item.preserve_previous_form;
 
                                 if !is_sep {
                                     // Label
@@ -7220,6 +7398,26 @@ impl DesignerPanel {
                                             }
                                         }
                                     });
+
+                                    // 049 R24 — meaningful only when this item
+                                    // loads a form into the shell's ContentPane.
+                                    if cur_action_type == "open-form" {
+                                        ui.horizontal(|ui| {
+                                            let mut pv = cur_preserve;
+                                            if ui
+                                                .checkbox(&mut pv, tr.menu_lbl_preserve)
+                                                .on_hover_text(tr.tip_menu_preserve)
+                                                .changed()
+                                            {
+                                                if let Some(it) = MenuEditorModal::item_at_mut(
+                                                    &mut modal.def.menu,
+                                                    &modal.selected,
+                                                ) {
+                                                    it.preserve_previous_form = pv;
+                                                }
+                                            }
+                                        });
+                                    }
                                 } else {
                                     ui.label("── separator ──");
                                 }
@@ -7268,415 +7466,11 @@ impl DesignerPanel {
                         ui.separator();
 
                         let search = modal.icon_search.to_ascii_lowercase();
-                        let categories: &[(&str, &[&str])] = &[
-                            (
-                                "Document",
-                                &[
-                                    "doc-new",
-                                    "doc-open",
-                                    "doc-save",
-                                    "doc-save-as",
-                                    "doc-copy",
-                                    "doc-blank",
-                                    "doc-text",
-                                    "doc-pdf",
-                                    "doc-spreadsheet",
-                                    "doc-stack",
-                                ],
-                            ),
-                            (
-                                "Edit",
-                                &[
-                                    "scissors",
-                                    "clipboard-copy",
-                                    "clipboard-paste",
-                                    "pencil",
-                                    "eraser",
-                                    "pen",
-                                    "brush",
-                                    "type-text",
-                                    "bold",
-                                    "italic",
-                                    "underline",
-                                    "strikethrough",
-                                ],
-                            ),
-                            (
-                                "Navigation",
-                                &[
-                                    "arrow-left",
-                                    "arrow-right",
-                                    "arrow-up",
-                                    "arrow-down",
-                                    "chevron-left",
-                                    "chevron-right",
-                                    "chevron-up",
-                                    "chevron-down",
-                                    "home",
-                                    "external-link",
-                                ],
-                            ),
-                            (
-                                "Action",
-                                &[
-                                    "plus", "minus", "check", "x-mark", "refresh", "sync",
-                                    "download", "upload", "share", "export", "import", "link",
-                                ],
-                            ),
-                            (
-                                "UI/View",
-                                &[
-                                    "eye",
-                                    "eye-off",
-                                    "magnifier",
-                                    "zoom-in",
-                                    "zoom-out",
-                                    "fullscreen",
-                                    "collapse",
-                                    "expand",
-                                    "grid-view",
-                                    "list-view",
-                                ],
-                            ),
-                            (
-                                "Communication",
-                                &[
-                                    "mail",
-                                    "mail-open",
-                                    "send",
-                                    "inbox",
-                                    "chat",
-                                    "phone",
-                                    "video",
-                                    "bell",
-                                    "bell-off",
-                                    "at-sign",
-                                ],
-                            ),
-                            (
-                                "Social",
-                                &[
-                                    "heart",
-                                    "star",
-                                    "thumbs-up",
-                                    "thumbs-down",
-                                    "bookmark",
-                                    "flag",
-                                ],
-                            ),
-                            (
-                                "People",
-                                &[
-                                    "user",
-                                    "users",
-                                    "user-plus",
-                                    "user-minus",
-                                    "user-check",
-                                    "user-circle",
-                                ],
-                            ),
-                            (
-                                "Media",
-                                &[
-                                    "play",
-                                    "pause",
-                                    "stop",
-                                    "skip-forward",
-                                    "skip-back",
-                                    "volume",
-                                    "volume-off",
-                                    "music",
-                                ],
-                            ),
-                            (
-                                "Data",
-                                &[
-                                    "database",
-                                    "chart-bar",
-                                    "chart-line",
-                                    "chart-pie",
-                                    "table",
-                                    "filter",
-                                    "sort-asc",
-                                    "sort-desc",
-                                ],
-                            ),
-                            (
-                                "System",
-                                &[
-                                    "gear", "wrench", "shield", "lock", "unlock", "key",
-                                    "terminal", "code", "bug", "cpu",
-                                ],
-                            ),
-                            (
-                                "Status",
-                                &[
-                                    "info-circle",
-                                    "warning-triangle",
-                                    "error-circle",
-                                    "help-circle",
-                                    "check-circle",
-                                    "x-circle",
-                                    "clock",
-                                    "calendar",
-                                ],
-                            ),
-                            (
-                                "Commerce",
-                                &["cart", "credit-card", "wallet", "receipt", "tag", "percent"],
-                            ),
-                            (
-                                "File/Folder",
-                                &[
-                                    "folder",
-                                    "folder-open",
-                                    "folder-plus",
-                                    "archive",
-                                    "trash",
-                                    "printer",
-                                ],
-                            ),
-                            (
-                                "Payroll",
-                                &[
-                                    "payroll-check",
-                                    "payroll-schedule",
-                                    "payroll-deduction",
-                                    "payroll-bonus",
-                                    "payroll-overtime",
-                                    "payroll-tax",
-                                    "payroll-slip",
-                                    "payroll-direct-deposit",
-                                    "payroll-timesheet",
-                                    "payroll-hours",
-                                    "payroll-employee",
-                                    "payroll-benefits",
-                                    "payroll-pension",
-                                    "payroll-vacation",
-                                    "payroll-sick-leave",
-                                    "payroll-commission",
-                                    "payroll-garnishment",
-                                    "payroll-reimbursement",
-                                    "payroll-w2",
-                                    "payroll-1099",
-                                    "payroll-ytd",
-                                    "payroll-net-pay",
-                                    "payroll-gross-pay",
-                                    "payroll-withholding",
-                                    "payroll-frequency",
-                                ],
-                            ),
-                            (
-                                "Receivables",
-                                &[
-                                    "invoice",
-                                    "invoice-paid",
-                                    "invoice-overdue",
-                                    "invoice-draft",
-                                    "invoice-send",
-                                    "credit-memo",
-                                    "debit-memo",
-                                    "aging-report",
-                                    "collection",
-                                    "dunning-letter",
-                                    "payment-received",
-                                    "partial-payment",
-                                    "advance-payment",
-                                    "refund",
-                                    "write-off",
-                                    "bad-debt",
-                                    "interest-charge",
-                                    "statement",
-                                    "customer-balance",
-                                    "account-receivable",
-                                    "open-items",
-                                    "clearing",
-                                    "remittance",
-                                    "factoring",
-                                    "credit-limit",
-                                ],
-                            ),
-                            (
-                                "Payments",
-                                &[
-                                    "payment-check",
-                                    "payment-wire",
-                                    "payment-ach",
-                                    "payment-cash",
-                                    "payment-pending",
-                                    "payment-approved",
-                                    "payment-rejected",
-                                    "payment-recurring",
-                                    "payment-split",
-                                    "payment-batch",
-                                    "payment-void",
-                                    "payment-reversal",
-                                    "vendor-payment",
-                                    "bill-pay",
-                                    "purchase-order",
-                                    "expense-report",
-                                    "petty-cash",
-                                    "bank-transfer",
-                                    "payment-gateway",
-                                    "payment-terms",
-                                    "early-discount",
-                                    "payment-plan",
-                                    "installment",
-                                    "escrow",
-                                    "disbursement",
-                                ],
-                            ),
-                            (
-                                "Stock Control",
-                                &[
-                                    "inventory",
-                                    "warehouse",
-                                    "stock-in",
-                                    "stock-out",
-                                    "stock-count",
-                                    "stock-transfer",
-                                    "stock-adjust",
-                                    "stock-reserve",
-                                    "stock-alert",
-                                    "stock-reorder",
-                                    "barcode",
-                                    "qr-code",
-                                    "pallet",
-                                    "shelf",
-                                    "bin-location",
-                                    "lot-number",
-                                    "serial-number",
-                                    "expiry-date",
-                                    "fifo",
-                                    "lifo",
-                                    "cycle-count",
-                                    "physical-count",
-                                    "stock-valuation",
-                                    "safety-stock",
-                                    "dead-stock",
-                                ],
-                            ),
-                            (
-                                "Transportation",
-                                &[
-                                    "truck",
-                                    "truck-loading",
-                                    "truck-delivery",
-                                    "van",
-                                    "ship",
-                                    "ship-cargo",
-                                    "airplane",
-                                    "airplane-landing",
-                                    "helicopter",
-                                    "train",
-                                    "railway",
-                                    "container",
-                                    "forklift",
-                                    "crane",
-                                    "anchor",
-                                    "compass",
-                                    "route",
-                                    "highway",
-                                    "bridge",
-                                    "toll",
-                                    "fuel-pump",
-                                    "tire",
-                                    "engine",
-                                    "speedometer",
-                                    "odometer",
-                                ],
-                            ),
-                            (
-                                "Logistics",
-                                &[
-                                    "package",
-                                    "package-open",
-                                    "package-check",
-                                    "package-x",
-                                    "package-search",
-                                    "conveyor",
-                                    "loading-dock",
-                                    "dispatch",
-                                    "tracking",
-                                    "tracking-number",
-                                    "delivery-time",
-                                    "express",
-                                    "fragile",
-                                    "hazmat",
-                                    "temperature",
-                                    "weight-scale",
-                                    "dimensions",
-                                    "customs",
-                                    "manifest",
-                                    "bill-of-lading",
-                                    "cross-dock",
-                                    "last-mile",
-                                    "return-shipment",
-                                    "consolidation",
-                                    "deconsolidation",
-                                ],
-                            ),
-                            (
-                                "Financial",
-                                &[
-                                    "dollar",
-                                    "euro",
-                                    "yen",
-                                    "pound",
-                                    "bitcoin",
-                                    "coins",
-                                    "money-bag",
-                                    "piggy-bank",
-                                    "vault",
-                                    "safe",
-                                    "bank",
-                                    "atm",
-                                    "exchange-rate",
-                                    "stock-market",
-                                    "bull-market",
-                                    "bear-market",
-                                    "dividend",
-                                    "interest-rate",
-                                    "mortgage",
-                                    "loan",
-                                    "audit",
-                                    "ledger",
-                                    "balance-sheet",
-                                    "profit-loss",
-                                    "cash-flow",
-                                ],
-                            ),
-                            (
-                                "Social Media",
-                                &[
-                                    "like",
-                                    "dislike",
-                                    "comment",
-                                    "repost",
-                                    "mention",
-                                    "hashtag",
-                                    "trending",
-                                    "viral",
-                                    "follower",
-                                    "following",
-                                    "profile",
-                                    "bio",
-                                    "story",
-                                    "reel",
-                                    "live-stream",
-                                    "notification-dot",
-                                    "verified",
-                                    "influencer",
-                                    "engagement",
-                                    "reach",
-                                    "post",
-                                    "feed",
-                                    "timeline",
-                                    "dm",
-                                    "group-chat",
-                                ],
-                            ),
-                        ];
+                        // The catalogue lives ONCE, in cobolt-forms — the
+                        // picker renders whatever the icon engine ships, so
+                        // the two can never drift apart again.
+                        let categories: &[(&str, &[&str])] =
+                            cobolt_forms::icons::MENU_ICON_CATEGORIES;
 
                         let cur_icon = MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
                             .and_then(|i| i.icon.clone())
@@ -9765,6 +9559,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::ProgressBar => "ProgressBar",
         CT::DataGrid => "DataGrid",
         CT::MenuBar => "MenuBar",
+        CT::SideMenu => "SideMenu",
         CT::ToolBar => "ToolBar",
         CT::StatusBar => "StatusBar",
         CT::Line => "Line",
@@ -10139,6 +9934,17 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "FullScreen",
     "TitleVisible",
     "WindowEffects",
+    // 049 Application shell
+    "FormFormat",
+    "MenuPaneCustom",
+    "MenuPaneColor",
+    "MenuPaneGradientEnabled",
+    "MenuPaneGradientStartColor",
+    "MenuPaneGradientEndColor",
+    "MenuPaneGradientDirection",
+    "MenuPaneTransparency",
+    "MenuPaneImage",
+    "MenuPaneImageMode",
     // Window start position
     "X",
     "Y",
@@ -11693,6 +11499,126 @@ mod save_icon_tests {
         assert_eq!(circles, 1, "one badge circle");
         assert_eq!(rects, 4, "disk, shutter, hub slot, label");
         assert_eq!(lines, 3, "the arrow: stem plus two barbs");
+    }
+}
+
+#[cfg(test)]
+mod shell_prop_tests {
+    use super::*;
+    use cobolt_forms::model::FormFormat;
+
+    #[test]
+    fn form_format_prop_round_trips_and_main_form_is_pinned_049() {
+        // 049 R1/R5 — FormFormat is settable through the prop plumbing on an
+        // ordinary form, and a no-op on the main form (pinned Standalone).
+        let mut d = DesignerPanel::new(Form::new("FormA", "A", 640, 480));
+        assert_eq!(d.get_form_prop("FormFormat").as_deref(), Some("Standalone"));
+        d.set_form_prop("FormFormat", "Embedded".into());
+        assert_eq!(d.get_form_prop("FormFormat").as_deref(), Some("Embedded"));
+        d.set_form_prop("formformat", "Both".into()); // case-insensitive key
+        assert_eq!(d.get_form_prop("FormFormat").as_deref(), Some("Both"));
+
+        let mut main = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        main.form.main_form = true;
+        main.set_form_prop("FormFormat", "Embedded".into());
+        assert_eq!(
+            main.get_form_prop("FormFormat").as_deref(),
+            Some("Standalone"),
+            "R5: the main form's format is pinned"
+        );
+        assert_eq!(main.form.form_format, FormFormat::Standalone);
+
+        println!(
+            "049 FormFormat plumbing — 3 transitions on a normal form \
+             (Standalone→Embedded→Both, case-insensitive), main form pinned Standalone"
+        );
+    }
+
+    /// 049 — the designer's per-frame sync is what makes a FullHeight
+    /// SideMenu track the form: it follows a resize, and switching the
+    /// property off hands the geometry back to the developer.
+    #[test]
+    fn side_menu_tracks_the_form_height_until_full_height_is_off_049() {
+        let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        let mut side = Control::new("SIDE-1", ControlType::SideMenu, 0, 0);
+        side.rect.w = 200;
+        side.rect.y = 40;
+        side.rect.h = 400;
+        d.form.controls.push(side);
+
+        // What `show` runs at the top of every frame.
+        d.form.sync_side_menu_full_height();
+        let c = d.form.find_control("SIDE-1").unwrap();
+        assert_eq!((c.rect.y, c.rect.h), (0, 480), "pinned to the form");
+        assert_eq!(c.rect.w, 200, "the width is left alone");
+
+        // A form resize carries the sidebar with it.
+        d.form.height = 900;
+        d.form.sync_side_menu_full_height();
+        assert_eq!(d.form.find_control("SIDE-1").unwrap().rect.h, 900);
+
+        // FullHeight off ⇒ the developer's numbers stand, resize or not.
+        d.form
+            .find_control_mut("SIDE-1")
+            .unwrap()
+            .set_prop("FullHeight", false);
+        let c = d.form.find_control_mut("SIDE-1").unwrap();
+        c.rect.y = 60;
+        c.rect.h = 250;
+        d.form.height = 1000;
+        d.form.sync_side_menu_full_height();
+        let c = d.form.find_control("SIDE-1").unwrap();
+        assert_eq!(
+            (c.rect.y, c.rect.h),
+            (60, 250),
+            "FullHeight off leaves the placed geometry untouched"
+        );
+
+        println!(
+            "049 FullHeight (designer) — on: pinned y=0 h=480 then followed a \
+             resize to h=900 (width 200 untouched); off: kept the placed \
+             y=60 h=250 across a resize to 1000 (3/3)"
+        );
+    }
+
+    #[test]
+    fn menu_pane_background_props_materialise_and_clear_049() {
+        // 049 R39 — the 9 MenuPane* keys: MenuPaneCustom materialises/clears
+        // the group; each field key reads back what it wrote.
+        let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        assert_eq!(d.get_form_prop("MenuPaneCustom").as_deref(), Some("false"));
+
+        d.set_form_prop("MenuPaneCustom", "true".into());
+        assert_eq!(d.get_form_prop("MenuPaneCustom").as_deref(), Some("true"));
+
+        let cases: &[(&str, &str)] = &[
+            ("MenuPaneColor", "#123456FF"),
+            ("MenuPaneGradientEnabled", "true"),
+            ("MenuPaneGradientStartColor", "#111111"),
+            ("MenuPaneGradientEndColor", "#222222"),
+            ("MenuPaneGradientDirection", "East"),
+            ("MenuPaneTransparency", "40"),
+            ("MenuPaneImage", "assets/rail.png"),
+            ("MenuPaneImageMode", "Tile"),
+        ];
+        for (key, value) in cases {
+            d.set_form_prop(key, (*value).into());
+            assert_eq!(
+                d.get_form_prop(key).as_deref(),
+                Some(*value),
+                "{key} did not round-trip"
+            );
+        }
+
+        d.set_form_prop("MenuPaneCustom", "false".into());
+        assert!(d.form.menu_pane_background.is_none(), "cleared to None");
+        assert_eq!(d.get_form_prop("MenuPaneCustom").as_deref(), Some("false"));
+
+        println!(
+            "049 MenuPane background plumbing — materialise + {} field keys \
+             round-trip + clear back to None",
+            cases.len()
+        );
     }
 }
 
@@ -13805,6 +13731,11 @@ mod property_key_case_tests {
             "fullscreen", "titlevisible",
             // 038 window effects opt-out
             "windoweffects",
+            // 049 application shell
+            "formformat", "menupanecustom", "menupanecolor", "menupanegradientenabled",
+            "menupanegradientstartcolor", "menupanegradientendcolor",
+            "menupanegradientdirection", "menupanetransparency", "menupaneimage",
+            "menupaneimagemode",
             // Window start position
             "x", "y", "startposition",
         ] {

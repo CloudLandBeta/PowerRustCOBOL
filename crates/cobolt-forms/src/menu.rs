@@ -41,8 +41,86 @@ pub struct MenuItem {
     pub action: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Spec 049 R24/R25 — when this item loads a form into the shell's
+    /// ContentPane, keep the form that was displayed before it resident instead
+    /// of destroying it. Default `false`: the outgoing sibling is torn down and
+    /// fires `onDestroy`. Set it on the one costly screen you want to come back
+    /// to instantly, rather than making every screen in a subsystem immortal.
+    ///
+    /// This has no bearing on ancestors — a form in the navigation chain is
+    /// resident because something below it is its child, whatever this says.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub preserve_previous_form: bool,
+    /// Trailing badge text on a sidebar row — the "New" pill, the "6"
+    /// counter, the "outlined" tag. `None` (or empty) draws nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
+    /// How [`Self::badge`] is drawn. Ignored when there is no badge.
+    #[serde(default, skip_serializing_if = "BadgeStyle::is_default")]
+    pub badge_style: BadgeStyle,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<MenuItem>,
+}
+
+/// How a menu item's badge is painted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BadgeStyle {
+    /// Filled rounded pill in the accent colour (the "New" tag).
+    #[default]
+    Pill,
+    /// Filled circle holding a short number (the unread counter).
+    Count,
+    /// Hollow pill — accent outline and accent text, no fill.
+    Outline,
+}
+
+impl BadgeStyle {
+    fn is_default(&self) -> bool {
+        *self == BadgeStyle::Pill
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BadgeStyle::Pill => "Pill",
+            BadgeStyle::Count => "Count",
+            BadgeStyle::Outline => "Outline",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "count" => BadgeStyle::Count,
+            "outline" => BadgeStyle::Outline,
+            _ => BadgeStyle::Pill,
+        }
+    }
+}
+
+impl MenuItem {
+    /// A separator carrying a label is a SECTION HEADER (`HOME`, `APPS`,
+    /// `OTHER`); an unlabelled one stays a thin dividing rule.
+    pub fn section_title(&self) -> Option<&str> {
+        if self.item_type == MenuItemType::Separator && !self.label.trim().is_empty() {
+            Some(self.label.trim())
+        } else {
+            None
+        }
+    }
+
+    /// The badge text, if this item has a non-empty one.
+    pub fn badge_text(&self) -> Option<&str> {
+        self.badge.as_deref().map(str::trim).filter(|s| !s.is_empty())
+    }
+
+    /// Sidebar rows with children show a chevron and expand in place.
+    pub fn has_children(&self) -> bool {
+        self.items.iter().any(|i| i.item_type != MenuItemType::Separator)
+    }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +222,9 @@ impl MenuItem {
             accelerator: None,
             action: None,
             enabled: true,
+            preserve_previous_form: false,
+            badge: None,
+            badge_style: BadgeStyle::default(),
             items: Vec::new(),
         }
     }
@@ -157,6 +238,9 @@ impl MenuItem {
             accelerator: None,
             action: None,
             enabled: true,
+            preserve_previous_form: false,
+            badge: None,
+            badge_style: BadgeStyle::default(),
             items: Vec::new(),
         }
     }
@@ -247,6 +331,61 @@ pub fn save_menu(path: &Path, def: &MenuDefinition) -> Result<(), MenuError> {
 /// Build the YAML file path for a menu control alongside its `.cfrm`.
 pub fn menu_yaml_path(cfrm_dir: &Path, control_id: &str) -> std::path::PathBuf {
     cfrm_dir.join(format!("{}.menu.yaml", control_id))
+}
+
+// ── Load-path validation (spec 049 R17) ─────────────────────────────────────────
+
+/// The form a menu item loads, when its action is `open-form:<NAME>`.
+pub fn open_form_target(item: &MenuItem) -> Option<&str> {
+    item.action
+        .as_deref()
+        .and_then(|a| a.strip_prefix("open-form:"))
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+}
+
+/// One 049 R17 violation: a menu item targeting a form the menu path may not
+/// load.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuTargetError {
+    pub item_id: String,
+    pub item_label: String,
+    /// The target form, exactly as the item names it.
+    pub form: String,
+}
+
+/// Walk `def` and report every `open-form:` item whose target form the menu
+/// path may not load (049 R17: a menu load requires FormFormat `Embedded` or
+/// `Both`). `lookup` maps a target name to that form's format — return `None`
+/// for a form the project does not know, which is skipped: this check is about
+/// formats, not about broken references.
+pub fn validate_menu_targets(
+    def: &MenuDefinition,
+    lookup: &dyn Fn(&str) -> Option<crate::model::FormFormat>,
+) -> Vec<MenuTargetError> {
+    fn walk(
+        items: &[MenuItem],
+        lookup: &dyn Fn(&str) -> Option<crate::model::FormFormat>,
+        out: &mut Vec<MenuTargetError>,
+    ) {
+        for item in items {
+            if let Some(target) = open_form_target(item) {
+                if let Some(fmt) = lookup(target) {
+                    if !fmt.allows_embedded() {
+                        out.push(MenuTargetError {
+                            item_id: item.id.clone(),
+                            item_label: item.label.clone(),
+                            form: target.to_string(),
+                        });
+                    }
+                }
+            }
+            walk(&item.items, lookup, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&def.menu, lookup, &mut out);
+    out
 }
 
 // ── Accelerator parsing (T3) ────────────────────────────────────────────────────
@@ -393,6 +532,9 @@ mod tests {
                 accelerator: None,
                 action: None,
                 enabled: true,
+                preserve_previous_form: false,
+                badge: None,
+                badge_style: BadgeStyle::default(),
                 items: vec![
                     MenuItem {
                         id: "file-new".into(),
@@ -402,6 +544,9 @@ mod tests {
                         accelerator: Some("Cmd+N".into()),
                         action: Some("event".into()),
                         enabled: true,
+                        preserve_previous_form: false,
+                        badge: None,
+                        badge_style: BadgeStyle::default(),
                         items: vec![],
                     },
                     MenuItem::new_separator("sep-1"),
@@ -413,6 +558,9 @@ mod tests {
                         accelerator: None,
                         action: Some("close-application".into()),
                         enabled: true,
+                        preserve_previous_form: false,
+                        badge: None,
+                        badge_style: BadgeStyle::default(),
                         items: vec![],
                     },
                 ],
@@ -433,6 +581,95 @@ mod tests {
         println!(
             "round_trip_yaml: menu with {} items round-tripped OK",
             loaded.menu.len()
+        );
+    }
+
+    #[test]
+    fn validate_menu_targets_finds_standalone_targets_049() {
+        // 049 R17 (menu side) — an `open-form:` item may not target a
+        // Standalone form; Embedded and Both pass; unknown forms and
+        // non-open-form actions are skipped; nested items are walked.
+        use crate::model::FormFormat;
+        let mut def = sample_menu();
+        // file-new → open-form on a Standalone form (violation, nested)
+        def.menu[0].items[0].action = Some("open-form:MAIN-FORM".into());
+        // file-exit stays close-application (skipped)
+        // top-level extra items:
+        def.menu.push(MenuItem {
+            action: Some("open-form:CRM-PANEL".into()),
+            ..MenuItem::new_action("crm", "CRM")
+        });
+        def.menu.push(MenuItem {
+            action: Some("open-form:CUST-LOOKUP".into()),
+            ..MenuItem::new_action("lookup", "Lookup")
+        });
+        def.menu.push(MenuItem {
+            action: Some("open-form:GHOST".into()),
+            ..MenuItem::new_action("ghost", "Ghost")
+        });
+
+        let lookup = |name: &str| match name {
+            "MAIN-FORM" => Some(FormFormat::Standalone),
+            "CRM-PANEL" => Some(FormFormat::Embedded),
+            "CUST-LOOKUP" => Some(FormFormat::Both),
+            _ => None,
+        };
+        let errs = validate_menu_targets(&def, &lookup);
+        assert_eq!(errs.len(), 1, "exactly the Standalone target: {errs:?}");
+        assert_eq!(errs[0].item_id, "file-new");
+        assert_eq!(errs[0].form, "MAIN-FORM");
+
+        println!(
+            "049 R17 menu targets — 5 items checked: 1 violation (nested item \
+             '{}' → Standalone '{}'), Embedded + Both pass, unknown + \
+             non-open-form skipped",
+            errs[0].item_id, errs[0].form
+        );
+    }
+
+    #[test]
+    fn preserve_previous_form_defaults_false_049() {
+        // 049 R24 — defaults to false, survives a round trip when set, and is
+        // omitted from the file when false, so every menu written before 049
+        // loads unchanged.
+        let legacy = "menu:\n  - id: file\n    label: File\n    type: action\n";
+        let parsed: MenuDefinition = serde_yaml::from_str(legacy).expect("legacy menu parses");
+        assert!(
+            !parsed.menu[0].preserve_previous_form,
+            "a pre-049 menu item must default to false"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut def = sample_menu();
+        def.menu[0].items[0].preserve_previous_form = true;
+        let path = dir.path().join("preserve.menu.yaml");
+        save_menu(&path, &def).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let loaded = load_menu(&path).unwrap();
+
+        assert!(
+            loaded.menu[0].items[0].preserve_previous_form,
+            "true must survive the round trip"
+        );
+        assert!(
+            !loaded.menu[0].preserve_previous_form,
+            "an untouched item stays false"
+        );
+        let occurrences = text.matches("preserve_previous_form").count();
+        assert_eq!(
+            occurrences, 1,
+            "only the item set to true writes the key; false is skipped"
+        );
+
+        println!(
+            "049 R24 PreservePreviousForm — legacy menu (no key) => {}; \
+             set on 1 item, key written {} time(s) across {} top-level / {} child items, \
+             survives load = {}",
+            parsed.menu[0].preserve_previous_form,
+            occurrences,
+            loaded.menu.len(),
+            loaded.menu[0].items.len(),
+            loaded.menu[0].items[0].preserve_previous_form
         );
     }
 

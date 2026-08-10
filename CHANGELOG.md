@@ -1,5 +1,149 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.16] — 2026-08-10
+
+### Added — the menu icon catalogue, redesigned and doubled
+
+- **Every menu icon redrawn by one engine.** The hand-drawn painter calls are
+  gone; every icon is now vector shape data on a 24-unit reference grid,
+  rendered with a single thin stroke, round caps and joins, and real curves.
+  Icons are resolution-independent — the same data paints a 16 px menu row or
+  a 128 px tile with proportional stroke weight; there is no raster anywhere.
+- **664 icons across 26 categories** — up from 322. Every existing icon name
+  is preserved (menus reference icons by name in their `.menu.yaml` sidecar),
+  and every existing category grew. New categories: **Departments** (HR,
+  finance, accounting, IT, legal, marketing, sales, manufacturing, quality,
+  security, treasury, audit, …), **Transactions** (buy, sell, withdraw,
+  deposit, return, exchange, order, delivery, borrow, lend, showback,
+  chargeback, auction, settlement, trade-in, …), **Vehicles** (car, bus,
+  ambulance, tractor, excavator, sailboat, …) and **Military** (tank,
+  submarine, fighter jet, rocket, bullet, rifle, pistol, armor plate, uniform
+  pants, radar, bunker, …).
+- **Styleable icons.** `draw_menu_icon_styled` takes any tint colour, an
+  optional second accent colour, and an effect: a soft **drop shadow** or a
+  **neumorphic emboss** matching the IDE's Neumorphic surface style. The SVG
+  export mirrors the same styling with real `feDropShadow` filters.
+- **One catalogue, one source.** The menu editor's icon picker now renders
+  `MENU_ICON_CATEGORIES` from the icon engine instead of its own 400-line
+  copy of the list, so the picker and the renderer can never drift apart.
+  A contact-sheet example (`cargo run -p cobolt-forms --example icon_sheet`)
+  renders the whole catalogue per category for visual review.
+- **Four more categories — 709 icons in 30 categories.** **Devices**
+  (desktop, laptop, all-in-one, tower, mainframe, CRT terminal,
+  retro-computer, punch card, tablet, smartphone, smartwatch, fitness band,
+  VR headset, earbuds), **SaaS** (a browser-window family: CRM, ERP, HRTech,
+  BI, LMS, CMS, WCM, ITSM, PLM, SCM, POS, chatbot), **PaaS** (a cloud
+  family: aPaaS, dbPaaS, iPaaS, mPaaS, cPaaS, BaaS, MBaaS, FaaS λ, SECPaaS,
+  AIaaS) and **ERP Modules** (a connector-tile family: FI, CO, SD, MM, PP,
+  QM, PM, SCM).
+- **Icons finally render in the sidebar.** Menu-item icons now draw beside
+  their labels in the SideMenu on every surface — designer canvas, preview,
+  Run Form and the shell's MenuPane — and the **collapsed rail is icon-only**
+  (first letter as fallback). The new SideMenu **IconEffect** property
+  (`None` | `Shadow` | `Neumorphic`) styles them.
+- **The sidebar is live in Preview and Run Form.** The ☰ toggles the rail
+  (`onMenuOpen`/`onMenuClose`) and item rows click (`SelectedItemId` +
+  `onMenuItemClick`) — previously the preview sidebar was a static picture.
+- **Menu editor: Indent and Outdent.** The selected item can be made a child
+  of the item above it or promoted back beside its parent, so items move
+  between sections and levels (3-level limit enforced, subtree included).
+
+### Groundwork — the shared sidebar renderer (not yet routed)
+
+- **`cobolt-forms::sidebar`** — one module owning sidebar layout, painting and
+  hit-testing: logo/title header, section headers, rows with icon + label +
+  badge + chevron, the active pill, expandable children, a bottom profile
+  card, and the collapsed icon rail with ellipsis group dividers. Colours are
+  read from the SideMenu's own theme properties, never hardcoded.
+- **Menu model:** a `Separator` carrying a label is a **section header**
+  (unlabelled ones stay hairline rules); `MenuItem` gained `badge` and
+  `badge_style` (`Pill` | `Count` | `Outline`). Both are serde-defaulted, so
+  existing `.menu.yaml` sidecars load unchanged.
+- ⚠️ **Not yet wired.** The designer canvas, preview, Run Form and shell
+  MenuPane still paint their own rails; routing them through this module is
+  the next step, and until then the module is inert and the sidebar looks
+  exactly as it did before.
+
+## [PowerRustCOBOL 1.61.15] — 2026-08-10
+
+### Changed — the inspector leads with Basic
+
+- **A control's Basic section now sits directly below Geometry**, instead of
+  below Appearance, Drop Shadow and Data Binding. The two sections an operator
+  reaches for first are together. Controls that lead with a section of their own
+  instead of a Basic one (ListBox, ComboBox, Slider, DataGrid, ToolBar,
+  StatusBar) are unchanged, as are non-visual controls, whose properties already
+  followed Geometry directly.
+
+### Added — the SideMenu gets its menu editor, its toggle and a height property
+
+- **The menu editor now opens for a SideMenu.** The inspector's **Edit Menu…**
+  button reaches the same editor a `MenuBar` uses — the definition was always
+  keyed by control id, so items, submenus, separators, accelerators, icons and
+  actions all carry over unchanged. The designer also warms the sidecar cache
+  for a SideMenu, so its items appear on the canvas instead of the control
+  reporting itself empty.
+- **The sidebar collapses and opens with an empty menu.** The ☰ toggle moved
+  from the breadcrumb onto the MenuPane itself and is drawn in both the Open and
+  the Collapsed state, whether or not a single menu item exists — reclaiming the
+  width is the operator's control over the window, not a function of what the
+  developer put in the menu. The designer paints it too, where it previously
+  vanished the moment the menu gained its first item.
+- **The sidebar is top-anchored.** Its ☰, its menu items and its empty hint all
+  start at the top and grow downward; nothing is vertically centred. A
+  full-height sidebar no longer floats its content in the middle of the form.
+- **New SideMenu property `Collapsed`** (default off) — the pane state the
+  application opens in, shown on the designer canvas. The operator's own
+  remembered choice still wins once they have worked the ☰ themselves.
+- **New SideMenu property `FullHeight`** (default on). On, the sidebar owns the
+  window's whole vertical extent and the breadcrumb starts at its right edge;
+  off, the breadcrumb spans the full width and the sidebar fills the height
+  beneath it. Either way the sidebar reaches the window bottom in both pane
+  states. While it is on, the control's `Y` and `Height` are inert — greyed in
+  the inspector and drawn down the form's full height in the designer, following
+  a form resize — while `Width` stays developer-set. A `.cfrm` written before
+  the property existed reads as on.
+
+## [PowerRustCOBOL 1.61.14] — 2026-08-09
+
+### Added — spec 049: the application shell & the `super` receiver
+
+- **Application shell (opt-in).** A main form carrying the new **SideMenu**
+  control starts the app as ONE window: a MenuPane (root + contextual menu
+  slots, Open/Collapsed with a per-application persisted state and an icon
+  rail), a breadcrumb, and a ContentPane hosting the form at its designed
+  size. The loaded form's background paints the whole pane (pane-relative
+  image/gradient geometry) and stays fixed while the form scrolls; a
+  transparent form reaches the desktop through the pane region only, the
+  chrome staying opaque. A `MenuBar` deliberately does NOT trigger the shell —
+  existing projects keep classic multi-window mode untouched.
+- **FormFormat** (`Standalone` | `Embedded` | `Both`) on every form, with a
+  build-time load-path check (menu items may not target Standalone forms;
+  `OpenFormSync`/`OpenFormAsync` may not target Embedded ones), inspector
+  greying of window-only properties while Embedded, and no entrance/exit
+  effects for embedded forms.
+- **Navigation chain.** Menu-loaded forms chain main → subsystem → screen;
+  every chained form stays RESIDENT (storage + menu handlers alive), the
+  breadcrumb renders the chain, clicking a segment destroys everything below
+  it deepest-first, a root-slot switch unwinds to the main form first, and
+  each menu item's **PreservePreviousForm** parks the outgoing sibling for an
+  instant, state-intact return. Two lifecycle events tell the cases apart:
+  `onDeactivate` (swapped out, still resident) and `onDestroy` (teardown).
+- **The `super` receiver.** `super::Title` reads/assigns the loader form's
+  properties (write-through, live to both sides), `super::"SetWindowState"`
+  etc. drive its window, `super::super::…` walks one loader per step,
+  `super::<menu-id>::Collapse()`/`Open()` drive the MenuPane, and a NULL
+  `super` (main form; async opener closed) raises the standard error. Bare
+  `me`/`super` properties are compile-checked against the universal form
+  surface at any depth; form-specific procedures dispatch at run time.
+  `me::<property>` now works (`me::Width`, `MOVE … TO me::Title`) — the form
+  itself is seeded as an object, fixing writes that previously landed on a
+  phantom "ME" control where the host's FormState/FullScreen mirrors could
+  never see them.
+- **Known limit:** loading a SECOND form into the ContentPane awaits the same
+  multi-form runtime as spec 037's child windows (its open T16);
+  `open-form:` menu items say so at run time instead of pretending.
+
 ## [PowerRustCOBOL 1.61.13] — 2026-08-09
 
 ### Fixed

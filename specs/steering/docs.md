@@ -44,6 +44,7 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#19-debugging` | `crates/cobolt-ide/src/panels/debugger.rs`, `crates/cobolt-runtime/**` | debug |
 | `…#20-appearance-and-internationalisation` | `crates/cobolt-ide/src/i18n.rs`, `crates/cobolt-ide/src/fonts.rs`, `crates/cobolt-forms/src/fonts.rs` | i18n, theming, font-pipeline |
 | `…#21-cobol-structure-and-shared-data` | `crates/cobolt-ide/src/panels/cobol_structure.rs`, `crates/cobolt-forms/**`, `crates/cobolt-codegen/**`, `crates/cobolt-runtime/src/{environment,interpreter}.rs` | cobol-structure, shared-data |
+| `…#22-the-application-shell-and-the-super-receiver` | `crates/cobolt-form-host/src/shell.rs`, `crates/cobolt-form-host/src/host.rs`, `crates/cobolt-runtime/src/{interpreter,form_host}.rs`, `crates/cobolt-semantic/src/resolver.rs`, `crates/cobolt-forms/src/{model,menu}.rs` | application-shell, super-receiver |
 | `cobol85-supported-syntax.md` | `crates/cobolt-{parser,semantic,runtime}/**` | language-support |
 | `cobol85-verb-test-matrix.md` | `tests/cobol/**`, `crates/cobolt-runtime/**` | verb-tests |
 | `compiler-manual.md` *(planned)* | `crates/cobolt-cli/**`, `crates/cobolt-compiler/**` | cli-flags, build |

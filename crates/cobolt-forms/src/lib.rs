@@ -54,6 +54,12 @@ pub mod render;
 #[cfg(feature = "render")]
 pub mod fonts;
 
+// The ONE sidebar renderer (spec 049). Designer canvas, preview, Run Form and
+// the shell MenuPane all draw through it, so the rail cannot look different
+// depending on which surface you are looking at.
+#[cfg(feature = "render")]
+pub mod sidebar;
+
 // Window entrance/exit effects (spec 038). Needs egui types only, so it is
 // gated with the other render modules.
 #[cfg(feature = "render")]

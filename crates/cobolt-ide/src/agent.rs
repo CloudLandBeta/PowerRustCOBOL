@@ -272,6 +272,17 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "titlevisible"
             // 038 window effects opt-out
             | "windoweffects"
+            // 049 application shell
+            | "formformat"
+            | "menupanecustom"
+            | "menupanecolor"
+            | "menupanegradientenabled"
+            | "menupanegradientstartcolor"
+            | "menupanegradientendcolor"
+            | "menupanegradientdirection"
+            | "menupanetransparency"
+            | "menupaneimage"
+            | "menupaneimagemode"
             // Window start position
             | "x"
             | "y"

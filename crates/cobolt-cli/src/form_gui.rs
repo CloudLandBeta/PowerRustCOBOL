@@ -354,7 +354,23 @@ pub fn cmd_run_form(args: &[String]) {
     // is the same code a compiled application runs. This glue's own pieces
     // ended above: args, parse/check, the debug-wired interpreter thread and
     // disk theme discovery (the R30 seam).
-    cobolt_form_host::run(cobolt_form_host::FormHostConfig {
+    //
+    // 049 R2/R3 — a form carrying a SideMenu control starts in SHELL mode
+    // (MenuPane + breadcrumb + ContentPane, one window); any other form —
+    // including one with a MenuBar — keeps the classic one-window mode
+    // exactly as before.
+    let shell_mode = form.has_side_menu();
+    let root_menu = if shell_mode {
+        form.side_menu_control_id().and_then(|ctrl_id| {
+            let dir = cfrm_path.parent()?;
+            let yaml = cobolt_forms::menu::menu_yaml_path(dir, &ctrl_id);
+            let def = cobolt_forms::menu::load_menu(&yaml).ok()?;
+            Some((ctrl_id, def))
+        })
+    } else {
+        None
+    };
+    let config = cobolt_form_host::FormHostConfig {
         form,
         flat,
         state,
@@ -375,8 +391,16 @@ pub fn cmd_run_form(args: &[String]) {
         // R17 — a blank designed title stays blank under run-form, exactly as
         // it always has (the branded fallback belongs to built applications).
         title_fallback: String::new(),
+        // run-form is the classic one-window mode (049 R3); run_shell forces
+        // Pane itself.
+        surface: cobolt_form_host::Surface::Window,
         hooks: Box::new(cobolt_form_host::NoHooks),
-    });
+    };
+    if shell_mode {
+        cobolt_form_host::shell::run_shell(config, root_menu);
+    } else {
+        cobolt_form_host::run(config);
+    }
 
     // Surface a runtime error (if any) after the window closes.
     let runtime_error = error_slot.lock().ok().and_then(|mut s| s.take());

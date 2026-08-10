@@ -1493,9 +1493,23 @@ as a YAML file alongside the `.cfrm`.
 reorder items up to 3 levels deep. Each item has:
 
 - **Label** — the text shown in the menu.
-- **Icon** — an optional vector icon from the built-in catalogue (122+ icons
-  covering documents, editing, navigation, communication, media, commerce,
-  and more).
+- **Icon** — an optional icon from the built-in catalogue: **700+ pure-vector
+  icons in 30 categories** — documents, editing, navigation, communication,
+  media, commerce, payroll, receivables, payments, stock control,
+  transportation, logistics, financial, company **departments**, transaction
+  kinds (buy, sell, return, chargeback, …), civilian **vehicles**,
+  **military** vehicles & equipment, **devices** (computers, retro-computers,
+  tablets, smartphones, wearables), **SaaS** applications (CRM, ERP, BI, LMS,
+  CMS, ITSM, POS, chatbot, …), **PaaS** services (aPaaS through AIaaS) and
+  **ERP modules** (FI, CO, SD, MM, PP, QM, PM, SCM). Icons are drawn as
+  resolution-independent line work — the same icon is crisp in a 16 px menu
+  row or a 128 px tile — and take the menu item's colour. The engine can also
+  render any icon with a second accent colour, a drop shadow, or a neumorphic
+  emboss.
+- **Moving items.** Besides *Move Up*/*Move Down*, the **Indent** button makes
+  the selected item a child of the item above it, and **Outdent** promotes it
+  back beside its parent — together they move an item between any sections and
+  levels (three levels maximum).
 - **Accelerator** — a keyboard shortcut (e.g. `Cmd+N`, `Shift+Ctrl+S`).
   Rendered with platform-native symbols.
 - **Action** — what happens when the item is clicked:
@@ -3528,10 +3542,13 @@ You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
   without passing it around. `GLOBAL` is also valid on an **`FD`** — `FD F IS
   GLOBAL` makes the file and its record area visible to the form's procedures, so
   a handler or user procedure can `READ`/`WRITE` a file the form opened.
-- **`EXTERNAL`** — one physical copy shared *run-unit-wide* by its real name.
-  Two form modules that each declare `01 WS-COUNTER PIC 9(4) EXTERNAL` see and
-  update the same storage. `EXTERNAL` is valid only on `01`/`77` items and `FD`s
-  — the checker flags it anywhere else.
+- **`EXTERNAL`** — one physical copy shared *run-unit-wide*, matched by the
+  item's real name. **Each form module is its own run unit**, so an `EXTERNAL`
+  item is shared between the form and every program it `CALL`s that declares the
+  same item `EXTERNAL`; two *different* forms that each declare
+  `01 WS-COUNTER PIC 9(4) EXTERNAL` get separate storage. To reach another
+  form's data, qualify the reference (below). `EXTERNAL` is valid only on
+  `01`/`77` items and `FD`s — the checker flags it anywhere else.
 - **`GLOBAL EXTERNAL`** — both at once: run-unit-shared *and* visible to
   contained programs.
 
@@ -3540,6 +3557,67 @@ You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
        01  WS-OPEN-FORMS   PIC 9(4)  EXTERNAL.
        01  WS-APP-CONFIG   PIC X(80) GLOBAL EXTERNAL.
 ```
+
+### Reaching another form's data — qualified `EXTERNAL`
+
+If you have built with PowerCOBOL you will recognise the shape of this problem.
+Each form is a closed run unit, so a grid event in one form cannot simply update
+what another form is showing. The data has to be carried across the boundary,
+and the plumbing that carries it is what the operator feels as lag.
+
+PowerRustCOBOL keeps the standard meaning of `EXTERNAL` and adds one thing: an
+`EXTERNAL` item may be **qualified by the form module that declares it**.
+
+Form `CRM-MAIN` publishes the current selection:
+
+```cobol
+       01  WS-SELECTED-CUSTOMER EXTERNAL.
+           05  WS-CUST-ID     PIC X(10).
+           05  WS-CUST-NAME   PIC X(40).
+```
+
+Any other form reads or writes it by naming the owner:
+
+```cobol
+           MOVE WS-CUST-ID OF CRM-MAIN  TO WS-ORDER-CUSTOMER.
+           MOVE "ACME LTD"              TO WS-CUST-NAME OF CRM-MAIN.
+```
+
+The form name is the **outermost** qualifier, so ordinary group qualification
+still works inside it when a name would otherwise be ambiguous:
+
+```cobol
+           MOVE WS-CUST-ID OF WS-SELECTED-CUSTOMER OF CRM-MAIN
+             TO WS-ORDER-CUSTOMER.
+```
+
+What to expect:
+
+| Rule | What to expect |
+|------|----------------|
+| **What is reachable** | Only items the target form declares `EXTERNAL`. Qualification is not a back door into a form's ordinary `WORKING-STORAGE`. |
+| **Naming** | The qualifier is the form's name, which must be a valid COBOL word. |
+| **Lifetime** | The storage belongs to the application run, not to the form's window. It exists whether or not the target form is open, and keeps its contents after that form closes. |
+| **Initial content** | COBOL-85 forbids a `VALUE` clause on an `EXTERNAL` item, so some form must set the initial contents explicitly. |
+| **`CANCEL`** | Does not reset it. Cancelling a program clears that program's own `WORKING-STORAGE`; `EXTERNAL` storage outlives it. |
+| **Descriptions must agree** | The same `EXTERNAL` name must be described identically everywhere it is declared. Because the build sees every form in the project, a mismatch is reported when you build instead of corrupting data at run time. |
+
+> **Note — sharing is not notifying.** Writing into another form's data changes
+> the data, not the picture on screen. The other form repaints when something
+> tells it to; the shared item does not push an update by itself.
+
+> ⚠️ **This is a PowerRustCOBOL extension.** Standard COBOL-85 has no way to
+> qualify an `EXTERNAL` item by the module that owns it — `OF`/`IN` qualifies by
+> containing *group*, never by program. Unqualified `EXTERNAL` stays portable
+> COBOL-85; a qualified reference does not, and will not compile on another
+> vendor's compiler. Reserve it for the places that genuinely need cross-form
+> data.
+
+> ⚠️ **Availability.** Qualified `EXTERNAL` requires the forms of one
+> application to run in a shared run unit. That sharing is not active in current
+> builds — every running form still gets its own private `EXTERNAL` storage — so
+> the qualified form described here is the defined behaviour, not yet the
+> shipped one.
 
 ### Procedures: the form-module model
 
@@ -3608,7 +3686,176 @@ You **invoke** a Rust method two ways — the `INVOKE` verb, or the inline
 
 ---
 
-## 22. Caveats and current limitations
+## 22. The application shell and the `super` receiver
+
+If you have built a large PowerCOBOL application, you know the shape it takes:
+dozens of windows, each its own island. PowerRustCOBOL adds an alternative for
+enterprise applications — an **application shell**: one window, divided into a
+menu pane, a breadcrumb, and a content area where forms are loaded in place.
+Think of an ERP whose main menu lists subsystems (CRM, HR, Sales); entering
+one mounts its menu and loads its screens into the same window.
+
+### Turning the shell on
+
+Place a **SideMenu** control on your **main form**. That is the whole switch:
+
+- Main form with a SideMenu → the application starts in **shell mode**.
+- No SideMenu — including a form with a classic `MenuBar` — → every form opens
+  in its own window, exactly as before. An existing project can never become a
+  shell application by accident.
+
+You fill the sidebar in the **same menu editor a `MenuBar` uses**: select the
+SideMenu and press **Edit Menu…** in the property inspector. Everything you
+already know carries over — items, submenus, separators, accelerators, icons,
+the action each item performs — because the menu is stored in a sidecar file
+keyed by the control, not by the kind of control. The one thing a SideMenu adds
+is **Preserve previous form** on items that load a form (see *The navigation
+chain*).
+
+### Sidebar layout — the two properties that matter
+
+**FullHeight** (on by default) says the sidebar owns the window's whole vertical
+extent, with the breadcrumb starting at its right edge. Turn it off and the
+breadcrumb spans the full width instead, with the sidebar filling the height
+beneath it. Either way the sidebar reaches the bottom of the window; the
+property chooses which of the two owns the top-left corner.
+
+While FullHeight is on, the SideMenu's **Y** and **Height** are the shell's to
+decide, so the inspector greys them and the control is drawn down the form's
+full height in the designer — resize the form and the sidebar follows. Its
+**Width** stays yours.
+
+**Collapsed** (off by default) is the state the application *opens* in. Once the
+operator has worked the ☰ themselves, their own last choice is remembered per
+application and takes precedence from then on — so this property sets the first
+impression, not a permanent setting. The designer canvas shows whichever state
+you have selected, so what you design is what starts.
+
+> **Note.** The operator can always collapse and open the sidebar with the **☰**
+> button at the top of the sidebar itself, *including before you have added a
+> single menu item*. Being able to reclaim the width is the operator's control
+> over the window, so it never depends on what you put in the menu. COBOL can
+> drive the same thing with `super::<menu-id>::Collapse()` / `::Open()`.
+
+Everything the sidebar draws is anchored to its **top** and grows downward — the
+☰ first, then the menu items. A sidebar is a rail, not a centred caption.
+
+**Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
+renders beside its label on every surface — the designer canvas, the preview,
+the Run Form pane and the running shell's MenuPane. The **collapsed rail is
+icon-only**: an item shows its icon, or its first letter if it has none, so
+every item stays reachable at rail width. The SideMenu's **IconEffect**
+property (`None` | `Shadow` | `Neumorphic`) chooses how those icons are
+painted — `Neumorphic` matches the IDE's Neumorphic surface style.
+
+**The sidebar is live in Preview and Run Form.** Clicking the ☰ collapses and
+opens the rail (firing `onMenuOpen`/`onMenuClose`), and clicking an item row
+sets `SelectedItemId` and fires `onMenuItemClick` — the same behaviour the
+shell delivers, so what you try in preview is what ships.
+
+The shell window has three fixed regions:
+
+| Region | What it is |
+|--------|-----------|
+| **MenuPane** | The main form's menu (the *root* slot, always present) plus the current subsystem's menu (the *contextual* slot, swapped whole). Open or Collapsed — collapsed is a narrow icon rail; both states carry the ☰ toggle, and the state is remembered per application, across restarts. |
+| **Breadcrumb** | One segment per step of the navigation chain (`Main › CRM › Customers`). Clicking a segment goes back there. Painted by the shell — a loaded form's colours never affect it. |
+| **ContentPane** | The loaded form, top-left, at its designed size. |
+
+### FormFormat — how a form may be loaded
+
+Every form declares it in the property inspector:
+
+- **Standalone** (default) — its own window, opened with `OpenFormSync` /
+  `OpenFormAsync`. Everything §21-era applications do today.
+- **Embedded** — loaded into the ContentPane by a menu item.
+- **Both** — a reusable screen valid on either path (a customer lookup that is
+  a modal dialog from Sales and a browsing pane inside CRM).
+
+The **build checks the pairing**: a menu item pointing at a Standalone form,
+or an `OpenFormSync` call naming an Embedded one, is a compile error naming
+the form. The main form is always Standalone — it owns the window.
+
+While a form is embedded, its window-only properties (WindowState, FullScreen,
+TitleVisible, CanMinimize, CanMaximize) are inert and shown greyed in the
+inspector; `Width`/`Height` report the **designed** values. Entrance and exit
+window effects play only for standalone forms — an embedded form is simply
+present.
+
+**The background rule.** The loaded form's background paints the **whole
+ContentPane** — colour, gradient, or image, with the image/gradient geometry
+computed against the *pane*, not the form rectangle. While the form scrolls
+(a form larger than the pane scrolls inside it), the background stays put.
+A fully transparent form (Transparency = 100) shows the desktop through the
+pane region — the menu and breadcrumb stay opaque.
+
+> ⚠️ **Caveat.** The same `Both` form therefore shows its background
+> differently embedded (pane-sized, fixed) and standalone (window rules,
+> spec 037). This is by design; design backgrounds accordingly.
+
+### The navigation chain
+
+Forms loaded from menus form a chain — main form → subsystem → screen. Every
+form **in the chain stays resident**: its WORKING-STORAGE lives, its menu
+handlers keep firing, even while its body is not displayed. The breadcrumb IS
+that chain. Clicking a segment destroys everything below it (deepest first),
+remounts that form's menu, and shows its body again.
+
+Two menu behaviours control sibling switches (menu editor, per item):
+
+- Default: switching from screen A to screen B **destroys** A.
+- **Preserve previous form** checked: A is kept resident, and returning to A
+  is instant, with its data exactly as left.
+
+Two form events tell them apart — bind them like any other:
+
+- **onDeactivate** — the body left the pane; the form is still resident. Do
+  *not* close files here.
+- **onDestroy** — storage is about to be released. Close files, COMMIT, free
+  resources here.
+
+### `super` — the form that loaded me
+
+`me` addresses the current form; **`super`** addresses the form that loaded
+or opened it — on both paths, menu loads and `OpenFormSync`/`OpenFormAsync`:
+
+```cobol
+      *> read and change the parent form's properties
+           MOVE super::Title TO WS-T.
+           MOVE "Processing…" TO super::Title.
+      *> drive its window (any windowHandler method)
+           INVOKE super::"SetWindowState"("Minimized").
+      *> walk further up: one loader per super
+           MOVE super::super::Title TO WS-T.
+      *> drive the menu pane (state persists per application)
+           super::SIDE-1::Collapse().
+           super::SIDE-1::Open().
+```
+
+Rules to expect:
+
+- **Bare properties are checked at build time** against the universal form
+  surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen,
+  TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat,
+  BackgroundColor, Transparency) — a typo like `super::Widht` fails the
+  build at any depth. Form-specific procedures use parentheses
+  (`super::"RecalcTotals"()`) and dispatch at run time.
+- **`super` can be NULL**: in the main form, and in an async-opened form
+  whose opener has closed (the child never keeps its opener alive).
+  Referencing a NULL `super` raises the standard runtime error.
+- `me::<property>` works the same way on the form's own surface —
+  `me::Width`, `MOVE "New" TO me::Title` — and `me` and the form's own name
+  address the same thing.
+
+> ⚠️ **Availability.** The shell window, its panes, menus, persistence and
+> the whole `super` surface are implemented. Loading a **second form** into
+> the ContentPane from a menu item is not hosted yet — it needs the same
+> multi-form runtime as spec 037's child windows, which is still pending.
+> Until that lands, `open-form:` menu items report themselves at run time
+> instead of loading, and the chain holds the main form.
+
+---
+
+## 23. Caveats and current limitations
 
 A consolidated list so you are never surprised:
 

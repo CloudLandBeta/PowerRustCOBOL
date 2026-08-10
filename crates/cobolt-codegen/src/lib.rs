@@ -2158,6 +2158,43 @@ mod tests {
         form
     }
 
+    /// 049 R26/T23 — bound `onDeactivate`/`onDestroy` form events generate
+    /// their handler programs and dispatch through the event loop under the
+    /// form's own WHEN, like every other bound form event.
+    #[test]
+    fn lifecycle_events_generate_handlers_and_dispatch_049() {
+        let mut form = make_form();
+        for ev in ["onDeactivate", "onDestroy"] {
+            form.form_events.push(EventBinding {
+                event: ev.into(),
+                paragraph: cobolt_forms::model::derive_paragraph_name("MAIN-FORM", ev),
+                code: "    CONTINUE".into(),
+            });
+        }
+        let src = generate(&form);
+        for (ev, para) in [
+            ("onDeactivate", "MAIN-FORM--ONDEACTIVATE"),
+            ("onDestroy", "MAIN-FORM--ONDESTROY"),
+        ] {
+            assert!(
+                src.contains(&format!("WHEN \"{ev}\"")),
+                "{ev} must dispatch through the loop"
+            );
+            assert!(
+                src.contains(&format!("PROGRAM-ID. {para}")),
+                "{para} handler program must be generated"
+            );
+        }
+        // An UNBOUND form (no 049 events) generates neither — no dead WHENs.
+        let plain = generate(&make_form());
+        assert!(!plain.contains("WHEN \"onDeactivate\""));
+        assert!(!plain.contains("WHEN \"onDestroy\""));
+        println!(
+            "049 T23 codegen — bound onDeactivate/onDestroy: 2 loop WHENs + 2 \
+             handler programs generated; unbound form: none (no dead dispatch)"
+        );
+    }
+
     /// Operator report (2026-07-30): controls named `textbox_1` / `label_result`
     /// (the assistant names them that way) emitted `WS-textbox_1-TEXT`, which
     /// the lexer read as an identifier, an error token for `_`, then a number —
