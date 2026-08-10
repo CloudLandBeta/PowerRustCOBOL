@@ -3528,10 +3528,13 @@ You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
   without passing it around. `GLOBAL` is also valid on an **`FD`** — `FD F IS
   GLOBAL` makes the file and its record area visible to the form's procedures, so
   a handler or user procedure can `READ`/`WRITE` a file the form opened.
-- **`EXTERNAL`** — one physical copy shared *run-unit-wide* by its real name.
-  Two form modules that each declare `01 WS-COUNTER PIC 9(4) EXTERNAL` see and
-  update the same storage. `EXTERNAL` is valid only on `01`/`77` items and `FD`s
-  — the checker flags it anywhere else.
+- **`EXTERNAL`** — one physical copy shared *run-unit-wide*, matched by the
+  item's real name. **Each form module is its own run unit**, so an `EXTERNAL`
+  item is shared between the form and every program it `CALL`s that declares the
+  same item `EXTERNAL`; two *different* forms that each declare
+  `01 WS-COUNTER PIC 9(4) EXTERNAL` get separate storage. To reach another
+  form's data, qualify the reference (below). `EXTERNAL` is valid only on
+  `01`/`77` items and `FD`s — the checker flags it anywhere else.
 - **`GLOBAL EXTERNAL`** — both at once: run-unit-shared *and* visible to
   contained programs.
 
@@ -3540,6 +3543,67 @@ You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
        01  WS-OPEN-FORMS   PIC 9(4)  EXTERNAL.
        01  WS-APP-CONFIG   PIC X(80) GLOBAL EXTERNAL.
 ```
+
+### Reaching another form's data — qualified `EXTERNAL`
+
+If you have built with PowerCOBOL you will recognise the shape of this problem.
+Each form is a closed run unit, so a grid event in one form cannot simply update
+what another form is showing. The data has to be carried across the boundary,
+and the plumbing that carries it is what the operator feels as lag.
+
+PowerRustCOBOL keeps the standard meaning of `EXTERNAL` and adds one thing: an
+`EXTERNAL` item may be **qualified by the form module that declares it**.
+
+Form `CRM-MAIN` publishes the current selection:
+
+```cobol
+       01  WS-SELECTED-CUSTOMER EXTERNAL.
+           05  WS-CUST-ID     PIC X(10).
+           05  WS-CUST-NAME   PIC X(40).
+```
+
+Any other form reads or writes it by naming the owner:
+
+```cobol
+           MOVE WS-CUST-ID OF CRM-MAIN  TO WS-ORDER-CUSTOMER.
+           MOVE "ACME LTD"              TO WS-CUST-NAME OF CRM-MAIN.
+```
+
+The form name is the **outermost** qualifier, so ordinary group qualification
+still works inside it when a name would otherwise be ambiguous:
+
+```cobol
+           MOVE WS-CUST-ID OF WS-SELECTED-CUSTOMER OF CRM-MAIN
+             TO WS-ORDER-CUSTOMER.
+```
+
+What to expect:
+
+| Rule | What to expect |
+|------|----------------|
+| **What is reachable** | Only items the target form declares `EXTERNAL`. Qualification is not a back door into a form's ordinary `WORKING-STORAGE`. |
+| **Naming** | The qualifier is the form's name, which must be a valid COBOL word. |
+| **Lifetime** | The storage belongs to the application run, not to the form's window. It exists whether or not the target form is open, and keeps its contents after that form closes. |
+| **Initial content** | COBOL-85 forbids a `VALUE` clause on an `EXTERNAL` item, so some form must set the initial contents explicitly. |
+| **`CANCEL`** | Does not reset it. Cancelling a program clears that program's own `WORKING-STORAGE`; `EXTERNAL` storage outlives it. |
+| **Descriptions must agree** | The same `EXTERNAL` name must be described identically everywhere it is declared. Because the build sees every form in the project, a mismatch is reported when you build instead of corrupting data at run time. |
+
+> **Note — sharing is not notifying.** Writing into another form's data changes
+> the data, not the picture on screen. The other form repaints when something
+> tells it to; the shared item does not push an update by itself.
+
+> ⚠️ **This is a PowerRustCOBOL extension.** Standard COBOL-85 has no way to
+> qualify an `EXTERNAL` item by the module that owns it — `OF`/`IN` qualifies by
+> containing *group*, never by program. Unqualified `EXTERNAL` stays portable
+> COBOL-85; a qualified reference does not, and will not compile on another
+> vendor's compiler. Reserve it for the places that genuinely need cross-form
+> data.
+
+> ⚠️ **Availability.** Qualified `EXTERNAL` requires the forms of one
+> application to run in a shared run unit. That sharing is not active in current
+> builds — every running form still gets its own private `EXTERNAL` storage — so
+> the qualified form described here is the defined behaviour, not yet the
+> shipped one.
 
 ### Procedures: the form-module model
 
