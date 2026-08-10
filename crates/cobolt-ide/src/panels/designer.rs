@@ -4669,6 +4669,12 @@ impl DesignerPanel {
         let mut result = DesignerShowResult::default();
         let mut selection_changed = false;
 
+        // 049 — re-pin every FullHeight SideMenu to the form's height before
+        // anything reads a rect this frame. Idempotent, and one call here is
+        // what makes the sidebar follow a form resize, a Height edit or a
+        // FullHeight toggle without each of those knowing about the others.
+        self.form.sync_side_menu_full_height();
+
         // 007 Form themes — publish the resolved asset-pack theme for this frame
         // so the shared `draw_control` skins controls (canvas + preview). `None`
         // ⇒ procedural Liquid Glass.
@@ -4691,7 +4697,13 @@ impl DesignerPanel {
                 cobolt_forms::paint::set_menu_cache(ui.ctx(), id, std::sync::Arc::new(def));
             }
             for ctrl in &self.form.controls {
-                if ctrl.control_type == ControlType::MenuBar {
+                // 049 — a SideMenu keeps its structure in the same sidecar as
+                // a MenuBar, so it warms the same cache; without this the
+                // canvas would report every SideMenu as empty.
+                if matches!(
+                    ctrl.control_type,
+                    ControlType::MenuBar | ControlType::SideMenu
+                ) {
                     let yaml_path = cobolt_forms::menu::menu_yaml_path(dir, &ctrl.id);
                     if yaml_path.exists() {
                         if cobolt_forms::paint::get_menu_cache(ui.ctx(), &ctrl.id).is_none() {
@@ -6912,6 +6924,49 @@ impl DesignerPanel {
                             *modal.selected.last_mut().unwrap() = idx + 1;
                         }
                     }
+                    // ── Indent / Outdent: restructure across sections ────
+                    // Indent makes the item a child of its previous sibling;
+                    // outdent promotes it next to its parent. Together with
+                    // Up/Down they move an item anywhere in the tree.
+                    if ui.small_button(tr.menu_indent).clicked() && !modal.selected.is_empty() {
+                        let idx = *modal.selected.last().unwrap();
+                        if idx > 0 {
+                            let depth = modal.selected.len() - 1;
+                            let list = MenuEditorModal::parent_list_mut(
+                                &mut modal.def,
+                                &modal.selected,
+                            );
+                            fn height(it: &cobolt_forms::menu::MenuItem) -> usize {
+                                1 + it.items.iter().map(height).max().unwrap_or(0)
+                            }
+                            // 3 levels max (0-based depth ≤ 2), subtree included.
+                            if depth + height(&list[idx]) <= 2 {
+                                let item = list.remove(idx);
+                                let prev = &mut list[idx - 1];
+                                prev.items.push(item);
+                                let child_ix = prev.items.len() - 1;
+                                *modal.selected.last_mut().unwrap() = idx - 1;
+                                modal.selected.push(child_ix);
+                            }
+                        }
+                    }
+                    if ui.small_button(tr.menu_outdent).clicked() && modal.selected.len() >= 2 {
+                        let idx = *modal.selected.last().unwrap();
+                        let parent_path = modal.selected[..modal.selected.len() - 1].to_vec();
+                        let item = {
+                            let list = MenuEditorModal::parent_list_mut(
+                                &mut modal.def,
+                                &modal.selected,
+                            );
+                            list.remove(idx)
+                        };
+                        let parent_idx = *parent_path.last().unwrap();
+                        let glist =
+                            MenuEditorModal::parent_list_mut(&mut modal.def, &parent_path);
+                        glist.insert(parent_idx + 1, item);
+                        modal.selected = parent_path;
+                        *modal.selected.last_mut().unwrap() = parent_idx + 1;
+                    }
                     if ui.small_button(tr.menu_delete).clicked() && !modal.selected.is_empty() {
                         let idx = *modal.selected.last().unwrap();
                         let list =
@@ -7411,415 +7466,11 @@ impl DesignerPanel {
                         ui.separator();
 
                         let search = modal.icon_search.to_ascii_lowercase();
-                        let categories: &[(&str, &[&str])] = &[
-                            (
-                                "Document",
-                                &[
-                                    "doc-new",
-                                    "doc-open",
-                                    "doc-save",
-                                    "doc-save-as",
-                                    "doc-copy",
-                                    "doc-blank",
-                                    "doc-text",
-                                    "doc-pdf",
-                                    "doc-spreadsheet",
-                                    "doc-stack",
-                                ],
-                            ),
-                            (
-                                "Edit",
-                                &[
-                                    "scissors",
-                                    "clipboard-copy",
-                                    "clipboard-paste",
-                                    "pencil",
-                                    "eraser",
-                                    "pen",
-                                    "brush",
-                                    "type-text",
-                                    "bold",
-                                    "italic",
-                                    "underline",
-                                    "strikethrough",
-                                ],
-                            ),
-                            (
-                                "Navigation",
-                                &[
-                                    "arrow-left",
-                                    "arrow-right",
-                                    "arrow-up",
-                                    "arrow-down",
-                                    "chevron-left",
-                                    "chevron-right",
-                                    "chevron-up",
-                                    "chevron-down",
-                                    "home",
-                                    "external-link",
-                                ],
-                            ),
-                            (
-                                "Action",
-                                &[
-                                    "plus", "minus", "check", "x-mark", "refresh", "sync",
-                                    "download", "upload", "share", "export", "import", "link",
-                                ],
-                            ),
-                            (
-                                "UI/View",
-                                &[
-                                    "eye",
-                                    "eye-off",
-                                    "magnifier",
-                                    "zoom-in",
-                                    "zoom-out",
-                                    "fullscreen",
-                                    "collapse",
-                                    "expand",
-                                    "grid-view",
-                                    "list-view",
-                                ],
-                            ),
-                            (
-                                "Communication",
-                                &[
-                                    "mail",
-                                    "mail-open",
-                                    "send",
-                                    "inbox",
-                                    "chat",
-                                    "phone",
-                                    "video",
-                                    "bell",
-                                    "bell-off",
-                                    "at-sign",
-                                ],
-                            ),
-                            (
-                                "Social",
-                                &[
-                                    "heart",
-                                    "star",
-                                    "thumbs-up",
-                                    "thumbs-down",
-                                    "bookmark",
-                                    "flag",
-                                ],
-                            ),
-                            (
-                                "People",
-                                &[
-                                    "user",
-                                    "users",
-                                    "user-plus",
-                                    "user-minus",
-                                    "user-check",
-                                    "user-circle",
-                                ],
-                            ),
-                            (
-                                "Media",
-                                &[
-                                    "play",
-                                    "pause",
-                                    "stop",
-                                    "skip-forward",
-                                    "skip-back",
-                                    "volume",
-                                    "volume-off",
-                                    "music",
-                                ],
-                            ),
-                            (
-                                "Data",
-                                &[
-                                    "database",
-                                    "chart-bar",
-                                    "chart-line",
-                                    "chart-pie",
-                                    "table",
-                                    "filter",
-                                    "sort-asc",
-                                    "sort-desc",
-                                ],
-                            ),
-                            (
-                                "System",
-                                &[
-                                    "gear", "wrench", "shield", "lock", "unlock", "key",
-                                    "terminal", "code", "bug", "cpu",
-                                ],
-                            ),
-                            (
-                                "Status",
-                                &[
-                                    "info-circle",
-                                    "warning-triangle",
-                                    "error-circle",
-                                    "help-circle",
-                                    "check-circle",
-                                    "x-circle",
-                                    "clock",
-                                    "calendar",
-                                ],
-                            ),
-                            (
-                                "Commerce",
-                                &["cart", "credit-card", "wallet", "receipt", "tag", "percent"],
-                            ),
-                            (
-                                "File/Folder",
-                                &[
-                                    "folder",
-                                    "folder-open",
-                                    "folder-plus",
-                                    "archive",
-                                    "trash",
-                                    "printer",
-                                ],
-                            ),
-                            (
-                                "Payroll",
-                                &[
-                                    "payroll-check",
-                                    "payroll-schedule",
-                                    "payroll-deduction",
-                                    "payroll-bonus",
-                                    "payroll-overtime",
-                                    "payroll-tax",
-                                    "payroll-slip",
-                                    "payroll-direct-deposit",
-                                    "payroll-timesheet",
-                                    "payroll-hours",
-                                    "payroll-employee",
-                                    "payroll-benefits",
-                                    "payroll-pension",
-                                    "payroll-vacation",
-                                    "payroll-sick-leave",
-                                    "payroll-commission",
-                                    "payroll-garnishment",
-                                    "payroll-reimbursement",
-                                    "payroll-w2",
-                                    "payroll-1099",
-                                    "payroll-ytd",
-                                    "payroll-net-pay",
-                                    "payroll-gross-pay",
-                                    "payroll-withholding",
-                                    "payroll-frequency",
-                                ],
-                            ),
-                            (
-                                "Receivables",
-                                &[
-                                    "invoice",
-                                    "invoice-paid",
-                                    "invoice-overdue",
-                                    "invoice-draft",
-                                    "invoice-send",
-                                    "credit-memo",
-                                    "debit-memo",
-                                    "aging-report",
-                                    "collection",
-                                    "dunning-letter",
-                                    "payment-received",
-                                    "partial-payment",
-                                    "advance-payment",
-                                    "refund",
-                                    "write-off",
-                                    "bad-debt",
-                                    "interest-charge",
-                                    "statement",
-                                    "customer-balance",
-                                    "account-receivable",
-                                    "open-items",
-                                    "clearing",
-                                    "remittance",
-                                    "factoring",
-                                    "credit-limit",
-                                ],
-                            ),
-                            (
-                                "Payments",
-                                &[
-                                    "payment-check",
-                                    "payment-wire",
-                                    "payment-ach",
-                                    "payment-cash",
-                                    "payment-pending",
-                                    "payment-approved",
-                                    "payment-rejected",
-                                    "payment-recurring",
-                                    "payment-split",
-                                    "payment-batch",
-                                    "payment-void",
-                                    "payment-reversal",
-                                    "vendor-payment",
-                                    "bill-pay",
-                                    "purchase-order",
-                                    "expense-report",
-                                    "petty-cash",
-                                    "bank-transfer",
-                                    "payment-gateway",
-                                    "payment-terms",
-                                    "early-discount",
-                                    "payment-plan",
-                                    "installment",
-                                    "escrow",
-                                    "disbursement",
-                                ],
-                            ),
-                            (
-                                "Stock Control",
-                                &[
-                                    "inventory",
-                                    "warehouse",
-                                    "stock-in",
-                                    "stock-out",
-                                    "stock-count",
-                                    "stock-transfer",
-                                    "stock-adjust",
-                                    "stock-reserve",
-                                    "stock-alert",
-                                    "stock-reorder",
-                                    "barcode",
-                                    "qr-code",
-                                    "pallet",
-                                    "shelf",
-                                    "bin-location",
-                                    "lot-number",
-                                    "serial-number",
-                                    "expiry-date",
-                                    "fifo",
-                                    "lifo",
-                                    "cycle-count",
-                                    "physical-count",
-                                    "stock-valuation",
-                                    "safety-stock",
-                                    "dead-stock",
-                                ],
-                            ),
-                            (
-                                "Transportation",
-                                &[
-                                    "truck",
-                                    "truck-loading",
-                                    "truck-delivery",
-                                    "van",
-                                    "ship",
-                                    "ship-cargo",
-                                    "airplane",
-                                    "airplane-landing",
-                                    "helicopter",
-                                    "train",
-                                    "railway",
-                                    "container",
-                                    "forklift",
-                                    "crane",
-                                    "anchor",
-                                    "compass",
-                                    "route",
-                                    "highway",
-                                    "bridge",
-                                    "toll",
-                                    "fuel-pump",
-                                    "tire",
-                                    "engine",
-                                    "speedometer",
-                                    "odometer",
-                                ],
-                            ),
-                            (
-                                "Logistics",
-                                &[
-                                    "package",
-                                    "package-open",
-                                    "package-check",
-                                    "package-x",
-                                    "package-search",
-                                    "conveyor",
-                                    "loading-dock",
-                                    "dispatch",
-                                    "tracking",
-                                    "tracking-number",
-                                    "delivery-time",
-                                    "express",
-                                    "fragile",
-                                    "hazmat",
-                                    "temperature",
-                                    "weight-scale",
-                                    "dimensions",
-                                    "customs",
-                                    "manifest",
-                                    "bill-of-lading",
-                                    "cross-dock",
-                                    "last-mile",
-                                    "return-shipment",
-                                    "consolidation",
-                                    "deconsolidation",
-                                ],
-                            ),
-                            (
-                                "Financial",
-                                &[
-                                    "dollar",
-                                    "euro",
-                                    "yen",
-                                    "pound",
-                                    "bitcoin",
-                                    "coins",
-                                    "money-bag",
-                                    "piggy-bank",
-                                    "vault",
-                                    "safe",
-                                    "bank",
-                                    "atm",
-                                    "exchange-rate",
-                                    "stock-market",
-                                    "bull-market",
-                                    "bear-market",
-                                    "dividend",
-                                    "interest-rate",
-                                    "mortgage",
-                                    "loan",
-                                    "audit",
-                                    "ledger",
-                                    "balance-sheet",
-                                    "profit-loss",
-                                    "cash-flow",
-                                ],
-                            ),
-                            (
-                                "Social Media",
-                                &[
-                                    "like",
-                                    "dislike",
-                                    "comment",
-                                    "repost",
-                                    "mention",
-                                    "hashtag",
-                                    "trending",
-                                    "viral",
-                                    "follower",
-                                    "following",
-                                    "profile",
-                                    "bio",
-                                    "story",
-                                    "reel",
-                                    "live-stream",
-                                    "notification-dot",
-                                    "verified",
-                                    "influencer",
-                                    "engagement",
-                                    "reach",
-                                    "post",
-                                    "feed",
-                                    "timeline",
-                                    "dm",
-                                    "group-chat",
-                                ],
-                            ),
-                        ];
+                        // The catalogue lives ONCE, in cobolt-forms — the
+                        // picker renders whatever the icon engine ships, so
+                        // the two can never drift apart again.
+                        let categories: &[(&str, &[&str])] =
+                            cobolt_forms::icons::MENU_ICON_CATEGORIES;
 
                         let cur_icon = MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
                             .and_then(|i| i.icon.clone())
@@ -11880,6 +11531,53 @@ mod shell_prop_tests {
         println!(
             "049 FormFormat plumbing — 3 transitions on a normal form \
              (Standalone→Embedded→Both, case-insensitive), main form pinned Standalone"
+        );
+    }
+
+    /// 049 — the designer's per-frame sync is what makes a FullHeight
+    /// SideMenu track the form: it follows a resize, and switching the
+    /// property off hands the geometry back to the developer.
+    #[test]
+    fn side_menu_tracks_the_form_height_until_full_height_is_off_049() {
+        let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        let mut side = Control::new("SIDE-1", ControlType::SideMenu, 0, 0);
+        side.rect.w = 200;
+        side.rect.y = 40;
+        side.rect.h = 400;
+        d.form.controls.push(side);
+
+        // What `show` runs at the top of every frame.
+        d.form.sync_side_menu_full_height();
+        let c = d.form.find_control("SIDE-1").unwrap();
+        assert_eq!((c.rect.y, c.rect.h), (0, 480), "pinned to the form");
+        assert_eq!(c.rect.w, 200, "the width is left alone");
+
+        // A form resize carries the sidebar with it.
+        d.form.height = 900;
+        d.form.sync_side_menu_full_height();
+        assert_eq!(d.form.find_control("SIDE-1").unwrap().rect.h, 900);
+
+        // FullHeight off ⇒ the developer's numbers stand, resize or not.
+        d.form
+            .find_control_mut("SIDE-1")
+            .unwrap()
+            .set_prop("FullHeight", false);
+        let c = d.form.find_control_mut("SIDE-1").unwrap();
+        c.rect.y = 60;
+        c.rect.h = 250;
+        d.form.height = 1000;
+        d.form.sync_side_menu_full_height();
+        let c = d.form.find_control("SIDE-1").unwrap();
+        assert_eq!(
+            (c.rect.y, c.rect.h),
+            (60, 250),
+            "FullHeight off leaves the placed geometry untouched"
+        );
+
+        println!(
+            "049 FullHeight (designer) — on: pinned y=0 h=480 then followed a \
+             resize to h=900 (width 200 untouched); off: kept the placed \
+             y=60 h=250 across a resize to 1000 (3/3)"
         );
     }
 

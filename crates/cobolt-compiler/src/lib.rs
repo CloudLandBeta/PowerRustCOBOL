@@ -2829,8 +2829,8 @@ fn control_purpose(name: &str) -> &'static str {
         "DataGrid" => "Tabular rows/columns grid with sorting, filtering, freezing and CSV export.",
         "PictureBox" => "Displays a still image.",
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
-        "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property).",
-        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, exactly like MenuBar; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode.",
+        "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property). Menu items may carry an icon from the built-in catalogue: 660+ pure-vector icons in 26 categories (documents, editing, navigation, commerce, payroll, receivables, payments, stock control, transportation, logistics, financial, company departments, transaction kinds, civilian vehicles, military equipment, and more). Icons are resolution-independent line work tinted by the item's colour; the engine can also apply a second accent colour, a drop shadow, or a neumorphic emboss.",
+        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane); the collapsed rail is icon-only (an item with no icon falls back to its first letter). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max).",
         "ToolBar" => "Horizontal strip of action items.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
@@ -3297,7 +3297,9 @@ fn controls_reference_doc() -> String {
     doc.push_str(
         "SHELL mode starts when the main form carries a `SideMenu` control: ONE window with a \
          MenuPane (root menu slot — mounted once — plus the current subsystem's contextual \
-         slot; Open/Collapsed, a narrow icon rail when collapsed; its own background from the \
+         slot; Open/Collapsed, a narrow icon rail when collapsed, with the ☰ toggle drawn on \
+         the pane itself in BOTH states and whether or not any menu item exists; its own \
+         background from the \
          main form's MenuPaneBackground group, never repainted by a loaded form), a breadcrumb \
          strip (shell chrome — one segment per navigation-chain entry; clicking a segment \
          destroys everything below it, deepest first), and a ContentPane hosting the loaded \

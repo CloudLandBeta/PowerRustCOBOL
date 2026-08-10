@@ -304,6 +304,20 @@ impl FormHost {
             (fx_entrance, fx_exit)
         };
 
+        // 049 — in a pane, the SideMenu IS the MenuPane: the shell paints it as
+        // chrome outside this host. Rendering the control again inside the
+        // ContentPane would put the same sidebar on screen twice, side by side,
+        // and `FullHeight` makes that second copy as tall as the whole form.
+        // Only its PAINT is dropped — the control keeps its state entry below,
+        // so `SelectedItemId` and its event handlers still work.
+        let flat: Vec<cobolt_forms::Control> = if surface == Surface::Pane {
+            flat.into_iter()
+                .filter(|c| c.control_type != cobolt_forms::ControlType::SideMenu)
+                .collect()
+        } else {
+            flat
+        };
+
         let glass_style = form.glass_style;
         let form_object = form.name.trim().to_ascii_uppercase();
         let (fw, fh) = (form.width as f32, form.height as f32);
@@ -1647,6 +1661,74 @@ mod parity {
             )),
             ..Default::default()
         }
+    }
+
+    /// 049 — in a pane the SideMenu is painted by the shell as the MenuPane,
+    /// so the hosted form must not paint it a second time inside the
+    /// ContentPane. In a window nothing changes.
+    #[test]
+    fn a_pane_host_does_not_paint_the_sidebar_twice_049() {
+        fn host_with_controls(surface: Surface) -> FormHost {
+            let form = cobolt_forms::Form::new("MAIN", "Main", 320, 200);
+            let flat = vec![
+                cobolt_forms::Control::new("SIDE-1", cobolt_forms::ControlType::SideMenu, 0, 0),
+                cobolt_forms::Control::new("BTN-1", cobolt_forms::ControlType::Button, 10, 10),
+                cobolt_forms::Control::new("BAR-1", cobolt_forms::ControlType::MenuBar, 0, 0),
+            ];
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (_form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (host, _form) = FormHost::new(FormHostConfig {
+                form,
+                flat,
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                fx_entrance: FxSpec::default(),
+                fx_exit: FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface,
+            });
+            host
+        }
+
+        let ids = |h: &FormHost| -> Vec<String> {
+            h.controls.iter().map(|c| c.id.clone()).collect()
+        };
+
+        let window = ids(&host_with_controls(Surface::Window));
+        assert_eq!(
+            window,
+            vec!["SIDE-1", "BTN-1", "BAR-1"],
+            "a window host renders every designed control, unchanged"
+        );
+
+        let pane = ids(&host_with_controls(Surface::Pane));
+        assert_eq!(
+            pane,
+            vec!["BTN-1", "BAR-1"],
+            "a pane host drops ONLY the SideMenu — the shell already paints it"
+        );
+
+        println!(
+            "049 pane sidebar — window: 3/3 controls painted (SideMenu, Button, \
+             MenuBar); pane: 2/3, the SideMenu alone withheld (a MenuBar still \
+             paints, it is not shell chrome)"
+        );
     }
 
     /// One headless frame; returns the ROOT viewport's commands.

@@ -51,8 +51,72 @@ pub struct MenuItem {
     /// resident because something below it is its child, whatever this says.
     #[serde(default, skip_serializing_if = "is_false")]
     pub preserve_previous_form: bool,
+    /// Trailing badge text on a sidebar row — the "New" pill, the "6"
+    /// counter, the "outlined" tag. `None` (or empty) draws nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
+    /// How [`Self::badge`] is drawn. Ignored when there is no badge.
+    #[serde(default, skip_serializing_if = "BadgeStyle::is_default")]
+    pub badge_style: BadgeStyle,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<MenuItem>,
+}
+
+/// How a menu item's badge is painted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BadgeStyle {
+    /// Filled rounded pill in the accent colour (the "New" tag).
+    #[default]
+    Pill,
+    /// Filled circle holding a short number (the unread counter).
+    Count,
+    /// Hollow pill — accent outline and accent text, no fill.
+    Outline,
+}
+
+impl BadgeStyle {
+    fn is_default(&self) -> bool {
+        *self == BadgeStyle::Pill
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BadgeStyle::Pill => "Pill",
+            BadgeStyle::Count => "Count",
+            BadgeStyle::Outline => "Outline",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "count" => BadgeStyle::Count,
+            "outline" => BadgeStyle::Outline,
+            _ => BadgeStyle::Pill,
+        }
+    }
+}
+
+impl MenuItem {
+    /// A separator carrying a label is a SECTION HEADER (`HOME`, `APPS`,
+    /// `OTHER`); an unlabelled one stays a thin dividing rule.
+    pub fn section_title(&self) -> Option<&str> {
+        if self.item_type == MenuItemType::Separator && !self.label.trim().is_empty() {
+            Some(self.label.trim())
+        } else {
+            None
+        }
+    }
+
+    /// The badge text, if this item has a non-empty one.
+    pub fn badge_text(&self) -> Option<&str> {
+        self.badge.as_deref().map(str::trim).filter(|s| !s.is_empty())
+    }
+
+    /// Sidebar rows with children show a chevron and expand in place.
+    pub fn has_children(&self) -> bool {
+        self.items.iter().any(|i| i.item_type != MenuItemType::Separator)
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -159,6 +223,8 @@ impl MenuItem {
             action: None,
             enabled: true,
             preserve_previous_form: false,
+            badge: None,
+            badge_style: BadgeStyle::default(),
             items: Vec::new(),
         }
     }
@@ -173,6 +239,8 @@ impl MenuItem {
             action: None,
             enabled: true,
             preserve_previous_form: false,
+            badge: None,
+            badge_style: BadgeStyle::default(),
             items: Vec::new(),
         }
     }
@@ -465,6 +533,8 @@ mod tests {
                 action: None,
                 enabled: true,
                 preserve_previous_form: false,
+                badge: None,
+                badge_style: BadgeStyle::default(),
                 items: vec![
                     MenuItem {
                         id: "file-new".into(),
@@ -475,6 +545,8 @@ mod tests {
                         action: Some("event".into()),
                         enabled: true,
                         preserve_previous_form: false,
+                        badge: None,
+                        badge_style: BadgeStyle::default(),
                         items: vec![],
                     },
                     MenuItem::new_separator("sep-1"),
@@ -487,6 +559,8 @@ mod tests {
                         action: Some("close-application".into()),
                         enabled: true,
                         preserve_previous_form: false,
+                        badge: None,
+                        badge_style: BadgeStyle::default(),
                         items: vec![],
                     },
                 ],

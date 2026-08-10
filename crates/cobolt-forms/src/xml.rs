@@ -551,6 +551,10 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // flag to the unified `HScroll`/`VScroll` properties.
     normalize_containers(&mut form);
     seed_missing_props(&mut form);
+    // 049 — a FullHeight SideMenu spans the form's whole height. Doing it here
+    // means every consumer (designer, preview, run, shell, codegen) reads one
+    // truthful rect, instead of each render path re-deriving it.
+    form.sync_side_menu_full_height();
     Ok(form)
 }
 
@@ -1975,9 +1979,83 @@ Actor Caption:string</Property>
             .find(|c| c.id == "SIDE-1")
             .expect("the SideMenu survived the round-trip");
         assert_eq!(found.control_type, ControlType::SideMenu);
-        assert_eq!(found.rect.w, 200);
-        assert_eq!(found.rect.h, 400);
+        assert_eq!(found.rect.w, 200, "the WIDTH is the developer's to set");
+        // 049 — FullHeight is on by default, so the designed 400 is replaced
+        // by the form's own height on load: the sidebar IS the window's
+        // vertical extent, and the stored geometry now says so.
+        assert!(found.side_menu_full_height(), "FullHeight defaults to on");
+        assert_eq!(found.rect.y, 0, "a full-height sidebar starts at the top");
+        assert_eq!(
+            found.rect.h, form.height as i32,
+            "a full-height sidebar is exactly as tall as the form"
+        );
         let _ = std::fs::remove_file(&path);
+
+        // FullHeight off ⇒ the developer's placement is kept verbatim.
+        let mut form_off = sample_form();
+        let mut side_off = Control::new("SIDE-2", ControlType::SideMenu, 0, 0);
+        side_off.rect.w = 200;
+        side_off.rect.y = 40;
+        side_off.rect.h = 400;
+        side_off
+            .properties
+            .insert("FullHeight".into(), PropValue::Bool(false));
+        form_off.controls.push(side_off);
+        let path_off = std::env::temp_dir().join("cobolt_test_side_menu_049_off.cfrm");
+        save_form(&form_off, &path_off).expect("save");
+        let loaded_off = load_form(&path_off).expect("load");
+        let found_off = loaded_off
+            .controls
+            .iter()
+            .find(|c| c.id == "SIDE-2")
+            .expect("the SideMenu survived the round-trip");
+        assert!(!found_off.side_menu_full_height(), "the property round-trips");
+        assert_eq!(found_off.rect.y, 40, "FullHeight off keeps the placed Y");
+        assert_eq!(found_off.rect.h, 400, "FullHeight off keeps the placed height");
+        let _ = std::fs::remove_file(&path_off);
+
+        // A legacy SideMenu written before the property existed reads as ON,
+        // so an old shell project keeps a full-height sidebar.
+        let mut legacy = Control::new("SIDE-3", ControlType::SideMenu, 0, 0);
+        legacy.properties.shift_remove("FullHeight");
+        assert!(
+            legacy.side_menu_full_height(),
+            "absent FullHeight means on (legacy .cfrm)"
+        );
+        // The property is a SideMenu's alone — a MenuBar is a horizontal strip.
+        let bar = Control::new("BAR-1", ControlType::MenuBar, 0, 0);
+        assert!(bar.get_prop("FullHeight").is_none());
+        assert!(!bar.side_menu_full_height());
+        assert!(bar.get_prop("Collapsed").is_none());
+        assert!(!bar.side_menu_collapsed());
+
+        // `Collapsed` — the state the application OPENS in — round-trips, and
+        // defaults to open both when unset and on a legacy control.
+        let mut form_col = sample_form();
+        let mut side_col = Control::new("SIDE-4", ControlType::SideMenu, 0, 0);
+        assert!(!side_col.side_menu_collapsed(), "a new SideMenu opens open");
+        side_col.set_prop("Collapsed", true);
+        form_col.controls.push(side_col);
+        let path_col = std::env::temp_dir().join("cobolt_test_side_menu_049_collapsed.cfrm");
+        save_form(&form_col, &path_col).expect("save");
+        let loaded_col = load_form(&path_col).expect("load");
+        assert!(
+            loaded_col
+                .controls
+                .iter()
+                .find(|c| c.id == "SIDE-4")
+                .expect("the SideMenu survived the round-trip")
+                .side_menu_collapsed(),
+            "Collapsed survives save → load"
+        );
+        let _ = std::fs::remove_file(&path_col);
+
+        let mut legacy_col = Control::new("SIDE-5", ControlType::SideMenu, 0, 0);
+        legacy_col.properties.shift_remove("Collapsed");
+        assert!(
+            !legacy_col.side_menu_collapsed(),
+            "absent Collapsed means open (legacy .cfrm)"
+        );
 
         // A MenuBar form is untouched by 049: its control keeps its type, gains
         // no SideMenu markup, and gains no form-format attribute — so it still

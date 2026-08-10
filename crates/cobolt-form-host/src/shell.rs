@@ -30,6 +30,12 @@ pub const MENU_PANE_COLLAPSED_WIDTH: f32 = 48.0;
 /// Height of the breadcrumb strip.
 pub const BREADCRUMB_HEIGHT: f32 = 28.0;
 
+/// The glyph on the MenuPane's Open/Collapsed toggle. It sits on the pane
+/// itself, above the mounted menus, and is drawn whether or not a single menu
+/// item exists — collapsing the sidebar is the operator's control over the
+/// window, never a function of what the developer put in the menu.
+pub const MENU_PANE_TOGGLE: &str = "☰";
+
 /// The default chrome fill — an EXPLICIT, fully opaque paint. In a
 /// transparent shell window (R43) an unpainted region is a hole to the
 /// desktop, so the MenuPane and breadcrumb always paint; only the
@@ -340,6 +346,24 @@ pub fn draw_breadcrumb(ui: &mut Ui, chain: &NavChain) -> Option<usize> {
     clicked
 }
 
+/// The breadcrumb strip — the same chrome in both layout orders, so
+/// FullHeight changes only WHEN it is created, never what it is.
+fn show_breadcrumb(root_ui: &mut Ui, breadcrumb: Option<impl FnOnce(&mut Ui)>) -> Rect {
+    let Some(breadcrumb) = breadcrumb else {
+        return Rect::NOTHING;
+    };
+    egui::Panel::top("shell-breadcrumb")
+        .resizable(false)
+        .exact_size(BREADCRUMB_HEIGHT)
+        .show(root_ui, |ui| {
+            // R43 — explicit opaque chrome (see CHROME_FILL).
+            ui.painter().rect_filled(ui.max_rect(), 0.0, CHROME_FILL);
+            breadcrumb(ui);
+        })
+        .response
+        .rect
+}
+
 /// The shell chrome: pane widths and the Open/Collapsed state (R8). The
 /// persistence of `collapsed` (R9) and the mounted menus (R6/R7) arrive with
 /// their own tasks — this type owns layout.
@@ -347,6 +371,16 @@ pub struct Shell {
     pub menu_open_width: f32,
     pub menu_collapsed_width: f32,
     pub collapsed: bool,
+    /// 049 — the SideMenu's `FullHeight` property (default on). On, the
+    /// MenuPane owns the window's whole vertical extent and the breadcrumb
+    /// starts at its right edge; off, the breadcrumb spans the full width and
+    /// the MenuPane fills the height beneath it. Either way the pane fills its
+    /// column top to bottom, in both Open and Collapsed states.
+    pub full_height: bool,
+    /// Set when the pane's own toggle was clicked this frame; drained by the
+    /// owner (which also persists the new state) with
+    /// [`Self::take_toggle_request`].
+    toggle_requested: bool,
     /// R6 — the root slot: the main form's menu, mounted once.
     root_menu: Option<MountedMenu>,
     /// R6/R7 — the contextual slot: the current subsystem's menu.
@@ -358,8 +392,17 @@ pub struct Shell {
     /// loaded into the ContentPane can never repaint this: it is painted by
     /// the shell, in the menu panel, from shell state.
     pub menu_background: Option<cobolt_forms::model::MenuPaneBackground>,
+    /// The SideMenu's `IconEffect` property (`None` | `Shadow` | `Neumorphic`)
+    /// — how menu-item icons are painted in the pane.
+    pub icon_effect: String,
     /// What the MenuPane actually painted last frame (tests/parity).
     last_menu_fill: Option<egui::Color32>,
+    /// Where the Open/Collapsed toggle landed last frame (tests/parity).
+    last_toggle_rect: Option<Rect>,
+    /// Where each drawn menu item landed last frame, by item id. Lets a test
+    /// click the item it means instead of a magic coordinate that shifts
+    /// whenever the pane gains chrome.
+    last_item_rects: Vec<(String, Rect)>,
 }
 
 impl Default for Shell {
@@ -368,11 +411,16 @@ impl Default for Shell {
             menu_open_width: MENU_PANE_OPEN_WIDTH,
             menu_collapsed_width: MENU_PANE_COLLAPSED_WIDTH,
             collapsed: false,
+            full_height: true,
+            toggle_requested: false,
             root_menu: None,
             contextual_menu: None,
             pending_clicks: Vec::new(),
             menu_background: None,
+            icon_effect: "None".to_owned(),
             last_menu_fill: None,
+            last_toggle_rect: None,
+            last_item_rects: Vec::new(),
         }
     }
 }
@@ -458,24 +506,110 @@ impl Shell {
         std::mem::take(&mut self.pending_clicks)
     }
 
+    /// Drain a click on the pane's Open/Collapsed toggle. The caller flips
+    /// [`Self::collapsed`] and persists it (R9) — the shell does not persist
+    /// on its own, so tests can drive the toggle without touching disk.
+    pub fn take_toggle_request(&mut self) -> bool {
+        std::mem::take(&mut self.toggle_requested)
+    }
+
+    /// Draw the pane's own Open/Collapsed toggle, at the top of the MenuPane.
+    /// Unconditional by design: an application whose menu is still empty must
+    /// stay collapsible, so this is drawn before — and independently of — the
+    /// mounted slots.
+    /// The glyph carries the whole affordance: `cobolt-form-host` has no
+    /// access to the IDE's `Tr` table, so any English tooltip here would be
+    /// untranslatable chrome in six-language software.
+    fn draw_pane_toggle(&mut self, ui: &mut Ui) {
+        let resp = ui.button(MENU_PANE_TOGGLE);
+        self.last_toggle_rect = Some(resp.rect);
+        if resp.clicked() {
+            self.toggle_requested = true;
+        }
+        ui.separator();
+    }
+
+    /// Where the pane's toggle landed last frame (tests drive it from here).
+    pub fn toggle_rect(&self) -> Option<Rect> {
+        self.last_toggle_rect
+    }
+
     /// Draw both mounted slots into the MenuPane's scroll `Ui` and collect
     /// clicks. Open: labels (submenu items indented). Collapsed: the rail
     /// keeps the ROOT items reachable as single-glyph buttons (R8).
     fn draw_mounted_menus(&mut self, ui: &mut Ui) {
         let collapsed = self.collapsed;
+        let icon_effect = self.icon_effect.clone();
         let mut clicks = Vec::new();
+        let mut rects: Vec<(String, Rect)> = Vec::new();
+        // One item row: icon (styled by the SideMenu's IconEffect) + label.
+        // Collapsed rows are icon-only — an item with no icon falls back to
+        // its first letter, so every item stays reachable on the rail.
+        let item_row = |ui: &mut Ui,
+                        icon: &Option<String>,
+                        label: &str,
+                        enabled: bool|
+         -> egui::Response {
+            let icon_sz = 18.0;
+            let tint = if enabled {
+                ui.visuals().text_color()
+            } else {
+                ui.visuals().weak_text_color()
+            };
+            let style = cobolt_forms::icons::icon_style_for_effect(&icon_effect, tint);
+            if collapsed {
+                match icon {
+                    Some(name) => {
+                        let (rect, resp) = ui.allocate_exact_size(
+                            Vec2::splat(icon_sz + 6.0),
+                            egui::Sense::click(),
+                        );
+                        if resp.hovered() && enabled {
+                            ui.painter().rect_filled(
+                                rect,
+                                4.0,
+                                ui.visuals().widgets.hovered.weak_bg_fill,
+                            );
+                        }
+                        cobolt_forms::icons::draw_menu_icon_styled(
+                            ui.painter(),
+                            Rect::from_center_size(rect.center(), Vec2::splat(icon_sz)),
+                            name,
+                            &style,
+                        );
+                        resp
+                    }
+                    None => {
+                        let initial =
+                            label.chars().next().map(String::from).unwrap_or_default();
+                        ui.add_enabled(enabled, egui::Button::new(initial))
+                    }
+                }
+            } else {
+                ui.horizontal(|ui| {
+                    if let Some(name) = icon {
+                        let (rect, _) = ui
+                            .allocate_exact_size(Vec2::splat(icon_sz), egui::Sense::hover());
+                        cobolt_forms::icons::draw_menu_icon_styled(
+                            ui.painter(),
+                            rect,
+                            name,
+                            &style,
+                        );
+                    }
+                    ui.add_enabled(enabled, egui::Button::new(label))
+                })
+                .inner
+            }
+        };
         let mut draw_slot = |slot: MenuSlot, m: &MountedMenu, ui: &mut Ui| {
             for item in &m.def.menu {
                 if item.item_type == cobolt_forms::menu::MenuItemType::Separator {
                     ui.separator();
                     continue;
                 }
-                let label = if collapsed {
-                    item.label.chars().next().map(String::from).unwrap_or_default()
-                } else {
-                    item.label.clone()
-                };
-                let resp = ui.add_enabled(item.enabled, egui::Button::new(label));
+                let resp = item_row(ui, &item.icon, &item.label, item.enabled);
+                rects.push((item.id.clone(), resp.rect));
                 if resp.clicked() {
                     clicks.push(MenuClick {
                         slot,
@@ -490,7 +624,8 @@ impl Shell {
                             continue;
                         }
                         ui.indent(&sub.id, |ui| {
-                            let r = ui.add_enabled(sub.enabled, egui::Button::new(&sub.label));
+                            let r = item_row(ui, &sub.icon, &sub.label, sub.enabled);
+                            rects.push((sub.id.clone(), r.rect));
                             if r.clicked() {
                                 clicks.push(MenuClick {
                                     slot,
@@ -514,6 +649,15 @@ impl Shell {
             }
         }
         self.pending_clicks.extend(clicks);
+        self.last_item_rects = rects;
+    }
+
+    /// Where a menu item was drawn last frame, by item id.
+    pub fn item_rect(&self, item_id: &str) -> Option<Rect> {
+        self.last_item_rects
+            .iter()
+            .find(|(id, _)| id == item_id)
+            .map(|(_, r)| *r)
     }
 
     /// Lay out the three regions on `root_ui` (the window's root `Ui`, the
@@ -529,6 +673,14 @@ impl Shell {
         content: impl FnOnce(&mut Ui),
     ) -> ShellLayout {
         let mut menu_scroll = Vec2::ZERO;
+        // 049 — panel ORDER is what decides who owns the corner: whichever is
+        // created first spans its full axis. FullHeight therefore reads as
+        // "the MenuPane goes in first".
+        let mut breadcrumb_rect = Rect::NOTHING;
+        let mut breadcrumb = Some(breadcrumb);
+        if !self.full_height {
+            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb.take());
+        }
         let panel = egui::Panel::left("shell-menu-pane")
             .resizable(false)
             .exact_size(self.menu_pane_width())
@@ -541,7 +693,9 @@ impl Shell {
                     .id_salt("shell-menu-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // R6/R7 — the mounted slots draw first; the caller's
+                        // The toggle first — it must survive an empty menu.
+                        self.draw_pane_toggle(ui);
+                        // R6/R7 — the mounted slots draw next; the caller's
                         // closure may add extra chrome below them.
                         self.draw_mounted_menus(ui);
                         menu(ui)
@@ -550,15 +704,9 @@ impl Shell {
             });
         let menu_rect = panel.response.rect;
 
-        let strip = egui::Panel::top("shell-breadcrumb")
-            .resizable(false)
-            .exact_size(BREADCRUMB_HEIGHT)
-            .show(root_ui, |ui| {
-                // R43 — explicit opaque chrome (see CHROME_FILL).
-                ui.painter().rect_filled(ui.max_rect(), 0.0, CHROME_FILL);
-                breadcrumb(ui);
-            });
-        let breadcrumb_rect = strip.response.rect;
+        if breadcrumb.is_some() {
+            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb);
+        }
 
         let mut content_rect = Rect::NOTHING;
         let mut content_scroll = Vec2::ZERO;
@@ -600,6 +748,12 @@ impl Shell {
         host: &mut crate::FormHost,
     ) -> ShellLayout {
         let mut menu_scroll = Vec2::ZERO;
+        // See `show` — panel order is what makes FullHeight true or false.
+        let mut breadcrumb_rect = Rect::NOTHING;
+        let mut breadcrumb = Some(breadcrumb);
+        if !self.full_height {
+            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb.take());
+        }
         let panel = egui::Panel::left("shell-menu-pane")
             .resizable(false)
             .exact_size(self.menu_pane_width())
@@ -610,7 +764,9 @@ impl Shell {
                     .id_salt("shell-menu-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // R6/R7 — the mounted slots draw first.
+                        // The toggle first — it must survive an empty menu.
+                        self.draw_pane_toggle(ui);
+                        // R6/R7 — the mounted slots draw next.
                         self.draw_mounted_menus(ui);
                         menu(ui)
                     });
@@ -618,15 +774,9 @@ impl Shell {
             });
         let menu_rect = panel.response.rect;
 
-        let strip = egui::Panel::top("shell-breadcrumb")
-            .resizable(false)
-            .exact_size(BREADCRUMB_HEIGHT)
-            .show(root_ui, |ui| {
-                // R43 — explicit opaque chrome (see CHROME_FILL).
-                ui.painter().rect_filled(ui.max_rect(), 0.0, CHROME_FILL);
-                breadcrumb(ui);
-            });
-        let breadcrumb_rect = strip.response.rect;
+        if breadcrumb.is_some() {
+            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb);
+        }
 
         // The remaining space IS the ContentPane; the host's own
         // CentralPanel + ScrollArea consume it.
@@ -667,13 +817,27 @@ pub fn run_shell(
 
     let mut shell = Shell::default();
     shell.menu_background = form.menu_pane_background.clone();
+    let side_menu_ctrl = root_menu.as_ref().map(|(id, _)| id.clone());
+    let side_menu = side_menu_ctrl
+        .as_deref()
+        .and_then(|id| form.find_control(id));
+    // 049 — the designed `Collapsed` is where the application OPENS; once the
+    // operator has worked the ☰ themselves, their remembered choice wins (R9).
+    shell.collapsed = side_menu.map(|c| c.side_menu_collapsed()).unwrap_or(false);
     let state_path = shell_state_path(&form.name);
     if let Some(p) = &state_path {
         if let Some(c) = load_collapsed_from(p) {
             shell.collapsed = c;
         }
     }
-    let side_menu_ctrl = root_menu.as_ref().map(|(id, _)| id.clone());
+    // 049 — the sidebar's own FullHeight property decides the layout order.
+    // Absent (a form written before the property existed) means on.
+    shell.full_height = side_menu.map(|c| c.side_menu_full_height()).unwrap_or(true);
+    // How the pane paints menu-item icons (None | Shadow | Neumorphic).
+    shell.icon_effect = side_menu
+        .and_then(|c| c.get_prop("IconEffect"))
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "None".to_owned());
     if let Some((_, def)) = root_menu {
         shell.mount_root_menu(&form.name, def);
     }
@@ -763,22 +927,19 @@ impl eframe::App for ShellApp {
         let chain_ref = &self.chain;
         let shell = &mut self.shell;
         let host = &mut self.host;
-        let mut toggle = false;
         shell.show_with_host(
             root_ui,
             |_ui| {},
             |ui| {
-                // ☰ toggles the pane (persisted below); then the chain.
-                if ui.button("☰").clicked() {
-                    toggle = true;
-                }
+                // The pane owns its own ☰ (drawn on the MenuPane itself, so it
+                // works with an empty menu); the breadcrumb is just the chain.
                 if let Some(i) = draw_breadcrumb(ui, chain_ref) {
                     crumb_click = Some(i);
                 }
             },
             host,
         );
-        if toggle {
+        if self.shell.take_toggle_request() {
             self.shell.collapsed = !self.shell.collapsed;
             self.persist_collapsed();
         }
@@ -860,6 +1021,140 @@ mod tests {
         });
         full.textures_delta.clear();
         out.expect("shell ran")
+    }
+
+    /// A frame that clicks at `pos` (press + release in the same frame, which
+    /// is what egui needs to report `clicked()`).
+    fn click_at(shell: &mut Shell, ctx: &egui::Context, size: Vec2, pos: egui::Pos2) {
+        let mut input = raw(size);
+        input.events = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            },
+        ];
+        frame(shell, ctx, input);
+    }
+
+    /// The sidebar collapses and opens with NOTHING in its menu: the toggle
+    /// belongs to the pane, not to the menu content. An application whose
+    /// menu is still empty must not trap the operator in an open sidebar.
+    #[test]
+    fn pane_toggles_with_an_empty_menu_049() {
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        let size = Vec2::new(1000.0, 700.0);
+
+        // No mount_root_menu, no mount_contextual_menu — the menu is empty.
+        let first = frame(&mut shell, &ctx, raw(size));
+        assert!(
+            shell.mounted().0.is_none() && shell.mounted().1.is_none(),
+            "precondition: no menu is mounted"
+        );
+        let toggle = shell
+            .toggle_rect()
+            .expect("the toggle is drawn even with an empty menu");
+        assert!(
+            first.menu_rect.contains(toggle.center()),
+            "the toggle sits on the MenuPane itself, not in the breadcrumb"
+        );
+
+        // Open → Collapsed.
+        assert!(!shell.collapsed);
+        click_at(&mut shell, &ctx, size, toggle.center());
+        assert!(
+            shell.take_toggle_request(),
+            "clicking the toggle asks the owner to flip the pane"
+        );
+        shell.collapsed = true;
+
+        // Collapsed → Open: still reachable on the narrow rail.
+        let narrow = frame(&mut shell, &ctx, raw(size));
+        let toggle = shell.toggle_rect().expect("the rail keeps the toggle");
+        assert!(
+            narrow.menu_rect.width() < MENU_PANE_OPEN_WIDTH,
+            "precondition: the pane is collapsed"
+        );
+        assert!(
+            narrow.menu_rect.contains(toggle.center()),
+            "the collapsed rail still carries its toggle"
+        );
+        click_at(&mut shell, &ctx, size, toggle.center());
+        assert!(
+            shell.take_toggle_request(),
+            "the collapsed rail's toggle opens the pane again"
+        );
+
+        eprintln!(
+            "049 FullHeight/toggle — empty menu: toggle drawn on the pane in \
+             BOTH states (open w={:.0}, collapsed w={:.0}), 2/2 clicks \
+             requested a flip, 0 menu items mounted",
+            MENU_PANE_OPEN_WIDTH,
+            narrow.menu_rect.width()
+        );
+    }
+
+    /// `FullHeight` is a layout ORDER, not a size: on, the sidebar owns the
+    /// window's whole vertical extent and the breadcrumb starts at its edge;
+    /// off, the breadcrumb spans the width and the sidebar fills what is
+    /// left. Either way the pane fills its own column, collapsed or open.
+    #[test]
+    fn full_height_decides_who_owns_the_top_left_corner_049() {
+        let ctx = egui::Context::default();
+        let size = Vec2::new(1000.0, 700.0);
+
+        for collapsed in [false, true] {
+            let mut on = Shell::default();
+            on.collapsed = collapsed;
+            let l = frame(&mut on, &ctx, raw(size));
+            assert!(
+                (l.menu_rect.height() - size.y).abs() < 1.0,
+                "FullHeight on ({collapsed:?} collapsed): the sidebar spans the \
+                 whole window height, got {}",
+                l.menu_rect.height()
+            );
+            assert!(
+                l.breadcrumb_rect.min.x >= l.menu_rect.max.x - 1.0,
+                "FullHeight on: the breadcrumb starts at the sidebar's edge"
+            );
+
+            let mut off = Shell::default();
+            off.collapsed = collapsed;
+            off.full_height = false;
+            let l = frame(&mut off, &ctx, raw(size));
+            assert!(
+                (l.breadcrumb_rect.width() - size.x).abs() < 1.0,
+                "FullHeight off: the breadcrumb spans the whole width, got {}",
+                l.breadcrumb_rect.width()
+            );
+            assert!(
+                l.menu_rect.min.y >= l.breadcrumb_rect.max.y - 1.0,
+                "FullHeight off: the sidebar starts below the breadcrumb"
+            );
+            assert!(
+                (l.menu_rect.max.y - size.y).abs() < 1.0,
+                "FullHeight off: the sidebar still fills the height beneath it, \
+                 bottom={}",
+                l.menu_rect.max.y
+            );
+        }
+
+        eprintln!(
+            "049 FullHeight — 2 states (open, collapsed) x 2 settings: on ⇒ \
+             sidebar height = window height {:.0} and breadcrumb inset; off ⇒ \
+             breadcrumb width = window width {:.0} and sidebar below it, still \
+             reaching the window bottom (4/4)",
+            size.y, size.x
+        );
     }
 
     /// AC20 — widening the window adds the whole delta to the ContentPane;
@@ -1655,9 +1950,13 @@ mod tests {
             full.textures_delta.clear();
         };
         frame_with(&mut shell, raw(size));
-        // The first root item ("crm") is the first button in the pane; click
-        // just inside the pane below the top padding.
-        let click_at = egui::pos2(30.0, 14.0);
+        // Click the item itself, wherever the pane put it — the pane's own
+        // chrome (the Open/Collapsed toggle) sits above the items, so a fixed
+        // coordinate would be a guess about layout rather than about menus.
+        let click_at = shell
+            .item_rect("crm")
+            .expect("the root item was drawn")
+            .center();
         let mut input = raw(size);
         input.events.push(egui::Event::PointerMoved(click_at));
         input.events.push(egui::Event::PointerButton {

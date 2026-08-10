@@ -206,6 +206,16 @@ pub struct InspectorAction {
     pub rename_control: Option<(String, String)>,
 }
 
+/// Which pass of the type-specific properties is being drawn — see
+/// [`InspectorPanel::show_type_specific`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TypeSection {
+    /// The control's **Basic** section, drawn directly below Geometry.
+    Basic,
+    /// Everything else the control type contributes, drawn further down.
+    Rest,
+}
+
 /// A member control of a repeating-group target that a source field can map to.
 #[derive(Debug, Clone)]
 struct MemberTarget {
@@ -3147,11 +3157,32 @@ impl PropertiesPanel {
                 }
                 ui.add_space(4.0);
 
+                // ── Basic ─────────────────────────────────────────────────────────────
+                // The control's own primary properties, directly below Geometry:
+                // the two sections an operator reaches for first sit together.
+                self.show_type_specific(
+                    ui,
+                    ctrl,
+                    &id,
+                    indexed_files,
+                    action,
+                    tr,
+                    TypeSection::Basic,
+                );
+
                 // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase,
                 // IndexedFile) only
                 // show geometry + type-specific settings + events — no style, no animations.
                 if ctrl.control_type.is_non_visual() {
-                    self.show_type_specific(ui, ctrl, &id, indexed_files, action, tr);
+                    self.show_type_specific(
+                        ui,
+                        ctrl,
+                        &id,
+                        indexed_files,
+                        action,
+                        tr,
+                        TypeSection::Rest,
+                    );
                     return;
                 }
 
@@ -3244,8 +3275,16 @@ impl PropertiesPanel {
                     }
                 }
 
-                // ── Type-specific ─────────────────────────────────────────────────────
-                self.show_type_specific(ui, ctrl, &id, indexed_files, action, tr);
+                // ── Type-specific (everything after Basic) ────────────────────────────
+                self.show_type_specific(
+                    ui,
+                    ctrl,
+                    &id,
+                    indexed_files,
+                    action,
+                    tr,
+                    TypeSection::Rest,
+                );
 
                 // ── Deployed User Control child properties ───────────────────────────
                 self.show_user_control_children(ui, form, ctrl, action, tr);
@@ -3315,13 +3354,19 @@ impl PropertiesPanel {
                     .push((id.to_owned(), "X".into(), PropValue::Int(x as i64)));
             }
         });
+        // 049 — a FullHeight SideMenu owns the window's whole vertical extent,
+        // so its Y and Height are the shell's to set, not the developer's.
+        // Greyed rather than hidden: the reported numbers stay visible.
+        let vertical_inert = ctrl.side_menu_full_height();
         let mut y = ctrl.rect.y;
-        property_row(ui, "Y", |ui| {
-            if ui.add(DragValue::new(&mut y).speed(1)).changed() {
-                action
-                    .set_props
-                    .push((id.to_owned(), "Y".into(), PropValue::Int(y as i64)));
-            }
+        ui.add_enabled_ui(!vertical_inert, |ui| {
+            property_row(ui, "Y", |ui| {
+                if ui.add(DragValue::new(&mut y).speed(1)).changed() {
+                    action
+                        .set_props
+                        .push((id.to_owned(), "Y".into(), PropValue::Int(y as i64)));
+                }
+            });
         });
         let mut w = ctrl.rect.w;
         property_row(ui, "Width", |ui| {
@@ -3335,15 +3380,17 @@ impl PropertiesPanel {
             }
         });
         let mut h = ctrl.rect.h;
-        property_row(ui, "Height", |ui| {
-            if ui
-                .add(DragValue::new(&mut h).speed(1).range(1..=9999))
-                .changed()
-            {
-                action
-                    .set_props
-                    .push((id.to_owned(), "Height".into(), PropValue::Int(h as i64)));
-            }
+        ui.add_enabled_ui(!vertical_inert, |ui| {
+            property_row(ui, "Height", |ui| {
+                if ui
+                    .add(DragValue::new(&mut h).speed(1).range(1..=9999))
+                    .changed()
+                {
+                    action
+                        .set_props
+                        .push((id.to_owned(), "Height".into(), PropValue::Int(h as i64)));
+                }
+            });
         });
         let mut z = ctrl.z_order as i64;
         property_row(ui, "Z order", |ui| {
@@ -4706,6 +4753,24 @@ impl PropertiesPanel {
 
     // ── Type-specific sections ────────────────────────────────────────────────
 
+    /// A control's type-specific properties are drawn in TWO passes so its
+    /// **Basic** section can sit directly below Geometry — where the operator
+    /// looks first — while the rest keeps its place further down, after the
+    /// generic Appearance / Shadow / Data-binding sections.
+    ///
+    /// Each arm declares the pass it belongs to with a match guard, so the
+    /// phase is stated where the sections are, not in a table somewhere else
+    /// that would drift. Three groups:
+    ///
+    /// - **`Basic`** — arms whose type-specific block IS the Basic section.
+    ///   Also every non-visual control (Timer, AgentObject, …): the inspector
+    ///   draws geometry → type-specific → stop for those, so both passes are
+    ///   adjacent and splitting them would change nothing on screen.
+    /// - **`Rest`** — arms with no Basic section at all (ListBox, ComboBox,
+    ///   Slider, DataGrid, ToolBar/StatusBar lead with their own section
+    ///   instead). Nothing to promote, so they stay exactly where they were.
+    /// - **Both** — the two arms that carry a Basic section AND siblings
+    ///   after it; they appear twice, once per phase.
     fn show_type_specific(
         &mut self,
         ui: &mut Ui,
@@ -4714,10 +4779,11 @@ impl PropertiesPanel {
         indexed_files: &[String],
         action: &mut InspectorAction,
         tr: &Tr,
+        phase: TypeSection,
     ) {
         match ctrl.control_type {
             // ── Button ────────────────────────────────────────────────────────
-            ControlType::Button => {
+            ControlType::Button if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "IsDefault", "Default button", ctrl, action);
                 combo_row_inline(
@@ -4772,7 +4838,7 @@ impl PropertiesPanel {
             }
 
             // ── Label ─────────────────────────────────────────────────────────
-            ControlType::Label => {
+            ControlType::Label if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 combo_row_inline_labeled(
                     ui,
@@ -4808,7 +4874,7 @@ impl PropertiesPanel {
             }
 
             // ── TextBox ───────────────────────────────────────────────────────
-            ControlType::TextBox => {
+            ControlType::TextBox if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
@@ -4909,7 +4975,7 @@ impl PropertiesPanel {
             }
 
             // ── CheckBox / RadioButton ────────────────────────────────────────
-            ControlType::CheckBox | ControlType::RadioButton => {
+            ControlType::CheckBox | ControlType::RadioButton if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "Checked", "Checked (default)", ctrl, action);
                 combo_row_inline(
@@ -4953,7 +5019,7 @@ impl PropertiesPanel {
             }
 
             // ── PictureBox ────────────────────────────────────────────────────
-            ControlType::PictureBox => {
+            ControlType::PictureBox if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(
@@ -5005,7 +5071,7 @@ impl PropertiesPanel {
             }
 
             // ── Animator ──────────────────────────────────────────────────────
-            ControlType::Animator => {
+            ControlType::Animator if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 image_browse_row(ui, id, "Source", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(
@@ -5023,7 +5089,9 @@ impl PropertiesPanel {
             }
 
             // ── ListBox ───────────────────────────────────────────────────────
-            ControlType::ListBox => {
+            // No Basic section — these lead with a section of their own, so
+            // there is nothing to promote and they stay where they were.
+            ControlType::ListBox if phase == TypeSection::Rest => {
                 section_header(ui, "ListBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
                 bool_row_inline(ui, id, "MultiSelect", "Multi-select", ctrl, action);
@@ -5033,7 +5101,7 @@ impl PropertiesPanel {
             }
 
             // ── ComboBox ─────────────────────────────────────────────────────
-            ControlType::ComboBox => {
+            ControlType::ComboBox if phase == TypeSection::Rest => {
                 section_header(ui, "ComboBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
                 bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
@@ -5061,7 +5129,7 @@ impl PropertiesPanel {
             }
 
             // ── Slider ───────────────────────────────────────────────────────
-            ControlType::Slider => {
+            ControlType::Slider if phase == TypeSection::Rest => {
                 section_header(ui, "Slider");
                 int_prop_row(
                     ui,
@@ -5147,7 +5215,7 @@ impl PropertiesPanel {
             // (Size preset + a fixed theme Accent) — no arbitrary track
             // thickness/colour/gradient, since the widget has no such API
             // (plan.md §4 Decision 4).
-            ControlType::Knob => {
+            ControlType::Knob if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
@@ -5230,7 +5298,7 @@ impl PropertiesPanel {
             // ProgressRing); style-specific rows only make sense for their
             // own style, but are shown regardless (harmless when unused —
             // same convention as Slider's Orientation-specific rows above).
-            ControlType::Gauge => {
+            ControlType::Gauge if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
@@ -5354,7 +5422,7 @@ impl PropertiesPanel {
             }
 
             // ── Switch (spec 039) ───────────────────────────────────────────
-            ControlType::Switch => {
+            ControlType::Switch if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "Checked", "Checked", ctrl, action);
                 combo_row_inline(
@@ -5369,7 +5437,7 @@ impl PropertiesPanel {
             }
 
             // ── FileDropZone (spec 039) ─────────────────────────────────────
-            ControlType::FileDropZone => {
+            ControlType::FileDropZone if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
@@ -5400,7 +5468,7 @@ impl PropertiesPanel {
             }
 
             // ── ProgressBar ───────────────────────────────────────────────────
-            ControlType::ProgressBar => {
+            ControlType::ProgressBar if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
@@ -5450,7 +5518,7 @@ impl PropertiesPanel {
             }
 
             // ── DataGrid ─────────────────────────────────────────────────────
-            ControlType::DataGrid => {
+            ControlType::DataGrid if phase == TypeSection::Rest => {
                 section_header(ui, tr.dg_section);
                 let advanced = DataGridAdvanced::from_control(ctrl);
                 ui.label(
@@ -5470,7 +5538,7 @@ impl PropertiesPanel {
             }
 
             // ── TabControl ────────────────────────────────────────────────────
-            ControlType::TabControl => {
+            ControlType::TabControl if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
@@ -5524,7 +5592,7 @@ impl PropertiesPanel {
             }
 
             // ── Panel / GroupBox ──────────────────────────────────────────────
-            ControlType::Panel | ControlType::GroupBox => {
+            ControlType::Panel | ControlType::GroupBox if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 // Auto-scroll overflowing children vs clip them (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
@@ -5652,7 +5720,7 @@ impl PropertiesPanel {
             }
 
             // ── Line ─────────────────────────────────────────────────────────
-            ControlType::Line => {
+            ControlType::Line if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 color_row(ui, id, "LineColor", ctrl, action);
                 int_prop_row(
@@ -5707,7 +5775,7 @@ impl PropertiesPanel {
             }
 
             // ── DateTimePicker ────────────────────────────────────────────────
-            ControlType::DateTimePicker => {
+            ControlType::DateTimePicker if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
@@ -5787,7 +5855,7 @@ impl PropertiesPanel {
             }
 
             // ── NumericUpDown ─────────────────────────────────────────────────
-            ControlType::NumericUpDown => {
+            ControlType::NumericUpDown if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
@@ -5841,7 +5909,7 @@ impl PropertiesPanel {
             }
 
             // ── TreeView ──────────────────────────────────────────────────────
-            ControlType::TreeView => {
+            ControlType::TreeView if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
@@ -5882,7 +5950,7 @@ impl PropertiesPanel {
             }
 
             // ── Splitter ──────────────────────────────────────────────────────
-            ControlType::Splitter => {
+            ControlType::Splitter if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
@@ -5919,7 +5987,9 @@ impl PropertiesPanel {
             }
 
             // ── Timer ─────────────────────────────────────────────────────────
-            ControlType::Timer => {
+            // Non-visual: the inspector stops after type-specific, so both
+            // passes are adjacent and Basic is the natural home.
+            ControlType::Timer if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 int_prop_row(
                     ui,
@@ -5937,7 +6007,7 @@ impl PropertiesPanel {
             }
 
             // ── Shape ─────────────────────────────────────────────────────────
-            ControlType::Shape => {
+            ControlType::Shape if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
@@ -5980,13 +6050,32 @@ impl PropertiesPanel {
                 ui.add_space(4.0);
             }
 
-            // ── MenuBar ───────────────────────────────────────────────────────
-            ControlType::MenuBar => {
+            // ── MenuBar / SideMenu ───────────────────────────────────────────
+            // Both edit their structure in the SAME menu editor: the
+            // definition is keyed by control id, so the editor never needed to
+            // know which control opened it. Only the layout property below
+            // separates them — a MenuBar is a horizontal strip.
+            ControlType::MenuBar | ControlType::SideMenu if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
-                if ui.button("Edit Menu...").clicked() {
+                if ui.button(tr.menu_edit_btn).clicked() {
                     action.open_menu_editor = Some(id.to_owned());
                 }
+                if ctrl.control_type == ControlType::SideMenu {
+                    bool_row_inline(ui, id, "FullHeight", tr.prop_full_height, ctrl, action);
+                    bool_row_inline(ui, id, "Collapsed", tr.prop_collapsed, ctrl, action);
+                    combo_row_inline(
+                        ui,
+                        id,
+                        "IconEffect",
+                        ctrl,
+                        action,
+                        &["None", "Shadow", "Neumorphic"],
+                    );
+                }
                 ui.add_space(4.0);
+            }
+
+            ControlType::MenuBar | ControlType::SideMenu => {
                 section_header(ui, tr.sec_colors);
                 color_row(ui, id, "HighlightBgColor", ctrl, action);
                 color_row(ui, id, "HighlightFgColor", ctrl, action);
@@ -5996,7 +6085,7 @@ impl PropertiesPanel {
             }
 
             // ── ToolBar / StatusBar ──────────────────────────────────────────
-            ControlType::ToolBar | ControlType::StatusBar => {
+            ControlType::ToolBar | ControlType::StatusBar if phase == TypeSection::Rest => {
                 section_header(ui, tr.sec_items);
                 let cur = ctrl
                     .get_prop("Items")
@@ -6027,7 +6116,7 @@ impl PropertiesPanel {
             }
 
             // ── Agent Object ──────────────────────────────────────────────────
-            ControlType::AgentObject => {
+            ControlType::AgentObject if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 combo_row_inline(
                     ui,
@@ -6215,7 +6304,7 @@ impl PropertiesPanel {
             }
 
             // ── REST Client ───────────────────────────────────────────────────
-            ControlType::RestClient => {
+            ControlType::RestClient if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 {
                     let cur = ctrl
@@ -6385,7 +6474,7 @@ impl PropertiesPanel {
             }
 
             // ── SQL Database ──────────────────────────────────────────────────
-            ControlType::SqlDatabase => {
+            ControlType::SqlDatabase if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 combo_prop_row(
                     ui,
@@ -6476,7 +6565,7 @@ impl PropertiesPanel {
             }
 
             // ── Indexed File ─────────────────────────────────────────────────
-            ControlType::IndexedFile => {
+            ControlType::IndexedFile if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_indexed_file);
                 let current_file = ctrl
                     .get_prop("IndexedFile")
@@ -6576,7 +6665,9 @@ impl PropertiesPanel {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => {
+            | ControlType::DonutChart
+                if phase == TypeSection::Basic =>
+            {
                 section_header(ui, tr.sec_basic);
 
                 // ── Visual ────────────────────────────────────────────────────
@@ -6737,6 +6828,14 @@ impl PropertiesPanel {
                     ui.add_space(4.0);
                 }
 
+            }
+
+            ControlType::BarChart
+            | ControlType::LineChart
+            | ControlType::PieChart
+            | ControlType::AreaChart
+            | ControlType::ScatterChart
+            | ControlType::DonutChart => {
                 // ── Data Binding ──────────────────────────────────────────────
                 section_header(ui, tr.sec_data_binding_table);
                 // `text_row_hint` is a self-contained full-width row (label +

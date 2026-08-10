@@ -6099,6 +6099,78 @@ fn render_interactive(
             }
         }
         // Faces whose designer rendering IS the real face (Label, Panel, Shape, …).
+        // 049 — the sidebar is LIVE in interactive surfaces (preview, run):
+        // the ☰ toggles the rail and items click. The `Collapsed` live state
+        // drives what the shared painter draws, so preview and Run Form show
+        // the same rail the shell shows.
+        CT::SideMenu => {
+            let collapsed = matches!(sv(ctrl, "Collapsed").as_str(), "1" | "true");
+            let mut drawn = ctrl.clone();
+            drawn
+                .properties
+                .insert("Collapsed".to_owned(), crate::PropValue::Bool(collapsed));
+            paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
+
+            let fsize = paint::ctrl_font_size(ctrl);
+            let row = fsize * 1.9;
+            // The ☰ hit area — the top row of the rail.
+            let toggle_rect = egui::Rect::from_min_size(
+                egui::pos2(screen.min.x + 4.0, screen.min.y + 1.0),
+                egui::vec2(30.0, row),
+            );
+            let resp = ui.interact(toggle_rect, ctrl_id.with("side-toggle"), Sense::click());
+            if resp.clicked() && enabled {
+                let v = if collapsed { "0" } else { "1" };
+                out.prop_updates
+                    .push((id.to_owned(), "Collapsed".to_owned(), v.to_owned()));
+                out.events.push(UiEvent::ev(
+                    id,
+                    if collapsed { "onMenuOpen" } else { "onMenuClose" },
+                ));
+            }
+
+            // Item rows: the same geometry the painter used, so the hit areas
+            // sit exactly under the drawn rows (icons stay clickable on the
+            // collapsed rail).
+            if let Some(def) = paint::get_menu_cache(ui.ctx(), &ctrl.id) {
+                let mut y = screen.min.y + row * 1.5;
+                for (ix, entry) in def.menu.iter().enumerate() {
+                    if entry.item_type == crate::menu::MenuItemType::Separator {
+                        y += row * 0.4;
+                        continue;
+                    }
+                    if y + row * 0.5 > screen.max.y {
+                        break;
+                    }
+                    let item_rect = egui::Rect::from_min_size(
+                        egui::pos2(screen.min.x + 2.0, y - row * 0.5),
+                        egui::vec2(screen.width() - 4.0, row),
+                    );
+                    let r = ui.interact(
+                        item_rect,
+                        ctrl_id.with(("side-item", ix)),
+                        Sense::click(),
+                    );
+                    if r.hovered() && enabled && entry.enabled {
+                        painter.rect_filled(
+                            item_rect,
+                            4.0,
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 14),
+                        );
+                    }
+                    if r.clicked() && enabled && entry.enabled {
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "SelectedItemId".to_owned(),
+                            entry.id.clone(),
+                        ));
+                        out.events.push(UiEvent::ev(id, "onMenuItemClick"));
+                    }
+                    y += row;
+                }
+            }
+        }
+
         _ => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
         }

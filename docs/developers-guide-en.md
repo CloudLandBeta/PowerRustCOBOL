@@ -1493,9 +1493,23 @@ as a YAML file alongside the `.cfrm`.
 reorder items up to 3 levels deep. Each item has:
 
 - **Label** — the text shown in the menu.
-- **Icon** — an optional vector icon from the built-in catalogue (122+ icons
-  covering documents, editing, navigation, communication, media, commerce,
-  and more).
+- **Icon** — an optional icon from the built-in catalogue: **700+ pure-vector
+  icons in 30 categories** — documents, editing, navigation, communication,
+  media, commerce, payroll, receivables, payments, stock control,
+  transportation, logistics, financial, company **departments**, transaction
+  kinds (buy, sell, return, chargeback, …), civilian **vehicles**,
+  **military** vehicles & equipment, **devices** (computers, retro-computers,
+  tablets, smartphones, wearables), **SaaS** applications (CRM, ERP, BI, LMS,
+  CMS, ITSM, POS, chatbot, …), **PaaS** services (aPaaS through AIaaS) and
+  **ERP modules** (FI, CO, SD, MM, PP, QM, PM, SCM). Icons are drawn as
+  resolution-independent line work — the same icon is crisp in a 16 px menu
+  row or a 128 px tile — and take the menu item's colour. The engine can also
+  render any icon with a second accent colour, a drop shadow, or a neumorphic
+  emboss.
+- **Moving items.** Besides *Move Up*/*Move Down*, the **Indent** button makes
+  the selected item a child of the item above it, and **Outdent** promotes it
+  back beside its parent — together they move an item between any sections and
+  levels (three levels maximum).
 - **Accelerator** — a keyboard shortcut (e.g. `Cmd+N`, `Shift+Ctrl+S`).
   Rendered with platform-native symbols.
 - **Action** — what happens when the item is clicked:
@@ -3690,11 +3704,60 @@ Place a **SideMenu** control on your **main form**. That is the whole switch:
   in its own window, exactly as before. An existing project can never become a
   shell application by accident.
 
+You fill the sidebar in the **same menu editor a `MenuBar` uses**: select the
+SideMenu and press **Edit Menu…** in the property inspector. Everything you
+already know carries over — items, submenus, separators, accelerators, icons,
+the action each item performs — because the menu is stored in a sidecar file
+keyed by the control, not by the kind of control. The one thing a SideMenu adds
+is **Preserve previous form** on items that load a form (see *The navigation
+chain*).
+
+### Sidebar layout — the two properties that matter
+
+**FullHeight** (on by default) says the sidebar owns the window's whole vertical
+extent, with the breadcrumb starting at its right edge. Turn it off and the
+breadcrumb spans the full width instead, with the sidebar filling the height
+beneath it. Either way the sidebar reaches the bottom of the window; the
+property chooses which of the two owns the top-left corner.
+
+While FullHeight is on, the SideMenu's **Y** and **Height** are the shell's to
+decide, so the inspector greys them and the control is drawn down the form's
+full height in the designer — resize the form and the sidebar follows. Its
+**Width** stays yours.
+
+**Collapsed** (off by default) is the state the application *opens* in. Once the
+operator has worked the ☰ themselves, their own last choice is remembered per
+application and takes precedence from then on — so this property sets the first
+impression, not a permanent setting. The designer canvas shows whichever state
+you have selected, so what you design is what starts.
+
+> **Note.** The operator can always collapse and open the sidebar with the **☰**
+> button at the top of the sidebar itself, *including before you have added a
+> single menu item*. Being able to reclaim the width is the operator's control
+> over the window, so it never depends on what you put in the menu. COBOL can
+> drive the same thing with `super::<menu-id>::Collapse()` / `::Open()`.
+
+Everything the sidebar draws is anchored to its **top** and grows downward — the
+☰ first, then the menu items. A sidebar is a rail, not a centred caption.
+
+**Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
+renders beside its label on every surface — the designer canvas, the preview,
+the Run Form pane and the running shell's MenuPane. The **collapsed rail is
+icon-only**: an item shows its icon, or its first letter if it has none, so
+every item stays reachable at rail width. The SideMenu's **IconEffect**
+property (`None` | `Shadow` | `Neumorphic`) chooses how those icons are
+painted — `Neumorphic` matches the IDE's Neumorphic surface style.
+
+**The sidebar is live in Preview and Run Form.** Clicking the ☰ collapses and
+opens the rail (firing `onMenuOpen`/`onMenuClose`), and clicking an item row
+sets `SelectedItemId` and fires `onMenuItemClick` — the same behaviour the
+shell delivers, so what you try in preview is what ships.
+
 The shell window has three fixed regions:
 
 | Region | What it is |
 |--------|-----------|
-| **MenuPane** | The main form's menu (the *root* slot, always present) plus the current subsystem's menu (the *contextual* slot, swapped whole). Open or Collapsed — collapsed is a narrow icon rail; the state is remembered per application, across restarts. |
+| **MenuPane** | The main form's menu (the *root* slot, always present) plus the current subsystem's menu (the *contextual* slot, swapped whole). Open or Collapsed — collapsed is a narrow icon rail; both states carry the ☰ toggle, and the state is remembered per application, across restarts. |
 | **Breadcrumb** | One segment per step of the navigation chain (`Main › CRM › Customers`). Clicking a segment goes back there. Painted by the shell — a loaded form's colours never affect it. |
 | **ContentPane** | The loaded form, top-left, at its designed size. |
 

@@ -3573,6 +3573,18 @@ impl Control {
                     "SelectedFgColor".into(),
                     PropValue::String("#FFFFFF".into()),
                 );
+                // 049 — a SideMenu fills the window's whole vertical extent by
+                // default. A MenuBar is a horizontal strip and has no such
+                // choice, so the property belongs to the SideMenu alone.
+                if matches!(control_type, ControlType::SideMenu) {
+                    props.insert("FullHeight".into(), PropValue::Bool(true));
+                    // The pane state the application OPENS in. At run time the
+                    // operator's own last choice is remembered per application
+                    // and wins over this; this is the starting point.
+                    props.insert("Collapsed".into(), PropValue::Bool(false));
+                    // How menu-item icons are painted: None | Shadow | Neumorphic.
+                    props.insert("IconEffect".into(), PropValue::String("None".into()));
+                }
             }
             ControlType::ToolBar | ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
@@ -4173,6 +4185,25 @@ impl Control {
                 .find(|(k, _)| k.to_ascii_lowercase() == lower)
                 .map(|(_, v)| v)
         })
+    }
+
+    /// 049 — does this SideMenu fill the window's whole vertical extent?
+    /// **Absent means yes**: the property defaults to on, and a `.cfrm`
+    /// written before it existed must behave like a freshly dropped SideMenu.
+    /// Meaningless (and always `false`) on any other control type.
+    pub fn side_menu_full_height(&self) -> bool {
+        if self.control_type != ControlType::SideMenu {
+            return false;
+        }
+        self.get_prop("FullHeight").map(|v| v.as_bool()).unwrap_or(true)
+    }
+
+    /// 049 — does this SideMenu start collapsed? The designed state the
+    /// application opens in; at run time the operator's remembered choice
+    /// takes precedence. Absent means open. Always `false` off a SideMenu.
+    pub fn side_menu_collapsed(&self) -> bool {
+        self.control_type == ControlType::SideMenu
+            && self.get_prop("Collapsed").map(|v| v.as_bool()).unwrap_or(false)
     }
 
     pub fn set_prop(&mut self, name: impl Into<String>, value: impl Into<PropValue>) {
@@ -4932,6 +4963,29 @@ impl Form {
             None
         }
         walk(&self.controls)
+    }
+
+    /// 049 — pin every `FullHeight` SideMenu to the form's whole vertical
+    /// extent. `FullHeight` says the sidebar IS the window's full height, so
+    /// its `Y` and `Height` are not the developer's to place: this keeps the
+    /// designed geometry telling the truth instead of leaving a 400 px stub
+    /// that renders full-height anyway.
+    ///
+    /// Idempotent, and cheap enough to call every designer frame — that is
+    /// what keeps the control following a form resize. A SideMenu whose
+    /// `FullHeight` is off keeps whatever the developer placed.
+    pub fn sync_side_menu_full_height(&mut self) {
+        let form_h = self.height as i32;
+        fn walk(controls: &mut [Control], form_h: i32) {
+            for c in controls {
+                if c.control_type == ControlType::SideMenu && c.side_menu_full_height() {
+                    c.rect.y = 0;
+                    c.rect.h = form_h.max(1);
+                }
+                walk(&mut c.children, form_h);
+            }
+        }
+        walk(&mut self.controls, form_h);
     }
 
     pub fn apply_neumorphic_defaults(&mut self) {
