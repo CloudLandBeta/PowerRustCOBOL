@@ -163,6 +163,11 @@ const TOOLS: &[ToolEntry] = &[
         category: "Menu",
     },
     ToolEntry {
+        label: "SideMenu",
+        ct: ControlType::SideMenu,
+        category: "Menu",
+    },
+    ToolEntry {
         label: "ToolBar",
         ct: ControlType::ToolBar,
         category: "Menu",
@@ -1319,6 +1324,26 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 let y = c.y + (i - 1) as f32 * r * 0.62;
                 painter.line_segment(
                     [Pos2::new(c.x - r * 1.1, y), Pos2::new(c.x + r * 1.1, y)],
+                    s,
+                );
+            }
+        }
+        ControlType::SideMenu => {
+            // A rail: a tall panel down the left with three item rows inside it —
+            // deliberately the mirror of MenuBar's horizontal strip.
+            let rail = egui::Rect::from_min_max(
+                Pos2::new(c.x - r * 1.1, c.y - r * 1.0),
+                Pos2::new(c.x - r * 0.1, c.y + r * 1.0),
+            );
+            painter.rect_filled(rail, 1.0, dim);
+            painter.rect_stroke(rail, 1.0, th, egui::StrokeKind::Middle);
+            for i in 0i32..3 {
+                let y = c.y + (i - 1) as f32 * r * 0.62;
+                painter.line_segment(
+                    [
+                        Pos2::new(rail.min.x + r * 0.18, y),
+                        Pos2::new(rail.max.x - r * 0.18, y),
+                    ],
                     s,
                 );
             }

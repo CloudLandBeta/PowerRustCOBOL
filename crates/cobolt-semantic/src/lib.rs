@@ -144,6 +144,33 @@ pub struct AnalyzeOptions {
     /// require a project (R22). The default is `None`, which keeps every
     /// pre-044 caller's behaviour: only the always-linked crates pass.
     pub external_crates: Option<Vec<String>>,
+    /// 049 R17 — how each of the project's forms may be loaded, keyed by
+    /// UPPERCASE form id (the `.cfrm` file stem, and the form's own name when
+    /// it differs). `Some(map)` = project context: `OpenFormSync`/`OpenFormAsync`
+    /// targeting an `Embedded` form is a compile-time error. `None` = no
+    /// project; the load-path check is skipped.
+    pub form_formats: Option<std::collections::HashMap<String, FormLoadFormat>>,
+}
+
+/// 049 R1 — a project form's FormFormat, as the load-path check needs it.
+/// A local mirror: this crate cannot depend on `cobolt-forms` (the dependency
+/// runs the other way), so callers translate when they build the map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormLoadFormat {
+    Standalone,
+    Embedded,
+    Both,
+}
+
+impl FormLoadFormat {
+    /// May `OpenFormSync`/`OpenFormAsync` open this form as a window? (049 R17)
+    pub fn allows_standalone(self) -> bool {
+        matches!(self, FormLoadFormat::Standalone | FormLoadFormat::Both)
+    }
+    /// May a menu item load this form into the ContentPane? (049 R17)
+    pub fn allows_embedded(self) -> bool {
+        matches!(self, FormLoadFormat::Embedded | FormLoadFormat::Both)
+    }
 }
 
 /// [`analyze`], with project context (spec 044).
@@ -181,8 +208,8 @@ fn analyze_contained(
     // Pass 1c: EXTERNAL placement (spec 005) — only on 01/77/FD items.
     external::check(program, &mut diagnostics);
 
-    // Pass 2: name resolution.
-    resolver::resolve(program, &symbols, &mut diagnostics);
+    // Pass 2: name resolution (carries the 049 R17 form-format map).
+    resolver::resolve(program, &symbols, &mut diagnostics, opts.form_formats.as_ref());
 
     // Pass 3: type checking.
     type_checker::check(program, &symbols, &mut diagnostics);

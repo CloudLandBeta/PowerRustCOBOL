@@ -115,7 +115,12 @@ pub fn analyze_project(
     let external_crates = active_cell().read().ok().and_then(|cell| cell.clone());
     cobolt_semantic::analyze_with(
         program,
-        &cobolt_semantic::AnalyzeOptions { external_crates },
+        &cobolt_semantic::AnalyzeOptions {
+            external_crates,
+            // 049 R17 — the IDE publishes the form map with the shell wiring
+            // (spec 049 T27); until then only the build-path check runs.
+            form_formats: None,
+        },
     )
 }
 

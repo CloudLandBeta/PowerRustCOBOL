@@ -724,6 +724,74 @@ fn build_core(
     })?;
 
     report(0.30, "Semantic analysis…");
+    // 049 R17 — pre-scan the project's forms: their FormFormats feed the
+    // OpenForm* load-path check below, and each sidebar menu's `open-form:`
+    // targets are validated against the same map. Runs before the main
+    // semantic pass so a bad load path fails the build with a named form.
+    let form_formats = has_project.then(|| {
+        let mut parsed: Vec<(String, std::path::PathBuf, cobolt_forms::Form)> = Vec::new();
+        for rel in &proj.files.forms {
+            let abs = project_dir.join(rel);
+            let Ok(xml) = std::fs::read_to_string(&abs) else {
+                continue;
+            };
+            let Ok(form) = cobolt_forms::load_form_from_str(&xml) else {
+                continue;
+            };
+            let stem = abs
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(rel.as_str())
+                .to_string();
+            parsed.push((stem, abs.clone(), form));
+        }
+        let map = form_formats_map(parsed.iter().map(|(stem, _, f)| (stem.as_str(), f)));
+        (parsed, map)
+    });
+    if let Some((parsed, map)) = &form_formats {
+        for (stem, abs, form) in parsed {
+            let cfrm_dir = abs.parent().unwrap_or(project_dir.as_path());
+            for ctrl in walk_controls(&form.controls) {
+                if !matches!(
+                    ctrl.control_type,
+                    cobolt_forms::ControlType::SideMenu | cobolt_forms::ControlType::MenuBar
+                ) {
+                    continue;
+                }
+                let yaml = cobolt_forms::menu::menu_yaml_path(cfrm_dir, &ctrl.id);
+                if !yaml.exists() {
+                    continue;
+                }
+                let Ok(def) = cobolt_forms::menu::load_menu(&yaml) else {
+                    continue;
+                };
+                let lookup = |name: &str| {
+                    map.get(&name.trim().to_ascii_uppercase()).map(|f| match f {
+                        cobolt_semantic::FormLoadFormat::Standalone => {
+                            cobolt_forms::model::FormFormat::Standalone
+                        }
+                        cobolt_semantic::FormLoadFormat::Embedded => {
+                            cobolt_forms::model::FormFormat::Embedded
+                        }
+                        cobolt_semantic::FormLoadFormat::Both => {
+                            cobolt_forms::model::FormFormat::Both
+                        }
+                    })
+                };
+                let violations = cobolt_forms::menu::validate_menu_targets(&def, &lookup);
+                if let Some(v) = violations.first() {
+                    return Err(CompilerError::Semantic {
+                        file: format!("{stem}.cfrm / {}", ctrl.id),
+                        message: format!(
+                            "menu item '{}' ({}) loads form '{}', whose FormFormat is \
+                             Standalone — a menu load requires Embedded or Both (049 R17).",
+                            v.item_id, v.item_label, v.form
+                        ),
+                    });
+                }
+            }
+        }
+    }
     // Spec 044 R20 — registered External Crates extend the block allowlist;
     // their `use`-line names come from the project's pins.
     let sem = analyze_with(
@@ -731,6 +799,7 @@ fn build_core(
         &AnalyzeOptions {
             external_crates: has_project
                 .then(|| proj.crates.iter().map(|c| c.lib_name()).collect()),
+            form_formats: form_formats.as_ref().map(|(_, map)| map.clone()),
         },
     );
     for d in &sem.diagnostics {
@@ -1328,6 +1397,44 @@ fn stage_theme_packs(
 /// override first, then walking up from the running executable (source-tree
 /// launches), then the compile-time workspace path (installed IDE). `None`
 /// when no candidate has `crates/cobolt-ast`.
+/// 049 R17 — build the load-path map for [`cobolt_semantic::AnalyzeOptions`]:
+/// UPPERCASE form id → format. Each form is keyed by its `.cfrm` file stem —
+/// what `OpenForm*` targets and menu `open-form:` actions name — and by the
+/// form's own name when it differs.
+fn form_formats_map<'a>(
+    forms: impl Iterator<Item = (&'a str, &'a cobolt_forms::Form)>,
+) -> std::collections::HashMap<String, cobolt_semantic::FormLoadFormat> {
+    let mut map = std::collections::HashMap::new();
+    for (stem, form) in forms {
+        let fmt = match form.form_format {
+            cobolt_forms::model::FormFormat::Standalone => {
+                cobolt_semantic::FormLoadFormat::Standalone
+            }
+            cobolt_forms::model::FormFormat::Embedded => cobolt_semantic::FormLoadFormat::Embedded,
+            cobolt_forms::model::FormFormat::Both => cobolt_semantic::FormLoadFormat::Both,
+        };
+        map.insert(stem.trim().to_ascii_uppercase(), fmt);
+        let name = form.name.trim().to_ascii_uppercase();
+        if !name.is_empty() {
+            map.entry(name).or_insert(fmt);
+        }
+    }
+    map
+}
+
+/// Depth-first walk over a control list and every control's nested children.
+fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Control> {
+    let mut out = Vec::new();
+    fn rec<'a>(list: &'a [cobolt_forms::Control], out: &mut Vec<&'a cobolt_forms::Control>) {
+        for c in list {
+            out.push(c);
+            rec(&c.children, out);
+        }
+    }
+    rec(controls, &mut out);
+    out
+}
+
 pub fn resolve_workspace_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
     let has_crates = |root: &Path| root.join("crates").join("cobolt-ast").is_dir();
     explicit
@@ -1713,6 +1820,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         // 042 R17 — the designed `form.title` wins; the branded fallback shows
         // only when the design left the title blank.
         title_fallback: format!("{} v{}", APP_NAME, APP_VERSION),
+        surface: cobolt_form_host::Surface::Window,
         hooks: Box::new(BlockWindows),
     });
 }
@@ -2722,6 +2830,7 @@ fn control_purpose(name: &str) -> &'static str {
         "PictureBox" => "Displays a still image.",
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
         "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property).",
+        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, exactly like MenuBar; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode.",
         "ToolBar" => "Horizontal strip of action items.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
@@ -3171,6 +3280,55 @@ fn controls_reference_doc() -> String {
          A modal Sync child blocks the caller's input AND its COBOL flow until the child \
          closes (the RETURNING handle is then already NULL). `me` window methods: \
          `SetWindowState`, `SetFullScreen`, `SetTitleVisible`, `Focus`, `Close`.\n\n",
+    );
+
+    // ── 049 — application shell & the super receiver ─────────────────────────
+    doc.push_str("### Application shell & the `super` receiver (spec 049)\n\n");
+    doc.push_str(
+        "`FormFormat` (`\"Standalone\"` | `\"Embedded\"` | `\"Both\"`, default Standalone) \
+         declares how a form may be loaded: Standalone opens as its own window \
+         (`OpenFormSync`/`OpenFormAsync`); Embedded is loaded into the shell's ContentPane by \
+         a sidebar-menu item; Both allows either path. The build REJECTS a menu item that \
+         targets a Standalone form and an OpenForm* call that targets an Embedded one. The \
+         MAIN form is always Standalone (it owns the window). While a form is Embedded, the \
+         window-only properties (WindowState, FullScreen, TitleVisible, CanMinimize, \
+         CanMaximize) are inert and its Width/Height report the DESIGNED values.\n\n",
+    );
+    doc.push_str(
+        "SHELL mode starts when the main form carries a `SideMenu` control: ONE window with a \
+         MenuPane (root menu slot — mounted once — plus the current subsystem's contextual \
+         slot; Open/Collapsed, a narrow icon rail when collapsed; its own background from the \
+         main form's MenuPaneBackground group, never repainted by a loaded form), a breadcrumb \
+         strip (shell chrome — one segment per navigation-chain entry; clicking a segment \
+         destroys everything below it, deepest first), and a ContentPane hosting the loaded \
+         form top-left at its designed size. The loaded form's background paints the WHOLE \
+         pane (image/gradient modes evaluate against the PANE rect) and stays fixed while the \
+         form scrolls; a fully transparent form shows the desktop through the pane region \
+         only. Embedded forms play no window entrance/exit effects.\n\n",
+    );
+    doc.push_str(
+        "Navigation lifecycle: forms in the chain stay RESIDENT (storage alive, menu handlers \
+         callable) while not displayed. Each menu item carries `PreservePreviousForm` \
+         (default false): false destroys the outgoing sibling on a switch; true keeps it \
+         resident for an instant return. Two distinct form events: `onDeactivate` — the body \
+         left the ContentPane, the form is STILL resident (never a teardown point) — and \
+         `onDestroy` — fired immediately before storage is released (close files / COMMIT \
+         here).\n\n",
+    );
+    doc.push_str(
+        "`super` is the form that LOADED or OPENED this one, bound at load time on both \
+         paths (menu load and OpenForm*): `super::Title` reads/assigns the parent's \
+         properties, `super::\"SetWindowState\"(\"Minimized\")` drives its window (the whole \
+         windowHandler method surface), and `super::super::…` walks one loader per step. \
+         Bare properties on `me`/`super` are checked at build time against the universal \
+         form surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen, \
+         TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat, BackgroundColor, \
+         Transparency) at any depth; form-specific procedures use parentheses and dispatch \
+         at run time. In the MAIN form — or after an async opener closed — `super` is NULL \
+         and referencing it raises the standard error. \
+         `super::<menu-id>::Collapse()` / `Open()` drive the MenuPane (pane-wide; the state \
+         persists per application). `me::<property>` works the same way on the form's OWN \
+         surface.\n\n",
     );
 
     // ── 038 — project window entrance/exit effects ───────────────────────────

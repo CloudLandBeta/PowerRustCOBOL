@@ -3610,6 +3610,17 @@ pub fn draw_control(
                 "☰ MenuBar (empty)".into()
             }
         }
+        CT::SideMenu => {
+            if let Some(def) = get_menu_cache(painter.ctx(), &ctrl.id) {
+                if def.menu.is_empty() {
+                    "☰ SideMenu (empty)".into()
+                } else {
+                    String::new()
+                }
+            } else {
+                "☰ SideMenu (empty)".into()
+            }
+        }
         CT::ToolBar => "⬛ ToolBar".into(),
         CT::StatusBar => "▬ StatusBar".into(),
         // GroupBox draws its caption as a "legend" on the top-left border (below),
@@ -4045,6 +4056,44 @@ pub fn draw_control(
                         fg,
                     );
                     x += w + 18.0;
+                }
+            }
+        }
+    }
+
+    // ── SideMenu: render top-level labels vertically (049 R45) ───────────────
+    if matches!(ctrl.control_type, CT::SideMenu) {
+        if let Some(def) = get_menu_cache(painter.ctx(), &ctrl.id) {
+            if !def.menu.is_empty() {
+                let fg_base = ctrl
+                    .get_prop("ForegroundColor")
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(Color32::from_rgb(225, 230, 250));
+                let fg = Color32::from_rgba_premultiplied(fg_base.r(), fg_base.g(), fg_base.b(), a);
+                let fsize = ctrl_font_size(ctrl);
+                let font_name = ctrl
+                    .get_prop("FontName")
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
+                let fid = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
+                let row = fsize * 1.9;
+                let mut y = rect.min.y + row * 0.5;
+                for entry in &def.menu {
+                    if entry.item_type == crate::menu::MenuItemType::Separator {
+                        y += row * 0.4;
+                        continue;
+                    }
+                    // A rail clips at its bottom edge rather than overflowing.
+                    if y + row * 0.5 > rect.max.y {
+                        break;
+                    }
+                    let galley = painter.layout_no_wrap(entry.label.clone(), fid.clone(), fg);
+                    painter.galley(
+                        Pos2::new(rect.min.x + 12.0, y - galley.size().y * 0.5),
+                        galley,
+                        fg,
+                    );
+                    y += row;
                 }
             }
         }
@@ -8324,7 +8373,9 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
         CT::NumericUpDown => "numericupdown",
         CT::TreeView => "treeview",
         CT::Splitter => "splitter",
-        CT::MenuBar => "menubar",
+        // A SideMenu reuses the MenuBar theme family — a pack that styles menus
+        // styles both, and no pack needs a new key to support the shell.
+        CT::MenuBar | CT::SideMenu => "menubar",
         CT::ToolBar => "toolbar",
         CT::StatusBar => "statusbar",
         CT::PictureBox => "picturebox",

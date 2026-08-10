@@ -7245,53 +7245,244 @@ impl PropertiesPanel {
                                 .push(("TaskbarIcon".into(), tb_buf.clone()));
                         }
                     });
-                }
-                property_row(ui, tr.lbl_can_minimize, |ui| {
-                    let mut v = form.can_minimize;
-                    if ui.checkbox(&mut v, "").changed() {
-                        action
-                            .form_props
-                            .push(("CanMinimize".into(), v.to_string()));
-                    }
-                });
-                property_row(ui, tr.lbl_can_maximize, |ui| {
-                    let mut v = form.can_maximize;
-                    if ui.checkbox(&mut v, "").changed() {
-                        action
-                            .form_props
-                            .push(("CanMaximize".into(), v.to_string()));
-                    }
-                });
-                property_row(ui, tr.lbl_window_state, |ui| {
-                    let cur = form.window_state.as_str();
-                    egui::ComboBox::from_id_salt("form-window-state")
-                        .selected_text(cur)
-                        .width(ui.available_width())
-                        .show_ui(ui, |ui| {
-                            for opt in ["Normal", "Minimized", "Maximized"] {
-                                if ui.selectable_label(cur == opt, opt).clicked() && cur != opt {
-                                    action
-                                        .form_props
-                                        .push(("WindowState".into(), opt.to_owned()));
-                                }
+
+                    // ── 049 R39 — the shell MenuPane's background (Q7: it
+                    // lives on the main form, the shell's owner). ─────────────
+                    property_row(ui, tr.lbl_menu_pane_bg, |ui| {
+                        let mut custom = form.menu_pane_background.is_some();
+                        if ui
+                            .checkbox(&mut custom, "")
+                            .on_hover_text(tr.tip_menu_pane_bg)
+                            .changed()
+                        {
+                            action
+                                .form_props
+                                .push(("MenuPaneCustom".into(), custom.to_string()));
+                        }
+                    });
+                    if let Some(mp) = &form.menu_pane_background {
+                        property_row(ui, tr.lbl_back_color, |ui| {
+                            let mut color = hex_to_color32(&mp.color);
+                            if color_edit_button_closing(ui, &mut color).changed() {
+                                action
+                                    .form_props
+                                    .push(("MenuPaneColor".into(), color32_to_hex(color)));
+                            }
+                            ui.label(
+                                RichText::new(color32_to_hex(color))
+                                    .monospace()
+                                    .small()
+                                    .color(Color32::GRAY),
+                            );
+                        });
+                        property_row(ui, tr.lbl_gradient, |ui| {
+                            let mut enabled = mp.gradient_enabled;
+                            if ui.checkbox(&mut enabled, "").changed() {
+                                action.form_props.push((
+                                    "MenuPaneGradientEnabled".into(),
+                                    enabled.to_string(),
+                                ));
                             }
                         });
-                });
-                property_row(ui, tr.lbl_full_screen, |ui| {
-                    let mut v = form.full_screen;
-                    if ui.checkbox(&mut v, "").changed() {
-                        action
-                            .form_props
-                            .push(("FullScreen".into(), v.to_string()));
+                        if mp.gradient_enabled {
+                            property_row(ui, tr.lbl_gradient_start, |ui| {
+                                let mut color = hex_to_color32(&mp.gradient_start_color);
+                                if color_edit_button_closing(ui, &mut color).changed() {
+                                    action.form_props.push((
+                                        "MenuPaneGradientStartColor".into(),
+                                        color32_to_hex(color),
+                                    ));
+                                }
+                            });
+                            property_row(ui, tr.lbl_gradient_end, |ui| {
+                                let mut color = hex_to_color32(&mp.gradient_end_color);
+                                if color_edit_button_closing(ui, &mut color).changed() {
+                                    action.form_props.push((
+                                        "MenuPaneGradientEndColor".into(),
+                                        color32_to_hex(color),
+                                    ));
+                                }
+                            });
+                            property_row(ui, tr.lbl_gradient_direction, |ui| {
+                                let current = mp.gradient_direction.as_str();
+                                egui::ComboBox::from_id_salt("menu-pane-grad-dir")
+                                    .selected_text(current)
+                                    .width(ui.available_width())
+                                    .show_ui(ui, |ui| {
+                                        for direction in [
+                                            "North",
+                                            "NorthEast",
+                                            "East",
+                                            "SouthEast",
+                                            "South",
+                                            "SouthWest",
+                                            "West",
+                                            "NorthWest",
+                                        ] {
+                                            if ui
+                                                .selectable_label(
+                                                    current == direction,
+                                                    direction,
+                                                )
+                                                .clicked()
+                                            {
+                                                action.form_props.push((
+                                                    "MenuPaneGradientDirection".into(),
+                                                    direction.into(),
+                                                ));
+                                            }
+                                        }
+                                    });
+                            });
+                        }
+                        property_row(ui, tr.lbl_transparency, |ui| {
+                            let mut trans = mp.transparency as i64;
+                            if ui
+                                .add(
+                                    DragValue::new(&mut trans)
+                                        .speed(1)
+                                        .range(0..=100)
+                                        .suffix("%"),
+                                )
+                                .changed()
+                            {
+                                action
+                                    .form_props
+                                    .push(("MenuPaneTransparency".into(), trans.to_string()));
+                            }
+                        });
+                        const MP_IMG_KEY: &str = "form-MenuPaneImage";
+                        let mp_wid = egui::Id::new(MP_IMG_KEY);
+                        let mp_buf = self
+                            .form_bufs
+                            .entry(MP_IMG_KEY.into())
+                            .or_insert(mp.image.clone());
+                        if *mp_buf != mp.image && !ui.memory(|m| m.has_focus(mp_wid)) {
+                            *mp_buf = mp.image.clone();
+                        }
+                        property_row(ui, tr.lbl_image_path, |ui| {
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(mp_buf)
+                                        .id(mp_wid)
+                                        .hint_text("/path/to/image.png")
+                                        .desired_width(ui.available_width()),
+                                )
+                                .lost_focus()
+                            {
+                                action
+                                    .form_props
+                                    .push(("MenuPaneImage".into(), mp_buf.clone()));
+                            }
+                        });
+                        property_row(ui, tr.lbl_img_mode, |ui| {
+                            let cur_mode = mp.image_mode.as_str();
+                            egui::ComboBox::from_id_salt("menu-pane-img-mode")
+                                .selected_text(cur_mode)
+                                .width(ui.available_width())
+                                .show_ui(ui, |ui| {
+                                    for &opt in BgImageMode::all() {
+                                        if ui.selectable_label(cur_mode == opt, opt).clicked() {
+                                            action
+                                                .form_props
+                                                .push(("MenuPaneImageMode".into(), opt.to_owned()));
+                                        }
+                                    }
+                                });
+                        });
+                    }
+                }
+
+                // ── 049 R1/R5 — how the form may be loaded. The main form owns
+                // the window, so its format is pinned to Standalone. ─────────
+                property_row(ui, tr.lbl_form_format, |ui| {
+                    if form.main_form {
+                        ui.add_enabled(
+                            false,
+                            egui::Button::new(
+                                cobolt_forms::model::FormFormat::Standalone.as_str(),
+                            ),
+                        )
+                        .on_disabled_hover_text(tr.tip_form_format_main);
+                    } else {
+                        let cur = form.form_format.as_str();
+                        egui::ComboBox::from_id_salt("form-format")
+                            .selected_text(cur)
+                            .width(ui.available_width())
+                            .show_ui(ui, |ui| {
+                                for opt in ["Standalone", "Embedded", "Both"] {
+                                    if ui.selectable_label(cur == opt, opt).clicked() && cur != opt
+                                    {
+                                        action
+                                            .form_props
+                                            .push(("FormFormat".into(), opt.to_owned()));
+                                    }
+                                }
+                            });
                     }
                 });
-                property_row(ui, tr.lbl_title_visible, |ui| {
-                    let mut v = form.title_visible;
-                    if ui.checkbox(&mut v, "").changed() {
-                        action
-                            .form_props
-                            .push(("TitleVisible".into(), v.to_string()));
-                    }
+
+                // ── 049 R36 — window-only rows are inapplicable while the form
+                // is Embedded (the TaskbarIcon main-only treatment, extended).
+                let win_rows_enabled =
+                    form.form_format != cobolt_forms::model::FormFormat::Embedded;
+                if !win_rows_enabled {
+                    ui.label(
+                        RichText::new(tr.tip_embedded_inapplicable)
+                            .small()
+                            .italics()
+                            .color(Color32::GRAY),
+                    );
+                }
+                ui.add_enabled_ui(win_rows_enabled, |ui| {
+                    property_row(ui, tr.lbl_can_minimize, |ui| {
+                        let mut v = form.can_minimize;
+                        if ui.checkbox(&mut v, "").changed() {
+                            action
+                                .form_props
+                                .push(("CanMinimize".into(), v.to_string()));
+                        }
+                    });
+                    property_row(ui, tr.lbl_can_maximize, |ui| {
+                        let mut v = form.can_maximize;
+                        if ui.checkbox(&mut v, "").changed() {
+                            action
+                                .form_props
+                                .push(("CanMaximize".into(), v.to_string()));
+                        }
+                    });
+                    property_row(ui, tr.lbl_window_state, |ui| {
+                        let cur = form.window_state.as_str();
+                        egui::ComboBox::from_id_salt("form-window-state")
+                            .selected_text(cur)
+                            .width(ui.available_width())
+                            .show_ui(ui, |ui| {
+                                for opt in ["Normal", "Minimized", "Maximized"] {
+                                    if ui.selectable_label(cur == opt, opt).clicked() && cur != opt
+                                    {
+                                        action
+                                            .form_props
+                                            .push(("WindowState".into(), opt.to_owned()));
+                                    }
+                                }
+                            });
+                    });
+                    property_row(ui, tr.lbl_full_screen, |ui| {
+                        let mut v = form.full_screen;
+                        if ui.checkbox(&mut v, "").changed() {
+                            action
+                                .form_props
+                                .push(("FullScreen".into(), v.to_string()));
+                        }
+                    });
+                    property_row(ui, tr.lbl_title_visible, |ui| {
+                        let mut v = form.title_visible;
+                        if ui.checkbox(&mut v, "").changed() {
+                            action
+                                .form_props
+                                .push(("TitleVisible".into(), v.to_string()));
+                        }
+                    });
                 });
                 // 038 R3 — play the PROJECT's window effects, or open/close
                 // instantly. Forms never choose effects, only this on/off.

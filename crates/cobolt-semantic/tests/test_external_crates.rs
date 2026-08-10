@@ -29,6 +29,7 @@ fn program_using(krate: &str) -> cobolt_ast::program::Program {
 fn with_registered(registered: &[&str]) -> AnalyzeOptions {
     AnalyzeOptions {
         external_crates: Some(registered.iter().map(|s| s.to_string()).collect()),
+        ..Default::default()
     }
 }
 

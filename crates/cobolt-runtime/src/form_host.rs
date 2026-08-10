@@ -60,6 +60,14 @@ pub enum FormRequest {
     },
     /// The calling form asks to close ITSELF (`me::"Close"`).
     CloseSelf { caller: String },
+    /// 049 R30/R33 — a form publishes (part of) its universal property
+    /// surface, keyed by its own handle, so OTHER forms can read it through
+    /// `super`/handle property access. Sent at seed time with the designed
+    /// values and again on every own-form property write. Fire-and-forget.
+    PublishFormProps {
+        handle: String,
+        props: Vec<(String, String)>,
+    },
 }
 
 /// One window-affecting decision for the GUI host to execute.
@@ -87,6 +95,19 @@ pub enum HostAction {
     NotifyCloseRejected { handle: String },
     /// Broadcast to every interpreter: handles storing this id become NULL.
     NotifyClosed { handle: String },
+    /// 049 — a form property was written THROUGH the supervisor
+    /// (`super::X = …` / `handle::"SetProperty"`). The host applies any
+    /// visible effect and forwards the change to the target form's
+    /// interpreter so its own `me::X` stays coherent.
+    SetFormProperty {
+        handle: String,
+        key: String,
+        value: String,
+    },
+    /// 049 R44 — COBOL drove the MenuPane state
+    /// (`super::<menu-id>::Collapse()`/`Open()`). PANE-WIDE by decision
+    /// (spec Q10). The shell applies it and persists it (R9).
+    SetMenuPaneCollapsed { collapsed: bool },
     /// Every window is gone — the process may exit (R27).
     Exit,
 }
@@ -109,6 +130,10 @@ struct HandleInfo {
     waiting: bool,
     /// Held reply of a MODAL Sync OpenForm, answered on close (R28).
     modal_reply: Option<Sender<Option<String>>>,
+    /// 049 — the form's published universal property surface (UPPERCASE
+    /// keys), fed by `PublishFormProps` and `SETPROPERTY`. What `super::X`
+    /// and `handle::"GetProperty"` read.
+    props: HashMap<String, String>,
 }
 
 /// The pure multi-form lifecycle state machine. See the module docs.
@@ -119,6 +144,8 @@ pub struct FormSupervisor {
     root_is_main: bool,
     handles: HashMap<String, HandleInfo>,
     next_handle: u64,
+    /// 049 R44/Q10 — the MenuPane's COBOL-driven state, pane-wide.
+    menu_pane_collapsed: bool,
 }
 
 impl FormSupervisor {
@@ -135,6 +162,7 @@ impl FormSupervisor {
                 modal: false,
                 waiting: false,
                 modal_reply: None,
+                props: HashMap::new(),
             },
         );
         Self {
@@ -142,7 +170,13 @@ impl FormSupervisor {
             root_is_main: root_form_id.trim().eq_ignore_ascii_case(main_form_id.trim()),
             handles,
             next_handle: 1,
+            menu_pane_collapsed: false,
         }
+    }
+
+    /// 049 R44 — the COBOL-driven MenuPane state.
+    pub fn menu_pane_collapsed(&self) -> bool {
+        self.menu_pane_collapsed
     }
 
     /// The live handle whose form is `form_id`, if any (singleton lookup).
@@ -233,6 +267,19 @@ impl FormSupervisor {
                 reply,
             } => self.handle_method(&handle, &method, &args, reply),
             FormRequest::CloseSelf { caller } => self.try_close(&caller),
+            FormRequest::PublishFormProps { handle, props } => {
+                self.note_form_props(&handle, props);
+                Vec::new()
+            }
+        }
+    }
+
+    /// 049 — fold a form's published properties into its handle entry.
+    pub fn note_form_props(&mut self, handle: &str, props: Vec<(String, String)>) {
+        if let Some(info) = self.handles.get_mut(handle) {
+            for (k, v) in props {
+                info.props.insert(k.trim().to_ascii_uppercase(), v);
+            }
         }
     }
 
@@ -271,6 +318,7 @@ impl FormSupervisor {
                 modal,
                 waiting: false,
                 modal_reply: None,
+                props: HashMap::new(),
             },
         );
         if modal {
@@ -341,6 +389,59 @@ impl FormSupervisor {
                 let waiting = self.handles.get(handle).map(|i| i.waiting).unwrap_or(false);
                 let _ = reply.send(Ok(if waiting { "Waiting" } else { "Ready" }.into()));
                 return Vec::new();
+            }
+            // 049 R31 — one step up the loader chain: the handle of the form
+            // that opened `handle` (empty when it has none — the root, or a
+            // detached async child). What `super::super::…` walks.
+            "SUPERHANDLE" => {
+                let up = self
+                    .handles
+                    .get(handle)
+                    .and_then(|i| i.caller.clone())
+                    .unwrap_or_default();
+                let _ = reply.send(Ok(up));
+                return Vec::new();
+            }
+            // 049 — the published universal surface (what `super::X` reads).
+            "GETPROPERTY" => {
+                let key = args
+                    .first()
+                    .map(|k| k.trim().to_ascii_uppercase())
+                    .unwrap_or_default();
+                let value = self
+                    .handles
+                    .get(handle)
+                    .and_then(|i| i.props.get(&key).cloned())
+                    .unwrap_or_default();
+                let _ = reply.send(Ok(value));
+                return Vec::new();
+            }
+            // 049 R44 — the menu Open/Collapse methods, pane-wide (Q10).
+            "SETMENUPANECOLLAPSED" => {
+                let on = truthy(args.first().map(String::as_str).unwrap_or("true"));
+                self.menu_pane_collapsed = on;
+                vec![HostAction::SetMenuPaneCollapsed { collapsed: on }]
+            }
+            // 049 — write-through: store + let the host apply/forward it.
+            "SETPROPERTY" => {
+                let key = args
+                    .first()
+                    .map(|k| k.trim().to_string())
+                    .unwrap_or_default();
+                let value = args.get(1).cloned().unwrap_or_default();
+                if key.is_empty() {
+                    let _ = reply.send(Err("SetProperty needs a property name".into()));
+                    return Vec::new();
+                }
+                if let Some(info) = self.handles.get_mut(handle) {
+                    info.props
+                        .insert(key.to_ascii_uppercase(), value.clone());
+                }
+                vec![HostAction::SetFormProperty {
+                    handle: handle.to_string(),
+                    key,
+                    value,
+                }]
             }
             other => {
                 let _ = reply.send(Err(format!(

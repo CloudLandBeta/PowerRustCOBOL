@@ -99,10 +99,25 @@ impl HostHooks for NoHooks {}
 /// interpreter thread (that is where the intentional per-host differences
 /// live — the debugger channel in run-form, compiled-block registration in a
 /// built application); the host owns the window.
+/// 049 R18/R42 — where a host's form lives. `Window` is the historical mode:
+/// the form owns an OS window, entrance/exit effects play, viewport commands
+/// apply. `Pane` embeds the form in the application shell's ContentPane: the
+/// SHELL owns the only window, so window-only behaviour is neutralised — no
+/// effects (R18), no viewport commands, and nothing the form does can move or
+/// resize its host (R42).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Surface {
+    #[default]
+    Window,
+    Pane,
+}
+
 pub struct FormHostConfig {
     /// The designed form — window properties, backdrop, fx opt-out and the
     /// controls' designed tree all come from here.
     pub form: cobolt_forms::Form,
+    /// 049 — own OS window, or embedded in the shell's ContentPane.
+    pub surface: Surface,
     /// Flattened, z-sorted controls (see [`crate::flatten_controls`]).
     pub flat: Vec<cobolt_forms::Control>,
     /// Initial control state, seeded from the designed controls.
@@ -274,7 +289,20 @@ impl FormHost {
             icon_path: _,
             title_fallback: _,
             hooks,
+            surface,
         } = config;
+
+        // 049 R18 — entrance/exit effects are window effects: a pane-hosted
+        // form is simply present. Zeroing the specs here keeps every fx gate
+        // below untouched.
+        let (fx_entrance, fx_exit) = if surface == Surface::Pane {
+            (
+                cobolt_forms::window_fx::FxSpec::default(),
+                cobolt_forms::window_fx::FxSpec::default(),
+            )
+        } else {
+            (fx_entrance, fx_exit)
+        };
 
         let glass_style = form.glass_style;
         let form_object = form.name.trim().to_ascii_uppercase();
@@ -292,6 +320,7 @@ impl FormHost {
 
         let host = FormHost {
             form_name: form.name.clone(),
+            surface,
             theme_pack,
             surface_style,
             glass_style,
@@ -357,6 +386,10 @@ impl FormHost {
                 .is_screen_relative()
                 .then_some(form.start_position),
             hooks,
+            last_pane_backdrop_rect: None,
+            last_pane_backdrop_fill: None,
+            last_content_scroll: egui::Vec2::ZERO,
+            pending_menu_pane: None,
         };
         (host, form)
     }
@@ -366,6 +399,8 @@ impl FormHost {
 
 pub struct FormHost {
     form_name: String,
+    /// 049 — own window, or the shell's ContentPane (see [`Surface`]).
+    surface: Surface,
     /// Resolved asset-pack theme (None = built-in Liquid Glass) + the form's
     /// glass style — pushed into the egui context so the unified painter reads
     /// the same theme state as under the IDE (spec 017 parity).
@@ -474,12 +509,35 @@ pub struct FormHost {
     /// The per-host seam (R30) — e.g. the compiled application's
     /// `cobolt_windows` replay.
     hooks: Box<dyn HostHooks>,
+
+    // ── 049 Pane-mode observability (the parity suite reads these) ───────────
+    /// The rect the pane-fixed backdrop was painted into last frame
+    /// (`None` in Window mode, where the engine paints it).
+    last_pane_backdrop_rect: Option<egui::Rect>,
+    /// The resolved solid fill of that paint — a transparent form leaves the
+    /// pane region see-through (R43): alpha 0 here, while the shell chrome
+    /// stays opaque.
+    last_pane_backdrop_fill: Option<egui::Color32>,
+    /// The content scroll offset last frame (the host's own ScrollArea).
+    last_content_scroll: egui::Vec2,
+    /// 049 R44 — a COBOL-driven MenuPane state change awaiting the shell.
+    pending_menu_pane: Option<bool>,
 }
 
 impl FormHost {
     fn send_event(&mut self, ev: FormEvent) {
         if self.ev_tx.send(ev).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// 049 R42 — every viewport command this host issues funnels through
+    /// here: in `Pane` mode the SHELL owns the only window, so a form-issued
+    /// window command is a no-op by construction rather than by scattered
+    /// guards.
+    fn viewport_cmd(&self, ctx: &egui::Context, cmd: egui::ViewportCommand) {
+        if self.surface == Surface::Window {
+            ctx.send_viewport_cmd(cmd);
         }
     }
 
@@ -526,36 +584,36 @@ impl FormHost {
                                     self.quit_sent = true;
                                     let _ = self.ev_tx.send(FormEvent::quit());
                                 }
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Close);
                             }
                         }
                     }
                     HostAction::FocusWindow { handle } => {
                         if handle == ROOT_HANDLE {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                            self.viewport_cmd(ctx,egui::ViewportCommand::Focus);
                         }
                     }
                     HostAction::SetWindowState { handle, state } => {
                         if handle == ROOT_HANDLE {
                             let s = state.trim();
                             if s.eq_ignore_ascii_case("Minimized") {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(true));
                             } else if s.eq_ignore_ascii_case("Maximized") {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Maximized(true));
                             } else {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(false));
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Maximized(false));
                             }
                         }
                     }
                     HostAction::SetFullScreen { handle, on } => {
                         if handle == ROOT_HANDLE {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));
+                            self.viewport_cmd(ctx,egui::ViewportCommand::Fullscreen(on));
                         }
                     }
                     HostAction::SetTitleVisible { handle, on } => {
                         if handle == ROOT_HANDLE {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(on));
+                            self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(on));
                         }
                     }
                     HostAction::NotifyCloseRejected { handle } => {
@@ -563,6 +621,27 @@ impl FormHost {
                             let form = self.form_object.clone();
                             self.send_event(FormEvent::new(form, "onCloseRejected"));
                         }
+                    }
+                    // 049 — a property written THROUGH the supervisor
+                    // (`super::X = …` from another form). Forward it to this
+                    // form's interpreter (the FullScreen-echo route) so its
+                    // own `me::X` reads stay coherent. Visible application
+                    // (retitle/resize) lands with the shell host work.
+                    HostAction::SetFormProperty { handle, key, value } => {
+                        if handle == ROOT_HANDLE {
+                            let _ = self.input_tx.send(StateUpdate {
+                                ctrl_id: self.form_object.clone(),
+                                prop: key,
+                                value,
+                                instance_index: 0,
+                            });
+                        }
+                    }
+                    // 049 R44 — surfaced for the SHELL host, which applies it
+                    // to its MenuPane and persists it (R9). A classic window
+                    // host takes it nowhere.
+                    HostAction::SetMenuPaneCollapsed { collapsed } => {
+                        self.pending_menu_pane = Some(collapsed);
                     }
                     HostAction::NotifyClosed { handle } => {
                         let _ = self.closed_tx.send(handle);
@@ -572,7 +651,7 @@ impl FormHost {
                             self.quit_sent = true;
                             let _ = self.ev_tx.send(FormEvent::quit());
                         }
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        self.viewport_cmd(ctx,egui::ViewportCommand::Close);
                     }
                 }
             }
@@ -851,6 +930,48 @@ impl eframe::App for FormHost {
 }
 
 impl FormHost {
+    /// The form's DESIGNED size — the coordinate space its controls live in.
+    /// In `Pane` mode this never follows the pane (049 R11/R35).
+    pub fn designed_size(&self) -> egui::Vec2 {
+        self.form_size
+    }
+
+    /// 049 R41 — where the pane-fixed backdrop painted last frame (`None` in
+    /// Window mode).
+    pub fn pane_backdrop_rect(&self) -> Option<egui::Rect> {
+        self.last_pane_backdrop_rect
+    }
+
+    /// 049 R40 — the host's own content scroll offset last frame.
+    pub fn content_scroll(&self) -> egui::Vec2 {
+        self.last_content_scroll
+    }
+
+    /// 049 R43 — the resolved solid fill of the pane backdrop last frame.
+    pub fn pane_backdrop_fill(&self) -> Option<egui::Color32> {
+        self.last_pane_backdrop_fill
+    }
+
+    /// 049 R44 — drain a COBOL-driven MenuPane state change (the shell
+    /// applies it to `Shell::collapsed` and persists it, R9).
+    pub fn take_menu_pane_request(&mut self) -> Option<bool> {
+        self.pending_menu_pane.take()
+    }
+
+    /// 049 R18 (parity observability) — true once no entrance is playing;
+    /// a Pane-surface host is born true.
+    pub fn entrance_done(&self) -> bool {
+        self.fx_entrance_done
+    }
+
+    /// 049 — one frame of a `Pane`-surface host, driven by the shell inside
+    /// the ContentPane's `Ui` (see [`crate::shell::Shell::show_with_host`]).
+    /// The same frame body as a window host; the `Surface` gates neutralise
+    /// everything window-only.
+    pub fn pane_frame(&mut self, pane_ui: &mut egui::Ui) {
+        self.ui_impl(pane_ui);
+    }
+
     /// One frame of the host. Split from [`eframe::App::ui`] (which only adds
     /// the unused `Frame` parameter) so the parity suite can drive frames
     /// through `Context::run_ui` headlessly (spec 042 R29).
@@ -870,7 +991,7 @@ impl FormHost {
         // frame (one-shot; the builder cannot pre-minimize).
         if self.start_minimized {
             self.start_minimized = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(true));
         }
         // Window start position — the eight edge/corner positions and Center
         // need the monitor's size, which (unlike `start_minimized` above)
@@ -888,7 +1009,7 @@ impl FormHost {
                     (monitor.x, monitor.y),
                     (window.x, window.y),
                 ) {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                    self.viewport_cmd(ctx,egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
                 }
                 self.pending_start_position = None;
             }
@@ -934,7 +1055,7 @@ impl FormHost {
                 self.fx_exit_start = Some(std::time::Instant::now());
             }
             if self.fx_exit_start.is_none() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.viewport_cmd(ctx,egui::ViewportCommand::Close);
                 return;
             }
             // An exit is playing — fall through to its playback block below.
@@ -957,7 +1078,7 @@ impl FormHost {
                 )
             });
             if !closing || (self.fx_exit.is_active() && self.fx_exit_start.is_none()) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.viewport_cmd(ctx,egui::ViewportCommand::CancelClose);
             }
             self.apply_host_actions(ctx, acts);
         }
@@ -983,7 +1104,7 @@ impl FormHost {
             // there is nothing to restore afterwards).
             if self.fx_exit.is_active() && !self.fx_chrome_hidden_for_exit {
                 self.fx_chrome_hidden_for_exit = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+                self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(false));
             }
             let exit_ms = fx_duration_ms(&self.fx_exit, root_ui.max_rect().width());
             let dur = exit_ms.max(1) as f64 / 1000.0;
@@ -993,7 +1114,7 @@ impl FormHost {
                     self.quit_sent = true;
                     let _ = self.ev_tx.send(FormEvent::quit());
                 }
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.viewport_cmd(ctx,egui::ViewportCommand::Close);
             } else {
                 let t = self
                     .fx_exit
@@ -1005,33 +1126,39 @@ impl FormHost {
             return;
         }
 
-        // 037 R14 — onFullScreenChanged fires on ACTUAL transitions only,
-        // read back from the viewport (the OS may refuse a request). The
-        // live value is mirrored onto the form object first so the handler
-        // reads the new state.
-        let fs = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-        if fs != self.fullscreen_actual {
-            self.fullscreen_actual = fs;
-            let _ = self.input_tx.send(StateUpdate {
-                ctrl_id: self.form_object.clone(),
-                prop: "FullScreen".into(),
-                value: if fs { "1".into() } else { "0".into() },
-                instance_index: 0,
-            });
-            let form = self.form_object.clone();
-            self.send_event(FormEvent::new(form, "onFullScreenChanged"));
-        }
+        // 049 — the viewport echoes below read THIS host's window state. In
+        // Pane mode the viewport is the SHELL's window, so acting on it would
+        // fire bogus form events when the shell fullscreens or minimizes.
+        if self.surface == Surface::Window {
+            // 037 R14 — onFullScreenChanged fires on ACTUAL transitions only,
+            // read back from the viewport (the OS may refuse a request). The
+            // live value is mirrored onto the form object first so the handler
+            // reads the new state.
+            let fs = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            if fs != self.fullscreen_actual {
+                self.fullscreen_actual = fs;
+                let _ = self.input_tx.send(StateUpdate {
+                    ctrl_id: self.form_object.clone(),
+                    prop: "FullScreen".into(),
+                    value: if fs { "1".into() } else { "0".into() },
+                    instance_index: 0,
+                });
+                let form = self.form_object.clone();
+                self.send_event(FormEvent::new(form, "onFullScreenChanged"));
+            }
 
-        // 038 R9 — restore-after-minimize replays the ENTRANCE visuals only:
-        // no form events, no control-animation replay (`anim_started` stays
-        // true). Edge-triggered on the observed minimized transition.
-        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-        if minimized != self.minimized_actual {
-            let was = self.minimized_actual;
-            self.minimized_actual = minimized;
-            if was && !minimized && self.fx_restore && self.fx_entrance.is_active() {
-                self.fx_entrance_done = false;
-                self.fx_entrance_start = None;
+            // 038 R9 — restore-after-minimize replays the ENTRANCE visuals
+            // only: no form events, no control-animation replay
+            // (`anim_started` stays true). Edge-triggered on the observed
+            // minimized transition.
+            let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+            if minimized != self.minimized_actual {
+                let was = self.minimized_actual;
+                self.minimized_actual = minimized;
+                if was && !minimized && self.fx_restore && self.fx_entrance.is_active() {
+                    self.fx_entrance_done = false;
+                    self.fx_entrance_start = None;
+                }
             }
         }
 
@@ -1196,7 +1323,7 @@ impl FormHost {
                 // stood still while the effect played).
                 if self.fx_chrome_pending {
                     self.fx_chrome_pending = false;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+                    self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(true));
                 }
             } else {
                 let t = self
@@ -1211,6 +1338,10 @@ impl FormHost {
 
         // Render the whole form through the unified engine (one renderer for
         // the designer, preview, and every host — spec 017).
+        let surface = self.surface;
+        let mut pane_backdrop_rect: Option<egui::Rect> = None;
+        let mut pane_backdrop_fill: Option<egui::Color32> = None;
+        let mut content_scroll = egui::Vec2::ZERO;
         let output = {
             let controls = self.controls.clone();
             let st = LiveState {
@@ -1223,8 +1354,10 @@ impl FormHost {
             // On a see-through window the panel must NOT fill: the engine
             // paints the same backdrop across the whole window a moment
             // later, and painting a translucent colour twice would double the
-            // form's designed opacity against the desktop.
-            let panel_fill = if self.fx_transparent {
+            // form's designed opacity against the desktop. In Pane mode the
+            // panel never fills either — the pane-fixed backdrop below is the
+            // one and only background paint (049 R41).
+            let panel_fill = if self.fx_transparent || surface == Surface::Pane {
                 egui::Color32::TRANSPARENT
             } else {
                 bg_fill
@@ -1232,12 +1365,39 @@ impl FormHost {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(panel_fill))
                 .show(root_ui, |ui| {
+                    // 049 R12/R13/R41 — Pane mode: the PANE paints the form's
+                    // backdrop, sized to the pane, OUTSIDE the scroll area.
+                    // The background stays put while the controls scroll
+                    // (R41), and gradient/image modes are evaluated against
+                    // the PANE rect (R13). The engine then gets a fully
+                    // transparent backdrop, so nothing is painted twice.
+                    let engine_backdrop = if surface == Surface::Pane {
+                        let rect = ui.max_rect();
+                        let painted =
+                            cobolt_forms::render::paint_backdrop(ui.painter(), rect, &backdrop);
+                        pane_backdrop_fill = Some(painted.bg);
+                        pane_backdrop_rect = Some(rect);
+                        cobolt_forms::render::Backdrop {
+                            color_hex: "#00000000".into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: String::new(),
+                            image: None,
+                            image_mode: cobolt_forms::model::BgImageMode::Stretch,
+                            use_theme_background: false,
+                            window_size: None,
+                        }
+                    } else {
+                        backdrop
+                    };
                     // Floating scrollbars overlay the content instead of
                     // reserving a gutter, so no light track strip shows on the
                     // right/bottom edges when the form fits (only appears, as an
                     // overlay, if the user shrinks the resizable window).
                     ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
-                    egui::ScrollArea::both()
+                    let sa = egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_min_size(form_size);
@@ -1248,13 +1408,17 @@ impl FormHost {
                                 glass: true,
                                 mode: cobolt_forms::render::RenderMode::Interactive,
                                 active_tabs: &active_tabs,
-                                backdrop,
+                                backdrop: engine_backdrop,
                             };
                             out = cobolt_forms::render::render_form(ui, &input);
                         });
+                    content_scroll = sa.state.offset;
                 });
             out
         };
+        self.last_pane_backdrop_rect = pane_backdrop_rect;
+        self.last_pane_backdrop_fill = pane_backdrop_fill;
+        self.last_content_scroll = content_scroll;
 
         // ── Animation triggers from this frame's interaction ─────────────────
         // Pointer triggers come from the rendered rects: the engine only emits
@@ -1421,6 +1585,15 @@ mod parity {
     }
 
     fn host_with(entrance: &str, exit: &str, restore: bool) -> (FormHost, Pipes) {
+        host_with_surface(entrance, exit, restore, Surface::Window)
+    }
+
+    fn host_with_surface(
+        entrance: &str,
+        exit: &str,
+        restore: bool,
+        surface: Surface,
+    ) -> (FormHost, Pipes) {
         let form = cobolt_forms::Form::new("PARITY-FORM", "Parity", 320, 200);
         let (ev_tx, ev_rx) = mpsc::channel();
         let (input_tx, _input_rx) = mpsc::channel();
@@ -1450,6 +1623,7 @@ mod parity {
             icon_path: None,
             title_fallback: String::new(),
             hooks: Box::new(NoHooks),
+            surface,
         });
         (
             host,
@@ -1494,6 +1668,75 @@ mod parity {
     }
 
     // ── Group 3: effects gating (R5–R10) ─────────────────────────────────────
+
+    /// 049 R18/R42/AC8 — the SAME entrance spec that animates a Window host
+    /// is inert on a Pane host: live UI from the first frame, and no viewport
+    /// command ever leaves the pane.
+    #[test]
+    fn pane_surface_plays_no_effects_and_issues_no_viewport_commands_049() {
+        // A Window host with this spec plays a 3s entrance (the test below).
+        let (mut app, _pipes) = host_with_surface(
+            "fade:3000:linear",
+            "none:0:linear",
+            false,
+            Surface::Pane,
+        );
+        let ctx = egui::Context::default();
+        assert!(
+            app.fx_entrance_done,
+            "R18: a pane-hosted form is simply present — no entrance pending"
+        );
+        // egui emits its own bookkeeping (SetTheme); only WINDOW-affecting
+        // commands matter here.
+        let window_cmds = |cmds: &[egui::ViewportCommand]| {
+            cmds.iter()
+                .filter(|c| {
+                    matches!(
+                        c,
+                        egui::ViewportCommand::Close
+                            | egui::ViewportCommand::CancelClose
+                            | egui::ViewportCommand::Minimized(_)
+                            | egui::ViewportCommand::Maximized(_)
+                            | egui::ViewportCommand::Fullscreen(_)
+                            | egui::ViewportCommand::Decorations(_)
+                            | egui::ViewportCommand::Focus
+                            | egui::ViewportCommand::OuterPosition(_)
+                            | egui::ViewportCommand::InnerSize(_)
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let cmds = frame(&mut app, &ctx, raw());
+        assert!(
+            app.anim_started,
+            "load animations start on the FIRST frame (no entrance gate)"
+        );
+        let wc = window_cmds(&cmds);
+        assert!(
+            wc.is_empty(),
+            "R42: a pane host must issue no window commands; got {wc:?}"
+        );
+        // Even a direct window action is a no-op on the pane surface.
+        app.apply_host_actions(
+            &ctx,
+            vec![cobolt_runtime::form_host::HostAction::SetWindowState {
+                handle: cobolt_runtime::form_host::ROOT_HANDLE.to_string(),
+                state: "Minimized".into(),
+            }],
+        );
+        let cmds2 = frame(&mut app, &ctx, raw());
+        let wc2 = window_cmds(&cmds2);
+        assert!(
+            wc2.is_empty(),
+            "window commands are neutralised in Pane mode; got {wc2:?}"
+        );
+        println!(
+            "049 AC8 (pane half) — entrance spec fade:3000 inert on Pane: \
+             fx done at construction, animations on frame 1, 0 viewport \
+             commands across 2 frames incl. an explicit SetWindowState"
+        );
+    }
 
     /// R7/R10 — while the entrance plays, the live UI (and the load-time
     /// control animations) wait; when it completes, both take over and the

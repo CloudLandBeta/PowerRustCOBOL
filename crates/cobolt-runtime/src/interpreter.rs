@@ -708,6 +708,10 @@ pub struct Interpreter {
     self_window_handle: String,
     /// The form's own object name — `me::` resolves to it (spec 037 D4).
     self_form_object: Option<String>,
+    /// 049 R28/R29 — the handle of the form that LOADED or OPENED this one:
+    /// what `super` resolves to. `None` = no parent (the main form, a console
+    /// run, or an async opener that closed — R32/R46).
+    super_window_handle: Option<String>,
     /// Handles of forms that CLOSED, broadcast by the host; drained lazily so
     /// windowHandler data-items become NULL (R24).
     form_closed_rx: Option<mpsc::Receiver<String>>,
@@ -901,6 +905,7 @@ impl Interpreter {
             form_host_tx: None,
             self_window_handle: crate::form_host::ROOT_HANDLE.to_string(),
             self_form_object: None,
+            super_window_handle: None,
             form_closed_rx: None,
             window_handle_vars: HashMap::new(),
             cancel: None,
@@ -960,6 +965,71 @@ impl Interpreter {
         self.form_closed_rx = Some(closed_rx);
     }
 
+    /// 049 R28/R29 — bind `super`: `parent_handle` is the supervisor handle of
+    /// the form that loaded or opened this one. Called by the spawn glue on
+    /// BOTH load paths (menu load and `OpenFormSync`/`OpenFormAsync`); never
+    /// called for the main form, whose `super` stays NULL (R32).
+    pub fn set_super_form(&mut self, parent_handle: &str) {
+        self.super_window_handle = Some(parent_handle.to_string());
+    }
+
+    /// True when `name` (any case) is the `super` receiver (049 R28).
+    fn is_super(&self, name: &str) -> bool {
+        name.trim().eq_ignore_ascii_case("SUPER")
+    }
+
+    /// 049 R31 — resolve a `super`-rooted path to (target handle, remaining
+    /// path): the bound parent, then one `SUPERHANDLE` walk per leading
+    /// `super` SEGMENT (`super::super::X` → the grandparent). A missing link
+    /// anywhere raises the R32 NULL error — each step's binding is the
+    /// supervisor's live caller edge, so a closed ancestor fails honestly.
+    fn resolve_super_target(
+        &mut self,
+        path: &[PathSeg],
+    ) -> Result<(String, Vec<PathSeg>), RuntimeError> {
+        // R46 — a closed opener NULLs `super` before any use, so the error is
+        // the standard NULL one, never a stale-handle supervisor error.
+        self.drain_closed_handles();
+        let Some(mut handle) = self.super_window_handle.clone() else {
+            return Err(self.super_is_null_error());
+        };
+        let mut i = 0;
+        while let Some(PathSeg::Prop(p)) = path.get(i) {
+            if !p.eq_ignore_ascii_case("SUPER") {
+                break;
+            }
+            let up = self.window_method_roundtrip(&handle, "SUPERHANDLE", Vec::new())?;
+            if up.trim().is_empty() {
+                return Err(self.super_is_null_error());
+            }
+            handle = up;
+            i += 1;
+        }
+        Ok((handle, path[i..].to_vec()))
+    }
+
+    /// 049 R28/R31 — read `super[::super…]::X`: `GETPROPERTY` on the resolved
+    /// ancestor handle, answered from that form's published surface.
+    /// `Ok(None)` when the tail is not a plain single-property read.
+    fn super_prop_read(&mut self, path: &[PathSeg]) -> Result<Option<CobolValue>, RuntimeError> {
+        let (handle, rest) = self.resolve_super_target(path)?;
+        let Some(key) = single_prop_key(&rest) else {
+            return Ok(None);
+        };
+        let value = self.window_method_roundtrip(&handle, "GETPROPERTY", vec![key])?;
+        Ok(Some(prop_to_value(Some(PropertyValue::String(value)))))
+    }
+
+    /// The standard NULL-`super` error (R32, the 037 R24 NULL-handle
+    /// precedent): raised whenever `super` is referenced with no live parent.
+    fn super_is_null_error(&self) -> RuntimeError {
+        RuntimeError::General {
+            message: "super is NULL — this form has no parent (the main form, or \
+                      its opener already closed)"
+                .into(),
+        }
+    }
+
     /// Drain the closed-handle broadcast: any windowHandler variable holding
     /// a closed handle becomes NULL (R24). Cheap; called lazily at every
     /// handle touch.
@@ -976,6 +1046,17 @@ impl Interpreter {
                 *slot = None;
             }
         }
+        // 049 R46 — an async child does not pin its opener: when the opener
+        // closes, `super` becomes NULL and referencing it raises the standard
+        // error (the R24 handle precedent).
+        if self
+            .super_window_handle
+            .as_deref()
+            .map(|h| closed.iter().any(|c| c == h))
+            == Some(true)
+        {
+            self.super_window_handle = None;
+        }
         // Mirror NULL into the data items so `IF H = NULL` style checks and
         // DISPLAY show the emptied value.
         let vars: Vec<String> = self
@@ -989,6 +1070,23 @@ impl Interpreter {
         }
     }
 
+    /// 049 R30 — the canonical object-registry key for a member-chain or
+    /// method receiver: the `me` receiver maps to the form's own object name,
+    /// so `me::Width` and `<FORM-NAME>::Width` read and write the SAME entry.
+    /// Before this, `me::Title` silently registered a phantom `"ME"` control —
+    /// and the host's form-level taps (which match the form object name, e.g.
+    /// the FormState mirror and the FullScreen echo) could never see it.
+    /// Without a form context (`self_form_object` unset) the name passes
+    /// through unchanged.
+    fn member_root_key(&self, root: &str) -> String {
+        if root.trim().eq_ignore_ascii_case("ME") {
+            if let Some(form) = &self.self_form_object {
+                return form.clone();
+            }
+        }
+        root.to_string()
+    }
+
     /// True when `name` (any case) is the `me` receiver or the form's own
     /// object name (spec 037 D4).
     fn is_me(&self, name: &str) -> bool {
@@ -999,6 +1097,52 @@ impl Interpreter {
                 .as_deref()
                 .map(|f| f == upper)
                 .unwrap_or(false)
+    }
+
+    /// One supervisor round-trip: send `HandleMethod` on `handle`, block on
+    /// the reply. The shared plumbing of the windowHandler, `me::` and
+    /// `super::` (049) receivers.
+    fn window_method_roundtrip(
+        &mut self,
+        handle: &str,
+        method: &str,
+        args: Vec<String>,
+    ) -> Result<String, RuntimeError> {
+        use crate::form_host::FormRequest;
+        let Some(tx) = self.form_host_tx.clone() else {
+            return Err(RuntimeError::General {
+                message: "no window supervisor in this runtime".into(),
+            });
+        };
+        let (rtx, rrx) = mpsc::channel();
+        tx.send(FormRequest::HandleMethod {
+            handle: handle.to_string(),
+            method: method.to_string(),
+            args,
+            reply: rtx,
+        })
+        .map_err(|_| RuntimeError::General {
+            message: "window supervisor is gone".into(),
+        })?;
+        match rrx.recv() {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(msg)) => Err(RuntimeError::General { message: msg }),
+            Err(_) => Err(RuntimeError::General {
+                message: "window supervisor dropped the reply".into(),
+            }),
+        }
+    }
+
+    /// 049 — push one own-form property to the supervisor so `super::X` /
+    /// `handle::"GetProperty"` in OTHER forms read the current value.
+    /// Fire-and-forget; a missing supervisor is simply a console run.
+    fn publish_own_form_prop(&mut self, key: &str, value: &str) {
+        if let Some(tx) = &self.form_host_tx {
+            let _ = tx.send(crate::form_host::FormRequest::PublishFormProps {
+                handle: self.self_window_handle.clone(),
+                props: vec![(key.to_string(), value.to_string())],
+            });
+        }
     }
 
     /// 037 — dispatch `object::method(args)` when it is a window-supervisor
@@ -1058,6 +1202,19 @@ impl Interpreter {
                     message: "window supervisor dropped the reply".into(),
                 }),
             };
+        }
+
+        // ── `super::` receiver (049 R28) — a pre-bound handle: every window
+        // method routes to the PARENT form exactly as through a windowHandler
+        // variable, so the whole R23 surface applies. NULL parent ⇒ the
+        // standard error (R32).
+        if self.is_super(object) {
+            let Some(handle) = self.super_window_handle.clone() else {
+                return Err(self.super_is_null_error());
+            };
+            let value = self.window_method_roundtrip(&handle, &m, strings)?;
+            let n = value.len();
+            return Ok(Some(CobolValue::from_str(&value, n.max(1))));
         }
 
         // ── `me::` receivers ──────────────────────────────────────────────
@@ -1615,6 +1772,9 @@ impl Interpreter {
         I: IntoIterator<Item = (String, String, P)>,
         P: IntoIterator<Item = (String, String)>,
     {
+        // 049 — the designed form-entry props are published to the supervisor
+        // after seeding, so `super::X` in other forms reads them (R33).
+        let mut own_form_props: Vec<(String, String)> = Vec::new();
         for (id, class, props) in controls {
             if !self.objects.contains(&id) {
                 self.objects.register(&id, class.clone());
@@ -1628,6 +1788,14 @@ impl Interpreter {
             }
             for (k, v) in &props_vec {
                 self.objects.set_property(&id, &k, v.clone());
+            }
+            if self
+                .self_form_object
+                .as_deref()
+                .map(|f| f.eq_ignore_ascii_case(id.trim()))
+                .unwrap_or(false)
+            {
+                own_form_props = props_vec.clone();
             }
 
             // Double seed repeating GroupBoxes under their ArrayName
@@ -1660,6 +1828,14 @@ impl Interpreter {
                 for (k, v) in &props_vec {
                     self.objects.set_property(&array_id, k, v.clone());
                 }
+            }
+        }
+        if !own_form_props.is_empty() {
+            if let Some(tx) = &self.form_host_tx {
+                let _ = tx.send(crate::form_host::FormRequest::PublishFormProps {
+                    handle: self.self_window_handle.clone(),
+                    props: own_form_props,
+                });
             }
         }
     }
@@ -6105,6 +6281,16 @@ impl Interpreter {
                 val.clone(),
             ));
         }
+        // 049 — an own-form property write is mirrored to the supervisor so
+        // other forms' `super::X` reads stay current.
+        if self
+            .self_form_object
+            .as_deref()
+            .map(|f| f.eq_ignore_ascii_case(obj.trim()))
+            .unwrap_or(false)
+        {
+            self.publish_own_form_prop(prop, &val);
+        }
         // For a databound ControlArray, any set of ItemCount should re-hydrate
         // the current table rows into the (new) instances so cards aren't just
         // clones of the template/first row.
@@ -6173,9 +6359,16 @@ impl Interpreter {
                 });
                 Ok((root, segs))
             }
-            Expr::Identifier(name, _) => Ok((name.clone(), Vec::new())),
+            // 049 R30 — the root is canonicalised here, at the single point
+            // every member-chain consumer (read, assign, INITIALIZE, shadow
+            // flush, APPEND, methods) receives it: `me` becomes the form's
+            // object name.
+            Expr::Identifier(name, _) => Ok((self.member_root_key(name), Vec::new())),
             // A non-identifier root is unusual; fall back to its display name.
-            other => Ok((self.expr_to_name(other), Vec::new())),
+            other => {
+                let name = self.expr_to_name(other);
+                Ok((self.member_root_key(&name), Vec::new()))
+            }
         }
     }
 
@@ -6301,6 +6494,13 @@ impl Interpreter {
         let (root, res) = self.resolve_member(expr)?;
         match res {
             Resolved::Path(path) => {
+                // 049 R28 — `super::X` reads the PARENT form's published
+                // property surface through the supervisor.
+                if self.is_super(&root) {
+                    if let Some(v) = self.super_prop_read(&path)? {
+                        return Ok(v);
+                    }
+                }
                 // 037 — `H::FormState` reads through a windowHandler (R23).
                 if let Some(v) = self.try_window_handle_prop(&root, &path)? {
                     return Ok(v);
@@ -6308,6 +6508,41 @@ impl Interpreter {
                 Ok(prop_to_value(self.objects.get_path(&root, &path)))
             }
             Resolved::Method { path, method, args } => {
+                // 049 R31 — a window method on a CHAINED super receiver
+                // (`super::super::"Close"()`): resolve the ancestor, then the
+                // ordinary handle-method round-trip.
+                if self.is_super(&root) && !path.is_empty() {
+                    let (handle, rest) = self.resolve_super_target(&path)?;
+                    if rest.is_empty() {
+                        let strings: Vec<String> = args
+                            .iter()
+                            .map(|v| v.as_display_string().trim().to_string())
+                            .collect();
+                        let value =
+                            self.window_method_roundtrip(&handle, &method, strings)?;
+                        let n = value.len();
+                        return Ok(CobolValue::from_str(&value, n.max(1)));
+                    }
+                    // 049 R44 — a MENU OBJECT on the ancestor form:
+                    // `super::<menu-id>::Collapse()` / `Open()`. Pane-wide by
+                    // decision (spec Q10); the state persists under R9.
+                    if rest.len() == 1 {
+                        let m = method.trim().to_ascii_uppercase();
+                        if m == "COLLAPSE" || m == "OPEN" {
+                            let menu_id = match &rest[0] {
+                                PathSeg::Prop(id) => id.clone(),
+                                PathSeg::Index(_) => String::new(),
+                            };
+                            let on = if m == "COLLAPSE" { "1" } else { "0" };
+                            self.window_method_roundtrip(
+                                &handle,
+                                "SETMENUPANECOLLAPSED",
+                                vec![on.to_string(), menu_id],
+                            )?;
+                            return Ok(CobolValue::from_str("", 1));
+                        }
+                    }
+                }
                 // 037 — inline window calls (`me::"OpenFormSync"(…)`,
                 // `H::"Close"()`) raise real runtime errors and block on
                 // modal opens, so they cannot go through the infallible
@@ -6357,6 +6592,22 @@ impl Interpreter {
         match res {
             Resolved::Path(path) => {
                 let v = val.as_display_string().trim().to_owned();
+                // 049 R28/R31 — `MOVE … TO super[::super…]::X` writes the
+                // resolved ancestor's property through the supervisor
+                // (write-through, blocking, so a NULL link raises the R32
+                // error here and now).
+                if self.is_super(&root) {
+                    let (handle, rest) = self.resolve_super_target(&path)?;
+                    let Some(key) = single_prop_key(&rest) else {
+                        return Err(RuntimeError::General {
+                            message: "super only exposes form properties — \
+                                      a nested path cannot be assigned through it"
+                                .into(),
+                        });
+                    };
+                    self.window_method_roundtrip(&handle, "SETPROPERTY", vec![key, v])?;
+                    return Ok(());
+                }
                 self.set_member_indexed(&root, &path, v, instance);
                 Ok(())
             }
@@ -6455,7 +6706,21 @@ impl Interpreter {
                 [PathSeg::Prop(name)] => name.clone(),
                 _ => path_display(path),
             };
-            let _ = tx.send(StateUpdate::new(root.to_string(), key, val).with_index(instance));
+            let _ = tx.send(
+                StateUpdate::new(root.to_string(), key, val.clone()).with_index(instance),
+            );
+        }
+        // 049 — own-form property writes (me::X / <FORM-NAME>::X) are
+        // mirrored to the supervisor for other forms' `super::X` reads.
+        if self
+            .self_form_object
+            .as_deref()
+            .map(|f| f.eq_ignore_ascii_case(root.trim()))
+            .unwrap_or(false)
+        {
+            if let Some(key) = single_prop_key(path) {
+                self.publish_own_form_prop(&key, &val);
+            }
         }
     }
 
@@ -6515,6 +6780,9 @@ impl Interpreter {
     }
 
     fn exec_method(&mut self, object: &str, method: &str, args: &[CobolValue]) -> CobolValue {
+        // 049 R30 — `INVOKE ME "SetProperty" …` must land on the form object,
+        // not a phantom "ME" control (same canonicalisation as member chains).
+        let object = self.member_root_key(object);
         let obj = object.trim();
         // Rust-FFI object reference? Route the call into the bridge before the
         // UI-widget method dispatch below (spec 005 T10). The method name is kept
@@ -8451,6 +8719,15 @@ fn prop_to_value(pv: Option<PropertyValue>) -> CobolValue {
 
 /// Render a member path as a human-readable key for a `StateUpdate` on a nested
 /// place, e.g. `[Prop(Rows), Index(2), Prop(Value)]` → `"Rows(2).Value"`.
+/// The bare property name of a single-`Prop` path (`[Prop(X)]`), else `None`
+/// (049 — the shape `super` exposes: form properties only).
+fn single_prop_key(path: &[PathSeg]) -> Option<String> {
+    match path {
+        [PathSeg::Prop(k)] => Some(k.clone()),
+        _ => None,
+    }
+}
+
 fn path_display(path: &[PathSeg]) -> String {
     let mut out = String::new();
     for seg in path {

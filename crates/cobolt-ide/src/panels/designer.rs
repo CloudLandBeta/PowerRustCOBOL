@@ -4398,6 +4398,70 @@ impl DesignerPanel {
                 self.dirty = true;
             }
 
+            // ── 049 Application shell ─────────────────────────────────────
+            "FormFormat" => {
+                // R5: the main form owns the window; its format is pinned.
+                if !self.form.main_form {
+                    self.form.form_format = cobolt_forms::model::FormFormat::from_str(&value);
+                    self.dirty = true;
+                }
+            }
+            "MenuPaneCustom" => {
+                // The R39 group: checking materialises defaults, unchecking
+                // returns the pane to the shell's default chrome fill.
+                if value == "true" || value == "1" {
+                    self.form
+                        .menu_pane_background
+                        .get_or_insert_with(Default::default);
+                } else {
+                    self.form.menu_pane_background = None;
+                }
+                self.dirty = true;
+            }
+            "MenuPaneColor" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.color = value;
+                self.dirty = true;
+            }
+            "MenuPaneGradientEnabled" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_enabled = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "MenuPaneGradientStartColor" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_start_color = value;
+                self.dirty = true;
+            }
+            "MenuPaneGradientEndColor" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_end_color = value;
+                self.dirty = true;
+            }
+            "MenuPaneGradientDirection" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.gradient_direction = value;
+                self.dirty = true;
+            }
+            "MenuPaneTransparency" => {
+                if let Ok(v) = value.parse::<u8>() {
+                    let mp =
+                        self.form.menu_pane_background.get_or_insert_with(Default::default);
+                    mp.transparency = v.min(100);
+                    self.dirty = true;
+                }
+            }
+            "MenuPaneImage" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.image = value;
+                self.dirty = true;
+            }
+            "MenuPaneImageMode" => {
+                let mp = self.form.menu_pane_background.get_or_insert_with(Default::default);
+                mp.image_mode = cobolt_forms::model::BgImageMode::from_str(&value);
+                self.dirty = true;
+            }
+
             // ── Window start position ────────────────────────────────────
             "X" => {
                 if let Ok(v) = value.parse::<i32>() {
@@ -4454,6 +4518,64 @@ impl DesignerPanel {
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
+            "FormFormat" => Some(self.form.form_format.as_str().to_string()),
+            "MenuPaneCustom" => Some(bool_str(self.form.menu_pane_background.is_some())),
+            "MenuPaneColor" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.color.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneGradientEnabled" => Some(bool_str(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_enabled)
+                    .unwrap_or(false),
+            )),
+            "MenuPaneGradientStartColor" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_start_color.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneGradientEndColor" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_end_color.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneGradientDirection" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.gradient_direction.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneTransparency" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.transparency.to_string())
+                    .unwrap_or_else(|| "0".into()),
+            ),
+            "MenuPaneImage" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.image.clone())
+                    .unwrap_or_default(),
+            ),
+            "MenuPaneImageMode" => Some(
+                self.form
+                    .menu_pane_background
+                    .as_ref()
+                    .map(|m| m.image_mode.as_str().to_string())
+                    .unwrap_or_else(|| "Stretch".into()),
+            ),
             "X" => Some(self.form.x.to_string()),
             "Y" => Some(self.form.y.to_string()),
             "StartPosition" => Some(self.form.start_position.as_str().to_string()),
@@ -6944,6 +7066,7 @@ impl DesignerPanel {
                                     MenuEditorModal::action_type_of(item).to_string();
                                 let cur_icon = item.icon.clone().unwrap_or_default();
                                 let cur_enabled = item.enabled;
+                                let cur_preserve = item.preserve_previous_form;
 
                                 if !is_sep {
                                     // Label
@@ -7220,6 +7343,26 @@ impl DesignerPanel {
                                             }
                                         }
                                     });
+
+                                    // 049 R24 — meaningful only when this item
+                                    // loads a form into the shell's ContentPane.
+                                    if cur_action_type == "open-form" {
+                                        ui.horizontal(|ui| {
+                                            let mut pv = cur_preserve;
+                                            if ui
+                                                .checkbox(&mut pv, tr.menu_lbl_preserve)
+                                                .on_hover_text(tr.tip_menu_preserve)
+                                                .changed()
+                                            {
+                                                if let Some(it) = MenuEditorModal::item_at_mut(
+                                                    &mut modal.def.menu,
+                                                    &modal.selected,
+                                                ) {
+                                                    it.preserve_previous_form = pv;
+                                                }
+                                            }
+                                        });
+                                    }
                                 } else {
                                     ui.label("── separator ──");
                                 }
@@ -9765,6 +9908,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::ProgressBar => "ProgressBar",
         CT::DataGrid => "DataGrid",
         CT::MenuBar => "MenuBar",
+        CT::SideMenu => "SideMenu",
         CT::ToolBar => "ToolBar",
         CT::StatusBar => "StatusBar",
         CT::Line => "Line",
@@ -10139,6 +10283,17 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "FullScreen",
     "TitleVisible",
     "WindowEffects",
+    // 049 Application shell
+    "FormFormat",
+    "MenuPaneCustom",
+    "MenuPaneColor",
+    "MenuPaneGradientEnabled",
+    "MenuPaneGradientStartColor",
+    "MenuPaneGradientEndColor",
+    "MenuPaneGradientDirection",
+    "MenuPaneTransparency",
+    "MenuPaneImage",
+    "MenuPaneImageMode",
     // Window start position
     "X",
     "Y",
@@ -11693,6 +11848,79 @@ mod save_icon_tests {
         assert_eq!(circles, 1, "one badge circle");
         assert_eq!(rects, 4, "disk, shutter, hub slot, label");
         assert_eq!(lines, 3, "the arrow: stem plus two barbs");
+    }
+}
+
+#[cfg(test)]
+mod shell_prop_tests {
+    use super::*;
+    use cobolt_forms::model::FormFormat;
+
+    #[test]
+    fn form_format_prop_round_trips_and_main_form_is_pinned_049() {
+        // 049 R1/R5 — FormFormat is settable through the prop plumbing on an
+        // ordinary form, and a no-op on the main form (pinned Standalone).
+        let mut d = DesignerPanel::new(Form::new("FormA", "A", 640, 480));
+        assert_eq!(d.get_form_prop("FormFormat").as_deref(), Some("Standalone"));
+        d.set_form_prop("FormFormat", "Embedded".into());
+        assert_eq!(d.get_form_prop("FormFormat").as_deref(), Some("Embedded"));
+        d.set_form_prop("formformat", "Both".into()); // case-insensitive key
+        assert_eq!(d.get_form_prop("FormFormat").as_deref(), Some("Both"));
+
+        let mut main = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        main.form.main_form = true;
+        main.set_form_prop("FormFormat", "Embedded".into());
+        assert_eq!(
+            main.get_form_prop("FormFormat").as_deref(),
+            Some("Standalone"),
+            "R5: the main form's format is pinned"
+        );
+        assert_eq!(main.form.form_format, FormFormat::Standalone);
+
+        println!(
+            "049 FormFormat plumbing — 3 transitions on a normal form \
+             (Standalone→Embedded→Both, case-insensitive), main form pinned Standalone"
+        );
+    }
+
+    #[test]
+    fn menu_pane_background_props_materialise_and_clear_049() {
+        // 049 R39 — the 9 MenuPane* keys: MenuPaneCustom materialises/clears
+        // the group; each field key reads back what it wrote.
+        let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        assert_eq!(d.get_form_prop("MenuPaneCustom").as_deref(), Some("false"));
+
+        d.set_form_prop("MenuPaneCustom", "true".into());
+        assert_eq!(d.get_form_prop("MenuPaneCustom").as_deref(), Some("true"));
+
+        let cases: &[(&str, &str)] = &[
+            ("MenuPaneColor", "#123456FF"),
+            ("MenuPaneGradientEnabled", "true"),
+            ("MenuPaneGradientStartColor", "#111111"),
+            ("MenuPaneGradientEndColor", "#222222"),
+            ("MenuPaneGradientDirection", "East"),
+            ("MenuPaneTransparency", "40"),
+            ("MenuPaneImage", "assets/rail.png"),
+            ("MenuPaneImageMode", "Tile"),
+        ];
+        for (key, value) in cases {
+            d.set_form_prop(key, (*value).into());
+            assert_eq!(
+                d.get_form_prop(key).as_deref(),
+                Some(*value),
+                "{key} did not round-trip"
+            );
+        }
+
+        d.set_form_prop("MenuPaneCustom", "false".into());
+        assert!(d.form.menu_pane_background.is_none(), "cleared to None");
+        assert_eq!(d.get_form_prop("MenuPaneCustom").as_deref(), Some("false"));
+
+        println!(
+            "049 MenuPane background plumbing — materialise + {} field keys \
+             round-trip + clear back to None",
+            cases.len()
+        );
     }
 }
 
@@ -13805,6 +14033,11 @@ mod property_key_case_tests {
             "fullscreen", "titlevisible",
             // 038 window effects opt-out
             "windoweffects",
+            // 049 application shell
+            "formformat", "menupanecustom", "menupanecolor", "menupanegradientenabled",
+            "menupanegradientstartcolor", "menupanegradientendcolor",
+            "menupanegradientdirection", "menupanetransparency", "menupaneimage",
+            "menupaneimagemode",
             // Window start position
             "x", "y", "startposition",
         ] {

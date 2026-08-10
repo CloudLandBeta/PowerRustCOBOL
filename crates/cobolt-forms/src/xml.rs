@@ -113,6 +113,40 @@ fn get_attr_str(e: &BytesStart, key: &[u8]) -> Result<String, FormError> {
     Ok(get_attr(e, key)?.unwrap_or_default())
 }
 
+/// Parse a `<MenuPaneBackground …/>` element's attributes (049 R39). Every
+/// attribute is optional; an absent one keeps the struct default, so a
+/// hand-trimmed element still loads.
+fn parse_menu_pane_background(
+    e: &BytesStart,
+) -> Result<crate::model::MenuPaneBackground, FormError> {
+    let mut mp = crate::model::MenuPaneBackground::default();
+    if let Some(v) = get_attr(e, b"color")? {
+        mp.color = v;
+    }
+    if let Some(v) = get_attr(e, b"gradient-enabled")? {
+        mp.gradient_enabled = v == "true" || v == "1";
+    }
+    if let Some(v) = get_attr(e, b"gradient-start")? {
+        mp.gradient_start_color = v;
+    }
+    if let Some(v) = get_attr(e, b"gradient-end")? {
+        mp.gradient_end_color = v;
+    }
+    if let Some(v) = get_attr(e, b"gradient-direction")? {
+        mp.gradient_direction = v;
+    }
+    if let Some(v) = get_attr(e, b"transparency")? {
+        mp.transparency = v.parse::<u8>().unwrap_or(0).min(100);
+    }
+    if let Some(v) = get_attr(e, b"image")? {
+        mp.image = v;
+    }
+    if let Some(v) = get_attr(e, b"image-mode")? {
+        mp.image_mode = BgImageMode::from_str(&v);
+    }
+    Ok(mp)
+}
+
 #[allow(dead_code)]
 fn get_attr_i32(e: &BytesStart, key: &[u8], default: i32) -> Result<i32, FormError> {
     Ok(get_attr(e, key)?
@@ -167,6 +201,8 @@ enum OwnedEvent {
         window_state: crate::model::WindowState,
         full_screen: bool,
         title_visible: bool,
+        // 049 Application shell
+        form_format: crate::model::FormFormat,
         // 038 Window effects opt-out
         window_effects: bool,
         // Window start position (operator, 2026-07-31)
@@ -175,6 +211,9 @@ enum OwnedEvent {
         start_position: crate::model::FormStartPosition,
     },
     ControlStart(AttrPairs),
+    // 049 R39 — the shell MenuPane's background, a self-closing attribute
+    // element on the main form.
+    MenuPaneBackground(crate::model::MenuPaneBackground),
     PropertyStart(String), // property name
     ChildrenStart,
     WorkingStorageStart,                 // <working-storage>
@@ -271,6 +310,11 @@ fn next_owned<R: std::io::BufRead>(
                     let title_visible = get_attr(e, b"title-visible")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
+                    // 049 R1 — absent means Standalone, so every pre-049 form
+                    // keeps opening in its own window (R3).
+                    let form_format = get_attr(e, b"form-format")?
+                        .map(|v| crate::model::FormFormat::from_str(&v))
+                        .unwrap_or_default();
                     let window_effects = get_attr(e, b"window-effects")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
@@ -313,6 +357,7 @@ fn next_owned<R: std::io::BufRead>(
                         window_state,
                         full_screen,
                         title_visible,
+                        form_format,
                         window_effects,
                         x,
                         y,
@@ -332,6 +377,9 @@ fn next_owned<R: std::io::BufRead>(
                 b"Property" => {
                     let name = get_attr_str(e, b"name")?;
                     Ok(OwnedEvent::PropertyStart(name))
+                }
+                b"MenuPaneBackground" => {
+                    Ok(OwnedEvent::MenuPaneBackground(parse_menu_pane_background(e)?))
                 }
                 b"Children" => Ok(OwnedEvent::ChildrenStart),
                 b"working-storage" => Ok(OwnedEvent::WorkingStorageStart),
@@ -362,6 +410,9 @@ fn next_owned<R: std::io::BufRead>(
 
         // ── Empty / self-closing tags ─────────────────────────────────────────
         Event::Empty(e) => match e.local_name().as_ref() {
+            b"MenuPaneBackground" => {
+                Ok(OwnedEvent::MenuPaneBackground(parse_menu_pane_background(&e)?))
+            }
             b"Animation" => {
                 let mut pairs = AttrPairs::new();
                 for attr in e.attributes() {
@@ -447,6 +498,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 window_state,
                 full_screen,
                 title_visible,
+                form_format,
                 window_effects,
                 x,
                 y,
@@ -475,6 +527,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.window_state = window_state;
                 f.full_screen = full_screen;
                 f.title_visible = title_visible;
+                f.form_format = form_format;
                 f.window_effects = window_effects;
                 f.x = x;
                 f.y = y;
@@ -654,6 +707,11 @@ fn parse_form_body<R: std::io::BufRead>(
             // ── Controls ──────────────────────────────────────────────────────
             OwnedEvent::ControlStart(attrs) => {
                 form.controls.push(parse_control(reader, buf, attrs)?);
+            }
+
+            // ── <MenuPaneBackground/> (049 R39) ───────────────────────────────
+            OwnedEvent::MenuPaneBackground(mp) => {
+                form.menu_pane_background = Some(mp);
             }
 
             // ── <working-storage> ─────────────────────────────────────────────
@@ -1163,6 +1221,11 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         if !form.title_visible {
             elem.push_attribute(("title-visible", "false"));
         }
+        // 049 R1 — additive: only written when it is not the Standalone default,
+        // so every pre-049 form round-trips byte-identical.
+        if form.form_format != crate::model::FormFormat::Standalone {
+            elem.push_attribute(("form-format", form.form_format.as_str()));
+        }
         // 038 — the effects opt-out, additive like the 037 attributes.
         if !form.window_effects {
             elem.push_attribute(("window-effects", "false"));
@@ -1186,6 +1249,28 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         w.write_event(Event::Start(elem))?;
 
         // ── <working-storage> ─────────────────────────────────────────────────
+        // ── <MenuPaneBackground/> (049 R39) — additive: written only when set,
+        // so every pre-049 form keeps its exact on-disk shape.
+        if let Some(mp) = &form.menu_pane_background {
+            let mut e = BytesStart::new("MenuPaneBackground");
+            e.push_attribute(("color", mp.color.as_str()));
+            if mp.gradient_enabled {
+                e.push_attribute(("gradient-enabled", "true"));
+                e.push_attribute(("gradient-start", mp.gradient_start_color.as_str()));
+                e.push_attribute(("gradient-end", mp.gradient_end_color.as_str()));
+                e.push_attribute(("gradient-direction", mp.gradient_direction.as_str()));
+            }
+            if mp.transparency != 0 {
+                let t = mp.transparency.to_string();
+                e.push_attribute(("transparency", t.as_str()));
+            }
+            if !mp.image.is_empty() {
+                e.push_attribute(("image", mp.image.as_str()));
+                e.push_attribute(("image-mode", mp.image_mode.as_str()));
+            }
+            w.write_event(Event::Empty(e))?;
+        }
+
         if !form.user_ws_source.trim().is_empty() {
             w.write_event(Event::Start(BytesStart::new("working-storage")))?;
             w.write_event(Event::CData(BytesCData::new(form.user_ws_source.as_str())))?;
@@ -1804,6 +1889,242 @@ Actor Caption:string</Property>
             loaded.title_visible
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn menu_pane_background_round_trips_049() {
+        // 049 R39 (model half) — the MenuPane background group round-trips with
+        // every field set; a form without it saves no element and loads None.
+        use crate::model::MenuPaneBackground;
+
+        let mut form = sample_form();
+        form.menu_pane_background = Some(MenuPaneBackground {
+            color: "#1A2B3CFF".into(),
+            gradient_enabled: true,
+            gradient_start_color: "#101010".into(),
+            gradient_end_color: "#404040".into(),
+            gradient_direction: "East".into(),
+            transparency: 35,
+            image: "assets/rail.png".into(),
+            image_mode: BgImageMode::Tile,
+        });
+        let path = std::env::temp_dir().join("cobolt_test_menu_pane_bg_049.cfrm");
+        save_form(&form, &path).expect("save");
+        let xml = std::fs::read_to_string(&path).expect("read");
+        let loaded = load_form(&path).expect("load");
+        let mp = loaded
+            .menu_pane_background
+            .as_ref()
+            .expect("the MenuPane background survived");
+        assert_eq!(mp.color, "#1A2B3CFF");
+        assert!(mp.gradient_enabled);
+        assert_eq!(mp.gradient_start_color, "#101010");
+        assert_eq!(mp.gradient_end_color, "#404040");
+        assert_eq!(mp.gradient_direction, "East");
+        assert_eq!(mp.transparency, 35);
+        assert_eq!(mp.image, "assets/rail.png");
+        assert_eq!(mp.image_mode, BgImageMode::Tile);
+        assert!(xml.contains("<MenuPaneBackground"), "element written");
+        let _ = std::fs::remove_file(&path);
+
+        // Absent ⇒ None, and no element written (a pre-049 file's shape).
+        let plain = sample_form();
+        let p2 = std::env::temp_dir().join("cobolt_test_menu_pane_bg_none_049.cfrm");
+        save_form(&plain, &p2).expect("save plain");
+        let plain_xml = std::fs::read_to_string(&p2).expect("read plain");
+        assert!(!plain_xml.contains("MenuPaneBackground"));
+        let plain_loaded = load_form(&p2).expect("load plain");
+        assert!(plain_loaded.menu_pane_background.is_none());
+        let _ = std::fs::remove_file(&p2);
+
+        println!(
+            "049 R39 MenuPane background — 8/8 fields round-trip \
+             (color={} gradient={}→{} dir={} transparency={} image={} mode={}); \
+             absent element loads None",
+            mp.color,
+            mp.gradient_start_color,
+            mp.gradient_end_color,
+            mp.gradient_direction,
+            mp.transparency,
+            mp.image,
+            mp.image_mode.as_str()
+        );
+    }
+
+    #[test]
+    fn side_menu_control_round_trips_049() {
+        // 049 R45 — a SideMenu survives save → load, and a form carrying a
+        // MenuBar round-trips byte-identical, so no existing project can be
+        // turned into a shell app by accident (R3).
+        let mut form = sample_form();
+        let mut side = Control::new("SIDE-1", ControlType::SideMenu, 0, 0);
+        side.rect.w = 200;
+        side.rect.h = 400;
+        side.properties.insert(
+            "ForegroundColor".into(),
+            PropValue::String("#E1E6FA".into()),
+        );
+        form.controls.push(side);
+
+        let path = std::env::temp_dir().join("cobolt_test_side_menu_049.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        let found = loaded
+            .controls
+            .iter()
+            .find(|c| c.id == "SIDE-1")
+            .expect("the SideMenu survived the round-trip");
+        assert_eq!(found.control_type, ControlType::SideMenu);
+        assert_eq!(found.rect.w, 200);
+        assert_eq!(found.rect.h, 400);
+        let _ = std::fs::remove_file(&path);
+
+        // A MenuBar form is untouched by 049: its control keeps its type, gains
+        // no SideMenu markup, and gains no form-format attribute — so it still
+        // starts in classic multi-window mode (R3).
+        //
+        // Note: this deliberately does NOT compare two consecutive saves. Loading
+        // normalises event bodies (adding the ENVIRONMENT/DATA/PROCEDURE DIVISION
+        // scaffold) and drops empty properties, so save → load → save is not
+        // byte-identical for ANY form in this format. That predates 049.
+        let mut bar_form = sample_form();
+        bar_form
+            .controls
+            .push(Control::new("BAR-1", ControlType::MenuBar, 0, 0));
+        let bar_path = std::env::temp_dir().join("cobolt_test_menubar_049.cfrm");
+        save_form(&bar_form, &bar_path).expect("save menubar");
+        let bar_xml = std::fs::read_to_string(&bar_path).expect("read menubar");
+        let bar_loaded = load_form(&bar_path).expect("load menubar");
+        let bar_ctrl = bar_loaded
+            .controls
+            .iter()
+            .find(|c| c.id == "BAR-1")
+            .expect("the MenuBar survived");
+        assert_eq!(bar_ctrl.control_type, ControlType::MenuBar);
+        assert!(
+            bar_xml.contains("type=\"MenuBar\""),
+            "the MenuBar control must still serialise as MenuBar"
+        );
+        assert!(
+            !bar_xml.contains("SideMenu"),
+            "a MenuBar form must not gain any SideMenu markup"
+        );
+        assert!(
+            !bar_xml.contains("form-format="),
+            "a MenuBar form must not gain a form-format attribute"
+        );
+        assert_eq!(
+            bar_loaded.form_format,
+            crate::model::FormFormat::Standalone,
+            "a MenuBar form stays Standalone, so the shell is not triggered (R3)"
+        );
+        let _ = std::fs::remove_file(&bar_path);
+
+        println!(
+            "049 R45 SideMenu — control round-trip: type={} {}x{}; \
+             MenuBar form unchanged: type={} form_format={} \
+             (no SideMenu markup, no form-format attribute)",
+            found.control_type.as_str(),
+            found.rect.w,
+            found.rect.h,
+            bar_ctrl.control_type.as_str(),
+            bar_loaded.form_format.as_str()
+        );
+    }
+
+    #[test]
+    fn shell_activation_is_side_menu_only_049() {
+        // AC1/AC2/AC25 (decision half) — only a SideMenu control puts a form
+        // in shell mode; a MenuBar (or nothing) keeps classic mode (R2/R3).
+        let plain = sample_form();
+        assert!(!plain.has_side_menu(), "no menu ⇒ classic");
+
+        let mut with_bar = sample_form();
+        with_bar
+            .controls
+            .push(Control::new("BAR-1", ControlType::MenuBar, 0, 0));
+        assert!(
+            !with_bar.has_side_menu(),
+            "AC25: a MenuBar must NOT trigger the shell"
+        );
+
+        let mut with_side = sample_form();
+        with_side
+            .controls
+            .push(Control::new("SIDE-1", ControlType::SideMenu, 0, 0));
+        assert!(with_side.has_side_menu(), "AC2: a SideMenu triggers it");
+        assert_eq!(
+            with_side.side_menu_control_id().as_deref(),
+            Some("SIDE-1"),
+            "the mounting id is the control's"
+        );
+
+        // Nested inside a container still counts.
+        let mut nested = sample_form();
+        let mut panel = Control::new("PANEL-1", ControlType::Panel, 0, 0);
+        panel
+            .children
+            .push(Control::new("SIDE-2", ControlType::SideMenu, 0, 0));
+        nested.controls.push(panel);
+        assert!(nested.has_side_menu(), "nested SideMenu counts");
+
+        println!(
+            "049 AC1/AC2/AC25 (decision) — none ⇒ classic, MenuBar ⇒ classic, \
+             SideMenu ⇒ shell (id SIDE-1), nested SideMenu ⇒ shell (4/4)"
+        );
+    }
+
+    #[test]
+    fn form_format_round_trips_049() {
+        // 049 R1 — every value survives save → load, and the Standalone default
+        // is never written, so a pre-049 form keeps its exact on-disk shape (R3).
+        use crate::model::FormFormat;
+        let mut covered = Vec::new();
+        let mut no_attr_xml = String::new();
+        for fmt in [
+            FormFormat::Standalone,
+            FormFormat::Embedded,
+            FormFormat::Both,
+        ] {
+            let mut form = sample_form();
+            form.form_format = fmt;
+            let path =
+                std::env::temp_dir().join(format!("cobolt_test_form_format_{}.cfrm", fmt.as_str()));
+            save_form(&form, &path).expect("save");
+            let xml = std::fs::read_to_string(&path).expect("read");
+            let loaded = load_form(&path).expect("load");
+            assert_eq!(
+                loaded.form_format,
+                fmt,
+                "{} did not round-trip",
+                fmt.as_str()
+            );
+            let has_attr = xml.contains("form-format=");
+            assert_eq!(
+                has_attr,
+                fmt != FormFormat::Standalone,
+                "{}: the attribute must be written only when it is not the default",
+                fmt.as_str()
+            );
+            if fmt == FormFormat::Standalone {
+                no_attr_xml = xml;
+            }
+            covered.push(format!("{} (attr written: {})", fmt.as_str(), has_attr));
+            let _ = std::fs::remove_file(&path);
+        }
+
+        // The Standalone save carries no `form-format` at all — the same shape a
+        // .cfrm written before 049 has. Loading it must give Standalone (R3).
+        let legacy = load_form_from_str(&no_attr_xml).expect("legacy load");
+        assert_eq!(legacy.form_format, FormFormat::Standalone);
+
+        println!(
+            "049 R1 FormFormat round-trip — {} values covered: {}; \
+             a file with no form-format attribute loads as {}",
+            covered.len(),
+            covered.join(", "),
+            legacy.form_format.as_str()
+        );
     }
 
     #[test]

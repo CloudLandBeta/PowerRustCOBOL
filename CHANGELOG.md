@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.14] — 2026-08-09
+
+### Added — spec 049: the application shell & the `super` receiver
+
+- **Application shell (opt-in).** A main form carrying the new **SideMenu**
+  control starts the app as ONE window: a MenuPane (root + contextual menu
+  slots, Open/Collapsed with a per-application persisted state and an icon
+  rail), a breadcrumb, and a ContentPane hosting the form at its designed
+  size. The loaded form's background paints the whole pane (pane-relative
+  image/gradient geometry) and stays fixed while the form scrolls; a
+  transparent form reaches the desktop through the pane region only, the
+  chrome staying opaque. A `MenuBar` deliberately does NOT trigger the shell —
+  existing projects keep classic multi-window mode untouched.
+- **FormFormat** (`Standalone` | `Embedded` | `Both`) on every form, with a
+  build-time load-path check (menu items may not target Standalone forms;
+  `OpenFormSync`/`OpenFormAsync` may not target Embedded ones), inspector
+  greying of window-only properties while Embedded, and no entrance/exit
+  effects for embedded forms.
+- **Navigation chain.** Menu-loaded forms chain main → subsystem → screen;
+  every chained form stays RESIDENT (storage + menu handlers alive), the
+  breadcrumb renders the chain, clicking a segment destroys everything below
+  it deepest-first, a root-slot switch unwinds to the main form first, and
+  each menu item's **PreservePreviousForm** parks the outgoing sibling for an
+  instant, state-intact return. Two lifecycle events tell the cases apart:
+  `onDeactivate` (swapped out, still resident) and `onDestroy` (teardown).
+- **The `super` receiver.** `super::Title` reads/assigns the loader form's
+  properties (write-through, live to both sides), `super::"SetWindowState"`
+  etc. drive its window, `super::super::…` walks one loader per step,
+  `super::<menu-id>::Collapse()`/`Open()` drive the MenuPane, and a NULL
+  `super` (main form; async opener closed) raises the standard error. Bare
+  `me`/`super` properties are compile-checked against the universal form
+  surface at any depth; form-specific procedures dispatch at run time.
+  `me::<property>` now works (`me::Width`, `MOVE … TO me::Title`) — the form
+  itself is seeded as an object, fixing writes that previously landed on a
+  phantom "ME" control where the host's FormState/FullScreen mirrors could
+  never see them.
+- **Known limit:** loading a SECOND form into the ContentPane awaits the same
+  multi-form runtime as spec 037's child windows (its open T16);
+  `open-form:` menu items say so at run time instead of pretending.
+
 ## [PowerRustCOBOL 1.61.13] — 2026-08-09
 
 ### Fixed

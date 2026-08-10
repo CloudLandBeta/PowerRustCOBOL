@@ -3672,7 +3672,127 @@ You **invoke** a Rust method two ways — the `INVOKE` verb, or the inline
 
 ---
 
-## 22. Caveats and current limitations
+## 22. The application shell and the `super` receiver
+
+If you have built a large PowerCOBOL application, you know the shape it takes:
+dozens of windows, each its own island. PowerRustCOBOL adds an alternative for
+enterprise applications — an **application shell**: one window, divided into a
+menu pane, a breadcrumb, and a content area where forms are loaded in place.
+Think of an ERP whose main menu lists subsystems (CRM, HR, Sales); entering
+one mounts its menu and loads its screens into the same window.
+
+### Turning the shell on
+
+Place a **SideMenu** control on your **main form**. That is the whole switch:
+
+- Main form with a SideMenu → the application starts in **shell mode**.
+- No SideMenu — including a form with a classic `MenuBar` — → every form opens
+  in its own window, exactly as before. An existing project can never become a
+  shell application by accident.
+
+The shell window has three fixed regions:
+
+| Region | What it is |
+|--------|-----------|
+| **MenuPane** | The main form's menu (the *root* slot, always present) plus the current subsystem's menu (the *contextual* slot, swapped whole). Open or Collapsed — collapsed is a narrow icon rail; the state is remembered per application, across restarts. |
+| **Breadcrumb** | One segment per step of the navigation chain (`Main › CRM › Customers`). Clicking a segment goes back there. Painted by the shell — a loaded form's colours never affect it. |
+| **ContentPane** | The loaded form, top-left, at its designed size. |
+
+### FormFormat — how a form may be loaded
+
+Every form declares it in the property inspector:
+
+- **Standalone** (default) — its own window, opened with `OpenFormSync` /
+  `OpenFormAsync`. Everything §21-era applications do today.
+- **Embedded** — loaded into the ContentPane by a menu item.
+- **Both** — a reusable screen valid on either path (a customer lookup that is
+  a modal dialog from Sales and a browsing pane inside CRM).
+
+The **build checks the pairing**: a menu item pointing at a Standalone form,
+or an `OpenFormSync` call naming an Embedded one, is a compile error naming
+the form. The main form is always Standalone — it owns the window.
+
+While a form is embedded, its window-only properties (WindowState, FullScreen,
+TitleVisible, CanMinimize, CanMaximize) are inert and shown greyed in the
+inspector; `Width`/`Height` report the **designed** values. Entrance and exit
+window effects play only for standalone forms — an embedded form is simply
+present.
+
+**The background rule.** The loaded form's background paints the **whole
+ContentPane** — colour, gradient, or image, with the image/gradient geometry
+computed against the *pane*, not the form rectangle. While the form scrolls
+(a form larger than the pane scrolls inside it), the background stays put.
+A fully transparent form (Transparency = 100) shows the desktop through the
+pane region — the menu and breadcrumb stay opaque.
+
+> ⚠️ **Caveat.** The same `Both` form therefore shows its background
+> differently embedded (pane-sized, fixed) and standalone (window rules,
+> spec 037). This is by design; design backgrounds accordingly.
+
+### The navigation chain
+
+Forms loaded from menus form a chain — main form → subsystem → screen. Every
+form **in the chain stays resident**: its WORKING-STORAGE lives, its menu
+handlers keep firing, even while its body is not displayed. The breadcrumb IS
+that chain. Clicking a segment destroys everything below it (deepest first),
+remounts that form's menu, and shows its body again.
+
+Two menu behaviours control sibling switches (menu editor, per item):
+
+- Default: switching from screen A to screen B **destroys** A.
+- **Preserve previous form** checked: A is kept resident, and returning to A
+  is instant, with its data exactly as left.
+
+Two form events tell them apart — bind them like any other:
+
+- **onDeactivate** — the body left the pane; the form is still resident. Do
+  *not* close files here.
+- **onDestroy** — storage is about to be released. Close files, COMMIT, free
+  resources here.
+
+### `super` — the form that loaded me
+
+`me` addresses the current form; **`super`** addresses the form that loaded
+or opened it — on both paths, menu loads and `OpenFormSync`/`OpenFormAsync`:
+
+```cobol
+      *> read and change the parent form's properties
+           MOVE super::Title TO WS-T.
+           MOVE "Processing…" TO super::Title.
+      *> drive its window (any windowHandler method)
+           INVOKE super::"SetWindowState"("Minimized").
+      *> walk further up: one loader per super
+           MOVE super::super::Title TO WS-T.
+      *> drive the menu pane (state persists per application)
+           super::SIDE-1::Collapse().
+           super::SIDE-1::Open().
+```
+
+Rules to expect:
+
+- **Bare properties are checked at build time** against the universal form
+  surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen,
+  TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat,
+  BackgroundColor, Transparency) — a typo like `super::Widht` fails the
+  build at any depth. Form-specific procedures use parentheses
+  (`super::"RecalcTotals"()`) and dispatch at run time.
+- **`super` can be NULL**: in the main form, and in an async-opened form
+  whose opener has closed (the child never keeps its opener alive).
+  Referencing a NULL `super` raises the standard runtime error.
+- `me::<property>` works the same way on the form's own surface —
+  `me::Width`, `MOVE "New" TO me::Title` — and `me` and the form's own name
+  address the same thing.
+
+> ⚠️ **Availability.** The shell window, its panes, menus, persistence and
+> the whole `super` surface are implemented. Loading a **second form** into
+> the ContentPane from a menu item is not hosted yet — it needs the same
+> multi-form runtime as spec 037's child windows, which is still pending.
+> Until that lands, `open-form:` menu items report themselves at run time
+> instead of loading, and the chain holds the main form.
+
+---
+
+## 23. Caveats and current limitations
 
 A consolidated list so you are never surprised:
 

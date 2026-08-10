@@ -50,8 +50,35 @@ pub fn build_object_seed(
     maps_api_key: Option<&str>,
     search_api_key: Option<&str>,
 ) -> Vec<(String, String, Vec<(String, String)>)> {
-    flat.iter()
-        .map(|c| {
+    // 049 R30/R33 — the FORM ITSELF is seeded as an object, carrying the
+    // universal form surface, so `me::Width` (and `<FORM-NAME>::Width`)
+    // read the designed values from the first frame. Before this the form
+    // had no registry entry at all and every form-property read was empty.
+    let b = |v: bool| if v { "1" } else { "0" }.to_string();
+    let form_entry = (
+        form.name.clone(),
+        "Form".to_string(),
+        vec![
+            ("Name".into(), form.name.clone()),
+            ("Title".into(), form.title.clone()),
+            ("Width".into(), form.width.to_string()),
+            ("Height".into(), form.height.to_string()),
+            ("X".into(), form.x.to_string()),
+            ("Y".into(), form.y.to_string()),
+            ("WindowState".into(), form.window_state.as_str().to_string()),
+            ("FullScreen".into(), b(form.full_screen)),
+            ("TitleVisible".into(), b(form.title_visible)),
+            ("CanMinimize".into(), b(form.can_minimize)),
+            ("CanMaximize".into(), b(form.can_maximize)),
+            // Design-time FormState is always Ready (spec 037 R16).
+            ("FormState".into(), "Ready".to_string()),
+            ("FormFormat".into(), form.form_format.as_str().to_string()),
+            ("BackgroundColor".into(), form.background_color.clone()),
+            ("Transparency".into(), form.transparency.to_string()),
+        ],
+    );
+    std::iter::once(form_entry)
+        .chain(flat.iter().map(|c| {
             let mut props: Vec<(String, String)> = c
                 .properties
                 .iter()
@@ -78,7 +105,7 @@ pub fn build_object_seed(
                 }
             }
             (c.id.clone(), c.control_type.as_str().to_string(), props)
-        })
+        }))
         .collect()
 }
 
@@ -230,8 +257,24 @@ mod tests {
         let (form, flat) = form_with(label);
 
         let seed = build_object_seed(&form, &flat, None, None);
-        assert_eq!(seed.len(), 1);
-        let (id, kind, props) = &seed[0];
+        // 049 R30 — entry 0 is the FORM itself (universal surface), controls
+        // follow.
+        assert_eq!(seed.len(), 2);
+        let (fid, fkind, fprops) = &seed[0];
+        assert_eq!(fid, "TEST-FORM");
+        assert_eq!(fkind, "Form");
+        let fget = |k: &str| {
+            fprops
+                .iter()
+                .find(|(name, _)| name == k)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(fget("Title"), Some("Test"));
+        assert_eq!(fget("Width"), Some("400"));
+        assert_eq!(fget("Height"), Some("300"));
+        assert_eq!(fget("FormState"), Some("Ready"));
+        assert_eq!(fget("FormFormat"), Some("Standalone"));
+        let (id, kind, props) = &seed[1];
         assert_eq!(id, "Label-1");
         assert_eq!(kind, "Label");
         let get = |k: &str| {
@@ -258,16 +301,17 @@ mod tests {
         let maps = Control::new("Map-1", ControlType::Maps, 0, 0);
         let (form, flat) = form_with(maps);
 
+        // Entry 0 is the form (049); the Maps control is entry 1.
         let none = build_object_seed(&form, &flat, None, None);
-        assert!(none[0].2.iter().all(|(k, _)| k != "_ResolvedMapsApiKey"));
+        assert!(none[1].2.iter().all(|(k, _)| k != "_ResolvedMapsApiKey"));
 
         let some = build_object_seed(&form, &flat, Some("KEY-123"), None);
-        assert!(some[0]
+        assert!(some[1]
             .2
             .iter()
             .any(|(k, v)| k == "_ResolvedMapsApiKey" && v == "KEY-123"));
         // The search key never lands on a Maps control.
         let cross = build_object_seed(&form, &flat, None, Some("SRCH"));
-        assert!(cross[0].2.iter().all(|(k, _)| k != "_ResolvedSearchApiKey"));
+        assert!(cross[1].2.iter().all(|(k, _)| k != "_ResolvedSearchApiKey"));
     }
 }
