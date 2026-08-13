@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.37] — 2026-08-12
+
+### Fixed — a theme that owns the look is no longer configured by Liquid Glass
+
+Specs 007 and 047 said a self-contained theme paints with "no frost, no relief,
+and no dependence on `GlassStyle`". The implementation did not deliver it: the
+form's glass style was read unconditionally, two call frames above the code that
+documented the rule. This is that gap closed.
+
+- **Drop shadows work again under a self-contained theme.** Selecting Neumorphic
+  Light or Neumorphic Dark while such a theme was active silently suppressed
+  **every** drop shadow on the form — `ShadowEnabled` simply stopped doing
+  anything, with nothing in the UI to say why. It also painted neumorphic rims on
+  flat surfaces that have no relief. Every painting read of the glass style now
+  passes through one gate, and a test enumerates them so the next painter cannot
+  reintroduce it.
+- **Picking a glass style no longer rewrites your form.** It used to overwrite
+  background colours, gradient flags and per-control shadow properties even when
+  the active theme ignored the setting entirely — so switching back to Liquid
+  Glass did not give you the form you had. The choice is still remembered; it
+  just touches nothing else.
+- **The Glass style row is disabled** under a theme that owns the whole look,
+  with a hint explaining why, instead of offering four options that change
+  nothing.
+- **A form now reports the theme it actually renders with.** The per-form picker
+  resolved against no project default, so a form inheriting a themed project
+  displayed "Liquid Glass" while painting as something else. Inherited themes are
+  marked **(from project)**.
+- **New Form offers the theme catalogue.** Its "Theme" row listed the four glass
+  styles, so a theme could not be chosen when the form was created. It now lists
+  Liquid Glass, Elegance and every installed pack — defaulting to the project's —
+  with the glass style as its own row beside it.
+- **The theme's corner radii are applied.** They were read from the palette and
+  then never used.
+
+> ⚠️ **Elegance forms change appearance** as a result — drop shadows reappear and
+> the theme's corner radii take effect. That is the fix, not a regression.
+> Liquid Glass and asset-pack forms are untouched, byte for byte: the spec-047
+> render baseline (eight shape-leaf counts across four glass styles) is unmoved.
+
+### Internal
+
+A form theme is now an implementation the painters ask, not an identity they test
+against: eleven `is-it-this-theme?` branches are gone, and registering a look
+touches no painting code at all.
+
 ## [PowerRustCOBOL 1.61.16] — 2026-08-10
 
 ### Added — the menu icon catalogue, redesigned and doubled

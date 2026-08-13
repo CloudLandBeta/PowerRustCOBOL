@@ -346,7 +346,13 @@ pub fn cmd_run_form(args: &[String]) {
                 .find(|p| p.id == theme_id)
                 .map(Arc::new)
         };
-    let surface_style = cobolt_forms::paint::SurfaceStyle::from_theme_id(&theme_id);
+    // 050 R3 — an asset pack may declare that it owns the whole look; that
+    // declaration lives in its manifest, so it is read from the resolved pack
+    // rather than guessed from the id.
+    let surface_theme = match theme_pack.as_ref() {
+        Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+        None => cobolt_forms::surface_theme::for_theme_id(&theme_id),
+    };
 
     // ── GUI event loop (own process — the IDE stays idle) ─────────────────────
     // The window itself is the SHARED form host (spec 042 R1): everything from
@@ -386,7 +392,7 @@ pub fn cmd_run_form(args: &[String]) {
         fx_exit,
         fx_restore,
         theme_pack,
-        surface_style,
+        surface_theme,
         icon_path,
         // R17 — a blank designed title stays blank under run-form, exactly as
         // it always has (the branded fallback belongs to built applications).

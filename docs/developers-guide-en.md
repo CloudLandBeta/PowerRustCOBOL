@@ -1601,8 +1601,14 @@ procedural style clears any per-form pack override for that form.
 
 - Project default: *Settings → Appearance → Default form theme*.
 - Per-form: Designer form *Appearance → Theme* (or leave to inherit).
+- At creation: *File → New Form → Theme*, which lists the same catalogue and
+  defaults to inheriting the project's.
 
 Resolution: per-form → project default → Classic/Liquid Glass.
+
+A form that leaves its own Theme unset shows the inherited one marked
+**(from project)**, so what the picker reports is always what the form actually
+renders with.
 
 #### Elegance
 
@@ -1627,16 +1633,44 @@ types, and the knob, gauge, switch and file-drop controls. Charts draw their
 series in the theme's accent family instead of the built-in colours, so a chart
 sits inside the form rather than on top of it.
 
-Two things worth knowing:
+#### Themes that own the whole look
+
+Some themes supply only *part* of the appearance and let Liquid Glass fill in the
+rest. Others define the **complete** look and want nothing layered over it —
+Elegance is one of these. A theme declares which kind it is, and the IDE follows
+that declaration everywhere.
+
+For a theme that owns the whole look:
+
+- **The Glass style row is greyed out**, with a note explaining why. Classic,
+  Enhanced and Neumorphic Light/Dark are variations *of* Liquid Glass; a flat
+  theme has no frost and no raised relief for them to vary. Offering the choice
+  while ignoring it was the confusing part, so the IDE no longer offers it. Your
+  last choice is remembered, and comes back the moment you return to Liquid
+  Glass.
+- **Choosing it changes nothing in your form file.** Picking a theme never
+  rewrites your background colours, gradient settings or per-control shadow
+  properties, so switching back and forth is lossless: the form you had is the
+  form you get.
+- **Your own properties still apply, all of them.** *Back color*, *Fore color*,
+  *Corner radius*, *Transparency*, *Shadow* — anything you set on a control wins
+  over the theme. In particular a drop shadow you switch on **is drawn**, whatever
+  the theme.
+
+> ⚠️ **Caveat — this changed in 1.61.37.** Before that release, selecting
+> Neumorphic Light or Neumorphic Dark while a self-contained theme was active
+> silently suppressed every drop shadow on the form, and could paint raised rims
+> on flat surfaces. If you worked around it by leaving Glass style on Classic,
+> that workaround is no longer needed: shadows now behave the same under all four
+> settings, because the setting no longer reaches the theme at all.
+
+Two more things worth knowing:
 
 - **Your own colours still win.** A control with an explicit *Back color* or
   *Fore color* keeps it. The theme only supplies the defaults, so you can theme a
   whole form and still make one field red.
-- **The Classic / Enhanced / Neumorphic setting does nothing while Elegance is
-  active.** Those three are variations *of* Liquid Glass. Elegance is a separate
-  theme with its own flat surface treatment, so switching between them has no
-  visible effect until you go back to Liquid Glass — this is expected, not a
-  fault.
+- **Elegance owns the whole look**, so the Glass style row is disabled while it
+  is selected — see above.
 
 Elegance is a control theme only: it does not supply a form background, so the
 form's own *Back color* / *Background Image* applies exactly as before.

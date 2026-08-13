@@ -248,7 +248,11 @@ pub struct BackdropPaint {
 /// bare and then jumped to its real background the moment the animation
 /// handed over to the live UI (operator report, 2026-07-30).
 pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) -> BackdropPaint {
-    let bg = backdrop_color(&backdrop.color_hex, backdrop.transparency);
+    let bg = themed_backdrop_color(
+        painter.ctx(),
+        &backdrop.color_hex,
+        backdrop.transparency,
+    );
     painter.rect_filled(rect, 0.0, bg);
 
     let gradient = if backdrop.gradient_enabled {
@@ -321,6 +325,47 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
     } else {
         Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(200))
     }
+}
+
+/// Has the developer actually chosen a form background?
+///
+/// Empty, or six hex digits that are all zero — the same "unset" that
+/// [`backdrop_color`] maps to its default navy.
+fn form_background_unset(color_hex: &str) -> bool {
+    let s = color_hex.trim();
+    let s = s.strip_prefix('#').unwrap_or(s);
+    let hex = if s.len() >= 6 { &s[..6] } else { s };
+    if hex.len() != 6 {
+        return true;
+    }
+    ["r", "g", "b"]
+        .iter()
+        .enumerate()
+        .all(|(i, _)| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(1) == 0)
+}
+
+/// The form's backdrop, letting the active THEME supply the default when the
+/// developer chose no colour (050).
+///
+/// [`backdrop_color`] is ctx-free — every surface and several tests call it
+/// without one — so it cannot ask a theme anything. This is the paint-time
+/// wrapper that can. A developer's own colour always wins (R9), and a theme that
+/// offers nothing leaves the historical navy exactly where it was (R21).
+fn themed_backdrop_color(ctx: &egui::Context, color_hex: &str, transparency: u8) -> Color32 {
+    if form_background_unset(color_hex) {
+        if let Some(c) =
+            crate::paint::theme_token(ctx, crate::surface_theme::ColorToken::FormBackground)
+        {
+            let a = (255.0 * (1.0 - transparency.min(100) as f32 / 100.0)) as u8;
+            return Color32::from_rgba_premultiplied(
+                (c.r() as f32 * a as f32 / 255.0) as u8,
+                (c.g() as f32 * a as f32 / 255.0) as u8,
+                (c.b() as f32 * a as f32 / 255.0) as u8,
+                a,
+            );
+        }
+    }
+    backdrop_color(color_hex, transparency)
 }
 
 fn backdrop_gradient_color(color_hex: &str, transparency: u8) -> Color32 {
@@ -1192,6 +1237,10 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     );
     let painted = paint_backdrop(&painter, backdrop_rect, &input.backdrop);
     let bg = painted.bg;
+    // Publish it for the controls whose own background is translucent and so
+    // cannot be resolved without knowing what is behind them (the SideMenu's
+    // rail, spec 049).
+    crate::paint::set_form_backdrop(ui.ctx(), bg);
     let backdrop_gradient = painted.gradient;
     let backdrop_img_alpha = painted.image_alpha;
     let backdrop_img = painted.image;
@@ -3975,17 +4024,17 @@ fn render_interactive(
             // 047 — under Elegance the *defaults* come from the palette, so a
             // themed grid reads as one surface instead of a themed frame around
             // built-in blues. An explicitly set property still wins (R8).
-            let eleg = paint::elegance_active(painter.ctx()).then(paint::elegance_palette);
-            let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor")).unwrap_or(
-                match &eleg {
-                    Some(e) => e.p.depth_tint(e.p.card, 0.04),
-                    None => Color32::from_rgb(60, 66, 96),
+            use crate::surface_theme::ColorToken as Tok;
+            let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor")).unwrap_or_else(
+                || {
+                    paint::theme_token(painter.ctx(), Tok::CardRaised)
+                        .unwrap_or(Color32::from_rgb(60, 66, 96))
                 },
             );
-            let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor")).unwrap_or(
-                match &eleg {
-                    Some(e) => e.p.text,
-                    None => Color32::from_rgb(235, 238, 250),
+            let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor")).unwrap_or_else(
+                || {
+                    paint::theme_token(painter.ctx(), Tok::Text)
+                        .unwrap_or(Color32::from_rgb(235, 238, 250))
                 },
             );
             // The DataGrid is the one control that supports a solid grid background
@@ -4001,14 +4050,14 @@ fn render_interactive(
                         .trim_start_matches('#')
                         .eq_ignore_ascii_case(default_bg)
             });
-            let grid_bg = grid_bg_underlay.unwrap_or(match &eleg {
-                Some(e) => e.p.input_bg,
-                None => Color32::from_rgb(26, 32, 58),
+            let grid_bg = grid_bg_underlay.unwrap_or_else(|| {
+                paint::theme_token(painter.ctx(), Tok::InputBg)
+                    .unwrap_or(Color32::from_rgb(26, 32, 58))
             });
-            let alt_bg_base = paint::parse_hex(&sv(ctrl, "AlternatingRowColor")).unwrap_or(
-                match &eleg {
-                    Some(e) => e.p.depth_tint(e.p.input_bg, 0.03),
-                    None => Color32::from_rgb(38, 44, 72),
+            let alt_bg_base = paint::parse_hex(&sv(ctrl, "AlternatingRowColor")).unwrap_or_else(
+                || {
+                    paint::theme_token(painter.ctx(), Tok::CardRaised)
+                        .unwrap_or(Color32::from_rgb(38, 44, 72))
                 },
             );
             let alt_bg_opacity = sv(ctrl, "AlternatingRowOpacity")
@@ -5546,11 +5595,8 @@ fn render_interactive(
                 alpha,
                 paint::SurfaceRole::Input,
             );
-            let eleg = paint::elegance_active(painter.ctx()).then(paint::elegance_palette);
-            let fg = match &eleg {
-                Some(e) => e.p.text,
-                None => Color32::from_rgb(220, 226, 250),
-            };
+            let fg = paint::theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text)
+                .unwrap_or(Color32::from_rgb(220, 226, 250));
             let selected = sv(ctrl, "SelectedNode");
             let mut y = screen.min.y + 12.0;
             for (line_index, line) in sv(ctrl, "Items").lines().enumerate() {
@@ -5574,13 +5620,11 @@ fn render_interactive(
                     painter.rect_filled(
                         row,
                         3.0,
-                        match &eleg {
-                            Some(e) => Color32::from_rgba_unmultiplied(
-                                e.p.focus.r(),
-                                e.p.focus.g(),
-                                e.p.focus.b(),
-                                70,
-                            ),
+                        match paint::theme_token(
+                            painter.ctx(),
+                            crate::surface_theme::ColorToken::Focus,
+                        ) {
+                            Some(c) => Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 70),
                             None => Color32::from_rgba_premultiplied(70, 110, 200, 70),
                         },
                     );
@@ -5639,9 +5683,10 @@ fn render_interactive(
                 .unwrap_or(Color32::TRANSPARENT);
             // Historically the bar surface was drawn only when the developer
             // set a colour — with none, the bar is bare and the form shows
-            // through. Elegance is a flat theme with no frost to fall back on,
-            // so it always lays its own bar down; Liquid Glass keeps the
-            // original opt-in behaviour exactly (R10).
+            // through. A flat theme has no frost to fall back on, so a theme
+            // that supplies its own faces always lays its bar down; Liquid
+            // Glass supplies none and keeps the original opt-in behaviour
+            // exactly (R10).
             if menu_bg.a() > 0 {
                 paint::draw_surface_auto(
                     &painter,
@@ -5652,7 +5697,7 @@ fn render_interactive(
                     alpha,
                     paint::SurfaceRole::Shape,
                 );
-            } else if paint::elegance_active(painter.ctx()) {
+            } else if paint::theme_has_surface(painter.ctx(), paint::SurfaceRole::Card) {
                 paint::draw_surface_auto(
                     &painter,
                     screen,
@@ -6104,22 +6149,96 @@ fn render_interactive(
         // drives what the shared painter draws, so preview and Run Form show
         // the same rail the shell shows.
         CT::SideMenu => {
-            let collapsed = matches!(sv(ctrl, "Collapsed").as_str(), "1" | "true");
-            let mut drawn = ctrl.clone();
-            drawn
-                .properties
-                .insert("Collapsed".to_owned(), crate::PropValue::Bool(collapsed));
-            paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
+            // Everything here goes through `crate::sidebar`: the rail is laid
+            // out ONCE, painted from that layout, and hit-tested against the
+            // very same rectangles. There is no second geometry to drift.
+            let def = paint::get_menu_cache(ui.ctx(), &ctrl.id);
+            let items: &[crate::menu::MenuItem] =
+                def.as_ref().map(|d| d.menu.as_slice()).unwrap_or(&[]);
 
-            let fsize = paint::ctrl_font_size(ctrl);
-            let row = fsize * 1.9;
-            // The ☰ hit area — the top row of the rail.
-            let toggle_rect = egui::Rect::from_min_size(
-                egui::pos2(screen.min.x + 4.0, screen.min.y + 1.0),
-                egui::vec2(30.0, row),
-            );
-            let resp = ui.interact(toggle_rect, ctrl_id.with("side-toggle"), Sense::click());
-            if resp.clicked() && enabled {
+            // Live state, so the preview behaves like the running app without
+            // touching the designed control: `Collapsed` and the open parents
+            // ride in the control state, the expansion set in egui memory.
+            let collapsed = matches!(sv(ctrl, "Collapsed").as_str(), "1" | "true");
+            let exp_id = ctrl_id.with("side-expanded");
+            let mut expanded: Vec<String> =
+                ui.data(|d| d.get_temp::<Vec<String>>(exp_id)).unwrap_or_default();
+
+            let mut live = ctrl.clone();
+            live.properties
+                .insert("Collapsed".to_owned(), crate::PropValue::Bool(collapsed));
+            let selected = sv(ctrl, "SelectedItemId");
+            if !selected.is_empty() {
+                live.properties.insert(
+                    "SelectedItemId".to_owned(),
+                    crate::PropValue::String(selected),
+                );
+            }
+
+            let a8 = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+            let mut state =
+                crate::sidebar::state_for_control(ui.ctx(), &live, items, a8, &expanded);
+
+            // The menu pane scrolls when it has more rows than height. The
+            // header and footer panes stay put, so the toggle and the footer
+            // Panel are always reachable however long the menu is.
+            let scroll_id = ctrl_id.with("side-scroll");
+            let stored: f32 = ui.data(|d| d.get_temp(scroll_id)).unwrap_or(0.0);
+            state.scroll = stored;
+            let max_scroll = crate::sidebar::max_scroll(screen, &state);
+            let hover_pos = ui.ctx().pointer_interact_pos().filter(|p| screen.contains(*p));
+            if max_scroll > 0.0 && hover_pos.is_some() {
+                let dy = ui.input(|i| i.smooth_scroll_delta.y);
+                if dy != 0.0 {
+                    state.scroll -= dy;
+                }
+            }
+            state.scroll = state.scroll.clamp(0.0, max_scroll);
+            if state.scroll != stored {
+                ui.data_mut(|d| d.insert_temp(scroll_id, state.scroll));
+            }
+
+            state.backdrop = form_bg;
+            let rows = crate::sidebar::layout(screen, &state);
+            state.hovered = hover_pos.and_then(|p| crate::sidebar::row_at(&rows, p));
+            crate::sidebar::paint(&painter, screen, &rows, &state);
+
+            // One interaction per laid-out row, using that row's own rect.
+            let mut toggle = false;
+            let mut flip: Option<String> = None;
+            for (ix, row) in rows.iter().enumerate() {
+                // The row's VISIBLE part, never its full geometry: a row
+                // scrolled half under the header must not take a click there.
+                let r = ui.interact(row.visible, ctrl_id.with(("side-row", ix)), Sense::click());
+                if !(r.clicked() && enabled) {
+                    continue;
+                }
+                match &row.kind {
+                    // The header IS the toggle, so an empty menu still
+                    // collapses — the operator's standing requirement.
+                    crate::sidebar::RowKind::Header => toggle = true,
+                    crate::sidebar::RowKind::Item { id: item_id, path, .. } => {
+                        let Some(item) = crate::sidebar::item_at(items, path) else {
+                            continue;
+                        };
+                        if !item.enabled {
+                            continue;
+                        }
+                        if item.has_children() && !collapsed {
+                            flip = Some(item_id.clone());
+                        } else {
+                            out.prop_updates.push((
+                                id.to_owned(),
+                                "SelectedItemId".to_owned(),
+                                item_id.clone(),
+                            ));
+                            out.events.push(UiEvent::ev(id, "onMenuItemClick"));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if toggle {
                 let v = if collapsed { "0" } else { "1" };
                 out.prop_updates
                     .push((id.to_owned(), "Collapsed".to_owned(), v.to_owned()));
@@ -6128,46 +6247,13 @@ fn render_interactive(
                     if collapsed { "onMenuOpen" } else { "onMenuClose" },
                 ));
             }
-
-            // Item rows: the same geometry the painter used, so the hit areas
-            // sit exactly under the drawn rows (icons stay clickable on the
-            // collapsed rail).
-            if let Some(def) = paint::get_menu_cache(ui.ctx(), &ctrl.id) {
-                let mut y = screen.min.y + row * 1.5;
-                for (ix, entry) in def.menu.iter().enumerate() {
-                    if entry.item_type == crate::menu::MenuItemType::Separator {
-                        y += row * 0.4;
-                        continue;
-                    }
-                    if y + row * 0.5 > screen.max.y {
-                        break;
-                    }
-                    let item_rect = egui::Rect::from_min_size(
-                        egui::pos2(screen.min.x + 2.0, y - row * 0.5),
-                        egui::vec2(screen.width() - 4.0, row),
-                    );
-                    let r = ui.interact(
-                        item_rect,
-                        ctrl_id.with(("side-item", ix)),
-                        Sense::click(),
-                    );
-                    if r.hovered() && enabled && entry.enabled {
-                        painter.rect_filled(
-                            item_rect,
-                            4.0,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 14),
-                        );
-                    }
-                    if r.clicked() && enabled && entry.enabled {
-                        out.prop_updates.push((
-                            id.to_owned(),
-                            "SelectedItemId".to_owned(),
-                            entry.id.clone(),
-                        ));
-                        out.events.push(UiEvent::ev(id, "onMenuItemClick"));
-                    }
-                    y += row;
+            if let Some(pid) = flip {
+                if let Some(p) = expanded.iter().position(|e| e == &pid) {
+                    expanded.remove(p);
+                } else {
+                    expanded.push(pid);
                 }
+                ui.data_mut(|d| d.insert_temp(exp_id, expanded));
             }
         }
 
@@ -9261,7 +9347,18 @@ mod shape_dump {
 mod elegance_live_tests {
     use super::*;
     use crate::model::{Control, ControlType as CT};
-    use crate::paint::SurfaceStyle;
+    use crate::surface_theme::{ColorToken as Tok, SurfaceTheme};
+    use std::sync::Arc;
+
+    fn eleg() -> Arc<dyn SurfaceTheme> {
+        crate::surface_theme::elegance()
+    }
+    fn glass() -> Arc<dyn SurfaceTheme> {
+        crate::surface_theme::liquid_glass()
+    }
+    fn tok(t: Tok) -> Color32 {
+        eleg().token(t).expect("Elegance answers every token")
+    }
 
     /// The controls that hand-paint themselves on the live surface instead of
     /// going through `paint::draw_control` — each has a second, independent
@@ -9281,12 +9378,12 @@ mod elegance_live_tests {
     }
 
     /// Every rect fill painted by rendering `ct` interactively under `style`.
-    fn live_fills(ct: CT, style: SurfaceStyle) -> Vec<Color32> {
+    fn live_fills(ct: CT, style: Arc<dyn SurfaceTheme>) -> Vec<Color32> {
         let mut c = Control::new("C", ct, 0, 0);
         c.rect = crate::model::Rect::new(10, 10, 240, 120);
         let controls = vec![c];
         let ctx = egui::Context::default();
-        crate::paint::set_surface_style(&ctx, style);
+        crate::paint::set_surface_theme(&ctx, style);
         let active = ActiveTabs::new();
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
@@ -9328,14 +9425,18 @@ mod elegance_live_tests {
     /// a hard-coded colour, it will not carry a palette fill and this fails.
     #[test]
     fn elegance_reaches_every_hand_rolled_live_painter() {
-        let e = crate::paint::elegance_palette();
-        let palette = [e.p.card, e.p.input_bg, e.p.bg, e.p.blue];
+        let palette = [
+            tok(Tok::Card),
+            tok(Tok::InputBg),
+            tok(Tok::CardRaised),
+            tok(Tok::Accent(crate::surface_theme::AccentName::Blue)),
+        ];
         let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
 
         let mut covered = Vec::new();
         let mut missing = Vec::new();
         for (name, ct) in doubled_painters() {
-            let fills = live_fills(ct, SurfaceStyle::Elegance);
+            let fills = live_fills(ct, eleg());
             if fills.iter().any(|f| palette.iter().any(|p| same(*f, *p))) {
                 covered.push(name);
             } else {
@@ -9366,12 +9467,13 @@ mod elegance_live_tests {
     /// The same painters must be untouched under Liquid Glass (R10/AC8).
     #[test]
     fn liquid_glass_live_painters_are_unchanged_by_the_seam() {
-        let e = crate::paint::elegance_palette();
+        let card = tok(Tok::Card);
+        let input_bg = tok(Tok::InputBg);
         let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
         for (name, ct) in doubled_painters() {
-            let fills = live_fills(ct, SurfaceStyle::LiquidGlass);
+            let fills = live_fills(ct, glass());
             assert!(
-                !fills.iter().any(|f| same(*f, e.p.card) || same(*f, e.p.input_bg)),
+                !fills.iter().any(|f| same(*f, card) || same(*f, input_bg)),
                 "{name} painted an Elegance colour under Liquid Glass"
             );
         }

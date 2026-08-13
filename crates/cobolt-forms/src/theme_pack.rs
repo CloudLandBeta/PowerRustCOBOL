@@ -139,6 +139,13 @@ impl Default for ChartStyle {
 pub struct ThemeManifest {
     pub id: String,
     pub display_name: String,
+    /// 050 R3 — does this pack own the WHOLE look (no Liquid Glass frost or
+    /// neumorphic relief applied over it)?
+    ///
+    /// Absent means `false`, so every pack authored before this key existed
+    /// keeps precisely the behaviour it has, with no edit.
+    #[serde(default)]
+    pub self_contained: bool,
     #[serde(default)]
     pub background: Option<Background>,
     #[serde(default)]

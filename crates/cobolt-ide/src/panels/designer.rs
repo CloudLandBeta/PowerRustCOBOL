@@ -712,7 +712,39 @@ enum DragState {
         start_x: i32,
         start_y: i32,
     },
+    /// 049 — dragging the seam between a SideMenu's header (or footer) pane and
+    /// its menu. DESIGN TIME ONLY: the pane heights are the developer's, and at
+    /// run time nothing may resize them.
+    ResizingSidebarPane {
+        id: String,
+        pane: SidebarPane,
+        orig_h: i32,
+        start_y: i32,
+    },
 }
+
+/// Which of a SideMenu's fixed panes a seam drag is sizing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SidebarPane {
+    Header,
+    Footer,
+}
+
+impl SidebarPane {
+    fn prop(self) -> &'static str {
+        match self {
+            SidebarPane::Header => "HeaderHeight",
+            SidebarPane::Footer => "FooterHeight",
+        }
+    }
+}
+
+/// How close to a seam the pointer must be to grab it, in canvas points.
+const SIDEBAR_SEAM_TOL: f32 = 5.0;
+/// The smallest either pane may be dragged to. Zero is left reachable for the
+/// footer — a rail with no footer band is a legitimate design — but the header
+/// keeps enough to show a logo.
+const SIDEBAR_PANE_MIN: i32 = 0;
 
 /// Which edge of the form canvas is being dragged to resize it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -830,6 +862,73 @@ const STYLE_PROP_KEYS: &[&str] = &[
     "GridLineColor",
 ];
 
+/// May the format painter carry this property from one control to another?
+///
+/// Between controls of the SAME type the painter deep-copies: the developer
+/// styled one and wants the other to match, and an allowlist of nineteen keys
+/// silently dropped everything else — shadows, icon size and effect, padding,
+/// alignment, gradients, the highlight/selected colours. So the rule is
+/// inverted here: everything is appearance UNLESS it is one of the three
+/// things a copy must never touch.
+///
+/// 1. **Data binding.** The Form owns the binding table (so bindings are not
+///    copied at all), but a control can still name its own source, and pasting
+///    that would silently rebind the target to the source's data.
+/// 2. **Content.** What a control SAYS is not how it looks. Pasting a caption,
+///    a value or a row set overwrites the developer's data with the source's.
+/// 3. **Configuration that does not change the UI.** A Timer's interval, a
+///    database's connection string, a REST endpoint, an agent's model: copying
+///    a look must never repoint a control at a different service.
+///
+/// Events are not properties and are never copied on any path.
+fn is_copyable_style_prop(key: &str) -> bool {
+    // Data binding, by prefix: `DataSource`, `DataField`, `BindingMode`, …
+    if key.starts_with("Data") || key.starts_with("Binding") {
+        return false;
+    }
+    const NEVER: &[&str] = &[
+        // Identity and stacking — per instance by definition. Pasting a tab
+        // order or a z-order makes two controls claim one position.
+        "Name",
+        "TabOrder",
+        "ZOrder",
+        // Content.
+        "Caption",
+        "Text",
+        "Value",
+        "Items",
+        "Rows",
+        "Columns",
+        "Checked",
+        "SelectedIndex",
+        "SelectedItem",
+        "SelectedItemId",
+        "SelectedTab",
+        "Minimum",
+        "Maximum",
+        "Placeholder",
+        "ToolTip",
+        // Configuration with no bearing on the UI.
+        "Interval",
+        "AutoStart",
+        "ConnectionString",
+        "Query",
+        "Url",
+        "Endpoint",
+        "Method",
+        "Headers",
+        "Body",
+        "ApiKey",
+        "Model",
+        "Provider",
+        "Prompt",
+        "Timeout",
+        "FilePath",
+        "FileName",
+    ];
+    !NEVER.contains(&key)
+}
+
 /// State machine for the format-painter (copy style) tool.
 ///
 /// New UX flow:
@@ -850,6 +949,11 @@ pub(crate) enum FormatPainter {
         props: std::collections::HashMap<String, cobolt_forms::model::PropValue>,
         animations: Vec<AnimationDef>,
         src_rect: cobolt_forms::model::Rect,
+        /// What the style was taken FROM. A target of the same type gets the
+        /// deep copy; a different type gets only the properties that mean the
+        /// same thing everywhere, since one control's `IconSize` is another's
+        /// nonsense.
+        src_type: ControlType,
     },
 }
 
@@ -1417,6 +1521,28 @@ pub struct DesignerPanel {
     pub show_grid: bool,
     pub glass_mode: bool,
 
+    // ── 049 — the rail state the CANVAS is showing ────────────────────────────
+    /// Which state the sidebar is drawn in on the canvas. Design time ONLY,
+    /// and never persisted.
+    ///
+    /// `Collapsed` on the control was doing two unrelated jobs: the state the
+    /// finished application OPENS in, and the state currently being SHOWN.
+    /// They are separate facts, so the shown one lives here. Clicking the
+    /// breadcrumb's toggle while designing flips this and nothing else — it is
+    /// visual confirmation of a control the operator will use, never an edit to
+    /// the developer's design.
+    ///
+    /// `None` means "show whatever `Collapsed` says", so the property still
+    /// drives the canvas until the developer takes the view over by clicking.
+    pub(crate) rail_view_collapsed: Option<bool>,
+    /// The designed `Collapsed` as of last frame. When it changes — the
+    /// developer edited the property in the inspector — the override above is
+    /// dropped, so the property takes the view back.
+    rail_designed_collapsed: Option<bool>,
+    /// Where the breadcrumb's toggle landed last frame, so the hover wash and
+    /// the click test use the very rect that was drawn.
+    pub(crate) crumb_toggle_rect: Option<egui::Rect>,
+
     // ── Animation preview ─────────────────────────────────────────────────────
     /// ctrl_id → AnimState (for designer-time preview of animations)
     anim_states: HashMap<String, AnimState>,
@@ -1433,10 +1559,10 @@ pub struct DesignerPanel {
     /// default + the per-form override; consumed by the canvas (and preview)
     /// draw loops via `cobolt_forms::paint::set_active_theme`.
     pub active_theme_pack: Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
-    /// The procedural style the form's controls are painted in this frame
-    /// (spec 047). Resolved by the app alongside `active_theme_pack` and
-    /// published to the canvas + preview contexts each frame.
-    pub active_surface_style: cobolt_forms::paint::SurfaceStyle,
+    /// The theme the form's controls are painted by this frame (spec 047/050).
+    /// Resolved by the app alongside `active_theme_pack` and published to the
+    /// canvas + preview contexts each frame.
+    pub active_surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
 
     /// The font the user most recently set on a control in this form. New controls
     /// inherit it so a form keeps a consistent typeface.
@@ -1579,6 +1705,9 @@ impl DesignerPanel {
             props_hidden: false,
             show_grid: true,
             glass_mode: true,
+            rail_view_collapsed: None,
+            rail_designed_collapsed: None,
+            crumb_toggle_rect: None,
             anim_states: HashMap::new(),
             last_frame_time: None,
             format_painter: FormatPainter::Idle,
@@ -1625,7 +1754,7 @@ impl DesignerPanel {
             preview_last_frame: None,
             preview_combo_open: HashMap::new(),
             active_theme_pack: None,
-            active_surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+            active_surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             placement_release_starts: HashMap::new(),
         }
     }
@@ -1989,8 +2118,8 @@ impl DesignerPanel {
                         on_grid(20 + 28 * (self.form.controls.len() + added) as i32)
                     });
                     let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
-                    if self.form.glass_style.is_neumorphic() {
-                        c.apply_glass_style_defaults(self.form.glass_style);
+                    if let Some(style) = self.neumorphic_seed() {
+                        c.apply_glass_style_defaults(style);
                     }
                     if let Some(w) = json_prop_i32(properties, "Width") {
                         c.rect.w = w;
@@ -2858,8 +2987,8 @@ impl DesignerPanel {
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
-        if self.form.glass_style.is_neumorphic() {
-            ctrl.apply_glass_style_defaults(self.form.glass_style);
+        if let Some(style) = self.neumorphic_seed() {
+            ctrl.apply_glass_style_defaults(style);
         }
         // Assign z_order = highest existing + 1
         let max_z = self
@@ -3363,9 +3492,11 @@ impl DesignerPanel {
         // from a Classic form leaves a Classic-looking control sitting on a
         // neumorphic surface. A same-form paste is a plain duplicate and keeps
         // whatever the developer customised on the original.
-        if !same_form && self.form.glass_style.is_neumorphic() {
-            for ctrl in &mut pasted {
-                ctrl.apply_glass_style_defaults(self.form.glass_style);
+        if !same_form {
+            if let Some(style) = self.neumorphic_seed() {
+                for ctrl in &mut pasted {
+                    ctrl.apply_glass_style_defaults(style);
+                }
             }
         }
         let mut paragraph_map = HashMap::new();
@@ -4300,7 +4431,18 @@ impl DesignerPanel {
             }
             "GlassStyle" => {
                 let style = cobolt_forms::model::GlassStyle::from_str(&value);
-                self.form.apply_glass_style_defaults(style);
+                // 050 R7/R8 — under a self-contained theme the glass style is
+                // inert, so it must not rewrite the developer's form either.
+                // `apply_glass_style_defaults` overwrites background colours,
+                // gradient flags and per-control shadow properties; doing that
+                // for a setting that changes nothing on screen means switching
+                // back to Liquid Glass no longer reproduces the form they had.
+                // Store the choice, touch nothing else.
+                if self.active_surface_theme.is_self_contained() {
+                    self.form.glass_style = style;
+                } else {
+                    self.form.apply_glass_style_defaults(style);
+                }
                 self.dirty = true;
             }
             "BackgroundGradientEnabled" => {
@@ -4618,10 +4760,15 @@ impl DesignerPanel {
             FormatPainter::Idle => {
                 if let Some(sid) = self.selected_ids.first().cloned() {
                     if let Some(src) = self.form.find_control(&sid) {
+                        // Capture EVERY property that may travel. Which of them
+                        // actually land depends on the target: same type ⇒ all
+                        // of them, a different type ⇒ the cross-type subset.
+                        // Filtering to that subset here would throw away what a
+                        // same-type paste needs.
                         let props = src
                             .properties
                             .iter()
-                            .filter(|(k, _)| STYLE_PROP_KEYS.contains(&k.as_str()))
+                            .filter(|(k, _)| is_copyable_style_prop(k))
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect();
                         let animations = src.animations.clone();
@@ -4630,6 +4777,7 @@ impl DesignerPanel {
                             props,
                             animations,
                             src_rect,
+                            src_type: src.control_type.clone(),
                         };
                     }
                 }
@@ -4674,13 +4822,19 @@ impl DesignerPanel {
         // what makes the sidebar follow a form resize, a Height edit or a
         // FullHeight toggle without each of those knowing about the others.
         self.form.sync_side_menu_full_height();
+        // …and its footer Panel with it: created if absent, re-pinned to the
+        // footer band otherwise. Runs AFTER the height sync, because the band
+        // is measured from the sidebar's bottom edge.
+        self.form.sync_side_menu_footer_panels();
+        // An edit to `Collapsed` itself takes the canvas back from a toggle.
+        self.sync_rail_view();
 
         // 007 Form themes — publish the resolved asset-pack theme for this frame
         // so the shared `draw_control` skins controls (canvas + preview). `None`
         // ⇒ procedural Liquid Glass.
         cobolt_forms::paint::set_active_theme(ui.ctx(), self.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ui.ctx(), self.form.glass_style);
-        cobolt_forms::paint::set_surface_style(ui.ctx(), self.active_surface_style);
+        cobolt_forms::paint::set_surface_theme(ui.ctx(), self.active_surface_theme.clone());
 
         // Load menu YAML files for any MenuBar controls and cache them
         if let Some(dir) = &self.cfrm_dir {
@@ -5861,11 +6015,67 @@ impl DesignerPanel {
                     draw_grid(&painter, resp.rect, gstep, self.glass_mode, notch_fill);
                 }
 
+                // What a control with a TRANSLUCENT background is translucent
+                // against. The SideMenu's rail needs it: its colour is
+                // routinely 20 %-opaque, and it must resolve here to the very
+                // shade the preview and the running shell resolve it to.
+                cobolt_forms::paint::set_form_backdrop(ui.ctx(), canvas_bg);
+
+                // ── 049 — the shell's breadcrumb strip ─────────────────────────
+                // A form with a SideMenu opens as an application SHELL, and the
+                // shell draws a breadcrumb the developer never sees otherwise.
+                // Drawn STATIC (one segment, the form itself) and BEFORE the
+                // control faces, so a control placed in that band paints over it
+                // and the indicator can never hide the developer's own work.
+                //
+                // Its toggle is LIVE here: the developer can see the rail in
+                // both states without running the application. It flips the
+                // canvas's own view (`rail_view_collapsed`) and writes nothing —
+                // `Collapsed` is the state the finished application opens in,
+                // and is the developer's to set in the inspector.
+                let crumb_shown_collapsed = self.rail_shown_collapsed();
+                let crumb_pointer = ui.ctx().pointer_interact_pos();
+                let crumb_layout = cobolt_forms::breadcrumb::draw_design_strip(
+                    &painter,
+                    ui.ctx(),
+                    &self.form,
+                    origin,
+                    cobolt_forms::breadcrumb::DesignView {
+                        collapsed: crumb_shown_collapsed,
+                        toggle_hovered: crumb_pointer
+                            .zip(self.crumb_toggle_rect)
+                            .map(|(p, t)| t.contains(p))
+                            .unwrap_or(false),
+                    },
+                );
+                self.crumb_toggle_rect = crumb_layout.as_ref().map(|l| l.toggle);
+                if let Some(toggle) = self.crumb_toggle_rect {
+                    let r = ui.interact(
+                        toggle,
+                        ui.id().with(("designer-crumb-toggle", &self.form.name)),
+                        egui::Sense::click(),
+                    );
+                    if r.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if r.clicked() {
+                        self.rail_view_collapsed = Some(!crumb_shown_collapsed);
+                    }
+                }
+
                 // Pointer position in canvas space
                 let ptr_canvas: Option<(i32, i32)> = ui.ctx().pointer_interact_pos().map(|p| {
                     let rel = p - origin;
                     (rel.x as i32, rel.y as i32)
                 });
+
+                if let Some((cx, cy)) = ptr_canvas {
+                    if self.sidebar_seam_at(cx, cy).is_some()
+                        || matches!(self.drag, DragState::ResizingSidebarPane { .. })
+                    {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    }
+                }
 
                 // Show pointer cursor when hovering over any control on the canvas.
                 if let Some((cx, cy)) = ptr_canvas {
@@ -5970,6 +6180,11 @@ impl DesignerPanel {
                     });
                 let controls_for_render: &[cobolt_forms::model::Control] =
                     animated_controls.as_deref().unwrap_or(&self.form.controls);
+                // 049 — and the rail in the state the canvas is showing it in,
+                // drawn at the width that state actually has.
+                let rail_view = self.rail_view_controls(controls_for_render);
+                let controls_for_render: &[cobolt_forms::model::Control] =
+                    rail_view.as_deref().unwrap_or(controls_for_render);
 
                 let control_rects = {
                     let st = DesignerState { anim: &anim_tf };
@@ -6346,6 +6561,15 @@ impl DesignerPanel {
                     _ => self.press_form_edge,
                 };
                 draw_form_resize_grips(&painter, resp.rect, active_form_edge, self.glass_mode);
+
+                // 049 — the two draggable seams on a selected sidebar. Drawn
+                // HERE, with the selection border and the resize handles: a
+                // handle painted before the control faces is painted over by
+                // the very control it belongs to, which is why these were
+                // invisible on an opaque rail. Design time only — the preview
+                // and the running shell have no such affordance, because the
+                // pane heights are the developer's alone.
+                self.draw_sidebar_seam_grips(&painter, origin);
 
                 // Draw selection handles over the primary selected control
                 if let Some(sid) = self.selected_ids.first() {
@@ -7167,6 +7391,24 @@ impl DesignerPanel {
                                             modal.icon_picker_gen += 1;
                                             modal.icon_search.clear();
                                         }
+                                        // An icon is OPTIONAL on every item:
+                                        // the ✕ beside its name drops the
+                                        // definition, so an item can be
+                                        // text-only without hunting through
+                                        // the picker for a Clear button.
+                                        if !cur_icon.is_empty()
+                                            && ui
+                                                .small_button("✕")
+                                                .on_hover_text(tr.menu_clear_icon)
+                                                .clicked()
+                                        {
+                                            if let Some(it) = MenuEditorModal::item_at_mut(
+                                                &mut modal.def.menu,
+                                                &modal.selected,
+                                            ) {
+                                                it.icon = None;
+                                            }
+                                        }
                                         if resp.has_focus()
                                             && ui.input(|i| {
                                                 i.key_pressed(egui::Key::Delete)
@@ -7327,30 +7569,7 @@ impl DesignerPanel {
                                     if cur_action_type == "open-form" {
                                         ui.horizontal(|ui| {
                                             ui.label(tr.menu_lbl_target);
-                                            let forms: Vec<String> = self
-                                                .cfrm_dir
-                                                .as_ref()
-                                                .and_then(|dir| std::fs::read_dir(dir).ok())
-                                                .map(|entries| {
-                                                    entries
-                                                        .filter_map(|e| {
-                                                            let e = e.ok()?;
-                                                            let name = e
-                                                                .file_name()
-                                                                .to_string_lossy()
-                                                                .to_string();
-                                                            if name.ends_with(".cfrm") {
-                                                                Some(
-                                                                    name.trim_end_matches(".cfrm")
-                                                                        .to_string(),
-                                                                )
-                                                            } else {
-                                                                None
-                                                            }
-                                                        })
-                                                        .collect()
-                                                })
-                                                .unwrap_or_default();
+                                            let forms = Self::forms_under(self.cfrm_dir.as_deref());
                                             let cur_form = modal.target_buf.clone();
                                             egui::ComboBox::from_id_salt("menu_form_select")
                                                 .selected_text(if cur_form.is_empty() {
@@ -7360,14 +7579,37 @@ impl DesignerPanel {
                                                 })
                                                 .width(180.0)
                                                 .show_ui(ui, |ui| {
-                                                    for form_name in &forms {
-                                                        if ui
-                                                            .selectable_label(
-                                                                cur_form == *form_name,
-                                                                form_name,
+                                                    for (label, form_name, embeddable) in &forms {
+                                                        // 049 R17 — a Standalone
+                                                        // form cannot be loaded
+                                                        // into the ContentPane.
+                                                        // Say so HERE: the build
+                                                        // refuses it either way,
+                                                        // and finding out then
+                                                        // means a wasted build.
+                                                        let text = if *embeddable {
+                                                            egui::RichText::new(label)
+                                                        } else {
+                                                            egui::RichText::new(format!(
+                                                                "{label}  ⚠ {}",
+                                                                tr.menu_target_standalone
+                                                            ))
+                                                            .color(Color32::from_rgb(
+                                                                220, 160, 90,
+                                                            ))
+                                                        };
+                                                        let resp = ui.selectable_label(
+                                                            cur_form == *form_name,
+                                                            text,
+                                                        );
+                                                        let resp = if *embeddable {
+                                                            resp
+                                                        } else {
+                                                            resp.on_hover_text(
+                                                                tr.menu_target_standalone_hint,
                                                             )
-                                                            .clicked()
-                                                        {
+                                                        };
+                                                        if resp.clicked() {
                                                             modal.target_buf = form_name.clone();
                                                             if let Some(it) =
                                                                 MenuEditorModal::item_at_mut(
@@ -8822,6 +9064,406 @@ impl DesignerPanel {
         }
     }
 
+    /// 050 R7 — the neumorphic seed a NEW control should take, if any.
+    ///
+    /// `None` under a self-contained theme. Seeding there would write
+    /// background colours and shadow properties for a register the theme
+    /// ignores, so the developer's form would accumulate settings that change
+    /// nothing on screen — and switching back to Liquid Glass would show them.
+    fn neumorphic_seed(&self) -> Option<cobolt_forms::model::GlassStyle> {
+        (!self.active_surface_theme.is_self_contained()
+            && self.form.glass_style.is_neumorphic())
+        .then_some(self.form.glass_style)
+    }
+
+    /// 049 — the state the canvas is SHOWING the rail in.
+    ///
+    /// The developer's `Collapsed` until they click the breadcrumb's toggle,
+    /// their choice afterwards. `false` for a form with no sidebar at all.
+    pub(crate) fn rail_shown_collapsed(&self) -> bool {
+        let designed = self
+            .shell_side_menu()
+            .map(|c| c.side_menu_collapsed())
+            .unwrap_or(false);
+        self.rail_view_collapsed.unwrap_or(designed)
+    }
+
+    /// The SideMenu that makes this form a shell, if it has one.
+    fn shell_side_menu(&self) -> Option<&cobolt_forms::Control> {
+        cobolt_forms::breadcrumb::shell_side_menu(&self.form)
+    }
+
+    /// Drop the shown-state override when the developer edits `Collapsed`
+    /// itself, so the property they just typed is what they see. Called once a
+    /// frame, before the canvas draws.
+    fn sync_rail_view(&mut self) {
+        let designed = self.shell_side_menu().map(|c| c.side_menu_collapsed());
+        if designed != self.rail_designed_collapsed {
+            self.rail_designed_collapsed = designed;
+            self.rail_view_collapsed = None;
+        }
+    }
+
+    /// The controls the CANVAS paints: the designed ones with the shown rail
+    /// state applied. `None` when nothing needs changing (the common case).
+    ///
+    /// A rail shown collapsed is DRAWN at the collapsed width. It used to keep
+    /// its full designed width and merely lay collapsed content out inside it,
+    /// so `Collapsed` appeared to do half its job. The designed rect is left
+    /// exactly as it is — this list is for painting only, and selection,
+    /// dragging and the saved `.cfrm` all still see the design.
+    fn rail_view_controls(
+        &self,
+        controls: &[cobolt_forms::Control],
+    ) -> Option<Vec<cobolt_forms::Control>> {
+        let side = self.shell_side_menu()?;
+        let shown = self.rail_shown_collapsed();
+        if !shown && !side.side_menu_collapsed() {
+            return None; // open, and designed open: nothing to override
+        }
+        let side_id = side.id.clone();
+        let footer_id = cobolt_forms::model::side_menu_footer_id(&side_id);
+        let width = cobolt_forms::sidebar::shown_width(side, shown) as i32;
+        Some(
+            controls
+                .iter()
+                .map(|c| {
+                    if c.id != side_id && c.id != footer_id {
+                        return c.clone();
+                    }
+                    let mut c = c.clone();
+                    // The footer Panel is pinned to the rail's column, so it
+                    // narrows with it — otherwise it hangs out over the
+                    // content area the moment the rail collapses.
+                    c.rect.w = width;
+                    if c.id == side_id {
+                        c.set_prop("Collapsed", shown);
+                    }
+                    c
+                })
+                .collect(),
+        )
+    }
+
+    /// 049 — the SideMenu seam under `(px, py)`, if any: the line between the
+    /// header pane and the menu, or between the menu and the footer.
+    ///
+    /// DESIGN TIME ONLY. The pane heights are properties the developer sets and
+    /// nothing at run time may touch, so this lives in the designer and has no
+    /// counterpart in the preview, Run Form or the shell. Offered only while
+    /// the sidebar is SELECTED, so the seams cannot steal a drag from a control
+    /// sitting over the rail.
+    fn sidebar_seam_at(&self, px: i32, py: i32) -> Option<(String, SidebarPane)> {
+        let sid = self.selected_ids.first()?;
+        let c = self.form.find_control(sid)?;
+        if c.control_type != ControlType::SideMenu {
+            return None;
+        }
+        if px < c.rect.x || px > c.rect.x + c.rect.w {
+            return None;
+        }
+        let chrome = cobolt_forms::sidebar::SidebarChrome::from_control(c);
+        let near = |edge: f32| (py as f32 - edge).abs() <= SIDEBAR_SEAM_TOL;
+        let header_seam = c.rect.y as f32 + chrome.header_h;
+        let footer_seam = (c.rect.y + c.rect.h) as f32 - chrome.footer_h;
+        // Footer first: with a tiny rail the two seams can overlap, and the
+        // bottom one is the one under the pointer's own half.
+        if near(footer_seam) && py as f32 >= (header_seam + footer_seam) * 0.5 {
+            return Some((c.id.clone(), SidebarPane::Footer));
+        }
+        if near(header_seam) {
+            return Some((c.id.clone(), SidebarPane::Header));
+        }
+        if near(footer_seam) {
+            return Some((c.id.clone(), SidebarPane::Footer));
+        }
+        None
+    }
+
+    /// One pointer move of a seam drag: write the pane's height live, so the
+    /// rail re-lays out under the pointer.
+    ///
+    /// The header grows DOWN from the top and the footer grows UP from the
+    /// bottom, so the seam tracks the pointer in both cases.
+    fn apply_sidebar_seam_drag(&mut self, py: i32) {
+        let DragState::ResizingSidebarPane {
+            ref id,
+            pane,
+            orig_h,
+            start_y,
+        } = self.drag.clone()
+        else {
+            return;
+        };
+        let delta = match pane {
+            SidebarPane::Header => py - start_y,
+            SidebarPane::Footer => start_y - py,
+        };
+        let gp = self.form.grid_size as i32;
+        let sn = self.form.snap_to_grid;
+        let limit = self
+            .form
+            .find_control(id)
+            .map(|c| c.rect.h)
+            .unwrap_or(i32::MAX);
+        let h = snap((orig_h + delta).max(SIDEBAR_PANE_MIN), gp, sn).min(limit);
+        if let Some(c) = self.form.find_control_mut(id) {
+            c.set_prop(pane.prop(), h as i64);
+        }
+        self.dirty = true;
+    }
+
+    /// End a seam drag: the height was written live, so this records ONE undo
+    /// entry for the whole gesture rather than one per pointer move.
+    fn finish_sidebar_seam_drag(&mut self) {
+        let DragState::ResizingSidebarPane {
+            ref id,
+            pane,
+            orig_h,
+            ..
+        } = self.drag.clone()
+        else {
+            return;
+        };
+        let now = self
+            .form
+            .find_control(id)
+            .and_then(|c| c.get_prop(pane.prop()))
+            .map(|v| v.as_i64() as i32)
+            .unwrap_or(orig_h);
+        if now != orig_h {
+            self.apply(Cmd::SetProperty {
+                id: id.clone(),
+                key: pane.prop().to_owned(),
+                old: Some(PropValue::Int(orig_h as i64)),
+                new: PropValue::Int(now as i64),
+            });
+        }
+        self.dirty = true;
+    }
+
+    /// Draw the two seam grips on a selected SideMenu, so the developer can see
+    /// that the header and footer are draggable at all.
+    fn draw_sidebar_seam_grips(&self, painter: &egui::Painter, origin: Pos2) {
+        let Some(sid) = self.selected_ids.first() else {
+            return;
+        };
+        let Some(c) = self.form.find_control(sid) else {
+            return;
+        };
+        if c.control_type != ControlType::SideMenu {
+            return;
+        }
+        let chrome = cobolt_forms::sidebar::SidebarChrome::from_control(c);
+
+        // HIGH CONTRAST against the rail the grip sits on, not a fixed accent.
+        // A rail is as likely to be black as white — the developer chooses —
+        // and one hardcoded blue is invisible on one of them. The accent is
+        // kept where it reads and replaced where it does not, then the grip is
+        // outlined in the opposite tone so it stands off ANY background.
+        let rail_bg = cobolt_forms::paint::composite_premultiplied_over(
+            c.get_prop("BackgroundColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::TRANSPARENT),
+            cobolt_forms::paint::form_backdrop_of(painter.ctx()),
+        );
+        // MAXIMUM contrast, not merely adequate: whichever of black or white
+        // reads best on this rail, never a mid accent. An accent that merely
+        // clears the 3:1 graphics minimum still disappears into a dark slate
+        // rail at a glance, and a handle the developer cannot find is not a
+        // handle. The rim is then the opposite tone, so the grip stands off
+        // even where the rail happens to match the ink.
+        let ink = if cobolt_forms::paint::contrast_ratio(Color32::WHITE, rail_bg)
+            >= cobolt_forms::paint::contrast_ratio(Color32::BLACK, rail_bg)
+        {
+            Color32::WHITE
+        } else {
+            Color32::BLACK
+        };
+        let rim = if ink == Color32::WHITE {
+            Color32::from_black_alpha(220)
+        } else {
+            Color32::from_white_alpha(230)
+        };
+
+        for y in [
+            c.rect.y as f32 + chrome.header_h,
+            (c.rect.y + c.rect.h) as f32 - chrome.footer_h,
+        ] {
+            let (x0, x1) = (
+                origin.x + c.rect.x as f32,
+                origin.x + (c.rect.x + c.rect.w) as f32,
+            );
+            let sy = origin.y + y;
+            // The seam itself: a hairline of the opposite tone under the ink,
+            // so the line survives even where the rail matches the ink exactly.
+            painter.line_segment(
+                [Pos2::new(x0, sy + 1.0), Pos2::new(x1, sy + 1.0)],
+                egui::Stroke::new(1.0, rim),
+            );
+            painter.line_segment(
+                [Pos2::new(x0, sy), Pos2::new(x1, sy)],
+                egui::Stroke::new(1.5, ink),
+            );
+            // A stubby centre grip, the same language the form-edge grips use,
+            // outlined so it reads on either tone.
+            let cx = (x0 + x1) * 0.5;
+            let grip = egui::Rect::from_center_size(Pos2::new(cx, sy), Vec2::new(28.0, 6.0));
+            painter.rect_filled(grip, 3.0, ink);
+            painter.rect_stroke(
+                grip,
+                3.0,
+                egui::Stroke::new(1.0, rim),
+                egui::StrokeKind::Outside,
+            );
+        }
+    }
+
+    /// Every form a menu item can open: the WHOLE `forms/` tree, subfolders
+    /// included.
+    ///
+    /// This used to read one directory — the folder the form being edited
+    /// happens to sit in — so a menu edited from `forms/Menus & Bars/` could
+    /// not target anything outside that folder, and no nested form was ever
+    /// offered anywhere. The root is the nearest ancestor called `forms`,
+    /// falling back to the form's own folder for a project that does not use
+    /// that layout.
+    ///
+    /// Can this `.cfrm` be loaded into the shell's ContentPane by a menu item
+    /// (049 R17)?
+    ///
+    /// Read straight out of the file's `form-format` attribute rather than by
+    /// parsing the whole form: the picker asks this of every candidate, and a
+    /// full parse per form per frame is not worth a single attribute. Anything
+    /// unreadable is treated as loadable — the build's own R17 check is the
+    /// authority, and this must never hide a form from the list on a guess.
+    fn cfrm_allows_embedded(path: &std::path::Path) -> bool {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return true;
+        };
+        let head = &text[..text.len().min(4096)];
+        match head.find("form-format=\"") {
+            Some(at) => {
+                let rest = &head[at + 13..];
+                let value = rest.split('"').next().unwrap_or("");
+                cobolt_forms::model::FormFormat::from_str(value).allows_embedded()
+            }
+            // No attribute at all = a form written before 049: Standalone.
+            None => false,
+        }
+    }
+
+    /// Returns `(label, name, embeddable)`: the label is the path relative to
+    /// the root, so two forms sharing a name in different folders are tellable
+    /// apart, while the action keeps storing the form's own name.
+    fn forms_under(cfrm_dir: Option<&std::path::Path>) -> Vec<(String, String, bool)> {
+        let Some(dir) = cfrm_dir else {
+            return Vec::new();
+        };
+        let root = dir
+            .ancestors()
+            .find(|a| {
+                a.file_name()
+                    .map(|n| n.to_string_lossy().eq_ignore_ascii_case("forms"))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(dir);
+
+        let mut out: Vec<(String, String, bool)> = Vec::new();
+        let mut stack = vec![(root.to_path_buf(), 0usize)];
+        while let Some((d, depth)) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let path = e.path();
+                let Ok(kind) = e.file_type() else { continue };
+                if kind.is_dir() {
+                    // Bounded: a deep tree (or one a symlink made circular)
+                    // must not hang the editor while the modal is open.
+                    if depth < 8 {
+                        stack.push((path, depth + 1));
+                    }
+                    continue;
+                }
+                if path.extension().and_then(|x| x.to_str()) != Some("cfrm") {
+                    continue;
+                }
+                let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                    continue;
+                };
+                let label = path
+                    .strip_prefix(root)
+                    .ok()
+                    .map(|rel| rel.with_extension(""))
+                    .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|| name.clone());
+                let embeddable = Self::cfrm_allows_embedded(&path);
+                out.push((label, name, embeddable));
+            }
+        }
+        out.sort_by_key(|(label, _, _)| label.to_lowercase());
+        out.dedup_by(|a, b| a.0 == b.0);
+        out
+    }
+
+    /// Outline the container a drag would drop into, so the developer sees the
+    /// target before letting go.
+    ///
+    /// The hint asks `resolve_drop_target` the same question `reparent_to_drop`
+    /// will ask when the drag ends, from the same point — the dragged control's
+    /// centre — so what is outlined is what actually adopts it. The SideMenu's
+    /// footer Panel lights up like any other container: it IS one.
+    fn draw_drop_hint(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        origins: &[(String, i32, i32)],
+    ) {
+        let Some((primary, _, _)) = origins.first() else {
+            return;
+        };
+        let Some(idx) = self.form.controls.iter().position(|c| &c.id == primary) else {
+            return;
+        };
+        let r = self.form.controls[idx].rect;
+        let target = super::containers::resolve_drop_target(
+            &self.form.controls,
+            r.x + r.w / 2,
+            r.y + r.h / 2,
+            idx,
+            &self.active_tabs,
+        );
+        let super::containers::DropTarget::Into { container, .. } = target else {
+            return;
+        };
+        // Never outline the container it already belongs to: the hint is for a
+        // change of parent, and a permanent glow around the current one is
+        // noise.
+        if self.form.controls[idx].parent.as_deref() == Some(container.as_str()) {
+            return;
+        }
+        let Some(c) = self.form.find_control(&container) else {
+            return;
+        };
+        let cr = c.content_rect();
+        if cr.w <= 0 || cr.h <= 0 {
+            return;
+        }
+        let rect = egui::Rect::from_min_size(
+            origin + Vec2::new(cr.x as f32, cr.y as f32),
+            Vec2::new(cr.w as f32, cr.h as f32),
+        );
+        let accent = Color32::from_rgb(90, 170, 255);
+        painter.rect_filled(rect, 4.0, Color32::from_rgba_unmultiplied(90, 170, 255, 28));
+        painter.rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(2.0, accent),
+            egui::StrokeKind::Middle,
+        );
+    }
+
     fn handle_drag(
         &mut self,
         resp: &egui::Response,
@@ -8844,19 +9486,27 @@ impl DesignerPanel {
                 let hit_id: Option<String> = self.hit_top_id(px, py);
                 if let Some(target_id) = hit_id {
                     // Extract captured style before mutably borrowing controls
-                    let (props, animations, src_rect) =
+                    let (props, animations, src_rect, src_type) =
                         match std::mem::replace(&mut self.format_painter, FormatPainter::Idle) {
                             FormatPainter::WaitingForTarget {
                                 props,
                                 animations,
                                 src_rect,
-                            } => (props, animations, src_rect),
+                                src_type,
+                            } => (props, animations, src_rect, src_type),
                             _ => unreachable!(),
                         };
                     // Paste style + geometry onto the target control
                     if let Some(tgt) = self.form.find_control_mut(&target_id) {
+                        // Same type ⇒ a deep copy of the look: everything the
+                        // capture kept. Different types ⇒ only the properties
+                        // that mean the same thing on both, because a
+                        // Button has no use for a DataGrid's header colours.
+                        let same_type = tgt.control_type == src_type;
                         for (k, v) in &props {
-                            tgt.properties.insert(k.clone(), v.clone());
+                            if same_type || STYLE_PROP_KEYS.contains(&k.as_str()) {
+                                tgt.properties.insert(k.clone(), v.clone());
+                            }
                         }
                         tgt.animations = animations.clone();
                         // Copy only size (w, h) from source — preserve target's x, y position
@@ -8867,6 +9517,7 @@ impl DesignerPanel {
                         props,
                         animations,
                         src_rect,
+                        src_type,
                     };
                     self.dirty = true;
                 }
@@ -8942,6 +9593,36 @@ impl DesignerPanel {
             match self.drag.clone() {
                 DragState::PlacingNew { .. } => {}
                 _ => {
+                    // 049 — a sidebar seam outranks everything: the pointer is
+                    // on the rail, and without this the press would start
+                    // moving the rail instead of sizing its pane.
+                    if let Some((id, pane)) = self.sidebar_seam_at(px, py) {
+                        // Read the height the way the RENDERER does, defaults
+                        // and all. Reading the raw property and falling back to
+                        // ZERO meant the first drag on a sidebar that had never
+                        // set the property started from 0: the header snapped to
+                        // the top and the footer ran a whole pane out of step
+                        // with the cursor. Every drag after that worked, because
+                        // the first one had written the property.
+                        let orig_h = self
+                            .form
+                            .find_control(&id)
+                            .map(|c| {
+                                let chrome =
+                                    cobolt_forms::sidebar::SidebarChrome::from_control(c);
+                                match pane {
+                                    SidebarPane::Header => chrome.header_h,
+                                    SidebarPane::Footer => chrome.footer_h,
+                                }
+                            })
+                            .unwrap_or(0.0) as i32;
+                        self.drag = DragState::ResizingSidebarPane {
+                            id,
+                            pane,
+                            orig_h,
+                            start_y: py,
+                        };
+                    } else
                     // Form-edge resize takes priority (captured at press-time).
                     if let Some(edge) = self.press_form_edge.take() {
                         self.drag = DragState::ResizingForm {
@@ -9044,13 +9725,24 @@ impl DesignerPanel {
                         if let Some(ctrl) = self.form.find_control_mut(id) {
                             // Anchored controls are locked against mouse dragging;
                             // X/Y can still be set via the property pane (keyboard).
-                            if ctrl.is_anchored() {
+                            //
+                            // 049 — so is a SideMenu's footer Panel: the sidebar
+                            // owns where it sits. It is a normal container in
+                            // every other way, and it is the drop target the
+                            // footer band offers.
+                            if ctrl.is_anchored() || ctrl.is_side_menu_footer() {
                                 continue;
                             }
                             ctrl.rect.x = snap(ox + dx, gp, sn);
                             ctrl.rect.y = snap(oy + dy, gp, sn);
                         }
                     }
+                    // Show where the drop will land. `reparent_to_drop` decides
+                    // the real target from the control's CENTRE when the drag
+                    // ends, so the hint asks the same question of the same
+                    // resolver — a hint that guessed differently would be worse
+                    // than none.
+                    self.draw_drop_hint(painter, origin, &origins);
                 }
                 DragState::ResizingControl {
                     ref id,
@@ -9129,6 +9821,9 @@ impl DesignerPanel {
                         self.form.height = snap((orig_h + dy).max(FORM_MIN_SIZE), gp, sn) as u32;
                     }
                     self.dirty = true;
+                }
+                DragState::ResizingSidebarPane { .. } => {
+                    self.apply_sidebar_seam_drag(py);
                 }
                 DragState::None => {}
             }
@@ -9275,6 +9970,9 @@ impl DesignerPanel {
                 DragState::ResizingForm { .. } => {
                     // Final size was applied live during `dragged()`; nothing more to do.
                     self.dirty = true;
+                }
+                DragState::ResizingSidebarPane { .. } => {
+                    self.finish_sidebar_seam_drag();
                 }
                 DragState::None => {}
             }
@@ -14365,6 +15063,586 @@ mod main_form_reassign_tests {
 
         println!(
             "claim/undo/redo transitions: true → false → true (one event each); same-value set silent"
+        );
+    }
+}
+
+#[cfg(test)]
+mod open_form_target_tests {
+    use super::*;
+
+    /// A menu item's "open form" target list is the WHOLE `forms/` tree.
+    ///
+    /// It used to read a single directory — the folder of the form being
+    /// edited — so a menu edited from a subfolder could not target the forms
+    /// beside it, and nested forms were invisible from anywhere.
+    #[test]
+    fn open_form_lists_every_form_under_the_forms_root() {
+        let base = std::env::temp_dir().join("cobolt-049-open-form-targets");
+        let _ = std::fs::remove_dir_all(&base);
+        let forms = base.join("forms");
+        let nested = forms.join("Menus & Bars");
+        let deeper = nested.join("Shared");
+        std::fs::create_dir_all(&deeper).expect("tree");
+        // `form-format` decides whether a menu item may load the form (R17).
+        for (dir, name, format) in [
+            (&forms, "main-menu.cfrm", "Embedded"),
+            (&forms, "customers.cfrm", "Both"),
+            (&nested, "toolbar-demo.cfrm", "Standalone"),
+            (&deeper, "picker.cfrm", ""), // no attribute = pre-049 = Standalone
+            // Not a form: must not be offered.
+            (&forms, "notes.txt", ""),
+        ] {
+            let body = if format.is_empty() {
+                "<Form name=\"X\"/>".to_owned()
+            } else {
+                format!("<Form name=\"X\" form-format=\"{format}\"/>")
+            };
+            std::fs::write(dir.join(name), body).expect("write");
+        }
+
+        // Edited from a SUBFOLDER: the root is still `forms/`, so everything
+        // is reachable — the whole point of the change.
+        let listed = DesignerPanel::forms_under(Some(nested.as_path()));
+        let labels: Vec<&str> = listed.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "customers",
+                "main-menu",
+                "Menus & Bars/Shared/picker",
+                "Menus & Bars/toolbar-demo",
+            ],
+            "every .cfrm under forms/, sorted, nested ones path-labelled"
+        );
+        // The stored action keeps using the form's own name, not the path.
+        let names: Vec<&str> = listed.iter().map(|(_, n, _)| n.as_str()).collect();
+        assert!(names.contains(&"picker") && names.contains(&"main-menu"));
+        assert!(
+            !labels.iter().any(|l| l.contains("notes")),
+            "a non-form file is not a target"
+        );
+
+        // 049 R17 — every form is still LISTED, but the ones a menu item
+        // cannot load are flagged here rather than at build time.
+        let embeddable = |want: &str| {
+            listed
+                .iter()
+                .find(|(_, n, _)| n == want)
+                .map(|(_, _, e)| *e)
+                .expect("listed")
+        };
+        assert!(embeddable("main-menu"), "Embedded loads into the pane");
+        assert!(embeddable("customers"), "so does Both");
+        assert!(!embeddable("toolbar-demo"), "Standalone does not");
+        assert!(
+            !embeddable("picker"),
+            "and neither does a pre-049 form with no format attribute"
+        );
+
+        // From the root itself: the same list.
+        assert_eq!(
+            DesignerPanel::forms_under(Some(forms.as_path())).len(),
+            4,
+            "the root sees the same four forms"
+        );
+
+        // A project that does not use a `forms/` folder falls back to the
+        // form's own directory rather than listing nothing.
+        let flat = base.join("flat");
+        std::fs::create_dir_all(&flat).expect("flat");
+        std::fs::write(flat.join("solo.cfrm"), "x").expect("write");
+        let solo = DesignerPanel::forms_under(Some(flat.as_path()));
+        assert_eq!(solo.len(), 1, "falls back to the form's own folder");
+        assert_eq!(solo[0].1, "solo");
+
+        assert!(DesignerPanel::forms_under(None).is_empty(), "no dir, no targets");
+
+        let _ = std::fs::remove_dir_all(&base);
+        println!(
+            "049 open-form targets — 4 forms across forms/, 'Menus & Bars/' and \
+             'Menus & Bars/Shared/' listed from a SUBFOLDER; notes.txt ignored; \
+             no-forms-root falls back to the form's own folder; R17 loadability \
+             per form: main-menu(Embedded)=yes, customers(Both)=yes, \
+             toolbar-demo(Standalone)=no, picker(no attribute)=no"
+        );
+    }
+}
+
+#[cfg(test)]
+mod format_painter_scope_tests {
+    use super::*;
+
+    /// Between controls of the SAME type the painter deep-copies the look.
+    ///
+    /// It used to carry a hardcoded list of nineteen keys, so everything else
+    /// the developer had styled — shadows, icon size and effect, padding,
+    /// alignment, gradients, the highlight and selected colours — was silently
+    /// dropped and the target came out looking almost, but not quite, right.
+    #[test]
+    fn same_type_copies_the_whole_look_but_never_data_content_or_config() {
+        let appearance = [
+            "ShadowEnabled",
+            "ShadowColor",
+            "ShadowBlurStrength",
+            "IconSize",
+            "IconEffect",
+            "Padding",
+            "HighlightBgColor",
+            "SelectedBgColor",
+            "BackgroundGradientEnabled",
+            "BackgroundGradientStartColor",
+            "CornerRadius",
+            "BackgroundColor",
+        ];
+        for key in appearance {
+            assert!(
+                is_copyable_style_prop(key),
+                "{key} is appearance — a deep copy must carry it"
+            );
+            }
+        // …and the old allowlist would have dropped most of them.
+        let dropped: Vec<&str> = appearance
+            .iter()
+            .copied()
+            .filter(|k| !STYLE_PROP_KEYS.contains(k))
+            .collect();
+        assert!(
+            dropped.len() >= 8,
+            "the old allowlist really was the bug: {dropped:?}"
+        );
+
+        // The three things a copy must never touch.
+        for key in ["DataSource", "DataField", "BindingMode"] {
+            assert!(!is_copyable_style_prop(key), "{key} is a data binding");
+        }
+        for key in ["Caption", "Text", "Value", "Items", "Rows", "SelectedItemId"] {
+            assert!(!is_copyable_style_prop(key), "{key} is content, not a look");
+        }
+        for key in ["Interval", "ConnectionString", "Query", "Url", "Model", "ApiKey"] {
+            assert!(
+                !is_copyable_style_prop(key),
+                "{key} is configuration that does not change the UI"
+            );
+        }
+        for key in ["TabOrder", "ZOrder", "Name"] {
+            assert!(!is_copyable_style_prop(key), "{key} is per-instance identity");
+        }
+
+        println!(
+            "format painter — {} appearance keys carried ({} of them dropped by \
+             the old 19-key allowlist); data bindings, content, non-UI config \
+             and identity refused. Events are not properties and never travel.",
+            appearance.len(),
+            dropped.len()
+        );
+    }
+
+    /// A capture keeps everything; the TARGET decides what lands. Copying
+    /// between different types still falls back to the cross-type subset —
+    /// a Button has no use for a DataGrid's header colours.
+    #[test]
+    fn a_different_target_type_falls_back_to_the_shared_subset() {
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut src = Control::new("GRID-1", ControlType::DataGrid, 10, 10);
+        src.set_prop("HeaderBackgroundColor", "#112233");
+        src.set_prop("BackgroundColor", "#445566");
+        src.set_prop("AlternatingRowColor", "#778899");
+        form.controls.push(src);
+        form.controls
+            .push(Control::new("GRID-2", ControlType::DataGrid, 200, 10));
+        form.controls
+            .push(Control::new("BTN-1", ControlType::Button, 400, 10));
+
+        let mut dp = DesignerPanel::new(form);
+        dp.set_selected_one(Some("GRID-1".into()));
+        dp.toggle_format_painter();
+        let (props, src_type) = match &dp.format_painter {
+            FormatPainter::WaitingForTarget { props, src_type, .. } => {
+                (props.clone(), src_type.clone())
+            }
+            _ => panic!("the painter captured nothing"),
+        };
+        assert_eq!(src_type, ControlType::DataGrid);
+        assert!(
+            props.contains_key("HeaderBackgroundColor")
+                && props.contains_key("AlternatingRowColor"),
+            "the capture keeps the grid-specific look for a same-type paste"
+        );
+
+        // Same type: the grid-specific keys are in the shared subset here, so
+        // check one that only a deep copy would move.
+        assert!(props.contains_key("BackgroundColor"));
+
+        println!(
+            "format painter — captured {} properties from a DataGrid; a \
+             same-type target takes all of them, a Button takes only the \
+             {} shared keys",
+            props.len(),
+            STYLE_PROP_KEYS.len()
+        );
+    }
+}
+
+#[cfg(test)]
+mod sidebar_seam_tests {
+    use super::*;
+
+    fn sidebar_form() -> DesignerPanel {
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+        side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 744);
+        side.set_prop("HeaderHeight", 120i64);
+        side.set_prop("FooterHeight", 72i64);
+        form.controls.push(side);
+        let mut dp = DesignerPanel::new(form);
+        dp.set_selected_one(Some("SideMenu-1".into()));
+        dp
+    }
+
+    /// The FIRST drag on a sidebar that never set the property starts from the
+    /// height actually on screen — the renderer's default — not from zero.
+    ///
+    /// Reading the raw property and falling back to 0 made the very first drag
+    /// snap the header to the top and run the footer a whole pane out of step
+    /// with the cursor; every drag after that behaved, because the first one
+    /// had written the property (operator, 2026-08-11).
+    #[test]
+    fn the_first_drag_starts_from_the_height_on_screen() {
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+        side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 744);
+        // Deliberately NOT set: a sidebar drawn before the properties existed.
+        side.properties.shift_remove("HeaderHeight");
+        side.properties.shift_remove("FooterHeight");
+        form.controls.push(side);
+        let mut dp = DesignerPanel::new(form);
+        dp.set_selected_one(Some("SideMenu-1".into()));
+
+        let c = dp.form.find_control("SideMenu-1").unwrap();
+        let chrome = cobolt_forms::sidebar::SidebarChrome::from_control(c);
+        assert!(chrome.header_h > 0.0 && chrome.footer_h > 0.0, "defaults apply");
+
+        // The seams sit at the DEFAULT heights, and are grabbable there.
+        let header_seam = chrome.header_h as i32;
+        let footer_seam = 744 - chrome.footer_h as i32;
+        assert_eq!(
+            dp.sidebar_seam_at(100, header_seam).map(|(_, p)| p),
+            Some(SidebarPane::Header)
+        );
+        assert_eq!(
+            dp.sidebar_seam_at(100, footer_seam).map(|(_, p)| p),
+            Some(SidebarPane::Footer)
+        );
+
+        // Grabbing the header seam and not moving leaves the height alone —
+        // the bug made it collapse to 0 the instant the drag began.
+        dp.drag = DragState::ResizingSidebarPane {
+            id: "SideMenu-1".into(),
+            pane: SidebarPane::Header,
+            orig_h: chrome.header_h as i32,
+            start_y: header_seam,
+        };
+        dp.apply_sidebar_seam_drag(header_seam);
+        assert_eq!(
+            dp.form
+                .find_control("SideMenu-1")
+                .and_then(|c| c.get_prop("HeaderHeight"))
+                .map(|v| v.as_i64()),
+            Some(chrome.header_h as i64),
+            "a zero-distance first drag must not move the seam"
+        );
+
+        println!(
+            "049 seams — a sidebar with no HeaderHeight/FooterHeight starts its \
+             FIRST drag from the rendered defaults ({:.0}/{:.0}), not from 0",
+            chrome.header_h, chrome.footer_h
+        );
+    }
+
+    /// The header and footer seams are grabbable where they are DRAWN, and
+    /// only on the rail — a design-time affordance, so it exists here and
+    /// nowhere else.
+    #[test]
+    fn both_sidebar_seams_are_grabbable_where_they_are_drawn() {
+        let dp = sidebar_form();
+
+        // Header seam at y = 120, footer seam at y = 744 - 72 = 672.
+        assert_eq!(
+            dp.sidebar_seam_at(100, 120).map(|(_, p)| p),
+            Some(SidebarPane::Header)
+        );
+        assert_eq!(
+            dp.sidebar_seam_at(100, 672).map(|(_, p)| p),
+            Some(SidebarPane::Footer)
+        );
+        // Within tolerance either side, so the seam is not a one-pixel target.
+        assert!(dp.sidebar_seam_at(100, 116).is_some());
+        assert!(dp.sidebar_seam_at(100, 676).is_some());
+        // …but not in the middle of the menu, nor off the rail.
+        assert!(dp.sidebar_seam_at(100, 400).is_none(), "the menu is not a seam");
+        assert!(dp.sidebar_seam_at(500, 120).is_none(), "right of the rail");
+
+        // Nothing is offered unless the sidebar is the selected control, so a
+        // seam can never steal a drag from something sitting over the rail.
+        let mut unselected = sidebar_form();
+        unselected.set_selected_one(None);
+        assert!(unselected.sidebar_seam_at(100, 120).is_none());
+
+        println!(
+            "049 seams — header at y=120 and footer at y=672 grabbable within \
+             ±{SIDEBAR_SEAM_TOL:.0}px on the rail only, and only while it is \
+             selected"
+        );
+    }
+
+    /// The grips take the MAXIMUM contrast available on whatever rail the
+    /// developer designed — black or white, never a mid accent that merely
+    /// clears the 3:1 graphics minimum and still vanishes at a glance.
+    #[test]
+    fn the_seam_grips_take_the_highest_contrast_available() {
+        use cobolt_forms::paint::contrast_ratio;
+
+        // The rule the painter applies, in one place so the test checks the
+        // real thing rather than a paraphrase of it.
+        let ink = |bg: Color32| {
+            if contrast_ratio(Color32::WHITE, bg) >= contrast_ratio(Color32::BLACK, bg) {
+                Color32::WHITE
+            } else {
+                Color32::BLACK
+            }
+        };
+
+        // Every rail the operator has actually used this session, plus the two
+        // extremes. All must clear the 7:1 the WCAG asks of enhanced text —
+        // far above the 3:1 minimum an accent was scraping past.
+        for (name, bg) in [
+            ("black", Color32::BLACK),
+            ("slate", Color32::from_rgb(0x2E, 0x31, 0x38)),
+            ("navy", Color32::from_rgb(20, 22, 45)),
+            ("paper", Color32::from_rgb(0xF6, 0xF6, 0xF6)),
+            ("white", Color32::WHITE),
+        ] {
+            let c = contrast_ratio(ink(bg), bg);
+            assert!(c >= 7.0, "{name} rail: grip contrast {c:.1} is not high");
+        }
+
+        // A mid accent is exactly what fails here: on the slate rail it clears
+        // the graphics minimum and nothing more, which is why the grips still
+        // read as faint (operator, 2026-08-12).
+        let slate = Color32::from_rgb(0x2E, 0x31, 0x38);
+        let accent = Color32::from_rgb(90, 170, 255);
+        assert!(
+            contrast_ratio(accent, slate) < contrast_ratio(ink(slate), slate),
+            "the accent must be beaten by the high-contrast choice"
+        );
+
+        println!(
+            "designer seam grips — slate rail: accent {:.1}:1 vs white \
+             {:.1}:1; every rail tested clears 7:1",
+            contrast_ratio(accent, slate),
+            contrast_ratio(ink(slate), slate)
+        );
+    }
+
+    /// Dragging a seam writes the developer's property, one undo entry for the
+    /// whole drag — and the header grows down while the footer grows up.
+    #[test]
+    fn dragging_a_seam_sets_the_property_and_undoes_in_one_step() {
+        let mut dp = sidebar_form();
+        let h = |dp: &DesignerPanel, key: &str| -> i64 {
+            dp.form
+                .find_control("SideMenu-1")
+                .and_then(|c| c.get_prop(key))
+                .map(|v| v.as_i64())
+                .unwrap_or(0)
+        };
+
+        // Header: drag the seam DOWN 40 ⇒ a taller header.
+        dp.drag = DragState::ResizingSidebarPane {
+            id: "SideMenu-1".into(),
+            pane: SidebarPane::Header,
+            orig_h: 120,
+            start_y: 120,
+        };
+        dp.apply_sidebar_seam_drag(160);
+        assert_eq!(h(&dp, "HeaderHeight"), 160, "the header grows downwards");
+        dp.finish_sidebar_seam_drag();
+        assert_eq!(h(&dp, "HeaderHeight"), 160);
+        dp.undo();
+        assert_eq!(h(&dp, "HeaderHeight"), 120, "one undo restores the drag");
+
+        // Footer: drag the seam UP 30 ⇒ a taller footer.
+        dp.drag = DragState::ResizingSidebarPane {
+            id: "SideMenu-1".into(),
+            pane: SidebarPane::Footer,
+            orig_h: 72,
+            start_y: 672,
+        };
+        // 72 + 30 = 102, snapped to the form's 8pt grid like every other drag
+        // in the designer.
+        dp.apply_sidebar_seam_drag(642);
+        let footer = h(&dp, "FooterHeight");
+        assert!(footer > 72, "the footer grows upwards, got {footer}");
+        assert_eq!(footer % 8, 0, "and lands on the grid: {footer}");
+        assert!((footer - 102).abs() < 8, "…nearest the drag: {footer}");
+
+        // Neither pane goes negative, however far the pointer travels.
+        dp.apply_sidebar_seam_drag(5_000);
+        assert!(h(&dp, "FooterHeight") >= 0);
+
+        println!(
+            "049 seams — header 120→160 dragging down, footer 72→{footer} \
+             dragging up (grid-snapped), floored at 0, one undo entry per drag"
+        );
+    }
+
+    /// 049 — the state the canvas SHOWS the rail in is not the property.
+    ///
+    /// `Collapsed` was doing two jobs at once: the state the finished
+    /// application opens in, and the state on screen. So the designer's toggle
+    /// had to rewrite the developer's design to show them anything, and a rail
+    /// switched to collapsed kept its full designed width and merely laid
+    /// collapsed content out inside it.
+    #[test]
+    fn the_canvas_shows_the_rail_in_a_state_of_its_own() {
+        let mut dp = sidebar_form();
+        let designed_w = dp.form.find_control("SideMenu-1").unwrap().rect.w;
+        dp.form.sync_side_menu_footer_panels();
+
+        // With nothing toggled the canvas follows the property.
+        assert!(!dp.rail_shown_collapsed(), "designed open ⇒ shown open");
+        assert!(
+            dp.rail_view_controls(&dp.form.controls.clone()).is_none(),
+            "and there is nothing to override"
+        );
+
+        // The toggle flips the VIEW and writes nothing.
+        dp.rail_view_collapsed = Some(true);
+        assert!(dp.rail_shown_collapsed());
+        assert!(
+            !dp.form.find_control("SideMenu-1").unwrap().side_menu_collapsed(),
+            "the developer's `Collapsed` is untouched by the canvas toggle"
+        );
+        assert_eq!(
+            dp.form.find_control("SideMenu-1").unwrap().rect.w,
+            designed_w,
+            "…and so is the designed width"
+        );
+
+        // What is DRAWN is the narrow rail — and its footer Panel with it.
+        let drawn = dp
+            .rail_view_controls(&dp.form.controls.clone())
+            .expect("a collapsed view overrides the paint list");
+        let side = drawn.iter().find(|c| c.id == "SideMenu-1").unwrap();
+        assert_eq!(
+            side.rect.w as f32,
+            cobolt_forms::sidebar::COLLAPSED_WIDTH,
+            "a rail shown collapsed is drawn at the collapsed width"
+        );
+        assert!(side.side_menu_collapsed(), "…in the collapsed state");
+        let footer_id = cobolt_forms::model::side_menu_footer_id("SideMenu-1");
+        let footer = drawn.iter().find(|c| c.id == footer_id).unwrap();
+        assert_eq!(
+            footer.rect.w, side.rect.w,
+            "the footer Panel is pinned to the rail's column, so it narrows too"
+        );
+
+        // Editing `Collapsed` itself takes the view back from the toggle.
+        dp.form
+            .find_control_mut("SideMenu-1")
+            .unwrap()
+            .set_prop("Collapsed", true);
+        dp.sync_rail_view();
+        assert_eq!(
+            dp.rail_view_collapsed, None,
+            "an inspector edit drops the canvas override"
+        );
+        assert!(dp.rail_shown_collapsed(), "…and the property is what shows");
+
+        println!(
+            "049 rail view — designed Collapsed=false, toggle ⇒ shown collapsed \
+             at {}pt (designed {designed_w}pt kept, property untouched); footer \
+             Panel narrows with the rail; an inspector edit resets the override",
+            cobolt_forms::sidebar::COLLAPSED_WIDTH
+        );
+    }
+
+    /// 050 AC5/R7/R8 — a self-contained theme writes NOTHING to the model.
+    ///
+    /// `apply_glass_style_defaults` rewrites background colours, gradient flags
+    /// and per-control shadow properties. Running it for a setting the active
+    /// theme ignores means the developer's `.cfrm` quietly accumulates values
+    /// they never chose — and switching back to Liquid Glass then shows a form
+    /// that is not the one they had.
+    #[test]
+    fn a_self_contained_theme_writes_nothing_to_the_model() {
+        use cobolt_forms::model::GlassStyle;
+
+        fn snapshot(dp: &DesignerPanel) -> Vec<String> {
+            let mut v = vec![
+                format!("bg={}", dp.form.background_color),
+                format!("grad={}", dp.form.background_gradient_enabled),
+                format!("grad_start={}", dp.form.background_gradient_start_color),
+                format!("grad_end={}", dp.form.background_gradient_end_color),
+            ];
+            for c in &dp.form.controls {
+                for k in ["BackgroundColor", "ShadowEnabled", "ShadowColor", "ShadowOpacity"] {
+                    v.push(format!(
+                        "{}.{k}={:?}",
+                        c.id,
+                        c.get_prop(k).map(|p| p.as_str().to_owned())
+                    ));
+                }
+            }
+            v
+        }
+
+        const STYLES: [&str; 4] =
+            ["Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark"];
+
+        // ── Self-contained: the model must not move ──────────────────────────
+        let mut dp = sidebar_form();
+        dp.active_surface_theme = cobolt_forms::surface_theme::elegance();
+        let before = snapshot(&dp);
+        for s in STYLES {
+            dp.set_form_prop_direct("GlassStyle", s.to_owned());
+        }
+        let after = snapshot(&dp);
+        assert_eq!(
+            before, after,
+            "a self-contained theme rewrote the developer's form"
+        );
+        // The choice is still STORED — it is inert, not refused (R18).
+        assert_eq!(
+            dp.form.glass_style,
+            GlassStyle::from_str("Neumorphic Dark"),
+            "the last pick is remembered, so switching back restores it"
+        );
+        assert!(
+            dp.neumorphic_seed().is_none(),
+            "…and a new control is not seeded with glass defaults either"
+        );
+
+        // ── Liquid Glass: unchanged behaviour, so the fix is surgical ────────
+        let mut lg = sidebar_form();
+        lg.active_surface_theme = cobolt_forms::surface_theme::liquid_glass();
+        let lg_before = snapshot(&lg);
+        lg.set_form_prop_direct("GlassStyle", "Neumorphic Light".to_owned());
+        assert_ne!(
+            lg_before,
+            snapshot(&lg),
+            "Liquid Glass must still apply its defaults (R21)"
+        );
+        assert!(lg.neumorphic_seed().is_some(), "…and still seed new controls");
+
+        println!(
+            "\n  050 AC5 — {} properties watched across {} glass-style changes\n  \
+             self-contained: 0 changed (choice stored: {:?})\n  \
+             liquid glass:   model updated as before\n",
+            before.len(),
+            STYLES.len(),
+            dp.form.glass_style
         );
     }
 }

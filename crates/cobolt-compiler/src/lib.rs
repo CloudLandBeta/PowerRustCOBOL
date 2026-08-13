@@ -1663,12 +1663,14 @@ fn resolve_theme_pack(
 
 /// The procedural look this application's forms are painted in (spec 047),
 /// resolved from the same theme id as the pack above.
-fn resolve_surface_style(form: &cobolt_forms::Form) -> cobolt_forms::paint::SurfaceStyle {
+fn resolve_surface_theme(
+    form: &cobolt_forms::Form,
+) -> std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme> {
     let id = cobolt_forms::theme::resolve_theme_id(
         form.theme.as_deref(),
         Some(PROJECT_THEME_DEFAULT),
     );
-    cobolt_forms::paint::SurfaceStyle::from_theme_id(&id)
+    cobolt_forms::surface_theme::for_theme_id(&id)
 }
 
 /// The per-frame block-window replay (042 R30 seam): windows opened by an
@@ -1736,7 +1738,11 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     };
 
     let theme_pack = resolve_theme_pack(&first_form);
-    let surface_style = resolve_surface_style(&first_form);
+    // 050 R3 — a pack's own manifest declares whether it owns the whole look.
+    let surface_theme = match theme_pack.as_ref() {
+        Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+        None => resolve_surface_theme(&first_form),
+    };
 
     let (ev_tx, ev_rx)           = mpsc::channel::<FormEvent>();
     let (input_tx, input_rx)     = mpsc::channel::<StateUpdate>();
@@ -1815,7 +1821,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         fx_exit,
         fx_restore,
         theme_pack,
-        surface_style,
+        surface_theme,
         icon_path: None,
         // 042 R17 — the designed `form.title` wins; the branded fallback shows
         // only when the design left the title blank.
@@ -2245,6 +2251,8 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 - Applied with one operation: `{ "op": "set_property", "control_id": "Form", "key": "GlassStyle", "value": "Neumorphic Dark" }`. An unrecognised value is silently discarded and the form stays on `Classic`.
 - Individual controls automatically inherit the style's parameters (colors, padding, borders, shadows). Do not restyle controls one by one to emulate a style.
 - `Theme` and `UseThemeBackground` are a SEPARATE named asset-pack slot, not the mechanism for selecting a `GlassStyle`.
+- `GlassStyle` is CONDITIONAL on the form's `Theme`. The four values above are variations of Liquid Glass; a theme that owns the complete look (a "self-contained" theme, e.g. `elegance`) ignores `GlassStyle` entirely, and the IDE disables the setting while such a theme is selected. Setting `GlassStyle` on such a form is stored but has no visual effect, and it does not modify any other property of the form or its controls.
+- Explicit control properties are NEVER overridden by a theme. `BackgroundColor`, `ForegroundColor`, `CornerRadius`, `Transparency` and the `Shadow*` family always win. In particular `ShadowEnabled` draws a drop shadow under every theme and every `GlassStyle` value — do not tell a user to change `GlassStyle` to make a shadow appear.
 
 ## Window Start Position
 - Where a form's window opens on screen is the form-level `StartPosition` property. Its only accepted values are the exact strings `"System"`, `"Custom"`, `"TopLeft"`, `"TopCenter"`, `"TopRight"`, `"MiddleLeft"`, `"Center"`, `"MiddleRight"`, `"BottomLeft"`, `"BottomCenter"`, `"BottomRight"`.
@@ -4010,14 +4018,26 @@ mod resolve_main_tests {
         );
     }
 
-    /// Spec 047 T5 — the compiled application publishes its surface style every
-    /// frame, exactly as it already does for the pack and the glass style.
+    /// Spec 047 T5 / 050 R16 — the compiled application resolves and publishes
+    /// its THEME every frame, exactly as it already does for the pack and the
+    /// glass style. This is the fourth rendering surface, and it gets the gate
+    /// for free by going through the same `FormHost` as Run Form.
     #[test]
-    fn elegance_generated_binary_publishes_its_surface_style() {
+    fn elegance_generated_binary_publishes_its_surface_theme() {
         let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
-        assert!(src.contains("fn resolve_surface_style("));
-        assert!(src.contains("let surface_style = resolve_surface_style(&first_form);"));
-        assert!(src.contains("surface_style,"));
+        assert!(src.contains("fn resolve_surface_theme("));
+        assert!(src.contains("None => resolve_surface_theme(&first_form),"));
+        assert!(src.contains("surface_theme,"));
+        // 050 R3 — and an asset pack's own manifest declaration reaches it.
+        assert!(
+            src.contains("surface_theme::for_pack(p.manifest.self_contained)"),
+            "the built binary must honour a pack that declares it owns the look"
+        );
+        println!(
+            "050 R16 — the built binary resolves its theme from the same \
+             catalogue id (and a pack's manifest flag) and hands it to the \
+             shared FormHost"
+        );
     }
 
     #[test]

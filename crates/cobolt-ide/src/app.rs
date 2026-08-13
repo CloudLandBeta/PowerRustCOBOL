@@ -98,7 +98,16 @@ struct NewFormDialog {
     title: String,
     width: String,
     height: String,
+    /// The GLASS STYLE ("Classic", "Enhanced", "Neumorphic Light",
+    /// "Neumorphic Dark"). Named `theme` historically, which is exactly the
+    /// confusion 050 removes — the dialog labelled this row "Theme" and offered
+    /// the four glass styles, so the real theme catalogue (Liquid Glass,
+    /// Elegance, any installed pack) could not be chosen at creation at all.
     theme: String,
+    /// 050 — the FORM THEME, a catalogue id. Empty means "inherit the project
+    /// default", which is the same thing an empty `Form::theme` means, so the
+    /// dialog writes nothing when the developer leaves it alone.
+    form_theme: String,
     /// Project-relative folder the save dialog should open in — set when the
     /// dialog was raised by a folder row's `[+]`. `None` means `forms/`.
     target_dir: Option<String>,
@@ -113,6 +122,7 @@ impl NewFormDialog {
             width: "640".into(),
             height: "480".into(),
             theme: "Classic".into(),
+            form_theme: String::new(), // inherit the project default
             target_dir: None,
         }
     }
@@ -1272,17 +1282,35 @@ impl CoboltApp {
         // The built-in procedural themes come from the catalog itself (Liquid
         // Glass, then Elegance — spec 047 R1/AC1), so a new built-in surfaces in
         // both pickers with no change here.
-        let mut choices: Vec<(String, String)> = cobolt_forms::theme::ThemeCatalog::builtin()
-            .themes()
-            .iter()
-            .map(|t| (t.id.clone(), t.display_name.clone()))
-            .collect();
+        let mut choices: Vec<crate::theme_ui::ThemeChoice> =
+            cobolt_forms::theme::ThemeCatalog::builtin()
+                .themes()
+                .iter()
+                .map(|t| crate::theme_ui::ThemeChoice {
+                    id: t.id.clone(),
+                    display_name: t.display_name.clone(),
+                    self_contained: t.self_contained,
+                })
+                .collect();
         let mut packs: Vec<_> = self.theme_packs.values().collect();
         packs.sort_by(|a, b| a.id.cmp(&b.id));
         for p in packs {
-            choices.push((p.id.clone(), p.display_name.clone()));
+            choices.push(crate::theme_ui::ThemeChoice {
+                id: p.id.clone(),
+                display_name: p.display_name.clone(),
+                // 050 R3 — the pack's own declaration.
+                self_contained: p.manifest.self_contained,
+            });
         }
-        crate::theme_ui::publish(ctx, choices);
+        // 050 R19 — the per-form picker needs this to show what an unset
+        // override actually resolves to. It used to pass `None` and therefore
+        // reported Liquid Glass for a form inheriting a themed project.
+        let project_default = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| p.form_theme_default())
+            .map(|s| s.to_owned());
+        crate::theme_ui::publish(ctx, choices, project_default);
     }
 
     /// Resolve a form's effective theme (per-form override ?? project default ??
@@ -1300,19 +1328,25 @@ impl CoboltApp {
         self.theme_packs.get(&id).cloned()
     }
 
-    /// Resolve a form's effective theme to the procedural style its controls are
-    /// painted in (spec 047). Pairs with [`Self::resolve_theme_pack`]: that one
-    /// answers "which asset pack", this one "which procedural look underneath".
-    fn resolve_surface_style(
+    /// Resolve a form's effective theme to the implementation its controls are
+    /// painted by (spec 047/050). Pairs with [`Self::resolve_theme_pack`]: that
+    /// one answers "which asset pack", this one "which procedural look
+    /// underneath".
+    fn resolve_surface_theme(
         &self,
         form_theme: Option<&str>,
-    ) -> cobolt_forms::paint::SurfaceStyle {
+    ) -> std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme> {
         let proj_default = self
             .cobolt_project
             .as_ref()
             .and_then(|p| p.form_theme_default());
         let id = cobolt_forms::theme::resolve_theme_id(form_theme, proj_default);
-        cobolt_forms::paint::SurfaceStyle::from_theme_id(&id)
+        // 050 R3 — an asset pack's own manifest says whether it owns the whole
+        // look; a procedural theme is resolved from the registry.
+        match self.theme_packs.get(&id) {
+            Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+            None => cobolt_forms::surface_theme::for_theme_id(&id),
+        }
     }
 
     // ── Code workspace actions ────────────────────────────────────────────────
@@ -9449,21 +9483,83 @@ impl CoboltApp {
                         ui.label(tr.dlg_form_height);
                         ui.text_edit_singleline(&mut self.new_form.height);
                         ui.end_row();
-                        ui.label("Theme");
+                        // 050 — the FORM THEME: the whole catalogue (Liquid
+                        // Glass, Elegance, and every installed asset pack), the
+                        // same list the inspector offers. This row used to be
+                        // labelled "Theme" while offering the four GLASS STYLES,
+                        // so a real theme could not be chosen at creation and
+                        // the two settings looked like one.
+                        ui.label(tr.lbl_theme);
+                        let choices = crate::theme_ui::choices(ui.ctx());
+                        let project_default = crate::theme_ui::project_default(ui.ctx());
+                        let resolved = cobolt_forms::theme::resolve_theme_id(
+                            Some(self.new_form.form_theme.as_str()),
+                            project_default.as_deref(),
+                        );
+                        let inherited = self.new_form.form_theme.trim().is_empty()
+                            && project_default.is_some();
+                        let shown = choices
+                            .iter()
+                            .find(|c| c.id == resolved)
+                            .map(|c| c.display_name.clone())
+                            .unwrap_or_else(|| resolved.clone());
+                        let shown = if inherited {
+                            format!("{shown} {}", tr.theme_inherited)
+                        } else {
+                            shown
+                        };
                         egui::ComboBox::from_id_salt("new-form-theme")
-                            .selected_text(self.new_form.theme.as_str())
-                            .width(160.0)
+                            .selected_text(shown)
+                            .width(200.0)
                             .show_ui(ui, |ui| {
-                                for opt in
-                                    ["Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark"]
-                                {
+                                for c in &choices {
+                                    // Liquid Glass IS the default, so selecting
+                                    // it stores nothing rather than writing a
+                                    // redundant override.
+                                    let write =
+                                        if c.id == cobolt_forms::theme::LIQUID_GLASS {
+                                            String::new()
+                                        } else {
+                                            c.id.clone()
+                                        };
                                     ui.selectable_value(
-                                        &mut self.new_form.theme,
-                                        opt.to_owned(),
-                                        opt,
+                                        &mut self.new_form.form_theme,
+                                        write,
+                                        &c.display_name,
                                     );
                                 }
                             });
+                        ui.end_row();
+
+                        // 050 R17 — the glass style is its OWN row, and it is
+                        // disabled under a theme that owns the whole look.
+                        let self_contained =
+                            crate::theme_ui::is_self_contained(ui.ctx(), &resolved);
+                        ui.label(tr.lbl_glass_style);
+                        let resp = ui
+                            .add_enabled_ui(!self_contained, |ui| {
+                                egui::ComboBox::from_id_salt("new-form-glass-style")
+                                    .selected_text(self.new_form.theme.as_str())
+                                    .width(200.0)
+                                    .show_ui(ui, |ui| {
+                                        for opt in [
+                                            "Classic",
+                                            "Enhanced",
+                                            "Neumorphic Light",
+                                            "Neumorphic Dark",
+                                        ] {
+                                            ui.selectable_value(
+                                                &mut self.new_form.theme,
+                                                opt.to_owned(),
+                                                opt,
+                                            );
+                                        }
+                                    });
+                            })
+                            .response;
+                        if self_contained {
+                            resp.on_hover_text(tr.hint_theme_owns_look);
+                        }
                         ui.end_row();
                     });
                 ui.separator();
@@ -9718,8 +9814,23 @@ impl CoboltApp {
             return;
         }
         let mut form = Form::new(form_name.clone(), self.new_form.title.clone(), w, h);
+        // 050 — the form theme the developer picked in the dialog. Empty means
+        // "inherit the project default", which is what an empty `Form::theme`
+        // already means, so nothing is written in that case.
+        let chosen_theme = self.new_form.form_theme.trim().to_owned();
+        if !chosen_theme.is_empty() {
+            form.theme = Some(chosen_theme.clone());
+        }
         let style = cobolt_forms::model::GlassStyle::from_str(&self.new_form.theme);
-        if style.is_neumorphic() {
+        // 050 R7 — a new form under a self-contained theme is not seeded with
+        // glass defaults: they would be written into the `.cfrm` and then
+        // ignored by the theme that is actually painting it. Gated on the theme
+        // this form will ACTUALLY use — the dialog's pick, falling back to the
+        // project default — not on the project default alone.
+        let glass_applies = !self
+            .resolve_surface_theme(Some(chosen_theme.as_str()))
+            .is_self_contained();
+        if style.is_neumorphic() && glass_applies {
             form.apply_glass_style_defaults(style);
         } else {
             form.glass_style = style;
@@ -11751,7 +11862,10 @@ impl CoboltApp {
         let dform = &self.designers[idx].1.form;
         cobolt_forms::paint::set_active_theme(ctx, self.designers[idx].1.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, dform.glass_style);
-        cobolt_forms::paint::set_surface_style(ctx, self.designers[idx].1.active_surface_style);
+        cobolt_forms::paint::set_surface_theme(
+            ctx,
+            self.designers[idx].1.active_surface_theme.clone(),
+        );
 
         // ── Animation tick ────────────────────────────────────────────────────
         {
@@ -11962,6 +12076,17 @@ impl CoboltApp {
             form_h,
         };
 
+        // 049 — the label the shell's breadcrumb opens on, and the content
+        // pane's backdrop, which is the strip's background.
+        let crumb_label = cobolt_forms::breadcrumb::design_label(&self.designers[idx].1.form);
+        let crumb_bg = {
+            let f = &self.designers[idx].1.form;
+            cobolt_forms::breadcrumb::strip_background(
+                &f.background_color,
+                f.transparency.min(100) as u8,
+            )
+        };
+
         let mut updates: Vec<(String, String, String)> = Vec::new();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -11970,6 +12095,7 @@ impl CoboltApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.set_min_size(egui::vec2(form_w, form_h));
+                        let origin = ui.min_rect().min;
                         let input = cobolt_forms::render::RenderInput {
                             controls: &controls,
                             state: &st,
@@ -11982,6 +12108,45 @@ impl CoboltApp {
                         let out = cobolt_forms::render::render_form(ui, &input);
                         updates = out.prop_updates;
                         // Preview has no COBOL event loop; UI events are discarded.
+
+                        // 049 — the shell's breadcrumb, static (one segment, the
+                        // form itself). Drawn AFTER `render_form`, which is a
+                        // closed unit that paints its own backdrop: the canvas
+                        // can slip the strip in between background and controls,
+                        // the preview cannot, so here it sits on top.
+                        if let Some(side) = cobolt_forms::breadcrumb::shell_side_menu_in(&controls)
+                        {
+                            // The preview runs the rail LIVE, so the strip must
+                            // follow the state the preview is actually in — the
+                            // live `Collapsed`, not the designed one — or the
+                            // strip's arrow and its left edge both lie.
+                            let collapsed = matches!(
+                                self.designers[idx]
+                                    .1
+                                    .preview_state
+                                    .get(&side.id)
+                                    .map(String::as_str),
+                                Some("1") | Some("true")
+                            ) || (!self.designers[idx].1.preview_state.contains_key(&side.id)
+                                && side.side_menu_collapsed());
+                            let rail_w = cobolt_forms::sidebar::shown_width(side, collapsed);
+                            if let Some(rect) =
+                                cobolt_forms::breadcrumb::strip_rect(side, rail_w, form_w, origin)
+                            {
+                                cobolt_forms::breadcrumb::draw_static_strip(
+                                    ui.painter(),
+                                    ui.ctx(),
+                                    side,
+                                    &crumb_label,
+                                    rect,
+                                    crumb_bg,
+                                    cobolt_forms::breadcrumb::DesignView {
+                                        collapsed,
+                                        toggle_hovered: false,
+                                    },
+                                );
+                            }
+                        }
                     });
             });
 
@@ -13902,8 +14067,8 @@ impl CoboltApp {
         let form_theme = self.designers[idx].1.form.theme.clone();
         let pack = self.resolve_theme_pack(form_theme.as_deref());
         self.designers[idx].1.active_theme_pack = pack;
-        self.designers[idx].1.active_surface_style =
-            self.resolve_surface_style(form_theme.as_deref());
+        self.designers[idx].1.active_surface_theme =
+            self.resolve_surface_theme(form_theme.as_deref());
         let llm_cfg = self.llm.clone();
         // Project directory (holds the `agentic_ai/` prompt + skills) for the
         // event-editor assistant. Cloned so the closure doesn't borrow `self`.
@@ -14975,9 +15140,11 @@ mod build_button_full_tests {
         // Already built by this one → incremental, so the common case stays
         // as quick as it ever was.
         assert!(!build_needs_full(Some(&proj("1.60.36")), "1.60.36"));
-        // Downgraded IDE: rebuilding cannot un-write what a newer version
-        // produced, so it neither prompts nor full-builds.
-        assert!(!build_needs_full(Some(&proj("1.61.0")), "1.60.36"));
+        // Downgraded IDE → full as well (operator, 2026-08-11): the output was
+        // produced by a compiler this IDE is not, whichever way the version
+        // moved. Build and Run stay in lockstep, which is the point of this
+        // test — Build discards exactly when Run would ask.
+        assert!(build_needs_full(Some(&proj("1.61.0")), "1.60.36"));
     }
 
     /// No project open — there is nothing to full-build, and `do_build_binary`
