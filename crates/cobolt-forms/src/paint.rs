@@ -8108,6 +8108,14 @@ pub(crate) fn theme_has_surface(ctx: &egui::Context, role: SurfaceRole) -> bool 
         .is_some()
 }
 
+/// The active theme's own colours, for the colour picker's swatch grid.
+///
+/// Public because the IDE's inspector draws that grid, and it must offer the
+/// colours of the theme the form is actually painted in.
+pub fn active_theme_swatches(ctx: &egui::Context) -> Vec<Color32> {
+    active_surface_theme(ctx).swatches()
+}
+
 /// Does the theme paint toggle indicators itself?
 ///
 /// When it does, a RadioButton gets a real drawn dot and its caption carries no
