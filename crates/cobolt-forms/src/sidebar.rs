@@ -266,6 +266,25 @@ pub fn state_for_control<'a>(
     expanded: &'a [String],
 ) -> SidebarState<'a> {
     let palette = SidebarPalette::from_control(ctrl, alpha);
+    // The rail's own default shadow DIRECTION is East, not the generic South.
+    //
+    // A rail is full-height, so a shadow thrown South lands below the form —
+    // off-surface, clipped, invisible. Switching `ShadowEnabled` on therefore
+    // appeared to do nothing at all, which is exactly how it was reported. East
+    // casts it onto the content area, along the edge the rail actually has. Any
+    // direction the developer sets still wins.
+    let shadow_source: Control = match ctrl
+        .get_prop("ShadowDirection")
+        .map(|v| v.as_str().trim().to_owned())
+        .filter(|s| !s.is_empty())
+    {
+        Some(_) => ctrl.clone(),
+        None => {
+            let mut c = ctrl.clone();
+            c.set_prop("ShadowDirection", "East");
+            c
+        }
+    };
     let font_name = ctrl
         .get_prop("FontName")
         .map(|v| v.as_str())
@@ -362,7 +381,7 @@ pub fn state_for_control<'a>(
         // rail's drop shadow under a self-contained theme that has no relief to
         // replace it with.
         shadow: crate::paint::drop_shadow_spec(
-            ctrl,
+            &shadow_source,
             crate::paint::glass_config_applies(ctx)
                 && crate::paint::active_glass_style(ctx).is_neumorphic(),
         )
@@ -636,12 +655,17 @@ pub fn header_image_rect(header: Rect, collapsed: bool) -> Rect {
         .min(avail_h / HEADER_IMAGE_H)
         .min(1.0);
     let size = Vec2::new(HEADER_IMAGE_W * k, HEADER_IMAGE_H * k);
-    let x = if collapsed {
-        header.center().x - size.x * 0.5
-    } else {
-        header.min.x + PAD_X
-    };
-    Rect::from_min_size(Pos2::new(x, header.center().y - size.y * 0.5), size)
+    // Centred in the header pane, both axes and in both rail states. It used to
+    // be pinned to the left padding when expanded, which left the logo sitting
+    // off-centre against the pane it is the whole content of.
+    let _ = collapsed;
+    Rect::from_min_size(
+        Pos2::new(
+            header.center().x - size.x * 0.5,
+            header.center().y - size.y * 0.5,
+        ),
+        size,
+    )
 }
 
 fn paint_header(painter: &egui::Painter, rect: Rect, state: &SidebarState<'_>) {
@@ -1372,7 +1396,19 @@ mod tests {
         let r = header_image_rect(header, false);
         assert_eq!((r.width(), r.height()), (HEADER_IMAGE_W, HEADER_IMAGE_H));
         assert_eq!((r.width(), r.height()), (200.0, 60.0), "the stated size");
-        assert_eq!(r.min.x, header.min.x + PAD_X, "left-aligned when open");
+        // Centred in the pane, both axes and in BOTH rail states. It used to be
+        // pinned to the left padding when open, which left the logo off-centre
+        // against the pane it is the whole content of (operator, 1.61.38).
+        assert!(
+            (r.center().x - header.center().x).abs() < 0.01,
+            "horizontally centred when open: {} vs {}",
+            r.center().x,
+            header.center().x
+        );
+        assert!(
+            (r.center().y - header.center().y).abs() < 0.01,
+            "and vertically centred"
+        );
         assert!(header.contains_rect(r), "and inside the header pane");
 
         let aspect = HEADER_IMAGE_W / HEADER_IMAGE_H;
@@ -1406,6 +1442,112 @@ mod tests {
             header_image_rect(rail, true).height(),
             header_image_rect(short, false).width(),
             header_image_rect(short, false).height(),
+        );
+    }
+
+    /// The footer Panel's own Background and Border are the DEVELOPER'S.
+    ///
+    /// The rail owns where the Panel sits and nothing else — `paint_footer` is
+    /// deliberately empty. Operator report: its background and border style
+    /// could not be changed.
+    #[test]
+    fn the_footer_panel_takes_the_developers_background_and_border() {
+        use crate::model::{Form, PropValue, Rect as MRect};
+
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 200, 744);
+        side.set_prop("FooterHeight", 72i64);
+        form.controls.push(side);
+        form.sync_side_menu_footer_panels();
+
+        // The developer styles it like any other container.
+        let f = form
+            .controls
+            .iter_mut()
+            .find(|c| c.is_side_menu_footer())
+            .expect("footer Panel");
+        f.set_prop("BackgroundColor", PropValue::String("#C0392B".into()));
+        f.set_prop("BorderStyle", PropValue::String("Single".into()));
+        f.set_prop("BorderColor", PropValue::String("#F1C40F".into()));
+        f.set_prop("BorderWidth", PropValue::Int(2));
+
+        // Re-syncing must not undo any of it — the rail re-pins the RECT only.
+        form.sync_side_menu_footer_panels();
+        let f = form
+            .controls
+            .iter()
+            .find(|c| c.is_side_menu_footer())
+            .expect("footer Panel");
+        assert_eq!(
+            f.get_prop("BackgroundColor").map(|v| v.as_str().to_owned()),
+            Some("#C0392B".to_owned()),
+            "the rail overwrote the developer's background"
+        );
+        assert_eq!(
+            f.get_prop("BorderStyle").map(|v| v.as_str().to_owned()),
+            Some("Single".to_owned()),
+            "the rail overwrote the developer's border style"
+        );
+
+        // And the painter honours them under a self-contained theme (R9).
+        assert_eq!(
+            crate::paint::user_background_color(f),
+            Some(crate::paint::parse_color("#C0392B")),
+            "an explicit background must outrank the theme's container colour"
+        );
+
+        let ctx = egui::Context::default();
+        crate::paint::set_surface_theme(&ctx, crate::surface_theme::elegance());
+        let rect = Rect::from_min_size(Pos2::new(0.0, 672.0), Vec2::new(200.0, 72.0));
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 800.0)));
+        let mut full = ctx.run_ui(input, |ui| {
+            crate::paint::draw_control(
+                ui.painter(),
+                Pos2::new(f.rect.x as f32, 0.0),
+                f,
+                false,
+                true,
+                1.0,
+                1.0,
+                None,
+            );
+        });
+        full.textures_delta.clear();
+        fn fills(s: &egui::Shape, out: &mut Vec<Color32>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| fills(s, out)),
+                egui::Shape::Rect(r) => {
+                    out.push(r.fill);
+                    out.push(r.stroke.color);
+                }
+                _ => {}
+            }
+        }
+        let mut seen = Vec::new();
+        for cs in &full.shapes {
+            fills(&cs.shape, &mut seen);
+        }
+        let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
+        let want_bg = crate::paint::parse_color("#C0392B");
+        let want_border = crate::paint::parse_color("#F1C40F");
+        assert!(
+            seen.iter().any(|c| same(*c, want_bg)),
+            "the chosen background never reached the canvas; painted {:?}",
+            seen.iter()
+                .filter(|c| c.a() > 0)
+                .map(|c| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            seen.iter().any(|c| same(*c, want_border)),
+            "the chosen border colour never reached the canvas"
+        );
+        let _ = rect;
+        eprintln!(
+            "049 footer Panel — Background #C0392B and Border Single/#F1C40F/2 \
+             survive a re-sync and both reach the canvas under Elegance"
         );
     }
 
@@ -1713,6 +1855,59 @@ mod tests {
             !painted_beyond(&off),
             "…and nothing is painted there with the shadow switched off"
         );
+
+        // Operator report: "ShadowEnabled does nothing." With ONLY that property
+        // set — no direction, no distance — the generic default is South, and a
+        // full-height rail throws that below the form where nothing can see it.
+        // The rail defaults to East instead, along the edge it actually has.
+        {
+            let mut plain = Control::new("SIDE-2", crate::ControlType::SideMenu, 0, 0);
+            plain.set_prop("ShadowEnabled", true);
+            assert!(
+                painted_beyond(&plain),
+                "ShadowEnabled alone must produce a visible shadow beside the rail"
+            );
+            let mut plain_off = plain.clone();
+            plain_off.set_prop("ShadowEnabled", false);
+            assert!(
+                !painted_beyond(&plain_off),
+                "…and switching it off must remove it"
+            );
+            // A direction the developer chooses still wins over the rail's
+            // default: the resolved shadow must differ from the East one.
+            let mut southward = plain.clone();
+            southward.set_prop("ShadowDirection", "South");
+            let defaulted = state_for_control(&ctx, &plain, &items, 255, &none)
+                .shadow
+                .expect("rail default");
+            let chosen = state_for_control(&ctx, &southward, &items, 255, &none)
+                .shadow
+                .expect("explicit South");
+            assert_ne!(
+                format!("{defaulted:?}"),
+                format!("{chosen:?}"),
+                "an explicit South must be honoured, not replaced by the rail's East"
+            );
+            // (South's own visibility is not asserted here: a blurred shadow
+            // spreads on every axis, so it clips the right-hand probe too. The
+            // point is only that the developer's choice reaches the painter.)
+        }
+
+        // 050 — and the SAME under a self-contained theme. Operator report:
+        // "the sidebar's shadow is fixed in Elegance". `ShadowEnabled` is the
+        // developer's under every theme; a theme decides how a control LOOKS,
+        // never whether a property of theirs still works.
+        crate::paint::set_surface_theme(&ctx, crate::surface_theme::elegance());
+        assert!(
+            painted_beyond(&ctrl),
+            "Elegance: the shadow must be drawn when the developer enables it"
+        );
+        assert!(
+            !painted_beyond(&off),
+            "Elegance: switching ShadowEnabled off must remove it — it is not \
+             fixed by the theme"
+        );
+        crate::paint::set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
 
         eprintln!(
             "049 sidebar shadow — ShadowEnabled off ⇒ none; on ⇒ cast East 10pt \

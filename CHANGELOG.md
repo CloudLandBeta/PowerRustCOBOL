@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.38] — 2026-08-13
+
+### Fixed — the rail's header logo and its drop shadow
+
+- **`ShadowEnabled` on a SideMenu appeared to do nothing.** The property worked;
+  you simply could not see the result. The generic default `ShadowDirection` is
+  **South**, and a `FullHeight` rail runs the whole height of the form — so the
+  shadow was cast below the form, off-surface and clipped. The rail now defaults
+  to **East**, along the edge it actually has, casting onto the content area.
+  Any direction you set still wins.
+- **The header logo is centred in its pane**, on both axes and in both rail
+  states. It was pinned to the left padding when the rail was open — only the
+  collapsed state centred it — so the logo sat off-centre in the pane it is the
+  entire content of.
+
 ## [PowerRustCOBOL 1.61.37] — 2026-08-12
 
 ### Fixed — a theme that owns the look is no longer configured by Liquid Glass
