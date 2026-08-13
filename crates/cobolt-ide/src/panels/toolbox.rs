@@ -163,7 +163,10 @@ const TOOLS: &[ToolEntry] = &[
         category: "Menu",
     },
     ToolEntry {
-        label: "SideMenu",
+        // The DISPLAY name only. `ControlType::SideMenu` and the `.cfrm`
+        // `type="SideMenu"` are persistence: renaming those would orphan the
+        // control in every form already saved.
+        label: "SideBar",
         ct: ControlType::SideMenu,
         category: "Menu",
     },

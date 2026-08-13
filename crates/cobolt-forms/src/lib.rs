@@ -48,6 +48,12 @@ pub mod anim;
 #[cfg(feature = "render")]
 pub mod paint;
 
+// What a form theme IS (spec 050): an implementation the painters ask, not an
+// identity they test against. Registering a theme touches no painter, and a
+// theme that owns the whole look says so instead of every painter guessing.
+#[cfg(feature = "render")]
+pub mod surface_theme;
+
 #[cfg(feature = "render")]
 pub mod render;
 
@@ -59,6 +65,13 @@ pub mod fonts;
 // depending on which surface you are looking at.
 #[cfg(feature = "render")]
 pub mod sidebar;
+
+// The ONE breadcrumb renderer (spec 049) — the sidebar's sibling, and shared
+// for the same reason: the strip lives in the running shell, but the designer
+// and the preview have to show it too, and the IDE takes no runtime dependency
+// on the form host.
+#[cfg(feature = "render")]
+pub mod breadcrumb;
 
 // Window entrance/exit effects (spec 038). Needs egui types only, so it is
 // gated with the other render modules.

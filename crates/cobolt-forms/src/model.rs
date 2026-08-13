@@ -3129,6 +3129,20 @@ pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 /// creation, so existing designs keep exactly what they have.
 pub const DEFAULT_FORM_BACKGROUND_COLOR: &str = "#2E3138FF";
 
+/// 049 — the default height of a SideMenu's footer pane, in points. Mirrors
+/// the renderer's `sidebar::FOOTER_H`; both must agree or the Panel would be
+/// pinned somewhere the rail does not paint.
+pub const DEFAULT_SIDE_MENU_FOOTER_H: i32 = 72;
+
+/// Marks the Panel a SideMenu owns in its footer pane. A property rather than
+/// an id convention, so the Panel survives being renamed.
+pub const SIDE_MENU_FOOTER_PROP: &str = "IsSideMenuFooter";
+
+/// The id of the Panel a SideMenu owns in its footer pane.
+pub fn side_menu_footer_id(side_id: &str) -> String {
+    format!("{side_id}-Footer")
+}
+
 /// Default `FillColor` assigned to every new Shape — the legacy silver face. A
 /// Shape still on this value takes its face from the Appearance **Back colour**
 /// instead, so that section is not dead for Shapes; any other `FillColor` is an
@@ -3584,6 +3598,25 @@ impl Control {
                     props.insert("Collapsed".into(), PropValue::Bool(false));
                     // How menu-item icons are painted: None | Shadow | Neumorphic.
                     props.insert("IconEffect".into(), PropValue::String("None".into()));
+                    // Menu-item icon size, in points. Icons are vectors, so
+                    // this is a clean scale rather than a resample.
+                    props.insert("IconSize".into(), PropValue::Int(22));
+                    // The three panes: a header carrying the logo, the menu,
+                    // and a footer holding the developer's Panel. The menu
+                    // pane is whatever height is left between them.
+                    props.insert("AppTitle".into(), PropValue::String(String::new()));
+                    // The header is the developer's to size and is never
+                    // resized at run time; 120 gives the logo box room to
+                    // breathe without them having to discover the property.
+                    props.insert("HeaderHeight".into(), PropValue::Int(120));
+                    props.insert("FooterHeight".into(), PropValue::Int(72));
+                    // The header logo. Empty = no logo drawn; the header is
+                    // the developer's, not a placeholder's.
+                    props.insert("HeaderImage".into(), PropValue::String(String::new()));
+                    // The COLLAPSED rail's mark. A logo drawn for a 200pt
+                    // header cannot be read squeezed into a 72pt strip, so the
+                    // rail shows this icon instead of shrinking the image.
+                    props.insert("HeaderIcon".into(), PropValue::String(String::new()));
                 }
             }
             ControlType::ToolBar | ControlType::StatusBar => {
@@ -4204,6 +4237,27 @@ impl Control {
     pub fn side_menu_collapsed(&self) -> bool {
         self.control_type == ControlType::SideMenu
             && self.get_prop("Collapsed").map(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// 049 — the height of a SideMenu's footer pane, in points.
+    pub fn side_menu_footer_height(&self) -> i32 {
+        self.get_prop("FooterHeight")
+            .map(|v| v.as_i64() as i32)
+            .filter(|h| *h >= 0)
+            .unwrap_or(DEFAULT_SIDE_MENU_FOOTER_H)
+    }
+
+    /// 049 — is this the Panel a SideMenu owns in its footer pane?
+    ///
+    /// It is a normal container in every way that matters to the developer —
+    /// selectable, editable, a drop target — but the sidebar owns its position
+    /// and size, so the designer refuses to move, resize or delete it.
+    pub fn is_side_menu_footer(&self) -> bool {
+        self.control_type == ControlType::Panel
+            && self
+                .get_prop(SIDE_MENU_FOOTER_PROP)
+                .map(|v| v.as_bool())
+                .unwrap_or(false)
     }
 
     pub fn set_prop(&mut self, name: impl Into<String>, value: impl Into<PropValue>) {
@@ -4974,6 +5028,55 @@ impl Form {
     /// Idempotent, and cheap enough to call every designer frame — that is
     /// what keeps the control following a form resize. A SideMenu whose
     /// `FullHeight` is off keeps whatever the developer placed.
+    /// 049 — every SideMenu owns a Panel in its footer pane, and this is what
+    /// creates and pins it.
+    ///
+    /// The Panel is the developer's: they drop controls into it and style it
+    /// through the ordinary inspector. What they do NOT own is where it sits —
+    /// the sidebar's footer band decides that, so the rect is re-pinned here
+    /// every frame rather than being dragged around. Idempotent, and the one
+    /// call site is what makes the Panel follow a form resize, a `FooterHeight`
+    /// edit and a `Collapsed` toggle without any of those knowing about it.
+    ///
+    /// A collapsed rail has no footer pane, so the Panel is pinned to zero
+    /// height: nothing to see, and nothing that can be dropped into.
+    pub fn sync_side_menu_footer_panels(&mut self) {
+        let sides: Vec<(String, Rect, i32, bool)> = self
+            .controls
+            .iter()
+            .filter(|c| c.control_type == ControlType::SideMenu)
+            .map(|c| {
+                (
+                    c.id.clone(),
+                    c.rect,
+                    c.side_menu_footer_height(),
+                    c.side_menu_collapsed(),
+                )
+            })
+            .collect();
+
+        for (side_id, side_rect, footer_h, _collapsed) in sides {
+            // The footer keeps the developer's height in BOTH rail states, so
+            // the Panel does not vanish (and its children with it) the moment
+            // the operator collapses the rail.
+            let h = footer_h;
+            let pinned = Rect::new(side_rect.x, side_rect.y + side_rect.h - h, side_rect.w, h);
+            let footer_id = side_menu_footer_id(&side_id);
+            if let Some(p) = self.controls.iter_mut().find(|c| c.id == footer_id) {
+                p.rect = pinned;
+                p.parent = Some(side_id.clone());
+                continue;
+            }
+            let mut p = Control::new(&footer_id, ControlType::Panel, pinned.x, pinned.y);
+            p.rect = pinned;
+            p.parent = Some(side_id.clone());
+            // The marker the designer's locks and the renderers key off, so a
+            // footer Panel stays recognisable after a rename or a reload.
+            p.set_prop(SIDE_MENU_FOOTER_PROP, true);
+            self.controls.push(p);
+        }
+    }
+
     pub fn sync_side_menu_full_height(&mut self) {
         let form_h = self.height as i32;
         fn walk(controls: &mut [Control], form_h: i32) {
