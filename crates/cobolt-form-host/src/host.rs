@@ -152,7 +152,7 @@ pub struct FormHostConfig {
     /// The procedural look the controls are painted in (spec 047). Resolved
     /// from the same theme id as `theme_pack`; `LiquidGlass` is the historical
     /// default, so a glue that does not set it renders exactly as before.
-    pub surface_style: cobolt_forms::paint::SurfaceStyle,
+    pub surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
     /// Project icon path, if the glue has one (`--icon` / bundled asset).
     pub icon_path: Option<PathBuf>,
     /// Window title when the designed `form.title` is blank (spec 042 R17):
@@ -285,7 +285,7 @@ impl FormHost {
             fx_exit,
             fx_restore,
             theme_pack,
-            surface_style,
+            surface_theme,
             icon_path: _,
             title_fallback: _,
             hooks,
@@ -310,9 +310,40 @@ impl FormHost {
         // and `FullHeight` makes that second copy as tall as the whole form.
         // Only its PAINT is dropped — the control keeps its state entry below,
         // so `SelectedItemId` and its event handlers still work.
+        // 049 — the column the rail occupies in the DESIGNED form. The shell
+        // lays the ContentPane out beside the MenuPane, so the pane's own
+        // left edge is already past the rail; a control still carrying its
+        // designed x would then be pushed right by the rail's width a SECOND
+        // time. The designed width is the one that matters, not the live pane
+        // width: Open/Collapsed moves the pane edge, and the form travels with
+        // it because it is anchored to the pane, not to the window.
+        let side_dx: i32 = if surface == Surface::Pane {
+            flat.iter()
+                .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+                .map(|c| c.rect.w.max(0))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        // 049 — in a pane, the SideMenu IS the MenuPane: the shell paints it as
+        // chrome outside this host. Rendering the control again inside the
+        // ContentPane would put the same sidebar on screen twice, side by side,
+        // and `FullHeight` makes that second copy as tall as the whole form.
+        // Only its PAINT is dropped — the control keeps its state entry below,
+        // so `SelectedItemId` and its event handlers still work.
         let flat: Vec<cobolt_forms::Control> = if surface == Surface::Pane {
             flat.into_iter()
                 .filter(|c| c.control_type != cobolt_forms::ControlType::SideMenu)
+                .map(|mut c| {
+                    // Slide the form's content area over the rail's column so
+                    // its left edge lands ON the pane's left edge — juxtaposed
+                    // to the rail rather than offset from it twice. A control
+                    // the developer parked UNDER the rail clamps to the edge
+                    // instead of disappearing off the left of the pane.
+                    c.rect.x = (c.rect.x - side_dx).max(0);
+                    c
+                })
                 .collect()
         } else {
             flat
@@ -320,7 +351,13 @@ impl FormHost {
 
         let glass_style = form.glass_style;
         let form_object = form.name.trim().to_ascii_uppercase();
-        let (fw, fh) = (form.width as f32, form.height as f32);
+        // The pane holds the form MINUS the rail's column, so the scroll extent
+        // is the content's, not the whole designed form's — otherwise the pane
+        // scrolls sideways over a rail-width band of nothing.
+        let (fw, fh) = (
+            (form.width as f32 - side_dx as f32).max(1.0),
+            form.height as f32,
+        );
 
         // R27 — with diagnostics on, say what this window IS before anything
         // runs.
@@ -336,7 +373,7 @@ impl FormHost {
             form_name: form.name.clone(),
             surface,
             theme_pack,
-            surface_style,
+            surface_theme,
             glass_style,
             visuals_set: false,
             controls: flat,
@@ -419,7 +456,7 @@ pub struct FormHost {
     /// glass style — pushed into the egui context so the unified painter reads
     /// the same theme state as under the IDE (spec 017 parity).
     theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>>,
-    surface_style: cobolt_forms::paint::SurfaceStyle,
+    surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
     glass_style: cobolt_forms::model::GlassStyle,
     visuals_set: bool,
     controls: Vec<cobolt_forms::Control>,
@@ -1032,7 +1069,7 @@ impl FormHost {
         // contract every host follows).
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
-        cobolt_forms::paint::set_surface_style(ctx, self.surface_style);
+        cobolt_forms::paint::set_surface_theme(ctx, self.surface_theme.clone());
 
         // 047 R6 — Knob/Gauge/Switch/FileDropZone are real widgets from the
         // palette crate; they read their theme from the context and otherwise
@@ -1050,10 +1087,10 @@ impl FormHost {
         // too (spec 047 plan R-5).
         //
         // Cheap per frame by design: it early-returns when the theme is
-        // unchanged.
-        if self.surface_style == cobolt_forms::paint::SurfaceStyle::Elegance {
-            cobolt_forms::paint::install_elegance_theme(ctx);
-        }
+        // unchanged. Themes with no such widgets do nothing here (050 — the
+        // trait's default is a no-op), so this is no longer a test for one
+        // particular theme.
+        self.surface_theme.install_widget_visuals(ctx);
 
         // The per-host seam (R30): e.g. the compiled application replays its
         // EXEC RUST block windows here, every frame — that is what
@@ -1392,8 +1429,18 @@ impl FormHost {
                         pane_backdrop_fill = Some(painted.bg);
                         pane_backdrop_rect = Some(rect);
                         cobolt_forms::render::Backdrop {
+                            // `transparency: 100` is what actually makes this
+                            // inert. A colour alone cannot: `backdrop_color`
+                            // maps pure black to the default navy on purpose —
+                            // so that a form with no background set is still a
+                            // visible window — and `#00000000` IS pure black to
+                            // it. The engine therefore painted OPAQUE NAVY over
+                            // the pane backdrop that had just been painted
+                            // correctly two lines above, which is why the
+                            // ContentPane ignored the background set in the RAD
+                            // while the rail and the breadcrumb honoured it.
                             color_hex: "#00000000".into(),
-                            transparency: 0,
+                            transparency: 100,
                             gradient_enabled: false,
                             gradient_start_hex: String::new(),
                             gradient_end_hex: String::new(),
@@ -1633,7 +1680,7 @@ mod parity {
             fx_exit: FxSpec::parse(exit),
             fx_restore: restore,
             theme_pack: None,
-            surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             icon_path: None,
             title_fallback: String::new(),
             hooks: Box::new(NoHooks),
@@ -1697,7 +1744,7 @@ mod parity {
                 fx_exit: FxSpec::default(),
                 fx_restore: false,
                 theme_pack: None,
-                surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
                 icon_path: None,
                 title_fallback: String::new(),
                 hooks: Box::new(NoHooks),
@@ -1729,6 +1776,248 @@ mod parity {
              MenuBar); pane: 2/3, the SideMenu alone withheld (a MenuBar still \
              paints, it is not shell chrome)"
         );
+    }
+
+    /// 049 — the ContentPane is JUXTAPOSED to the rail, not offset from it
+    /// twice.
+    ///
+    /// The shell lays the pane out beside the MenuPane, so the pane's own left
+    /// edge is already past the rail. A control still carrying its designed x
+    /// was then pushed right by the rail's width a second time: a button drawn
+    /// beside a 200pt rail landed 200pt into the pane, i.e. 400pt from the
+    /// window edge. The operator photographed exactly that.
+    #[test]
+    fn a_pane_host_slides_the_form_over_the_rails_column_049() {
+        fn host_for(surface: Surface) -> FormHost {
+            let form = cobolt_forms::Form::new("MAIN", "Main", 960, 744);
+            let mut side =
+                cobolt_forms::Control::new("SIDE-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+            side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 744);
+            let mut beside =
+                cobolt_forms::Control::new("BTN-1", cobolt_forms::ControlType::Button, 210, 40);
+            beside.rect = cobolt_forms::model::Rect::new(210, 40, 100, 30);
+            // Parked UNDER the rail: it must clamp to the pane's edge rather
+            // than sliding off the left and out of reach.
+            let mut under =
+                cobolt_forms::Control::new("BTN-2", cobolt_forms::ControlType::Button, 20, 300);
+            under.rect = cobolt_forms::model::Rect::new(20, 300, 100, 30);
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (_form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (host, _form) = FormHost::new(FormHostConfig {
+                form,
+                flat: vec![side, beside, under],
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                fx_entrance: FxSpec::default(),
+                fx_exit: FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface,
+            });
+            host
+        }
+
+        let x_of = |h: &FormHost, id: &str| -> i32 {
+            h.controls.iter().find(|c| c.id == id).expect("control").rect.x
+        };
+
+        // A window host is untouched: the rail is a control there like any
+        // other, and nothing about existing forms may move.
+        let window = host_for(Surface::Window);
+        assert_eq!(x_of(&window, "BTN-1"), 210, "a window host keeps designed x");
+        assert_eq!(x_of(&window, "BTN-2"), 20);
+        assert_eq!(window.designed_size().x, 960.0, "and the whole designed width");
+
+        let pane = host_for(Surface::Pane);
+        assert_eq!(
+            x_of(&pane, "BTN-1"),
+            10,
+            "beside a 200pt rail ⇒ 10pt into the pane, not 210"
+        );
+        assert_eq!(
+            x_of(&pane, "BTN-2"),
+            0,
+            "a control under the rail clamps to the pane edge, never off it"
+        );
+        assert_eq!(
+            pane.designed_size().x,
+            760.0,
+            "the pane holds the form minus the rail's column (960 - 200)"
+        );
+        assert_eq!(
+            pane.designed_size().y,
+            744.0,
+            "height is untouched: the breadcrumb is chrome outside the pane, \
+             and shrinking here would cut the bottom of the form off"
+        );
+
+        println!(
+            "049 pane juxtaposition — 960px form, 200px rail: BTN-1 210→10, \
+             BTN-2 20→0 (clamped), pane content width 960→760; a window host \
+             unchanged at 210/20/960"
+        );
+    }
+
+    /// R41 — the ContentPane wears the background set in the RAD.
+    ///
+    /// The pane paints the form's backdrop itself and then hands the ENGINE an
+    /// inert one so nothing is painted twice. That inert backdrop was
+    /// `#00000000`, and `backdrop_color` maps pure black to the default navy on
+    /// purpose — so a form with no background set is still a visible window —
+    /// so the engine painted opaque navy straight over the correct fill. The
+    /// rail and the breadcrumb resolve their colour by another route, which is
+    /// why they honoured the design and the pane alone did not.
+    #[test]
+    fn an_inert_backdrop_paints_nothing_over_the_panes_own_fill() {
+        use cobolt_forms::render::backdrop_color;
+
+        // The trap: pure black is deliberately the navy default, at any length.
+        let as_colour = backdrop_color("#00000000", 0);
+        assert_eq!(
+            (as_colour.r(), as_colour.g(), as_colour.b(), as_colour.a()),
+            (20, 22, 45, 255),
+            "pure black IS the opaque navy default — a colour alone cannot be inert"
+        );
+
+        // What the pane actually hands the engine now: nothing to paint.
+        let inert = backdrop_color("#00000000", 100);
+        assert_eq!(inert.a(), 0, "transparency 100 is what makes it inert");
+
+        // And the design's own colour is untouched by all of this.
+        let designed = backdrop_color("D8D8D8FF", 0);
+        assert_eq!(
+            (designed.r(), designed.g(), designed.b(), designed.a()),
+            (0xD8, 0xD8, 0xD8, 255),
+            "a form designed light grey resolves light grey"
+        );
+
+        println!(
+            "049 R41 — inert backdrop alpha {} (was {}, opaque navy painted \
+             over the pane); a D8D8D8FF form still resolves {:?}",
+            inert.a(),
+            as_colour.a(),
+            (designed.r(), designed.g(), designed.b())
+        );
+    }
+
+    /// 050 AC9/R16 — the surfaces agree on the theme.
+    ///
+    /// The canvas, the preview, this host and the compiled binary all resolve
+    /// through the SAME registry and publish through the same channel, so a
+    /// themed form cannot look different depending on where you view it. The
+    /// evidence here is the host end: after a real host frame, the form's own
+    /// Context carries the theme, and a shadowed control drawn in it casts its
+    /// shadow — which under the old code it did not, once the glass style
+    /// happened to be Neumorphic.
+    #[test]
+    fn themed_surfaces_agree() {
+        use cobolt_forms::surface_theme;
+
+        // The registry is the single resolution point every surface calls.
+        for (form_theme, project_default, want) in [
+            (None, None, cobolt_forms::theme::LIQUID_GLASS),
+            (None, Some(cobolt_forms::theme::ELEGANCE), cobolt_forms::theme::ELEGANCE),
+            (Some(cobolt_forms::theme::ELEGANCE), None, cobolt_forms::theme::ELEGANCE),
+            (Some(""), Some(cobolt_forms::theme::ELEGANCE), cobolt_forms::theme::ELEGANCE),
+        ] {
+            let id = cobolt_forms::theme::resolve_theme_id(form_theme, project_default);
+            assert_eq!(
+                surface_theme::for_theme_id(&id).id(),
+                want,
+                "form={form_theme:?} project={project_default:?}"
+            );
+        }
+
+        // …and the host actually publishes it. Drive one real frame with the
+        // Elegance theme, then draw a shadowed Panel in the SAME Context.
+        fn shadow_shapes_after_a_host_frame(
+            theme: std::sync::Arc<dyn surface_theme::SurfaceTheme>,
+            gs: cobolt_forms::model::GlassStyle,
+        ) -> usize {
+            let (mut app, _pipes) = host_with_surface("none:0:linear", "none:0:linear", false, Surface::Window);
+            app.surface_theme = theme;
+            let ctx = egui::Context::default();
+            cobolt_forms::paint::set_glass_style(&ctx, gs);
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(420.0, 320.0)));
+            // The host frame is what publishes the theme onto this Context.
+            let _ = frame(&mut app, &ctx, input.clone());
+
+            let mut c = cobolt_forms::Control::new("P", cobolt_forms::ControlType::Panel, 0, 0);
+            c.rect = cobolt_forms::model::Rect::new(60, 60, 160, 100);
+            c.set_prop("ShadowEnabled", true);
+            c.set_prop("ShadowDirection", "South");
+            c.set_prop("ShadowDistance", 12i64);
+            let face_bottom = 160.0_f32;
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        cobolt_forms::paint::draw_control(
+                            ui.painter(),
+                            egui::Pos2::ZERO,
+                            &c,
+                            false,
+                            true,
+                            1.0,
+                            1.0,
+                            None,
+                        );
+                    });
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, bottom: f32, n: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, bottom, n)),
+                    other => {
+                        let b = other.visual_bounding_rect();
+                        if b.is_positive() && b.max.y > bottom + 1.0 {
+                            *n += 1;
+                        }
+                    }
+                }
+            }
+            let mut n = 0;
+            for cs in &full.shapes {
+                walk(&cs.shape, face_bottom, &mut n);
+            }
+            n
+        }
+
+        use cobolt_forms::model::GlassStyle as GS;
+        let mut rows = Vec::new();
+        for gs in [GS::Classic, GS::Enhanced, GS::Neumorphic, GS::NeumorphicDark] {
+            let n = shadow_shapes_after_a_host_frame(surface_theme::elegance(), gs);
+            assert!(
+                n > 0,
+                "{gs:?}: the host published a self-contained theme, so the \
+                 developer's drop shadow must still be drawn"
+            );
+            rows.push((gs, n));
+        }
+
+        println!("\n  050 AC9 — resolution agrees across surfaces (one registry).");
+        println!("  host frame + shadowed Panel, shapes below the face:");
+        for (gs, n) in &rows {
+            println!("    {:<16} {n}", format!("{gs:?}"));
+        }
+        println!();
     }
 
     /// One headless frame; returns the ROOT viewport's commands.

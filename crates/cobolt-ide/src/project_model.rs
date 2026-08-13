@@ -514,14 +514,19 @@ impl ProjectMeta {
 
     /// Does this project need a full build before it is run under `current`?
     ///
-    /// True when the running PowerRustCOBOL is NEWER than the version that
-    /// last fully built the project — including the case of a project that has
-    /// never had one, which covers everything created before the stamp
-    /// existed. A project built by a newer version than the one running (the
-    /// developer downgraded) is NOT flagged: rebuilding cannot un-write what a
-    /// newer version produced, so nagging about it would be noise.
+    /// True whenever the running PowerRustCOBOL is a DIFFERENT version from the
+    /// one that last fully built the project — any of major, minor or fix —
+    /// including the case of a project that has never had a full build, which
+    /// covers everything created before the stamp existed.
+    ///
+    /// It used to flag only a NEWER running version, on the reasoning that
+    /// rebuilding cannot un-write what a newer version produced. That reasoning
+    /// was wrong in the direction that matters: after a downgrade the output
+    /// was built by a compiler the running IDE is not, and "this output came
+    /// from a version I am not" is exactly the thing the prompt exists to say.
+    /// Difference, not order (operator, 2026-08-11).
     pub fn build_is_stale_for(&self, current: &str) -> bool {
-        Self::version_triple(current) > Self::version_triple(&self.built_with_version)
+        Self::version_triple(current) != Self::version_triple(&self.built_with_version)
     }
 
     /// What to show for "last built with" — never blank.
@@ -2050,13 +2055,19 @@ mod build_stamp_tests {
         assert!(!proj("1.60.29").project.build_is_stale_for("1.60.29"));
     }
 
-    /// A project built by a NEWER version than the one running is not flagged:
-    /// rebuilding cannot un-write what a newer version produced, so warning
-    /// about it would be pure noise.
+    /// A DIFFERENT version is stale in either direction (operator,
+    /// 2026-08-11). After a downgrade the output was produced by a compiler
+    /// the running IDE is not — which is precisely what the prompt exists to
+    /// say — so the old "only newer counts" rule let exactly that case through.
     #[test]
-    fn a_downgraded_ide_does_not_nag() {
-        assert!(!proj("1.61.0").project.build_is_stale_for("1.60.29"));
-        assert!(!proj("2.0.0").project.build_is_stale_for("1.60.29"));
+    fn a_downgraded_ide_is_stale_too() {
+        assert!(proj("1.61.0").project.build_is_stale_for("1.60.29"));
+        assert!(proj("2.0.0").project.build_is_stale_for("1.60.29"));
+        // Every part of major.minor.fix counts, in both directions.
+        assert!(proj("2.0.0").project.build_is_stale_for("1.0.0"), "major");
+        assert!(proj("1.61.0").project.build_is_stale_for("1.60.0"), "minor");
+        assert!(proj("1.61.25").project.build_is_stale_for("1.61.24"), "fix");
+        assert!(proj("1.61.24").project.build_is_stale_for("1.61.25"), "fix, back");
     }
 
     /// Version parsing survives junk rather than panicking or mis-ordering.

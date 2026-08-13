@@ -3427,6 +3427,92 @@ impl PropertiesPanel {
         });
     }
 
+    /// A row for an image-path property: 📂 picks the file from disk, ✕ clears
+    /// the path, and the field stays typable for a path already known (or a
+    /// relative one).
+    ///
+    /// ONE implementation, so the sidebar's logo and its collapsed mark cannot
+    /// drift into two different affordances for the same kind of value.
+    #[allow(clippy::too_many_arguments)]
+    fn image_picker_row(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        key: &'static str,
+        label: &str,
+        hint: &str,
+        tr: &Tr,
+        action: &mut InspectorAction,
+    ) {
+        let cur = ctrl
+            .get_prop(key)
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        // Namespaced by viewport so the in-window inspector and a detached
+        // Designer window never share the buffer or the dialog slot.
+        let vp = ui.ctx().viewport_id();
+        let buf_key = format!("{id}-{key}:{vp:?}");
+        let wid = egui::Id::new(&buf_key);
+        let pick_key = format!("imgpick:{id}:{key}:{vp:?}");
+        let focused = ui.memory(|m| m.has_focus(wid));
+        let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
+        if *buf != cur && !focused {
+            *buf = cur.clone();
+        }
+        property_row(ui, label, |ui| {
+            // Asynchronous picker — a synchronous dialog nests the OS event
+            // loop and aborts winit 0.30.
+            if ui
+                .button("📂")
+                .on_hover_text(tr.settings_bg_browse)
+                .clicked()
+            {
+                crate::file_dialog::open_file(
+                    ui.ctx(),
+                    &pick_key,
+                    "Images",
+                    &["png", "jpg", "jpeg", "bmp", "gif", "ico", "webp", "svg"],
+                );
+            }
+            // Keep repainting while the dialog is open so its result is
+            // collected on the frame it arrives.
+            if crate::file_dialog::is_open(&pick_key) {
+                ui.ctx().request_repaint();
+            }
+            if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
+                let picked = p.to_string_lossy().to_string();
+                *buf = picked.clone();
+                action
+                    .set_props
+                    .push((id.to_owned(), key.into(), PropValue::String(picked)));
+            }
+            if ui
+                .add_enabled(!cur.is_empty(), egui::Button::new("✕"))
+                .on_hover_text(tr.settings_bg_clear)
+                .clicked()
+            {
+                buf.clear();
+                action
+                    .set_props
+                    .push((id.to_owned(), key.into(), PropValue::String(String::new())));
+            }
+            if ui
+                .add(
+                    egui::TextEdit::singleline(buf)
+                        .id(wid)
+                        .hint_text(hint)
+                        .desired_width(f32::INFINITY),
+                )
+                .lost_focus()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), key.into(), PropValue::String(buf.clone())));
+            }
+        });
+    }
+
     fn show_appearance_grid(
         &mut self,
         ui: &mut Ui,
@@ -3436,6 +3522,35 @@ impl PropertiesPanel {
         tr: &Tr,
     ) {
         section_header(ui, tr.sec_appearance);
+        // 049 — the COLLAPSED rail's mark, FIRST: it is the one the operator
+        // sees most, and a logo drawn for the open header cannot be read at
+        // rail width, so the rail shows this instead of shrinking the image.
+        if ctrl.control_type == ControlType::SideMenu {
+            self.image_picker_row(
+                ui,
+                ctrl,
+                id,
+                "HeaderIcon",
+                tr.prop_header_icon,
+                "assets/mark.png",
+                tr,
+                action,
+            );
+        }
+        // 049 — the sidebar's header logo. Appearance rather than Basic: it is
+        // the rail's picture, alongside the other appearance choices.
+        if ctrl.control_type == ControlType::SideMenu {
+            self.image_picker_row(
+                ui,
+                ctrl,
+                id,
+                "HeaderImage",
+                tr.prop_header_image,
+                "assets/logo.png",
+                tr,
+                action,
+            );
+        }
         let text_key: Option<&str> = match ctrl.control_type {
             ControlType::Label
             | ControlType::Button
@@ -3490,15 +3605,24 @@ impl PropertiesPanel {
             });
         }
 
-        color_prop_row(
-            ui,
-            id,
-            "BackgroundColor",
-            tr.lbl_back_color,
-            ctrl,
-            action,
-            "#F0F0F0",
-        );
+        // A gradient REPLACES the plain colour — it does not layer over it — so
+        // only the one in force is offered. Showing both invites the developer
+        // to set a background that nothing will ever paint.
+        let gradient_on = ctrl
+            .get_prop("BackgroundGradientEnabled")
+            .map(|value| value.as_bool())
+            .unwrap_or(false);
+        if !gradient_on {
+            color_prop_row(
+                ui,
+                id,
+                "BackgroundColor",
+                tr.lbl_back_color,
+                ctrl,
+                action,
+                "#F0F0F0",
+            );
+        }
         bool_prop_row(
             ui,
             id,
@@ -3507,11 +3631,7 @@ impl PropertiesPanel {
             ctrl,
             action,
         );
-        if ctrl
-            .get_prop("BackgroundGradientEnabled")
-            .map(|value| value.as_bool())
-            .unwrap_or(false)
-        {
+        if gradient_on {
             color_prop_row(
                 ui,
                 id,
@@ -6071,11 +6191,31 @@ impl PropertiesPanel {
                         action,
                         &["None", "Shadow", "Neumorphic"],
                     );
+                    int_row_inline(ui, id, "IconSize", tr.prop_icon_size, ctrl, action, 8..=64);
+                    // The sidebar's four menu colours live in Basic instead of
+                    // a section of their own: they are the rail's ICON
+                    // colours, and four rows did not earn a separate header.
+                    // Only the LABELS say "Icon" — the stored keys are
+                    // unchanged, so no saved colour is disturbed.
+                    color_row_labeled(
+                        ui, id, "HighlightBgColor", "Icon HighlightBgColor", ctrl, action,
+                    );
+                    color_row_labeled(
+                        ui, id, "HighlightFgColor", "Icon HighlightFgColor", ctrl, action,
+                    );
+                    color_row_labeled(
+                        ui, id, "SelectedBgColor", "Icon SelectedBgColor", ctrl, action,
+                    );
+                    color_row_labeled(
+                        ui, id, "SelectedFgColor", "Icon SelectedFgColor", ctrl, action,
+                    );
                 }
                 ui.add_space(4.0);
             }
 
-            ControlType::MenuBar | ControlType::SideMenu => {
+            // A MenuBar keeps its own Colors section: its colours are not the
+            // sidebar's, and it is not the control that was asked about.
+            ControlType::MenuBar => {
                 section_header(ui, tr.sec_colors);
                 color_row(ui, id, "HighlightBgColor", ctrl, action);
                 color_row(ui, id, "HighlightFgColor", ctrl, action);
@@ -7733,25 +7873,90 @@ impl PropertiesPanel {
                         ));
                     }
                 });
-                property_row(ui, "Theme", |ui| {
-                    let cur = form.glass_style.as_str();
-                    egui::ComboBox::from_id_salt("form_glass_style")
-                        .selected_text(cur)
+                // The FORM THEME, from the published catalog (spec 007/047):
+                // Liquid Glass, Elegance, then any discovered asset pack. This
+                // row used to offer the four GLASS STYLES under the name
+                // "Theme" and clear the theme id on every pick — so Elegance,
+                // though built and shipped, could not be selected at all.
+                // 050 R19 — resolved against the PROJECT default, so a form with
+                // no override of its own shows the theme it actually renders
+                // with. This passed `None`, so a form inheriting a themed
+                // project reported Liquid Glass while painting as something
+                // else.
+                let project_default = crate::theme_ui::project_default(ui.ctx());
+                let cur_id = cobolt_forms::theme::resolve_theme_id(
+                    form.theme.as_deref(),
+                    project_default.as_deref(),
+                );
+                let inherited = form.theme.as_deref().unwrap_or("").trim().is_empty()
+                    && project_default.is_some();
+                let self_contained = crate::theme_ui::is_self_contained(ui.ctx(), &cur_id);
+                property_row(ui, tr.lbl_theme, |ui| {
+                    let choices = crate::theme_ui::choices(ui.ctx());
+                    let cur_name = choices
+                        .iter()
+                        .find(|c| c.id == cur_id)
+                        .map(|c| c.display_name.clone())
+                        .unwrap_or_else(|| cur_id.clone());
+                    let shown = if inherited {
+                        format!("{cur_name} {}", tr.theme_inherited)
+                    } else {
+                        cur_name
+                    };
+                    egui::ComboBox::from_id_salt("form_theme")
+                        .selected_text(shown)
                         .width(ui.available_width())
                         .show_ui(ui, |ui| {
-                            for opt in
-                                &["Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark"]
-                            {
-                                if ui.selectable_label(cur == *opt, *opt).clicked() {
-                                    // Drop any image theme-pack override, then set the
-                                    // procedural glass style.
-                                    action.form_props.push(("Theme".into(), String::new()));
-                                    action
-                                        .form_props
-                                        .push(("GlassStyle".into(), opt.to_string()));
+                            for c in &choices {
+                                if ui.selectable_label(cur_id == c.id, &c.display_name).clicked() {
+                                    // Liquid Glass is the default, and an empty
+                                    // id IS the default — so it stays empty
+                                    // rather than writing a redundant override.
+                                    let write = if c.id == cobolt_forms::theme::LIQUID_GLASS {
+                                        String::new()
+                                    } else {
+                                        c.id.clone()
+                                    };
+                                    action.form_props.push(("Theme".into(), write));
                                 }
                             }
                         });
+                });
+                // The glass STYLE is its own choice and no longer cleared by
+                // picking a theme — the two were one control, so setting either
+                // silently discarded the other.
+                //
+                // 050 R17 — and it is DISABLED under a theme that owns the whole
+                // look, with a hint saying why. Offering four options that
+                // change nothing on screen is how the leak stayed invisible: the
+                // developer picked Neumorphic, saw no relief, and had no way to
+                // tell whether the theme was ignoring it or the IDE was broken.
+                property_row(ui, tr.lbl_glass_style, |ui| {
+                    let cur = form.glass_style.as_str();
+                    let resp = ui
+                        .add_enabled_ui(!self_contained, |ui| {
+                            egui::ComboBox::from_id_salt("form_glass_style")
+                                .selected_text(cur)
+                                .width(ui.available_width())
+                                .show_ui(ui, |ui| {
+                                    for opt in &[
+                                        "Classic",
+                                        "Enhanced",
+                                        "Neumorphic Light",
+                                        "Neumorphic Dark",
+                                    ] {
+                                        if ui.selectable_label(cur == *opt, *opt).clicked() {
+                                            action
+                                                .form_props
+                                                .push(("GlassStyle".into(), opt.to_string()));
+                                        }
+                                    }
+                                });
+                        })
+                        .response;
+                    if self_contained {
+                        resp.on_hover_text(tr.hint_theme_owns_look);
+                    }
                 });
 
                 // ── Background image (continues the Appearance section) ───────────────
@@ -8221,6 +8426,37 @@ fn start_position_label(pos: cobolt_forms::model::FormStartPosition, tr: &Tr) ->
         SP::BottomCenter => tr.sp_bottom_center,
         SP::BottomRight => tr.sp_bottom_right,
     }
+}
+
+/// A colour row whose visible label differs from the stored property key.
+/// The key is what lives in the `.cfrm`, so relabelling a row never touches a
+/// developer's saved colours.
+fn color_row_labeled(
+    ui: &mut Ui,
+    id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+) {
+    let hex = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "#F0F0F0".to_owned());
+    let mut color = hex_to_color32(&hex);
+    property_row(ui, label, |ui| {
+        if color_edit_button_closing(ui, &mut color).changed() {
+            let new_hex = color32_to_hex(color);
+            action
+                .set_props
+                .push((id.to_owned(), key.to_owned(), PropValue::String(new_hex)));
+        }
+        ui.label(
+            RichText::new(color32_to_hex(color))
+                .color(Color32::GRAY)
+                .small(),
+        );
+    });
 }
 
 fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut InspectorAction) {

@@ -55,26 +55,44 @@ pub struct FormTheme {
     /// The loaded asset pack for [`ThemeKind::AssetPack`] themes; `None` for the
     /// procedural Liquid Glass. Populated by pack discovery (Phase 3).
     pub pack: Option<crate::theme_pack::ThemePack>,
+    /// 050 R1 — does this theme own the WHOLE look?
+    ///
+    /// `true` means Liquid Glass's ambient configuration — the `GlassStyle`
+    /// register, its frost, its neumorphic relief — is not applied on top of it.
+    /// A theme **declares** this; nothing infers it, which is what stops each
+    /// painter having its own opinion about who a theme is.
+    ///
+    /// The developer's own explicit control properties are unaffected: they win
+    /// under every theme.
+    pub self_contained: bool,
 }
 
 impl FormTheme {
     /// The built-in procedural Liquid Glass theme (R1, R9).
+    ///
+    /// Not self-contained — it IS the glass configuration, so that configuration
+    /// applies to it by definition.
     pub fn liquid_glass() -> Self {
         FormTheme {
             id: LIQUID_GLASS.to_owned(),
             display_name: "Liquid Glass".to_owned(),
             kind: ThemeKind::Procedural,
             pack: None,
+            self_contained: false,
         }
     }
 
     /// The built-in procedural **Elegance** theme (spec 047 R1).
+    ///
+    /// Self-contained: flat surfaces with no frost and no relief, so there is
+    /// nothing for the glass register to configure (spec 050 R2).
     pub fn elegance() -> Self {
         FormTheme {
             id: ELEGANCE.to_owned(),
             display_name: "Elegance".to_owned(),
             kind: ThemeKind::Procedural,
             pack: None,
+            self_contained: true,
         }
     }
 }
@@ -132,6 +150,10 @@ impl ThemeCatalog {
                 id: pack.id.clone(),
                 display_name: pack.display_name.clone(),
                 kind: ThemeKind::AssetPack,
+                // 050 R3 — a pack declares this in its manifest; absent means
+                // `false`, so every pack written before the key existed keeps
+                // exactly the behaviour it has, unedited.
+                self_contained: pack.manifest.self_contained,
                 pack: Some(pack),
             });
         ThemeCatalog::builtin().with_packs(packs)

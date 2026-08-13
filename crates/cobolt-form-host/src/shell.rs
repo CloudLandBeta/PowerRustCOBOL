@@ -40,7 +40,17 @@ pub const MENU_PANE_TOGGLE: &str = "☰";
 /// transparent shell window (R43) an unpainted region is a hole to the
 /// desktop, so the MenuPane and breadcrumb always paint; only the
 /// ContentPane's form backdrop may carry alpha.
-pub const CHROME_FILL: egui::Color32 = egui::Color32::from_rgb(0x2E, 0x31, 0x38);
+pub const CHROME_FILL: egui::Color32 = cobolt_forms::breadcrumb::CHROME;
+
+/// Source-over composite, through the engine's own helper so the shell, the
+/// canvas and the preview resolve a translucent colour identically. The shell
+/// needs it because the rail's designed `BackgroundColor` is routinely
+/// TRANSLUCENT: on the designer canvas it composites over the form it sits on,
+/// and the shell has to reproduce that rather than painting the bare colour
+/// onto a transparent window.
+fn over(src: egui::Color32, base: egui::Color32) -> egui::Color32 {
+    cobolt_forms::paint::composite_premultiplied_over(src, base)
+}
 
 // ── MenuPane state persistence (R9) ─────────────────────────────────────────
 //
@@ -328,40 +338,14 @@ pub fn root_switch(
     destroyed
 }
 
-/// R21/R22 — draw the chain as breadcrumb segments (chain order, `›`
-/// separated) into the breadcrumb strip's `Ui`; returns the clicked segment
-/// index, which the navigation layer feeds to [`NavChain::pop_to`].
-pub fn draw_breadcrumb(ui: &mut Ui, chain: &NavChain) -> Option<usize> {
-    let mut clicked = None;
-    ui.horizontal(|ui| {
-        for (i, (_, label)) in chain.segments().iter().enumerate() {
-            if i > 0 {
-                ui.label("›");
-            }
-            if ui.link(label).clicked() {
-                clicked = Some(i);
-            }
-        }
-    });
-    clicked
-}
-
-/// The breadcrumb strip — the same chrome in both layout orders, so
-/// FullHeight changes only WHEN it is created, never what it is.
-fn show_breadcrumb(root_ui: &mut Ui, breadcrumb: Option<impl FnOnce(&mut Ui)>) -> Rect {
-    let Some(breadcrumb) = breadcrumb else {
-        return Rect::NOTHING;
-    };
-    egui::Panel::top("shell-breadcrumb")
-        .resizable(false)
-        .exact_size(BREADCRUMB_HEIGHT)
-        .show(root_ui, |ui| {
-            // R43 — explicit opaque chrome (see CHROME_FILL).
-            ui.painter().rect_filled(ui.max_rect(), 0.0, CHROME_FILL);
-            breadcrumb(ui);
-        })
-        .response
-        .rect
+/// What a click on the breadcrumb strip landed on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BreadcrumbHit {
+    /// The sidebar's Open/Collapsed control, at the head of the strip.
+    pub toggle: bool,
+    /// A chain segment, which the navigation layer feeds to
+    /// [`NavChain::pop_to`] (R22).
+    pub segment: Option<usize>,
 }
 
 /// The shell chrome: pane widths and the Open/Collapsed state (R8). The
@@ -395,6 +379,30 @@ pub struct Shell {
     /// The SideMenu's `IconEffect` property (`None` | `Shadow` | `Neumorphic`)
     /// — how menu-item icons are painted in the pane.
     pub icon_effect: String,
+    /// A clone of the designed SideMenu control, so the pane takes its
+    /// colours, title and profile card from the application's own theme
+    /// rather than from constants baked into the shell.
+    pub side_ctrl: Option<cobolt_forms::Control>,
+    /// The MAIN form's own resolved backdrop colour. The rail paints ON this,
+    /// never straight onto the window: a SideMenu's `BackgroundColor` is
+    /// commonly translucent, and on the designer canvas that translucency
+    /// composites over the form. Painting the bare colour into a transparent
+    /// shell window (R43) instead composited it over the DESKTOP, which is why
+    /// a rail designed navy shipped white on a light-mode desktop.
+    pub form_backdrop: Option<egui::Color32>,
+    /// R21 — the chain the strip renders, root first. The owner refreshes it
+    /// from its [`NavChain`] each frame; the shell paints it.
+    pub breadcrumb: Vec<String>,
+    /// Parent item ids whose children are expanded in place.
+    pub expanded: Vec<String>,
+    /// How far the MenuPane's rows are scrolled (see `draw_mounted_menus`).
+    menu_scroll: f32,
+    /// A breadcrumb segment clicked this frame, drained with
+    /// [`Self::take_breadcrumb_click`].
+    pending_crumb: Option<usize>,
+    /// What the strip laid out last frame (tests click the segment they mean
+    /// instead of a coordinate that moves whenever the chrome changes).
+    last_crumb_layout: Option<cobolt_forms::breadcrumb::BreadcrumbLayout>,
     /// What the MenuPane actually painted last frame (tests/parity).
     last_menu_fill: Option<egui::Color32>,
     /// Where the Open/Collapsed toggle landed last frame (tests/parity).
@@ -418,6 +426,13 @@ impl Default for Shell {
             pending_clicks: Vec::new(),
             menu_background: None,
             icon_effect: "None".to_owned(),
+            side_ctrl: None,
+            form_backdrop: None,
+            breadcrumb: Vec::new(),
+            expanded: Vec::new(),
+            menu_scroll: 0.0,
+            pending_crumb: None,
+            last_crumb_layout: None,
             last_menu_fill: None,
             last_toggle_rect: None,
             last_item_rects: Vec::new(),
@@ -440,12 +455,21 @@ impl Shell {
     /// through the SAME `paint_backdrop` every form background uses (one
     /// background dialect). Records the resolved fill for the parity suite.
     fn paint_menu_background(&mut self, ui: &Ui) {
+        // R43 — the base the rail composites onto, and it is ALWAYS opaque:
+        // the form's own backdrop over the chrome constant, so a form the
+        // developer made translucent still cannot punch a hole in the chrome.
+        let base = over(
+            self.form_backdrop.unwrap_or(egui::Color32::TRANSPARENT),
+            CHROME_FILL,
+        );
+        ui.painter().rect_filled(ui.max_rect(), 0.0, base);
+
         let Some(mp) = &self.menu_background else {
-            // R43 — the default chrome is painted EXPLICITLY: in a
-            // transparent shell window, skipping the paint would leave the
-            // MenuPane see-through.
-            ui.painter().rect_filled(ui.max_rect(), 0.0, CHROME_FILL);
-            self.last_menu_fill = Some(CHROME_FILL);
+            // With no MenuPaneBackground group configured, the rail's own
+            // `BackgroundColor` is the colour — and the SHARED renderer paints
+            // it, over this base, exactly as it does on the other three
+            // surfaces. `draw_mounted_menus` records the resolved fill.
+            self.last_menu_fill = Some(base);
             return;
         };
         let backdrop = cobolt_forms::render::Backdrop {
@@ -465,7 +489,9 @@ impl Shell {
         };
         let painted =
             cobolt_forms::render::paint_backdrop(ui.painter(), ui.max_rect(), &backdrop);
-        self.last_menu_fill = Some(painted.bg);
+        // The group's colour lands on the same opaque base, so a transparency
+        // set on it shows the application through — not the desktop.
+        self.last_menu_fill = Some(over(painted.bg, base));
     }
 
     /// What the MenuPane painted last frame (`None` = default chrome).
@@ -506,6 +532,86 @@ impl Shell {
         std::mem::take(&mut self.pending_clicks)
     }
 
+    /// The breadcrumb strip — the same chrome in both layout orders, so
+    /// FullHeight changes only WHEN it is created, never what it is.
+    ///
+    /// Painted by the SHARED renderer (`cobolt_forms::breadcrumb`), which is
+    /// the very code the designer canvas and the preview draw: the strip the
+    /// developer designs against and the strip their operator gets are one
+    /// drawing. The strip also carries the sidebar's Open/Collapsed control at
+    /// its head — a full-height icon cell, in the rail's own colours.
+    fn show_breadcrumb(&mut self, root_ui: &mut Ui) -> Rect {
+        let panel = egui::Panel::top("shell-breadcrumb")
+            .resizable(false)
+            .exact_size(BREADCRUMB_HEIGHT)
+            // R43 — the chrome supplies its OWN frame. egui's default panel
+            // frame paints `visuals.panel_fill` — which follows the OS
+            // light/dark theme — and then insets the closure's `max_rect` by
+            // its margin, so the strip shipped with a thick pale border around
+            // it on a light-mode desktop: the frame's fill showing through the
+            // margin our explicit paint could not reach. The shared renderer
+            // paints the strip edge to edge, so there is no frame at all.
+            .frame(egui::Frame::NONE)
+            // No separator line either — see the MenuPane.
+            .show_separator_line(false)
+            .show(root_ui, |ui| {
+                use cobolt_forms::breadcrumb as bc;
+                let rect = ui.max_rect();
+                // The strip carries the CONTENT pane's own backdrop, so it
+                // reads as the top of the content area instead of a grey band
+                // bolted above it. Opaque either way (R43).
+                let bg = over(
+                    self.form_backdrop.unwrap_or(egui::Color32::TRANSPARENT),
+                    CHROME_FILL,
+                );
+                let mut state = match &self.side_ctrl {
+                    Some(c) => bc::state_for_control(ui.ctx(), c, &self.breadcrumb, bg),
+                    None => bc::state_plain(&self.breadcrumb, bg),
+                };
+                // The rail's LIVE state, not the designed one: the arrow has to
+                // show what the next click does.
+                state.collapsed = self.collapsed;
+                let layout = bc::layout(ui.painter(), rect, &state);
+                state.toggle_hovered = ui
+                    .ctx()
+                    .pointer_interact_pos()
+                    .is_some_and(|p| bc::toggle_hit(&layout, p));
+                bc::paint(ui.painter(), rect, &state, &layout);
+
+                // One interaction per laid-out rect — never a re-derived one.
+                if ui
+                    .interact(
+                        layout.toggle,
+                        ui.id().with("crumb-toggle"),
+                        egui::Sense::click(),
+                    )
+                    .clicked()
+                {
+                    self.toggle_requested = true;
+                }
+                for (i, seg) in layout.segments.iter().enumerate() {
+                    if ui
+                        .interact(*seg, ui.id().with(("crumb-seg", i)), egui::Sense::click())
+                        .clicked()
+                    {
+                        self.pending_crumb = Some(i);
+                    }
+                }
+                self.last_crumb_layout = Some(layout);
+            });
+        panel.response.rect
+    }
+
+    /// Drain a breadcrumb segment click (R22).
+    pub fn take_breadcrumb_click(&mut self) -> Option<usize> {
+        self.pending_crumb.take()
+    }
+
+    /// What the strip laid out last frame.
+    pub fn crumb_layout(&self) -> Option<&cobolt_forms::breadcrumb::BreadcrumbLayout> {
+        self.last_crumb_layout.as_ref()
+    }
+
     /// Drain a click on the pane's Open/Collapsed toggle. The caller flips
     /// [`Self::collapsed`] and persists it (R9) — the shell does not persist
     /// on its own, so tests can drive the toggle without touching disk.
@@ -513,23 +619,8 @@ impl Shell {
         std::mem::take(&mut self.toggle_requested)
     }
 
-    /// Draw the pane's own Open/Collapsed toggle, at the top of the MenuPane.
-    /// Unconditional by design: an application whose menu is still empty must
-    /// stay collapsible, so this is drawn before — and independently of — the
-    /// mounted slots.
-    /// The glyph carries the whole affordance: `cobolt-form-host` has no
-    /// access to the IDE's `Tr` table, so any English tooltip here would be
-    /// untranslatable chrome in six-language software.
-    fn draw_pane_toggle(&mut self, ui: &mut Ui) {
-        let resp = ui.button(MENU_PANE_TOGGLE);
-        self.last_toggle_rect = Some(resp.rect);
-        if resp.clicked() {
-            self.toggle_requested = true;
-        }
-        ui.separator();
-    }
-
     /// Where the pane's toggle landed last frame (tests drive it from here).
+    /// The toggle is the rail's header row — see `draw_mounted_menus`.
     pub fn toggle_rect(&self) -> Option<Rect> {
         self.last_toggle_rect
     }
@@ -538,79 +629,108 @@ impl Shell {
     /// clicks. Open: labels (submenu items indented). Collapsed: the rail
     /// keeps the ROOT items reachable as single-glyph buttons (R8).
     fn draw_mounted_menus(&mut self, ui: &mut Ui) {
-        let collapsed = self.collapsed;
-        let icon_effect = self.icon_effect.clone();
+        use cobolt_forms::menu::MenuItem;
+        use cobolt_forms::sidebar::{self, RowKind};
+
+        // Both mounted slots become ONE item list, so the shared renderer sees
+        // the rail the way the designer canvas and the preview do. The slot a
+        // click belongs to is recovered from its index: root items come first,
+        // then a divider, then the contextual slot.
+        let root = self.root_menu.clone();
+        let ctx_menu = self.contextual_menu.clone();
+        let mut items: Vec<MenuItem> = Vec::new();
+        if let Some(r) = &root {
+            items.extend(r.def.menu.iter().cloned());
+        }
+        let root_len = items.len();
+        let mut divider = 0usize;
+        if let Some(c) = &ctx_menu {
+            if root_len > 0 {
+                items.push(MenuItem::new_separator("__slot-divider__"));
+                divider = 1;
+            }
+            items.extend(c.def.menu.iter().cloned());
+        }
+
+        let rect = ui.max_rect();
+        let ctrl = self.side_control();
+        let expanded = self.expanded.clone();
+        let mut state = sidebar::state_for_control(ui.ctx(), &ctrl, &items, 255, &expanded);
+
+        // The rail's designed background, over the opaque base the chrome
+        // painted. R39's `MenuPaneBackground` group, when the developer
+        // configured one, IS the pane's background and has already been
+        // painted — the rail must not tint it, so it contributes nothing.
+        state.backdrop = over(
+            self.form_backdrop.unwrap_or(egui::Color32::TRANSPARENT),
+            CHROME_FILL,
+        );
+        if self.menu_background.is_some() {
+            state.bg = egui::Color32::TRANSPARENT;
+        } else {
+            self.last_menu_fill = Some(cobolt_forms::paint::composite_premultiplied_over(
+                state.bg,
+                state.backdrop,
+            ));
+        }
+
+        // The menu pane scrolls when the mounted slots are taller than it is —
+        // two slots concatenated overflow easily. The header and footer panes
+        // do not move, so the toggle stays reachable at any scroll.
+        state.scroll = self.menu_scroll;
+        let max_scroll = sidebar::max_scroll(rect, &state);
+        let pointer = ui.ctx().pointer_interact_pos().filter(|p| rect.contains(*p));
+        if max_scroll > 0.0 && pointer.is_some() {
+            let dy = ui.input(|i| i.smooth_scroll_delta.y);
+            if dy != 0.0 {
+                state.scroll -= dy;
+            }
+        }
+        state.scroll = state.scroll.clamp(0.0, max_scroll);
+        self.menu_scroll = state.scroll;
+
+        let rows = sidebar::layout(rect, &state);
+        state.hovered = pointer.and_then(|p| sidebar::row_at(&rows, p));
+        sidebar::paint(ui.painter(), rect, &rows, &state);
+
         let mut clicks = Vec::new();
         let mut rects: Vec<(String, Rect)> = Vec::new();
-        // One item row: icon (styled by the SideMenu's IconEffect) + label.
-        // Collapsed rows are icon-only — an item with no icon falls back to
-        // its first letter, so every item stays reachable on the rail.
-        let item_row = |ui: &mut Ui,
-                        icon: &Option<String>,
-                        label: &str,
-                        enabled: bool|
-         -> egui::Response {
-            let icon_sz = 18.0;
-            let tint = if enabled {
-                ui.visuals().text_color()
-            } else {
-                ui.visuals().weak_text_color()
-            };
-            let style = cobolt_forms::icons::icon_style_for_effect(&icon_effect, tint);
-            if collapsed {
-                match icon {
-                    Some(name) => {
-                        let (rect, resp) = ui.allocate_exact_size(
-                            Vec2::splat(icon_sz + 6.0),
-                            egui::Sense::click(),
-                        );
-                        if resp.hovered() && enabled {
-                            ui.painter().rect_filled(
-                                rect,
-                                4.0,
-                                ui.visuals().widgets.hovered.weak_bg_fill,
-                            );
-                        }
-                        cobolt_forms::icons::draw_menu_icon_styled(
-                            ui.painter(),
-                            Rect::from_center_size(rect.center(), Vec2::splat(icon_sz)),
-                            name,
-                            &style,
-                        );
-                        resp
-                    }
-                    None => {
-                        let initial =
-                            label.chars().next().map(String::from).unwrap_or_default();
-                        ui.add_enabled(enabled, egui::Button::new(initial))
+        let mut flip: Option<String> = None;
+        for (ix, row) in rows.iter().enumerate() {
+            // The row's VISIBLE part — see the same rule in the engine's
+            // sidebar arm: a scrolled row must not take clicks where it is
+            // hidden under the header or footer pane.
+            let resp = ui.interact(
+                row.visible,
+                ui.id().with(("shell-side-row", ix)),
+                egui::Sense::click(),
+            );
+            match &row.kind {
+                RowKind::Header => {
+                    // The header IS the toggle — the rail stays collapsible
+                    // with an empty menu, which is the standing requirement.
+                    self.last_toggle_rect = Some(row.rect);
+                    if resp.clicked() {
+                        self.toggle_requested = true;
                     }
                 }
-            } else {
-                ui.horizontal(|ui| {
-                    if let Some(name) = icon {
-                        let (rect, _) = ui
-                            .allocate_exact_size(Vec2::splat(icon_sz), egui::Sense::hover());
-                        cobolt_forms::icons::draw_menu_icon_styled(
-                            ui.painter(),
-                            rect,
-                            name,
-                            &style,
-                        );
+                RowKind::Item { id, path, .. } => {
+                    rects.push((id.clone(), row.rect));
+                    let Some(item) = sidebar::item_at(&items, path) else {
+                        continue;
+                    };
+                    if !resp.clicked() || !item.enabled {
+                        continue;
                     }
-                    ui.add_enabled(enabled, egui::Button::new(label))
-                })
-                .inner
-            }
-        };
-        let mut draw_slot = |slot: MenuSlot, m: &MountedMenu, ui: &mut Ui| {
-            for item in &m.def.menu {
-                if item.item_type == cobolt_forms::menu::MenuItemType::Separator {
-                    ui.separator();
-                    continue;
-                }
-                let resp = item_row(ui, &item.icon, &item.label, item.enabled);
-                rects.push((item.id.clone(), resp.rect));
-                if resp.clicked() {
+                    if item.has_children() && !self.collapsed {
+                        flip = Some(id.clone());
+                        continue;
+                    }
+                    let slot = if path[0] < root_len {
+                        MenuSlot::Root
+                    } else {
+                        MenuSlot::Contextual
+                    };
                     clicks.push(MenuClick {
                         slot,
                         item_id: item.id.clone(),
@@ -618,38 +738,37 @@ impl Shell {
                         preserve_previous_form: item.preserve_previous_form,
                     });
                 }
-                if !collapsed {
-                    for sub in &item.items {
-                        if sub.item_type == cobolt_forms::menu::MenuItemType::Separator {
-                            continue;
-                        }
-                        ui.indent(&sub.id, |ui| {
-                            let r = item_row(ui, &sub.icon, &sub.label, sub.enabled);
-                            rects.push((sub.id.clone(), r.rect));
-                            if r.clicked() {
-                                clicks.push(MenuClick {
-                                    slot,
-                                    item_id: sub.id.clone(),
-                                    action: sub.action.clone(),
-                                    preserve_previous_form: sub.preserve_previous_form,
-                                });
-                            }
-                        });
-                    }
-                }
+                _ => {}
             }
-        };
-        if let Some(root) = self.root_menu.clone() {
-            draw_slot(MenuSlot::Root, &root, ui);
         }
-        if let Some(ctx_menu) = self.contextual_menu.clone() {
-            if !collapsed {
-                ui.separator();
-                draw_slot(MenuSlot::Contextual, &ctx_menu, ui);
+        let _ = divider;
+        if let Some(pid) = flip {
+            if let Some(p) = self.expanded.iter().position(|e| e == &pid) {
+                self.expanded.remove(p);
+            } else {
+                self.expanded.push(pid);
             }
         }
         self.pending_clicks.extend(clicks);
         self.last_item_rects = rects;
+    }
+
+    /// The SideMenu control the rail takes its colours and chrome from. The
+    /// shell keeps a clone of it; tests that drive a bare `Shell` get a
+    /// default-styled control instead of having to build a form.
+    fn side_control(&self) -> cobolt_forms::Control {
+        let mut ctrl = self.side_ctrl.clone().unwrap_or_else(|| {
+            cobolt_forms::Control::new(
+                "SIDE",
+                cobolt_forms::ControlType::SideMenu,
+                0,
+                0,
+            )
+        });
+        // The pane's own state wins over whatever the designed control said.
+        ctrl.set_prop("Collapsed", self.collapsed);
+        ctrl.set_prop("IconEffect", self.icon_effect.clone());
+        ctrl
     }
 
     /// Where a menu item was drawn last frame, by item id.
@@ -669,7 +788,6 @@ impl Shell {
         &mut self,
         root_ui: &mut Ui,
         menu: impl FnOnce(&mut Ui),
-        breadcrumb: impl FnOnce(&mut Ui),
         content: impl FnOnce(&mut Ui),
     ) -> ShellLayout {
         let mut menu_scroll = Vec2::ZERO;
@@ -677,13 +795,22 @@ impl Shell {
         // created first spans its full axis. FullHeight therefore reads as
         // "the MenuPane goes in first".
         let mut breadcrumb_rect = Rect::NOTHING;
-        let mut breadcrumb = Some(breadcrumb);
+        let mut crumb_done = false;
         if !self.full_height {
-            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb.take());
+            breadcrumb_rect = self.show_breadcrumb(root_ui);
+            crumb_done = true;
         }
         let panel = egui::Panel::left("shell-menu-pane")
             .resizable(false)
             .exact_size(self.menu_pane_width())
+            // No default frame: its OS-theme fill and its margin would both
+            // sit outside the rail's own paint (see `show_breadcrumb`). The
+            // rail is painted edge to edge by `paint_menu_background`.
+            .frame(egui::Frame::NONE)
+            // …and no separator line. egui draws one on a panel's inner edge;
+            // the shell's regions are told apart by their own colour, and the
+            // rule just read as an unwanted border down the rail.
+            .show_separator_line(false)
             .show(root_ui, |ui| {
                 // R39 — the shell's own chrome paint, before any content.
                 self.paint_menu_background(ui);
@@ -693,8 +820,6 @@ impl Shell {
                     .id_salt("shell-menu-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // The toggle first — it must survive an empty menu.
-                        self.draw_pane_toggle(ui);
                         // R6/R7 — the mounted slots draw next; the caller's
                         // closure may add extra chrome below them.
                         self.draw_mounted_menus(ui);
@@ -704,8 +829,8 @@ impl Shell {
             });
         let menu_rect = panel.response.rect;
 
-        if breadcrumb.is_some() {
-            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb);
+        if !crumb_done {
+            breadcrumb_rect = self.show_breadcrumb(root_ui);
         }
 
         let mut content_rect = Rect::NOTHING;
@@ -744,19 +869,27 @@ impl Shell {
         &mut self,
         root_ui: &mut Ui,
         menu: impl FnOnce(&mut Ui),
-        breadcrumb: impl FnOnce(&mut Ui),
         host: &mut crate::FormHost,
     ) -> ShellLayout {
         let mut menu_scroll = Vec2::ZERO;
         // See `show` — panel order is what makes FullHeight true or false.
         let mut breadcrumb_rect = Rect::NOTHING;
-        let mut breadcrumb = Some(breadcrumb);
+        let mut crumb_done = false;
         if !self.full_height {
-            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb.take());
+            breadcrumb_rect = self.show_breadcrumb(root_ui);
+            crumb_done = true;
         }
         let panel = egui::Panel::left("shell-menu-pane")
             .resizable(false)
             .exact_size(self.menu_pane_width())
+            // No default frame: its OS-theme fill and its margin would both
+            // sit outside the rail's own paint (see `show_breadcrumb`). The
+            // rail is painted edge to edge by `paint_menu_background`.
+            .frame(egui::Frame::NONE)
+            // …and no separator line. egui draws one on a panel's inner edge;
+            // the shell's regions are told apart by their own colour, and the
+            // rule just read as an unwanted border down the rail.
+            .show_separator_line(false)
             .show(root_ui, |ui| {
                 // R39 — the shell's own chrome paint, before any content.
                 self.paint_menu_background(ui);
@@ -764,8 +897,6 @@ impl Shell {
                     .id_salt("shell-menu-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // The toggle first — it must survive an empty menu.
-                        self.draw_pane_toggle(ui);
                         // R6/R7 — the mounted slots draw next.
                         self.draw_mounted_menus(ui);
                         menu(ui)
@@ -774,8 +905,8 @@ impl Shell {
             });
         let menu_rect = panel.response.rect;
 
-        if breadcrumb.is_some() {
-            breadcrumb_rect = show_breadcrumb(root_ui, breadcrumb);
+        if !crumb_done {
+            breadcrumb_rect = self.show_breadcrumb(root_ui);
         }
 
         // The remaining space IS the ContentPane; the host's own
@@ -838,6 +969,24 @@ pub fn run_shell(
         .and_then(|c| c.get_prop("IconEffect"))
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| "None".to_owned());
+    // The designed control travels with the shell so the MenuPane paints in
+    // the application's own colours, title and profile card.
+    shell.side_ctrl = side_menu.cloned();
+    // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
+    // shell used a fixed 220 regardless, so the ContentPane started 20px past
+    // where the form was laid out for and every control in it sat that much
+    // off. Collapsed stays the icon rail: an icon-only strip is not a width
+    // the developer chose, it is what the state means.
+    if let Some(w) = side_menu.map(|c| c.rect.w).filter(|w| *w > 0) {
+        shell.menu_open_width = w as f32;
+    }
+    // What a translucent rail colour composites over — the SAME backdrop the
+    // ContentPane paints, so the rail and the form agree on the application's
+    // background the way they do on the designer canvas.
+    shell.form_backdrop = Some(cobolt_forms::render::backdrop_color(
+        &form.background_color,
+        form.transparency,
+    ));
     if let Some((_, def)) = root_menu {
         shell.mount_root_menu(&form.name, def);
     }
@@ -864,9 +1013,22 @@ pub fn run_shell(
             designed.to_owned()
         }
     };
+    // The window opens at the size the form was DESIGNED at — a shell window
+    // used to open at a fixed 1100x700 whatever the developer drew, so a form
+    // wider than that was clipped on its first frame and a narrower one sat in
+    // a window of empty pane. The width is the form's own (the rail's column
+    // plus the content beside it, which is exactly what the developer laid
+    // out), narrowed when the rail opens collapsed; the height adds the
+    // breadcrumb, which is chrome the shell puts OUTSIDE the form.
+    let designed = shell_window_size(
+        form.width as f32,
+        form.height as f32,
+        shell.menu_open_width,
+        shell.menu_pane_width(),
+    );
     let viewport = egui::ViewportBuilder::default()
         .with_title(&title)
-        .with_inner_size([1100.0, 700.0])
+        .with_inner_size([designed.x, designed.y])
         .with_resizable(true)
         // R43 — the shell window carries alpha; the chrome paints itself.
         .with_transparent(true);
@@ -906,11 +1068,74 @@ struct ShellApp {
     ev_tx: std::sync::mpsc::Sender<cobolt_runtime::channels::FormEvent>,
 }
 
+/// The window width that keeps the ContentPane the same size across a rail
+/// toggle.
+///
+/// Opening the rail takes its width out of the ContentPane, which clips
+/// whatever the developer laid out at the right-hand edge; collapsing it hands
+/// the width back and leaves a band of nothing. So the WINDOW absorbs the
+/// change instead of the content: it grows by the rail's width on open and
+/// gives it back on collapse, returning to the size it had. The pane the
+/// developer designed against is the one thing that never moves.
+///
+/// Clamped to [`MIN_SHELL_WIDTH`] so collapsing can never shrink the window to
+/// nothing on a monitor narrower than the rail.
+pub fn shell_width_for_pane(current: f32, open_w: f32, collapsed_w: f32, opening: bool) -> f32 {
+    let delta = (open_w - collapsed_w).max(0.0);
+    if opening {
+        current + delta
+    } else {
+        (current - delta).max(MIN_SHELL_WIDTH)
+    }
+}
+
+/// The narrowest the shell will resize ITSELF to. The operator may still drag
+/// it smaller — this only bounds what a rail toggle does on its own.
+pub const MIN_SHELL_WIDTH: f32 = 480.0;
+
+/// The size a shell window opens at, for a form designed `form_w` x `form_h`.
+///
+/// The form's designed width already spans the rail's column AND the content
+/// beside it, so it IS the open-rail window width; a rail that opens collapsed
+/// gives the difference back. The height adds the breadcrumb, which the shell
+/// puts outside the form — without it the bottom of the form would be under
+/// the window edge on the very first frame.
+pub fn shell_window_size(
+    form_w: f32,
+    form_h: f32,
+    open_w: f32,
+    current_pane_w: f32,
+) -> egui::Vec2 {
+    let content_w = (form_w - open_w).max(1.0);
+    egui::Vec2::new(
+        (current_pane_w + content_w).max(MIN_SHELL_WIDTH),
+        (form_h + BREADCRUMB_HEIGHT).max(1.0),
+    )
+}
+
 impl ShellApp {
     fn persist_collapsed(&self) {
         if let Some(p) = &self.state_path {
             let _ = save_collapsed_to(p, self.shell.collapsed);
         }
+    }
+
+    /// Move the window by the rail's width so the ContentPane keeps its own.
+    /// `opening` is the direction the rail just went.
+    fn resize_window_for_pane(&self, ctx: &egui::Context, opening: bool) {
+        let Some(size) = ctx.input(|i| i.viewport().inner_rect.map(|r| r.size())) else {
+            return;
+        };
+        let width = shell_width_for_pane(
+            size.x,
+            self.shell.menu_open_width,
+            self.shell.menu_collapsed_width,
+            opening,
+        );
+        if (width - size.x).abs() < 0.5 {
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, size.y)));
     }
 }
 
@@ -923,30 +1148,38 @@ impl eframe::App for ShellApp {
 
     fn ui(&mut self, root_ui: &mut Ui, frame: &mut eframe::Frame) {
         let _ = frame;
-        let mut crumb_click = None;
-        let chain_ref = &self.chain;
         let shell = &mut self.shell;
         let host = &mut self.host;
-        shell.show_with_host(
-            root_ui,
-            |_ui| {},
-            |ui| {
-                // The pane owns its own ☰ (drawn on the MenuPane itself, so it
-                // works with an empty menu); the breadcrumb is just the chain.
-                if let Some(i) = draw_breadcrumb(ui, chain_ref) {
-                    crumb_click = Some(i);
-                }
-            },
-            host,
-        );
+        // R21 — the chain the strip renders. The shell paints it (and the
+        // sidebar's Open/Collapsed control at its head) through the shared
+        // renderer; the header pane of the rail owns the other toggle, so an
+        // empty menu is still collapsible from either.
+        shell.breadcrumb = self
+            .chain
+            .segments()
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
+        shell.show_with_host(root_ui, |_ui| {}, host);
+        let crumb_click = shell.take_breadcrumb_click();
+        // A rail toggle moves the WINDOW, not the ContentPane's width — from
+        // either affordance, and from COBOL. The window grows by the rail on
+        // open and returns to its old size on collapse, so the content the
+        // developer laid out is never clipped by the frame nor left beside a
+        // band of nothing.
+        let ctx = root_ui.ctx().clone();
         if self.shell.take_toggle_request() {
             self.shell.collapsed = !self.shell.collapsed;
+            self.resize_window_for_pane(&ctx, !self.shell.collapsed);
             self.persist_collapsed();
         }
         // R44 — COBOL drove the pane through the supervisor.
         if let Some(collapsed) = self.host.take_menu_pane_request() {
-            self.shell.collapsed = collapsed;
-            self.persist_collapsed();
+            if collapsed != self.shell.collapsed {
+                self.shell.collapsed = collapsed;
+                self.resize_window_for_pane(&ctx, !collapsed);
+                self.persist_collapsed();
+            }
         }
         // Menu activations (root slot only until the multi-form host lands).
         for click in self.shell.take_menu_clicks() {
@@ -1010,9 +1243,6 @@ mod tests {
                 root_ui,
                 |ui| {
                     ui.allocate_space(Vec2::new(10.0, 2000.0));
-                },
-                |ui| {
-                    ui.label("crumbs");
                 },
                 |ui| {
                     ui.allocate_space(Vec2::new(3000.0, 3000.0));
@@ -1293,7 +1523,7 @@ mod tests {
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
             fx_restore: false,
             theme_pack: None,
-            surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             icon_path: None,
             title_fallback: String::new(),
             hooks: Box::new(NoHooks),
@@ -1309,9 +1539,6 @@ mod tests {
                     root_ui,
                     |ui| {
                         ui.label("menu");
-                    },
-                    |ui| {
-                        ui.label("crumbs");
                     },
                     host,
                 ));
@@ -1380,7 +1607,7 @@ mod tests {
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
                 fx_restore: false,
                 theme_pack: None,
-                surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
                 icon_path: None,
                 title_fallback: String::new(),
                 hooks: Box::new(NoHooks),
@@ -1402,9 +1629,6 @@ mod tests {
                     root_ui,
                     |ui| {
                         ui.label("menu");
-                    },
-                    |ui| {
-                        ui.label("crumbs");
                     },
                     host,
                 ));
@@ -1506,7 +1730,7 @@ mod tests {
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
                 fx_restore: false,
                 theme_pack: None,
-                surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
                 icon_path: None,
                 title_fallback: String::new(),
                 hooks: Box::new(NoHooks),
@@ -1527,7 +1751,7 @@ mod tests {
         let mut shell = Shell::default();
         let mut pane = mk(Surface::Pane);
         let mut full = ctx2.run_ui(raw(Vec2::new(1000.0, 700.0)), |root_ui| {
-            shell.show_with_host(root_ui, |_ui| {}, |_ui| {}, &mut pane);
+            shell.show_with_host(root_ui, |_ui| {}, &mut pane);
         });
         full.textures_delta.clear();
 
@@ -1851,25 +2075,26 @@ mod tests {
             "each push deactivates the previous top; NOTHING destroyed"
         );
 
-        // The breadcrumb draws all four and a click on the first segment
-        // resolves to index 0.
+        // The strip draws all four, and a click on the first segment resolves
+        // to index 0. The click lands on the rect the LAYOUT reported — the
+        // moment a test picks its own coordinate, it stops testing what the
+        // operator's pointer actually hits.
         let ctx = egui::Context::default();
-        let mut clicked = None;
-        let mut frame = |input: egui::RawInput| {
-            let mut full = ctx.run_ui(input, |root_ui| {
-                egui::Panel::top("bc-test")
-                    .resizable(false)
-                    .exact_size(28.0)
-                    .show(root_ui, |ui| {
-                        if let Some(i) = draw_breadcrumb(ui, &chain) {
-                            clicked = Some(i);
-                        }
-                    });
-            });
-            full.textures_delta.clear();
-        };
-        frame(raw(Vec2::new(1000.0, 700.0)));
-        let at = egui::pos2(18.0, 14.0); // inside the first segment
+        let mut shell = Shell::default();
+        shell.breadcrumb = chain
+            .segments()
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
+        frame(&mut shell, &ctx, raw(Vec2::new(1000.0, 700.0)));
+        let l = shell.crumb_layout().expect("the strip laid out").clone();
+        assert_eq!(l.segments.len(), 4, "R21: one segment per resident form");
+        assert!(
+            l.toggle.width() > 0.0 && l.toggle.max.x <= l.segments[0].min.x,
+            "the sidebar toggle leads the chain"
+        );
+
+        let at = l.segments[0].center();
         let mut input = raw(Vec2::new(1000.0, 700.0));
         input.events.push(egui::Event::PointerMoved(at));
         input.events.push(egui::Event::PointerButton {
@@ -1884,14 +2109,42 @@ mod tests {
             pressed: false,
             modifiers: Default::default(),
         });
-        frame(input);
-        assert_eq!(clicked, Some(0), "clicking the first segment resolves to 0");
+        frame(&mut shell, &ctx, input);
+        assert_eq!(
+            shell.take_breadcrumb_click(),
+            Some(0),
+            "clicking the first segment resolves to 0"
+        );
+
+        // The toggle at the head of the strip collapses the rail.
+        let at = l.toggle.center();
+        let mut input = raw(Vec2::new(1000.0, 700.0));
+        input.events.push(egui::Event::PointerMoved(at));
+        input.events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        input.events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        frame(&mut shell, &ctx, input);
+        assert!(
+            shell.take_toggle_request(),
+            "the breadcrumb's icon is the sidebar's Open/Collapsed control"
+        );
 
         println!(
             "049 AC9 (chain half) — 4 segments [MAIN › CRM › SALES › CUST-LIST], \
              3 deactivates, 0 destroys, resident_count=4; breadcrumb click on \
-             segment 1 → index 0. (The WORKING-STORAGE half of AC9 rides the \
-             T27 spawn glue.)"
+             segment 1 → index 0, and the {:.0}px toggle cell ahead of it \
+             requests the rail. (The WORKING-STORAGE half of AC9 rides the \
+             T27 spawn glue.)",
+            l.toggle.width()
         );
     }
 
@@ -1945,7 +2198,7 @@ mod tests {
         let size = Vec2::new(1000.0, 700.0);
         let mut frame_with = |shell: &mut Shell, input: egui::RawInput| {
             let mut full = ctx.run_ui(input, |root_ui| {
-                shell.show(root_ui, |_ui| {}, |_ui| {}, |_ui| {});
+                shell.show(root_ui, |_ui| {}, |_ui| {});
             });
             full.textures_delta.clear();
         };
@@ -2067,7 +2320,7 @@ mod tests {
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
                 fx_restore: false,
                 theme_pack: None,
-                surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
                 icon_path: None,
                 title_fallback: String::new(),
                 hooks: Box::new(NoHooks),
@@ -2089,9 +2342,6 @@ mod tests {
                     root_ui,
                     |ui| {
                         ui.label("menu");
-                    },
-                    |ui| {
-                        ui.label("crumbs");
                     },
                     host,
                 ));
@@ -2178,7 +2428,7 @@ mod tests {
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
             fx_restore: false,
             theme_pack: None,
-            surface_style: cobolt_forms::paint::SurfaceStyle::LiquidGlass,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             icon_path: None,
             title_fallback: String::new(),
             hooks: Box::new(NoHooks),
@@ -2193,9 +2443,6 @@ mod tests {
                 root_ui,
                 |ui| {
                     ui.label("menu");
-                },
-                |ui| {
-                    ui.label("crumbs");
                 },
                 &mut host,
             ));
@@ -2221,6 +2468,155 @@ mod tests {
             "049 AC23 — transparent form: pane fill alpha 0 (see-through to \
              the desktop once the shell window is created transparent); \
              MenuPane fill alpha 255, breadcrumb chrome alpha 255"
+        );
+    }
+
+    /// The rail composites its designed colour over the FORM's backdrop, the
+    /// way the designer canvas does — it never paints that colour bare.
+    ///
+    /// The operator photographed the failure: a sidebar designed
+    /// `#F6F6F639` (white at 22 %) read as a dark navy rail on the canvas,
+    /// because 22 % white over the form's navy is a slightly lighter navy —
+    /// and shipped as a WHITE rail in the running shell, because the same
+    /// colour painted into a transparent window (R43) composites over the
+    /// desktop instead.
+    #[test]
+    fn a_translucent_rail_colour_composites_over_the_form_backdrop() {
+        let navy = cobolt_forms::render::backdrop_color("00000000", 0);
+        let mut side = cobolt_forms::Control::new(
+            "SideMenu-1",
+            cobolt_forms::ControlType::SideMenu,
+            0,
+            0,
+        );
+        side.set_prop("BackgroundColor", "#F6F6F639");
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        shell.side_ctrl = Some(side);
+        shell.form_backdrop = Some(navy);
+        let _ = frame(&mut shell, &ctx, raw(Vec2::new(1000.0, 700.0)));
+        let fill = shell.menu_fill().expect("the rail painted");
+
+        assert_eq!(
+            fill.a(),
+            255,
+            "R43: the rail is opaque chrome, whatever alpha it was designed \
+             with: {fill:?}"
+        );
+        // 22 % white over the navy: lighter than the form, nowhere near white.
+        for (ch, base) in [
+            (fill.r(), navy.r()),
+            (fill.g(), navy.g()),
+            (fill.b(), navy.b()),
+        ] {
+            assert!(ch > base, "the rail lifts off the backdrop: {fill:?}");
+            assert!(
+                ch < 128,
+                "the rail must NOT wash out to white — that is the shipped \
+                 bug: {fill:?}"
+            );
+        }
+
+        // With no form backdrop to stand on, the chrome constant still is one.
+        let mut bare = Shell::default();
+        bare.side_ctrl = shell.side_ctrl.clone();
+        let _ = frame(&mut bare, &ctx, raw(Vec2::new(1000.0, 700.0)));
+        assert_eq!(
+            bare.menu_fill().expect("painted").a(),
+            255,
+            "R43 holds without a form backdrop too"
+        );
+
+        println!(
+            "049 — sidebar #F6F6F639 (alpha 57) over form backdrop {:?} → \
+             rail {:?}, opaque and still dark; painted bare it was white",
+            navy, fill
+        );
+    }
+
+    /// A rail toggle moves the WINDOW by the rail's width, so the ContentPane
+    /// keeps its own and a round trip lands back where it started.
+    #[test]
+    fn toggling_the_rail_resizes_the_window_not_the_content_pane() {
+        let (open_w, collapsed_w) = (200.0_f32, MENU_PANE_COLLAPSED_WIDTH);
+        let delta = open_w - collapsed_w;
+        let start = 1100.0_f32;
+
+        // Collapsed → Open: the window grows by exactly the rail.
+        let opened = shell_width_for_pane(start, open_w, collapsed_w, true);
+        assert_eq!(opened, start + delta);
+        // …and the pane the developer designed against is unchanged.
+        assert_eq!(
+            opened - open_w,
+            start - collapsed_w,
+            "the ContentPane keeps its width across the toggle"
+        );
+
+        // Open → Collapsed: the window gives the width back, exactly.
+        let closed = shell_width_for_pane(opened, open_w, collapsed_w, false);
+        assert_eq!(closed, start, "a round trip returns the original size");
+
+        // A rail no wider than the collapsed strip moves nothing.
+        assert_eq!(
+            shell_width_for_pane(start, collapsed_w, collapsed_w, true),
+            start
+        );
+        // Collapsing never shrinks the window away on a narrow screen.
+        assert_eq!(
+            shell_width_for_pane(500.0, 900.0, 48.0, false),
+            MIN_SHELL_WIDTH,
+            "the self-resize is floored"
+        );
+
+        println!(
+            "049 — rail {open_w:.0}px vs {collapsed_w:.0}px rail: window \
+             {start:.0} → {opened:.0} on open → {closed:.0} on collapse; \
+             ContentPane {:.0}px throughout",
+            start - collapsed_w
+        );
+    }
+
+    /// A shell window opens at the size the form was DESIGNED at, not a fixed
+    /// 1100x700 — which clipped anything wider on its very first frame.
+    #[test]
+    fn a_shell_window_opens_at_the_designed_size() {
+        let (form_w, form_h) = (960.0_f32, 744.0_f32);
+        let rail = 200.0_f32;
+
+        // Rail open: the form's own width IS the window width, because the
+        // designed width already spans the rail and the content beside it.
+        let open = shell_window_size(form_w, form_h, rail, rail);
+        assert_eq!(open.x, form_w, "the designed width, exactly");
+        assert_eq!(
+            open.y,
+            form_h + BREADCRUMB_HEIGHT,
+            "…plus the breadcrumb, which the shell adds outside the form"
+        );
+        // The ContentPane is then exactly the content the developer drew.
+        assert_eq!(open.x - rail, form_w - rail);
+
+        // Opening collapsed gives the difference back, so the content pane is
+        // the same width in both states — the rule the toggle already follows.
+        let collapsed = shell_window_size(form_w, form_h, rail, MENU_PANE_COLLAPSED_WIDTH);
+        assert_eq!(collapsed.x, form_w - rail + MENU_PANE_COLLAPSED_WIDTH);
+        assert_eq!(
+            collapsed.x - MENU_PANE_COLLAPSED_WIDTH,
+            open.x - rail,
+            "the ContentPane opens the same size whichever state the rail is in"
+        );
+
+        // A tiny form still gets a usable window.
+        assert_eq!(shell_window_size(100.0, 80.0, 60.0, 60.0).x, MIN_SHELL_WIDTH);
+
+        println!(
+            "049 — a {form_w:.0}x{form_h:.0} form with a {rail:.0}px rail opens \
+             {:.0}x{:.0} (was a fixed 1100x700); collapsed it opens {:.0} wide, \
+             same {:.0}px ContentPane either way",
+            open.x,
+            open.y,
+            collapsed.x,
+            open.x - rail
         );
     }
 

@@ -126,6 +126,8 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "map",
             "crosshair",
             "sitemap",
+            "sidebar-expand",
+            "sidebar-collapse",
         ],
     ),
     (
@@ -1412,6 +1414,28 @@ fn base_shapes(name: &str) -> Option<Vec<IconShape>> {
         "arrow-down" => vec![
             p(&[(12.0, 4.5), (12.0, 19.5)]),
             p(&[(6.0, 13.5), (12.0, 19.5), (18.0, 13.5)]),
+        ],
+        // The Open/Collapsed control for the application shell's sidebar: a
+        // framed window split by a rail, with an arrow in the wide half.
+        // Drawn on the grid like every other icon — never a font glyph, so it
+        // scales to the breadcrumb's height and takes the rail's own colours.
+        //
+        // The PAIR is the point: the arrow shows the NEXT action, never the
+        // current state, so the control is never a mystery. Only the arrow
+        // turns — the frame and its rail stay put, so the two read as one
+        // control in two positions rather than as two different icons.
+        // The arrow is centred on the WIDE pane (x 3 → 15, so centre 9), not
+        // merely placed inside it: sitting flush against the divider it read as
+        // crowding the rail rather than pointing away from it.
+        "sidebar-expand" => vec![
+            rr(3.0, 3.0, 18.0, 18.0, 3.0),
+            p(&[(15.0, 3.2), (15.0, 20.8)]),
+            pc(&[(6.75, 7.5), (11.25, 12.0), (6.75, 16.5)]),
+        ],
+        "sidebar-collapse" => vec![
+            rr(3.0, 3.0, 18.0, 18.0, 3.0),
+            p(&[(15.0, 3.2), (15.0, 20.8)]),
+            pc(&[(11.25, 7.5), (6.75, 12.0), (11.25, 16.5)]),
         ],
         "chevron-left" => vec![p(&[(15.0, 5.0), (8.0, 12.0), (15.0, 19.0)])],
         "chevron-right" => vec![p(&[(9.0, 5.0), (16.0, 12.0), (9.0, 19.0)])],
