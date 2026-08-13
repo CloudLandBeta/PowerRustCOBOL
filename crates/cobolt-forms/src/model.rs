@@ -2485,6 +2485,12 @@ impl ControlType {
                 "onVisibleChanged",
                 "onEnabledChanged",
                 "onLoad",
+                // The three ways a toggle's state is worth reacting to:
+                // it went ON, it went OFF, or it moved at all. `onCheckedChanged`
+                // was already the "moved at all" one, so the two directional
+                // events join it rather than a third name for the same thing.
+                "onCheck",
+                "onUncheck",
                 "onCheckedChanged",
                 "onValueChanged",
             ],

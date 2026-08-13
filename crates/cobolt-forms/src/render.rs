@@ -2600,6 +2600,23 @@ fn control_geometry_events(
 /// (spec 021 T6/T8). egui grants click-sense widgets focus on click and via
 /// Tab traversal, so `gained_focus`/`has_focus` work for plain `interact`
 /// responses. TextBox keeps its own richer handling in its arm.
+/// The three events a toggle's state change raises: the directional one for the
+/// state it moved INTO, and `onCheckedChanged` for the move itself.
+///
+/// A handler that only cares about switching on binds `onCheck` and is not woken
+/// for the other half; one that mirrors the state either way binds
+/// `onCheckedChanged` and reads the value. Shared by the CheckBox, the
+/// RadioButton and the Switch, so all three raise the same set — an event a
+/// control advertises but never fires is worse than one it does not offer.
+fn push_toggle_events(out: &mut RenderOutput, id: &str, checked: bool) {
+    out.events.push(UiEvent::ev(
+        id,
+        if checked { "onCheck" } else { "onUncheck" },
+    ));
+    out.events
+        .push(UiEvent::with_value(id, "onCheckedChanged", &checked.to_string()));
+}
+
 fn focus_keyboard_events(
     ui: &egui::Ui,
     resp: &egui::Response,
@@ -3026,7 +3043,7 @@ fn render_interactive(
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), v.to_owned()));
                 out.events.push(UiEvent::change(id, v));
-                out.events.push(UiEvent::ev(id, "onCheckedChanged"));
+                push_toggle_events(out, id, v == "1");
                 out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
@@ -3045,7 +3062,9 @@ fn render_interactive(
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
                 out.events.push(UiEvent::change(id, "1"));
-                out.events.push(UiEvent::ev(id, "onCheckedChanged"));
+                // A radio only ever moves INTO the selected state by being
+                // clicked; the one it deselects is a sibling, not this control.
+                push_toggle_events(out, id, true);
                 out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
@@ -3507,29 +3526,33 @@ fn render_interactive(
             }
         }
         CT::Switch => {
-            use elegance::{Accent, Switch};
-
-            let mut checked = matches!(sv(ctrl, "Checked").as_str(), "1" | "true");
-            let accent = match sv(ctrl, "Accent").as_str() {
-                "Green" => Accent::Green,
-                "Red" => Accent::Red,
-                "Purple" => Accent::Purple,
-                "Amber" => Accent::Amber,
-                "Sky" => Accent::Sky,
-                _ => Accent::Blue,
-            };
-            let switch = Switch::new(&mut checked, "")
-                .accent(accent)
-                .enabled(enabled);
-            let resp = ui.put(screen, switch);
+            // Drawn through the SHARED painter, like the CheckBox and the
+            // RadioButton beside it — not through the palette crate's widget.
+            //
+            // That widget hard-codes a 32x18 track and allocates it with
+            // `allocate_exact_size`, so it ignored the rect it was given: a
+            // switch sized in the designer ran at 32x18 whatever the developer
+            // drew, and the designer and the running form disagreed about the
+            // same control. There is no builder to size it. Painting it here
+            // costs the crate's knob-slide animation and buys size fidelity and
+            // one drawing across all four surfaces.
+            let checked = matches!(sv(ctrl, "Checked").as_str(), "1" | "true");
+            let mut drawn = ctrl.clone();
+            drawn
+                .properties
+                .insert("Checked".to_owned(), crate::PropValue::Bool(checked));
+            paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
+            let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
-            if resp.changed() && enabled {
+            if resp.clicked() && enabled {
+                let now = !checked;
                 out.prop_updates.push((
                     id.to_owned(),
                     "Checked".to_owned(),
-                    checked.to_string(),
+                    now.to_string(),
                 ));
                 out.events.push(UiEvent::ev(id, "onClick"));
+                push_toggle_events(out, id, now);
             }
         }
         CT::FileDropZone => {
@@ -7562,6 +7585,59 @@ mod tests {
 
     fn names(evs: &[UiEvent]) -> Vec<&str> {
         evs.iter().map(|e| e.event.as_str()).collect()
+    }
+
+    /// The Switch is clickable at its DESIGNED size, and raises the directional
+    /// event for the state it moved into.
+    ///
+    /// It used to be drawn by the palette crate's widget, which hard-codes a
+    /// 32x18 track and allocates exactly that — so a switch designed 200pt wide
+    /// ran at 32pt, and only a click inside those 32pt registered. The designer
+    /// and the running form disagreed about the same control.
+    #[test]
+    fn engine_switch_follows_its_designed_size_and_raises_toggle_events() {
+        let c = [ctrlp_events(
+            "Sw",
+            ControlType::Switch,
+            0,
+            0,
+            200,
+            60,
+            &[("Checked", "0"), ("Accent", "Blue")],
+            &["onCheck", "onUncheck", "onCheckedChanged"],
+        )];
+        // Well outside the crate widget's 32x18 box, and inside the designed one.
+        let p = pos2(160.0, 30.0);
+        let (evs, overrides) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+            ],
+        );
+        let n = names(&evs);
+        assert!(
+            n.contains(&"onCheck"),
+            "switching ON must raise onCheck; got {n:?}"
+        );
+        assert!(
+            n.contains(&"onCheckedChanged"),
+            "…and onCheckedChanged for the move itself; got {n:?}"
+        );
+        assert!(
+            !n.contains(&"onUncheck"),
+            "…but not the other direction; got {n:?}"
+        );
+        assert_eq!(
+            overrides.get("Sw").and_then(|m| m.get("Checked")).map(String::as_str),
+            Some("true"),
+            "the click must actually flip Checked"
+        );
+        println!(
+            "  Switch — clicked at x=160 of a 200pt control (outside the old \
+             32pt box): Checked ⇒ true, events {n:?}"
+        );
     }
 
     #[test]

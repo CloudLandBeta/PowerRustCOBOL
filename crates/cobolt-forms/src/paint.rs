@@ -132,6 +132,44 @@ pub fn text_valign(value: &str) -> egui::Align {
     }
 }
 
+/// Lay a caption out at the largest size up to `fsize` that fits `max_w` x
+/// `max_h`, down to a 6 pt floor.
+///
+/// The TextBox has always done this; every other caption-bearing control laid
+/// its text out at the requested size and let it spill over the border. This is
+/// that behaviour, in one place, so the four caption branches cannot drift.
+///
+/// Both axes are tested. Height alone is enough only while the text can wrap,
+/// and a caption is usually a single word ("Button-1") — a word cannot be
+/// broken, so it overflows sideways at a height that fits perfectly well.
+#[allow(clippy::too_many_arguments)]
+fn fitted_caption_galley(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    text: &str,
+    font_name: &str,
+    fsize: f32,
+    color: Color32,
+    max_w: f32,
+    max_h: f32,
+    halign: egui::Align,
+) -> std::sync::Arc<egui::Galley> {
+    const MIN_FONT: f32 = 6.0;
+    let wrap_w = if max_w.is_finite() { max_w.max(1.0) } else { max_w };
+    let mut fit = fsize.max(MIN_FONT);
+    let lay = |size: f32| {
+        painter.layout_job(styled_text_job(
+            painter, ctrl, text, font_name, size, color, wrap_w, halign,
+        ))
+    };
+    let mut galley = lay(fit);
+    while (galley.size().y > max_h || galley.size().x > max_w) && fit > MIN_FONT {
+        fit = (fit - 1.0).max(MIN_FONT);
+        galley = lay(fit);
+    }
+    galley
+}
+
 fn styled_text_job(
     painter: &egui::Painter,
     ctrl: &Control,
@@ -2780,24 +2818,35 @@ pub fn draw_control(
                 let off = alpha_color(
                     theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(110)),
                 );
-                let track_h = rect.height().min(18.0);
+                // The switch FILLS its control, the way the real widget does
+                // when Run Form hands it the same rect.
+                //
+                // The track used to be capped at 32x18 whatever the control's
+                // size, so dragging a resize handle moved the grips and left the
+                // switch exactly as it was — the operator's report — and a
+                // switch sized in the designer did not match the one that ran.
+                let track_h = rect.height().max(4.0);
                 let track = egui::Rect::from_center_size(
                     rect.center(),
-                    Vec2::new((rect.width()).min(32.0), track_h),
+                    Vec2::new(rect.width().max(track_h), track_h),
                 );
                 let r = track_h * 0.5;
-                // 050 — a switch is a TOGGLE. A theme that paints one supplies
-                // both states (and an off track that is a rim, not a fill);
-                // otherwise the accent/grey pair below is unchanged.
+                // 050 — a switch is a TOGGLE, but its ON colour is the
+                // developer's `Accent`, not the theme's.
+                //
+                // The theme supplied both states here for a while, which meant a
+                // switch on the canvas was green whatever Accent said — while
+                // Run Form, which uses the real widget, honoured it. The two
+                // surfaces disagreed about the same control. A theme decides how
+                // a control LOOKS where the developer expressed no preference;
+                // `Accent` IS that preference, so it wins (R9). Only the OFF
+                // track — which has no property of its own — takes the theme.
                 match active_surface_theme(painter.ctx())
                     .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked })
                 {
-                    Some(spec) => {
-                        painter.rect_filled(
-                            track,
-                            r,
-                            theme_alpha(spec.fill.unwrap_or(Color32::TRANSPARENT), alpha_mul),
-                        );
+                    Some(spec) if !checked => {
+                        // Themed OFF: an outline, not a fill — the state with no
+                        // property of its own, so the theme decides it.
                         painter.rect_stroke(
                             track,
                             r,
@@ -2805,11 +2854,14 @@ pub fn draw_control(
                             egui::StrokeKind::Inside,
                         );
                     }
-                    None => {
+                    // Themed ON, and every Liquid Glass state: exactly the one
+                    // fill this has always drawn, so the glass rendering does
+                    // not move (R21).
+                    _ => {
                         painter.rect_filled(track, r, if checked { accent } else { off });
                     }
                 }
-                let knob_d = track_h - 4.0;
+                let knob_d = (track_h - 4.0).max(2.0);
                 let knob_x = if checked {
                     track.max.x - r
                 } else {
@@ -3052,7 +3104,7 @@ pub fn draw_control(
 
     // Unified corner radius for every control (spec 016): canonical CornerRadius,
     // legacy BorderRadius alias, per-type default, clamped. 0 ⇒ square.
-    let corner = corner_radius(ctrl);
+    let corner = themed_corner_radius(painter.ctx(), ctrl);
     // Per-corner frame rounding: the control's own radius, lifted to the container
     // radius on any corner that lands on a rounded GroupBox/Panel border — so the
     // card/background is cut by the parent shape and never bleeds past its rounded
@@ -3915,16 +3967,20 @@ pub fn draw_control(
                 .get_prop("TextAlignment")
                 .map(|v| v.as_str())
                 .unwrap_or("MiddleCenter");
-            let galley = painter.layout_job(styled_text_job(
+            // Shrink to fit the button rather than run past its border. It laid
+            // out at an INFINITE wrap width, so a caption simply never fitted.
+            let bpad = 3.0_f32.min(rect.width() * 0.2);
+            let galley = fitted_caption_galley(
                 painter,
                 ctrl,
                 &label,
                 &font_name,
                 fsize,
                 txt_color,
-                f32::INFINITY,
+                (rect.width() - 2.0 * bpad).max(1.0),
+                (rect.height() - 2.0 * bpad).max(1.0),
                 egui::Align::LEFT,
-            ));
+            );
             let image_path = ctrl
                 .get_prop("IconPath")
                 .or_else(|| ctrl.get_prop("ImagePath"))
@@ -3985,18 +4041,31 @@ pub fn draw_control(
                 .unwrap_or_default();
             let halign = text_halign(&align_raw);
 
-            let mut job = styled_text_job(
-                painter,
-                ctrl,
-                &label,
-                &font_name,
-                fsize,
-                txt_color,
-                rect.width(),
-                halign,
-            );
-            job.justify = text_justified(&align_raw);
-            let galley = painter.layout_job(job);
+            // A Label is frameless — its text IS the control — so an oversized
+            // caption used to run straight over its neighbours. It shrinks now,
+            // like every other caption.
+            let lpad = 3.0_f32.min(rect.width() * 0.25);
+            let galley = if text_justified(&align_raw) {
+                // Justified text fills the width by construction; keep the job
+                // path so `justify` is honoured.
+                let mut job = styled_text_job(
+                    painter, ctrl, &label, &font_name, fsize, txt_color, rect.width(), halign,
+                );
+                job.justify = true;
+                painter.layout_job(job)
+            } else {
+                fitted_caption_galley(
+                    painter,
+                    ctrl,
+                    &label,
+                    &font_name,
+                    fsize,
+                    txt_color,
+                    (rect.width() - 2.0 * lpad).max(1.0),
+                    rect.height().max(1.0),
+                    halign,
+                )
+            };
             // The galley's draw origin follows `halign`: top-left for LEFT,
             // top-centre for CENTER, top-right for RIGHT. Anchor x to the
             // matching edge of the rect (with a small inset off the border);
@@ -4148,7 +4217,12 @@ pub fn draw_control(
                 ))
             };
             let mut galley = layout(fit);
-            while galley.size().y > checkbox_text_rect.height() && fit > min_font {
+            // Width as well as height: a single-word caption cannot wrap, so it
+            // overflows sideways at a height that fits.
+            while (galley.size().y > checkbox_text_rect.height()
+                || galley.size().x > inner_w)
+                && fit > min_font
+            {
                 fit = (fit - 1.0).max(min_font);
                 galley = layout(fit);
             }
@@ -4159,21 +4233,47 @@ pub fn draw_control(
             let clipped = painter.with_clip_rect(checkbox_text_rect);
             paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
         } else {
-            let galley = painter.layout_job(styled_text_job(
-                painter,
-                ctrl,
-                &label,
-                &font_name,
-                fsize,
-                txt_color,
-                rect.width(),
-                egui::Align::Center,
-            ));
+            // Every other caption-bearing control — Button, Label, RadioButton,
+            // GroupBox and the rest — shrinks to fit, exactly as the TextBox and
+            // the CheckBox already did. This branch laid the caption out at the
+            // requested size and centred it, so a caption too big for its
+            // control simply spilled past the border.
+            //
+            // BOTH axes, unlike the older loops above: those test height only,
+            // which works when the text can wrap. A caption is usually one word
+            // ("Button-1"), and a word cannot be broken — so it overflows
+            // sideways at a height that fits perfectly well.
+            let pad = 3.0_f32.min(rect.width() * 0.2);
+            let inner_w = (rect.width() - 2.0 * pad).max(1.0);
+            let inner_h = (rect.height() - 2.0 * pad).max(1.0);
+            let min_font = 6.0_f32;
+            let mut fit = fsize.max(min_font);
+            let layout = |size: f32| {
+                painter.layout_job(styled_text_job(
+                    painter,
+                    ctrl,
+                    &label,
+                    &font_name,
+                    size,
+                    txt_color,
+                    inner_w,
+                    egui::Align::Center,
+                ))
+            };
+            let mut galley = layout(fit);
+            while (galley.size().y > inner_h || galley.size().x > inner_w) && fit > min_font {
+                fit = (fit - 1.0).max(min_font);
+                galley = layout(fit);
+            }
             let text_pos = egui::pos2(
                 rect.center().x - galley.size().x / 2.0,
                 rect.center().y - galley.size().y / 2.0,
             );
-            paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
+            // Clipped as a last resort: at the 6pt floor a caption long enough
+            // still cannot fit, and cutting it at the border beats bleeding over
+            // the neighbouring controls.
+            let clipped = painter.with_clip_rect(rect);
+            paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
         }
     }
 
@@ -6733,6 +6833,51 @@ pub fn draw_chart_preview(
 /// container `BorderRadius` (spec 012), then a per-type default, and clamps to
 /// half the smaller side so a large value can never produce a degenerate shape.
 /// `0` ⇒ square corners (and no rounded clipping).
+/// A control's corner radius, letting the active THEME supply the default when
+/// the developer set none (050 R10).
+///
+/// [`corner_radius`] is ctx-free — sixty-odd callers reach it without one — so
+/// it cannot ask a theme anything. This is the paint-time wrapper that can.
+///
+/// The developer's own `CornerRadius` always wins; a theme that offers nothing
+/// leaves the per-control built-ins exactly where they were.
+pub fn themed_corner_radius(ctx: &egui::Context, ctrl: &Control) -> f32 {
+    // "Unset" cannot mean "absent": `Control::new` SEEDS `CornerRadius` on every
+    // bordered control with that control's own default (Button 3, charts 8,
+    // everything else 0). Untouched therefore means "still equal to that
+    // default" — the same still-on-the-default convention the background and
+    // foreground colours use. Anything else is the developer's choice and wins.
+    let seeded_default = match ctrl.control_type {
+        ControlType::Button => 3.0,
+        ControlType::BarChart
+        | ControlType::LineChart
+        | ControlType::PieChart
+        | ControlType::AreaChart
+        | ControlType::ScatterChart
+        | ControlType::DonutChart => 8.0,
+        _ => 0.0,
+    };
+    let raw = ctrl
+        .get_prop("CornerRadius")
+        .or_else(|| ctrl.get_prop("BorderRadius"))
+        .map(|v| v.as_i64() as f32);
+    if raw.is_some_and(|r| r != seeded_default) {
+        return corner_radius(ctrl);
+    }
+    let kind = if ctrl.is_container() {
+        crate::surface_theme::RadiusKind::Card
+    } else {
+        crate::surface_theme::RadiusKind::Control
+    };
+    match active_surface_theme(ctx).radius(kind) {
+        Some(r) => {
+            let max_r = 0.5 * (ctrl.rect.w.min(ctrl.rect.h) as f32);
+            r.clamp(0.0, max_r.max(0.0))
+        }
+        None => corner_radius(ctrl),
+    }
+}
+
 pub fn corner_radius(ctrl: &Control) -> f32 {
     let raw = ctrl
         .get_prop("CornerRadius")
@@ -10006,8 +10151,6 @@ slice = [4, 4, 4, 4]
         assert_eq!(tok(Tok::Accent(A::Amber)), t.palette.accent_fill(elegance::Accent::Amber));
         assert_eq!(tok(Tok::Accent(A::Purple)), t.palette.accent_fill(elegance::Accent::Purple));
         assert_eq!(tok(Tok::Accent(A::Sky)), t.palette.accent_fill(elegance::Accent::Sky));
-        assert_eq!(e.radius(RK::Control), Some(t.control_radius));
-        assert_eq!(e.radius(RK::Card), Some(t.card_radius));
         assert!(t.palette.is_dark, "Elegance ships the dark slate palette");
 
         // ── Ours, and deliberately independent of the crate ──────────────────
@@ -10023,6 +10166,16 @@ slice = [4, 4, 4, 4]
         ] {
             assert_eq!(got, want, "{name} is PowerRustCOBOL's, not the crate's");
         }
+
+        // 5 for EVERYTHING — controls and cards alike. The crate offers two
+        // different radii; a form built from both reads as two design languages
+        // sharing a window.
+        assert_eq!(e.radius(RK::Control), Some(5.0));
+        assert_eq!(e.radius(RK::Card), Some(5.0));
+        assert_ne!(
+            t.control_radius, t.card_radius,
+            "the crate does differ here — which is why we do not take its values"
+        );
 
         println!(
             "\n  Elegance — ours: form {} container {} text {} label {} \
@@ -10275,6 +10428,257 @@ slice = [4, 4, 4, 4]
             "\n  050 AC14 — {} catalogue strings checked, none names the crate: {:?}\n",
             checked.len(),
             checked
+        );
+    }
+
+    /// The Switch, as reported: it must grow with its control, and its ON
+    /// colour is the developer's `Accent`, not the theme's.
+    ///
+    /// The track was capped at 32x18 whatever the control's size, so a resize
+    /// moved the handles and nothing else. And the theme was supplying both
+    /// toggle states here, so a switch on the canvas was green whatever Accent
+    /// said — while Run Form, which uses the real widget, honoured it. Two
+    /// surfaces disagreeing about one control.
+    #[test]
+    fn a_switch_grows_with_its_control_and_takes_the_developers_accent() {
+        use crate::model::PropValue;
+
+        fn fills(ct: &Control, theme: Arc<dyn crate::surface_theme::SurfaceTheme>) -> Vec<Color32> {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, theme);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<(Color32, Rect)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) => out.push((r.fill, r.rect)),
+                    _ => {}
+                }
+            }
+            let mut seen = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut seen);
+            }
+            seen.into_iter().filter(|(c, _)| c.a() > 0).map(|(c, _)| c).collect()
+        }
+
+        fn track_width(ct: &Control) -> f32 {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn widest(s: &egui::Shape, out: &mut f32) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| widest(s, out)),
+                    other => {
+                        let b = other.visual_bounding_rect();
+                        if b.is_positive() {
+                            *out = out.max(b.width());
+                        }
+                    }
+                }
+            }
+            let mut w = 0.0;
+            for cs in &full.shapes {
+                widest(&cs.shape, &mut w);
+            }
+            w
+        }
+
+        // ── It grows with the control ────────────────────────────────────────
+        let mut small = Control::new("S", CT::Switch, 0, 0);
+        small.rect = crate::model::Rect::new(0, 0, 52, 28);
+        let mut big = small.clone();
+        big.rect = crate::model::Rect::new(0, 0, 200, 60);
+        let (ws, wb) = (track_width(&small), track_width(&big));
+        assert!(
+            wb > ws * 2.0,
+            "a switch must follow its control's size: 52pt ⇒ {ws:.0}, 200pt ⇒ {wb:.0}"
+        );
+        assert!(wb >= 190.0, "…and actually fill it, got {wb:.0}");
+
+        // ── ON takes the developer's Accent, under every theme ───────────────
+        let mut on = small.clone();
+        on.set_prop("Checked", PropValue::Bool(true));
+        on.set_prop("Accent", PropValue::String("Blue".into()));
+        let same = |a: Color32, b: Color32| a.r() == b.r() && a.g() == b.g() && a.b() == b.b();
+        let themed_green = eleg()
+            .surface(
+                crate::surface_theme::SurfaceRole::Toggle,
+                crate::surface_theme::SurfaceState { selected: false, on: true },
+            )
+            .and_then(|s| s.fill)
+            .expect("the theme has an on colour");
+
+        for (name, theme) in [("Elegance", eleg()), ("Liquid Glass", glass())] {
+            let painted = fills(&on, theme);
+            assert!(
+                !painted.iter().any(|c| same(*c, themed_green)),
+                "{name}: the theme's toggle colour must not override Accent"
+            );
+        }
+
+        // Changing Accent changes what is painted — the whole point.
+        let mut red = on.clone();
+        red.set_prop("Accent", PropValue::String("Red".into()));
+        assert_ne!(
+            format!("{:?}", fills(&on, eleg())),
+            format!("{:?}", fills(&red, eleg())),
+            "Accent must drive the ON colour"
+        );
+
+        println!(
+            "\n  Switch — 52pt control ⇒ {ws:.0}pt track, 200pt ⇒ {wb:.0}pt; \
+             ON follows Accent (Blue ≠ Red) under both themes\n"
+        );
+    }
+
+    /// A caption never escapes its control: the font shrinks to fit, the way
+    /// the TextBox always has.
+    ///
+    /// Buttons, Labels and every other caption-bearing control fell to a branch
+    /// that laid the text out at the requested size and centred it — no fitting
+    /// at all — so an oversized caption spilled straight over the border.
+    #[test]
+    fn a_caption_shrinks_to_fit_instead_of_escaping_its_control() {
+        use crate::model::PropValue;
+
+        /// The widest text the control painted, and the control's own rect.
+        fn text_extent(ct: &Control) -> (f32, f32, Rect) {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Text(t) => out.push(t.visual_bounding_rect()),
+                    _ => {}
+                }
+            }
+            let mut texts = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut texts);
+            }
+            let w = texts.iter().map(|r| r.width()).fold(0.0_f32, f32::max);
+            let h = texts.iter().map(|r| r.height()).fold(0.0_f32, f32::max);
+            let own = Rect::from_min_size(
+                Pos2::new(ct.rect.x as f32, ct.rect.y as f32),
+                Vec2::new(ct.rect.w as f32, ct.rect.h as f32),
+            );
+            (w, h, own)
+        }
+
+        // A caption far too big for its button — the reported case.
+        for (name, kind) in [
+            ("Button", CT::Button),
+            ("Label", CT::Label),
+            ("RadioButton", CT::RadioButton),
+        ] {
+            let mut c = Control::new("C", kind, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 90, 30);
+            c.set_prop("Caption", PropValue::String("Button-1".into()));
+            c.set_prop("FontSize", PropValue::Int(48));
+            let (w, h, own) = text_extent(&c);
+            assert!(w > 0.0, "{name}: nothing was drawn");
+            assert!(
+                w <= own.width() + 0.5,
+                "{name}: caption {w:.0}pt wide escaped a {:.0}pt control",
+                own.width()
+            );
+            assert!(
+                h <= own.height() + 0.5,
+                "{name}: caption {h:.0}pt tall escaped a {:.0}pt control",
+                own.height()
+            );
+        }
+
+        // A caption that already fits is NOT shrunk — fitting must not become a
+        // silent restyle of every form that was fine.
+        let mut roomy = Control::new("C", CT::Button, 0, 0);
+        roomy.rect = crate::model::Rect::new(0, 0, 300, 80);
+        roomy.set_prop("Caption", PropValue::String("OK".into()));
+        roomy.set_prop("FontSize", PropValue::Int(14));
+        let (small_w, _, _) = text_extent(&roomy);
+        let mut same = roomy.clone();
+        same.rect = crate::model::Rect::new(0, 0, 600, 160);
+        let (bigger_box_w, _, _) = text_extent(&same);
+        assert!(
+            (small_w - bigger_box_w).abs() < 0.5,
+            "a caption that fits must render identically whatever room is spare: \
+             {small_w:.1} vs {bigger_box_w:.1}"
+        );
+
+        println!(
+            "\n  captions — 'Button-1' at 48pt in a 90x30 control shrinks inside \
+             the border on Button, Label and RadioButton; one that already fits \
+             is untouched\n"
+        );
+    }
+
+    /// 050 R10 — the theme's corner radius actually REACHES a control.
+    ///
+    /// `radius()` existed and was consulted by nothing but a test: every painter
+    /// went through the ctx-free `corner_radius`, which cannot ask a theme
+    /// anything. So the accessor was wired and the value still never applied —
+    /// the dead-field problem one layer up. `themed_corner_radius` is the
+    /// paint-time wrapper that closes it.
+    #[test]
+    fn the_themes_corner_radius_reaches_the_control() {
+        use crate::model::PropValue;
+        let ctx = egui::Context::default();
+
+        let mut c = Control::new("P", CT::Panel, 0, 0);
+        c.rect = crate::model::Rect::new(0, 0, 200, 100);
+
+        // Liquid Glass says nothing ⇒ the built-in per-kind default stands.
+        set_surface_theme(&ctx, glass());
+        assert_eq!(
+            themed_corner_radius(&ctx, &c),
+            corner_radius(&c),
+            "an unthemed control keeps the radius it always had (R21)"
+        );
+
+        // Elegance says 5 ⇒ 5, for a container and for an ordinary control.
+        set_surface_theme(&ctx, eleg());
+        assert_eq!(themed_corner_radius(&ctx, &c), 5.0, "container");
+        let mut b = Control::new("B", CT::Button, 0, 0);
+        b.rect = crate::model::Rect::new(0, 0, 90, 28);
+        assert_eq!(
+            themed_corner_radius(&ctx, &b),
+            5.0,
+            "ordinary control — and NOT the Button's built-in 3"
+        );
+        assert_eq!(corner_radius(&b), 3.0, "…which is what it would have been");
+
+        // The developer's own value always wins (R9).
+        b.set_prop("CornerRadius", PropValue::Int(12));
+        assert_eq!(
+            themed_corner_radius(&ctx, &b),
+            12.0,
+            "an explicit CornerRadius outranks the theme"
+        );
+
+        // And it is still clamped to half the short side, so a tiny control
+        // cannot be rounded into a blob.
+        let mut tiny = Control::new("T", CT::Panel, 0, 0);
+        tiny.rect = crate::model::Rect::new(0, 0, 6, 6);
+        assert_eq!(themed_corner_radius(&ctx, &tiny), 3.0, "clamped to w/2");
+
+        println!(
+            "\n  050 R10 — Elegance radius 5 applied: Panel 5, Button 5 \
+             (built-in 3), explicit 12 wins, 6px control clamped to 3\n"
         );
     }
 

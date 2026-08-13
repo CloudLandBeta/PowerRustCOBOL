@@ -1,5 +1,68 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.40] — 2026-08-13
+
+### Fixed — captions stay inside their control
+
+Every caption-bearing control now shrinks its font to fit, the way the TextBox
+always has. Buttons and Labels each had their own drawing branch that laid the
+text out at the requested size and centred it, so a caption too big for its
+control ran straight over the border — and a Label, being frameless, ran over
+its neighbours. The Button's branch was the worst case: it laid out at an
+*infinite* wrap width, so its caption could never fit by any route.
+
+Both axes are tested now, not just height. Height alone is enough only while the
+text can wrap, and a caption is usually one word — a word cannot be broken, so
+it overflowed sideways at a height that fitted perfectly well. The four caption
+branches share one fitting helper so they cannot drift apart again. Below the
+6 pt floor the text is clipped at the border rather than allowed to bleed.
+
+### Removed — the Emerald Glass theme
+
+Withdrawn at the operator's request: the asset pack rendered incorrectly. Forms
+that referenced it fall back to Liquid Glass, which is what an unknown theme id
+has always resolved to.
+
+### Fixed — the Switch, on every surface
+
+- **A Switch is the size you drew it.** It was painted by the palette crate's
+  widget, which hard-codes a 32×18 track and allocates exactly that — so a
+  switch sized in the designer ran at 32×18 whatever you drew, and resizing one
+  moved the handles and nothing else. It now goes through the shared painter,
+  like the check box and the radio button beside it, so all four surfaces draw
+  one control at one size. (The crate widget's knob-slide animation goes with
+  it; there is no way to size that widget.)
+- **The ON colour is your `Accent` again**, not the theme's. The theme was
+  supplying both toggle states, so a switch on the canvas was green whatever
+  Accent said while Run Form honoured it. A theme decides how a control looks
+  where you expressed no preference; `Accent` is that preference. Only the OFF
+  track, which has no property of its own, takes the theme.
+- **The preview toggles.** `Switch` was missing from the list of controls whose
+  live value flows back, so it fell through to `Caption` and every toggle you
+  made in the preview was discarded on the way back.
+- **New events: `onCheck` and `onUncheck`**, beside the existing
+  `onCheckedChanged` (which carries the new state). The check box, the radio
+  button and the switch all raise the same three — the first two previously
+  advertised events they never fired.
+
+### Changed — egui 0.36.1
+
+Patch upgrade. All nine corner/shape-dump guards, the modal 120-frame
+self-inflation test and the hand-rolled colour-picker popup were re-checked
+against it.
+
+### Fixed — Elegance's corner radius, and the radius nothing was reading
+
+- **Elegance rounds every control to 5 pt**, controls and containers alike. The
+  palette crate offers two different radii; a form built from both reads as two
+  design languages sharing one window.
+- **A theme's corner radius was never applied.** 1.61.37 added the accessor and
+  claimed the radii were in use; they were not. Every painter reached the radius
+  through a helper that takes no context and so cannot ask a theme anything, and
+  the accessor was consulted by a test and nothing else. The paint path now goes
+  through a themed wrapper. Your own `CornerRadius` still wins, and a theme that
+  offers none leaves each control's built-in default exactly where it was.
+
 ## [PowerRustCOBOL 1.61.38] — 2026-08-13
 
 ### Fixed — the rail's header logo and its drop shadow
@@ -47,8 +110,8 @@ documented the rule. This is that gap closed.
   styles, so a theme could not be chosen when the form was created. It now lists
   Liquid Glass, Elegance and every installed pack — defaulting to the project's —
   with the glass style as its own row beside it.
-- **The theme's corner radii are applied.** They were read from the palette and
-  then never used.
+- **A theme can supply a default corner radius.** The accessor landed here; the
+  painters were wired to it in 1.61.40.
 
 > ⚠️ **Elegance forms change appearance** as a result — drop shadows reappear and
 > the theme's corner radii take effect. That is the fix, not a regression.

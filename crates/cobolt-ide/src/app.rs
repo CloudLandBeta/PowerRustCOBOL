@@ -11771,7 +11771,10 @@ pub(crate) fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str 
     match ct {
         CT::TextBox => "Text",
         CT::PictureBox => "ImagePath",
-        CT::CheckBox | CT::RadioButton => "Checked",
+        // A Switch reports its state as `Checked`, like the other two toggles.
+        // It fell through to "Caption", so every toggle the operator made in the
+        // preview was discarded on the way back and the switch never moved.
+        CT::CheckBox | CT::RadioButton | CT::Switch => "Checked",
         CT::TabControl => "SelectedTab",
         CT::ComboBox | CT::ListBox | CT::Slider | CT::ProgressBar | CT::NumericUpDown => "Value",
         _ => "Caption",

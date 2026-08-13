@@ -317,6 +317,8 @@ mod eleg {
     pub const PRIMARY: Color32 = Color32::from_rgb(0x37, 0x61, 0xE2);
     /// A toggle that is ON — check box, radio, switch.
     pub const ON: Color32 = Color32::from_rgb(0x4C, 0xA0, 0x53);
+    /// Every control's corner radius, in points.
+    pub const CORNER_RADIUS: f32 = 5.0;
     /// The FORM's own backdrop.
     pub const FORM_BG: Color32 = Color32::from_rgb(0x0F, 0x17, 0x2A);
     /// A container's face — Panel, GroupBox — one step lighter than the form,
@@ -430,11 +432,13 @@ impl SurfaceTheme for EleganceTheme {
         })
     }
 
-    fn radius(&self, kind: RadiusKind) -> Option<f32> {
-        Some(match kind {
-            RadiusKind::Control => self.control_radius,
-            RadiusKind::Card => self.card_radius,
-        })
+    /// 5 for everything — controls and cards alike.
+    ///
+    /// PowerRustCOBOL's, not the palette crate's: the crate offers two different
+    /// radii, and a form built from both reads as two design languages sharing a
+    /// window. One value is the whole point of a flat theme.
+    fn radius(&self, _kind: RadiusKind) -> Option<f32> {
+        Some(eleg::CORNER_RADIUS)
     }
 
     /// The theme's accent family is already a set of distinguishable hues,
