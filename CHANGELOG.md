@@ -78,6 +78,26 @@ against it.
   collapsed state centred it — so the logo sat off-centre in the pane it is the
   entire content of.
 
+## [PowerRustCOBOL 1.61.39] — 2026-08-13
+
+### Added — a swatch grid in the colour picker
+
+The colour picker gains a **6 × 8 grid** beside the colour square.
+
+- **The active theme's own colours come first**, in the order the theme lists
+  them. Elegance offers 24 — six accents, their disabled and hover variants, and
+  six neutrals — so it fills the first four rows. The count is per theme: a
+  theme may offer none, or fill the grid entirely.
+- **Whatever is left over is your own colour memory.** A colour you mix is
+  remembered when you close the picker — not while you drag, which would bank
+  the path you took rather than the colour you chose. Colours the theme already
+  offers, and ones already remembered, are not duplicated.
+- **The memory is session-scoped.** Closing the IDE forgets it: it is a
+  convenience for the colours you are using now, not a palette you curate.
+- **Filling it clears it and starts again from the first slot**, rather than
+  dropping the oldest one at a time — which would leave the grid looking
+  unchanged apart from a single cell.
+
 ## [PowerRustCOBOL 1.61.37] — 2026-08-12
 
 ### Fixed — a theme that owns the look is no longer configured by Liquid Glass

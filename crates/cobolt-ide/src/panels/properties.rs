@@ -41,6 +41,119 @@ use egui::{Color32, DragValue, Rect, RichText, ScrollArea, Sense, Ui};
 /// fixed-size header (live swatch + editable `RRGGBBAA` hex) and fixed-width R/G/B/A
 /// fields. The popup stays open while the user picks and closes only on a click
 /// **outside** its area (or Escape).
+// ── The colour picker's swatch grid ─────────────────────────────────────────
+//
+// Six columns by eight rows. The active theme's own colours come first — those
+// are what a developer reaches for when styling a control in that theme — and
+// whatever is left over is the operator's own memory of custom colours.
+//
+// The memory is deliberately session-scoped: it lives in egui's temp store, so
+// closing the IDE forgets it. It is a convenience for the colours you are using
+// right now, not a palette you curate.
+
+const SWATCH_COLS: usize = 6;
+const SWATCH_ROWS: usize = 8;
+const SWATCH_SLOTS: usize = SWATCH_COLS * SWATCH_ROWS;
+
+fn custom_color_memory_id() -> egui::Id {
+    egui::Id::new("cobolt-custom-color-memory")
+}
+
+fn custom_color_memory(ctx: &egui::Context) -> Vec<Color32> {
+    ctx.data(|d| d.get_temp::<Vec<Color32>>(custom_color_memory_id()))
+        .unwrap_or_default()
+}
+
+/// Remember `color` as a custom choice, unless the theme already offers it or
+/// it is already remembered.
+///
+/// When the memory is full the next colour becomes the FIRST again — and the
+/// rest are cleared rather than shuffled, so the operator sees the cycle start
+/// over instead of watching one colour silently drop off the end.
+fn remember_custom_color(ctx: &egui::Context, theme: &[Color32], color: Color32) {
+    let capacity = SWATCH_SLOTS.saturating_sub(theme.len());
+    if capacity == 0 {
+        return; // the theme fills the grid; there is nowhere to remember
+    }
+    let same = |a: Color32, b: Color32| a.to_array() == b.to_array();
+    if theme.iter().any(|c| same(*c, color)) {
+        return;
+    }
+    let mut mem = custom_color_memory(ctx);
+    if mem.iter().any(|c| same(*c, color)) {
+        return;
+    }
+    if mem.len() >= capacity {
+        mem.clear();
+    }
+    mem.push(color);
+    ctx.data_mut(|d| d.insert_temp(custom_color_memory_id(), mem));
+}
+
+/// Draw the grid and return a colour the operator clicked, if any.
+fn swatch_grid(ui: &mut Ui, theme: &[Color32]) -> Option<Color32> {
+    use egui::{Sense, Stroke, Vec2};
+
+    let mem = custom_color_memory(ui.ctx());
+    let cell = 26.0_f32;
+    let gap = 4.0_f32;
+    let mut picked = None;
+
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(gap);
+        for row in 0..SWATCH_ROWS {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(gap);
+                for col in 0..SWATCH_COLS {
+                    let slot = row * SWATCH_COLS + col;
+                    let filled = theme
+                        .get(slot)
+                        .copied()
+                        .or_else(|| mem.get(slot.saturating_sub(theme.len())).copied()
+                            .filter(|_| slot >= theme.len()));
+                    let sense = if filled.is_some() {
+                        Sense::click()
+                    } else {
+                        Sense::hover()
+                    };
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(cell), sense);
+                    if !ui.is_rect_visible(rect) {
+                        continue;
+                    }
+                    match filled {
+                        Some(c) => {
+                            egui::color_picker::show_color_at(ui.painter(), c, rect);
+                            // An empty slot and a filled one must not read the
+                            // same: the filled ones carry no outline, so the
+                            // colour itself is the whole cell.
+                            if resp.hovered() {
+                                ui.painter().rect_stroke(
+                                    rect,
+                                    2.0,
+                                    Stroke::new(2.0, Color32::WHITE),
+                                    egui::StrokeKind::Middle,
+                                );
+                            }
+                            if resp.clicked() {
+                                picked = Some(c);
+                            }
+                        }
+                        None => {
+                            ui.painter().rect_stroke(
+                                rect,
+                                2.0,
+                                Stroke::new(1.0, Color32::from_gray(150)),
+                                egui::StrokeKind::Middle,
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    });
+    picked
+}
+
 fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
     use egui::color_picker::{color_picker_color32, show_color_at, Alpha};
     use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
@@ -152,7 +265,21 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
                     });
                     ui.separator();
 
-                    changed |= color_picker_color32(ui, color, Alpha::BlendOrAdditive);
+                    // The picker on the left, the theme's colours + the
+                    // operator's memory on the right.
+                    let theme = cobolt_forms::paint::active_theme_swatches(ui.ctx());
+                    ui.horizontal_top(|ui| {
+                        ui.vertical(|ui| {
+                            changed |=
+                                color_picker_color32(ui, color, Alpha::BlendOrAdditive);
+                        });
+                        if let Some(picked) = swatch_grid(ui, &theme) {
+                            if picked != *color {
+                                *color = picked;
+                                changed = true;
+                            }
+                        }
+                    });
                     changed
                 });
                 (inner.inner, inner.response.rect)
@@ -169,6 +296,12 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
             && (ui.input(|i| i.key_pressed(Key::Escape)) || area.response.clicked_elsewhere())
         {
             open = false;
+            // Remember the colour the operator SETTLED on — once, on close.
+            // Recording every frame while they drag the 2-D square would fill
+            // the memory with the path they took to get there rather than the
+            // colour they chose.
+            let theme = cobolt_forms::paint::active_theme_swatches(ui.ctx());
+            remember_custom_color(ui.ctx(), &theme, *color);
         }
     }
     ui.memory_mut(|m| m.data.insert_temp(open_id, open));
@@ -9099,6 +9232,103 @@ pub fn color32_to_hex(c: Color32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The swatch grid is 6x8, the theme's colours come first, and whatever is
+    /// left over is the operator's custom-colour memory.
+    #[test]
+    fn the_swatch_grid_gives_the_theme_first_and_the_rest_to_memory() {
+        let ctx = egui::Context::default();
+        let theme = cobolt_forms::surface_theme::elegance().swatches();
+
+        assert_eq!(SWATCH_COLS * SWATCH_ROWS, 48, "6 columns by 8 rows");
+        assert_eq!(theme.len(), 24, "Elegance offers 24");
+        let capacity = SWATCH_SLOTS - theme.len();
+        assert_eq!(capacity, 24, "…leaving 24 for the operator");
+
+        // The exact colours, in the order they fill the grid.
+        let hex = |c: Color32| format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b());
+        assert_eq!(hex(theme[0]), "#2563EB", "first basic");
+        assert_eq!(hex(theme[5]), "#38BDF8", "last basic");
+        assert_eq!(hex(theme[6]), "#21438A", "first disabled variant");
+        assert_eq!(hex(theme[12]), "#1D4ED8", "first hover variant");
+        assert_eq!(hex(theme[18]), "#E2E8F0", "first neutral");
+        assert_eq!(hex(theme[23]), "#1E293B", "last neutral");
+
+        // A theme colour is never duplicated into memory.
+        remember_custom_color(&ctx, &theme, theme[0]);
+        assert!(
+            custom_color_memory(&ctx).is_empty(),
+            "a colour the theme already offers is not 'custom'"
+        );
+
+        // Nor is one already remembered.
+        let mine = Color32::from_rgb(1, 2, 3);
+        remember_custom_color(&ctx, &theme, mine);
+        remember_custom_color(&ctx, &theme, mine);
+        assert_eq!(custom_color_memory(&ctx).len(), 1, "remembered once");
+
+        println!(
+            "\n  swatch grid — {}x{} = {} slots; theme {} + memory {}\n",
+            SWATCH_COLS,
+            SWATCH_ROWS,
+            SWATCH_SLOTS,
+            theme.len(),
+            capacity
+        );
+    }
+
+    /// Filling the memory CLEARS it and starts again from the first slot.
+    ///
+    /// The operator's rule, and deliberately not a ring buffer: dropping the
+    /// oldest one at a time would leave 23 stale colours and one new one, which
+    /// reads as nothing having happened.
+    #[test]
+    fn a_full_color_memory_clears_before_it_cycles() {
+        let ctx = egui::Context::default();
+        let theme = cobolt_forms::surface_theme::elegance().swatches();
+        let capacity = SWATCH_SLOTS - theme.len();
+
+        for i in 0..capacity {
+            remember_custom_color(&ctx, &theme, Color32::from_rgb(i as u8, 0, 0));
+        }
+        assert_eq!(custom_color_memory(&ctx).len(), capacity, "memory is full");
+
+        // One more: the memory clears and the newcomer is the first again.
+        let next = Color32::from_rgb(200, 100, 50);
+        remember_custom_color(&ctx, &theme, next);
+        let mem = custom_color_memory(&ctx);
+        assert_eq!(mem.len(), 1, "cleared, not shuffled");
+        assert_eq!(mem[0], next, "the new colour is the first");
+
+        println!(
+            "  colour memory — filled {capacity}, then one more ⇒ cleared and \
+             restarted at slot 1\n"
+        );
+    }
+
+    /// A theme that offers no swatches gives the whole grid to the operator;
+    /// one that fills it leaves no memory at all, and must not panic.
+    #[test]
+    fn the_memory_takes_whatever_the_theme_leaves() {
+        let ctx = egui::Context::default();
+
+        // Liquid Glass offers none — all 48 are the operator's.
+        let none: Vec<Color32> = cobolt_forms::surface_theme::liquid_glass().swatches();
+        assert!(none.is_empty(), "Liquid Glass offers no swatches");
+        remember_custom_color(&ctx, &none, Color32::from_rgb(9, 9, 9));
+        assert_eq!(custom_color_memory(&ctx).len(), 1);
+
+        // A theme filling every slot leaves nowhere to remember.
+        let ctx2 = egui::Context::default();
+        let full: Vec<Color32> = (0..SWATCH_SLOTS as u32)
+            .map(|i| Color32::from_rgb(i as u8, 1, 1))
+            .collect();
+        remember_custom_color(&ctx2, &full, Color32::from_rgb(7, 7, 7));
+        assert!(
+            custom_color_memory(&ctx2).is_empty(),
+            "no capacity ⇒ nothing remembered, and no panic"
+        );
+    }
 
     fn form_with_cobol_binding_table() -> (Form, Control) {
         let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);

@@ -246,6 +246,19 @@ pub trait SurfaceTheme: Debug + Send + Sync {
         None
     }
 
+    /// The theme's own colours, for the colour picker's swatch grid.
+    ///
+    /// These are what a developer reaches for first when styling a control, so
+    /// the picker offers them before anything else. Order matters — it is the
+    /// order they appear in, filling left to right, top to bottom.
+    ///
+    /// A theme may offer as many or as few as it likes; whatever is left of the
+    /// grid becomes the operator's own custom-colour memory. An empty list (the
+    /// default) gives the whole grid over to that memory.
+    fn swatches(&self) -> Vec<Color32> {
+        Vec::new()
+    }
+
     /// Install this theme's visuals for widgets that are drawn by a third-party
     /// crate and read their palette from the `egui::Context`.
     ///
@@ -446,6 +459,26 @@ impl SurfaceTheme for EleganceTheme {
     fn data_marks(&self) -> Option<Vec<Color32>> {
         let p = &self.palette;
         Some(vec![p.blue, p.amber, p.green, p.purple, p.red, p.focus])
+    }
+
+    /// Elegance's own 24: six accents, then their disabled and hover variants,
+    /// then the six neutrals — four rows of six, in that order.
+    fn swatches(&self) -> Vec<Color32> {
+        const HEX: [u32; 24] = [
+            // Basic
+            0x2563EB, 0x16A34A, 0xDC2626, 0x7C3AED, 0xD97706, 0x38BDF8,
+            // Disabled variants
+            0x21438A, 0x1A6042, 0x742832, 0x48318B, 0x724C23, 0x2A6C90,
+            // Hover variants
+            0x1D4ED8, 0x15803D, 0xB91C1C, 0x6D28D9, 0xB45309, 0x30A1D3,
+            // Neutrals
+            0xE2E8F0, 0x94A3B8, 0x64748B, 0x475569, 0x334155, 0x1E293B,
+        ];
+        HEX.iter()
+            .map(|v| {
+                Color32::from_rgb((v >> 16) as u8, ((v >> 8) & 0xFF) as u8, (v & 0xFF) as u8)
+            })
+            .collect()
     }
 
     /// Knob, Gauge, Switch and FileDropZone are real widgets from the palette
