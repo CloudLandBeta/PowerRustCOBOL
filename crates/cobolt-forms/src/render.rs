@@ -3731,10 +3731,28 @@ fn render_interactive(
             let max = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0);
             let step = sv(ctrl, "Step").parse::<f64>().unwrap_or(1.0).max(0.0001);
             let mut val = sv(ctrl, "Value").parse::<f64>().unwrap_or(min);
-            let resp = ui.put(
-                screen,
-                egui::DragValue::new(&mut val).range(min..=max).speed(step),
+            // The value is an egui widget, so it drew in the ambient body font —
+            // the control's own `FontSize`/`FontName` never reached it, and the
+            // field showed text at a size the properties pane did not report.
+            let font = crate::fonts::font_id(
+                ui.ctx(),
+                &sv(ctrl, "FontName"),
+                paint::ctrl_font_size(ctrl),
             );
+            let resp = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+                    ui.style_mut()
+                        .text_styles
+                        .insert(egui::TextStyle::Button, font.clone());
+                    ui.style_mut()
+                        .text_styles
+                        .insert(egui::TextStyle::Body, font);
+                    ui.put(
+                        screen,
+                        egui::DragValue::new(&mut val).range(min..=max).speed(step),
+                    )
+                })
+                .inner;
             focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.changed() && enabled {
                 let s = format!("{val}");
@@ -3765,8 +3783,25 @@ fn render_interactive(
             if was_open != is_open {
                 ui.data_mut(|d| d.insert_temp(was_open_id, is_open));
             }
+            let combo_text = {
+                let fg = sv(ctrl, "ForegroundColor");
+                let colour = paint::caret_color(
+                    paint::control_surface_tone(ui.ctx(), ctrl, form_bg),
+                    if fg.is_empty() {
+                        Color32::from_rgb(220, 228, 255)
+                    } else {
+                        paint::parse_color(&fg)
+                    },
+                );
+                let font = crate::fonts::font_id(
+                    ui.ctx(),
+                    &sv(ctrl, "FontName"),
+                    paint::ctrl_font_size(ctrl),
+                );
+                Some((font, colour))
+            };
             if paint::glass_combo_header(
-                &painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha,
+                &painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha, combo_text,
             ) {
                 let now = !is_open;
                 ui.data_mut(|d| d.insert_temp(open_id, now));
@@ -3793,6 +3828,21 @@ fn render_interactive(
             let cur = sv(ctrl, "Value");
             let mut picked: Option<String> = None;
             let mut double_picked: Option<String> = None;
+            // The items are egui widgets, so their text came from the AMBIENT
+            // visuals — the one colour in this control the developer's
+            // ForegroundColor never reached, and the reason a list read as dark
+            // grey on a dark theme's well. Painted like the TextBox's text: the
+            // control's own colour while it clears WCAG AA on the surface the
+            // list actually sits on, otherwise the pole that reads.
+            let fg = sv(ctrl, "ForegroundColor");
+            let item_color = paint::caret_color(
+                paint::control_surface_tone(ui.ctx(), ctrl, form_bg),
+                if fg.is_empty() {
+                    Color32::WHITE
+                } else {
+                    paint::parse_color(&fg)
+                },
+            );
             ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
                 if !enabled {
                     ui.disable();
@@ -3800,9 +3850,28 @@ fn render_interactive(
                 egui::ScrollArea::vertical()
                     .id_salt(ctrl_id)
                     .max_height(screen.height())
+                    // Fill the control instead of shrinking to the content. A
+                    // scroll area sizes itself to what it holds by default, so
+                    // the list's scrollbar came to rest just past the widest
+                    // item — a bar down the middle of the control rather than
+                    // against its right border, over the items themselves.
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        // List rows, not toolbar rows. Left alone, each item is
+                        // an egui widget and takes the HOST's chrome metrics —
+                        // the IDE's 30 px minimum touch height and 8 px gap —
+                        // which spaced a list of one-word items like a menu.
+                        // A list line is its text plus a little air, and that is
+                        // the same whatever chrome the surface around it uses.
+                        let spacing = ui.spacing_mut();
+                        spacing.item_spacing.y = 2.0;
+                        spacing.button_padding.y = 2.0;
+                        spacing.interact_size.y = 0.0;
                         for item in &items {
-                            let resp = ui.selectable_label(&cur == item, item);
+                            let resp = ui.selectable_label(
+                                &cur == item,
+                                egui::RichText::new(item).color(item_color),
+                            );
                             if resp.clicked() {
                                 picked = Some(item.clone());
                             }
@@ -6992,26 +7061,27 @@ mod tests {
         );
     }
 
+    fn collect_text(shape: &egui::Shape, out: &mut Vec<(String, Color32)>) {
+        match shape {
+            egui::Shape::Text(t) => {
+                let colour = t
+                    .galley
+                    .job
+                    .sections
+                    .first()
+                    .map(|sec| sec.format.color)
+                    .unwrap_or(t.fallback_color);
+                out.push((t.galley.text().to_owned(), colour));
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| collect_text(s, out)),
+            _ => {}
+        }
+    }
+
     /// Every text run painted for `controls`, with its colour — used to answer
     /// "did the new caption reach the screen, and can it be read there?".
     fn painted_text(controls: &[Control], backdrop_hex: &str) -> Vec<(String, Color32)> {
-        fn collect(shape: &egui::Shape, out: &mut Vec<(String, Color32)>) {
-            match shape {
-                egui::Shape::Text(t) => {
-                    let colour = t
-                        .galley
-                        .job
-                        .sections
-                        .first()
-                        .map(|sec| sec.format.color)
-                        .unwrap_or(t.fallback_color);
-                    out.push((t.galley.text().to_owned(), colour));
-                }
-                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
-                _ => {}
-            }
-        }
-
+        use collect_text as collect;
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
         let mut full = ctx.run_ui(
@@ -7047,6 +7117,554 @@ mod tests {
         }
         full.textures_delta.clear();
         out
+    }
+
+    /// Like [`painted_text`], but Interactive — the mode where the widget-backed
+    /// controls (a ListBox's items, …) paint anything at all.
+    fn painted_text_interactive(controls: &[Control]) -> Vec<(String, Color32)> {
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &input);
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect_text(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        out
+    }
+
+    /// One painted text run: what it says, the font size it was LAID OUT at
+    /// (the caption branches shrink the font to fit, so this reports whether the
+    /// frame was big enough), where it starts and how much room it takes.
+    #[derive(Clone, Debug)]
+    struct PaintedText {
+        text: String,
+        font: f32,
+        pos: egui::Pos2,
+        size: Vec2,
+        ink: Rect,
+    }
+
+    impl PaintedText {
+        fn rect(&self) -> Rect {
+            self.ink
+        }
+    }
+
+    /// Every text run painted for `controls`, plus each control's screen rect.
+    ///
+    /// `chrome` tweaks the HOST's style before rendering, so a surface with the
+    /// IDE's roomy touch metrics can be reproduced exactly.
+    fn painted_text_layout_interactive(
+        controls: &[Control],
+        chrome: impl FnMut(&mut egui::Style),
+    ) -> (Vec<PaintedText>, Map<String, Rect>) {
+        fn collect(shape: &egui::Shape, out: &mut Vec<PaintedText>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(PaintedText {
+                    text: t.galley.text().to_owned(),
+                    font: t
+                        .galley
+                        .job
+                        .sections
+                        .first()
+                        .map(|s| s.format.font_id.size)
+                        .unwrap_or(0.0),
+                    pos: t.pos,
+                    size: t.galley.size(),
+                    // Where the glyphs REALLY land: a job with `halign = Center`
+                    // treats `pos` as the text's centre, not its left edge, so
+                    // `pos` alone answers nothing about clipping.
+                    ink: t.visual_bounding_rect(),
+                }),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
+        let ctx = egui::Context::default();
+        ctx.all_styles_mut(chrome);
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let out = render_form(ui, &input);
+                    *placed.borrow_mut() = out.control_rects;
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        (out, placed.into_inner())
+    }
+
+    /// [`painted_text_layout_interactive`] with the host's own default chrome.
+    fn painted_captions(controls: &[Control]) -> (Vec<PaintedText>, Map<String, Rect>) {
+        painted_text_layout_interactive(controls, |_| {})
+    }
+
+    /// A control you drop on the canvas must be big enough for the caption it
+    /// arrives with, at the font it arrives with. The caption branches shrink
+    /// the font to fit rather than spill over the border, so a frame a couple of
+    /// pixels too short quietly renders its default caption at 12 or 10 pt — the
+    /// developer sees a control whose text is smaller than the `FontSize` the
+    /// properties pane reports.
+    #[test]
+    fn a_default_control_frame_fits_its_default_caption() {
+        let seeded_font = 14.0_f32;
+        let mut report: Vec<(String, f32)> = Vec::new();
+        let mut too_small: Vec<String> = Vec::new();
+
+        // The controls that arrive carrying text. The ones whose content is
+        // empty by default (a TextBox, a ComboBox, a GroupBox) are given some,
+        // since the question is whether the FRAME fits a line of the default
+        // font — not whether the control happens to start out blank.
+        for (t, seed) in [
+            (ControlType::Button, None),
+            (ControlType::Label, None),
+            (ControlType::CheckBox, None),
+            (ControlType::RadioButton, None),
+            (ControlType::DateTimePicker, None),
+            (ControlType::NumericUpDown, None),
+            (ControlType::TextBox, Some(("Text", "Sample"))),
+            (ControlType::ComboBox, Some(("Items", "Sample"))),
+            (ControlType::GroupBox, Some(("Caption", "Sample"))),
+        ] {
+            let (w, h) = t.default_size();
+            let mut c = Control::new(format!("{}-1", t.as_str()), t.clone(), 20, 20);
+            c.rect = MRect::new(20, 20, w, h);
+            if let Some((key, value)) = seed {
+                c.set_prop(key, crate::PropValue::String(value.to_owned()));
+            }
+            assert_eq!(
+                c.get_prop("FontSize").map(|v| v.as_i64()),
+                Some(seeded_font as i64),
+                "{} seeds a different font size",
+                t.as_str()
+            );
+            let (captions, placed) = painted_captions(&[c]);
+            let frame = *placed.get(&format!("{}-1", t.as_str())).expect("placed");
+            let Some(caption) = captions
+                .iter()
+                .find(|p| !p.text.trim().is_empty())
+                .cloned()
+            else {
+                continue; // nothing written on it by default
+            };
+            report.push((
+                format!("{} {w}x{h} {:?}", t.as_str(), caption.text),
+                caption.font,
+            ));
+            if caption.font < seeded_font {
+                too_small.push(format!(
+                    "{} at {w}x{h}: {:?} had to shrink to {}pt",
+                    t.as_str(),
+                    caption.text,
+                    caption.font
+                ));
+            }
+            // …and having kept its size, it must also fit inside the frame
+            // rather than run under the border and get clipped. A GroupBox is
+            // the one exception by design: its caption sits ON the top border,
+            // in the notch, which is what makes it read as a group.
+            let sits_on_the_border = matches!(t, ControlType::GroupBox);
+            if !sits_on_the_border && !frame.expand(0.5).contains_rect(caption.rect()) {
+                too_small.push(format!(
+                    "{} at {w}x{h}: {:?} spills out of the frame ({:?} vs {:?})",
+                    t.as_str(),
+                    caption.text,
+                    caption.rect(),
+                    frame
+                ));
+            }
+        }
+
+        println!("\n  default frames vs the seeded {seeded_font}pt font");
+        for (what, size) in &report {
+            println!("    {what:<48} painted at {size}pt");
+        }
+        println!();
+        assert!(
+            too_small.is_empty(),
+            "these defaults cannot hold their own caption:\n  {}",
+            too_small.join("\n  ")
+        );
+    }
+
+    /// Narrow a DateTimePicker past what its `DD/MM/YYYY` mask needs and the
+    /// mask is cut from the RIGHT: you keep the start of the value. Centred — as
+    /// every over-long caption used to be — it was cut at BOTH ends and showed
+    /// the middle, which reads as a different date rather than a truncated one.
+    #[test]
+    fn a_narrowed_datetimepicker_loses_its_mask_from_the_right() {
+        // Narrow, and holding a value long enough that it cannot fit even at the
+        // 6 pt floor the caption branch shrinks to — the case where the clip is
+        // what the developer actually sees.
+        let mut dtp = ctrl("DateTimePicker-1", ControlType::DateTimePicker, 20, 20, 48, 22);
+        dtp.set_prop(
+            "Value",
+            crate::PropValue::String("DD/MM/YYYYHH:MM:SS".to_owned()),
+        );
+        let (texts, placed) = painted_captions(&[dtp]);
+        let mask = texts
+            .iter()
+            .find(|p| p.text.contains("YYYYHH"))
+            .expect("the value must be painted");
+        let field = *placed.get("DateTimePicker-1").expect("placed");
+
+        assert!(
+            mask.ink.left() >= field.left() - 1.0,
+            "the value must never hang off the LEFT of its frame — what a narrow \
+             field loses is the TAIL: ink {:?}, field {}..{}",
+            mask.ink,
+            field.left(),
+            field.right()
+        );
+
+        println!(
+            "\n  DateTimePicker — {:?} needs {:.0}px in a {:.0}px field: it starts at \
+             x={:.0} (field starts at {:.0}), so the clip takes the tail\n",
+            mask.text,
+            mask.ink.width(),
+            field.width(),
+            mask.ink.left(),
+            field.left()
+        );
+    }
+
+    /// A ListBox's lines are list lines: text plus a little air. Each item is an
+    /// egui widget, so left alone it took the HOST's chrome metrics — in the IDE
+    /// a 30 px minimum touch height and an 8 px gap — and a list of one-word
+    /// items was spaced out like a menu.
+    #[test]
+    fn listbox_lines_keep_a_natural_pitch_under_roomy_host_chrome() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 200);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+
+        // The IDE's own spacing, which is what made the list airy.
+        let (texts, _) = painted_text_layout_interactive(&[lb], |style| {
+            style.spacing.interact_size.y = 30.0;
+            style.spacing.item_spacing.y = 8.0;
+            style.spacing.button_padding.y = 7.0;
+        });
+        let mut ys: Vec<f32> = ["Alpha", "Beta", "Gamma", "Delta"]
+            .iter()
+            .map(|want| {
+                texts
+                    .iter()
+                    .find(|p| p.text.trim() == *want)
+                    .unwrap_or_else(|| panic!("{want} must be painted"))
+                    .pos
+                    .y
+            })
+            .collect();
+        ys.sort_by(f32::total_cmp);
+        let pitch = ys[1] - ys[0];
+        for pair in ys.windows(2) {
+            assert!(
+                (pair[1] - pair[0] - pitch).abs() <= 0.5,
+                "the lines must be evenly spaced, got {ys:?}"
+            );
+        }
+
+        // A line is the text's own height plus a couple of pixels — nothing like
+        // the host's 30 px + 8 px, which would put the pitch at 38.
+        let line = texts
+            .iter()
+            .find(|p| p.text.trim() == "Alpha")
+            .map(|p| p.size.y)
+            .expect("Alpha must be painted");
+        assert!(
+            pitch <= line + 6.0,
+            "a list line must be about its text ({line}px), got a pitch of {pitch}px"
+        );
+
+        println!(
+            "\n  ListBox lines — under 30px/8px host chrome the pitch is {pitch}px \
+             (a ~14px line plus air), not the host's 38px\n"
+        );
+    }
+
+    /// Every rectangle painted for `controls` in Interactive mode, plus each
+    /// control's own screen rect — enough to answer "where did that scrollbar
+    /// end up, relative to the control it belongs to?".
+    fn painted_rects_interactive(controls: &[Control]) -> (Vec<Rect>, Map<String, Rect>) {
+        let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
+        fn collect(shape: &egui::Shape, out: &mut Vec<Rect>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push(r.rect),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let out = render_form(ui, &input);
+                    *placed.borrow_mut() = out.control_rects;
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        (out, placed.into_inner())
+    }
+
+    /// Clicking a toggle's CAPTION is a click on the toggle. The caption is the
+    /// bigger target of the two and the one a developer's user aims at, so it
+    /// must set the state exactly as hitting the box or the circle does — in
+    /// every surface the engine drives.
+    #[test]
+    fn a_click_on_a_toggles_caption_is_a_click_on_the_toggle() {
+        for (t, id) in [
+            (ControlType::CheckBox, "CheckBox-1"),
+            (ControlType::RadioButton, "RadioButton-1"),
+        ] {
+            // 240x34 at (20,20): the indicator occupies the first ~26px, so a
+            // point at x = 150 is squarely on the caption, far from it.
+            let c = ctrl(id, t.clone(), 20, 20, 240, 34);
+            let on_caption = pos2(170.0, 37.0);
+            let (events, overrides) = drive(
+                &[c],
+                vec![
+                    (0.0, vec![Event::PointerMoved(on_caption)]),
+                    (0.05, vec![press(on_caption)]),
+                    (0.10, vec![release(on_caption)]),
+                    (0.15, vec![]),
+                ],
+            );
+            let state = overrides
+                .get(id)
+                .and_then(|p| p.get("Value"))
+                .map(String::as_str);
+            assert_eq!(
+                state,
+                Some("1"),
+                "{t:?}: a click on the caption must set the toggle; events: {events:?}"
+            );
+        }
+
+        println!(
+            "\n  toggle captions — a click at x=170 (well past the indicator) sets both \
+             the CheckBox and the RadioButton\n"
+        );
+    }
+
+    /// A RadioButton's frame follows its own `BorderStyle`, seeded `None`. That
+    /// property only ever governed the explicit border stroke, so the themed
+    /// card underneath still drew a rim around every radio — under every theme,
+    /// with nothing in the properties pane able to turn it off.
+    #[test]
+    fn a_radiobutton_paints_no_frame_of_its_own() {
+        let bare = ctrl("RadioButton-1", ControlType::RadioButton, 20, 20, 240, 34);
+        let (rects, placed) = painted_rects_interactive(&[bare.clone()]);
+        let r = *placed.get("RadioButton-1").expect("placed");
+        // Anything the size of the control itself is a card or a border.
+        let framing = |rects: &[Rect], r: Rect| -> Vec<Rect> {
+            rects
+                .iter()
+                .copied()
+                .filter(|x| {
+                    (x.width() - r.width()).abs() <= 4.0 && (x.height() - r.height()).abs() <= 4.0
+                })
+                .collect()
+        };
+        let framed = framing(&rects, r);
+        assert!(
+            framed.is_empty(),
+            "a bare radio must paint no card or border of its own, got {framed:?}"
+        );
+
+        // …and a developer who asks for a border with the property gets one.
+        let mut bordered = bare;
+        bordered.set_prop(
+            "BorderStyle",
+            crate::PropValue::String("Single".to_owned()),
+        );
+        let (rects, placed) = painted_rects_interactive(&[bordered]);
+        let r = *placed.get("RadioButton-1").expect("placed");
+        assert!(
+            !framing(&rects, r).is_empty(),
+            "BorderStyle = Single must bring the frame back"
+        );
+
+        println!(
+            "\n  RadioButton — a {}x{} control with the seeded BorderStyle None paints no \
+             frame; BorderStyle Single brings it back\n",
+            r.width(),
+            r.height()
+        );
+    }
+
+    /// A ListBox's scrollbar belongs against its RIGHT border. The scroll area
+    /// was left to shrink to its content, so the bar came to rest just past the
+    /// widest item — a white column through the middle of the list.
+    #[test]
+    fn a_listbox_scrollbar_sits_against_its_right_border() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 320, 120);
+        let items = (1..=12).map(|n| n.to_string()).collect::<Vec<_>>();
+        lb.set_prop("Items", crate::PropValue::String(items.join("\n")));
+
+        let (rects, placed) = painted_rects_interactive(&[lb]);
+        let list = *placed.get("ListBox-1").expect("the list is placed");
+
+        // A scrollbar is a tall, narrow rectangle inside the list's band. Its
+        // width depends on the ambient scroll style (a floating hairline here, a
+        // solid bar in the IDE), so only its POSITION is asserted.
+        let bars: Vec<Rect> = rects
+            .iter()
+            .copied()
+            .filter(|r| {
+                r.height() > r.width() * 3.0
+                    && r.height() > 20.0
+                    // Inside the control's band — which rules out the scrolled
+                    // CONTENT, taller than the list by definition (that is why
+                    // there is a bar at all).
+                    && r.height() <= list.height() + 1.0
+                    && r.top() >= list.top() - 1.0
+                    && r.left() >= list.left() - 1.0
+                    && r.right() <= list.right() + 1.0
+            })
+            .collect();
+        assert!(
+            !bars.is_empty(),
+            "the list must have a scrollbar to place; rects: {rects:?}"
+        );
+
+        for bar in &bars {
+            assert!(
+                bar.center().x >= list.right() - 12.0,
+                "the scrollbar must hug the right border: bar at {}, list spans {}..{}",
+                bar.center().x,
+                list.left(),
+                list.right()
+            );
+        }
+
+        println!(
+            "\n  ListBox scrollbar — control spans x {}..{}: bar centred at {}, \
+             i.e. {:.0}px from the right border\n",
+            list.left(),
+            list.right(),
+            bars[0].center().x,
+            list.right() - bars[0].center().x
+        );
+    }
+
+    /// A ListBox's items are egui widgets, so their text came from the AMBIENT
+    /// visuals: the developer's `ForegroundColor` never reached them, which is
+    /// how a list ended up drawn in a dim grey on a dark theme's well. They are
+    /// now painted like every other text this engine draws — the control's own
+    /// colour, rescued to the pole that reads when it would not clear AA.
+    #[test]
+    fn listbox_items_are_painted_in_the_controls_own_colour() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 120);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()),
+        );
+        let texts = painted_text_interactive(&[lb.clone()]);
+        let (_, default_colour) = texts
+            .iter()
+            .find(|(s, _)| s.trim() == "Alpha")
+            .expect("the items must be painted");
+
+        // A colour that already reads on the list's well is used as chosen.
+        lb.set_prop(
+            "ForegroundColor",
+            crate::PropValue::String("#FFD400".to_owned()),
+        );
+        let chosen = painted_text_interactive(&[lb]);
+        let (_, chosen_colour) = chosen
+            .iter()
+            .find(|(s, _)| s.trim() == "Alpha")
+            .expect("the items must be painted");
+
+        assert_eq!(
+            (chosen_colour.r(), chosen_colour.g(), chosen_colour.b()),
+            (0xFF, 0xD4, 0x00),
+            "the developer's ForegroundColor must reach the item text"
+        );
+        let tone = crate::paint::parse_color(crate::model::DEFAULT_BACKGROUND_COLOR);
+        assert!(
+            crate::paint::contrast_ratio(*default_colour, tone) >= 4.5
+                || crate::paint::contrast_ratio(*default_colour, Color32::from_gray(20)) >= 4.5,
+            "the default item colour must read on the well, got {default_colour:?}"
+        );
+
+        println!(
+            "\n  ListBox items — default paints {:?}; a chosen #FFD400 reaches the \
+             item text instead of egui's ambient colour\n",
+            default_colour
+        );
     }
 
     /// The operator's label: same place, same colours as `RustDemo`'s form.

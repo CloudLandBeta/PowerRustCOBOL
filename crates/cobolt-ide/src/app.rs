@@ -11781,6 +11781,19 @@ pub(crate) fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str 
     }
 }
 
+/// Whether an update the engine reported belongs in the preview's value map,
+/// which holds exactly one value per control (keyed by [`preview_value_key`]).
+///
+/// A toggle's state has two names: a CheckBox and a RadioButton report a click
+/// as `Value`, a Switch as `Checked`, while the preview keys all three by
+/// `Checked`. Accepting only the exact key meant the click was collected from
+/// the engine and then thrown away here, so a CheckBox in the preview never
+/// toggled however well it was drawn. `PreviewState::live` writes the stored
+/// value into `Checked` either way, so taking the engine's spelling is enough.
+pub(crate) fn preview_accepts_update(expected: &str, key: &str) -> bool {
+    key == expected || (expected == "Checked" && key == "Value")
+}
+
 /// `FormState` for the live preview: injects the single per-control preview value
 /// into the right property key and supplies the OnFormLoad animation transform.
 /// The engine does everything else (spec 017 T4).
@@ -11826,18 +11839,23 @@ impl cobolt_forms::render::FormState for PreviewState<'_> {
                 })
             })
             .unwrap_or((0.0, 0.0, 1.0, 1.0));
-        // The control's own Transparency fades it (its Opacity is applied inside
-        // draw_control); container opacity is folded in by the engine separately.
-        let transparency = base
-            .get_prop("Transparency")
-            .map(|v| v.as_i64())
-            .unwrap_or(0)
-            .clamp(0, 100);
+        // ONLY the animation's alpha, exactly like the designer canvas
+        // (`DesignerState`) and the running form (`LiveState`).
+        //
+        // The control's own `Transparency` must NOT be folded in here. It is
+        // about the control's FACE — how much of what is behind shows through —
+        // and `draw_control` already applies it to the face alone, keeping the
+        // caption, border, tick box and glyph fully legible. Multiplying it in a
+        // second time as a whole-control alpha erased the control instead of its
+        // card: a CheckBox defaults to `Transparency = 100`, so the preview drew
+        // it at alpha 0 and its tick box disappeared (the caption survived only
+        // because a premultiplied colour with alpha 0 renders additively).
+        // Container opacity is folded in by the engine separately.
         cobolt_forms::render::RenderTransform {
             dx,
             dy,
             scale,
-            alpha: anim_alpha * (1.0 - transparency as f32 / 100.0),
+            alpha: anim_alpha,
         }
     }
 }
@@ -12162,7 +12180,7 @@ impl CoboltApp {
                 .find(|c| c.id == id)
                 .map(|c| preview_value_key(&c.control_type))
                 .unwrap_or("Caption");
-            if key == expected {
+            if preview_accepts_update(expected, &key) {
                 self.designers[idx].1.preview_state.insert(id, val);
             }
         }
@@ -15187,6 +15205,121 @@ mod generated_path_tests {
         // An unknown stem falls through (caller uses the default path).
         assert_eq!(tracked_generated_rel(Some(&proj), "unknown.cbl"), None);
         assert_eq!(tracked_generated_rel(None, "order.cbl"), None);
+    }
+}
+
+#[cfg(test)]
+mod preview_alpha_tests {
+    use super::*;
+    use cobolt_forms::render::FormState;
+    use cobolt_forms::{Control, ControlType};
+
+    fn preview_alpha(c: &Control) -> f32 {
+        let values = std::collections::HashMap::new();
+        let anim = std::collections::HashMap::new();
+        PreviewState {
+            values: &values,
+            anim: &anim,
+            form_w: 400.0,
+            form_h: 300.0,
+        }
+        .transform(c)
+        .alpha
+    }
+
+    /// A control's `Transparency` fades its FACE — `draw_control` applies it
+    /// there and nowhere else. The preview must not multiply it in a second
+    /// time as a whole-control alpha: a CheckBox is seeded at `Transparency =
+    /// 100` (no card to lift), which made the preview draw the entire control
+    /// at alpha 0 — its tick box vanished and clicking it changed nothing
+    /// visible, while the designer canvas beside it drew the box normally.
+    #[test]
+    fn the_preview_never_erases_a_control_with_a_transparent_face() {
+        let checkbox = Control::new("CheckBox-1", ControlType::CheckBox, 10, 10);
+        assert_eq!(
+            cobolt_forms::model::transparency_of(&checkbox),
+            100,
+            "a CheckBox has no face of its own"
+        );
+        assert_eq!(
+            preview_alpha(&checkbox),
+            1.0,
+            "the preview must draw the tick box, not erase the control"
+        );
+
+        // And the same for every degree of transparency, on any control type:
+        // the preview's alpha is the animation's alone.
+        let mut panel = Control::new("Panel-1", ControlType::Panel, 0, 0);
+        for t in [0, 30, 50, 100] {
+            panel.set_prop("Transparency", cobolt_forms::PropValue::Int(t));
+            assert_eq!(
+                preview_alpha(&panel),
+                1.0,
+                "Transparency {t} is the face's business, not the control's"
+            );
+        }
+
+        println!(
+            "\n  preview alpha — CheckBox (Transparency 100) and Panel at 0/30/50/100 \
+             all render at alpha 1.0; the face alone is faded, by draw_control\n"
+        );
+    }
+
+    /// Clicking a toggle in the preview has to survive the trip back into the
+    /// preview's value map. The engine reports a CheckBox/RadioButton click as
+    /// `Value` and a Switch's as `Checked`, while the map keys all three by
+    /// `Checked` — so the exact-key rule dropped two of the three on the floor.
+    #[test]
+    fn a_toggle_click_reaches_the_preview_value_map() {
+        for ct in [
+            ControlType::CheckBox,
+            ControlType::RadioButton,
+            ControlType::Switch,
+        ] {
+            let expected = preview_value_key(&ct);
+            assert_eq!(expected, "Checked");
+            assert!(
+                preview_accepts_update(expected, "Value"),
+                "{ct:?}: the engine's own spelling must be accepted"
+            );
+            assert!(preview_accepts_update(expected, "Checked"), "{ct:?}");
+            assert!(
+                !preview_accepts_update(expected, "Caption"),
+                "{ct:?}: unrelated keys still do not belong in a one-value map"
+            );
+        }
+        // A control whose value really is `Value` is unaffected.
+        assert!(preview_accepts_update(
+            preview_value_key(&ControlType::Slider),
+            "Value"
+        ));
+        assert!(!preview_accepts_update(
+            preview_value_key(&ControlType::TextBox),
+            "Value"
+        ));
+
+        // …and the stored value is what the renderer reads back as "checked".
+        let checkbox = Control::new("CheckBox-1", ControlType::CheckBox, 10, 10);
+        let mut values = std::collections::HashMap::new();
+        values.insert("CheckBox-1".to_owned(), "1".to_owned());
+        let anim = std::collections::HashMap::new();
+        let live = PreviewState {
+            values: &values,
+            anim: &anim,
+            form_w: 400.0,
+            form_h: 300.0,
+        }
+        .live(&checkbox);
+        assert_eq!(
+            live.get_prop("Checked").map(|v| v.as_str().to_owned()),
+            Some("1".to_owned()),
+            "the click must come back as the checked state"
+        );
+
+        println!(
+            "\n  preview toggles — CheckBox/RadioButton report `Value`, Switch reports \
+             `Checked`; all three now land in the map and read back as checked\n"
+        );
     }
 }
 

@@ -1567,6 +1567,18 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **Text you can always read.** A form does not know what its theme paints, so
+> the colours that carry meaning are checked against the surface they land on: a
+> CheckBox or RadioButton caption, a CheckBox's `CheckColor` tick, a ListBox's
+> items, and the text caret. Your colour is used exactly as set while it stays
+> legible on that surface; where it would not be, the painter falls back to
+> black or white — whichever reads. This is why the same form stays usable when
+> you switch a dark theme for a light one without touching a property. To pin a
+> colour absolutely, choose one that reads on the theme you ship.
+>
+> A CheckBox's caption sits to the right of its box, and a RadioButton's to the
+> right of its selection circle, at the same distance in both.
+
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
 > data-name (`WS-BUTTON-1`) and the base of its nested event-handler program

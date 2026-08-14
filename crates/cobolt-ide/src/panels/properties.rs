@@ -37,7 +37,7 @@ use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 use egui::{Color32, DragValue, Rect, RichText, ScrollArea, Sense, Ui};
 
-/// A colour-swatch button that opens egui's colour picker in a pinned popup with a
+/// A colour-swatch button that opens the colour picker in a pinned popup with a
 /// fixed-size header (live swatch + editable `RRGGBBAA` hex) and fixed-width R/G/B/A
 /// fields. The popup stays open while the user picks and closes only on a click
 /// **outside** its area (or Escape).
@@ -154,8 +154,284 @@ fn swatch_grid(ui: &mut Ui, theme: &[Color32]) -> Option<Color32> {
     picked
 }
 
+// ── The picker's own sliders ────────────────────────────────────────────────
+//
+// egui's stock picker centres the saturation/value marker — a filled disc of
+// radius `width / 12`, some 17 px across here — exactly on the picked position,
+// so choosing black (the bottom-left corner) left half of that disc lying over
+// the hue bar drawn right underneath it, and half of it outside the popup's
+// frame. The 1-D bars had the same flaw: their pointer triangle hangs `height/4`
+// past whichever end the value sits on.
+//
+// The sliders below never paint outside the rect they allocated: the gradient is
+// inset by the marker's radius and the value maps to that *inset* rect, so an
+// extreme value puts the marker's edge — not its centre — on the widget's
+// border. Nothing else in the popup has to leave room for them.
+//
+// The inset is padding around the gradient, NOT a clamp on the value: the
+// gradient's own bottom-left corner is still absolute black, s = v = 0, and the
+// marker sits centred on it. Pointer positions are clamped into the gradient, so
+// clicking (or dragging out) anywhere in that padding still picks the extreme —
+// the corner colours are, if anything, easier to hit than before.
+
+/// Radius of the saturation/value marker; also the horizontal inset of the bars.
+const MARKER_R: f32 = 7.0;
+
+/// The rect the saturation/value gradient is painted in.
+fn square_gradient_rect(rect: Rect) -> Rect {
+    rect.shrink(MARKER_R)
+}
+
+/// The rect a hue/alpha gradient is painted in — inset sideways only, since that
+/// marker spans the bar's full height.
+fn bar_gradient_rect(rect: Rect) -> Rect {
+    rect.shrink2(egui::vec2(MARKER_R, 0.0))
+}
+
+/// The saturation/value a pointer at `p` picks. Clamped into the gradient, so the
+/// inset padding — and anywhere the pointer wanders during a drag — still selects
+/// the extremes: the bottom-left corner is absolute black.
+fn square_value_at(area: Rect, p: egui::Pos2) -> (f32, f32) {
+    (
+        egui::remap_clamp(p.x, area.left()..=area.right(), 0.0..=1.0),
+        egui::remap_clamp(p.y, area.bottom()..=area.top(), 0.0..=1.0),
+    )
+}
+
+/// The value a pointer at `x` picks on a hue/alpha bar, clamped the same way.
+fn bar_value_at(area: Rect, x: f32) -> f32 {
+    egui::remap_clamp(x, area.left()..=area.right(), 0.0..=1.0)
+}
+
+fn square_marker_center(area: Rect, s: f32, v: f32) -> egui::Pos2 {
+    egui::pos2(
+        egui::lerp(area.left()..=area.right(), s),
+        egui::lerp(area.bottom()..=area.top(), v),
+    )
+}
+
+fn bar_marker_rect(area: Rect, t: f32) -> Rect {
+    Rect::from_center_size(
+        egui::pos2(egui::lerp(area.left()..=area.right(), t), area.center().y),
+        egui::vec2(MARKER_R * 2.0, area.height()),
+    )
+}
+
+/// White on a dark colour, black on a bright one — so a marker is visible
+/// wherever it lands.
+fn marker_outline(fill: Color32) -> Color32 {
+    if egui::Rgba::from(fill).intensity() < 0.5 {
+        Color32::WHITE
+    } else {
+        Color32::BLACK
+    }
+}
+
+/// The transparency checkerboard drawn behind the alpha bar.
+fn paint_checkers(painter: &egui::Painter, rect: Rect) {
+    let rect = rect.shrink(0.5);
+    if !rect.is_positive() {
+        return;
+    }
+    painter.rect_filled(rect, 0.0, Color32::from_gray(32));
+    let size = rect.height() / 2.0;
+    let n = (rect.width() / size).ceil() as u32;
+    for i in 0..n {
+        let x = rect.left() + i as f32 * size;
+        let y = if i % 2 == 0 { rect.top() } else { rect.center().y };
+        let square =
+            Rect::from_min_size(egui::pos2(x, y), egui::Vec2::splat(size)).intersect(rect);
+        if square.is_positive() {
+            painter.rect_filled(square, 0.0, Color32::from_gray(128));
+        }
+    }
+}
+
+/// The saturation (x) / value (y) square. Returns `true` when the operator moved it.
+fn sv_square(ui: &mut Ui, hue: f32, s: &mut f32, v: &mut f32) -> bool {
+    use egui::ecolor::HsvaGamma;
+    use egui::epaint::Mesh;
+    use egui::{lerp, pos2, Sense, Shape, Stroke, StrokeKind, Vec2};
+
+    let side = ui.spacing().slider_width;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(side), Sense::click_and_drag());
+    let area = square_gradient_rect(rect);
+
+    let mut changed = false;
+    if let Some(p) = resp.interact_pointer_pos() {
+        let (ns, nv) = square_value_at(area, p);
+        changed = ns != *s || nv != *v;
+        *s = ns;
+        *v = nv;
+    }
+
+    if ui.is_rect_visible(rect) {
+        // A multiple of 6 so the mesh hits every peak hue exactly.
+        const N: u32 = 36;
+        let mut mesh = Mesh::default();
+        for yi in 0..=N {
+            for xi in 0..=N {
+                let (xt, yt) = (xi as f32 / N as f32, yi as f32 / N as f32);
+                mesh.colored_vertex(
+                    pos2(
+                        lerp(area.left()..=area.right(), xt),
+                        lerp(area.bottom()..=area.top(), yt),
+                    ),
+                    HsvaGamma {
+                        h: hue,
+                        s: xt,
+                        v: yt,
+                        a: 1.0,
+                    }
+                    .into(),
+                );
+                if xi < N && yi < N {
+                    let tl = yi * (N + 1) + xi;
+                    mesh.add_triangle(tl, tl + 1, tl + N + 1);
+                    mesh.add_triangle(tl + 1, tl + N + 1, tl + N + 2);
+                }
+            }
+        }
+        ui.painter().add(Shape::mesh(mesh));
+        ui.painter().rect_stroke(
+            area,
+            0.0,
+            ui.visuals().widgets.inactive.bg_stroke,
+            StrokeKind::Inside,
+        );
+
+        let fill: Color32 = HsvaGamma {
+            h: hue,
+            s: *s,
+            v: *v,
+            a: 1.0,
+        }
+        .into();
+        ui.painter().circle(
+            square_marker_center(area, *s, *v),
+            MARKER_R,
+            fill,
+            Stroke::new(2.0, marker_outline(fill)),
+        );
+    }
+    changed
+}
+
+/// A hue or alpha bar. Returns `true` when the operator moved it.
+fn color_bar(
+    ui: &mut Ui,
+    value: &mut f32,
+    checkers: bool,
+    color_at: impl Fn(f32) -> Color32,
+) -> bool {
+    use egui::epaint::Mesh;
+    use egui::{lerp, pos2, vec2, Sense, Shape, Stroke, StrokeKind};
+
+    let height = ui.spacing().interact_size.y.max(20.0);
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.spacing().slider_width, height), Sense::click_and_drag());
+    let area = bar_gradient_rect(rect);
+
+    let mut changed = false;
+    if let Some(p) = resp.interact_pointer_pos() {
+        let nv = bar_value_at(area, p.x);
+        changed = nv != *value;
+        *value = nv;
+    }
+
+    if ui.is_rect_visible(rect) {
+        if checkers {
+            paint_checkers(ui.painter(), area);
+        }
+        const N: u32 = 36;
+        let mut mesh = Mesh::default();
+        for i in 0..=N {
+            let t = i as f32 / N as f32;
+            let color = color_at(t);
+            let x = lerp(area.left()..=area.right(), t);
+            mesh.colored_vertex(pos2(x, area.top()), color);
+            mesh.colored_vertex(pos2(x, area.bottom()), color);
+            if i < N {
+                mesh.add_triangle(2 * i, 2 * i + 1, 2 * i + 2);
+                mesh.add_triangle(2 * i + 1, 2 * i + 2, 2 * i + 3);
+            }
+        }
+        ui.painter().add(Shape::mesh(mesh));
+        ui.painter().rect_stroke(
+            area,
+            0.0,
+            ui.visuals().widgets.inactive.bg_stroke,
+            StrokeKind::Inside,
+        );
+
+        let fill = color_at(*value);
+        ui.painter().rect(
+            bar_marker_rect(area, *value),
+            3.0,
+            fill,
+            Stroke::new(2.0, marker_outline(fill)),
+            StrokeKind::Inside,
+        );
+    }
+    changed
+}
+
+/// The picker body: R/G/B/A fields, the saturation/value square, the hue bar and
+/// the alpha bar. Returns `true` when the colour changed.
+///
+/// `id` keys the working HSV state. A colour cannot survive a round trip through
+/// `Color32` alone: black and any fully desaturated colour carry no hue, so
+/// re-deriving HSV every frame would snap the hue bar back to red the moment the
+/// operator drags the marker into the black corner. The working state is kept
+/// beside the popup and only re-derived when the colour came from somewhere else
+/// (the hex field, a swatch).
+fn color_picker_body(ui: &mut Ui, id: egui::Id, color: &mut Color32) -> bool {
+    use egui::ecolor::{Hsva, HsvaGamma};
+
+    let mut hsvag = match ui.memory(|m| m.data.get_temp::<(Color32, HsvaGamma)>(id)) {
+        Some((cached, hsvag)) if cached == *color => hsvag,
+        _ => HsvaGamma::from(*color),
+    };
+    let mut changed = false;
+
+    // R/G/B/A, 0-255 — straight (un-premultiplied) alpha, like the hex field.
+    let mut rgba = Hsva::from(hsvag).to_srgba_unmultiplied();
+    let mut edited = false;
+    ui.horizontal(|ui| {
+        for (prefix, ch) in [("R ", 0), ("G ", 1), ("B ", 2), ("A ", 3)] {
+            edited |= ui
+                .add(DragValue::new(&mut rgba[ch]).speed(0.5).prefix(prefix))
+                .changed();
+        }
+    });
+    if edited {
+        hsvag = HsvaGamma::from(Hsva::from_srgba_unmultiplied(rgba));
+        changed = true;
+    }
+
+    let hue = hsvag.h;
+    changed |= sv_square(ui, hue, &mut hsvag.s, &mut hsvag.v);
+    changed |= color_bar(ui, &mut hsvag.h, false, |h| {
+        HsvaGamma {
+            h,
+            s: 1.0,
+            v: 1.0,
+            a: 1.0,
+        }
+        .into()
+    });
+    let opaque = HsvaGamma { a: 1.0, ..hsvag };
+    changed |= color_bar(ui, &mut hsvag.a, true, |a| HsvaGamma { a, ..opaque }.into());
+
+    if changed {
+        *color = Color32::from(hsvag);
+    }
+    ui.memory_mut(|m| m.data.insert_temp(id, (*color, hsvag)));
+    changed
+}
+
 fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
-    use egui::color_picker::{color_picker_color32, show_color_at, Alpha};
+    use egui::color_picker::show_color_at;
     use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
 
     // ── Colour swatch button ──────────────────────────────────────────────────
@@ -270,8 +546,7 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
                     let theme = cobolt_forms::paint::active_theme_swatches(ui.ctx());
                     ui.horizontal_top(|ui| {
                         ui.vertical(|ui| {
-                            changed |=
-                                color_picker_color32(ui, color, Alpha::BlendOrAdditive);
+                            changed |= color_picker_body(ui, popup_id.with("__hsv"), color);
                         });
                         if let Some(picked) = swatch_grid(ui, &theme) {
                             if picked != *color {
@@ -3139,7 +3414,40 @@ fn source_placeholder(ui: &mut Ui, message: &str) {
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
+/// One text row's edit buffer, with the value it was last synced from so an
+/// edit in progress can be told apart from an untouched box.
+#[derive(Clone, Debug)]
+struct HintBuf {
+    ctrl_id: String,
+    prop_key: String,
+    text: String,
+    base: String,
+}
+
+impl HintBuf {
+    fn dirty(&self) -> bool {
+        self.text != self.base
+    }
+}
+
+/// The edit buffers of the hinted text rows, plus which of them were actually
+/// drawn in the last panel build.
+///
+/// A text row commits when it loses focus — but clicking another control on the
+/// canvas rebuilds the panel for the NEW selection, so the row that held the
+/// edit is simply gone and that frame never comes. Typing a `GroupName` into a
+/// RadioButton and then clicking the next one lost it every time, which is
+/// exactly the case where a group name is being typed. Recording what was drawn
+/// lets [`PropertiesPanel::flush_orphaned_text_edits`] commit a buffer whose row
+/// has disappeared, whatever made it disappear.
+#[derive(Default)]
+struct HintState {
+    bufs: std::collections::HashMap<String, HintBuf>,
+    seen: std::collections::HashSet<String>,
+}
+
 pub struct PropertiesPanel {
+    hints: HintState,
     text_bufs: std::collections::HashMap<String, String>,
     form_bufs: std::collections::HashMap<String, String>,
     /// animation editor state per control: selected animation index
@@ -3162,6 +3470,7 @@ enum InspectorTab {
 impl PropertiesPanel {
     pub fn new() -> Self {
         Self {
+            hints: Default::default(),
             text_bufs: Default::default(),
             form_bufs: Default::default(),
             anim_sel: Default::default(),
@@ -3182,6 +3491,7 @@ impl PropertiesPanel {
         tr: &Tr,
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
+        self.hints.seen.clear();
         let auto_split = (ui.available_width() * 0.42).clamp(96.0, 400.0);
         if !self.property_split.is_finite() || self.property_split <= 0.0 {
             self.property_split = auto_split;
@@ -3203,7 +3513,33 @@ impl PropertiesPanel {
                 self.show_datagrid_editor_modal(ui.ctx(), ctrl, &mut action, tr);
             }
         }
+        self.flush_orphaned_text_edits(&mut action);
         action
+    }
+
+    /// Commit the edit in any text row that was NOT drawn in the build that just
+    /// finished — its control was deselected, its section collapsed, the panel
+    /// switched to the form. Such a row never gets the `lost_focus` frame it
+    /// would normally commit on, so without this the typing is simply dropped.
+    fn flush_orphaned_text_edits(&mut self, action: &mut InspectorAction) {
+        let orphaned: Vec<String> = self
+            .hints
+            .bufs
+            .keys()
+            .filter(|k| !self.hints.seen.contains(*k))
+            .cloned()
+            .collect();
+        for key in orphaned {
+            if let Some(buf) = self.hints.bufs.remove(&key) {
+                if buf.dirty() {
+                    action.set_props.push((
+                        buf.ctrl_id,
+                        buf.prop_key,
+                        PropValue::String(buf.text),
+                    ));
+                }
+            }
+        }
     }
 
     // ── Control inspector ─────────────────────────────────────────────────────
@@ -5136,7 +5472,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "HintText",
                         &cur,
@@ -5258,7 +5594,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "GroupName",
                         &cur,
@@ -5533,7 +5869,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "Label",
                         &cur,
@@ -5601,7 +5937,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "WarningThreshold",
                         &cur,
@@ -5617,7 +5953,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "CriticalThreshold",
                         &cur,
@@ -5631,7 +5967,7 @@ impl PropertiesPanel {
                         .get_prop("Unit")
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "Unit", &cur, "Unit:", "", action);
+                    text_row_hint(ui, &mut self.hints, id, "Unit", &cur, "Unit:", "", action);
                 }
                 {
                     let cur = ctrl
@@ -5640,7 +5976,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "Text",
                         &cur,
@@ -5699,7 +6035,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "Hint",
                         &cur,
@@ -5882,7 +6218,7 @@ impl PropertiesPanel {
                             .unwrap_or_default();
                         text_row_hint(
                             ui,
-                            &mut self.text_bufs,
+                            &mut self.hints,
                             id,
                             "ArrayName",
                             &an,
@@ -5905,7 +6241,7 @@ impl PropertiesPanel {
                             .unwrap_or_default();
                         text_row_hint(
                             ui,
-                            &mut self.text_bufs,
+                            &mut self.hints,
                             id,
                             "DataSource",
                             &ds,
@@ -6037,7 +6373,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "Value",
                         &cur,
@@ -6062,7 +6398,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "CustomFormat",
                         &cur,
@@ -6078,7 +6414,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "MinimumDate",
                         &cur,
@@ -6094,7 +6430,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "MaximumDate",
                         &cur,
@@ -6406,7 +6742,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "AgentURL",
                         &cur,
@@ -6422,7 +6758,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "AgentModel",
                         &cur,
@@ -6438,7 +6774,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "AgentEndpoint",
                         &cur,
@@ -6548,7 +6884,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "TargetControls",
                         &cur,
@@ -6564,7 +6900,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "ResponseDataItem",
                         &cur,
@@ -6586,7 +6922,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "BaseURL",
                         &cur,
@@ -6689,7 +7025,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "RequestDataItem",
                         &cur,
@@ -6705,7 +7041,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "ResponseDataItem",
                         &cur,
@@ -6721,7 +7057,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "StatusDataItem",
                         &cur,
@@ -6766,7 +7102,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "ConnectionString",
                         &cur_cs,
@@ -6796,7 +7132,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "ConnectionDataItem",
                         &cur,
@@ -6812,7 +7148,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "ResultSetDataItem",
                         &cur,
@@ -6914,7 +7250,7 @@ impl PropertiesPanel {
                         .get_prop(key)
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, key, &cur, label, hint, action);
+                    text_row_hint(ui, &mut self.hints, id, key, &cur, label, hint, action);
                 }
                 // ── Async I/O (spec 032) — Sync by default; opt into Async ──
                 section_header(ui, tr.sec_async);
@@ -6950,7 +7286,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 text_row_hint(
                     ui,
-                    &mut self.text_bufs,
+                    &mut self.hints,
                     id,
                     "Title",
                     &cur_title,
@@ -6976,7 +7312,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "XAxisLabel",
                         &cx,
@@ -6990,7 +7326,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "YAxisLabel",
                         &cy,
@@ -7121,7 +7457,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 text_row_hint(
                     ui,
-                    &mut self.text_bufs,
+                    &mut self.hints,
                     id,
                     "DataSource",
                     &ds,
@@ -7136,7 +7472,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 text_row_hint(
                     ui,
-                    &mut self.text_bufs,
+                    &mut self.hints,
                     id,
                     "DataCount",
                     &dc,
@@ -7151,7 +7487,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 text_row_hint(
                     ui,
-                    &mut self.text_bufs,
+                    &mut self.hints,
                     id,
                     "LabelField",
                     &lf,
@@ -7166,7 +7502,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 text_row_hint(
                     ui,
-                    &mut self.text_bufs,
+                    &mut self.hints,
                     id,
                     "ValueFields",
                     &vf,
@@ -7181,7 +7517,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 text_row_hint(
                     ui,
-                    &mut self.text_bufs,
+                    &mut self.hints,
                     id,
                     "SeriesLabels",
                     &sl,
@@ -7279,7 +7615,7 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(
                         ui,
-                        &mut self.text_bufs,
+                        &mut self.hints,
                         id,
                         "BubbleField",
                         &bb,
@@ -8616,7 +8952,7 @@ fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut Insp
 
 fn text_row_hint(
     ui: &mut Ui,
-    bufs: &mut std::collections::HashMap<String, String>,
+    hints: &mut HintState,
     ctrl_id: &str,
     prop_key: &str,
     cur: &str,
@@ -8626,22 +8962,36 @@ fn text_row_hint(
 ) {
     let buf_key = format!("{ctrl_id}-{prop_key}");
     let widget_id = egui::Id::new(&buf_key);
-    let buf = bufs.entry(buf_key).or_insert_with(|| cur.to_owned());
-    if *buf != cur && !ui.memory(|m| m.has_focus(widget_id)) {
-        *buf = cur.to_owned();
+    // Drawn this build — so `flush_orphaned_text_edits` leaves it alone.
+    hints.seen.insert(buf_key.clone());
+    let buf = hints
+        .bufs
+        .entry(buf_key)
+        .or_insert_with(|| HintBuf {
+            ctrl_id: ctrl_id.to_owned(),
+            prop_key: prop_key.to_owned(),
+            text: cur.to_owned(),
+            base: cur.to_owned(),
+        });
+    // Take a value that changed elsewhere (undo, another editor) — but never
+    // over the top of an edit in progress.
+    if !buf.dirty() && buf.base != cur && !ui.memory(|m| m.has_focus(widget_id)) {
+        buf.text = cur.to_owned();
+        buf.base = cur.to_owned();
     }
     property_row(ui, label, |ui| {
         let resp = ui.add(
-            egui::TextEdit::singleline(buf)
+            egui::TextEdit::singleline(&mut buf.text)
                 .id(widget_id)
                 .hint_text(hint)
                 .desired_width(ui.available_width()),
         );
         if resp.lost_focus() {
+            buf.base = buf.text.clone();
             action.set_props.push((
                 ctrl_id.to_owned(),
                 prop_key.to_owned(),
-                PropValue::String(buf.clone()),
+                PropValue::String(buf.text.clone()),
             ));
         }
     });
@@ -9232,6 +9582,150 @@ pub fn color32_to_hex(c: Color32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No picker marker may leave the rect its own widget allocated — that is
+    /// what put the saturation/value disc on top of the hue bar below it.
+    #[test]
+    fn the_picker_markers_stay_inside_their_own_widgets() {
+        let square = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::Vec2::splat(206.0));
+        let area = square_gradient_rect(square);
+        for (s, v) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.5, 0.5)] {
+            let marker = Rect::from_center_size(
+                square_marker_center(area, s, v),
+                egui::Vec2::splat(MARKER_R * 2.0),
+            );
+            assert!(
+                square.contains_rect(marker),
+                "s={s} v={v}: marker {marker:?} escaped the square {square:?}"
+            );
+        }
+
+        let bar = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(206.0, 30.0));
+        let area = bar_gradient_rect(bar);
+        for t in [0.0, 0.5, 1.0] {
+            let marker = bar_marker_rect(area, t);
+            assert!(
+                bar.contains_rect(marker),
+                "t={t}: marker {marker:?} escaped the bar {bar:?}"
+            );
+        }
+
+        println!(
+            "\n  picker markers — square 206x206 and bar 206x30, marker radius {MARKER_R}: \
+             every extreme value stays inside its own widget\n"
+        );
+    }
+
+    /// Keeping the marker inside the widget must not put a colour out of reach:
+    /// the gradient's corners ARE the extremes, and the padding around it clamps
+    /// into them, so absolute black is still one click away.
+    #[test]
+    fn the_picker_can_still_reach_the_absolute_corner_colours() {
+        use egui::ecolor::HsvaGamma;
+
+        let square = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::Vec2::splat(206.0));
+        let area = square_gradient_rect(square);
+
+        // The gradient's own bottom-left corner: saturation 0, value 0 — black.
+        assert_eq!(square_value_at(area, area.left_bottom()), (0.0, 0.0));
+        assert_eq!(square_value_at(area, area.right_top()), (1.0, 1.0));
+        let black: Color32 = HsvaGamma {
+            h: 0.5,
+            s: 0.0,
+            v: 0.0,
+            a: 1.0,
+        }
+        .into();
+        assert_eq!(black, Color32::BLACK, "the corner is absolute black");
+
+        // …and the padding, plus anywhere the pointer wanders off the widget,
+        // clamps into that same corner rather than stopping short of it.
+        assert_eq!(square_value_at(area, square.left_bottom()), (0.0, 0.0));
+        assert_eq!(
+            square_value_at(area, egui::pos2(-500.0, 500.0)),
+            (0.0, 0.0),
+            "dragging out past the corner still picks black"
+        );
+        assert_eq!(square_value_at(area, square.right_top()), (1.0, 1.0));
+
+        let bar = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(206.0, 30.0));
+        let area = bar_gradient_rect(bar);
+        assert_eq!(bar_value_at(area, bar.left()), 0.0, "hue 0 / alpha 0");
+        assert_eq!(bar_value_at(area, bar.right()), 1.0, "hue 1 / alpha 1");
+
+        println!(
+            "\n  picker range — the {MARKER_R}px inset is padding, not a clamp: \
+             both corners of the square and both ends of every bar remain selectable\n"
+        );
+    }
+
+    /// A text row commits when it loses focus — but clicking another control on
+    /// the canvas rebuilds the panel for the NEW selection, so the row holding
+    /// the edit is gone and that frame never arrives. Typing a `GroupName` into
+    /// a RadioButton and then clicking the next radio lost it every time, which
+    /// is exactly when a group name gets typed: without it there is no way to
+    /// make a group of radios exclusive.
+    #[test]
+    fn an_edit_survives_the_row_disappearing() {
+        let mut panel = PropertiesPanel::new();
+        let key = "RadioButton-1-GroupName".to_owned();
+        let typed = HintBuf {
+            ctrl_id: "RadioButton-1".to_owned(),
+            prop_key: "GroupName".to_owned(),
+            text: "options".to_owned(),
+            base: String::new(),
+        };
+        panel.hints.bufs.insert(key.clone(), typed.clone());
+
+        // The build that just finished did not draw that row (the selection
+        // moved to RadioButton-2).
+        panel.hints.seen.clear();
+        let mut action = InspectorAction::default();
+        panel.flush_orphaned_text_edits(&mut action);
+        assert_eq!(
+            action
+                .set_props
+                .iter()
+                .map(|(c, k, v)| (c.as_str(), k.as_str(), v.as_str().to_owned()))
+                .collect::<Vec<_>>(),
+            vec![("RadioButton-1", "GroupName", "options".to_owned())],
+            "the typed group name must reach the control"
+        );
+        assert!(
+            !panel.hints.bufs.contains_key(&key),
+            "and the buffer is spent, so it cannot be committed twice"
+        );
+
+        // A row still on screen is left alone — it commits on losing focus, as
+        // it always has.
+        panel.hints.bufs.insert(key.clone(), typed.clone());
+        panel.hints.seen.insert(key.clone());
+        let mut action = InspectorAction::default();
+        panel.flush_orphaned_text_edits(&mut action);
+        assert!(action.set_props.is_empty(), "a visible row is not flushed");
+
+        // An untouched buffer writes nothing, so merely selecting controls does
+        // not stamp properties.
+        panel.hints.bufs.insert(
+            key.clone(),
+            HintBuf {
+                base: "options".to_owned(),
+                ..typed
+            },
+        );
+        panel.hints.seen.clear();
+        let mut action = InspectorAction::default();
+        panel.flush_orphaned_text_edits(&mut action);
+        assert!(
+            action.set_props.is_empty(),
+            "an unedited box must not write anything"
+        );
+
+        println!(
+            "\n  inspector text rows — an edit whose row disappears is committed once; \
+             a visible row and an untouched box write nothing\n"
+        );
+    }
 
     /// The swatch grid is 6x8, the theme's colours come first, and whatever is
     /// left over is the operator's custom-colour memory.

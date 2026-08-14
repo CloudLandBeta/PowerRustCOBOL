@@ -1,5 +1,134 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.43] — 2026-08-13
+
+### Fixed — the CheckBox the Preview erased, and the click it threw away
+
+Two independent faults met on the same control.
+
+**It was drawn at alpha 0.** `Transparency` says how much of what is *behind* a
+control shows through its face, and the painter has always applied it to the
+face alone, so the caption, the border and the tick box stay exactly as legible
+as they were. The Preview multiplied it in a second time, as an alpha over the
+whole control. A CheckBox is created at `Transparency = 100` (it has no card to
+lift), so the Preview erased it: the box vanished, and only the caption survived
+— by accident, since a premultiplied colour with alpha 0 renders additively. The
+Preview now contributes its animation's alpha alone, exactly like the designer
+canvas and the running form, so any control with a see-through face is drawn
+there the way it is drawn everywhere else.
+
+**And the click never landed.** The Preview keeps one value per control, keyed
+by that control's own value property — `Checked` for the three toggles. But a
+CheckBox and a RadioButton report a click as `Value` (only the Switch says
+`Checked`), and anything whose key did not match exactly was discarded on the
+way back. Both spellings are accepted now, so clicking a check box in the
+Preview toggles it.
+
+### Fixed — marks and captions you can read on a dark theme
+
+- **The check mark.** `CheckColor` is seeded a Windows blue, which is fine on a
+  pale box and a smudge on the dark toggle Elegance and its family paint. The
+  mark now keeps your colour while it clears WCAG AA against the box the *theme*
+  filled, and otherwise flips to white on a dark box, black on a light one — the
+  same rescue the caption beside it already used.
+- **The RadioButton's caption** is rescued by the same rule. It is the other
+  half of the same row, and a caption that disappears on a dark theme is no more
+  usable next to a circle than next to a box.
+- **A ListBox's items** are drawn as widgets, so their text came from the
+  ambient interface colours: the developer's `ForegroundColor` never reached
+  them, which is how a list ended up dim grey on a dark well. Items are now
+  painted like every other text the engine draws — your colour, rescued when it
+  would not read.
+
+### Fixed — the ListBox's scrollbar stood in the middle of the list
+
+A scroll area sizes itself to what it holds unless told otherwise, so the list's
+bar came to rest just past the widest item — a column straight through the
+items instead of a bar against the control's right border. The list's scroll
+area now fills the control it was drawn in.
+
+### Fixed — the RadioButton's caption sat under its circle
+
+A RadioButton's caption was laid out in the whole control rect and centred
+there, so the selection circle was painted on top of its first characters. It
+now sits to the right of the circle, exactly as far from it as a CheckBox's
+caption sits from its box — one shared measurement, so the two cannot drift
+apart again.
+
+### Fixed — the colour picker's marker crossed the hue bar
+
+The picker's saturation/value marker was a filled disc centred on the picked
+position, so choosing black (the bottom-left corner) left half of it lying over
+the hue bar underneath and half outside the popup's frame. The square and the
+hue/alpha bars now reserve the marker's radius as padding and map their values
+to that inset area, so a marker at an extreme value puts its *edge* on the
+widget's border. Every colour stays selectable — the gradient's own corner is
+still absolute black, and clicking anywhere in the padding (or dragging off the
+square) picks the extreme.
+
+The picker also carries R/G/B/A fields, the square, and the hue and alpha bars
+only: the duplicate colour swatch and the additive-blending switch are gone, the
+first because the popup's header already shows the colour and its hex, the
+second because an additive colour is not a value a form property can hold.
+
+### Fixed — every caption sat half its own width too far left
+
+The shared caption layout positions text with a centre-aligned layout job, where
+the position IS the text's middle — and then subtracted half the galley's width
+from the control's centre as well. Every caption drawn through that path was
+therefore shifted left by half its own width. On a roomy control the spill went
+unnoticed; on a narrow one the text hung off the left edge and the clip cut its
+START, which is how a narrowed DateTimePicker came to show `M/YYYY`.
+
+Text too long to fit even at the 6 pt floor the branch shrinks to is now
+anchored with its LEFT edge at the frame, so what the clip takes is the tail and
+a truncated value still reads as one.
+
+### Fixed — a RadioButton's frame, and its `BorderStyle`
+
+`BorderStyle` is seeded `None` on both toggles and has always been documented as
+meaning "no frame by default" — but it only ever governed the explicit border
+stroke, so the themed card underneath drew a rim around every radio, under every
+theme, with nothing in the properties pane able to turn it off. The frame now
+follows the property: seeded `None` paints neither card nor rim, and setting a
+`BorderStyle` brings both back.
+
+### Fixed — a typed GroupName reached nothing
+
+The inspector's text rows commit when they lose focus. Clicking another control
+rebuilds the panel for the NEW selection, so the row holding the edit is gone
+and that frame never arrives — the typing was dropped. It is the `GroupName`
+case that made this unmissable: typing a group into one RadioButton and clicking
+the next lost it every time, and without the group there is no way to make a set
+of radios exclusive. An edit whose row disappears is now committed, whatever
+made it disappear.
+
+### Fixed — controls that ignored their own font
+
+A ComboBox painted its value at a hardcoded 12 pt in a fixed near-white, and a
+NumericUpDown drew in the host's ambient font: the two controls on the form whose
+`FontSize`, `FontName` and `ForegroundColor` reached nothing. Both now use the
+control's own typography, and the ComboBox's colour is rescued for contrast like
+every other text the engine draws. A new guard,
+`a_default_control_frame_fits_its_default_caption`, holds every caption-bearing
+control's default frame to its default caption at the seeded font.
+
+### Fixed — a ListBox's lines and its scrollbar
+
+- **The scrollbar sat in the middle of the list.** A scroll area sizes itself to
+  what it holds unless told otherwise, so the bar came to rest just past the
+  widest item — a column straight through the items. Its scroll area now fills
+  the control.
+- **The lines were spaced like a menu.** Each item is an egui widget, so it took
+  the host's chrome metrics — in the IDE a 30 px minimum touch height and an 8 px
+  gap. A list line is now its text plus a little air, whatever chrome surrounds
+  it.
+
+### Changed — the Embedded-format notice
+
+The properties pane now says "The properties below are not applicable while Form
+format is Embedded", naming what the notice governs instead of explaining why.
+
 ## [PowerRustCOBOL 1.61.40] — 2026-08-13
 
 ### Fixed — captions stay inside their control
