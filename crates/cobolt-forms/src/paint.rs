@@ -3186,11 +3186,26 @@ pub fn draw_control(
     // showed the designed colour.
     let sidemenu_frameless = matches!(ctrl.control_type, CT::SideMenu);
 
+    // A RadioButton's frame follows its own `BorderStyle`, which is seeded
+    // `None` — it is a selection circle and a caption, not a card. `BorderStyle`
+    // only ever governed the *explicit* border stroke, so the themed card the
+    // control sits on drew a rim around every radio regardless, under every
+    // theme, with nothing in the properties pane able to turn it off. Tested in
+    // `checkbox_and_radio_button_expose_border_properties`, which has always
+    // said a radio "must not draw a frame by default".
+    //
+    // Ahead of the asset-pack skin and the themed surface below, so this holds
+    // in every theme; set a BorderStyle and the frame comes back. (Its sibling
+    // the CheckBox reaches the same place through its 100 % default
+    // transparency.)
+    let radio_frameless = matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
+
     if (is_label && !background_gradient && user_bg.is_none())
         || pic_frameless
         || chart_frameless
         || container_frameless
         || checkbox_frameless
+        || radio_frameless
         || sidemenu_frameless
     {
         // No visible frame. When selected, show a lightweight selection outline.
@@ -3816,11 +3831,8 @@ pub fn draw_control(
             .get_prop("Checked")
             .map(|v| v.as_bool())
             .unwrap_or(false);
-        let box_fsize = ctrl_font_size(ctrl);
-        let box_d = (box_fsize * 1.25).clamp(12.0, (rect.height() - 4.0).max(10.0));
+        let (box_d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
         let box_round = (box_d * 0.22).clamp(2.0, 5.0);
-        let pad = 4.0_f32.min(rect.width() * 0.08);
-        let gap = 6.0_f32.min(rect.width() * 0.08);
         let right_aligned = ctrl
             .get_prop("CheckAlignment")
             .map(|v| v.as_str().eq_ignore_ascii_case("Right"))
@@ -3842,12 +3854,10 @@ pub fn draw_control(
         // off paints it accordingly (filled when checked, an empty rim when
         // not). Liquid Glass supplies no Toggle surface, so it keeps the
         // recessed Input well it has always drawn.
-        match active_surface_theme(painter.ctx())
-            .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked })
-        {
-            Some(spec) => {
-                draw_theme_surface(painter, box_rect, fill, box_round, alpha_mul, &spec)
-            }
+        let toggle_spec = active_surface_theme(painter.ctx())
+            .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked });
+        match &toggle_spec {
+            Some(spec) => draw_theme_surface(painter, box_rect, fill, box_round, alpha_mul, spec),
             None => draw_surface_auto(
                 painter,
                 box_rect,
@@ -3859,11 +3869,11 @@ pub fn draw_control(
             ),
         }
         if checked {
-            let check_color = ctrl
-                .get_prop("CheckColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(Color32::from_rgb(0, 120, 215));
-            let cc = alpha_color(check_color);
+            let cc = alpha_color(toggle_mark_color(
+                painter,
+                ctrl,
+                toggle_spec.as_ref().and_then(|spec| spec.fill),
+            ));
             // CheckSize: 0-100, percentage of the box the checkmark fills.
             let check_pct = ctrl
                 .get_prop("CheckSize")
@@ -3903,9 +3913,7 @@ pub fn draw_control(
         if let Some(spec) = active_surface_theme(painter.ctx())
             .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked })
         {
-            let d = (ctrl_font_size(ctrl) * 1.25).clamp(12.0, (rect.height() - 4.0).max(10.0));
-            let pad = 4.0_f32.min(rect.width() * 0.08);
-            let gap = 6.0_f32.min(rect.width() * 0.08);
+            let (d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
             let c = Pos2::new(rect.left() + pad + d * 0.5, rect.center().y);
             // A radio is round: the same fill and rim the theme gave, as a
             // circle rather than a rounded square.
@@ -3933,7 +3941,17 @@ pub fn draw_control(
         // otherwise fall to the pole that reads: `caret_color` picks by ratio,
         // so it clears AA on ANY surface, where a luminance threshold would
         // still leave ~3.5:1 on a mid grey.
-        let label_color = if matches!(ctrl.control_type, CT::CheckBox) {
+        // A RadioButton's caption is rescued by the same rule and for the same
+        // reason: it is the other half of the same row, and a caption that
+        // disappears on a dark theme is no more usable next to a circle than
+        // next to a box.
+        // A DateTimePicker's value (and its `DD/MM/YYYY` mask) is rescued too:
+        // it is the control's whole content, and the seeded white foreground
+        // disappears the moment the field's own surface is pale.
+        let label_color = if matches!(
+            ctrl.control_type,
+            CT::CheckBox | CT::RadioButton | CT::DateTimePicker
+        ) {
             // `draw_control` is not given the form's own backdrop (it is a
             // parameter of the render walk, not of the painter), so the neutral
             // default stands in for it. That only matters under Classic /
@@ -4193,13 +4211,23 @@ pub fn draw_control(
                 let clipped = painter.with_clip_rect(rect);
                 paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
             }
-        } else if matches!(ctrl.control_type, CT::CheckBox) {
+        } else if matches!(ctrl.control_type, CT::CheckBox | CT::RadioButton) {
             // Caption sits in the space left after the check glyph (drawn
             // below, outside this `!label.is_empty()` gate), wrapped, clipped,
             // and shrunk exactly like TextBox's single-line box — so a long
             // caption never bleeds past the control's own border instead of
             // overflowing it (developer-reported bug: text used to spill past
             // the frame).
+            //
+            // A RadioButton lays out by the same rule: its caption belongs to
+            // the RIGHT of the selection circle, exactly as far from it as a
+            // CheckBox's caption is from its box (`checkbox_text_rect` carries
+            // the same `gap`). It used to fall through to the generic branch
+            // below, which centres the caption in the WHOLE control rect — so
+            // the circle was drawn on top of the first few characters. Where no
+            // themed circle is drawn (Liquid Glass keeps its `(●)` glyph in the
+            // caption) that rect is the full control, so the row reads the same
+            // way: indicator first, caption after it.
             let pad = 3.0_f32.min(checkbox_text_rect.width() * 0.2);
             let inner_w = (checkbox_text_rect.width() - 2.0 * pad).max(1.0);
             let min_font = 6.0_f32;
@@ -4265,10 +4293,22 @@ pub fn draw_control(
                 fit = (fit - 1.0).max(min_font);
                 galley = layout(fit);
             }
-            let text_pos = egui::pos2(
-                rect.center().x - galley.size().x / 2.0,
-                rect.center().y - galley.size().y / 2.0,
-            );
+            // This job is laid out with `halign = Center`, so the position IS
+            // the text's middle — subtracting half the galley's width from the
+            // control's centre moved every caption half its own width to the
+            // LEFT. On a roomy control the spill went unnoticed; on a narrow one
+            // the text hung off the left edge and the clip cut its START, which
+            // is how a narrowed DateTimePicker came to show `M/YYYY`.
+            //
+            // Text that still does not fit at the 6 pt floor is anchored so its
+            // LEFT edge sits at the frame: what the clip takes is then the tail,
+            // and a truncated value still reads as one.
+            let text_x = if galley.size().x > inner_w {
+                rect.left() + pad + galley.size().x / 2.0
+            } else {
+                rect.center().x
+            };
+            let text_pos = egui::pos2(text_x, rect.center().y - galley.size().y / 2.0);
             // Clipped as a last resort: at the 6pt floor a caption long enough
             // still cannot fit, and cutting it at the border beats bleeding over
             // the neighbouring controls.
@@ -5411,6 +5451,9 @@ pub fn glass_combo_header(
     is_open: bool,
     enabled: bool,
     alpha: f32,
+    // The control's own typography and colour. `None` keeps the header's
+    // built-in look, for callers that have no Control to hand.
+    text: Option<(egui::FontId, Color32)>,
 ) -> bool {
     use egui::{Align2, FontId, Pos2};
     draw_surface_auto(
@@ -5428,12 +5471,22 @@ pub fn glass_combo_header(
         Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)),
         egui::StrokeKind::Middle,
     );
+    // The control's own font and colour when the caller has them: a ComboBox
+    // used to paint its value at a hardcoded 12 pt in a fixed near-white,
+    // whatever `FontSize` and `ForegroundColor` said — the one control on the
+    // form whose text ignored both.
+    let (font, text_color) = text.unwrap_or_else(|| {
+        (
+            FontId::proportional(12.0),
+            Color32::from_rgb(220, 228, 255),
+        )
+    });
     painter.text(
         Pos2::new(rect.min.x + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
         selected,
-        FontId::proportional(12.0),
-        Color32::from_rgb(220, 228, 255),
+        font,
+        text_color,
     );
     painter.text(
         Pos2::new(rect.max.x - 13.0, rect.center().y),
@@ -7393,6 +7446,49 @@ pub fn caret_color(surface: Color32, text: Color32) -> Color32 {
     }
 }
 
+/// A toggle's indicator size and the two spacings around it: `(diameter, pad,
+/// gap)` — `pad` from the control's edge to the indicator, `gap` from the
+/// indicator to the caption.
+///
+/// ONE source for the CheckBox's square box and the RadioButton's circle, so a
+/// radio's caption stands exactly as far from its selection circle as a check
+/// box's caption stands from its box. They were computed twice from the same
+/// constants, which is a coincidence, not a rule.
+fn toggle_indicator_metrics(rect: egui::Rect, ctrl: &Control) -> (f32, f32, f32) {
+    let d = (ctrl_font_size(ctrl) * 1.25).clamp(12.0, (rect.height() - 4.0).max(10.0));
+    let pad = 4.0_f32.min(rect.width() * 0.08);
+    let gap = 6.0_f32.min(rect.width() * 0.08);
+    (d, pad, gap)
+}
+
+/// The colour a toggle's mark is drawn in — the CheckBox's tick, the
+/// RadioButton's dot.
+///
+/// The developer's `CheckColor` is kept while it clears WCAG AA against the box
+/// the THEME filled, and otherwise flips to the pole that reads: white on a dark
+/// box, black on a light one. A form cannot know what its theme paints — the
+/// seeded Windows blue is fine on a pale box and a smudge on the dark toggle
+/// Elegance and its family draw — so the mark is rescued the same way the
+/// caption already is.
+///
+/// `box_fill` is the theme's toggle fill, if it supplies one; the mark is
+/// measured against that composited over whatever the control sits on.
+fn toggle_mark_color(painter: &egui::Painter, ctrl: &Control, box_fill: Option<Color32>) -> Color32 {
+    let behind = control_surface_tone(
+        painter.ctx(),
+        ctrl,
+        parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
+    );
+    let tone = box_fill
+        .map(|f| composite_premultiplied_over(f, behind))
+        .unwrap_or(behind);
+    let chosen = ctrl
+        .get_prop("CheckColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::from_rgb(0, 120, 215));
+    caret_color(tone, chosen)
+}
+
 /// Decode the transient `_ContainerClip` prop the render engine seeds on a
 /// PictureBox face that lives inside a rounded GroupBox/Panel. Returns the
 /// container's screen-space **content** rect, its corner radius, and a per-corner
@@ -8772,6 +8868,77 @@ mod checkbox_face_tests {
                 "{t}% must cast from the tick box only"
             );
         }
+    }
+
+    /// A RadioButton's caption starts to the RIGHT of its selection circle, and
+    /// exactly as far from it as a CheckBox's caption stands from its box. It
+    /// used to be laid out in the whole control rect and centred there, so the
+    /// circle was painted on top of the caption's first characters.
+    #[test]
+    fn a_radio_caption_clears_its_circle_by_the_checkboxs_own_gap() {
+        let rect = egui::Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 34.0));
+        let check = Control::new("CheckBox-1", ControlType::CheckBox, 0, 0);
+        let radio = Control::new("RadioButton-1", ControlType::RadioButton, 0, 0);
+
+        // The box: caption starts one `gap` past the box's right edge.
+        let (box_d, pad, gap) = toggle_indicator_metrics(rect, &check);
+        let after_box = rect.left() + pad + box_d + gap;
+
+        // The circle: same metrics, centred `pad + d/2` in, so its right edge is
+        // at the same place — and the caption after it likewise.
+        let (dot_d, dot_pad, dot_gap) = toggle_indicator_metrics(rect, &radio);
+        let centre = rect.left() + dot_pad + dot_d * 0.5;
+        let after_circle = centre + dot_d * 0.5 + dot_gap;
+
+        assert_eq!(
+            after_box, after_circle,
+            "a radio's caption must start where a check box's does"
+        );
+        assert!(
+            after_circle > centre + dot_d * 0.5,
+            "and never on top of the circle"
+        );
+
+        println!(
+            "\n  toggle captions — control {}x{}: indicator {}px at {}px in, \
+             caption starts at {}px for BOTH the box and the circle\n",
+            rect.width(),
+            rect.height(),
+            box_d,
+            pad,
+            after_box
+        );
+    }
+
+    /// The check mark has to read on the box the THEME fills, which the form
+    /// knows nothing about. The seeded `CheckColor` is a Windows blue: fine on a
+    /// pale box, a smudge on the dark toggle Elegance and its family paint — so
+    /// there it flips to white, and on a light box to black.
+    #[test]
+    fn the_check_mark_stays_legible_on_the_themes_toggle_box() {
+        let seeded = parse_color("#0078D7");
+
+        let dark = Color32::from_rgb(30, 41, 59); // an Elegance-family toggle
+        let on_dark = caret_color(dark, seeded);
+        assert_eq!(on_dark, Color32::WHITE, "white on a dark box");
+        assert!(
+            contrast_ratio(on_dark, dark) >= 4.5,
+            "and it clears AA: {:.1}:1",
+            contrast_ratio(on_dark, dark)
+        );
+
+        let light = Color32::from_rgb(245, 245, 248);
+        let on_light = caret_color(light, seeded);
+        assert_eq!(on_light, Color32::BLACK, "black on a light box");
+        assert!(contrast_ratio(on_light, light) >= 4.5);
+
+        println!(
+            "\n  check mark — seeded #0078D7 reads {:.1}:1 on a dark toggle box (fails AA) \
+             and is rescued to white at {:.1}:1; on a light box it becomes black at {:.1}:1\n",
+            contrast_ratio(seeded, dark),
+            contrast_ratio(on_dark, dark),
+            contrast_ratio(on_light, light),
+        );
     }
 
     /// The caption has to stay readable on whatever the CheckBox was dropped
@@ -11187,15 +11354,24 @@ mod elegance_baseline_tests {
         //
         // A deliberate change to Liquid Glass's own painting may legitimately
         // move them — re-bless only with that intent, never to get green.
+        //
+        // Re-blessed once, in 1.61.43: a RadioButton now honours its own
+        // `BorderStyle` (seeded `None`) and so paints no card or rim by default.
+        // The fixture holds exactly one radio, and every row moved by exactly
+        // what that one control stopped drawing — measured on a radio-only
+        // fixture: Classic 75 → 2 (−73, matching 1430 → 1357), Enhanced 83 → 2
+        // (−81, 1546 → 1465), and both Neumorphic styles 3 → 2 (−1, 484 → 483).
+        // The asset-pack rows moved by the same amounts, no pack here skinning a
+        // radio. Nothing else in the seam changed.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1430),
-            ("asset-pack", GS::Classic, 1252),
-            ("liquid-glass", GS::Enhanced, 1546),
-            ("asset-pack", GS::Enhanced, 1342),
-            ("liquid-glass", GS::Neumorphic, 484),
-            ("asset-pack", GS::Neumorphic, 500),
-            ("liquid-glass", GS::NeumorphicDark, 484),
-            ("asset-pack", GS::NeumorphicDark, 500),
+            ("liquid-glass", GS::Classic, 1357),
+            ("asset-pack", GS::Classic, 1179),
+            ("liquid-glass", GS::Enhanced, 1465),
+            ("asset-pack", GS::Enhanced, 1261),
+            ("liquid-glass", GS::Neumorphic, 483),
+            ("asset-pack", GS::Neumorphic, 499),
+            ("liquid-glass", GS::NeumorphicDark, 483),
+            ("asset-pack", GS::NeumorphicDark, 499),
         ];
         for (theme, gs, want) in expected {
             let got = rows
