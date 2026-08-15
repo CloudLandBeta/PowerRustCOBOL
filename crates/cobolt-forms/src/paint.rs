@@ -2178,27 +2178,10 @@ pub fn draw_control(
             .unwrap_or_else(|| "Horizontal".into());
         let vertical = orient.starts_with('V');
 
-        let track_c = alpha_color(
-            ctrl.get_prop("TrackColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(Color32::from_rgb(170, 170, 170)),
-        );
-        let thumb_c = alpha_color(
-            ctrl.get_prop("ThumbColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(Color32::from_rgb(0, 120, 215)),
-        );
-        let fill_c = alpha_color(
-            ctrl.get_prop("FillColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(Color32::from_rgb(0, 120, 215)),
-        );
         let show_val = ctrl
             .get_prop("ShowValue")
             .map(|v| v.as_bool())
             .unwrap_or(false);
-
-        let _ = (track_c, thumb_c, fill_c); // glass design uses its own colors
 
         let pct = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
         let range_units = max_v - min_v;
@@ -2302,7 +2285,16 @@ pub fn draw_control(
             let c = parse_color(&raw);
             (c.a() > 0).then_some(c)
         };
-        let user_track = non_default("BackgroundColor", crate::model::DEFAULT_BACKGROUND_COLOR);
+        // A Slider's own colour properties outrank the generic Appearance pair,
+        // the way a Shape's FillColor already does: TrackColor paints the rail,
+        // ThumbColor the knob, FillColor the travelled part (Minimum → Value).
+        // The defaults are model.rs's, so "still the default" reads as "the
+        // developer left it alone" and the theme keeps the wheel. All three
+        // used to be parsed and then thrown away — the glass painter drew its
+        // own colours and nothing a developer picked here reached the screen.
+        let user_track = non_default("TrackColor", "#AAAAAA")
+            .or_else(|| non_default("BackgroundColor", crate::model::DEFAULT_BACKGROUND_COLOR));
+        let user_fill = non_default("FillColor", "#0078D7");
         // 050 — a Slider is a data-input control, and `Control::new` seeds those
         // with a BLACK `ForegroundColor` (model.rs), not the `#FFFFFF` sentinel.
         // Comparing against the sentinel therefore read every untouched Slider
@@ -2315,7 +2307,8 @@ pub fn draw_control(
             Some(_) if ctrl.control_type.is_data_input_control() => "#000000",
             _ => crate::model::DEFAULT_FOREGROUND_COLOR,
         };
-        let user_thumb = non_default("ForegroundColor", seeded_fg);
+        let user_thumb = non_default("ThumbColor", "#0078D7")
+            .or_else(|| non_default("ForegroundColor", seeded_fg));
         let tint = |c: Color32, a: f32| {
             Color32::from_rgba_unmultiplied(
                 c.r(),
@@ -2330,13 +2323,17 @@ pub fn draw_control(
         // are Liquid Glass's own, and Liquid Glass supplies nothing.
         use crate::surface_theme::ColorToken as Tok;
         // 050 — a theme may supply the FILLED part of the rail (start → knob).
-        // When it does, the rail itself is left bare, so the filled range is the
-        // only thing that reads. Liquid Glass supplies none and keeps its frosted
-        // track exactly as it was.
+        // Liquid Glass supplies none and keeps its frosted track exactly as it
+        // was.
         let theme_fill = theme_token(painter.ctx(), Tok::SliderFill);
+        // The rail is the part still to travel, so under a theme it takes the
+        // muted structural colour and the fill marks the travelled part. It was
+        // left bare here before, so with a coloured Back colour underneath it
+        // the two sides read back to front: the travelled part came out muted
+        // and the remainder came out coloured.
         let track_body = user_track.map(|c| tint(c, 210.0)).unwrap_or_else(|| {
-            if theme_fill.is_some() {
-                Color32::TRANSPARENT
+            if let Some(c) = theme_fill.and(theme_token(painter.ctx(), Tok::Border)) {
+                tint(c, 110.0)
             } else {
                 Color32::from_rgba_premultiplied(
                     (100.0 * alpha_mul) as u8,
@@ -2350,8 +2347,7 @@ pub fn draw_control(
             .map(|c| tint(shade(c, 0.45), 190.0))
             .unwrap_or_else(|| {
                 if theme_fill.is_some() {
-                    // A bare rail: no rim either, or the "transparent" track
-                    // would still read as an outlined pill.
+                    // A flat themed rail carries no rim of its own.
                     Color32::TRANSPARENT
                 } else {
                     Color32::from_rgba_premultiplied(
@@ -2362,6 +2358,12 @@ pub fn draw_control(
                     )
                 }
             });
+        // The travelled part, start → knob: the developer's FillColor when they
+        // picked one, otherwise whatever the theme offers. Liquid Glass offers
+        // none and keeps its frosted rail undivided, exactly as before.
+        let range_fill = user_fill
+            .map(|c| tint(c, 235.0))
+            .or_else(|| theme_fill.map(|c| theme_alpha(c, alpha_mul)));
         let thumb_body = user_thumb.map(|c| tint(c, 235.0)).unwrap_or_else(|| {
             if let Some(c) = theme_knob {
                 tint(c, 255.0)
@@ -2415,17 +2417,13 @@ pub fn draw_control(
             }
             // 050 — the filled range, start → knob. A vertical slider fills from
             // the BOTTOM, which is where its zero is.
-            if let Some(fill_c) = theme_fill {
+            if let Some(fill_c) = range_fill {
                 let filled = egui::Rect::from_min_max(
                     Pos2::new(track_rect.min.x, thumb_y),
                     Pos2::new(track_rect.max.x, track_b),
                 );
                 if filled.height() > 0.5 {
-                    painter.rect_filled(
-                        filled,
-                        track_half_w,
-                        theme_alpha(fill_c, alpha_mul),
-                    );
+                    painter.rect_filled(filled, track_half_w, fill_c);
                 }
             }
 
@@ -2503,17 +2501,13 @@ pub fn draw_control(
             }
             // 050 — the filled range, start → knob. At zero there is nothing to
             // fill, which is what "transparent when 0" means.
-            if let Some(fill_c) = theme_fill {
+            if let Some(fill_c) = range_fill {
                 let filled = egui::Rect::from_min_max(
                     Pos2::new(track_l, track_rect.min.y),
                     Pos2::new(thumb_x, track_rect.max.y),
                 );
                 if filled.width() > 0.5 {
-                    painter.rect_filled(
-                        filled,
-                        track_half_h,
-                        theme_alpha(fill_c, alpha_mul),
-                    );
+                    painter.rect_filled(filled, track_half_h, fill_c);
                 }
             }
 
@@ -2728,10 +2722,13 @@ pub fn draw_control(
                     .get_prop("ForegroundColor")
                     .map(|v| parse_color(v.as_str()))
                     .filter(|c| c.a() > 0 && *c != parse_color(crate::model::DEFAULT_FOREGROUND_COLOR));
-                let fill = alpha_color(if !color_prop.is_empty() {
-                    parse_color(&color_prop)
-                } else {
-                    user_fg.unwrap_or_else(|| accent_color("Blue"))
+                // Zones win when the developer set both thresholds — recolouring
+                // the fill as the reading crosses them is the whole point of
+                // asking for them, so they outrank a fixed `Color` (R8/AC2).
+                let fill = alpha_color(match gauge_zone_color(ctrl, frac) {
+                    Some(zone) => zone,
+                    None if !color_prop.is_empty() => parse_color(&color_prop),
+                    None => user_fg.unwrap_or_else(|| accent_color("Blue")),
                 });
                 let track = alpha_color(
                     user_background_color(ctrl).unwrap_or_else(|| {
@@ -2760,6 +2757,16 @@ pub fn draw_control(
                         if frac > 0.001 {
                             painter.rect_filled(filled, r, fill);
                         }
+                        // The thumb marks where the reading sits, riding proud
+                        // of the bar so it reads against both halves of it.
+                        if gauge_flag(ctrl, "ShowThumb") {
+                            painter.circle(
+                                Pos2::new(bar.min.x + bar.width() * frac, bar.center().y),
+                                (h * 0.70).max(4.0),
+                                lighten(fill, 0.35),
+                                Stroke::new(1.5, fill),
+                            );
+                        }
                         // Above the bar when the control leaves room, otherwise
                         // on it — never half-covered by it.
                         if rect.top() + 4.0 < bar.top() - 2.0 {
@@ -2787,6 +2794,36 @@ pub fn draw_control(
                         let center = Pos2::new(rect.center().x, rect.bottom() - 6.0);
                         let radius = (rect.width() * 0.5 - 4.0).min(rect.height() - 10.0).max(6.0);
                         draw_ring(painter, center, radius, radius * 0.18, 180.0, 180.0, frac, fill, track);
+                        // The scale: ten divisions across the sweep, just inside
+                        // the band, with a longer mark at each end and the
+                        // half-way point — the marks the needle is read against.
+                        let ray = |deg: f32| -> Vec2 {
+                            let a = deg.to_radians();
+                            Vec2::new(a.cos(), a.sin())
+                        };
+                        if gauge_flag(ctrl, "ShowScale") {
+                            let band_in = radius * 0.91;
+                            for i in 0..=10 {
+                                let dir = ray(180.0 + 18.0 * i as f32);
+                                let major = i % 5 == 0;
+                                let len = radius * if major { 0.16 } else { 0.09 };
+                                painter.line_segment(
+                                    [center + dir * (band_in - len), center + dir * band_in],
+                                    Stroke::new(if major { 2.0 } else { 1.0 }, track),
+                                );
+                            }
+                        }
+                        // The needle points at the reading, on the hub it turns
+                        // about. Drawn before the readout, so the number stays
+                        // legible when the needle sweeps under it.
+                        if gauge_flag(ctrl, "ShowNeedle") {
+                            let dir = ray(180.0 + 180.0 * frac);
+                            painter.line_segment(
+                                [center, center + dir * radius * 0.78],
+                                Stroke::new((radius * 0.06).max(1.5), fill),
+                            );
+                            painter.circle_filled(center, (radius * 0.10).max(2.5), fill);
+                        }
                         // Inside the dial, centred on the sweep's own centre and
                         // well clear of the band at `radius`.
                         (
@@ -2807,10 +2844,29 @@ pub fn draw_control(
                     tone,
                     user_fg.unwrap_or(Color32::from_rgb(230, 230, 230)),
                 );
+                // What it reads out: the developer's own `Text` when they set
+                // one, otherwise the value with `Unit` appended exactly as
+                // typed — so both `"%"` and `" rpm"` come out the way they look
+                // in the inspector.
+                let reading = {
+                    let over = ctrl
+                        .get_prop("Text")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    if over.trim().is_empty() {
+                        let unit = ctrl
+                            .get_prop("Unit")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        format!("{val:.0}{unit}")
+                    } else {
+                        over
+                    }
+                };
                 painter.text(
                     value_pos,
                     value_anchor,
-                    format!("{val:.0}"),
+                    reading,
                     crate::fonts::font_id(
                         painter.ctx(),
                         &ctrl
@@ -7472,8 +7528,17 @@ pub fn caret_color(surface: Color32, text: Color32) -> Color32 {
     }
 }
 
-/// Accent colours by name, shared by the controls that offer an `Accent`.
-fn knob_accent(name: &str) -> Color32 {
+/// The colour an `Accent` property names: a `#RRGGBB`/`#RRGGBBAA` colour as
+/// picked in the inspector, or one of the six presets by name.
+///
+/// The property held only those six names before it grew a colour picker, so
+/// forms saved as `Blue`/`Sky`/… keep exactly the colour they were given.
+pub fn knob_accent(name: &str) -> Color32 {
+    if let Some(hex) = name.strip_prefix('#') {
+        if matches!(hex.len(), 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return parse_color(name);
+        }
+    }
     match name {
         "Green" => Color32::from_rgb(46, 125, 50),
         "Red" => Color32::from_rgb(198, 40, 40),
@@ -7482,6 +7547,35 @@ fn knob_accent(name: &str) -> Color32 {
         "Sky" => Color32::from_rgb(2, 136, 209),
         _ => Color32::from_rgb(0, 120, 215),
     }
+}
+
+/// The colour a Gauge's fill takes at `frac`, once the developer has asked for
+/// zones by setting BOTH thresholds — green below the warning, amber from it,
+/// red from the critical one (spec 039 R8/AC2).
+///
+/// Thresholds are fractions of the `Minimum..Maximum` span, `0.0..1.0`, and
+/// either one left blank turns zones off — `None` here, which leaves the gauge
+/// its own `Color`/`ForegroundColor`/accent.
+/// One of a Gauge's drawing switches (`ShowNeedle`/`ShowScale`/`ShowThumb`),
+/// on unless the developer turned it off — the same default its model carries.
+fn gauge_flag(ctrl: &Control, key: &str) -> bool {
+    ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(true)
+}
+
+pub fn gauge_zone_color(ctrl: &Control, frac: f32) -> Option<Color32> {
+    let threshold = |key: &str| -> Option<f32> {
+        let raw = ctrl.get_prop(key)?.as_str().trim().to_owned();
+        raw.parse::<f32>().ok()
+    };
+    let warn = threshold("WarningThreshold")?;
+    let crit = threshold("CriticalThreshold")?;
+    Some(if frac >= crit {
+        Color32::from_rgb(198, 40, 40)
+    } else if frac >= warn {
+        Color32::from_rgb(245, 124, 0)
+    } else {
+        Color32::from_rgb(46, 125, 50)
+    })
 }
 
 /// A 270° arc from `start_deg`, filled to `frac` over a dim track.
@@ -10543,7 +10637,10 @@ slice = [4, 4, 4, 4]
             ("input text", hex(tok(Tok::Text)), "#ffffff"),
             ("label text", hex(tok(Tok::LabelText)), "#8691a3"),
             ("border", hex(tok(Tok::Border)), "#8691a3"),
-            ("slider fill", hex(tok(Tok::SliderFill)), "#8691a3"),
+            // The travelled part of a rail is the highlighted one, so the fill
+            // is the primary and the muted colour stays on the rail behind it.
+            // It was the muted colour on both, which read back to front.
+            ("slider fill", hex(tok(Tok::SliderFill)), "#3761e2"),
             ("slider knob", hex(tok(Tok::SliderKnob)), "#ffffff"),
         ] {
             assert_eq!(got, want, "{name} is PowerRustCOBOL's, not the crate's");
@@ -10921,6 +11018,259 @@ slice = [4, 4, 4, 4]
             "\n  Switch — 52pt control ⇒ {ws:.0}pt track, 200pt ⇒ {wb:.0}pt; \
              ON follows Accent (Blue ≠ Red) under both themes\n"
         );
+    }
+
+    /// A Slider's rail reads the right way round — the travelled part is the
+    /// highlighted one — and the three colour properties the inspector offers
+    /// actually reach the paint.
+    ///
+    /// They used to be parsed and dropped on the floor (`let _ = (track_c,
+    /// thumb_c, fill_c)`), and the theme's fill was its MUTED grey, so the
+    /// travelled part came out duller than the part still to travel.
+    #[test]
+    fn a_slider_fills_the_travelled_side_and_takes_the_developers_colours() {
+        use crate::model::PropValue;
+
+        /// Every rect fill the control painted, un-premultiplied.
+        fn fills(ct: &Control) -> Vec<[u8; 4]> {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<[u8; 4]>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) => out.push(r.fill.to_srgba_unmultiplied()),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out
+        }
+        // Premultiplying and unmultiplying costs a unit either way.
+        let has = |seen: &[[u8; 4]], rgb: [u8; 3]| -> bool {
+            seen.iter().any(|c| {
+                c[3] > 0
+                    && (0..3).all(|i| (c[i] as i16 - rgb[i] as i16).abs() <= 2)
+            })
+        };
+
+        let mut s = Control::new("S", CT::Slider, 0, 0);
+        s.rect = crate::model::Rect::new(0, 0, 240, 40);
+        s.set_prop("Value", PropValue::Int(50));
+
+        // Untouched: the theme paints, and the travelled part is the PRIMARY —
+        // not the muted grey that reads as "not yet travelled".
+        let themed = fills(&s);
+        assert!(
+            has(&themed, [0x37, 0x61, 0xE2]),
+            "the travelled part must take the theme's primary; painted {themed:?}"
+        );
+        assert!(
+            has(&themed, [0x86, 0x91, 0xA3]),
+            "…over a muted rail for the part still to travel; painted {themed:?}"
+        );
+
+        // Each property reaches the paint.
+        let mut coloured = s.clone();
+        coloured.set_prop("FillColor", PropValue::String("#FF00FF".into()));
+        coloured.set_prop("TrackColor", PropValue::String("#00FF00".into()));
+        let picked = fills(&coloured);
+        assert!(
+            has(&picked, [0xFF, 0x00, 0xFF]),
+            "FillColor must paint the travelled part; painted {picked:?}"
+        );
+        assert!(
+            has(&picked, [0x00, 0xFF, 0x00]),
+            "TrackColor must paint the rail; painted {picked:?}"
+        );
+
+        println!(
+            "\n  Slider — untouched: #3761e2 travelled over #8691a3 rail; \
+             FillColor/TrackColor picked: #ff00ff over #00ff00\n"
+        );
+    }
+
+    /// `Accent` takes a picked colour, and still answers to the six names the
+    /// property was limited to before it grew a colour picker.
+    #[test]
+    fn accent_takes_any_colour_and_still_knows_the_six_names() {
+        assert_eq!(knob_accent("#FF00FF"), Color32::from_rgb(255, 0, 255));
+        // Eight digits carry alpha. The colour is premultiplied on the way in,
+        // so the channels come back within a unit of what was typed.
+        let picked = knob_accent("#12345678").to_srgba_unmultiplied();
+        assert_eq!(picked[3], 0x78, "the alpha a developer typed is kept");
+        assert!((picked[0] as i16 - 0x12).abs() <= 1, "got {picked:?}");
+        // The presets a form saved before the picker existed.
+        assert_eq!(knob_accent("Red"), Color32::from_rgb(198, 40, 40));
+        assert_eq!(knob_accent("Sky"), Color32::from_rgb(2, 136, 209));
+        // Anything else is still Blue — including a half-typed colour, which
+        // must never be read as a colour.
+        assert_eq!(knob_accent("Blue"), knob_accent("#GG00ZZ"));
+        assert_eq!(knob_accent("#FF0"), knob_accent("nonsense"));
+
+        println!("\n  Accent — #FF00FF paints magenta; Red/Sky keep their preset; junk falls back to Blue\n");
+    }
+
+    /// Zones own the Gauge's fill once BOTH thresholds are set, and are off
+    /// entirely while either is blank (spec 039 R8/AC2).
+    #[test]
+    fn gauge_zones_need_both_thresholds_and_then_run_green_amber_red() {
+        use crate::model::PropValue;
+
+        let mut g = Control::new("G", CT::Gauge, 0, 0);
+        // Blank by default — a Gauge nobody configured keeps its own colour.
+        assert_eq!(gauge_zone_color(&g, 0.99), None);
+
+        // One alone is not enough: zones need a warning AND a critical mark.
+        g.set_prop("WarningThreshold", PropValue::String("0.6".into()));
+        assert_eq!(gauge_zone_color(&g, 0.99), None, "one threshold is not zones");
+
+        g.set_prop("CriticalThreshold", PropValue::String("0.85".into()));
+        let (green, amber, red) = (
+            Color32::from_rgb(46, 125, 50),
+            Color32::from_rgb(245, 124, 0),
+            Color32::from_rgb(198, 40, 40),
+        );
+        assert_eq!(gauge_zone_color(&g, 0.00), Some(green));
+        assert_eq!(gauge_zone_color(&g, 0.59), Some(green));
+        assert_eq!(gauge_zone_color(&g, 0.60), Some(amber), "at the mark, not past it");
+        assert_eq!(gauge_zone_color(&g, 0.84), Some(amber));
+        assert_eq!(gauge_zone_color(&g, 0.85), Some(red), "at the mark, not past it");
+        assert_eq!(gauge_zone_color(&g, 1.00), Some(red));
+
+        // Emptying either one puts the developer's own Color back in charge.
+        g.set_prop("WarningThreshold", PropValue::String("".into()));
+        assert_eq!(gauge_zone_color(&g, 0.99), None);
+
+        println!(
+            "\n  Gauge zones — off until both marks are set; then 0.00/0.59 green, \
+             0.60/0.84 amber, 0.85/1.00 red\n"
+        );
+    }
+
+    /// The Gauge's own switches actually reach the paint: needle, scale and
+    /// thumb each add marks, and turning one off takes its marks away.
+    #[test]
+    fn gauge_needle_scale_and_thumb_are_drawn_and_can_be_turned_off() {
+        use crate::model::PropValue;
+
+        /// Every line segment and circle the control painted.
+        fn marks(ct: &Control) -> usize {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, n: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, n)),
+                    egui::Shape::LineSegment { .. } | egui::Shape::Circle(_) => *n += 1,
+                    _ => {}
+                }
+            }
+            let mut n = 0;
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut n);
+            }
+            n
+        }
+
+        let mut radial = Control::new("G", CT::Gauge, 0, 0);
+        radial.rect = crate::model::Rect::new(0, 0, 200, 120);
+        radial.set_prop("Value", PropValue::Int(50));
+
+        let all = marks(&radial);
+        let mut no_scale = radial.clone();
+        no_scale.set_prop("ShowScale", PropValue::Bool(false));
+        let mut bare = no_scale.clone();
+        bare.set_prop("ShowNeedle", PropValue::Bool(false));
+        let (without_scale, without_either) = (marks(&no_scale), marks(&bare));
+
+        assert!(
+            all > without_scale,
+            "ShowScale must draw ticks: on ⇒ {all} marks, off ⇒ {without_scale}"
+        );
+        assert!(
+            without_scale > without_either,
+            "ShowNeedle must draw the needle: on ⇒ {without_scale} marks, off ⇒ {without_either}"
+        );
+
+        let mut linear = radial.clone();
+        linear.set_prop("GaugeStyle", PropValue::String("Linear".into()));
+        let mut no_thumb = linear.clone();
+        no_thumb.set_prop("ShowThumb", PropValue::Bool(false));
+        let (with_thumb, sans_thumb) = (marks(&linear), marks(&no_thumb));
+        assert!(
+            with_thumb > sans_thumb,
+            "ShowThumb must draw the thumb: on ⇒ {with_thumb} marks, off ⇒ {sans_thumb}"
+        );
+
+        println!(
+            "\n  Gauge — Radial: {all} marks with needle+scale, {without_scale} without the \
+             scale, {without_either} with neither; Linear: {with_thumb} with the thumb, \
+             {sans_thumb} without\n"
+        );
+    }
+
+    /// What the Gauge reads out: `Unit` is appended to the value, and `Text`
+    /// replaces the whole reading.
+    #[test]
+    fn gauge_readout_appends_unit_and_yields_to_a_text_override() {
+        use crate::model::PropValue;
+
+        fn reading(ct: &Control) -> String {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out.join("")
+        }
+
+        let mut g = Control::new("G", CT::Gauge, 0, 0);
+        g.rect = crate::model::Rect::new(0, 0, 200, 120);
+        g.set_prop("Value", PropValue::Int(42));
+        assert_eq!(reading(&g), "42", "a bare Gauge reads out its value");
+
+        g.set_prop("Unit", PropValue::String("%".into()));
+        assert_eq!(reading(&g), "42%", "Unit is appended exactly as typed");
+
+        // …in every style, not just the two that once had an API for it.
+        for style in ["Linear", "Donut"] {
+            let mut styled = g.clone();
+            styled.set_prop("GaugeStyle", PropValue::String(style.into()));
+            assert_eq!(reading(&styled), "42%", "{style} must carry the Unit too");
+        }
+
+        g.set_prop("Text", PropValue::String("OFFLINE".into()));
+        assert_eq!(reading(&g), "OFFLINE", "Text replaces the whole reading");
+
+        println!("\n  Gauge readout — 42 ⇒ \"42\", +Unit \"%\" ⇒ \"42%\" in all 3 styles, +Text ⇒ \"OFFLINE\"\n");
     }
 
     /// A caption never escapes its control: the font shrinks to fit, the way
@@ -11577,15 +11927,20 @@ mod elegance_baseline_tests {
         // per-control sweep of all 27 fixture families showed the Knob as the
         // ONLY count that moved — the Gauge's colours and the NumericUpDown's
         // caption changed what is drawn, not how many shapes it takes.
+        // Re-blessed in 1.61.49: the Gauge's own switches now reach the paint.
+        // A Radial Gauge with the default `ShowScale`/`ShowNeedle` draws 11
+        // scale ticks, a needle and its hub — 13 leaves — and the fixture holds
+        // exactly one Gauge. Every row moved by exactly +13, which is that one
+        // control and nothing else.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1361),
-            ("asset-pack", GS::Classic, 1183),
-            ("liquid-glass", GS::Enhanced, 1469),
-            ("asset-pack", GS::Enhanced, 1265),
-            ("liquid-glass", GS::Neumorphic, 487),
-            ("asset-pack", GS::Neumorphic, 503),
-            ("liquid-glass", GS::NeumorphicDark, 487),
-            ("asset-pack", GS::NeumorphicDark, 503),
+            ("liquid-glass", GS::Classic, 1374),
+            ("asset-pack", GS::Classic, 1196),
+            ("liquid-glass", GS::Enhanced, 1482),
+            ("asset-pack", GS::Enhanced, 1278),
+            ("liquid-glass", GS::Neumorphic, 500),
+            ("asset-pack", GS::Neumorphic, 516),
+            ("liquid-glass", GS::NeumorphicDark, 500),
+            ("asset-pack", GS::NeumorphicDark, 516),
         ];
         for (theme, gs, want) in expected {
             let got = rows

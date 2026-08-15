@@ -1356,13 +1356,33 @@ When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the
 properties pane for the complete set.
 
+#### Colouring a Slider
+
+A Slider's rail is three separately coloured parts, and it has one property for
+each:
+
+| Property | Paints |
+|---|---|
+| `FillColor` | the **travelled** part — `Minimum` up to `Value` |
+| `TrackColor` | the **remaining** part — `Value` up to `Maximum` |
+| `ThumbColor` | the knob itself |
+
+Left at their defaults, the active theme paints all three, and the travelled
+part is the highlighted one. These three outrank the Appearance section's
+`BackgroundColor` (the rail) and `ForegroundColor` (the knob), which still work
+for forms that set them.
+
+> **Note.** If you are coming from PowerCOBOL, this is the split you expect
+> from a track bar: the "done" side carries the colour, and the side still to
+> travel stays neutral.
+
 #### Knob, Gauge, and Switch
 
 **Knob** is a rotary dial the user drags to set a numeric `Value` within
 `Minimum..Maximum` (default 0-100). Properties: `Step` (increment for
 `Increment()`/`Decrement()`), `DefaultValue` (what a reset returns to),
-`Size` (`Small` / `Medium` / `Large`), `Accent` (`Blue` / `Green` / `Red` /
-`Purple` / `Amber` / `Sky`), `Bipolar` (the fill grows from the centre
+`Accent` (the colour of the arc and the indicator — any colour, from the
+properties pane's picker), `Bipolar` (the fill grows from the centre
 outward instead of from `Minimum`), `ShowValue` (draws the numeric readout),
 and `Label` (a caption under the dial). Its primary event is `onChange`
 (also `onValueChanged`), fired as the user drags. Methods: `SetValue()` /
@@ -1375,13 +1395,22 @@ interaction, only from your own COBOL (`SetValue()` or `SET Gauge1::Value TO
 `ShowNeedle`/`ShowScale`), `Linear` (a horizontal bar, plus `BarHeight`/
 `ShowThumb`), or `Donut` (a ring, plus `StrokeWidth`). `Color` overrides the
 fill (empty = theme accent); `Unit` appends a suffix to the numeric readout
-(e.g. `"%"`, `"rpm"` — Radial/Donut only); `Text` overrides the whole
-readout string. Set **both** `WarningThreshold` and `CriticalThreshold` to
-turn on automatic zone colouring — the fill recolours as `Value` crosses
-each threshold; leave either empty to keep zones off.
+in every style, exactly as you type it (write `" rpm"` if you want the
+space; `"%"` needs none); `Text` overrides the whole readout string.
+
+Set **both** `WarningThreshold` and `CriticalThreshold` — fractions of the
+`Minimum..Maximum` span, between `0.0` and `1.0` — to turn on automatic zone
+colouring: the fill is green below the warning mark, amber from it, and red
+from the critical one. While zones are on they own the fill colour, so
+`Color` is ignored; leave either threshold empty to keep zones off and
+`Color` in charge.
+
+> ⚠️ **Caveat.** The thresholds are fractions of the span, not readings on
+> it. On a `0..250` gauge, `0.8` is the warning mark at 200 — not `200`.
 
 **Switch** is a boolean on/off toggle: `Checked` (Boolean) and `Accent`
-(same six-colour set as Knob). Its primary event is `onClick`; methods are
+(one of `Blue` / `Green` / `Red` / `Purple` / `Amber` / `Sky`). Its primary
+event is `onClick`; methods are
 `IsChecked()` / `SetChecked()` / `Toggle()` — the same check-control
 contract as `CheckBox`, minus `Select()` (there is no radio-group concept
 for a Switch).

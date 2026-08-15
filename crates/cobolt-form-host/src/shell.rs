@@ -696,15 +696,25 @@ impl Shell {
         let mut clicks = Vec::new();
         let mut rects: Vec<(String, Rect)> = Vec::new();
         let mut flip: Option<String> = None;
+        // The designed SideMenu's `Cursor` covers its ROWS — the rail itself is
+        // a pane you never point at — exactly as the engine's sidebar arm does.
+        let row_cursor = self
+            .side_ctrl
+            .as_ref()
+            .and_then(|c| c.get_prop("Cursor"))
+            .and_then(|v| cobolt_forms::render::cursor_icon_for(v.as_str()));
         for (ix, row) in rows.iter().enumerate() {
             // The row's VISIBLE part — see the same rule in the engine's
             // sidebar arm: a scrolled row must not take clicks where it is
             // hidden under the header or footer pane.
-            let resp = ui.interact(
+            let mut resp = ui.interact(
                 row.visible,
                 ui.id().with(("shell-side-row", ix)),
                 egui::Sense::click(),
             );
+            if let Some(icon) = row_cursor {
+                resp = resp.on_hover_cursor(icon);
+            }
             match &row.kind {
                 RowKind::Header => {
                     // The header IS the toggle — the rail stays collapsible

@@ -2769,7 +2769,7 @@ fn focus_keyboard_events(
     }
 }
 
-fn cursor_icon_for(value: &str) -> Option<egui::CursorIcon> {
+pub fn cursor_icon_for(value: &str) -> Option<egui::CursorIcon> {
     let v = value.trim().to_ascii_lowercase();
     match v.as_str() {
         "" | "default" | "arrow" => None,
@@ -5992,6 +5992,11 @@ fn render_interactive(
             }
         }
         CT::MenuBar => {
+            // A menu's `Cursor` belongs to the things you point at — the titles
+            // on the bar and the items under them, not the bar's own backdrop.
+            let menu_cursor = ctrl
+                .get_prop("Cursor")
+                .and_then(|v| cursor_icon_for(v.as_str()));
             let menu_bg = ctrl
                 .get_prop("BackgroundColor")
                 .map(|v| paint::parse_color(v.as_str()))
@@ -6064,7 +6069,10 @@ fn render_interactive(
                         painter.rect_filled(label_rect, 2.0, selected_bg);
                     }
 
-                    let resp = ui.allocate_rect(label_rect, egui::Sense::click());
+                    let mut resp = ui.allocate_rect(label_rect, egui::Sense::click());
+                    if let Some(icon) = menu_cursor {
+                        resp = resp.on_hover_cursor(icon);
+                    }
                     if resp.hovered() && !is_open {
                         painter.rect_filled(label_rect, 2.0, highlight_bg);
                         painter.galley(
@@ -6159,11 +6167,14 @@ fn render_interactive(
                                                     );
                                                 }
                                             });
-                                            let row_resp = ui.interact(
+                                            let mut row_resp = ui.interact(
                                                 item_resp.response.rect,
                                                 egui::Id::new(("mi", &item.id)),
                                                 egui::Sense::click(),
                                             );
+                                            if let Some(icon) = menu_cursor {
+                                                row_resp = row_resp.on_hover_cursor(icon);
+                                            }
                                             if item.enabled && row_resp.hovered() {
                                                 ui.painter().rect_filled(
                                                     item_resp.response.rect,
@@ -6521,10 +6532,19 @@ fn render_interactive(
             // One interaction per laid-out row, using that row's own rect.
             let mut toggle = false;
             let mut flip: Option<String> = None;
+            // A menu's `Cursor` is about its ROWS — the control itself is a
+            // pane you never point at. It reached nothing before, because only
+            // the controls that own a single response ever applied it.
+            let row_cursor = ctrl
+                .get_prop("Cursor")
+                .and_then(|v| cursor_icon_for(v.as_str()));
             for (ix, row) in rows.iter().enumerate() {
                 // The row's VISIBLE part, never its full geometry: a row
                 // scrolled half under the header must not take a click there.
-                let r = ui.interact(row.visible, ctrl_id.with(("side-row", ix)), Sense::click());
+                let mut r = ui.interact(row.visible, ctrl_id.with(("side-row", ix)), Sense::click());
+                if let Some(icon) = row_cursor {
+                    r = r.on_hover_cursor(icon);
+                }
                 if !(r.clicked() && enabled) {
                     continue;
                 }

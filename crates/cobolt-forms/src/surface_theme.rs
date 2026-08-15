@@ -420,7 +420,12 @@ impl SurfaceTheme for EleganceTheme {
         Some(match tok {
             ColorToken::Text => eleg::INK,
             ColorToken::LabelText => eleg::MUTED,
-            ColorToken::SliderFill => eleg::MUTED,
+            // The travelled part of a rail is the highlighted one — it takes
+            // the theme's primary, and the muted colour stays on the rail
+            // behind it (`Border`). Mapping the fill to MUTED read back to
+            // front: the part already travelled came out dimmer than the part
+            // still to go.
+            ColorToken::SliderFill => eleg::PRIMARY,
             ColorToken::SliderKnob => eleg::INK,
             ColorToken::DimText => eleg::MUTED,
             ColorToken::InputBg => p.input_bg,
@@ -723,8 +728,9 @@ mod tests {
         );
         assert_eq!(hex(off.border), "#8691a3");
 
-        // The slider: filled range grey, knob white with the same grey rim.
-        assert_eq!(hex(tok(ColorToken::SliderFill)), "#8691a3");
+        // The slider: the travelled range takes the primary, so it reads
+        // against the muted rail behind it; knob white with the same grey rim.
+        assert_eq!(hex(tok(ColorToken::SliderFill)), "#3761e2");
         assert_eq!(hex(tok(ColorToken::SliderKnob)), "#ffffff");
         assert_eq!(hex(tok(ColorToken::Border)), "#8691a3");
 
