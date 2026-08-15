@@ -645,7 +645,13 @@ pub struct Interpreter {
     external_store: ExternalStore,
     /// Curated Rust-FFI bridge: owns the live Rust objects referenced from COBOL
     /// `OBJECT REFERENCE` items (spec 005 T9/T10).
-    rust_bridge: crate::rust_bridge::RustBridge,
+    /// 051 Q1 (operator ruling) — the object bridge is ONE per process. Every
+    /// interpreter in a multi-form run shares this store (the spawn helper
+    /// hands each new interpreter the same Arc), so an EXEC RUST block in any
+    /// form resolves the same handle ids — the deliberate shared channel now
+    /// that COBOL storage is per-form. A single-form run keeps its private
+    /// bridge and locks it uncontended.
+    rust_bridge: std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>>,
     /// `OBJECT REFERENCE` item key (uppercase) → bound Rust type external name
     /// (e.g. `S` → `Rust.String`). The item's storage holds the bridge handle id.
     object_refs: HashMap<String, String>,
@@ -885,7 +891,7 @@ impl Interpreter {
             program,
             env,
             external_store,
-            rust_bridge,
+            rust_bridge: std::sync::Arc::new(std::sync::Mutex::new(rust_bridge)),
             object_refs,
             objects: ObjectRegistry::new(),
             exec_rust: crate::exec_rust::ExecRustRegistry::new(),
@@ -2643,14 +2649,21 @@ impl Interpreter {
             Stmt::GoBack { .. } => Err(RuntimeError::GoBack),
 
             // ── EXEC RUST ─────────────────────────────────────────────────────
-            Stmt::ExecRust { .. } => exec_rust::execute(
-                stmt,
-                &mut self.env,
-                &mut self.objects,
-                &mut self.rust_bridge,
-                &self.exec_rust,
-                self.state_tx.as_ref(),
-            ),
+            Stmt::ExecRust { .. } => {
+                // 051 Q1 — the bridge may be shared with other forms'
+                // interpreters; a block holds the lock only for its own run,
+                // so blocks from different forms serialize here.
+                let bridge = std::sync::Arc::clone(&self.rust_bridge);
+                let mut bridge = bridge.lock().unwrap_or_else(|e| e.into_inner());
+                exec_rust::execute(
+                    stmt,
+                    &mut self.env,
+                    &mut self.objects,
+                    &mut bridge,
+                    &self.exec_rust,
+                    self.state_tx.as_ref(),
+                )
+            }
 
             // ── TRY / CATCH EXCEPTION / FINALLY ──────────────────────────────
             Stmt::TryCatch {
@@ -2803,6 +2816,8 @@ impl Interpreter {
         let id = self.env.get_i64(key).unwrap_or(0);
         let class = self.object_refs.get(key).cloned().unwrap_or_default();
         self.rust_bridge
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .assign(id, &cobol_to_bridge(val))
             .map_err(|e| RuntimeError::General {
                 message: format!("cannot move a value into {key} ({class}): {e}"),
@@ -6799,7 +6814,28 @@ impl Interpreter {
     /// expression form and `RETURNING`).
     /// Number of live Rust-FFI objects (for tests / leak checks). 0 ⇒ none held.
     pub fn rust_object_count(&self) -> usize {
-        self.rust_bridge.live_count()
+        self.rust_bridge
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .live_count()
+    }
+
+    /// 051 Q1 — this interpreter's object bridge, for sharing: the multi-form
+    /// spawn helper clones the ROOT interpreter's Arc into every child, so
+    /// every form's EXEC RUST blocks see one process-wide store.
+    pub fn shared_rust_bridge(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>> {
+        std::sync::Arc::clone(&self.rust_bridge)
+    }
+
+    /// 051 Q1 — adopt a shared object bridge (see [`Self::shared_rust_bridge`]).
+    /// Call before `run`; existing handles in the private bridge are dropped.
+    pub fn set_shared_rust_bridge(
+        &mut self,
+        bridge: std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>>,
+    ) {
+        self.rust_bridge = bridge;
     }
 
     /// Dispatch a method on an `OBJECT REFERENCE` item into the Rust bridge,
@@ -6813,7 +6849,12 @@ impl Interpreter {
         // method uppercased by the COBOL lexer (`LEN`), whereas `INVOKE … "len"`
         // preserves the literal; lowercasing here makes both forms dispatch (R16).
         let method = method.to_ascii_lowercase();
-        match self.rust_bridge.invoke(id, &method, &bargs) {
+        let outcome = self
+            .rust_bridge
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .invoke(id, &method, &bargs);
+        match outcome {
             Ok(v) => bridge_to_cobol(v),
             Err(e) => {
                 tracing::warn!("Rust bridge {key}::{method}: {e}");
@@ -7559,7 +7600,12 @@ impl Interpreter {
                 // scalar rendering fall through to the handle.
                 if self.object_refs.contains_key(&key) {
                     if let Some(id) = self.env.get_i64(&key) {
-                        if let Some(v) = self.rust_bridge.peek(id) {
+                        let peeked = self
+                            .rust_bridge
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .peek(id);
+                        if let Some(v) = peeked {
                             return Ok(bridge_to_cobol(v));
                         }
                     }

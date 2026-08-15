@@ -1872,15 +1872,22 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // the current value rather than the seeded default. This thread is the
     // per-host part (042 R30): compiled EXEC RUST blocks + painter-ready.
     let err_tx = display_tx.clone();
+    // 051 Q1 — the ROOT interpreter's object bridge is THE process-wide
+    // bridge; every child form's interpreter adopts the same Arc, so a block
+    // in any form resolves the same handles (spec 041 R9, now per process
+    // rather than per lone interpreter).
+    let (bridge_tx, bridge_rx) = mpsc::channel();
     {
         let finished = Arc::clone(&finished);
         let pending = Arc::clone(&pending);
         let form_object = form_object.clone();
+        let form_req_tx = form_req_tx.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
-            // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9). One
-            // interpreter per process means one object bridge, so every block —
-            // including one in a form event handler — sees the same state.
+            let _ = bridge_tx.send(interp.shared_rust_bridge());
+            // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9): one
+            // process-wide object bridge, so every block — in the main form or
+            // any opened form — sees the same state.
             interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
             // A form is painting, so a block may open a window of its own. Set
             // before the first block can run: `open` refuses when nothing will
@@ -1912,6 +1919,36 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         });
     }
 
+    // 051 R6 — a child form's design and program come from the embedded
+    // tables; a form the build could not embed a program for fails the open
+    // visibly (R15) instead of showing a dead window.
+    let form_source: cobolt_form_host::FormSource = Box::new(|id: &str| {
+        let want = id.trim().to_ascii_uppercase();
+        let (_, bytes) = FORMS
+            .iter()
+            .find(|(fid, _)| *fid == want)
+            .ok_or_else(|| format!("no form named '{}' in this application", id.trim()))?;
+        let xml = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+        let child = cobolt_forms::load_form_from_str(xml).map_err(|e| e.to_string())?;
+        let program = load_program_by_id(&want).ok_or_else(|| {
+            format!(
+                "form '{}' has no embedded program — its generated code was missing \
+                 or unparseable when this application was built",
+                id.trim()
+            )
+        })?;
+        Ok((child, program))
+    });
+    // A child form resolves its theme against the same embedded catalogue.
+    let child_theme: cobolt_form_host::ChildThemeSource = Box::new(|child| {
+        let pack = resolve_theme_pack(child);
+        let st = match pack.as_ref() {
+            Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+            None => resolve_surface_theme(child),
+        };
+        (pack, st)
+    });
+
     // Everything from here is the SHARED host (042 R1/R3) — the same window
     // code `rcrun run-form` runs: viewport assembly from the designed window
     // properties, 038 effect playback, 037 lifecycle, state/event routing.
@@ -1927,6 +1964,16 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         finished,
         form_req_rx,
         closed_tx,
+        form_req_tx,
+        form_source: Some(form_source),
+        child_theme: Some(child_theme),
+        // Every spawned interpreter carries the compiled EXEC RUST blocks.
+        child_interpreter_setup: Some(std::sync::Arc::new(
+            |interp: &mut cobolt_runtime::interpreter::Interpreter| {
+                interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
+            },
+        )),
+        shared_rust_bridge: bridge_rx.recv().ok(),
         fx_entrance,
         fx_exit,
         fx_restore,
