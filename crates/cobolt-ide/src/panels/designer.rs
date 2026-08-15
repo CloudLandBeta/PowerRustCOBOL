@@ -982,6 +982,9 @@ pub struct MenuEditorModal {
     icon_picker_gen: u32,
     /// Horizontal split ratio between Menu Items and Item Properties panes (0.0–1.0)
     split_ratio: f32,
+    /// 051 R16 — the edited menu belongs to a SideMenu (the editor is shared
+    /// with MenuBar): only a SideMenu's menu offers the standalone actions.
+    pub is_side_menu: bool,
 }
 
 impl MenuEditorModal {
@@ -997,7 +1000,14 @@ impl MenuEditorModal {
             icon_search: String::new(),
             icon_picker_gen: 0,
             split_ratio: 0.40,
+            is_side_menu: false,
         }
+    }
+
+    /// 051 R16 — builder: mark this menu as a SideMenu's.
+    pub fn for_side_menu(mut self, is_side_menu: bool) -> Self {
+        self.is_side_menu = is_side_menu;
+        self
     }
 
     fn selected_item(&self) -> Option<&cobolt_forms::menu::MenuItem> {
@@ -1072,6 +1082,10 @@ impl MenuEditorModal {
                 Some(a) => {
                     if let Some(rest) = a.strip_prefix("open-form:") {
                         rest.to_string()
+                    } else if let Some(rest) = a.strip_prefix("open-standalone-sync:") {
+                        rest.to_string()
+                    } else if let Some(rest) = a.strip_prefix("open-standalone-async:") {
+                        rest.to_string()
                     } else if let Some(rest) = a.strip_prefix("property:") {
                         rest.to_string()
                     } else {
@@ -1088,7 +1102,39 @@ impl MenuEditorModal {
             Some("close-application") => "close",
             Some("event") | None => "event",
             Some(a) if a.starts_with("open-form:") => "open-form",
+            // 051 R16/R17 — the SideMenu's standalone pair.
+            Some(a) if a.starts_with("open-standalone-sync:") => "open-standalone-sync",
+            Some(a) if a.starts_with("open-standalone-async:") => "open-standalone-async",
             _ => "event",
+        }
+    }
+
+    /// 051 R16 — the Action combo's choices: a SideMenu's menu offers five
+    /// (the standalone pair between the form loaders and Close), a MenuBar's
+    /// the classic three.
+    pub(crate) fn action_type_options(is_side_menu: bool) -> Vec<&'static str> {
+        if is_side_menu {
+            vec![
+                "event",
+                "open-form",
+                "open-standalone-sync",
+                "open-standalone-async",
+                "close",
+            ]
+        } else {
+            vec!["event", "open-form", "close"]
+        }
+    }
+
+    /// 051 R16 — every action type that picks a target form, with the
+    /// persisted prefix it writes (`open-form:` needs `Embedded`/`Both`
+    /// targets; the standalone pair needs `Standalone`/`Both`).
+    fn action_prefix(kind: &str) -> Option<&'static str> {
+        match kind {
+            "open-form" => Some("open-form:"),
+            "open-standalone-sync" => Some("open-standalone-sync:"),
+            "open-standalone-async" => Some("open-standalone-async:"),
+            _ => None,
         }
     }
 }
@@ -7526,26 +7572,36 @@ impl DesignerPanel {
                                         }
                                     });
 
-                                    // Action type
+                                    // Action type — a SideMenu's menu offers
+                                    // the two standalone actions too (051
+                                    // R16); a MenuBar's keeps the classic
+                                    // three.
                                     ui.horizontal(|ui| {
                                         ui.label(tr.menu_lbl_action);
                                         let mut action_sel = cur_action_type.clone();
+                                        let label_of = |key: &str| match key {
+                                            "open-form" => tr.menu_action_open_form,
+                                            "close" => tr.menu_action_close,
+                                            "open-standalone-sync" => {
+                                                tr.menu_action_open_standalone_sync
+                                            }
+                                            "open-standalone-async" => {
+                                                tr.menu_action_open_standalone_async
+                                            }
+                                            _ => tr.menu_action_event,
+                                        };
+                                        let options =
+                                            MenuEditorModal::action_type_options(modal.is_side_menu);
                                         egui::ComboBox::from_id_salt("menu_action_type")
-                                            .selected_text(match action_sel.as_str() {
-                                                "event" => tr.menu_action_event,
-                                                "open-form" => tr.menu_action_open_form,
-                                                "close" => tr.menu_action_close,
-                                                _ => tr.menu_action_event,
-                                            })
+                                            .selected_text(label_of(action_sel.as_str()))
                                             .width(140.0)
                                             .show_ui(ui, |ui| {
-                                                for (key, label) in [
-                                                    ("event", tr.menu_action_event),
-                                                    ("open-form", tr.menu_action_open_form),
-                                                    ("close", tr.menu_action_close),
-                                                ] {
+                                                for key in options {
                                                     if ui
-                                                        .selectable_label(action_sel == key, label)
+                                                        .selectable_label(
+                                                            action_sel == key,
+                                                            label_of(key),
+                                                        )
                                                         .clicked()
                                                     {
                                                         action_sel = key.to_string();
@@ -7560,11 +7616,15 @@ impl DesignerPanel {
                                                                     "close-application".to_string()
                                                                 }
                                                                 "event" => "event".to_string(),
-                                                                "open-form" => format!(
-                                                                    "open-form:{}",
-                                                                    modal.target_buf
-                                                                ),
-                                                                _ => "event".to_string(),
+                                                                other => {
+                                                                    match MenuEditorModal::action_prefix(other) {
+                                                                        Some(prefix) => format!(
+                                                                            "{prefix}{}",
+                                                                            modal.target_buf
+                                                                        ),
+                                                                        None => "event".to_string(),
+                                                                    }
+                                                                }
                                                             });
                                                         }
                                                     }
@@ -7572,8 +7632,17 @@ impl DesignerPanel {
                                             });
                                     });
 
-                                    // Form selector (for open-form action)
-                                    if cur_action_type == "open-form" {
+                                    // Form selector — for every form-loading
+                                    // action, FILTERED to the targets its
+                                    // action may legally load (051 R25): the
+                                    // embedded door lists Embedded/Both, the
+                                    // standalone pair Standalone/Both. A form
+                                    // whose format cannot be read appears in
+                                    // both lists — a guess never hides a form.
+                                    if let Some(prefix) =
+                                        MenuEditorModal::action_prefix(&cur_action_type)
+                                    {
+                                        let want_embedded = cur_action_type == "open-form";
                                         ui.horizontal(|ui| {
                                             ui.label(tr.menu_lbl_target);
                                             let forms = Self::forms_under(self.cfrm_dir.as_deref());
@@ -7586,37 +7655,24 @@ impl DesignerPanel {
                                                 })
                                                 .width(180.0)
                                                 .show_ui(ui, |ui| {
-                                                    for (label, form_name, embeddable) in &forms {
-                                                        // 049 R17 — a Standalone
-                                                        // form cannot be loaded
-                                                        // into the ContentPane.
-                                                        // Say so HERE: the build
-                                                        // refuses it either way,
-                                                        // and finding out then
-                                                        // means a wasted build.
-                                                        let text = if *embeddable {
-                                                            egui::RichText::new(label)
+                                                    for (label, form_name, embeddable, standaloneable) in
+                                                        &forms
+                                                    {
+                                                        let legal = if want_embedded {
+                                                            *embeddable
                                                         } else {
-                                                            egui::RichText::new(format!(
-                                                                "{label}  ⚠ {}",
-                                                                tr.menu_target_standalone
-                                                            ))
-                                                            .color(Color32::from_rgb(
-                                                                220, 160, 90,
-                                                            ))
+                                                            *standaloneable
                                                         };
-                                                        let resp = ui.selectable_label(
-                                                            cur_form == *form_name,
-                                                            text,
-                                                        );
-                                                        let resp = if *embeddable {
-                                                            resp
-                                                        } else {
-                                                            resp.on_hover_text(
-                                                                tr.menu_target_standalone_hint,
+                                                        if !legal {
+                                                            continue;
+                                                        }
+                                                        if ui
+                                                            .selectable_label(
+                                                                cur_form == *form_name,
+                                                                label,
                                                             )
-                                                        };
-                                                        if resp.clicked() {
+                                                            .clicked()
+                                                        {
                                                             modal.target_buf = form_name.clone();
                                                             if let Some(it) =
                                                                 MenuEditorModal::item_at_mut(
@@ -7625,8 +7681,7 @@ impl DesignerPanel {
                                                                 )
                                                             {
                                                                 it.action = Some(format!(
-                                                                    "open-form:{}",
-                                                                    form_name
+                                                                    "{prefix}{form_name}"
                                                                 ));
                                                             }
                                                         }
@@ -9336,34 +9391,37 @@ impl DesignerPanel {
     /// falling back to the form's own folder for a project that does not use
     /// that layout.
     ///
-    /// Can this `.cfrm` be loaded into the shell's ContentPane by a menu item
-    /// (049 R17)?
+    /// Which load paths this `.cfrm` allows — `(embeddable, standaloneable)`
+    /// (049 R17 / 051 R25).
     ///
     /// Read straight out of the file's `form-format` attribute rather than by
     /// parsing the whole form: the picker asks this of every candidate, and a
-    /// full parse per form per frame is not worth a single attribute. Anything
-    /// unreadable is treated as loadable — the build's own R17 check is the
-    /// authority, and this must never hide a form from the list on a guess.
-    fn cfrm_allows_embedded(path: &std::path::Path) -> bool {
+    /// full parse per form per frame is not worth a single attribute. An
+    /// UNREADABLE file counts as both — the picker now filters rather than
+    /// warns (051 R25), and a guess must never hide a form from every list;
+    /// the build's own checks stay the authority.
+    pub(crate) fn cfrm_load_paths(path: &std::path::Path) -> (bool, bool) {
         let Ok(text) = std::fs::read_to_string(path) else {
-            return true;
+            return (true, true);
         };
         let head = &text[..text.len().min(4096)];
         match head.find("form-format=\"") {
             Some(at) => {
                 let rest = &head[at + 13..];
                 let value = rest.split('"').next().unwrap_or("");
-                cobolt_forms::model::FormFormat::from_str(value).allows_embedded()
+                let fmt = cobolt_forms::model::FormFormat::from_str(value);
+                (fmt.allows_embedded(), fmt.allows_standalone())
             }
             // No attribute at all = a form written before 049: Standalone.
-            None => false,
+            None => (false, true),
         }
     }
 
-    /// Returns `(label, name, embeddable)`: the label is the path relative to
-    /// the root, so two forms sharing a name in different folders are tellable
-    /// apart, while the action keeps storing the form's own name.
-    fn forms_under(cfrm_dir: Option<&std::path::Path>) -> Vec<(String, String, bool)> {
+    /// Returns `(label, name, embeddable, standaloneable)`: the label is the
+    /// path relative to the root, so two forms sharing a name in different
+    /// folders are tellable apart, while the action keeps storing the form's
+    /// own name.
+    fn forms_under(cfrm_dir: Option<&std::path::Path>) -> Vec<(String, String, bool, bool)> {
         let Some(dir) = cfrm_dir else {
             return Vec::new();
         };
@@ -9376,7 +9434,7 @@ impl DesignerPanel {
             })
             .unwrap_or(dir);
 
-        let mut out: Vec<(String, String, bool)> = Vec::new();
+        let mut out: Vec<(String, String, bool, bool)> = Vec::new();
         let mut stack = vec![(root.to_path_buf(), 0usize)];
         while let Some((d, depth)) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&d) else {
@@ -9405,11 +9463,11 @@ impl DesignerPanel {
                     .map(|rel| rel.with_extension(""))
                     .map(|rel| rel.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_else(|| name.clone());
-                let embeddable = Self::cfrm_allows_embedded(&path);
-                out.push((label, name, embeddable));
+                let (embeddable, standaloneable) = Self::cfrm_load_paths(&path);
+                out.push((label, name, embeddable, standaloneable));
             }
         }
-        out.sort_by_key(|(label, _, _)| label.to_lowercase());
+        out.sort_by_key(|(label, _, _, _)| label.to_lowercase());
         out.dedup_by(|a, b| a.0 == b.0);
         out
     }
@@ -15113,7 +15171,7 @@ mod open_form_target_tests {
         // Edited from a SUBFOLDER: the root is still `forms/`, so everything
         // is reachable — the whole point of the change.
         let listed = DesignerPanel::forms_under(Some(nested.as_path()));
-        let labels: Vec<&str> = listed.iter().map(|(l, _, _)| l.as_str()).collect();
+        let labels: Vec<&str> = listed.iter().map(|(l, _, _, _)| l.as_str()).collect();
         assert_eq!(
             labels,
             vec![
@@ -15125,28 +15183,29 @@ mod open_form_target_tests {
             "every .cfrm under forms/, sorted, nested ones path-labelled"
         );
         // The stored action keeps using the form's own name, not the path.
-        let names: Vec<&str> = listed.iter().map(|(_, n, _)| n.as_str()).collect();
+        let names: Vec<&str> = listed.iter().map(|(_, n, _, _)| n.as_str()).collect();
         assert!(names.contains(&"picker") && names.contains(&"main-menu"));
         assert!(
             !labels.iter().any(|l| l.contains("notes")),
             "a non-form file is not a target"
         );
 
-        // 049 R17 — every form is still LISTED, but the ones a menu item
-        // cannot load are flagged here rather than at build time.
-        let embeddable = |want: &str| {
+        // 049 R17 / 051 R25 — the flags the PICKER now filters by: which
+        // list(s) each form belongs to.
+        let paths = |want: &str| {
             listed
                 .iter()
-                .find(|(_, n, _)| n == want)
-                .map(|(_, _, e)| *e)
+                .find(|(_, n, _, _)| n == want)
+                .map(|(_, _, e, s)| (*e, *s))
                 .expect("listed")
         };
-        assert!(embeddable("main-menu"), "Embedded loads into the pane");
-        assert!(embeddable("customers"), "so does Both");
-        assert!(!embeddable("toolbar-demo"), "Standalone does not");
-        assert!(
-            !embeddable("picker"),
-            "and neither does a pre-049 form with no format attribute"
+        assert_eq!(paths("main-menu"), (true, false), "Embedded: pane only");
+        assert_eq!(paths("customers"), (true, true), "Both: both lists");
+        assert_eq!(paths("toolbar-demo"), (false, true), "Standalone: window only");
+        assert_eq!(
+            paths("picker"),
+            (false, true),
+            "a pre-049 form with no format attribute is Standalone"
         );
 
         // From the root itself: the same list.
@@ -15652,6 +15711,113 @@ mod sidebar_seam_tests {
             before.len(),
             STYLES.len(),
             dp.form.glass_style
+        );
+    }
+}
+
+#[cfg(test)]
+mod menu_editor_051_tests {
+    use super::*;
+
+    /// 051 R16/R17 — the action encodings round-trip through the modal's
+    /// classifier, and the combo offers 5 choices for a SideMenu's menu but
+    /// the classic 3 for a MenuBar's.
+    #[test]
+    fn action_encodings_round_trip_and_the_combo_gates_by_control() {
+        use cobolt_forms::menu::MenuItem;
+        let item = |a: Option<&str>| MenuItem {
+            action: a.map(str::to_string),
+            ..MenuItem::new_action("x", "X")
+        };
+        let cases = [
+            (Some("open-form:CRM"), "open-form"),
+            (Some("open-standalone-sync:REPORT"), "open-standalone-sync"),
+            (Some("open-standalone-async:MONITOR"), "open-standalone-async"),
+            (Some("close-application"), "close"),
+            (Some("event"), "event"),
+            (None, "event"),
+            (Some("mystery:thing"), "event"),
+        ];
+        for (action, want) in cases {
+            assert_eq!(
+                MenuEditorModal::action_type_of(&item(action)),
+                want,
+                "{action:?}"
+            );
+        }
+        // The classifier's kind maps back to the exact persisted prefix.
+        assert_eq!(MenuEditorModal::action_prefix("open-form"), Some("open-form:"));
+        assert_eq!(
+            MenuEditorModal::action_prefix("open-standalone-sync"),
+            Some("open-standalone-sync:")
+        );
+        assert_eq!(
+            MenuEditorModal::action_prefix("open-standalone-async"),
+            Some("open-standalone-async:")
+        );
+        assert_eq!(MenuEditorModal::action_prefix("event"), None);
+        assert_eq!(MenuEditorModal::action_prefix("close"), None);
+
+        assert_eq!(
+            MenuEditorModal::action_type_options(true).len(),
+            5,
+            "a SideMenu's menu offers five actions"
+        );
+        assert_eq!(
+            MenuEditorModal::action_type_options(false),
+            vec!["event", "open-form", "close"],
+            "a MenuBar's keeps the classic three"
+        );
+        println!(
+            "051 menu editor — 7/7 encodings classified, 3 prefixes mapped, \
+             combo 5 (SideMenu) vs 3 (MenuBar)"
+        );
+    }
+
+    /// 051 R25 — the picker filter's source of truth: each `form-format`
+    /// yields the right (embeddable, standaloneable) pair, a pre-049 file is
+    /// Standalone, and an unreadable file appears in BOTH lists.
+    #[test]
+    fn cfrm_load_paths_cover_all_format_cases() {
+        let dir = std::env::temp_dir().join(format!(
+            "prc-051-loadpaths-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, fmt: Option<&str>| {
+            let attr = fmt
+                .map(|f| format!(" form-format=\"{f}\""))
+                .unwrap_or_default();
+            let p = dir.join(name);
+            std::fs::write(
+                &p,
+                format!("<Form name=\"X\" title=\"X\" width=\"100\" height=\"100\"{attr}></Form>"),
+            )
+            .unwrap();
+            p
+        };
+        let cases = [
+            (write("emb.cfrm", Some("Embedded")), (true, false)),
+            (write("std.cfrm", Some("Standalone")), (false, true)),
+            (write("both.cfrm", Some("Both")), (true, true)),
+            (write("old.cfrm", None), (false, true)),
+            (dir.join("missing.cfrm"), (true, true)),
+        ];
+        for (path, want) in &cases {
+            assert_eq!(
+                DesignerPanel::cfrm_load_paths(path),
+                *want,
+                "{}",
+                path.display()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        println!(
+            "051 picker filter — 5/5 format cases: Embedded (embed only), \
+             Standalone + pre-049 (standalone only), Both (both), unreadable (both)"
         );
     }
 }

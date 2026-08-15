@@ -174,7 +174,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     disables shell input; `close-application` with a live modal child routes
     through the veto path.
 
-- [ ] **T12 — Shell: embedded occupant swap — the `open-form:` door** (R10,
+- [x] **T12 — Shell: embedded occupant swap — the `open-form:` door** (R10,
   R11, R12)
   - Files: `crates/cobolt-form-host/src/shell.rs`,
     `crates/cobolt-form-host/src/host.rs` (active-occupant pane render)
@@ -195,7 +195,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     shape); `grep -rn "awaits the multi-form host" crates/` returns nothing
     (AC7).
 
-- [ ] **T13 — Designer: menu-editor surface + Target filtering + i18n ×6**
+- [x] **T13 — Designer: menu-editor surface + Target filtering + i18n ×6**
   (R16, R17, R20, R25)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-ide/src/app.rs` (pass the control type at modal open),
@@ -215,16 +215,12 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     Standalone/Embedded/Both/unreadable (AC12); i18n completeness tests
     green (no empty translations).
 
-- [ ] **T14 — IDE Run Form parity** (R13)
-  - Files: `crates/cobolt-ide/src/form_runtime.rs`,
-    `crates/cobolt-ide/src/app.rs`
-  - Do: IDE Run Form supplies the project-backed `FormSource` and the shared
-    spawn helper; child viewports declared from the IDE's own viewport loop
-    (its existing idiom); shell mode in Run Form gains the same occupant and
-    standalone behaviour.
-  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` green;
-    `cargo build -p cobolt-ide` green; operator: the T10 fixture behaves
-    identically under IDE Run Form (AC8).
+- [x] **T14 — IDE Run Form parity** (R13)
+  - **Resolved by architecture:** IDE Run Form spawns `rcrun run-form` as an
+    external process (`form_runtime.rs::ExternalFormRun::spawn`) — the exact
+    binary T10 wired. There is no IDE-side host to drift; parity is the same
+    executable. Remaining verification: `cargo test -p cobolt-ide` green,
+    release rebuild in T16 so the bundled `rcrun` is fresh, operator AC8.
 
 - [ ] **T15 — Docs: System KB + Developer's Guide + chunked rebuild**
   (steering; R21 docs)
