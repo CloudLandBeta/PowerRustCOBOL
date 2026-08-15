@@ -2519,7 +2519,22 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "The list content, one item per line.",
         ),
         "SelectedIndex" => ("0-based index; -1 = no selection", "Currently selected item."),
-        "MultiSelect" => (BOOL_DOMAIN, "Allows selecting several items."),
+        "MultiSelect" => (
+            BOOL_DOMAIN,
+            "Lets the user build a selection with Ctrl-click (Cmd on a Mac), reported in SelectedItems.",
+        ),
+        "SelectedItems" => (
+            "newline-separated item text (runtime)",
+            "The Ctrl-click selection, drawn in a dimmed highlight. Separate from Value, which is the ACTIVE row.",
+        ),
+        "ShowCheckBoxes" => (
+            BOOL_DOMAIN,
+            "Gives every ListBox row a tick box; what they collect is CheckedItems.",
+        ),
+        "CheckedItems" => (
+            "newline-separated item text (runtime)",
+            "The ticked rows, in the order the user ticked them and with any gaps. Ticking never moves the active row.",
+        ),
         "Sorted" => (BOOL_DOMAIN, "Keeps items alphabetically sorted."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
         "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list."),
@@ -2728,9 +2743,25 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
 
         // ── FileDropZone (spec 039) ──
         "Hint" => ("free text", "Placeholder text shown inside the empty drop zone."),
+        "AllowedExtensions" => (
+            "comma/space separated extensions, e.g. `csv, xlsx` (blank accepts any file)",
+            "What the zone takes. Case-blind, with or without the dot; a file whose extension is not listed is refused.",
+        ),
+        "MaximumFileSizeKB" => (
+            "KB, 0 = no limit",
+            "Largest file the zone takes. A bigger file is refused rather than reported.",
+        ),
+        "DestinationFolder" => (
+            "local folder path (blank leaves files where they are)",
+            "Accepted files are copied here, the folder being created if needed; an existing name is never overwritten (`report.csv` becomes `report (2).csv`).",
+        ),
         "DroppedFiles" => (
             "newline-separated absolute paths (runtime-only, never a design-time default)",
-            "Files dropped or picked since the last read — one absolute path per line.",
+            "Files ACCEPTED since the last read — one absolute path per line, the copy in DestinationFolder when one is set.",
+        ),
+        "RejectedFiles" => (
+            "newline-separated `path<TAB>reason` (runtime-only, never a design-time default)",
+            "Files the zone turned away, each with `extension` or `too-big` after a TAB.",
         ),
 
         // ── Maps (spec 039) ──
@@ -3065,7 +3096,16 @@ Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueField
 With `IsRepeatingGroup = 1` the GroupBox becomes a card template: set `ItemCount` (or bind `DataSource`) and address instance members as `Member(index)::Property` (1-based index). Handlers on members receive `CONTROL-ARRAY-INDEX`.\n",
         "FileDropZone" => "\
 ### Usage (no INVOKE methods — it is purely a UI gesture)\n\
-There is no method to open the picker or read a drop programmatically. The user drags a file onto the control OR clicks it to open the native file picker; either way the platform populates `DroppedFiles` (newline-separated absolute paths) and fires `onFilesDropped`. Read the paths with `MOVE FDZ-1::DroppedFiles TO WS-PATHS`.\n",
+There is no method to open the picker or read a drop programmatically. The user drags a file onto the control OR clicks it to open the native file picker; either way the platform runs the zone's intake and fires an event. Read the paths with `MOVE FDZ-1::DroppedFiles TO WS-PATHS`.\n\
+\n\
+### What the zone accepts, and where it puts it\n\
+Three design-time properties decide, and both routes in (drop and picker) obey them:\n\
+\n\
+- `AllowedExtensions` — `csv, xlsx`. Case-blind, dots optional. Blank accepts any file.\n\
+- `MaximumFileSizeKB` — largest file taken, in KB. `0` is no limit.\n\
+- `DestinationFolder` — accepted files are COPIED here (the folder is created if missing). An existing name is never overwritten: `report.csv` lands as `report (2).csv`. Blank leaves files where they are.\n\
+\n\
+Accepted files appear in `DroppedFiles` — at their NEW path when a destination is set — and fire `onFilesDropped`. Refused files appear in `RejectedFiles`, one `path<TAB>reason` per line where reason is `extension` or `too-big`, and fire `onFilesRejected`. A drop of ten files where three are refused fires BOTH events. Nothing is refused silently.\n",
         "Maps" => "\
 ### Usage — basemap vs. data verbs, and the API key\n\
 The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) needs **no API key at all**. Only the five data methods (`Geocode`, `ReverseGeocode`, `Directions`, `DistanceMatrix`, `PlacesSearch`) call the real Google Maps API and need a project-level `google-maps` credential (Settings → Integrations) — with none configured they fail immediately with `LastError` = \"not configured\" and fire `onError`, never a crash, never a network call (R33). The key itself never appears in any property, generated `.cbl`, or the `.cfrm`.\n",

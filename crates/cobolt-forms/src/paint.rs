@@ -2700,41 +2700,7 @@ pub fn draw_control(
 
         match ctrl.control_type {
             CT::Knob => {
-                let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
-                let max_v = ctrl
-                    .get_prop("Maximum")
-                    .map(|v| v.as_i64())
-                    .unwrap_or(100)
-                    .max(min_v as i64 + 1) as f32;
-                let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
-                let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
-                let accent = alpha_color(accent_color(
-                    &ctrl
-                        .get_prop("Accent")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "Blue".into()),
-                ));
-                let track = alpha_color(
-                    theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140)),
-                );
-                let center = rect.center();
-                let radius = (rect.width().min(rect.height()) * 0.5 - 4.0).max(6.0);
-                // Knob's own 270° sweep, centred at the bottom (135°..405°,
-                // i.e. start at south-west, clockwise to south-east).
-                draw_ring(painter, center, radius, radius * 0.18, 135.0, 270.0, frac, accent, track);
-                let show_value = ctrl
-                    .get_prop("ShowValue")
-                    .map(|v| v.as_bool())
-                    .unwrap_or(true);
-                if show_value {
-                    painter.text(
-                        center,
-                        egui::Align2::CENTER_CENTER,
-                        format!("{val:.0}"),
-                        egui::FontId::proportional((radius * 0.5).max(9.0)),
-                        Color32::from_rgba_premultiplied(230, 230, 230, a),
-                    );
-                }
+                draw_knob(painter, rect, ctrl, alpha_mul, a);
             }
             CT::Gauge => {
                 let style = ctrl
@@ -2749,19 +2715,34 @@ pub fn draw_control(
                     .max(min_v as i64 + 1) as f32;
                 let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
                 let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
+                // The meter's own colours. `Color` names the needle/bar as it
+                // always has; where the developer left it alone the control's
+                // `ForegroundColor` paints the meter and `BackgroundColor` its
+                // track — the two properties every other control honours, which
+                // a Gauge simply ignored.
                 let color_prop = ctrl
                     .get_prop("Color")
                     .map(|v| v.as_str().to_owned())
                     .unwrap_or_default();
-                let fill = alpha_color(if color_prop.is_empty() {
-                    accent_color("Blue")
-                } else {
+                let user_fg = ctrl
+                    .get_prop("ForegroundColor")
+                    .map(|v| parse_color(v.as_str()))
+                    .filter(|c| c.a() > 0 && *c != parse_color(crate::model::DEFAULT_FOREGROUND_COLOR));
+                let fill = alpha_color(if !color_prop.is_empty() {
                     parse_color(&color_prop)
+                } else {
+                    user_fg.unwrap_or_else(|| accent_color("Blue"))
                 });
                 let track = alpha_color(
-                    theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140)),
+                    user_background_color(ctrl).unwrap_or_else(|| {
+                        theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140))
+                    }),
                 );
-                match style.as_str() {
+                // Where the reading goes, per style. It used to be dropped at
+                // the control's centre whatever the meter was doing — which on
+                // a Radial is the middle of the sweep, so the number sat on the
+                // band it was reporting.
+                let (value_pos, value_anchor) = match style.as_str() {
                     "Linear" => {
                         let h = ctrl
                             .get_prop("BarHeight")
@@ -2779,6 +2760,16 @@ pub fn draw_control(
                         if frac > 0.001 {
                             painter.rect_filled(filled, r, fill);
                         }
+                        // Above the bar when the control leaves room, otherwise
+                        // on it — never half-covered by it.
+                        if rect.top() + 4.0 < bar.top() - 2.0 {
+                            (
+                                Pos2::new(rect.center().x, bar.top() - 3.0),
+                                egui::Align2::CENTER_BOTTOM,
+                            )
+                        } else {
+                            (rect.center(), egui::Align2::CENTER_CENTER)
+                        }
                     }
                     "Donut" => {
                         let center = rect.center();
@@ -2788,20 +2779,52 @@ pub fn draw_control(
                             .map(|v| v.as_i64() as f32)
                             .unwrap_or(8.0);
                         draw_ring(painter, center, radius, stroke_w, -90.0, 360.0, frac, fill, track);
+                        // The hole is exactly where a donut's reading belongs.
+                        (center, egui::Align2::CENTER_CENTER)
                     }
                     _ => {
                         // Radial: a half-circle speedometer, sweeping the top.
                         let center = Pos2::new(rect.center().x, rect.bottom() - 6.0);
                         let radius = (rect.width() * 0.5 - 4.0).min(rect.height() - 10.0).max(6.0);
                         draw_ring(painter, center, radius, radius * 0.18, 180.0, 180.0, frac, fill, track);
+                        // Inside the dial, centred on the sweep's own centre and
+                        // well clear of the band at `radius`.
+                        (
+                            Pos2::new(center.x, center.y - radius * 0.30),
+                            egui::Align2::CENTER_BOTTOM,
+                        )
                     }
-                }
+                };
+                // The reading in the control's own font and colour, rescued so it
+                // stays legible on whatever the gauge sits on.
+                let fsize = ctrl_font_size(ctrl);
+                let tone = control_surface_tone(
+                    painter.ctx(),
+                    ctrl,
+                    parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
+                );
+                let text_colour = caret_color(
+                    tone,
+                    user_fg.unwrap_or(Color32::from_rgb(230, 230, 230)),
+                );
                 painter.text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
+                    value_pos,
+                    value_anchor,
                     format!("{val:.0}"),
-                    egui::FontId::proportional((rect.height() * 0.22).clamp(9.0, 18.0)),
-                    Color32::from_rgba_premultiplied(230, 230, 230, a),
+                    crate::fonts::font_id(
+                        painter.ctx(),
+                        &ctrl
+                            .get_prop("FontName")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default(),
+                        fsize,
+                    ),
+                    Color32::from_rgba_premultiplied(
+                        text_colour.r(),
+                        text_colour.g(),
+                        text_colour.b(),
+                        a,
+                    ),
                 );
             }
             CT::Switch => {
@@ -3639,8 +3662,11 @@ pub fn draw_control(
             format!("📅 {val}")
         }
         CT::NumericUpDown => {
+            // The value alone, centred in its field — the face the preview and
+            // the running form show. The canvas used to letter "▲▼" into the
+            // caption, so the RAD drew a control that existed nowhere else.
             let v = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
-            format!("{v} ▲▼")
+            format!("{v}")
         }
         CT::PictureBox => {
             let image_path = ctrl
@@ -7444,6 +7470,187 @@ pub fn caret_color(surface: Color32, text: Color32) -> Color32 {
     } else {
         Color32::WHITE
     }
+}
+
+/// Accent colours by name, shared by the controls that offer an `Accent`.
+fn knob_accent(name: &str) -> Color32 {
+    match name {
+        "Green" => Color32::from_rgb(46, 125, 50),
+        "Red" => Color32::from_rgb(198, 40, 40),
+        "Purple" => Color32::from_rgb(106, 27, 154),
+        "Amber" => Color32::from_rgb(245, 124, 0),
+        "Sky" => Color32::from_rgb(2, 136, 209),
+        _ => Color32::from_rgb(0, 120, 215),
+    }
+}
+
+/// A 270° arc from `start_deg`, filled to `frac` over a dim track.
+fn stroke_arc(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    stroke_w: f32,
+    start_deg: f32,
+    sweep_deg: f32,
+    frac: f32,
+    fill: Color32,
+    track: Color32,
+) {
+    let pt = |deg: f32| -> Pos2 {
+        let a = deg.to_radians();
+        Pos2::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+    };
+    let segments = 48.max((sweep_deg.abs() / 4.0) as usize);
+    let track_pts: Vec<Pos2> = (0..=segments)
+        .map(|i| pt(start_deg + sweep_deg * (i as f32 / segments as f32)))
+        .collect();
+    painter.add(egui::Shape::line(track_pts, Stroke::new(stroke_w, track)));
+    if frac > 0.001 {
+        let fill_sweep = sweep_deg * frac.clamp(0.0, 1.0);
+        let n = 48.max((fill_sweep.abs() / 4.0) as usize).max(1);
+        let fill_pts: Vec<Pos2> = (0..=n)
+            .map(|i| pt(start_deg + fill_sweep * (i as f32 / n as f32)))
+            .collect();
+        painter.add(egui::Shape::line(fill_pts, Stroke::new(stroke_w, fill)));
+    }
+}
+
+/// The Knob's dial and where its value sits: `(centre, radius, value baseline)`.
+///
+/// The dial is as big as the control allows, minus the room the value line needs
+/// underneath it — so a knob is the size it was DRAWN, on every surface. (The
+/// widget this replaced picked one of three fixed pixel sizes and ignored the
+/// designed rect entirely, which is why the canvas and the preview disagreed.)
+pub fn knob_layout(rect: egui::Rect, show_value: bool, value_h: f32) -> (Pos2, f32, f32) {
+    let reserved = if show_value { value_h + 4.0 } else { 0.0 };
+    let dial_h = (rect.height() - reserved).max(8.0);
+    let radius = (rect.width().min(dial_h) * 0.5 - 2.0).max(6.0);
+    let center = Pos2::new(rect.center().x, rect.top() + dial_h * 0.5);
+    (center, radius, center.y + radius + 4.0)
+}
+
+/// The Knob: track, active arc, rim, face, inner ring, indicator, value.
+///
+/// One painter for the canvas, the preview, the running form and the compiled
+/// binary — the proportions of the dial the preview always drew, but scaled to
+/// the control's own rect and lettered in the control's own font.
+pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alpha_mul: f32, a: u8) {
+    use crate::surface_theme::ColorToken as Tok;
+    let alpha_color =
+        |c: Color32| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), (c.a() as f32 * alpha_mul) as u8);
+
+    let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
+    let max_v = ctrl
+        .get_prop("Maximum")
+        .map(|v| v.as_i64())
+        .unwrap_or(100)
+        .max(min_v as i64 + 1) as f32;
+    let val = knob_value(ctrl);
+    let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
+
+    let accent = alpha_color(knob_accent(
+        &ctrl
+            .get_prop("Accent")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Blue".into()),
+    ));
+    let border = theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140));
+    let card = theme_token(painter.ctx(), Tok::Card).unwrap_or(Color32::from_gray(40));
+    let track = alpha_color(border);
+
+    let show_value = ctrl
+        .get_prop("ShowValue")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
+    let fsize = ctrl_font_size(ctrl);
+    let (center, radius, value_y) = knob_layout(rect, show_value, fsize * 1.3);
+
+    // Proportions taken from the dial the preview draws, expressed against the
+    // arc radius so every knob keeps the same look at any size.
+    let arc_stroke = (radius * 0.147).max(1.5);
+    let rim_r = radius * 0.794;
+    let face_r = radius * 0.647;
+    let inner_r = radius * 0.529;
+    let ind_inner = radius * 0.353;
+    let ind_outer = radius * 0.706;
+    let ind_w = (radius * 0.071).max(1.2);
+
+    // Sweep: 270°, opening at the bottom — 135° round to 405°.
+    stroke_arc(painter, center, radius, arc_stroke, 135.0, 270.0, frac, accent, track);
+
+    let rim_fill = alpha_color(lighten(card, 0.12));
+    painter.circle(center, rim_r, rim_fill, Stroke::new(1.0, alpha_color(border)));
+    painter.circle_filled(center, face_r, alpha_color(card));
+    if inner_r > 2.0 {
+        painter.circle_stroke(center, inner_r, Stroke::new(1.0, alpha_color(border)));
+    }
+
+    // The indicator points at the value: 0 is bottom-left, 1 bottom-right.
+    let angle = (135.0 + 270.0 * frac).to_radians();
+    let dir = Vec2::new(angle.cos(), angle.sin());
+    painter.line_segment(
+        [center + dir * ind_inner, center + dir * ind_outer],
+        Stroke::new(ind_w, accent),
+    );
+
+    if show_value {
+        // Centred on the control, clear of the dial — and in the control's own
+        // font and colour, rescued to stay legible on whatever it sits on.
+        let fg = ctrl
+            .get_prop("ForegroundColor")
+            .map(|v| parse_color(v.as_str()))
+            .filter(|c| c.a() > 0)
+            .unwrap_or(Color32::from_rgb(230, 230, 230));
+        let tone = control_surface_tone(
+            painter.ctx(),
+            ctrl,
+            parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
+        );
+        let colour = caret_color(tone, fg);
+        let font = crate::fonts::font_id(
+            painter.ctx(),
+            &ctrl
+                .get_prop("FontName")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default(),
+            fsize,
+        );
+        painter.text(
+            Pos2::new(rect.center().x, value_y),
+            egui::Align2::CENTER_TOP,
+            format_knob_value(ctrl, val),
+            font,
+            Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), a),
+        );
+    }
+}
+
+/// A Knob's current value, accepting the integer or decimal spellings a handler
+/// may have written.
+pub fn knob_value(ctrl: &Control) -> f32 {
+    ctrl.get_prop("Value")
+        .map(|v| v.as_str().trim().parse::<f32>().unwrap_or(v.as_i64() as f32))
+        .unwrap_or(0.0)
+}
+
+/// How a Knob writes its value: whole numbers unless its `Step` is fractional.
+pub fn format_knob_value(ctrl: &Control, val: f32) -> String {
+    let step = ctrl
+        .get_prop("Step")
+        .map(|v| v.as_str().trim().parse::<f32>().unwrap_or(1.0))
+        .unwrap_or(1.0);
+    if step.fract().abs() > f32::EPSILON {
+        format!("{val:.2}")
+    } else {
+        format!("{val:.0}")
+    }
+}
+
+/// Lift a colour towards white by `t` — the rim tint that lets the dial read as
+/// raised against its own face.
+fn lighten(c: Color32, t: f32) -> Color32 {
+    let mix = |v: u8| -> u8 { (v as f32 + (255.0 - v as f32) * t).round().clamp(0.0, 255.0) as u8 };
+    Color32::from_rgba_premultiplied(mix(c.r()), mix(c.g()), mix(c.b()), c.a())
 }
 
 /// A toggle's indicator size and the two spacings around it: `(diameter, pad,
@@ -11363,15 +11570,22 @@ mod elegance_baseline_tests {
         // (−81, 1546 → 1465), and both Neumorphic styles 3 → 2 (−1, 484 → 483).
         // The asset-pack rows moved by the same amounts, no pack here skinning a
         // radio. Nothing else in the seam changed.
+        //
+        // Re-blessed again in the same release: the Knob is now drawn by the
+        // shared painter (rim, face, inner ring and indicator, in place of one
+        // bare arc), which is 3 leaves → 7. Every row moved by exactly +4, and a
+        // per-control sweep of all 27 fixture families showed the Knob as the
+        // ONLY count that moved — the Gauge's colours and the NumericUpDown's
+        // caption changed what is drawn, not how many shapes it takes.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1357),
-            ("asset-pack", GS::Classic, 1179),
-            ("liquid-glass", GS::Enhanced, 1465),
-            ("asset-pack", GS::Enhanced, 1261),
-            ("liquid-glass", GS::Neumorphic, 483),
-            ("asset-pack", GS::Neumorphic, 499),
-            ("liquid-glass", GS::NeumorphicDark, 483),
-            ("asset-pack", GS::NeumorphicDark, 499),
+            ("liquid-glass", GS::Classic, 1361),
+            ("asset-pack", GS::Classic, 1183),
+            ("liquid-glass", GS::Enhanced, 1469),
+            ("asset-pack", GS::Enhanced, 1265),
+            ("liquid-glass", GS::Neumorphic, 487),
+            ("asset-pack", GS::Neumorphic, 503),
+            ("liquid-glass", GS::NeumorphicDark, 487),
+            ("asset-pack", GS::NeumorphicDark, 503),
         ];
         for (theme, gs, want) in expected {
             let got = rows

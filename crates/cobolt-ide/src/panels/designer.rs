@@ -627,43 +627,50 @@ fn apply_resize(
     dy: i32,
     grid_px: i32,
     snapping: bool,
+    // The control being resized, for its own floor: a ListBox may not be
+    // dragged below one line of its own text (`min_control_size`). `None`
+    // keeps the universal 8x8.
+    ctrl: Option<&Control>,
 ) -> cobolt_forms::model::Rect {
+    let (min_w, min_h) = ctrl
+        .map(cobolt_forms::model::min_control_size)
+        .unwrap_or((8, 8));
     let s = |v| snap(v, grid_px, snapping);
     let mut nr = r;
     match h {
         Handle::TopLeft => {
             nr.x = s(r.x + dx);
             nr.y = s(r.y + dy);
-            nr.w = (r.w - dx).max(8);
-            nr.h = (r.h - dy).max(8);
+            nr.w = (r.w - dx).max(min_w);
+            nr.h = (r.h - dy).max(min_h);
         }
         Handle::Top => {
             nr.y = s(r.y + dy);
-            nr.h = (r.h - dy).max(8);
+            nr.h = (r.h - dy).max(min_h);
         }
         Handle::TopRight => {
             nr.y = s(r.y + dy);
-            nr.w = s(r.w + dx).max(8);
-            nr.h = (r.h - dy).max(8);
+            nr.w = s(r.w + dx).max(min_w);
+            nr.h = (r.h - dy).max(min_h);
         }
         Handle::Left => {
             nr.x = s(r.x + dx);
-            nr.w = (r.w - dx).max(8);
+            nr.w = (r.w - dx).max(min_w);
         }
         Handle::Right => {
-            nr.w = s(r.w + dx).max(8);
+            nr.w = s(r.w + dx).max(min_w);
         }
         Handle::BotLeft => {
             nr.x = s(r.x + dx);
-            nr.w = (r.w - dx).max(8);
-            nr.h = s(r.h + dy).max(8);
+            nr.w = (r.w - dx).max(min_w);
+            nr.h = s(r.h + dy).max(min_h);
         }
         Handle::Bot => {
-            nr.h = s(r.h + dy).max(8);
+            nr.h = s(r.h + dy).max(min_h);
         }
         Handle::BotRight => {
-            nr.w = s(r.w + dx).max(8);
-            nr.h = s(r.h + dy).max(8);
+            nr.w = s(r.w + dx).max(min_w);
+            nr.h = s(r.h + dy).max(min_h);
         }
     }
     nr
@@ -9757,7 +9764,8 @@ impl DesignerPanel {
                     let gp = self.form.grid_size as i32;
                     let sn = self.form.snap_to_grid;
                     if let Some(ctrl) = self.form.find_control_mut(id) {
-                        ctrl.rect = apply_resize(orig_rect, handle, dx, dy, gp, sn);
+                        let floor = ctrl.clone();
+                        ctrl.rect = apply_resize(orig_rect, handle, dx, dy, gp, sn, Some(&floor));
                     }
                 }
                 DragState::PlacingNew {
@@ -9896,6 +9904,7 @@ impl DesignerPanel {
                         dy,
                         self.form.grid_size as i32,
                         self.form.snap_to_grid,
+                        self.form.find_control(&id),
                     );
                     if new_rect != orig_rect {
                         self.apply(Cmd::ResizeControl {
