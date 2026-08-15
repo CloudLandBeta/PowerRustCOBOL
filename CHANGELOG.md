@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.48] — 2026-08-14
+
+### Fixed — a radio group could show every button selected
+
+A RadioButton turned itself on when clicked, and nothing ever turned the others
+off: a group could sit there with two, three, every button lit, and the form had
+no way to say which one the operator meant. The arm that handles the click can
+only see its own control — the group is now settled after the control loop,
+where the whole form is in scope.
+
+Radios sharing a `GroupName` are mutually exclusive wherever they sit. With no
+name they group by what CONTAINS them, so three radios dropped straight onto a
+form behave as one group without being named, and three inside a GroupBox make
+their own. Only the button that was actually lit reports going out
+(`onUncheck` / `onCheckedChanged` / `onValueChanged`) — a form watching those
+hears about a change, not about every other button in the group on every click.
+
+
 ## [PowerRustCOBOL 1.61.47] — 2026-08-14
 
 ### Fixed — the highlight ate the list's border
