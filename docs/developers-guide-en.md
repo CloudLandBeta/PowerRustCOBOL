@@ -1393,7 +1393,9 @@ value-control contract as `Slider`/`NumericUpDown`.
 interaction, only from your own COBOL (`SetValue()` or `SET Gauge1::Value TO
 …`). `GaugeStyle` picks the underlying look: `Radial` (needle + scale, plus
 `ShowNeedle`/`ShowScale`), `Linear` (a horizontal bar, plus `BarHeight`/
-`ShowThumb`), or `Donut` (a ring, plus `StrokeWidth`). `Color` overrides the
+`ShowThumb`), or `Donut` (a full ring, plus `StrokeWidth` — and it draws the
+same `ShowNeedle` needle as the Radial, sweeping the full circle from the
+top, in the gauge's own colour). `Color` overrides the
 fill (empty = theme accent); `Unit` appends a suffix to the numeric readout
 in every style, exactly as you type it (write `" rpm"` if you want the
 space; `"%"` needs none); `Text` overrides the whole readout string.

@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.51] — 2026-08-15
+
+### Fixed — the Donut gauge gets its needle
+
+`ShowNeedle` — offered by the inspector and saved `true` with every gauge —
+reached the paint only in the Radial style: a Donut gauge kept its switch on
+and drew no needle on any surface. The Donut now draws the same needle on the
+same hub, sweeping its full circle from the top, reaching the band's inner
+edge, and coloured like the Radial's — the gauge's own `Color` (or its
+threshold zones), not a theme's. The inspector row moved out of the "Radial
+style" group to match, and the System KB and the Developer's Guide say so. A
+new cross-surface test pins the needle and its colour on the designer canvas,
+the preview and the run form alike.
+
 ## [PowerRustCOBOL 1.61.49] — 2026-08-14
 
 ### Fixed — properties that were only decoration

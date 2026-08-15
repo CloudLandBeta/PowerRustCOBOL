@@ -5997,8 +5997,12 @@ impl PropertiesPanel {
                     );
                 }
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("Radial style").small().weak());
+                // The needle is not Radial-only: the Donut draws it too, over
+                // its full-circle sweep — so the row sits above the per-style
+                // groups.
                 bool_row_inline(ui, id, "ShowNeedle", "Show needle", ctrl, action);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Radial style").small().weak());
                 bool_row_inline(ui, id, "ShowScale", "Show scale", ctrl, action);
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("Linear style").small().weak());

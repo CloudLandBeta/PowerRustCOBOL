@@ -3820,7 +3820,7 @@ impl Control {
                 props.insert("CriticalThreshold".into(), PropValue::String("".into()));
                 props.insert("Unit".into(), PropValue::String("".into()));
                 props.insert("Text".into(), PropValue::String("".into())); // empty = widget's own readout
-                // Radial-only
+                // Radial + Donut (the needle); the scale is Radial-only
                 props.insert("ShowNeedle".into(), PropValue::Bool(true));
                 props.insert("ShowScale".into(), PropValue::Bool(true));
                 // Linear-only

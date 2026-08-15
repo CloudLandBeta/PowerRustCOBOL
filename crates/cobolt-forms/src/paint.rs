@@ -2786,6 +2786,21 @@ pub fn draw_control(
                             .map(|v| v.as_i64() as f32)
                             .unwrap_or(8.0);
                         draw_ring(painter, center, radius, stroke_w, -90.0, 360.0, frac, fill, track);
+                        // The needle, on the hub it turns about — the same
+                        // `ShowNeedle` the Radial honours, over the Donut's own
+                        // sweep (from the top, clockwise). It reaches the band's
+                        // inner edge, and the readout paints after it, so the
+                        // number stays legible on top.
+                        if gauge_flag(ctrl, "ShowNeedle") {
+                            let a = (-90.0 + 360.0 * frac).to_radians();
+                            let dir = Vec2::new(a.cos(), a.sin());
+                            let reach = (radius - stroke_w * 0.5).max(radius * 0.3);
+                            painter.line_segment(
+                                [center, center + dir * reach],
+                                Stroke::new((radius * 0.06).max(1.5), fill),
+                            );
+                            painter.circle_filled(center, (radius * 0.10).max(2.5), fill);
+                        }
                         // The hole is exactly where a donut's reading belongs.
                         (center, egui::Align2::CENTER_CENTER)
                     }
@@ -11220,6 +11235,77 @@ slice = [4, 4, 4, 4]
             "\n  Gauge — Radial: {all} marks with needle+scale, {without_scale} without the \
              scale, {without_either} with neither; Linear: {with_thumb} with the thumb, \
              {sans_thumb} without\n"
+        );
+    }
+
+    /// A Donut honours `ShowNeedle` exactly like the Radial — and the needle
+    /// takes the developer's own `Color`, not a theme's. Mirrors the operator's
+    /// report (2026-08-15): a Donut gauge saved with `ShowNeedle=true` and
+    /// `Color=#16A34AFF` painted no needle at all.
+    #[test]
+    fn donut_needle_is_drawn_in_the_developers_colour_and_can_be_turned_off() {
+        use crate::model::PropValue;
+
+        /// `(needle stroke colours, hub fill colours)` painted for `ct`.
+        fn needle_ink(ct: &Control) -> (Vec<Color32>, Vec<Color32>) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, segs: &mut Vec<Color32>, hubs: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, segs, hubs)),
+                    egui::Shape::LineSegment { stroke, .. } => segs.push(stroke.color),
+                    egui::Shape::Circle(c) => hubs.push(c.fill),
+                    _ => {}
+                }
+            }
+            let (mut segs, mut hubs) = (Vec::new(), Vec::new());
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut segs, &mut hubs);
+            }
+            (segs, hubs)
+        }
+
+        // The operator's control, prop for prop: 160x144, Value 80 of 0..100,
+        // StrokeWidth 15, Color #16A34AFF.
+        let mut donut = Control::new("G", CT::Gauge, 0, 0);
+        donut.rect = crate::model::Rect::new(0, 0, 160, 144);
+        donut.set_prop("GaugeStyle", PropValue::String("Donut".into()));
+        donut.set_prop("Value", PropValue::Int(80));
+        donut.set_prop("StrokeWidth", PropValue::Int(15));
+        donut.set_prop("Color", PropValue::String("#16A34AFF".into()));
+
+        let green = Color32::from_rgb(0x16, 0xA3, 0x4A);
+        let (segs, hubs) = needle_ink(&donut);
+        assert!(
+            segs.contains(&green),
+            "ShowNeedle defaults on: the Donut must draw its needle in the \
+             developer's #16A34A, got segments {segs:?}"
+        );
+        assert!(
+            hubs.contains(&green),
+            "the needle's hub must take the same colour, got circles {hubs:?}"
+        );
+
+        let mut bare = donut.clone();
+        bare.set_prop("ShowNeedle", PropValue::Bool(false));
+        let (segs_off, hubs_off) = needle_ink(&bare);
+        assert!(
+            segs_off.is_empty() && hubs_off.is_empty(),
+            "ShowNeedle off must remove needle and hub: segments {segs_off:?}, \
+             circles {hubs_off:?}"
+        );
+
+        println!(
+            "\n  Gauge — Donut: needle + hub in the developer's #16A34A when on \
+             ({} segments, {} circles), none when off\n",
+            segs.len(),
+            hubs.len()
         );
     }
 
