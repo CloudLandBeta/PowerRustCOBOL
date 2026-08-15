@@ -5809,17 +5809,20 @@ impl PropertiesPanel {
                     &["Bottom", "Top", "Both", "None"],
                 );
                 bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
-                // Slider colours are the standard Appearance Back color (track
-                // body) and Fore color (knob). The legacy Track/Thumb/Fill colour
-                // pickers are gone — the renderer never used them.
+                // The three parts of a rail, each with its own colour. They
+                // outrank the Appearance section's Back colour (the rail) and
+                // Fore colour (the knob), which still work for anyone who set
+                // them. Left at their defaults, the active theme paints.
+                ui.add_space(4.0);
+                color_row_labeled(ui, id, "FillColor", "Fill (travelled)", ctrl, action);
+                color_row_labeled(ui, id, "TrackColor", "Track (remaining)", ctrl, action);
+                color_row_labeled(ui, id, "ThumbColor", "Thumb", ctrl, action);
                 ui.add_space(4.0);
             }
 
             // ── Knob (spec 039) ─────────────────────────────────────────────
-            // Properties match egui-elegance's real `Knob` builder API exactly
-            // (Size preset + a fixed theme Accent) — no arbitrary track
-            // thickness/colour/gradient, since the widget has no such API
-            // (plan.md §4 Decision 4).
+            // The dial is drawn by the shared painter at the control's own
+            // size, so there is no Size preset; Accent is a colour picker.
             ControlType::Knob if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 int_prop_row(
@@ -5867,15 +5870,7 @@ impl PropertiesPanel {
                     None,
                     0,
                 );
-                combo_row_inline(ui, id, "Size", ctrl, action, &["Small", "Medium", "Large"]);
-                combo_row_inline(
-                    ui,
-                    id,
-                    "Accent",
-                    ctrl,
-                    action,
-                    &["Blue", "Green", "Red", "Purple", "Amber", "Sky"],
-                );
+                accent_row(ui, id, ctrl, action);
                 bool_row_inline(ui, id, "Bipolar", "Bipolar (fill from centre)", ctrl, action);
                 bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
                 {
@@ -8987,6 +8982,35 @@ fn color_row_labeled(
             RichText::new(color32_to_hex(color))
                 .color(Color32::GRAY)
                 .small(),
+        );
+    });
+}
+
+/// The `Accent` row — any colour, straight from the picker.
+///
+/// The property was limited to six names before it grew this row, and forms
+/// saved back then still hold one, so the swatch resolves whatever is stored
+/// through the painter's own table: it opens showing the colour the control
+/// actually draws. Picking one writes it back as hex.
+fn accent_row(ui: &mut Ui, id: &str, ctrl: &Control, action: &mut InspectorAction) {
+    let stored = ctrl
+        .get_prop("Accent")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_default();
+    let mut color = cobolt_forms::paint::knob_accent(&stored);
+    property_row(ui, "Accent", |ui| {
+        if color_edit_button_closing(ui, &mut color).changed() {
+            action.set_props.push((
+                id.to_owned(),
+                "Accent".to_owned(),
+                PropValue::String(color32_to_hex(color)),
+            ));
+        }
+        ui.label(
+            RichText::new(color32_to_hex(color))
+                .monospace()
+                .small()
+                .color(Color32::GRAY),
         );
     });
 }

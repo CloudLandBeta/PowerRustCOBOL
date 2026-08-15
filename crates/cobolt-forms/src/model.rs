@@ -3789,16 +3789,16 @@ impl Control {
                 props.insert("ShowValue".into(), PropValue::Bool(false)); // label current value
                 props.insert("DataItem".into(), PropValue::String("".into()));
             }
-            // Knob (spec 039): egui-elegance's `Knob` widget — Size preset
-            // and a fixed theme Accent are the widget's real customisation
-            // surface (no arbitrary thickness/colour/gradient — see
-            // spec.md's Overview scope note and plan.md §4 Decision 4).
+            // Knob (spec 039). The shared painter draws the dial at whatever
+            // size the control was given, so there is no Size preset to pick —
+            // a knob is the size it was drawn. Accent takes any colour from the
+            // picker; the six names it was once limited to still resolve, so
+            // forms saved with one keep their colour (`paint::knob_accent`).
             ControlType::Knob => {
                 props.insert("Minimum".into(), PropValue::Int(0));
                 props.insert("Maximum".into(), PropValue::Int(100));
                 props.insert("Value".into(), PropValue::Int(0));
                 props.insert("Step".into(), PropValue::Int(1));
-                props.insert("Size".into(), PropValue::String("Medium".into())); // Small | Medium | Large
                 props.insert("Accent".into(), PropValue::String("Blue".into()));
                 props.insert("Bipolar".into(), PropValue::Bool(false));
                 props.insert("ShowValue".into(), PropValue::Bool(true));
@@ -7515,7 +7515,8 @@ mod tests {
         assert_eq!(c.get_prop("Maximum").unwrap().as_i64(), 100);
         assert_eq!(c.get_prop("Value").unwrap().as_i64(), 0);
         assert_eq!(c.get_prop("Step").unwrap().as_i64(), 1);
-        assert_eq!(c.get_prop("Size").unwrap().as_str(), "Medium");
+        // No Size preset: the painter draws the dial at the control's own size.
+        assert!(c.get_prop("Size").is_none());
         assert_eq!(c.get_prop("Accent").unwrap().as_str(), "Blue");
         assert!(!c.get_prop("Bipolar").unwrap().as_bool());
         assert!(c.get_prop("ShowValue").unwrap().as_bool());

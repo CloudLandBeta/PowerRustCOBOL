@@ -2503,8 +2503,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ShowValue" => (BOOL_DOMAIN, "Draws the numeric value on the control."),
         "TickFrequency" => ("integer > 0 (value units)", "Draw a tick every N units."),
         "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn."),
-        "TrackColor" => (COLOR_DOMAIN, "Slider track color."),
-        "ThumbColor" => (COLOR_DOMAIN, "Slider knob color."),
+        "TrackColor" => (COLOR_DOMAIN, "Slider rail color — the part still to travel, from Value to Maximum. Outranks the Appearance BackgroundColor; left at its default the active theme paints."),
+        "ThumbColor" => (COLOR_DOMAIN, "Slider knob color. Outranks the Appearance ForegroundColor; left at its default the active theme paints."),
 
         // ── Date/time ──
         "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Date display format preset."),
@@ -2623,7 +2623,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RoundedEnds" => (BOOL_DOMAIN, "Rounds the line end caps."),
         "ShapeType" => ("one of: `Rectangle` | `Circle` | `Triangle`", "Geometric shape drawn."),
         "FormStyle" => (BOOL_DOMAIN, "Shape follows the form's glass style."),
-        "FillColor" => (COLOR_DOMAIN, "Shape interior fill (also Slider filled-track color)."),
+        "FillColor" => (COLOR_DOMAIN, "Shape interior fill. On a Slider, the travelled part of the rail — Minimum to Value — which is the part that reads as filled; left at its default the active theme paints."),
         "FillStyle" => ("one of: `Solid` | `None` | `Hatched`", "How the shape interior is filled."),
         "LineStyle" => ("one of: `Solid` | `Dash` | `Dot` | `DashDot`", "Shape outline dash pattern."),
 
@@ -2725,16 +2725,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "IconSize" => ("pixels, one of: `16` `32` `48` `64` `80` `96` `128`", "Icon edge length."),
 
         // ── Knob / Gauge / Switch (spec 039) ──
-        "Size" => ("one of: `Small` | `Medium` | `Large`", "Knob dial size."),
-        "Accent" => ("one of: `Blue` | `Green` | `Red` | `Purple` | `Amber` | `Sky`", "Theme accent color (Knob/Switch); an unrecognised value falls back to `Blue`."),
+        "Accent" => ("hex color string, or one of: `Blue` | `Green` | `Red` | `Purple` | `Amber` | `Sky`", "Accent color: the Knob's arc and indicator, the Switch's ON track. The Knob takes any color from the designer's picker; the six names still resolve, and an unrecognised value falls back to `Blue`. There is no Size property — the Knob's dial is drawn at whatever size the control was given."),
         "Bipolar" => (BOOL_DOMAIN, "Knob fill grows from the center (both directions) instead of from Minimum."),
         "DefaultValue" => ("integer within Minimum..Maximum", "Value a double-click/reset returns the Knob to."),
         "Label" => ("free text or empty", "Caption drawn under the Knob."),
-        "GaugeStyle" => ("one of: `Radial` | `Linear` | `Donut`", "Which egui-elegance widget renders the Gauge."),
-        "Color" => ("hex color string or empty", "Gauge fill color; empty uses the active theme's accent."),
-        "WarningThreshold" => ("integer within Minimum..Maximum, or empty", "Value at which the Gauge switches to its warning zone color. Empty = zone coloring off; both this and CriticalThreshold must be set together."),
-        "CriticalThreshold" => ("integer within Minimum..Maximum, or empty", "Value at which the Gauge switches to its critical zone color (see WarningThreshold)."),
-        "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix appended to the Gauge's numeric readout (Radial/Donut only — Linear has no unit-text API)."),
+        "GaugeStyle" => ("one of: `Radial` | `Linear` | `Donut`", "Which meter the Gauge draws: a half-circle speedometer, a horizontal bar, or a full ring."),
+        "Color" => ("hex color string or empty", "Gauge fill color; empty uses the active theme's accent. Ignored while zone coloring is on (see WarningThreshold)."),
+        "WarningThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns amber. Empty = zone coloring off; both this and CriticalThreshold must be set together, and while they are the zone owns the fill color: green below WarningThreshold, amber from it, red from CriticalThreshold."),
+        "CriticalThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns red (see WarningThreshold)."),
+        "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix appended to the Gauge's numeric readout, in every style, exactly as typed — write `\" rpm\"` if you want the space."),
         "ShowNeedle" => (BOOL_DOMAIN, "Draws the Radial Gauge's needle."),
         "ShowScale" => (BOOL_DOMAIN, "Draws the Radial Gauge's tick scale."),
         "BarHeight" => ("pixels > 0", "Linear Gauge bar thickness."),
