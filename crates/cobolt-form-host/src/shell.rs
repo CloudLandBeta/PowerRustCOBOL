@@ -284,6 +284,15 @@ impl NavChain {
         destroyed
     }
 
+    /// 051 — the incoming load's `PreservePreviousForm` decides the fate of
+    /// the form DISPLAYED BEFORE it (049 R24): the shell marks the top with
+    /// the clicking item's flag just before [`Self::replace_top`] judges it.
+    pub fn mark_top_preserve(&mut self, preserve: bool) {
+        if let Some(top) = self.entries.last_mut() {
+            top.preserve_on_replace = preserve;
+        }
+    }
+
     /// R23 — a root-slot subsystem switch: unwind to the MAIN form (also
     /// destroying the parking lot — a preserved sibling of a dead subsystem
     /// has no way back), then the caller pushes the new subsystem.
@@ -953,6 +962,7 @@ pub fn run_shell(
     config.surface = crate::Surface::Pane;
     let ev_tx = config.ev_tx.clone();
     let input_tx = config.input_tx.clone();
+    let form_req_tx = config.form_req_tx.clone();
     let title_fallback = config.title_fallback.clone();
     let (host, form) = crate::FormHost::new(config);
 
@@ -1054,6 +1064,7 @@ pub fn run_shell(
         state_path,
         input_tx,
         ev_tx,
+        form_req_tx,
     };
     let _ = eframe::run_native(
         &title,
@@ -1076,6 +1087,148 @@ struct ShellApp {
     state_path: Option<std::path::PathBuf>,
     input_tx: std::sync::mpsc::Sender<cobolt_runtime::channels::StateUpdate>,
     ev_tx: std::sync::mpsc::Sender<cobolt_runtime::channels::FormEvent>,
+    /// 051 R18 — the shell's own door into the supervisor: the standalone
+    /// menu actions submit OpenForm requests here (drained by the host's
+    /// frame like any interpreter's), with the shell as caller.
+    form_req_tx: std::sync::mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
+}
+
+impl ShellApp {
+    /// 051 R18/R19 — drain and perform this frame's menu activations. The
+    /// UI thread never blocks: a Sync open is modal through the supervisor's
+    /// modal tracking (the shell's face disables while the child lives), not
+    /// through a blocked thread.
+    fn process_menu_clicks(&mut self) {
+        for click in self.shell.take_menu_clicks() {
+            match click.action.as_deref() {
+                Some(a) if a.starts_with("open-form:") => {
+                    // 051 R10/R11 — the embedded door, for real: the target
+                    // loads into the ContentPane as its own program instance;
+                    // the outgoing occupant deactivates (parking when its
+                    // load asked to be preserved, destroyed otherwise) and
+                    // the breadcrumb follows the chain.
+                    let target = a
+                        .split_once(':')
+                        .map(|(_, t)| t.trim().to_string())
+                        .unwrap_or_default();
+                    if target.is_empty() {
+                        eprintln!(
+                            "shell: menu item '{}' has an open-form action with no target",
+                            click.item_id
+                        );
+                        continue;
+                    }
+                    let target_upper = target.to_ascii_uppercase();
+                    if self
+                        .chain
+                        .current()
+                        .map(|e| e.form_object == target_upper)
+                        .unwrap_or(false)
+                    {
+                        continue; // already displayed
+                    }
+                    let occ_ev_tx = match self.host.ensure_occupant(&target) {
+                        Ok(tx) => tx,
+                        Err(e) => {
+                            // R15 — visible, never silent.
+                            println!("Runtime error: cannot open form '{target}': {e}");
+                            eprintln!("shell: open-form '{target}' failed: {e}");
+                            continue;
+                        }
+                    };
+                    let entry = NavEntry {
+                        form_object: target_upper.clone(),
+                        label: target.clone(),
+                        // Its own fate is decided by whichever click later
+                        // navigates away from it (049 R24).
+                        preserve_on_replace: false,
+                        resident: Box::new(ChannelResident {
+                            form_object: target_upper.clone(),
+                            ev_tx: occ_ev_tx,
+                        }),
+                    };
+                    // The FIRST load stacks on the main form; after that a
+                    // menu click is a SIBLING load (049 R25) — the displayed
+                    // form is replaced, parked when THIS click asked to
+                    // preserve it, destroyed otherwise.
+                    let mut destroyed: Vec<String> = Vec::new();
+                    if self.chain.len() <= 1 {
+                        self.chain.push(entry);
+                    } else {
+                        let outgoing = self.chain.current().map(|e| e.form_object.clone());
+                        self.chain.mark_top_preserve(click.preserve_previous_form);
+                        self.chain.replace_top(entry);
+                        if !click.preserve_previous_form {
+                            if let Some(gone) = outgoing {
+                                destroyed.push(gone);
+                            }
+                        }
+                    }
+                    self.host.retire_occupants(&destroyed);
+                    self.host.show_occupant(Some(&target_upper));
+                }
+                Some(a)
+                    if a.starts_with("open-standalone-sync:")
+                        || a.starts_with("open-standalone-async:") =>
+                {
+                    let sync = a.starts_with("open-standalone-sync:");
+                    let target = a
+                        .split_once(':')
+                        .map(|(_, t)| t.trim().to_string())
+                        .unwrap_or_default();
+                    if target.is_empty() {
+                        eprintln!(
+                            "shell: menu item '{}' has a standalone action with no \
+                             target form",
+                            click.item_id
+                        );
+                        continue;
+                    }
+                    // The reply is the COBOL caller's affordance; a menu click
+                    // has no blocked flow to resume, so it is dropped — the
+                    // supervisor's send into it simply fizzles.
+                    let (rtx, _rrx) = std::sync::mpsc::channel();
+                    let _ = self.form_req_tx.send(
+                        cobolt_runtime::form_host::FormRequest::OpenForm {
+                            caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                            form_id: target,
+                            sync,
+                            window_state: None,
+                            x: None,
+                            y: None,
+                            width: None,
+                            height: None,
+                            // 051 R19 — Sync is implicitly modal (operator).
+                            modal: sync,
+                            reply: rtx,
+                        },
+                    );
+                }
+                Some("close-application") => {
+                    let _ = self
+                        .ev_tx
+                        .send(cobolt_runtime::channels::FormEvent::quit());
+                }
+                _ => {
+                    // `event` items dispatch to the SideMenu control's
+                    // handler; the item id travels as a property first.
+                    if let Some(ctrl) = &self.side_menu_ctrl {
+                        let _ = self.input_tx.send(
+                            cobolt_runtime::channels::StateUpdate::new(
+                                ctrl.clone(),
+                                "SelectedItemId".to_string(),
+                                click.item_id.clone(),
+                            ),
+                        );
+                        let _ = self.ev_tx.send(cobolt_runtime::channels::FormEvent::new(
+                            ctrl.clone(),
+                            "onMenuItemClick",
+                        ));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The window width that keeps the ContentPane the same size across a rail
@@ -1158,6 +1311,11 @@ impl eframe::App for ShellApp {
 
     fn ui(&mut self, root_ui: &mut Ui, frame: &mut eframe::Frame) {
         let _ = frame;
+        // 051 R19 — while a Sync-opened (modal) child window lives, the WHOLE
+        // shell face waits: chrome, breadcrumb and pane alike.
+        if self.host.root_modal_blocked() {
+            root_ui.disable();
+        }
         let shell = &mut self.shell;
         let host = &mut self.host;
         // R21 — the chain the strip renders. The shell paints it (and the
@@ -1191,45 +1349,24 @@ impl eframe::App for ShellApp {
                 self.persist_collapsed();
             }
         }
-        // Menu activations (root slot only until the multi-form host lands).
-        for click in self.shell.take_menu_clicks() {
-            match click.action.as_deref() {
-                Some(a) if a.starts_with("open-form:") => {
-                    // Honest limit: a second form needs its own interpreter +
-                    // program, the same open work as 037 T16.
-                    eprintln!(
-                        "shell: menu item '{}' wants {a}, but hosting a second \
-                         form awaits the multi-form host (037 T16 / 049 tasks \
-                         note)",
-                        click.item_id
-                    );
-                }
-                Some("close-application") => {
-                    let _ = self
-                        .ev_tx
-                        .send(cobolt_runtime::channels::FormEvent::quit());
-                }
-                _ => {
-                    // `event` items dispatch to the SideMenu control's
-                    // handler; the item id travels as a property first.
-                    if let Some(ctrl) = &self.side_menu_ctrl {
-                        let _ = self.input_tx.send(
-                            cobolt_runtime::channels::StateUpdate::new(
-                                ctrl.clone(),
-                                "SelectedItemId".to_string(),
-                                click.item_id.clone(),
-                            ),
-                        );
-                        let _ = self.ev_tx.send(cobolt_runtime::channels::FormEvent::new(
-                            ctrl.clone(),
-                            "onMenuItemClick",
-                        ));
-                    }
+        // Menu activations — each action performed by its own arm.
+        self.process_menu_clicks();
+        // 051 R12/R22 — a breadcrumb click truncates the chain: everything
+        // below the clicked segment is destroyed deepest-first, and the
+        // segment's own form returns to the pane.
+        if let Some(ix) = crumb_click {
+            if ix + 1 < self.chain.len() {
+                let destroyed = self.chain.pop_to(ix);
+                self.host.retire_occupants(&destroyed);
+                if ix == 0 {
+                    self.host.show_occupant(None);
+                } else if let Some(target) =
+                    self.chain.current().map(|e| e.form_object.clone())
+                {
+                    self.host.show_occupant(Some(&target));
                 }
             }
         }
-        // A breadcrumb click on the sole entry is a no-op today.
-        let _ = crumb_click;
     }
 }
 
@@ -1529,6 +1666,11 @@ mod tests {
             finished: Arc::new(AtomicBool::new(false)),
             form_req_rx,
             closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::parse("fade:2000:linear"),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
             fx_restore: false,
@@ -1613,6 +1755,11 @@ mod tests {
                 finished: Arc::new(AtomicBool::new(false)),
                 form_req_rx,
                 closed_tx,
+                form_req_tx: _form_req_tx.clone(),
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
                 fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
                 fx_restore: false,
@@ -1736,6 +1883,11 @@ mod tests {
                 finished: Arc::new(AtomicBool::new(false)),
                 form_req_rx,
                 closed_tx,
+                form_req_tx: _form_req_tx.clone(),
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
                 fx_entrance: cobolt_forms::window_fx::FxSpec::parse("fade:2000:linear"),
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
                 fx_restore: false,
@@ -2158,6 +2310,274 @@ mod tests {
         );
     }
 
+    /// 051 R18/R19 (AC10 shape) — the standalone menu actions submit real
+    /// OpenForm requests with the SHELL as caller: Sync implicitly modal,
+    /// Async never; a targetless action submits nothing; `event` items keep
+    /// dispatching to the SideMenu handler beside them.
+    #[test]
+    fn standalone_menu_actions_submit_shell_parented_opens() {
+        use crate::host::{FormHostConfig, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 300, 200);
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        // The app's request channel is the TEST's — every submitted open is
+        // read back with its flags.
+        let (test_tx, test_rx) = mpsc::channel();
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain: NavChain::default(),
+            host,
+            side_menu_ctrl: Some("SIDE-1".into()),
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx: test_tx,
+        };
+        let click = |action: &str| MenuClick {
+            slot: MenuSlot::Root,
+            item_id: format!("item-{action}"),
+            action: Some(action.to_string()),
+            preserve_previous_form: false,
+        };
+        app.shell.pending_clicks = vec![
+            click("open-standalone-sync:REPORT"),
+            click("open-standalone-async: MONITOR "),
+            click("open-standalone-sync:"),
+            click("event"),
+        ];
+        app.process_menu_clicks();
+
+        let opens: Vec<(String, String, bool, bool)> = test_rx
+            .try_iter()
+            .map(|r| match r {
+                cobolt_runtime::form_host::FormRequest::OpenForm {
+                    caller,
+                    form_id,
+                    sync,
+                    modal,
+                    ..
+                } => (caller, form_id, sync, modal),
+                other => panic!("unexpected request: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            opens,
+            vec![
+                ("W0".into(), "REPORT".into(), true, true),
+                ("W0".into(), "MONITOR".into(), false, false),
+            ],
+            "sync ⇒ modal, async ⇒ modeless, caller is the shell, target trimmed, \
+             empty target submits nothing"
+        );
+        // The `event` item still reached the SideMenu handler.
+        let sel = input_rx.try_iter().find(|u: &cobolt_runtime::channels::StateUpdate| {
+            u.prop == "SelectedItemId"
+        });
+        assert!(sel.is_some(), "event item wrote SelectedItemId");
+        let ev: Vec<_> = ev_rx.try_iter().collect();
+        assert!(
+            ev.iter().any(|e| e.event_id == "onMenuItemClick"),
+            "event item dispatched onMenuItemClick: {ev:?}"
+        );
+        println!(
+            "051 standalone clicks — 4 clicks: 2 opens {opens:?}, 1 empty target \
+             refused, 1 event dispatched"
+        );
+    }
+
+    /// 051 R10/R11/R12 (AC1/AC3 shape) — the `open-form:` door: occupants
+    /// swap with the chain, a preserving click parks the outgoing form (its
+    /// instance — same handle — revives on return), a non-preserving click
+    /// destroys it, and the breadcrumb truncates back to the main form.
+    #[test]
+    fn open_form_swaps_occupants_with_preserve_and_breadcrumb() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            if up == "CRM" || up == "HR" {
+                Ok((cobolt_forms::Form::new(up.as_str(), up.as_str(), 400, 300), program()))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        });
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let (test_tx, _test_rx) = mpsc::channel();
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: "MAIN-FORM".into(),
+            label: "Main".into(),
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: "MAIN-FORM".into(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain,
+            host,
+            side_menu_ctrl: None,
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx: test_tx,
+        };
+        let click = |action: &str, preserve: bool| MenuClick {
+            slot: MenuSlot::Root,
+            item_id: action.to_string(),
+            action: Some(action.to_string()),
+            preserve_previous_form: preserve,
+        };
+
+        // 1 — open CRM: it stacks on the main form and owns the pane.
+        app.shell.pending_clicks = vec![click("open-form:CRM", false)];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("CRM"));
+        assert_eq!(app.host.occupant_forms(), vec!["CRM".to_string()]);
+        let crm_handle_1 = app.host.occupant_handle("CRM").expect("CRM registered");
+        let segs: Vec<String> =
+            app.chain.segments().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(segs, vec!["MAIN-FORM".to_string(), "CRM".to_string()]);
+
+        // 2 — open HR, PRESERVING the outgoing CRM: it parks, instance kept.
+        app.shell.pending_clicks = vec![click("open-form:HR", true)];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("HR"));
+        assert_eq!(
+            app.host.occupant_forms(),
+            vec!["CRM".to_string(), "HR".to_string()],
+            "the preserved CRM instance stays resident"
+        );
+        assert_eq!(app.chain.resident_count(), 3, "MAIN + HR + parked CRM");
+
+        // 3 — back to CRM, NOT preserving HR: HR is destroyed; the parked
+        // CRM revives — the very same instance (same supervisor handle).
+        app.shell.pending_clicks = vec![click("open-form:CRM", false)];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("CRM"));
+        assert_eq!(
+            app.host.occupant_forms(),
+            vec!["CRM".to_string()],
+            "HR retired on a non-preserving swap"
+        );
+        assert_eq!(
+            app.host.occupant_handle("CRM").as_deref(),
+            Some(crm_handle_1.as_str()),
+            "the preserved instance revived, not a rebuild"
+        );
+        // HR's release reached the fan-out (its windowHandlers NULL).
+        let closed: Vec<String> = closed_rx.try_iter().collect();
+        assert!(!closed.is_empty(), "HR's handle was released: {closed:?}");
+
+        // 4 — breadcrumb back to the main form: CRM is destroyed, the pane
+        // returns to the root, and the root (its lifecycle already fired)
+        // gets a fresh onActivate.
+        app.host.show_occupant(Some("CRM")); // ensure state
+        app.chain.mark_top_preserve(false);
+        {
+            // The root's lifecycle pair already fired in a real run.
+            app.host.root_lifecycle_sent_for_test();
+        }
+        let destroyed = app.chain.pop_to(0);
+        app.host.retire_occupants(&destroyed);
+        app.host.show_occupant(None);
+        assert_eq!(app.host.active_occupant_form(), None);
+        assert!(app.host.occupant_forms().is_empty(), "CRM destroyed");
+        let root_events: Vec<String> = ev_rx.try_iter().map(|e| e.event_id).collect();
+        assert!(
+            root_events.iter().any(|e| e == "onActivate"),
+            "the returning root re-activates: {root_events:?}"
+        );
+
+        println!(
+            "051 occupant swap — CRM opened (chain MAIN›CRM), HR swap parked CRM \
+             (3 resident), return revived the SAME instance ({crm_handle_1}), \
+             breadcrumb-back destroyed it and re-activated the root"
+        );
+    }
+
     /// AC3 (mount half) — entering a subsystem replaces the contextual slot
     /// WHOLESALE while the root slot never changes; clicks carry the item's
     /// action and PreservePreviousForm flag.
@@ -2326,6 +2746,11 @@ mod tests {
                 finished: Arc::new(AtomicBool::new(false)),
                 form_req_rx,
                 closed_tx,
+                form_req_tx: _form_req_tx.clone(),
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
                 fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
                 fx_restore: false,
@@ -2434,6 +2859,11 @@ mod tests {
             finished: Arc::new(AtomicBool::new(false)),
             form_req_rx,
             closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
             fx_restore: false,

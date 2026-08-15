@@ -645,7 +645,13 @@ pub struct Interpreter {
     external_store: ExternalStore,
     /// Curated Rust-FFI bridge: owns the live Rust objects referenced from COBOL
     /// `OBJECT REFERENCE` items (spec 005 T9/T10).
-    rust_bridge: crate::rust_bridge::RustBridge,
+    /// 051 Q1 (operator ruling) — the object bridge is ONE per process. Every
+    /// interpreter in a multi-form run shares this store (the spawn helper
+    /// hands each new interpreter the same Arc), so an EXEC RUST block in any
+    /// form resolves the same handle ids — the deliberate shared channel now
+    /// that COBOL storage is per-form. A single-form run keeps its private
+    /// bridge and locks it uncontended.
+    rust_bridge: std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>>,
     /// `OBJECT REFERENCE` item key (uppercase) → bound Rust type external name
     /// (e.g. `S` → `Rust.String`). The item's storage holds the bridge handle id.
     object_refs: HashMap<String, String>,
@@ -885,7 +891,7 @@ impl Interpreter {
             program,
             env,
             external_store,
-            rust_bridge,
+            rust_bridge: std::sync::Arc::new(std::sync::Mutex::new(rust_bridge)),
             object_refs,
             objects: ObjectRegistry::new(),
             exec_rust: crate::exec_rust::ExecRustRegistry::new(),
@@ -1133,6 +1139,87 @@ impl Interpreter {
         }
     }
 
+    /// Does this method open a form — so its `RETURNING` data-item must be
+    /// bound as a windowHandler variable (037 R20/R24)? Covers the `me::`
+    /// pair and the SideMenu pair (051 R22); a bare `starts_with("OPENFORM")`
+    /// missed the latter.
+    pub(crate) fn method_returns_window_handle(method: &str) -> bool {
+        let m = method.trim().to_ascii_uppercase();
+        m.starts_with("OPENFORM") || m.starts_with("OPENSTANDALONEFORM")
+    }
+
+    /// 037 R20/R21/R28 — the one OpenForm road to the supervisor, shared by
+    /// `me::"OpenFormSync"/"OpenFormAsync"` (caller = own window) and the
+    /// SideMenu's `OpenStandAloneForm*` pair (caller = the shell, 051 R18).
+    /// Sync blocks here until the child closes when modal (the default); the
+    /// deferred reply then carries None ⇒ NULL handle (R24).
+    fn open_form_via_supervisor(
+        &mut self,
+        caller: String,
+        sync: bool,
+        method: &str,
+        strings: &[String],
+    ) -> Result<CobolValue, RuntimeError> {
+        use crate::form_host::FormRequest;
+        let none = CobolValue::from_str("", 0);
+        let Some(tx) = self.form_host_tx.clone() else {
+            return Err(RuntimeError::General {
+                message: format!(
+                    "{} needs the multi-form runtime (run the form, not check)",
+                    method.trim()
+                ),
+            });
+        };
+        let form_id = strings.first().cloned().unwrap_or_default();
+        if form_id.is_empty() {
+            return Err(RuntimeError::General {
+                message: format!("{}: the form id argument is required", method.trim()),
+            });
+        }
+        // Optional trailing parameters (R21): empty/absent ⇒ the target
+        // form's RAD-designed value (resolved by the host).
+        let opt_s = |i: usize| strings.get(i).filter(|s| !s.is_empty()).cloned();
+        let opt_i = |i: usize| strings.get(i).and_then(|s| s.parse::<i64>().ok());
+        let modal = if sync {
+            strings
+                .get(6)
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    s == "1" || s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("yes")
+                })
+                .unwrap_or(true) // comma-form default (R21)
+        } else {
+            false // Async is never modal (R20)
+        };
+        let (rtx, rrx) = mpsc::channel();
+        tx.send(FormRequest::OpenForm {
+            caller,
+            form_id,
+            sync,
+            window_state: opt_s(1),
+            x: opt_i(2),
+            y: opt_i(3),
+            width: opt_i(4),
+            height: opt_i(5),
+            modal,
+            reply: rtx,
+        })
+        .map_err(|_| RuntimeError::General {
+            message: "window supervisor is gone".into(),
+        })?;
+        // Modal Sync blocks HERE until the child closes (R28).
+        match rrx.recv() {
+            Ok(Some(handle)) => {
+                let n = handle.len();
+                Ok(CobolValue::from_str(&handle, n))
+            }
+            Ok(None) => Ok(none),
+            Err(_) => Err(RuntimeError::General {
+                message: "window supervisor dropped the reply".into(),
+            }),
+        }
+    }
+
     /// 049 — push one own-form property to the supervisor so `super::X` /
     /// `handle::"GetProperty"` in OTHER forms read the current value.
     /// Fire-and-forget; a missing supervisor is simply a console run.
@@ -1217,6 +1304,28 @@ impl Interpreter {
             return Ok(Some(CobolValue::from_str(&value, n.max(1))));
         }
 
+        // ── 051 — the SideMenu control as receiver ────────────────────────
+        // The sidebar owns the shell's navigation, so it also owns the
+        // programmatic door to a standalone child window:
+        // `INVOKE SideMenu-1 "OpenStandAloneFormSync"/"…Async" USING …`.
+        // Whoever invokes it, the opened window's parent is the SHELL — the
+        // root form — exactly like the sidebar's own menu actions (R18/R21).
+        if matches!(
+            m.as_str(),
+            "OPENSTANDALONEFORMSYNC" | "OPENSTANDALONEFORMASYNC"
+        ) && self
+            .objects
+            .get(&obj_upper)
+            .map(|o| o.class == "SideMenu")
+            .unwrap_or(false)
+        {
+            let sync = m == "OPENSTANDALONEFORMSYNC";
+            let caller = crate::form_host::ROOT_HANDLE.to_string();
+            return self
+                .open_form_via_supervisor(caller, sync, method, &strings)
+                .map(Some);
+        }
+
         // ── `me::` receivers ──────────────────────────────────────────────
         if !self.is_me(object) {
             return Ok(None);
@@ -1224,69 +1333,9 @@ impl Interpreter {
         match m.as_str() {
             "OPENFORMSYNC" | "OPENFORMASYNC" => {
                 let sync = m == "OPENFORMSYNC";
-                let Some(tx) = self.form_host_tx.clone() else {
-                    return Err(RuntimeError::General {
-                        message: format!(
-                            "{} needs the multi-form runtime (run the form, not check)",
-                            method.trim()
-                        ),
-                    });
-                };
-                let form_id = strings.first().cloned().unwrap_or_default();
-                if form_id.is_empty() {
-                    return Err(RuntimeError::General {
-                        message: format!("{}: the form id argument is required", method.trim()),
-                    });
-                }
-                // Optional trailing parameters (R21): empty/absent ⇒ the
-                // target form's RAD-designed value (resolved by the host).
-                let opt_s = |i: usize| strings.get(i).filter(|s| !s.is_empty()).cloned();
-                let opt_i = |i: usize| {
-                    strings
-                        .get(i)
-                        .and_then(|s| s.parse::<i64>().ok())
-                };
-                let modal = if sync {
-                    strings
-                        .get(6)
-                        .filter(|s| !s.is_empty())
-                        .map(|s| {
-                            s == "1"
-                                || s.eq_ignore_ascii_case("true")
-                                || s.eq_ignore_ascii_case("yes")
-                        })
-                        .unwrap_or(true) // comma-form default (R21)
-                } else {
-                    false // Async is never modal (R20)
-                };
-                let (rtx, rrx) = mpsc::channel();
-                tx.send(FormRequest::OpenForm {
-                    caller: self.self_window_handle.clone(),
-                    form_id,
-                    sync,
-                    window_state: opt_s(1),
-                    x: opt_i(2),
-                    y: opt_i(3),
-                    width: opt_i(4),
-                    height: opt_i(5),
-                    modal,
-                    reply: rtx,
-                })
-                .map_err(|_| RuntimeError::General {
-                    message: "window supervisor is gone".into(),
-                })?;
-                // Modal Sync blocks HERE until the child closes (R28); the
-                // deferred reply then carries None ⇒ NULL handle (R24).
-                match rrx.recv() {
-                    Ok(Some(handle)) => {
-                        let n = handle.len();
-                        Ok(Some(CobolValue::from_str(&handle, n)))
-                    }
-                    Ok(None) => Ok(Some(none)),
-                    Err(_) => Err(RuntimeError::General {
-                        message: "window supervisor dropped the reply".into(),
-                    }),
-                }
+                let caller = self.self_window_handle.clone();
+                self.open_form_via_supervisor(caller, sync, method, &strings)
+                    .map(Some)
             }
             // Window methods on the form's own window.
             "SETFULLSCREEN" | "SETTITLEVISIBLE" | "SETWINDOWSTATE" | "FOCUS" | "SETFOCUS" => {
@@ -2546,7 +2595,7 @@ impl Interpreter {
                     if let Some(dest) = returning {
                         let s = result.as_display_string().trim().to_string();
                         let name = self.expr_to_name(dest);
-                        if method.trim().to_ascii_uppercase().starts_with("OPENFORM") {
+                        if Self::method_returns_window_handle(method) {
                             self.window_handle_vars.insert(
                                 name.to_ascii_uppercase(),
                                 if s.is_empty() { None } else { Some(s.clone()) },
@@ -2600,14 +2649,21 @@ impl Interpreter {
             Stmt::GoBack { .. } => Err(RuntimeError::GoBack),
 
             // ── EXEC RUST ─────────────────────────────────────────────────────
-            Stmt::ExecRust { .. } => exec_rust::execute(
-                stmt,
-                &mut self.env,
-                &mut self.objects,
-                &mut self.rust_bridge,
-                &self.exec_rust,
-                self.state_tx.as_ref(),
-            ),
+            Stmt::ExecRust { .. } => {
+                // 051 Q1 — the bridge may be shared with other forms'
+                // interpreters; a block holds the lock only for its own run,
+                // so blocks from different forms serialize here.
+                let bridge = std::sync::Arc::clone(&self.rust_bridge);
+                let mut bridge = bridge.lock().unwrap_or_else(|e| e.into_inner());
+                exec_rust::execute(
+                    stmt,
+                    &mut self.env,
+                    &mut self.objects,
+                    &mut bridge,
+                    &self.exec_rust,
+                    self.state_tx.as_ref(),
+                )
+            }
 
             // ── TRY / CATCH EXCEPTION / FINALLY ──────────────────────────────
             Stmt::TryCatch {
@@ -2760,6 +2816,8 @@ impl Interpreter {
         let id = self.env.get_i64(key).unwrap_or(0);
         let class = self.object_refs.get(key).cloned().unwrap_or_default();
         self.rust_bridge
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .assign(id, &cobol_to_bridge(val))
             .map_err(|e| RuntimeError::General {
                 message: format!("cannot move a value into {key} ({class}): {e}"),
@@ -6756,7 +6814,28 @@ impl Interpreter {
     /// expression form and `RETURNING`).
     /// Number of live Rust-FFI objects (for tests / leak checks). 0 ⇒ none held.
     pub fn rust_object_count(&self) -> usize {
-        self.rust_bridge.live_count()
+        self.rust_bridge
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .live_count()
+    }
+
+    /// 051 Q1 — this interpreter's object bridge, for sharing: the multi-form
+    /// spawn helper clones the ROOT interpreter's Arc into every child, so
+    /// every form's EXEC RUST blocks see one process-wide store.
+    pub fn shared_rust_bridge(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>> {
+        std::sync::Arc::clone(&self.rust_bridge)
+    }
+
+    /// 051 Q1 — adopt a shared object bridge (see [`Self::shared_rust_bridge`]).
+    /// Call before `run`; existing handles in the private bridge are dropped.
+    pub fn set_shared_rust_bridge(
+        &mut self,
+        bridge: std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>>,
+    ) {
+        self.rust_bridge = bridge;
     }
 
     /// Dispatch a method on an `OBJECT REFERENCE` item into the Rust bridge,
@@ -6770,7 +6849,12 @@ impl Interpreter {
         // method uppercased by the COBOL lexer (`LEN`), whereas `INVOKE … "len"`
         // preserves the literal; lowercasing here makes both forms dispatch (R16).
         let method = method.to_ascii_lowercase();
-        match self.rust_bridge.invoke(id, &method, &bargs) {
+        let outcome = self
+            .rust_bridge
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .invoke(id, &method, &bargs);
+        match outcome {
             Ok(v) => bridge_to_cobol(v),
             Err(e) => {
                 tracing::warn!("Rust bridge {key}::{method}: {e}");
@@ -7516,7 +7600,12 @@ impl Interpreter {
                 // scalar rendering fall through to the handle.
                 if self.object_refs.contains_key(&key) {
                     if let Some(id) = self.env.get_i64(&key) {
-                        if let Some(v) = self.rust_bridge.peek(id) {
+                        let peeked = self
+                            .rust_bridge
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .peek(id);
+                        if let Some(v) = peeked {
                             return Ok(bridge_to_cobol(v));
                         }
                     }

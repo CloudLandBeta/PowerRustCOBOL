@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.53] — 2026-08-15
+
+### Added — the multi-form host: every "open form" door now opens (spec 051)
+
+An application now holds many live forms, each running as its own program
+with its own WORKING-STORAGE. The three doors: a sidebar item's **Open form**
+action loads its target into the ContentPane (with `onDeactivate`/
+`onActivate`/`onDestroy`, Preserve-previous-form parking that revives the
+same instance, and a breadcrumb that navigates back); `OpenFormSync`/
+`OpenFormAsync` open real child windows parented to the caller; and the new
+**Open Stand Alone Form (Sync)/(Async)** sidebar actions — plus the SideMenu
+control's `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` methods — open
+child windows parented to the shell. Sync is implicitly modal everywhere.
+The compiled binary embeds one program per openable form; the menu editor's
+Target list is filtered to the forms each action may legally load, with the
+matching build-time checks; parked forms keep their timers ticking; a failed
+open raises a visible runtime error and a NULL handle. EXEC RUST blocks now
+share one object bridge per process (bridged values must be `Send` —
+`Rust.Rc`/`Rust.Weak` count atomically underneath, same behaviour).
+
 ## [PowerRustCOBOL 1.61.52] — 2026-08-15
 
 ### Fixed — a build no longer waits on the registry index

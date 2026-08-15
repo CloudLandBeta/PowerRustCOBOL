@@ -344,20 +344,49 @@ pub fn open_form_target(item: &MenuItem) -> Option<&str> {
         .filter(|t| !t.is_empty())
 }
 
-/// One 049 R17 violation: a menu item targeting a form the menu path may not
-/// load.
+/// The form a menu item opens standalone (051 R17), when its action is
+/// `open-standalone-sync:<NAME>` / `open-standalone-async:<NAME>`. The bool
+/// is `true` for the Sync (implicitly modal) variant.
+pub fn open_standalone_target(item: &MenuItem) -> Option<(&str, bool)> {
+    let a = item.action.as_deref()?;
+    let (rest, sync) = if let Some(r) = a.strip_prefix("open-standalone-sync:") {
+        (r, true)
+    } else if let Some(r) = a.strip_prefix("open-standalone-async:") {
+        (r, false)
+    } else {
+        return None;
+    };
+    let t = rest.trim();
+    (!t.is_empty()).then_some((t, sync))
+}
+
+/// Which way a menu item loads its target — and therefore which
+/// `FormFormat`s are legal for it (049 R17 / 051 R26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuTargetKind {
+    /// `open-form:` — into the shell's ContentPane; needs `Embedded`/`Both`.
+    Embed,
+    /// `open-standalone-*:` — its own window; needs `Standalone`/`Both`.
+    Standalone,
+}
+
+/// One 049 R17 / 051 R26 violation: a menu item targeting a form its action
+/// may not load.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuTargetError {
     pub item_id: String,
     pub item_label: String,
     /// The target form, exactly as the item names it.
     pub form: String,
+    /// How the item tried to load it — decides the message's remedy.
+    pub kind: MenuTargetKind,
 }
 
-/// Walk `def` and report every `open-form:` item whose target form the menu
-/// path may not load (049 R17: a menu load requires FormFormat `Embedded` or
-/// `Both`). `lookup` maps a target name to that form's format — return `None`
-/// for a form the project does not know, which is skipped: this check is about
+/// Walk `def` and report every form-loading item whose target form the
+/// action may not load: `open-form:` requires FormFormat `Embedded`/`Both`
+/// (049 R17), the standalone actions require `Standalone`/`Both` (051 R26).
+/// `lookup` maps a target name to that form's format — return `None` for a
+/// form the project does not know, which is skipped: this check is about
 /// formats, not about broken references.
 pub fn validate_menu_targets(
     def: &MenuDefinition,
@@ -369,13 +398,23 @@ pub fn validate_menu_targets(
         out: &mut Vec<MenuTargetError>,
     ) {
         for item in items {
-            if let Some(target) = open_form_target(item) {
+            let wanted = open_form_target(item)
+                .map(|t| (t, MenuTargetKind::Embed))
+                .or_else(|| {
+                    open_standalone_target(item).map(|(t, _)| (t, MenuTargetKind::Standalone))
+                });
+            if let Some((target, kind)) = wanted {
                 if let Some(fmt) = lookup(target) {
-                    if !fmt.allows_embedded() {
+                    let legal = match kind {
+                        MenuTargetKind::Embed => fmt.allows_embedded(),
+                        MenuTargetKind::Standalone => fmt.allows_standalone(),
+                    };
+                    if !legal {
                         out.push(MenuTargetError {
                             item_id: item.id.clone(),
                             item_label: item.label.clone(),
                             form: target.to_string(),
+                            kind,
                         });
                     }
                 }
@@ -618,11 +657,100 @@ mod tests {
         assert_eq!(errs.len(), 1, "exactly the Standalone target: {errs:?}");
         assert_eq!(errs[0].item_id, "file-new");
         assert_eq!(errs[0].form, "MAIN-FORM");
+        assert_eq!(errs[0].kind, MenuTargetKind::Embed);
 
         println!(
             "049 R17 menu targets — 5 items checked: 1 violation (nested item \
              '{}' → Standalone '{}'), Embedded + Both pass, unknown + \
              non-open-form skipped",
+            errs[0].item_id, errs[0].form
+        );
+    }
+
+    #[test]
+    fn open_standalone_target_parses_both_prefixes_051() {
+        // 051 R17 — the two persisted encodings, their Sync flag, trimming,
+        // and the None cases (other actions, empty target).
+        let item = |a: &str| MenuItem {
+            action: Some(a.into()),
+            ..MenuItem::new_action("x", "X")
+        };
+        assert_eq!(
+            open_standalone_target(&item("open-standalone-sync:REPORT")),
+            Some(("REPORT", true))
+        );
+        assert_eq!(
+            open_standalone_target(&item("open-standalone-async: MONITOR ")),
+            Some(("MONITOR", false)),
+            "the target is trimmed, like open-form:'s"
+        );
+        let none_cases = [
+            "open-standalone-sync:",
+            "open-standalone-sync:   ",
+            "open-form:REPORT",
+            "close-application",
+            "event",
+        ];
+        for a in none_cases {
+            assert_eq!(open_standalone_target(&item(a)), None, "{a:?}");
+        }
+        assert_eq!(
+            open_standalone_target(&MenuItem::new_action("x", "X")),
+            None,
+            "no action at all"
+        );
+        println!(
+            "051 standalone encodings — sync/async parsed (2/2), trimmed, \
+             {} None cases held",
+            none_cases.len() + 1
+        );
+    }
+
+    #[test]
+    fn validate_menu_targets_checks_standalone_actions_051() {
+        // 051 R26 — a standalone action may not target an Embedded-only
+        // form; Standalone and Both pass; open-form:'s own rule is
+        // unchanged beside it; unknown forms are skipped.
+        use crate::model::FormFormat;
+        let mut def = MenuDefinition::default();
+        def.menu = vec![
+            MenuItem {
+                action: Some("open-standalone-sync:CRM-PANEL".into()),
+                ..MenuItem::new_action("bad-sync", "Bad Sync")
+            },
+            MenuItem {
+                action: Some("open-standalone-async:MAIN-FORM".into()),
+                ..MenuItem::new_action("ok-async", "OK Async")
+            },
+            MenuItem {
+                action: Some("open-standalone-sync:CUST-LOOKUP".into()),
+                ..MenuItem::new_action("ok-both", "OK Both")
+            },
+            MenuItem {
+                action: Some("open-standalone-async:GHOST".into()),
+                ..MenuItem::new_action("ghost", "Ghost")
+            },
+            MenuItem {
+                action: Some("open-form:CRM-PANEL".into()),
+                ..MenuItem::new_action("ok-embed", "OK Embed")
+            },
+        ];
+        let lookup = |name: &str| match name {
+            "MAIN-FORM" => Some(FormFormat::Standalone),
+            "CRM-PANEL" => Some(FormFormat::Embedded),
+            "CUST-LOOKUP" => Some(FormFormat::Both),
+            _ => None,
+        };
+        let errs = validate_menu_targets(&def, &lookup);
+        assert_eq!(errs.len(), 1, "exactly the Embedded target: {errs:?}");
+        assert_eq!(errs[0].item_id, "bad-sync");
+        assert_eq!(errs[0].form, "CRM-PANEL");
+        assert_eq!(errs[0].kind, MenuTargetKind::Standalone);
+
+        println!(
+            "051 R26 standalone targets — 5 items checked: 1 violation \
+             ('{}' → Embedded '{}'), Standalone + Both pass, unknown \
+             skipped, open-form: unchanged beside it",
             errs[0].item_id, errs[0].form
         );
     }

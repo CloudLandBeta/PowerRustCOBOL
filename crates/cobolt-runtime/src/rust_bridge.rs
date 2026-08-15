@@ -70,7 +70,7 @@ impl std::fmt::Display for BridgeError {
 /// One live Rust object plus the type it was created as (so methods dispatch).
 struct BridgeObject {
     type_name: String,
-    value: Box<dyn Any>,
+    value: Box<dyn Any + Send>,
 }
 
 /// What a handle holds before anything has put a real object in it.
@@ -108,7 +108,7 @@ impl RustBridge {
     }
 
     /// Store a pre-built object under a fresh handle id.
-    fn store(&mut self, type_name: &str, value: Box<dyn Any>) -> i64 {
+    fn store(&mut self, type_name: &str, value: Box<dyn Any + Send>) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
         self.objects.insert(
@@ -182,8 +182,10 @@ impl RustBridge {
     }
 
     /// Put a value back under an existing handle id (the other half of
-    /// [`Self::take_value`]).
-    pub fn put_value<T: 'static>(&mut self, id: i64, type_name: &str, value: T) {
+    /// [`Self::take_value`]). `Send` because the bridge is ONE per process
+    /// under the multi-form host (051 Q1) — a bridged object may be touched
+    /// from any form's interpreter thread.
+    pub fn put_value<T: 'static + Send>(&mut self, id: i64, type_name: &str, value: T) {
         self.objects.insert(
             id,
             BridgeObject {
@@ -279,7 +281,7 @@ impl RustBridge {
         type_name: &str,
         args: &[BridgeValue],
     ) -> Result<BridgeValue, BridgeError> {
-        let value: Box<dyn Any> = match type_name {
+        let value: Box<dyn Any + Send> = match type_name {
             "Rust.String" => Box::new(string_new(args)?),
             "Rust.i8" | "Rust.i16" | "Rust.i32" | "Rust.i64" | "Rust.i128" | "Rust.isize"
             | "Rust.u8" | "Rust.u16" | "Rust.u32" | "Rust.u64" | "Rust.u128" | "Rust.usize" => {
@@ -310,7 +312,7 @@ impl RustBridge {
         };
         let type_name = obj.type_name.clone();
         let args = [value.clone()];
-        let value: Box<dyn Any> = match type_name.as_str() {
+        let value: Box<dyn Any + Send> = match type_name.as_str() {
             "Rust.String" => Box::new(string_new(&args)?),
             "Rust.i8" | "Rust.i16" | "Rust.i32" | "Rust.i64" | "Rust.i128" | "Rust.isize"
             | "Rust.u8" | "Rust.u16" | "Rust.u32" | "Rust.u64" | "Rust.u128" | "Rust.usize" => {
@@ -355,7 +357,7 @@ impl RustBridge {
 /// work, to keep the borrow here simple).
 fn dispatch(
     type_name: &str,
-    value: &mut Box<dyn Any>,
+    value: &mut Box<dyn Any + Send>,
     method: &str,
     args: &[BridgeValue],
 ) -> Result<BridgeValue, BridgeError> {

@@ -41,7 +41,8 @@ pub mod shell;
 pub mod state;
 
 pub use host::{
-    fx_duration_ms, load_host_icon, run, FormHost, FormHostConfig, HostHooks, NoHooks, Surface,
+    fx_duration_ms, load_host_icon, run, ChildThemeSource, FormHost, FormHostConfig, FormSource,
+    HostHooks, NoHooks, Surface,
 };
 
 /// Depth-first flatten of a designed control tree into draw order input —

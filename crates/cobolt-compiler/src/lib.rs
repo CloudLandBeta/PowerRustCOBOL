@@ -337,6 +337,31 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
 /// Falls back to the first form when none carries the flag, so a project that
 /// predates the main-form marker still builds something coherent rather than a
 /// stub.
+/// 051 R1 — the generated program for form `id` (its uppercased `.cfrm`
+/// stem): the `files.generated` entry with the same stem, a same-stem entry
+/// still tracked under `files.sources` (legacy projects), or `<stem>.cbl`
+/// beside the form's own `.cfrm`. `None` = the form has no program on disk.
+fn generated_program_path(proj: &CoboltProject, dir: &Path, id: &str) -> Option<PathBuf> {
+    let stem_matches = |rel: &str| {
+        Path::new(rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.eq_ignore_ascii_case(id))
+            .unwrap_or(false)
+    };
+    for list in [&proj.files.generated, &proj.files.sources] {
+        if let Some(rel) = list
+            .iter()
+            .find(|g| stem_matches(g) && dir.join(g.as_str()).exists())
+        {
+            return Some(dir.join(rel));
+        }
+    }
+    let cfrm = proj.files.forms.iter().find(|f| stem_matches(f))?;
+    let beside = dir.join(cfrm).with_extension("cbl");
+    beside.exists().then_some(beside)
+}
+
 fn main_form_program(proj: &CoboltProject, dir: &Path) -> Option<String> {
     if proj.files.forms.is_empty() {
         return None;
@@ -780,13 +805,24 @@ fn build_core(
                 };
                 let violations = cobolt_forms::menu::validate_menu_targets(&def, &lookup);
                 if let Some(v) = violations.first() {
-                    return Err(CompilerError::Semantic {
-                        file: format!("{stem}.cfrm / {}", ctrl.id),
-                        message: format!(
+                    // Each kind names the format the target HAS and the one
+                    // its action NEEDS (049 R17 / 051 R26).
+                    let message = match v.kind {
+                        cobolt_forms::menu::MenuTargetKind::Embed => format!(
                             "menu item '{}' ({}) loads form '{}', whose FormFormat is \
                              Standalone — a menu load requires Embedded or Both (049 R17).",
                             v.item_id, v.item_label, v.form
                         ),
+                        cobolt_forms::menu::MenuTargetKind::Standalone => format!(
+                            "menu item '{}' ({}) opens form '{}' standalone, but its \
+                             FormFormat is Embedded — a standalone open requires \
+                             Standalone or Both (051 R26).",
+                            v.item_id, v.item_label, v.form
+                        ),
+                    };
+                    return Err(CompilerError::Semantic {
+                        file: format!("{stem}.cfrm / {}", ctrl.id),
+                        message,
                     });
                 }
             }
@@ -865,6 +901,52 @@ fn build_core(
 
     log(&format!("   {} form(s)", forms.len()));
 
+    // ── 5b. Every other form's PROGRAM rides along (051 R1) ──────────────────
+    // The binary holds one program per openable form, so an `open-form:` menu
+    // item or an OpenForm*/OpenStandAloneForm* call finds the target's event
+    // handlers at run time. The MAIN form's program stays `program.bin`,
+    // untouched (R2). A form whose generated program is missing or does not
+    // parse is OMITTED with a warning — opening it then fails visibly at run
+    // time (R15) instead of failing every build of the project.
+    report(0.44, "Compiling form programs…");
+    let mut form_programs: Vec<(String, Vec<u8>)> = Vec::new(); // (ID, gz bincode)
+    for (id, _) in forms.iter().skip(1) {
+        let Some(cbl) = generated_program_path(&proj, &project_dir, id) else {
+            log(&format!(
+                "⚠️  form {id}: no generated program on disk — it cannot be \
+                 opened at run time"
+            ));
+            continue;
+        };
+        let src = match std::fs::read_to_string(&cbl) {
+            Ok(s) => s,
+            Err(e) => {
+                log(&format!("⚠️  form {id}: {} unreadable ({e}) — omitted", cbl.display()));
+                continue;
+            }
+        };
+        let pr = parse(tokenize(&src, detect_format(&src)));
+        let program_ok = pr
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != cobolt_parser::Severity::Error);
+        let Some(form_program) = pr.program.filter(|_| program_ok) else {
+            log(&format!(
+                "⚠️  form {id}: its generated program does not parse — omitted \
+                 (rebuild the form in the IDE and check the generated code)"
+            ));
+            continue;
+        };
+        let bytes = bincode::serialize(&form_program)
+            .map_err(|e| CompilerError::Serialize(e.to_string()))?;
+        let mut gz = GzEncoder::new(Vec::new(), Compression::best());
+        gz.write_all(&bytes).unwrap();
+        form_programs.push((id.clone(), gz.finish()?));
+    }
+    if !form_programs.is_empty() {
+        log(&format!("   {} form program(s) embedded", form_programs.len()));
+    }
+
     // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
     let workspace_root = resolve_workspace_root(opts.workspace_root.clone());
 
@@ -912,6 +994,15 @@ fn build_core(
     // Write form files
     for (id, raw) in &forms {
         write_if_changed(&forms_dir.join(format!("{id}.cfrm")), raw)?;
+    }
+
+    // 051 R1 — each openable form's program, beside the main `program.bin`.
+    if !form_programs.is_empty() {
+        let programs_dir = assets_dir.join("programs");
+        std::fs::create_dir_all(&programs_dir)?;
+        for (id, bin) in &form_programs {
+            write_if_changed(&programs_dir.join(format!("{id}.bin")), bin)?;
+        }
     }
 
     // ── 7b. Stage the asset-pack themes the forms actually use ────────────────
@@ -1032,11 +1123,13 @@ fn build_core(
         proj.forms.exit_ms,
         &proj.forms.exit_easing,
     );
+    let program_ids: Vec<&str> = form_programs.iter().map(|(id, _)| id.as_str()).collect();
     let main_rs = generate_main_rs(
         &proj.project.name,
         &proj.project.version,
         has_forms,
         &form_ids,
+        &program_ids,
         &staged_themes,
         &project_theme_default,
         &entrance_fx,
@@ -1587,11 +1680,13 @@ fn fx_triple(effect: &str, ms: u32, easing: &str) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn generate_main_rs(
     app_name: &str,
     version: &str,
     has_forms: bool,
     form_ids: &[&str],
+    program_ids: &[&str],
     themes: &[StagedTheme],
     project_theme_default: &str,
     entrance_fx: &str,
@@ -1608,6 +1703,21 @@ fn generate_main_rs(
         "static FORMS: &[(&str, &[u8])] = &[];\n".to_owned()
     } else {
         format!("static FORMS: &[(&str, &[u8])] = &[\n{forms_entries}];\n")
+    };
+
+    // 051 R1 — one program per openable non-main form, gz bincode exactly
+    // like `PROGRAM_AST`. `#[allow(dead_code)]`: a single-form application
+    // has an empty table and never looks anything up.
+    let programs_entries: String = program_ids
+        .iter()
+        .map(|id| format!("    (\"{id}\", include_bytes!(\"../assets/programs/{id}.bin\")),\n"))
+        .collect();
+    let programs_const = if program_ids.is_empty() {
+        "#[allow(dead_code)]\nstatic PROGRAMS: &[(&str, &[u8])] = &[];\n".to_owned()
+    } else {
+        format!(
+            "#[allow(dead_code)]\nstatic PROGRAMS: &[(&str, &[u8])] = &[\n{programs_entries}];\n"
+        )
     };
 
     // Embedded asset-pack themes: `(id, theme.toml, [(image ref, bytes)])`.
@@ -1796,15 +1906,22 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // the current value rather than the seeded default. This thread is the
     // per-host part (042 R30): compiled EXEC RUST blocks + painter-ready.
     let err_tx = display_tx.clone();
+    // 051 Q1 — the ROOT interpreter's object bridge is THE process-wide
+    // bridge; every child form's interpreter adopts the same Arc, so a block
+    // in any form resolves the same handles (spec 041 R9, now per process
+    // rather than per lone interpreter).
+    let (bridge_tx, bridge_rx) = mpsc::channel();
     {
         let finished = Arc::clone(&finished);
         let pending = Arc::clone(&pending);
         let form_object = form_object.clone();
+        let form_req_tx = form_req_tx.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
-            // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9). One
-            // interpreter per process means one object bridge, so every block —
-            // including one in a form event handler — sees the same state.
+            let _ = bridge_tx.send(interp.shared_rust_bridge());
+            // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9): one
+            // process-wide object bridge, so every block — in the main form or
+            // any opened form — sees the same state.
             interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
             // A form is painting, so a block may open a window of its own. Set
             // before the first block can run: `open` refuses when nothing will
@@ -1836,6 +1953,36 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         });
     }
 
+    // 051 R6 — a child form's design and program come from the embedded
+    // tables; a form the build could not embed a program for fails the open
+    // visibly (R15) instead of showing a dead window.
+    let form_source: cobolt_form_host::FormSource = Box::new(|id: &str| {
+        let want = id.trim().to_ascii_uppercase();
+        let (_, bytes) = FORMS
+            .iter()
+            .find(|(fid, _)| *fid == want)
+            .ok_or_else(|| format!("no form named '{}' in this application", id.trim()))?;
+        let xml = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+        let child = cobolt_forms::load_form_from_str(xml).map_err(|e| e.to_string())?;
+        let program = load_program_by_id(&want).ok_or_else(|| {
+            format!(
+                "form '{}' has no embedded program — its generated code was missing \
+                 or unparseable when this application was built",
+                id.trim()
+            )
+        })?;
+        Ok((child, program))
+    });
+    // A child form resolves its theme against the same embedded catalogue.
+    let child_theme: cobolt_form_host::ChildThemeSource = Box::new(|child| {
+        let pack = resolve_theme_pack(child);
+        let st = match pack.as_ref() {
+            Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+            None => resolve_surface_theme(child),
+        };
+        (pack, st)
+    });
+
     // Everything from here is the SHARED host (042 R1/R3) — the same window
     // code `rcrun run-form` runs: viewport assembly from the designed window
     // properties, 038 effect playback, 037 lifecycle, state/event routing.
@@ -1851,6 +1998,16 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         finished,
         form_req_rx,
         closed_tx,
+        form_req_tx,
+        form_source: Some(form_source),
+        child_theme: Some(child_theme),
+        // Every spawned interpreter carries the compiled EXEC RUST blocks.
+        child_interpreter_setup: Some(std::sync::Arc::new(
+            |interp: &mut cobolt_runtime::interpreter::Interpreter| {
+                interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
+            },
+        )),
+        shared_rust_bridge: bridge_rx.recv().ok(),
         fx_entrance,
         fx_exit,
         fx_restore,
@@ -1893,6 +2050,10 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 
 /// Embedded form files — loaded lazily by form ID.
 {forms_const}
+/// Each openable non-main form's own program (051 R1) — the multi-form host
+/// spawns an interpreter over it when the form is opened. The MAIN form's
+/// program is `PROGRAM_AST`, exactly as it always was.
+{programs_const}
 /// Embedded asset-pack themes: `(id, theme.toml source, [(image ref, bytes)])`.
 /// Only the packs the forms actually resolve to are baked in, and only the art
 /// their manifests reference, so a themed app is self-contained without
@@ -1919,6 +2080,20 @@ fn load_program() -> cobolt_ast::program::Program {{
     bincode::deserialize(&bytes).expect("deserialize embedded AST")
 }}
 
+/// The embedded program for `form_id` (051 R1) — `None` when the build had
+/// nothing to embed for it, which the multi-form host reports as a visible
+/// runtime error (R15) rather than opening a dead form.
+#[allow(dead_code)]
+fn load_program_by_id(form_id: &str) -> Option<cobolt_ast::program::Program> {{
+    use std::io::Read;
+    let want = form_id.trim().to_ascii_uppercase();
+    let (_, packed) = PROGRAMS.iter().find(|(id, _)| *id == want)?;
+    let mut decoder = flate2::read::GzDecoder::new(&packed[..]);
+    let mut bytes = Vec::new();
+    decoder.read_to_end(&mut bytes).ok()?;
+    bincode::deserialize(&bytes).ok()
+}}
+
 // ── Headless (CLI) runner ─────────────────────────────────────────────────────
 fn run_headless(program: cobolt_ast::program::Program) {{
     use cobolt_runtime::Interpreter;
@@ -1939,6 +2114,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         app_name = app_name,
         version = version,
         forms_const = forms_const,
+        programs_const = programs_const,
         themes_const = themes_const,
         theme_default_const = theme_default_const,
         window_fx_const = window_fx_const,
@@ -2904,7 +3080,7 @@ fn control_purpose(name: &str) -> &'static str {
         "PictureBox" => "Displays a still image.",
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
         "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property). Menu items may carry an icon from the built-in catalogue: 660+ pure-vector icons in 26 categories (documents, editing, navigation, commerce, payroll, receivables, payments, stock control, transportation, logistics, financial, company departments, transaction kinds, civilian vehicles, military equipment, and more). Icons are resolution-independent line work tinted by the item's colour; the engine can also apply a second accent colour, a drop shadow, or a neumorphic emboss.",
-        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane); the collapsed rail is icon-only (an item with no icon falls back to its first letter). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max).",
+        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane); the collapsed rail is icon-only (an item with no icon falls back to its first letter). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
         "ToolBar" => "Horizontal strip of action items.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
@@ -3094,6 +3270,17 @@ fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; an out-of-range index returns empty, never an error."),
             ("Cancel()", "Cancel the in-flight search."),
             ("IsBusy() → Boolean (0/1)", "A search is in flight."),
+        ],
+        // 051 — the SideMenu's programmatic door to standalone child windows.
+        "SideMenu" => vec![
+            (
+                "OpenStandAloneFormSync(formId: String, windowState: String, x: Integer, y: Integer, width: Integer, height: Integer, modal: Boolean)",
+                "Open `formId` in its OWN window, parented to the SHELL (whatever form invokes it), and BLOCK the calling handler until the child closes — Sync is implicitly modal, and the whole shell face waits with it. The space form requires every parameter; the comma form `SideMenu-1::\"OpenStandAloneFormSync\"(\"REPORT\")` defaults the rest from the target's RAD design. The target's FormFormat must be Standalone or Both (build-checked for literal ids). RETURNING is NULL by the time the call resumes (the child is closed).",
+            ),
+            (
+                "OpenStandAloneFormAsync(formId: String, windowState: String, x: Integer, y: Integer, width: Integer, height: Integer)",
+                "Open `formId` in its OWN window, parented to the shell, and return at once. RETURNING binds a windowHandler that drives the child (`Focus`, `Close`, `SetProperty`, …) and becomes NULL when it closes. Never modal. Same parameter rules and FormFormat gate as the Sync form.",
+            ),
         ],
         _ => Vec::new(),
     }
@@ -3414,6 +3601,41 @@ fn controls_reference_doc() -> String {
          `super::<menu-id>::Collapse()` / `Open()` drive the MenuPane (pane-wide; the state \
          persists per application). `me::<property>` works the same way on the form's OWN \
          surface.\n\n",
+    );
+
+    // ── 051 — the multi-form host ────────────────────────────────────────────
+    doc.push_str("### Multi-form host (spec 051)\n\n");
+    doc.push_str(
+        "An application holds MANY live forms at once, each running as its OWN program \
+         instance: own WORKING-STORAGE, own interpreter, own event loop. Forms never read \
+         each other's data items — they communicate through the supervisor surface only \
+         (published form properties, `super::X`, `handle::\"SetProperty\"`/`\"GetProperty\"`, \
+         windowHandler methods). The compiled binary embeds one program per openable form \
+         beside the main program.\n\n",
+    );
+    doc.push_str(
+        "THREE doors open a form: (1) a sidebar item's `Open form` action loads it into the \
+         ContentPane (FormFormat Embedded/Both); (2) `INVOKE me \"OpenFormSync\"/\
+         \"OpenFormAsync\"` opens it as a child WINDOW parented to the calling form \
+         (Standalone/Both); (3) a sidebar item's `Open Stand Alone Form (Sync)/(Async)` \
+         action — or the SideMenu control's `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` \
+         methods — opens a child window parented to the SHELL (Standalone/Both). Sync is \
+         IMPLICITLY MODAL everywhere: the parent's whole face (shell chrome included, when \
+         the parent is the shell) takes no input until the child closes; Async is never \
+         modal. A close cascades per spec 037: Sync children close with their caller, Async \
+         children survive detached, the main form's close takes everything, and a Waiting \
+         form vetoes the whole close.\n\n",
+    );
+    doc.push_str(
+        "A PRESERVED pane occupant (`PreservePreviousForm`) keeps its interpreter and \
+         storage parked off-pane, and its enabled Timer controls KEEP TICKING (handlers run \
+         while parked; ticks coalesce against a busy queue). An open that cannot be \
+         satisfied — unknown form id, a form whose generated program was missing at build \
+         time — raises a visible runtime error and the handle is NULL; it is never silently \
+         dropped. EXEC RUST blocks share ONE object bridge per PROCESS: a handle created by \
+         any form's block resolves in every other form's blocks (values stored through the \
+         bridge must be `Send`); each form's COBOL storage and control registry stay its \
+         own.\n\n",
     );
 
     // ── 038 — project window entrance/exit effects ───────────────────────────
@@ -3844,6 +4066,20 @@ fn methods_reference_doc() -> String {
                 ("Cancel() / IsBusy() → Boolean", "Async control."),
             ],
         ),
+        (
+            "SideMenu (spec 051)",
+            "The sidebar's programmatic door to standalone child windows: the opened window is parented to the SHELL whatever form invokes the method, exactly like the sidebar's own `Open Stand Alone Form` menu actions. The target's FormFormat must be `Standalone` or `Both` (build-checked for literal ids). Space form: every parameter required; comma form: the form id alone is enough.",
+            &[
+                (
+                    "OpenStandAloneFormSync(formId, windowState: String, x, y, width, height: Integer, modal: Boolean)",
+                    "Open the form in its own window and BLOCK the calling handler until it closes — Sync is implicitly modal, the whole shell face waits. RETURNING is NULL on resume.",
+                ),
+                (
+                    "OpenStandAloneFormAsync(formId, windowState: String, x, y, width, height: Integer)",
+                    "Open the form in its own window and return at once. RETURNING binds a windowHandler (Focus/Close/SetProperty/… — NULL when the child closes). Never modal.",
+                ),
+            ],
+        ),
     ];
 
     for (title, note, methods) in sections {
@@ -3940,6 +4176,123 @@ mod resolve_main_tests {
             "<Form name=\"{name}\" title=\"{name}\" width=\"400\" height=\"300\"{attr}></Form>"
         )
         .into_bytes()
+    }
+
+    /// 051 R1/R2 — the generated glue embeds one PROGRAM per openable
+    /// non-main form, loadable by id; a single-form project emits the empty
+    /// table and the untouched `PROGRAM_AST` path (the R2 guarantee).
+    #[test]
+    fn generated_glue_embeds_per_form_programs() {
+        let src = generate_main_rs(
+            "Demo",
+            "1.0.0",
+            true,
+            &["MAIN", "CRM", "REPORT"],
+            &["CRM", "REPORT"],
+            &[],
+            "",
+            "none:600:ease-out",
+            "none:600:ease-out",
+            false,
+        );
+        for id in ["CRM", "REPORT"] {
+            assert!(
+                src.contains(&format!(
+                    "(\"{id}\", include_bytes!(\"../assets/programs/{id}.bin\"))"
+                )),
+                "PROGRAMS carries {id}"
+            );
+        }
+        assert!(
+            !src.contains("include_bytes!(\"../assets/programs/MAIN.bin\")"),
+            "the MAIN form's program stays PROGRAM_AST, never doubled"
+        );
+        assert!(src.contains("fn load_program_by_id("), "the by-id loader is emitted");
+        assert!(
+            src.contains("static PROGRAM_AST: &[u8] = include_bytes!(\"../assets/program.bin\");"),
+            "the main path is untouched (R2)"
+        );
+
+        // Single-form project: the empty table, still compiling (the
+        // include_bytes! paths need not resolve).
+        let single = generate_main_rs(
+            "Demo",
+            "1.0.0",
+            true,
+            &["MAIN"],
+            &[],
+            &[],
+            "",
+            "none:600:ease-out",
+            "none:600:ease-out",
+            false,
+        );
+        assert!(
+            single.contains("static PROGRAMS: &[(&str, &[u8])] = &[];"),
+            "single-form ⇒ empty PROGRAMS table"
+        );
+        println!(
+            "051 PROGRAMS table — 2/2 form programs embedded by id, MAIN excluded, \
+             loader emitted, single-form empty table holds"
+        );
+    }
+
+    /// 051 R26 — the build gate mirrors the designer filter: a menu item
+    /// whose STANDALONE action targets an Embedded-only form fails the build
+    /// with a message naming the item, the form, and the remedy. Cheap:
+    /// the error fires in the semantic phase, before any staging or cargo.
+    #[test]
+    fn standalone_menu_action_on_an_embedded_form_fails_the_build() {
+        let dir = temp_dir("std-menu");
+        fs::write(
+            dir.join("main.cbl"),
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. DEMO.\nPROCEDURE DIVISION.\n    STOP RUN.\n",
+        )
+        .unwrap();
+
+        let mut main_form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+        main_form.main_form = true;
+        main_form.controls.push(cobolt_forms::Control::new(
+            "SIDE-1",
+            cobolt_forms::ControlType::SideMenu,
+            0,
+            0,
+        ));
+        cobolt_forms::save_form(&main_form, &dir.join("MAIN-FORM.cfrm")).unwrap();
+
+        let mut crm = cobolt_forms::Form::new("CRM", "CRM", 640, 480);
+        crm.form_format = cobolt_forms::model::FormFormat::Embedded;
+        cobolt_forms::save_form(&crm, &dir.join("CRM.cfrm")).unwrap();
+
+        let mut def = cobolt_forms::menu::MenuDefinition::default();
+        def.menu.push(cobolt_forms::menu::MenuItem {
+            action: Some("open-standalone-sync:CRM".into()),
+            ..cobolt_forms::menu::MenuItem::new_action("reports", "Reports")
+        });
+        cobolt_forms::menu::save_menu(
+            &cobolt_forms::menu::menu_yaml_path(&dir, "SIDE-1"),
+            &def,
+        )
+        .unwrap();
+
+        fs::write(
+            dir.join("cobolt.toml"),
+            "[project]\nname = \"Demo\"\nversion = \"1.0.0\"\nmain = \"main.cbl\"\n\n\
+             [files]\nsources = [\"main.cbl\"]\nforms = [\"MAIN-FORM.cfrm\", \"CRM.cfrm\"]\n",
+        )
+        .unwrap();
+
+        let err = build_project(&dir.join("cobolt.toml"), &BuildOptions::default())
+            .expect_err("the mis-wired standalone action must fail the build");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("reports")
+                && msg.contains("CRM")
+                && msg.contains("Standalone or Both"),
+            "the error names the item, the form, and the remedy: {msg}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        println!("051 R26 build gate → {msg}");
     }
 
     /// The generated crate name is always a valid Cargo package name —
@@ -4099,7 +4452,7 @@ mod resolve_main_tests {
     /// for free by going through the same `FormHost` as Run Form.
     #[test]
     fn elegance_generated_binary_publishes_its_surface_theme() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("fn resolve_surface_theme("));
         assert!(src.contains("None => resolve_surface_theme(&first_form),"));
         assert!(src.contains("surface_theme,"));
@@ -4121,7 +4474,7 @@ mod resolve_main_tests {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
@@ -4158,6 +4511,7 @@ mod resolve_main_tests {
             true,
             &["MAIN"],
             &[],
+            &[],
             "",
             "matrix-rain:1500:ease-in-out",
             "fade:400:ease-in",
@@ -4189,7 +4543,7 @@ mod resolve_main_tests {
         // A project with no effects bakes inert triples — `none` parses to
         // WindowEffect::None, so nothing plays.
         let quiet = generate_main_rs(
-            "Demo", "1.2.3", true, &["MAIN"], &[], "",
+            "Demo", "1.2.3", true, &["MAIN"], &[], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
         );
         assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
@@ -4208,7 +4562,7 @@ mod resolve_main_tests {
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], "", "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -4253,6 +4607,7 @@ mod resolve_main_tests {
             "GenCompileCheck",
             "0.1.0",
             true,
+            &[],
             &[],
             &[],
             "",
@@ -4357,7 +4712,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(
@@ -4535,7 +4890,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(

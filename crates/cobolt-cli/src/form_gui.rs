@@ -38,6 +38,43 @@ use cobolt_semantic::analyze;
 // `cobolt-form-host`; every host consumes the same code.
 use cobolt_form_host::diagnostics::{env_flag, write_diagnostics_dump};
 use cobolt_form_host::flatten_controls;
+
+/// 051 — recursive `<STEM>.cfrm` lookup (case-insensitive, depth-capped): the
+/// run-form sibling of the designer's `forms_under` scan, so an `open-form:`
+/// or OpenStandAloneForm* target resolves against the same tree the picker
+/// showed.
+fn find_cfrm_by_stem(dir: &std::path::Path, want: &str, depth: usize) -> Option<PathBuf> {
+    if depth > 8 {
+        return None;
+    }
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut subdirs = Vec::new();
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            subdirs.push(p);
+            continue;
+        }
+        let is_cfrm = p
+            .extension()
+            .map(|x| x.eq_ignore_ascii_case("cfrm"))
+            .unwrap_or(false);
+        if is_cfrm
+            && p.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.eq_ignore_ascii_case(want.trim()))
+                .unwrap_or(false)
+        {
+            return Some(p);
+        }
+    }
+    for d in subdirs {
+        if let Some(hit) = find_cfrm_by_stem(&d, want, depth + 1) {
+            return Some(hit);
+        }
+    }
+    None
+}
 use cobolt_form_host::seeding::{build_object_seed, resolve_api_keys};
 use cobolt_form_host::state::{state_entry_mut, CtrlState};
 
@@ -278,18 +315,19 @@ pub fn cmd_run_form(args: &[String]) {
         None
     };
 
-    // ── 037 window supervisor (single-window host) ────────────────────────────
+    // ── 037/051 window supervisor ─────────────────────────────────────────────
     // The interpreter's OpenForm*/handle/window methods talk to a real
-    // FormSupervisor owned by the GUI loop. FormState close vetoes, window
-    // commands and onCloseRejected/onFullScreenChanged all work here; the
-    // SpawnWindow execution (real child viewports) lands with the T1
-    // multi-viewport spike's findings — until then a child spawn is released
-    // immediately (logged), so callers never deadlock.
+    // FormSupervisor owned by the GUI loop; a SpawnWindow builds a real child
+    // window over the disk-backed form source below (051 R6/R13).
     let (form_req_tx, form_req_rx) =
         mpsc::channel::<cobolt_runtime::form_host::FormRequest>();
     let (closed_tx, closed_rx) = mpsc::channel::<String>();
     let form_object = form.name.trim().to_ascii_uppercase();
 
+    // 051 Q1 — the ROOT interpreter's object bridge becomes the ONE shared,
+    // process-wide bridge every spawned child adopts; the thread exports its
+    // Arc right after construction.
+    let (bridge_tx, bridge_rx) = mpsc::channel();
     {
         let finished = Arc::clone(&finished);
         let error_slot = Arc::clone(&error_slot);
@@ -298,6 +336,7 @@ pub fn cmd_run_form(args: &[String]) {
         let form_object = form_object.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            let _ = bridge_tx.send(interp.shared_rust_bridge());
             interp.set_input_channel(input_rx);
             interp.set_event_counter(pending);
             interp.set_form_host(
@@ -322,6 +361,7 @@ pub fn cmd_run_form(args: &[String]) {
             finished.store(true, Ordering::Relaxed);
         });
     }
+    let shared_rust_bridge = bridge_rx.recv().ok();
 
     // ── Theme + glass parity with the designer canvas (spec 017/007) ──────────
     // Resolve the form's theme (per-form override ?? project default ?? Liquid
@@ -376,6 +416,88 @@ pub fn cmd_run_form(args: &[String]) {
     } else {
         None
     };
+    // 051 R6/R13 — the disk-backed form source: a child form's design is the
+    // `<STEM>.cfrm` found under the run form's own tree, its program the
+    // regenerated `<STEM>.cbl` beside it — the same layout the IDE writes.
+    let search_root = {
+        let dir = cfrm_path
+            .parent()
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        // Prefer the project's `forms/` tree when the form lives inside one,
+        // so siblings in subfolders resolve too (the designer's own rule).
+        let mut root = dir.clone();
+        for anc in dir.ancestors() {
+            if anc.file_name().map(|n| n == "forms").unwrap_or(false) {
+                root = anc.to_path_buf();
+                break;
+            }
+        }
+        root
+    };
+    let form_source: cobolt_form_host::FormSource = Box::new(move |id: &str| {
+        let cfrm = find_cfrm_by_stem(&search_root, id, 0).ok_or_else(|| {
+            format!(
+                "no form named '{}' under {}",
+                id.trim(),
+                search_root.display()
+            )
+        })?;
+        let xml = std::fs::read_to_string(&cfrm).map_err(|e| format!("{}: {e}", cfrm.display()))?;
+        let child_form = cobolt_forms::load_form_from_str(&xml)
+            .map_err(|e| format!("{}: {e}", cfrm.display()))?;
+        let cbl = cfrm.with_extension("cbl");
+        let src = std::fs::read_to_string(&cbl).map_err(|_| {
+            format!(
+                "form '{}' has no generated program beside it ({}) — build or run it \
+                 from the IDE once so its code is generated",
+                id.trim(),
+                cbl.display()
+            )
+        })?;
+        let pr = parse(tokenize(&src, SourceFormat::detect(&src)));
+        if pr
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == cobolt_parser::Severity::Error)
+        {
+            return Err(format!("the generated program {} does not parse", cbl.display()));
+        }
+        let program = pr
+            .program
+            .ok_or_else(|| format!("{}: parse produced no program", cbl.display()))?;
+        Ok((child_form, program))
+    });
+    // A child form resolves its theme by the same rule as the root: per-form
+    // override ?? project default ?? procedural, packs discovered on disk.
+    let child_theme: cobolt_form_host::ChildThemeSource = {
+        let theme_default = theme_default.clone();
+        Box::new(move |child: &cobolt_forms::Form| {
+            let id = cobolt_forms::theme::resolve_theme_id(
+                child.theme.as_deref(),
+                theme_default.as_deref(),
+            );
+            let pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>> =
+                if cobolt_forms::theme::ThemeCatalog::procedural_ids().contains(&id.as_str()) {
+                    None
+                } else {
+                    let themes_dir = std::env::current_exe()
+                        .ok()
+                        .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
+                        .filter(|d| d.is_dir())
+                        .unwrap_or_else(|| PathBuf::from("assets/themes"));
+                    cobolt_forms::theme_pack::discover_packs(&themes_dir)
+                        .into_iter()
+                        .find(|p| p.id == id)
+                        .map(Arc::new)
+                };
+            let st = match pack.as_ref() {
+                Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+                None => cobolt_forms::surface_theme::for_theme_id(&id),
+            };
+            (pack, st)
+        })
+    };
     let config = cobolt_form_host::FormHostConfig {
         form,
         flat,
@@ -388,6 +510,11 @@ pub fn cmd_run_form(args: &[String]) {
         finished: Arc::clone(&finished),
         form_req_rx,
         closed_tx,
+        form_req_tx,
+        form_source: Some(form_source),
+        child_theme: Some(child_theme),
+        child_interpreter_setup: None,
+        shared_rust_bridge,
         fx_entrance,
         fx_exit,
         fx_restore,

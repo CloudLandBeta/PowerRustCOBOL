@@ -14061,9 +14061,18 @@ impl CoboltApp {
                 .map(|d| cobolt_forms::menu::menu_yaml_path(d, &ctrl_id))
                 .and_then(|p| cobolt_forms::menu::load_menu(&p).ok())
                 .unwrap_or_default();
-            self.designers[idx].1.menu_modal = Some(super::panels::designer::MenuEditorModal::new(
-                ctrl_id, existing,
-            ));
+            // 051 R16 — the editor is shared with MenuBar; only a SideMenu's
+            // menu offers the standalone actions.
+            let is_side_menu = self.designers[idx]
+                .1
+                .form
+                .find_control(&ctrl_id)
+                .map(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+                .unwrap_or(false);
+            self.designers[idx].1.menu_modal = Some(
+                super::panels::designer::MenuEditorModal::new(ctrl_id, existing)
+                    .for_side_menu(is_side_menu),
+            );
         }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_in_code {
             self.jump_to_event_code(idx, &ctrl_id, &ev_name);
