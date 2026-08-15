@@ -473,8 +473,11 @@ impl FormHost {
                 anim_started: false,
                 last_frame: None,
                 hovered: std::collections::HashSet::new(),
+                parked_timer_clocks: HashMap::new(),
             },
             children: Vec::new(),
+            occupants: HashMap::new(),
+            active_occupant: None,
             form_req_tx,
             form_source,
             child_theme,
@@ -576,6 +579,10 @@ pub(crate) struct FormBody {
     pub(crate) last_frame: Option<std::time::Instant>,
     /// Control ids under the pointer last frame (animation hover triggers).
     pub(crate) hovered: std::collections::HashSet<String>,
+    /// 051 Q2 (operator ruling) — per-Timer clocks used while this form is
+    /// PARKED (off-pane): render-driven timers stop with the rendering, so
+    /// the host ticks these instead and timer handlers keep running.
+    pub(crate) parked_timer_clocks: HashMap<String, std::time::Instant>,
 }
 
 impl FormBody {
@@ -673,6 +680,58 @@ impl FormBody {
             // controls keep their designed size either way.
             window_size: Some(ctx.content_rect().size()),
         }
+    }
+
+    /// 051 Q2 (operator ruling) — tick this PARKED form's enabled Timer
+    /// controls: off-pane, render-driven timers stand still, so the host
+    /// fires `onTick` from its own clocks (with the usual backlog
+    /// coalescing) and timer handlers keep running. Returns the earliest
+    /// next-due delay, for `request_repaint_after`.
+    pub(crate) fn tick_parked_timers(&mut self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        let mut next: Option<std::time::Duration> = None;
+        let timers: Vec<(String, u64)> = self
+            .controls
+            .iter()
+            .filter(|c| c.control_type == cobolt_forms::ControlType::Timer)
+            .filter_map(|c| {
+                let cs = self.state.get(&c.id)?;
+                if !cs.enabled {
+                    return None;
+                }
+                let interval = cs
+                    .props
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("Interval"))
+                    .and_then(|(_, v)| v.trim().parse::<u64>().ok())
+                    .unwrap_or(1000)
+                    .max(16);
+                Some((c.id.clone(), interval))
+            })
+            .collect();
+        // While the form renders, the render engine owns the clocks — reset
+        // ours on the way back to parked so a stale epoch cannot fire a
+        // burst of catch-up ticks.
+        for (id, interval) in timers {
+            let clock = self
+                .parked_timer_clocks
+                .entry(id.clone())
+                .or_insert(now);
+            let elapsed = now.duration_since(*clock);
+            let period = std::time::Duration::from_millis(interval);
+            if elapsed >= period {
+                *clock = now;
+                // WinForms-style coalescing: a queued backlog swallows ticks.
+                if self.pending.load(Ordering::Relaxed) == 0 {
+                    self.send_event(FormEvent::new(id, "onTick"));
+                }
+                next = Some(next.map_or(period, |n: std::time::Duration| n.min(period)));
+            } else {
+                let due = period - elapsed;
+                next = Some(next.map_or(due, |n: std::time::Duration| n.min(due)));
+            }
+        }
+        next
     }
 
     /// 051 — one frame of a CHILD window: drain, lifecycle, render, forward.
@@ -949,11 +1008,24 @@ pub(crate) struct ChildWindow {
     pub(crate) finish_reported: bool,
 }
 
+/// 051 — a ContentPane occupant: a full form instance shown in the shell's
+/// pane instead of the root form. Resident while registered (049 R20) —
+/// parked occupants keep their interpreter and storage warm.
+pub(crate) struct Occupant {
+    pub(crate) handle: String,
+    pub(crate) body: FormBody,
+}
+
 pub struct FormHost {
     /// The ROOT form — the window (or pane occupant) this host started with.
     root: FormBody,
     /// 051 — spawned child windows, one viewport each, re-declared per frame.
     children: Vec<ChildWindow>,
+    /// 051 R10/R11 — pane occupants, keyed by UPPERCASE form object. Every
+    /// entry is resident; `active_occupant` names the one on the pane
+    /// (`None` = the root form shows, as it always has).
+    occupants: HashMap<String, Occupant>,
+    active_occupant: Option<String>,
     /// 051 — the pieces `SpawnWindow` builds a child from (see the config).
     form_req_tx: mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
     form_source: Option<FormSource>,
@@ -1110,6 +1182,20 @@ impl FormHost {
                             // not being re-declared next frame.
                             let child = self.children.remove(at);
                             let _ = child.body.ev_tx.send(FormEvent::quit());
+                        } else if let Some(key) = self
+                            .occupants
+                            .iter()
+                            .find(|(_, o)| o.handle == handle)
+                            .map(|(k, _)| k.clone())
+                        {
+                            // 051 — an occupant caught in a close cascade
+                            // (application close) goes the same way.
+                            if let Some(occ) = self.occupants.remove(&key) {
+                                let _ = occ.body.ev_tx.send(FormEvent::quit());
+                            }
+                            if self.active_occupant.as_deref() == Some(key.as_str()) {
+                                self.active_occupant = None;
+                            }
                         }
                     }
                     HostAction::FocusWindow { handle } => {
@@ -1234,6 +1320,154 @@ impl FormHost {
         rx.try_recv().ok().flatten().unwrap_or_default()
     }
 
+    /// 051 R10 — make sure a pane occupant for `form_id` exists (building
+    /// its instance and registering its Embedded handle on first need) and
+    /// return its event sender for the shell's `Resident` lifecycle box.
+    /// A parked occupant is simply found again — its storage was the point.
+    pub fn ensure_occupant(
+        &mut self,
+        form_id: &str,
+    ) -> Result<mpsc::Sender<FormEvent>, String> {
+        let key = form_id.trim().to_ascii_uppercase();
+        if let Some(occ) = self.occupants.get(&key) {
+            return Ok(occ.body.ev_tx.clone());
+        }
+        let handle = self
+            .supervisor
+            .open_embedded(cobolt_runtime::form_host::ROOT_HANDLE, &key);
+        let (body, _form) = match self.build_form_instance(&handle, form_id) {
+            Ok(built) => built,
+            Err(e) => {
+                // The handle must not linger for an instance that never
+                // existed (R15's no-silent-drop, embedded flavour).
+                let acts = self.supervisor.form_finished(&handle);
+                for act in acts {
+                    if let cobolt_runtime::form_host::HostAction::NotifyClosed { handle } = act {
+                        self.closed.send(&handle);
+                    }
+                }
+                return Err(e);
+            }
+        };
+        let ev_tx = body.ev_tx.clone();
+        self.occupants.insert(key, Occupant { handle, body });
+        Ok(ev_tx)
+    }
+
+    /// 051 R10/R11 — put `form_object` (UPPERCASE; `None` = the root form)
+    /// on the pane. The ENTERING side of a swap: a form whose lifecycle pair
+    /// already fired gets its `onActivate` here (a fresh instance fires
+    /// onShow/onActivate through its own warm-up instead). The leaving
+    /// side's `onDeactivate`/`onDestroy` is the NavChain's `Resident` job.
+    pub fn show_occupant(&mut self, form_object: Option<&str>) {
+        let key = form_object.map(|f| f.trim().to_ascii_uppercase());
+        if key == self.active_occupant {
+            return;
+        }
+        self.active_occupant = key.clone();
+        match key {
+            None => {
+                if self.root.lifecycle_sent {
+                    let name = self.root.form_object.clone();
+                    self.root.send_event(FormEvent::new(name, "onActivate"));
+                }
+            }
+            Some(k) => {
+                if let Some(occ) = self.occupants.get_mut(&k) {
+                    // Fresh clocks on re-entry: the render engine owns timers
+                    // while on-pane.
+                    occ.body.parked_timer_clocks.clear();
+                    if occ.body.lifecycle_sent {
+                        let name = occ.body.form_object.clone();
+                        occ.body.send_event(FormEvent::new(name, "onActivate"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// 051 R11 — drop the occupants the NavChain destroyed (their
+    /// `onDestroy` already fired through the `Resident`): quit each
+    /// interpreter and release its Embedded handle.
+    pub fn retire_occupants(&mut self, gone: &[String]) {
+        for form_object in gone {
+            let key = form_object.trim().to_ascii_uppercase();
+            if let Some(occ) = self.occupants.remove(&key) {
+                let _ = occ.body.ev_tx.send(FormEvent::quit());
+                let acts = self.supervisor.form_finished(&occ.handle);
+                for act in acts {
+                    if let cobolt_runtime::form_host::HostAction::NotifyClosed { handle } = act {
+                        self.closed.send(&handle);
+                    }
+                }
+            }
+            // `active_occupant` is deliberately left pointing at the retired
+            // key: the render path falls through to the root safely, and the
+            // caller's follow-up `show_occupant` still sees a CHANGE — which
+            // is what fires the entering side's onActivate. Clearing it here
+            // silently swallowed that activation.
+        }
+    }
+
+    /// The pane's current occupant (UPPERCASE form object), `None` = root.
+    pub fn active_occupant_form(&self) -> Option<&str> {
+        self.active_occupant.as_deref()
+    }
+
+    /// Test-only: mark the root's lifecycle pair as already fired, the state
+    /// every real run reaches after its warm-up.
+    #[cfg(test)]
+    pub(crate) fn root_lifecycle_sent_for_test(&mut self) {
+        self.root.lifecycle_sent = true;
+    }
+
+    /// Test-only observability: the registered occupants' form objects.
+    #[cfg(test)]
+    pub(crate) fn occupant_forms(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.occupants.keys().cloned().collect();
+        v.sort();
+        v
+    }
+
+    /// Test-only observability: an occupant's supervisor handle — a revived
+    /// (preserved) occupant keeps the one it was born with.
+    #[cfg(test)]
+    pub(crate) fn occupant_handle(&self, form_object: &str) -> Option<String> {
+        self.occupants
+            .get(&form_object.trim().to_ascii_uppercase())
+            .map(|o| o.handle.clone())
+    }
+
+    /// 051 Q2 — tick every PARKED body's timers (the root while an occupant
+    /// shows; every off-pane occupant always), and schedule the wake-up for
+    /// the earliest due tick.
+    fn tick_parked_bodies(&mut self, ctx: &egui::Context) {
+        let active = self.active_occupant.clone();
+        let mut next: Option<std::time::Duration> = None;
+        let mut fold = |d: Option<std::time::Duration>, next: &mut Option<std::time::Duration>| {
+            if let Some(d) = d {
+                *next = Some(next.map_or(d, |n: std::time::Duration| n.min(d)));
+            }
+        };
+        if active.is_some() {
+            let d = self.root.tick_parked_timers();
+            fold(d, &mut next);
+        }
+        let keys: Vec<String> = self.occupants.keys().cloned().collect();
+        for k in keys {
+            if Some(k.as_str()) == active.as_deref() {
+                continue;
+            }
+            if let Some(occ) = self.occupants.get_mut(&k) {
+                let d = occ.body.tick_parked_timers();
+                fold(d, &mut next);
+            }
+        }
+        if let Some(d) = next {
+            ctx.request_repaint_after(d);
+        }
+    }
+
     /// 051 R19/R28 — is the ROOT window blocked by a live modal child? The
     /// shell disables its chrome (menu pane, breadcrumb) on this too, so the
     /// whole application face waits together.
@@ -1267,6 +1501,45 @@ impl FormHost {
         width: Option<i64>,
         height: Option<i64>,
     ) -> Result<(), String> {
+        let (body, form) = self.build_form_instance(handle, form_id)?;
+        let (fw, fh) = (form.width as f32, form.height as f32);
+        let size = egui::vec2(
+            width.map(|w| w as f32).unwrap_or(fw).max(1.0),
+            height.map(|h| h as f32).unwrap_or(fh).max(1.0),
+        );
+        let pos = match (x, y) {
+            (Some(px), Some(py)) => Some(egui::pos2(px as f32, py as f32)),
+            _ => None,
+        };
+        let initial_state = window_state.or_else(|| match form.window_state {
+            cobolt_forms::model::WindowState::Maximized => Some("Maximized".into()),
+            cobolt_forms::model::WindowState::Minimized => Some("Minimized".into()),
+            cobolt_forms::model::WindowState::Normal => None,
+        });
+        self.children.push(ChildWindow {
+            handle: handle.to_string(),
+            body,
+            viewport_id: egui::ViewportId::from_hash_of(("051-child", handle)),
+            title: window_title(&form.title, form.name.clone()),
+            size,
+            pos,
+            decorations: form.title_visible,
+            initial_state,
+            init_sent: false,
+            finish_reported: false,
+        });
+        Ok(())
+    }
+
+    /// 051 R3 — ONE form instance: its design resolved through the glue's
+    /// `FormSource`, its own interpreter spawned over its own channel set
+    /// (fan-out joined, shared bridge adopted), its body ready to render —
+    /// as a child window or as a pane occupant, the same build.
+    fn build_form_instance(
+        &mut self,
+        handle: &str,
+        form_id: &str,
+    ) -> Result<(FormBody, cobolt_forms::Form), String> {
         let Some(source) = &self.form_source else {
             return Err("this host has no form source (single-form runtime)".into());
         };
@@ -1343,65 +1616,40 @@ impl FormHost {
         };
 
         let (fw, fh) = (form.width as f32, form.height as f32);
-        let size = egui::vec2(
-            width.map(|w| w as f32).unwrap_or(fw).max(1.0),
-            height.map(|h| h as f32).unwrap_or(fh).max(1.0),
-        );
-        let pos = match (x, y) {
-            (Some(px), Some(py)) => Some(egui::pos2(px as f32, py as f32)),
-            _ => None,
+        let body = FormBody {
+            form_name: form.name.clone(),
+            theme_pack,
+            surface_theme,
+            glass_style: form.glass_style,
+            controls: flat,
+            state,
+            bg_hex: form.background_color.clone(),
+            bg_gradient_enabled: form.background_gradient_enabled,
+            bg_gradient_start: form.background_gradient_start_color.clone(),
+            bg_gradient_end: form.background_gradient_end_color.clone(),
+            bg_gradient_direction: form.background_gradient_direction.clone(),
+            transparency: form.transparency.clamp(0, 100) as u8,
+            bg_image: form.background_image.clone(),
+            bg_mode: form.bg_image_mode,
+            use_theme_background: form.use_theme_background,
+            form_size: egui::vec2(fw, fh),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending,
+            finished,
+            start: std::time::Instant::now(),
+            lifecycle_sent: false,
+            db_dumped: false,
+            form_object,
+            anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
+            anim_started: true, // spawned instances skip the entrance-gated load anims
+            last_frame: None,
+            hovered: std::collections::HashSet::new(),
+            parked_timer_clocks: HashMap::new(),
         };
-        let initial_state = window_state
-            .or_else(|| match form.window_state {
-                cobolt_forms::model::WindowState::Maximized => Some("Maximized".into()),
-                cobolt_forms::model::WindowState::Minimized => Some("Minimized".into()),
-                cobolt_forms::model::WindowState::Normal => None,
-            });
-
-        self.children.push(ChildWindow {
-            handle: handle.to_string(),
-            body: FormBody {
-                form_name: form.name.clone(),
-                theme_pack,
-                surface_theme,
-                glass_style: form.glass_style,
-                controls: flat,
-                state,
-                bg_hex: form.background_color.clone(),
-                bg_gradient_enabled: form.background_gradient_enabled,
-                bg_gradient_start: form.background_gradient_start_color.clone(),
-                bg_gradient_end: form.background_gradient_end_color.clone(),
-                bg_gradient_direction: form.background_gradient_direction.clone(),
-                transparency: form.transparency.clamp(0, 100) as u8,
-                bg_image: form.background_image.clone(),
-                bg_mode: form.bg_image_mode,
-                use_theme_background: form.use_theme_background,
-                form_size: egui::vec2(fw, fh),
-                ev_tx,
-                input_tx,
-                state_rx,
-                display_rx,
-                pending,
-                finished,
-                start: std::time::Instant::now(),
-                lifecycle_sent: false,
-                db_dumped: false,
-                form_object,
-                anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
-                anim_started: true, // children skip the entrance-gated load anims
-                last_frame: None,
-                hovered: std::collections::HashSet::new(),
-            },
-            viewport_id: egui::ViewportId::from_hash_of(("051-child", handle)),
-            title: window_title(&form.title, form.name.clone()),
-            size,
-            pos,
-            decorations: form.title_visible,
-            initial_state,
-            init_sent: false,
-            finish_reported: false,
-        });
-        Ok(())
+        Ok((body, form))
     }
 
     /// 051 — the per-frame children pass: report finished interpreters to the
@@ -2002,6 +2250,18 @@ impl FormHost {
             .supervisor
             .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
             .is_empty();
+        // 051 Q2 — parked bodies keep their timers running, whoever owns the
+        // pane this frame.
+        self.tick_parked_bodies(ctx);
+        // 051 R10 — an active occupant owns the pane; the root form above
+        // stayed fully live (its drains ran), just unrendered — parked.
+        if let Some(key) = self.active_occupant.clone() {
+            if let Some(occ) = self.occupants.get_mut(&key) {
+                occ.body.child_frame(root_ui, root_blocked);
+                ctx.request_repaint_after(std::time::Duration::from_millis(200));
+                return;
+            }
+        }
         let mut pane_backdrop_rect: Option<egui::Rect> = None;
         let mut pane_backdrop_fill: Option<egui::Color32> = None;
         let mut content_scroll = egui::Vec2::ZERO;
@@ -2434,6 +2694,81 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         println!(
             "child spawn — W1 built (form DETAIL), ran to STOP RUN, released; \
              NotifyClosed delivered: {closed:?}"
+        );
+    }
+
+    /// 051 Q2 (operator ruling) — a PARKED form's enabled timers keep
+    /// running: with an occupant on the pane, the root's Timer still fires
+    /// onTick from the host's own clocks.
+    #[test]
+    fn parked_forms_keep_their_timers_ticking() {
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200);
+        let mut timer =
+            cobolt_forms::Control::new("TMR-1", cobolt_forms::ControlType::Timer, 0, 0);
+        timer.set_prop("Interval", cobolt_forms::model::PropValue::Int(25));
+        timer.set_prop("Enabled", cobolt_forms::model::PropValue::Bool(true));
+        let flat = vec![timer.clone()];
+        let mut state = HashMap::new();
+        state.insert("TMR-1".to_string(), CtrlState::from_control(&timer));
+
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state,
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        // An occupant owns the pane, so the root is PARKED.
+        host.active_occupant = Some("SOMEONE-ELSE".into());
+        let ctx = egui::Context::default();
+        host.tick_parked_bodies(&ctx); // seeds the clock
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        host.tick_parked_bodies(&ctx); // past the 25ms interval → fires
+        let ticks: Vec<String> = ev_rx
+            .try_iter()
+            .filter(|e: &FormEvent| e.event_id == "onTick")
+            .map(|e| e.ctrl_id)
+            .collect();
+        assert_eq!(
+            ticks,
+            vec!["TMR-1".to_string()],
+            "the parked root's 25ms timer fired exactly once in ~40ms"
+        );
+
+        // On-pane again: the parked clocks reset so no stale burst follows.
+        host.show_occupant(None);
+        assert!(host.root.parked_timer_clocks.is_empty() || host.active_occupant.is_none());
+
+        println!(
+            "parked timers — root parked behind an occupant: 1 onTick from a 25ms \
+             timer across a 40ms park (coalesced, no burst)"
         );
     }
 

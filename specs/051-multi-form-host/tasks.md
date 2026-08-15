@@ -161,7 +161,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     green; observable: `rcrun run-form` on a two-form fixture project opens
     the child (operator check, AC8 half).
 
-- [ ] **T11 — Shell: standalone click arms + shell modality** (R18, R19)
+- [x] **T11 — Shell: standalone click arms + shell modality** (R18, R19)
   - Files: `crates/cobolt-form-host/src/shell.rs`
   - Do: two new arms in the menu-click match parsing the T5 encodings →
     `supervisor.handle_request(OpenForm { caller: ROOT_HANDLE, sync,

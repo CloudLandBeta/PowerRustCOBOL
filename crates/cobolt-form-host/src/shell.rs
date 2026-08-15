@@ -284,6 +284,15 @@ impl NavChain {
         destroyed
     }
 
+    /// 051 — the incoming load's `PreservePreviousForm` decides the fate of
+    /// the form DISPLAYED BEFORE it (049 R24): the shell marks the top with
+    /// the clicking item's flag just before [`Self::replace_top`] judges it.
+    pub fn mark_top_preserve(&mut self, preserve: bool) {
+        if let Some(top) = self.entries.last_mut() {
+            top.preserve_on_replace = preserve;
+        }
+    }
+
     /// R23 — a root-slot subsystem switch: unwind to the MAIN form (also
     /// destroying the parking lot — a preserved sibling of a dead subsystem
     /// has no way back), then the caller pushes the new subsystem.
@@ -1093,14 +1102,70 @@ impl ShellApp {
         for click in self.shell.take_menu_clicks() {
             match click.action.as_deref() {
                 Some(a) if a.starts_with("open-form:") => {
-                    // Honest limit: a second form needs its own interpreter +
-                    // program, the same open work as 037 T16.
-                    eprintln!(
-                        "shell: menu item '{}' wants {a}, but hosting a second \
-                         form awaits the multi-form host (037 T16 / 049 tasks \
-                         note)",
-                        click.item_id
-                    );
+                    // 051 R10/R11 — the embedded door, for real: the target
+                    // loads into the ContentPane as its own program instance;
+                    // the outgoing occupant deactivates (parking when its
+                    // load asked to be preserved, destroyed otherwise) and
+                    // the breadcrumb follows the chain.
+                    let target = a
+                        .split_once(':')
+                        .map(|(_, t)| t.trim().to_string())
+                        .unwrap_or_default();
+                    if target.is_empty() {
+                        eprintln!(
+                            "shell: menu item '{}' has an open-form action with no target",
+                            click.item_id
+                        );
+                        continue;
+                    }
+                    let target_upper = target.to_ascii_uppercase();
+                    if self
+                        .chain
+                        .current()
+                        .map(|e| e.form_object == target_upper)
+                        .unwrap_or(false)
+                    {
+                        continue; // already displayed
+                    }
+                    let occ_ev_tx = match self.host.ensure_occupant(&target) {
+                        Ok(tx) => tx,
+                        Err(e) => {
+                            // R15 — visible, never silent.
+                            println!("Runtime error: cannot open form '{target}': {e}");
+                            eprintln!("shell: open-form '{target}' failed: {e}");
+                            continue;
+                        }
+                    };
+                    let entry = NavEntry {
+                        form_object: target_upper.clone(),
+                        label: target.clone(),
+                        // Its own fate is decided by whichever click later
+                        // navigates away from it (049 R24).
+                        preserve_on_replace: false,
+                        resident: Box::new(ChannelResident {
+                            form_object: target_upper.clone(),
+                            ev_tx: occ_ev_tx,
+                        }),
+                    };
+                    // The FIRST load stacks on the main form; after that a
+                    // menu click is a SIBLING load (049 R25) — the displayed
+                    // form is replaced, parked when THIS click asked to
+                    // preserve it, destroyed otherwise.
+                    let mut destroyed: Vec<String> = Vec::new();
+                    if self.chain.len() <= 1 {
+                        self.chain.push(entry);
+                    } else {
+                        let outgoing = self.chain.current().map(|e| e.form_object.clone());
+                        self.chain.mark_top_preserve(click.preserve_previous_form);
+                        self.chain.replace_top(entry);
+                        if !click.preserve_previous_form {
+                            if let Some(gone) = outgoing {
+                                destroyed.push(gone);
+                            }
+                        }
+                    }
+                    self.host.retire_occupants(&destroyed);
+                    self.host.show_occupant(Some(&target_upper));
                 }
                 Some(a)
                     if a.starts_with("open-standalone-sync:")
@@ -1286,8 +1351,22 @@ impl eframe::App for ShellApp {
         }
         // Menu activations — each action performed by its own arm.
         self.process_menu_clicks();
-        // A breadcrumb click on the sole entry is a no-op today.
-        let _ = crumb_click;
+        // 051 R12/R22 — a breadcrumb click truncates the chain: everything
+        // below the clicked segment is destroyed deepest-first, and the
+        // segment's own form returns to the pane.
+        if let Some(ix) = crumb_click {
+            if ix + 1 < self.chain.len() {
+                let destroyed = self.chain.pop_to(ix);
+                self.host.retire_occupants(&destroyed);
+                if ix == 0 {
+                    self.host.show_occupant(None);
+                } else if let Some(target) =
+                    self.chain.current().map(|e| e.form_object.clone())
+                {
+                    self.host.show_occupant(Some(&target));
+                }
+            }
+        }
     }
 }
 
@@ -2339,6 +2418,163 @@ mod tests {
         println!(
             "051 standalone clicks — 4 clicks: 2 opens {opens:?}, 1 empty target \
              refused, 1 event dispatched"
+        );
+    }
+
+    /// 051 R10/R11/R12 (AC1/AC3 shape) — the `open-form:` door: occupants
+    /// swap with the chain, a preserving click parks the outgoing form (its
+    /// instance — same handle — revives on return), a non-preserving click
+    /// destroys it, and the breadcrumb truncates back to the main form.
+    #[test]
+    fn open_form_swaps_occupants_with_preserve_and_breadcrumb() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            if up == "CRM" || up == "HR" {
+                Ok((cobolt_forms::Form::new(up.as_str(), up.as_str(), 400, 300), program()))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        });
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let (test_tx, _test_rx) = mpsc::channel();
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: "MAIN-FORM".into(),
+            label: "Main".into(),
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: "MAIN-FORM".into(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain,
+            host,
+            side_menu_ctrl: None,
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx: test_tx,
+        };
+        let click = |action: &str, preserve: bool| MenuClick {
+            slot: MenuSlot::Root,
+            item_id: action.to_string(),
+            action: Some(action.to_string()),
+            preserve_previous_form: preserve,
+        };
+
+        // 1 — open CRM: it stacks on the main form and owns the pane.
+        app.shell.pending_clicks = vec![click("open-form:CRM", false)];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("CRM"));
+        assert_eq!(app.host.occupant_forms(), vec!["CRM".to_string()]);
+        let crm_handle_1 = app.host.occupant_handle("CRM").expect("CRM registered");
+        let segs: Vec<String> =
+            app.chain.segments().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(segs, vec!["MAIN-FORM".to_string(), "CRM".to_string()]);
+
+        // 2 — open HR, PRESERVING the outgoing CRM: it parks, instance kept.
+        app.shell.pending_clicks = vec![click("open-form:HR", true)];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("HR"));
+        assert_eq!(
+            app.host.occupant_forms(),
+            vec!["CRM".to_string(), "HR".to_string()],
+            "the preserved CRM instance stays resident"
+        );
+        assert_eq!(app.chain.resident_count(), 3, "MAIN + HR + parked CRM");
+
+        // 3 — back to CRM, NOT preserving HR: HR is destroyed; the parked
+        // CRM revives — the very same instance (same supervisor handle).
+        app.shell.pending_clicks = vec![click("open-form:CRM", false)];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("CRM"));
+        assert_eq!(
+            app.host.occupant_forms(),
+            vec!["CRM".to_string()],
+            "HR retired on a non-preserving swap"
+        );
+        assert_eq!(
+            app.host.occupant_handle("CRM").as_deref(),
+            Some(crm_handle_1.as_str()),
+            "the preserved instance revived, not a rebuild"
+        );
+        // HR's release reached the fan-out (its windowHandlers NULL).
+        let closed: Vec<String> = closed_rx.try_iter().collect();
+        assert!(!closed.is_empty(), "HR's handle was released: {closed:?}");
+
+        // 4 — breadcrumb back to the main form: CRM is destroyed, the pane
+        // returns to the root, and the root (its lifecycle already fired)
+        // gets a fresh onActivate.
+        app.host.show_occupant(Some("CRM")); // ensure state
+        app.chain.mark_top_preserve(false);
+        {
+            // The root's lifecycle pair already fired in a real run.
+            app.host.root_lifecycle_sent_for_test();
+        }
+        let destroyed = app.chain.pop_to(0);
+        app.host.retire_occupants(&destroyed);
+        app.host.show_occupant(None);
+        assert_eq!(app.host.active_occupant_form(), None);
+        assert!(app.host.occupant_forms().is_empty(), "CRM destroyed");
+        let root_events: Vec<String> = ev_rx.try_iter().map(|e| e.event_id).collect();
+        assert!(
+            root_events.iter().any(|e| e == "onActivate"),
+            "the returning root re-activates: {root_events:?}"
+        );
+
+        println!(
+            "051 occupant swap — CRM opened (chain MAIN›CRM), HR swap parked CRM \
+             (3 resident), return revived the SAME instance ({crm_handle_1}), \
+             breadcrumb-back destroyed it and re-activated the root"
         );
     }
 
