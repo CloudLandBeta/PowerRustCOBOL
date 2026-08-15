@@ -362,6 +362,78 @@ fn generated_program_path(proj: &CoboltProject, dir: &Path, id: &str) -> Option<
     beside.exists().then_some(beside)
 }
 
+/// The project manifest governing `start` — the nearest `*.project.toml` (or a
+/// legacy `cobolt.toml`) at or above it. `None` for a loose form that belongs to
+/// no project, which is a perfectly good way to run one.
+///
+/// The manifest is named after the project (`PowerDemo3.project.toml`), not a
+/// fixed file name, so discovery scans each ancestor rather than probing one.
+pub fn find_project_manifest(start: &Path) -> Option<PathBuf> {
+    let from = if start.is_dir() {
+        start
+    } else {
+        start.parent()?
+    };
+    for dir in from.ancestors() {
+        let legacy = dir.join("cobolt.toml");
+        if legacy.is_file() {
+            return Some(legacy);
+        }
+        let mut found: Option<PathBuf> = None;
+        for entry in std::fs::read_dir(dir).ok()?.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.to_ascii_lowercase().ends_with(".project.toml"))
+                    .unwrap_or(false)
+            {
+                // Deterministic when a folder somehow holds two: take the
+                // first by name rather than whatever the directory yields.
+                if found.as_ref().map(|f| path < *f).unwrap_or(true) {
+                    found = Some(path);
+                }
+            }
+        }
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// 051 R1 — where form `id`'s generated program actually lives on disk, given
+/// any form file in the same project.
+///
+/// **This is the one rule.** The compiled application resolves a child form's
+/// program through [`generated_program_path`]; `rcrun run-form` resolves it
+/// through this, which wraps the same function — so Run Form and the built
+/// binary can no longer disagree about where a form's code is. They did: this
+/// looked only beside the `.cfrm`, while the IDE writes generated code into the
+/// project's `generated/` folder, so every "open form" door failed in Run Form
+/// on a project that built and ran perfectly once compiled.
+///
+/// Falls back to `<stem>.cbl` beside `cfrm` when the form belongs to no
+/// project. `None` = there is no program on disk to run.
+pub fn form_program_path(cfrm: &Path, id: &str) -> Option<PathBuf> {
+    let beside = || {
+        let candidate = cfrm.with_file_name(format!("{}.cbl", id.trim()));
+        candidate.exists().then_some(candidate)
+    };
+    let Some(manifest) = find_project_manifest(cfrm) else {
+        return beside();
+    };
+    let Ok(text) = std::fs::read_to_string(&manifest) else {
+        return beside();
+    };
+    let Ok(proj) = toml::from_str::<CoboltProject>(&text) else {
+        return beside();
+    };
+    let dir = manifest.parent()?;
+    generated_program_path(&proj, dir, id).or_else(beside)
+}
+
 fn main_form_program(proj: &CoboltProject, dir: &Path) -> Option<String> {
     if proj.files.forms.is_empty() {
         return None;
@@ -5727,6 +5799,67 @@ not json at all
         .expect("stage");
         assert!(staged.is_empty());
         assert!(warned.borrow().iter().any(|m| m.contains("no-such-pack")));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The layout every real project has: designs under `forms/<sub>/`, their
+    /// generated programs together in `generated/`. `rcrun run-form` used to
+    /// look ONLY beside the `.cfrm`, so opening a child form failed with "has
+    /// no generated program beside it" on a project whose compiled build ran
+    /// the same form perfectly.
+    #[test]
+    fn a_forms_program_is_found_in_the_projects_generated_folder() {
+        let dir = temp_dir("formprog");
+        fs::create_dir_all(dir.join("forms/Inner-Forms")).unwrap();
+        fs::create_dir_all(dir.join("generated")).unwrap();
+        let cfrm = dir.join("forms/Inner-Forms/inner-form1.cfrm");
+        fs::write(&cfrm, "<Form/>").unwrap();
+        fs::write(dir.join("generated/inner-form1.cbl"), "x").unwrap();
+        fs::write(
+            dir.join("PowerDemo3.project.toml"),
+            r#"
+[project]
+name = "PowerDemo3"
+version = "1.0.0"
+main = ""
+
+[files]
+forms = ["forms/Inner-Forms/inner-form1.cfrm"]
+generated = ["generated/inner-form1.cbl"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            form_program_path(&cfrm, "inner-form1"),
+            Some(dir.join("generated/inner-form1.cbl")),
+            "the program is in the project's generated/ folder, not beside the design"
+        );
+        // The manifest is discovered from a form nested two levels down, and
+        // is named after the project rather than a fixed `cobolt.toml`.
+        assert_eq!(
+            find_project_manifest(&cfrm),
+            Some(dir.join("PowerDemo3.project.toml"))
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A form belonging to no project at all still runs: its program is simply
+    /// the `.cbl` beside it. And a form whose program has not been generated
+    /// yet resolves to nothing, so the caller can say so plainly.
+    #[test]
+    fn a_loose_form_falls_back_beside_itself_and_a_missing_program_is_none() {
+        let dir = temp_dir("looseform");
+        fs::create_dir_all(&dir).unwrap();
+        let cfrm = dir.join("solo.cfrm");
+        fs::write(&cfrm, "<Form/>").unwrap();
+        assert_eq!(
+            form_program_path(&cfrm, "solo"),
+            None,
+            "nothing generated yet ⇒ no program"
+        );
+        fs::write(dir.join("solo.cbl"), "x").unwrap();
+        assert_eq!(form_program_path(&cfrm, "solo"), Some(dir.join("solo.cbl")));
         fs::remove_dir_all(&dir).ok();
     }
 

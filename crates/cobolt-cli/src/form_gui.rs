@@ -446,15 +446,24 @@ pub fn cmd_run_form(args: &[String]) {
         let xml = std::fs::read_to_string(&cfrm).map_err(|e| format!("{}: {e}", cfrm.display()))?;
         let child_form = cobolt_forms::load_form_from_str(&xml)
             .map_err(|e| format!("{}: {e}", cfrm.display()))?;
-        let cbl = cfrm.with_extension("cbl");
-        let src = std::fs::read_to_string(&cbl).map_err(|_| {
+        // Where the form's program actually is — the project's `generated/`
+        // folder, a relocated entry, or beside the `.cfrm` for a loose form.
+        // Resolved by the SAME function the compiled application uses, so Run
+        // Form and the built binary cannot disagree about where a form's code
+        // lives. This used to assume "beside the .cfrm" and nothing else,
+        // which is not where the IDE writes it: every door opened fine in a
+        // compiled build and failed under Run Form.
+        let cbl = cobolt_compiler::form_program_path(&cfrm, id).ok_or_else(|| {
             format!(
-                "form '{}' has no generated program beside it ({}) — build or run it \
-                 from the IDE once so its code is generated",
+                "form '{}' has no generated program yet — open it in the IDE and \
+                 run or build it once so its code is generated (looked in the \
+                 project's generated folder and beside {})",
                 id.trim(),
-                cbl.display()
+                cfrm.display()
             )
         })?;
+        let src = std::fs::read_to_string(&cbl)
+            .map_err(|e| format!("{}: {e}", cbl.display()))?;
         let pr = parse(tokenize(&src, SourceFormat::detect(&src)));
         if pr
             .diagnostics

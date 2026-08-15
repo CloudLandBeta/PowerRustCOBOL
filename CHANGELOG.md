@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.55] — 2026-08-15
+
+### Fixed — Run Form could not find a form's generated code
+
+Opening a form from a sidebar failed under **Run Form** with *"form 'X' has
+no generated program beside it"*, naming a path next to the `.cfrm` — while
+the very same project, compiled, opened that form perfectly.
+
+Two different rules had grown for one question. The compiled application asks
+the project where a form's program is: the `generated/` entry with that stem,
+a legacy entry still tracked under sources, or, failing both, the `.cbl`
+beside the design. `rcrun run-form` only ever tried that last one — and it is
+the one place the IDE does *not* write, since generated code goes to the
+project's `generated/` folder. Every "open form" door therefore worked in a
+built binary and failed in the IDE's Run Form.
+
+Both now call one function, `form_program_path`, so the two cannot drift
+apart again. A form belonging to no project still resolves to the `.cbl`
+beside it, and the manifest is found by walking up from the form — it is
+named after the project (`PowerDemo3.project.toml`), not a fixed file name.
+When a form genuinely has no generated program the message now says where it
+looked, both places, instead of naming one path that was never the right one.
+
 ## [PowerRustCOBOL 1.61.54] — 2026-08-15
 
 ### Fixed — a Maps lookup had nowhere to deliver its answer
