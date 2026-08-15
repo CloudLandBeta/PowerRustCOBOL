@@ -3046,7 +3046,7 @@ fn control_purpose(name: &str) -> &'static str {
         "PictureBox" => "Displays a still image.",
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
         "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property). Menu items may carry an icon from the built-in catalogue: 660+ pure-vector icons in 26 categories (documents, editing, navigation, commerce, payroll, receivables, payments, stock control, transportation, logistics, financial, company departments, transaction kinds, civilian vehicles, military equipment, and more). Icons are resolution-independent line work tinted by the item's colour; the engine can also apply a second accent colour, a drop shadow, or a neumorphic emboss.",
-        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane); the collapsed rail is icon-only (an item with no icon falls back to its first letter). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max).",
+        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane); the collapsed rail is icon-only (an item with no icon falls back to its first letter). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
         "ToolBar" => "Horizontal strip of action items.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
@@ -3236,6 +3236,17 @@ fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; an out-of-range index returns empty, never an error."),
             ("Cancel()", "Cancel the in-flight search."),
             ("IsBusy() → Boolean (0/1)", "A search is in flight."),
+        ],
+        // 051 — the SideMenu's programmatic door to standalone child windows.
+        "SideMenu" => vec![
+            (
+                "OpenStandAloneFormSync(formId: String, windowState: String, x: Integer, y: Integer, width: Integer, height: Integer, modal: Boolean)",
+                "Open `formId` in its OWN window, parented to the SHELL (whatever form invokes it), and BLOCK the calling handler until the child closes — Sync is implicitly modal, and the whole shell face waits with it. The space form requires every parameter; the comma form `SideMenu-1::\"OpenStandAloneFormSync\"(\"REPORT\")` defaults the rest from the target's RAD design. The target's FormFormat must be Standalone or Both (build-checked for literal ids). RETURNING is NULL by the time the call resumes (the child is closed).",
+            ),
+            (
+                "OpenStandAloneFormAsync(formId: String, windowState: String, x: Integer, y: Integer, width: Integer, height: Integer)",
+                "Open `formId` in its OWN window, parented to the shell, and return at once. RETURNING binds a windowHandler that drives the child (`Focus`, `Close`, `SetProperty`, …) and becomes NULL when it closes. Never modal. Same parameter rules and FormFormat gate as the Sync form.",
+            ),
         ],
         _ => Vec::new(),
     }
@@ -3556,6 +3567,41 @@ fn controls_reference_doc() -> String {
          `super::<menu-id>::Collapse()` / `Open()` drive the MenuPane (pane-wide; the state \
          persists per application). `me::<property>` works the same way on the form's OWN \
          surface.\n\n",
+    );
+
+    // ── 051 — the multi-form host ────────────────────────────────────────────
+    doc.push_str("### Multi-form host (spec 051)\n\n");
+    doc.push_str(
+        "An application holds MANY live forms at once, each running as its OWN program \
+         instance: own WORKING-STORAGE, own interpreter, own event loop. Forms never read \
+         each other's data items — they communicate through the supervisor surface only \
+         (published form properties, `super::X`, `handle::\"SetProperty\"`/`\"GetProperty\"`, \
+         windowHandler methods). The compiled binary embeds one program per openable form \
+         beside the main program.\n\n",
+    );
+    doc.push_str(
+        "THREE doors open a form: (1) a sidebar item's `Open form` action loads it into the \
+         ContentPane (FormFormat Embedded/Both); (2) `INVOKE me \"OpenFormSync\"/\
+         \"OpenFormAsync\"` opens it as a child WINDOW parented to the calling form \
+         (Standalone/Both); (3) a sidebar item's `Open Stand Alone Form (Sync)/(Async)` \
+         action — or the SideMenu control's `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` \
+         methods — opens a child window parented to the SHELL (Standalone/Both). Sync is \
+         IMPLICITLY MODAL everywhere: the parent's whole face (shell chrome included, when \
+         the parent is the shell) takes no input until the child closes; Async is never \
+         modal. A close cascades per spec 037: Sync children close with their caller, Async \
+         children survive detached, the main form's close takes everything, and a Waiting \
+         form vetoes the whole close.\n\n",
+    );
+    doc.push_str(
+        "A PRESERVED pane occupant (`PreservePreviousForm`) keeps its interpreter and \
+         storage parked off-pane, and its enabled Timer controls KEEP TICKING (handlers run \
+         while parked; ticks coalesce against a busy queue). An open that cannot be \
+         satisfied — unknown form id, a form whose generated program was missing at build \
+         time — raises a visible runtime error and the handle is NULL; it is never silently \
+         dropped. EXEC RUST blocks share ONE object bridge per PROCESS: a handle created by \
+         any form's block resolves in every other form's blocks (values stored through the \
+         bridge must be `Send`); each form's COBOL storage and control registry stay its \
+         own.\n\n",
     );
 
     // ── 038 — project window entrance/exit effects ───────────────────────────
@@ -3984,6 +4030,20 @@ fn methods_reference_doc() -> String {
                 ("TopTitle() / TopSnippet() / TopLink() → String", "First result's fields, empty before any search."),
                 ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; out-of-range → empty."),
                 ("Cancel() / IsBusy() → Boolean", "Async control."),
+            ],
+        ),
+        (
+            "SideMenu (spec 051)",
+            "The sidebar's programmatic door to standalone child windows: the opened window is parented to the SHELL whatever form invokes the method, exactly like the sidebar's own `Open Stand Alone Form` menu actions. The target's FormFormat must be `Standalone` or `Both` (build-checked for literal ids). Space form: every parameter required; comma form: the form id alone is enough.",
+            &[
+                (
+                    "OpenStandAloneFormSync(formId, windowState: String, x, y, width, height: Integer, modal: Boolean)",
+                    "Open the form in its own window and BLOCK the calling handler until it closes — Sync is implicitly modal, the whole shell face waits. RETURNING is NULL on resume.",
+                ),
+                (
+                    "OpenStandAloneFormAsync(formId, windowState: String, x, y, width, height: Integer)",
+                    "Open the form in its own window and return at once. RETURNING binds a windowHandler (Focus/Close/SetProperty/… — NULL when the child closes). Never modal.",
+                ),
             ],
         ),
     ];

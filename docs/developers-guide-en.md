@@ -3988,12 +3988,58 @@ Rules to expect:
   `me::Width`, `MOVE "New" TO me::Title` — and `me` and the form's own name
   address the same thing.
 
-> ⚠️ **Availability.** The shell window, its panes, menus, persistence and
-> the whole `super` surface are implemented. Loading a **second form** into
-> the ContentPane from a menu item is not hosted yet — it needs the same
-> multi-form runtime as spec 037's child windows, which is still pending.
-> Until that lands, `open-form:` menu items report themselves at run time
-> instead of loading, and the chain holds the main form.
+### Opening forms — the three doors
+
+An application holds many live forms at once. Each opened form runs as its
+**own program** with its **own WORKING-STORAGE** — forms never read each
+other's data items. They talk through the surfaces above: published form
+properties, `super::X`, and windowHandler methods.
+
+There are three ways to open a form, and the **Form format** property decides
+which of them may load it:
+
+1. **Into the ContentPane** — a sidebar item with the **Open form** action.
+   The target needs format `Embedded` or `Both`. The outgoing occupant
+   deactivates (and parks, when the clicking item checked *Preserve previous
+   form*); the breadcrumb follows.
+2. **As a child window from COBOL** — `INVOKE me "OpenFormSync"` /
+   `"OpenFormAsync"`, parented to the calling form. The target needs
+   `Standalone` or `Both`.
+3. **As a child window from the sidebar** — the **Open Stand Alone Form
+   (Sync)** / **(Async)** menu actions, or programmatically through the
+   SideMenu control itself:
+
+```cobol
+      *> block until the report window closes (Sync is implicitly modal —
+      *> the whole shell waits with you)
+           INVOKE SideMenu-1 "OpenStandAloneFormSync"
+               USING "RPT-MONTH" "Normal" 80 80 640 480 "true".
+      *> or open it modeless and keep its handle
+           INVOKE SideMenu-1::"OpenStandAloneFormAsync"("MONITOR")
+               RETURNING WS-H.
+           INVOKE WS-H "Focus".
+```
+
+   Windows opened this way are parented to the **shell**, whichever form ran
+   the INVOKE — closing the application closes them. The target needs
+   `Standalone` or `Both`.
+
+**Sync is implicitly modal.** From a menu click or from COBOL: while a
+Sync-opened window lives, its parent's whole face — the shell's chrome
+included — takes no input. Async windows are never modal.
+
+The menu editor's **Target** list only offers the forms the chosen action may
+legally load, and the build enforces the same rule for literal form ids in
+COBOL — a mismatch is a compile error, not a surprise at run time.
+
+**Parked forms stay alive.** A preserved occupant keeps its storage AND its
+enabled Timer controls keep ticking while off-pane — timer handlers run the
+whole time, with bursts coalesced when the form's event queue is busy.
+
+> ⚠️ **Caveat.** An open that cannot be satisfied — a form id nothing
+> matches, or a form whose generated program was missing when the
+> application was built — raises a visible runtime error and leaves the
+> handle NULL. Check your build output for "form … omitted" warnings.
 
 ---
 
@@ -4006,6 +4052,18 @@ A consolidated list so you are never surprised:
 - **File organisations.** SEQUENTIAL, LINE SEQUENTIAL, and INDEXED are
   supported; **RELATIVE is planned**.
 - **Locking.** Single-process record locking only.
+- **One INDEXED file, two live forms.** Each form is its own program, so two
+  forms writing the *same* INDEXED file are two independent writers — their
+  record locks do not coordinate across forms. Give each data file one owner
+  form and pass values through published form properties instead.
+- **EXEC RUST across forms.** The object bridge is one per *application*:
+  a handle created in any form's block resolves in every other form's
+  blocks, and blocks from different forms take turns on it. Values stored
+  through the bridge must be thread-safe (`Send`) for that reason.
+- **`rcrun build` trusts the disk.** The IDE regenerates every form's COBOL
+  before Build/Run/Debug/Check; a bare `rcrun build` compiles whatever
+  generated code is already on disk. Build from the IDE at least once after
+  editing forms.
 - **OO COBOL.** `CLASS`/`METHOD` definitions are out of scope.
 - **ISAM interchange.** The on-disk format is original and **not**
   binary-compatible with any third-party ISAM.
