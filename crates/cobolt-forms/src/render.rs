@@ -1545,6 +1545,8 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
 
+    clear_radio_group_siblings(input, controls, &mut out);
+
     // ── Second pass: open ComboBox dropdowns float above everything. ──────────
     for (cid, items, header, cur) in open_combos {
         match crate::paint::glass_combo_popup(ui, &cid, header, &items, &cur) {
@@ -2608,6 +2610,88 @@ fn control_geometry_events(
 /// `onCheckedChanged` and reads the value. Shared by the CheckBox, the
 /// RadioButton and the Switch, so all three raise the same set — an event a
 /// control advertises but never fires is worse than one it does not offer.
+/// Which group a RadioButton belongs to.
+///
+/// Its `GroupName` when it has one — radios sharing a name are mutually
+/// exclusive, whatever they sit in. With no name they group by what CONTAINS
+/// them, so three radios dropped straight onto a form behave as one group
+/// without the developer having to name it, and three inside a GroupBox make
+/// their own.
+fn radio_group_key(ctrl: &Control) -> String {
+    let name = ctrl
+        .get_prop("GroupName")
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_default();
+    if name.is_empty() {
+        format!("\u{0}parent:{}", ctrl.parent.clone().unwrap_or_default())
+    } else {
+        format!("name:{name}")
+    }
+}
+
+/// Is this radio currently on? `Value` answers when it has been set; otherwise
+/// the designed `Checked` does.
+fn radio_is_on(ctrl: &Control) -> bool {
+    let value = sv(ctrl, "Value");
+    if value.is_empty() {
+        matches!(sv(ctrl, "Checked").as_str(), "1" | "true")
+    } else {
+        matches!(value.as_str(), "1" | "true")
+    }
+}
+
+/// One radio at a time. A radio turns itself ON when clicked, but nothing ever
+/// turned the others OFF — so a group could show two, three, every button
+/// selected at once, and the form had no way to say which the operator meant.
+///
+/// Runs after the control loop, where the whole form is in scope: the arm that
+/// handles the click can only see its own control.
+fn clear_radio_group_siblings(
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    out: &mut RenderOutput,
+) {
+    let is_radio = |id: &str| {
+        controls
+            .iter()
+            .any(|c| c.id == id && matches!(c.control_type, ControlType::RadioButton))
+    };
+    let turned_on: Vec<String> = out
+        .prop_updates
+        .iter()
+        .filter(|(_, key, val)| key == "Value" && (val == "1" || val == "true"))
+        .filter(|(id, _, _)| is_radio(id))
+        .map(|(id, _, _)| id.clone())
+        .collect();
+    if turned_on.is_empty() {
+        return;
+    }
+
+    for on_id in turned_on {
+        let Some(on) = controls.iter().find(|c| c.id == on_id) else {
+            continue;
+        };
+        let group = radio_group_key(on);
+        for other in controls
+            .iter()
+            .filter(|c| matches!(c.control_type, ControlType::RadioButton))
+            .filter(|c| c.id != on_id)
+            .filter(|c| radio_group_key(c) == group)
+        {
+            out.prop_updates
+                .push((other.id.clone(), "Value".to_owned(), "0".to_owned()));
+            // Only the one that was actually lit reports going out — a form
+            // that watches onUncheck should hear about a change, not about
+            // every other button in the group on every click.
+            if radio_is_on(&input.state.live(other)) {
+                out.events.push(UiEvent::change(&other.id, "0"));
+                push_toggle_events(out, &other.id, false);
+                out.events.push(UiEvent::ev(&other.id, "onValueChanged"));
+            }
+        }
+    }
+}
+
 fn push_toggle_events(out: &mut RenderOutput, id: &str, checked: bool) {
     out.events.push(UiEvent::ev(
         id,
@@ -7762,6 +7846,74 @@ mod tests {
         println!(
             "\n  ListBox tick boxes — a plain click on Delta then Beta ⇒ CheckedItems \
              \"Delta, Beta\", with no modifier held\n"
+        );
+    }
+
+    /// One radio at a time. A radio turned itself on when clicked and nothing
+    /// ever turned the others off, so a group could show two, three, every
+    /// button selected at once — and the form had no way to say which the
+    /// operator meant.
+    #[test]
+    fn only_the_last_clicked_radio_in_a_group_stays_on() {
+        let radio = |id: &str, y: i32, group: &str, on: bool| {
+            let mut c = ctrl(id, ControlType::RadioButton, 20, y, 160, 24);
+            c.set_prop("GroupName", crate::PropValue::String(group.to_owned()));
+            if on {
+                c.set_prop("Checked", crate::PropValue::Bool(true));
+            }
+            c
+        };
+        // Two groups: PAGO starts with CASH lit, ENVIO is a separate set that
+        // must not move when PAGO does.
+        let controls = [
+            radio("CASH", 20, "PAGO", true),
+            radio("CARD", 50, "PAGO", false),
+            radio("WIRE", 80, "PAGO", false),
+            radio("POST", 110, "ENVIO", true),
+        ];
+        let at = |y: i32| pos2(100.0, 8.0 + y as f32 + 12.0);
+
+        let (events, overrides) = drive(
+            &controls,
+            vec![
+                (0.0, vec![Event::PointerMoved(at(50))]),
+                (0.05, vec![press(at(50))]),
+                (0.10, vec![release(at(50))]),
+                (0.15, vec![]),
+                // …then a third, so the one just lit goes out too.
+                (0.20, vec![Event::PointerMoved(at(80))]),
+                (0.25, vec![press(at(80))]),
+                (0.30, vec![release(at(80))]),
+                (0.35, vec![]),
+            ],
+        );
+        let value = |id: &str| {
+            overrides
+                .get(id)
+                .and_then(|p| p.get("Value"))
+                .map(String::as_str)
+        };
+
+        assert_eq!(value("WIRE"), Some("1"), "the last one clicked is on");
+        assert_eq!(value("CARD"), Some("0"), "the one before it went out");
+        assert_eq!(value("CASH"), Some("0"), "and so did the designed default");
+        assert_eq!(
+            value("POST"),
+            None,
+            "a radio in ANOTHER group is not touched"
+        );
+        // The button that was really lit reports going out; the ones already
+        // out say nothing.
+        let unchecks: Vec<&str> = events
+            .iter()
+            .filter(|e| e.event == "onUncheck")
+            .map(|e| e.ctrl_id.as_str())
+            .collect();
+        assert_eq!(unchecks, vec!["CASH", "CARD"], "got {unchecks:?}");
+
+        println!(
+            "\n  radio groups — clicking CARD then WIRE leaves WIRE on, CASH and CARD off, \
+             and the ENVIO group untouched; onUncheck fired once per button that was lit\n"
         );
     }
 
