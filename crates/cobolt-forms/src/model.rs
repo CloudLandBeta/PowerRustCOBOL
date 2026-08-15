@@ -2421,6 +2421,18 @@ impl ControlType {
                 "onLoad",
             ],
             ControlType::Maps => &[
+                // The five data methods (Geocode/ReverseGeocode/Directions/
+                // DistanceMatrix/PlacesSearch) are ALWAYS async — they return
+                // immediately and deliver through the uniform async lifecycle
+                // events (spec 032), exactly like RestClient. Without these
+                // four listed here the Designer offered no way to bind them,
+                // so `ResponseBody` was unreachable and every lookup had to be
+                // polled from a Timer: the result was computed and then had
+                // nowhere to go.
+                "onComplete",
+                "onError",
+                "onTimeout",
+                "onCancelled",
                 "onMapClick",
                 "onMarkerClick",
                 "onBoundsChanged",
@@ -7619,6 +7631,31 @@ mod tests {
         let events = ControlType::Maps.supported_events();
         for want in ["onMapClick", "onMarkerClick", "onBoundsChanged"] {
             assert!(events.contains(&want), "Maps missing {want}: {events:?}");
+        }
+    }
+
+    /// A Maps control's five data methods are always async, so it MUST offer
+    /// the same four uniform async lifecycle events (spec 032) that every
+    /// other async control offers. Without them the Designer cannot bind a
+    /// handler, and the interpreter's `onComplete` — carrying the geocode
+    /// result in `ResponseBody` — is dropped for want of a binding.
+    #[test]
+    fn maps_offers_the_async_lifecycle_events_like_every_other_async_control() {
+        let maps = ControlType::Maps.supported_events();
+        for want in ["onComplete", "onError", "onTimeout", "onCancelled"] {
+            assert!(
+                maps.contains(&want),
+                "Maps runs async ops but does not offer {want}: {maps:?}"
+            );
+        }
+        // The same contract RestClient states, held side by side so the two
+        // cannot drift apart again.
+        let rest = ControlType::RestClient.supported_events();
+        for want in ["onComplete", "onError", "onTimeout", "onCancelled"] {
+            assert!(
+                rest.contains(&want) && maps.contains(&want),
+                "async event {want} must be offered by BOTH RestClient and Maps"
+            );
         }
     }
 

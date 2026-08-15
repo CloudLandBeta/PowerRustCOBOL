@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.54] — 2026-08-15
+
+### Fixed — a Maps lookup had nowhere to deliver its answer
+
+The Maps control's five data methods (`Geocode`, `ReverseGeocode`,
+`Directions`, `DistanceMatrix`, `PlacesSearch`) are asynchronous: the call
+returns immediately and the answer arrives later on `onComplete`, in
+`ResponseBody`. But Maps was the one async control that never offered the
+four lifecycle events, so the Designer's Events tab could not bind
+`onComplete` — and an event with no handler bound is dropped. The lookup ran,
+the API answered, and the result was discarded for want of a door. Maps now
+offers `onComplete`, `onError`, `onTimeout` and `onCancelled` like
+`RestClient` and every other async control, and a test holds the two lists
+side by side so they cannot drift apart again.
+
+The documentation had been describing something the platform never did. Both
+the System KB and the Developer's Guide gave these methods a `→ String`
+return and an example — `MOVE Map1::Geocode(…) TO WS-RESULT` — that can only
+ever move an empty string, which is precisely the wrong turn the missing
+event forced anyway. They now show the two-handler shape that works.
+
+### Fixed — `X"09"` is a hexadecimal literal again
+
+Hexadecimal literals are standard COBOL-85 and the Developer's Guide already
+used one to split a TAB-separated result, but the lexer had none: `X"09"` was
+read as the word `X` followed by the string `09`, so the documented example
+failed to parse at the `X`. `X"09"` and `x'0D0A'` — either case, either quote
+— are now literals wherever a quoted one is allowed, one character per pair of
+hex digits. A malformed literal (odd digit count, non-hex digit) is reported
+rather than silently re-read as a word beside a string, so a typo cannot pass
+for working code. Ordinary spellings are untouched: an item named `X`, a
+`PIC X(10)` clause, and the very common `MOVE ALL "X"` all lex exactly as
+before.
+
 ## [PowerRustCOBOL 1.61.53] — 2026-08-15
 
 ### Added — the multi-form host: every "open form" door now opens (spec 051)

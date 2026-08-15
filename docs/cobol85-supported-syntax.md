@@ -331,6 +331,11 @@ unhandled error `FILE STATUS`.
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).
+- ✅ **Hexadecimal literals** — `X"09"`, `x'0D0A'` (either case, either quote).
+  One character per **pair** of hex digits, so the digit count must be even; an
+  odd count or a non-hex digit is a malformed literal and is reported, not
+  quietly re-read as the word `X` beside a string. Usable anywhere a quoted
+  literal is (`DELIMITED BY`, `MOVE`, `VALUE`, comparisons).
 
 ---
 

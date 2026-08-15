@@ -3350,22 +3350,55 @@ independent halves with different credential needs:
   — `LastError` explains it, `onError` fires — never a crash and never a
   silent network attempt:
 
+⚠️ **All five are asynchronous — they do not return the answer.** The call
+starts the lookup, sets `Busy` to `1` and comes straight back with an **empty
+string**; the result arrives later on the `onComplete` event, in the
+`ResponseBody` property. There is no synchronous mode. So this does *not*
+work, however much it reads like it should:
+
 ```cobol
-       WS-1-BTN--ONCLICK.
-           MOVE Map1::Geocode("1600 Amphitheatre Parkway, Mountain View")
-             TO WS-GEOCODE-RESULT
+      *> WRONG — Geocode returns immediately, before any answer exists,
+      *> so WS-GEOCODE-RESULT is always empty.
+           MOVE Map1::Geocode("1600 Amphitheatre Parkway") TO WS-GEOCODE-RESULT.
+```
+
+Start the lookup in one handler and read the answer in the other:
+
+```cobol
+      *> Btn-Find :: onClick — start it
+       FIND-ADDRESS-PARA.
+           Map1::Geocode("1600 Amphitheatre Parkway, Mountain View").
+
+      *> Map1 :: onComplete — the answer landed in ResponseBody
+       ADDRESS-FOUND-PARA.
+           MOVE Map1::ResponseBody TO WS-GEOCODE-RESULT.
       *>   WS-GEOCODE-RESULT = "lat<TAB>lng<TAB>formatted address"
            UNSTRING WS-GEOCODE-RESULT DELIMITED BY X"09"
                INTO WS-LAT WS-LNG WS-ADDRESS.
+           MOVE WS-LAT TO Map1::CenterLat.
+           MOVE WS-LNG TO Map1::CenterLng.
+           MOVE 16     TO Map1::Zoom.
+
+      *> Map1 :: onError — LastError says why
+       ADDRESS-FAILED-PARA.
+           DISPLAY "Lookup failed: " Map1::LastError.
 ```
 
-| Method | Returns |
+| Method | `onComplete` leaves in `ResponseBody` |
 |---|---|
 | `Geocode(address)` | `lat`⇥`lng`⇥`formatted_address` |
 | `ReverseGeocode(lat, lng)` | the formatted address |
 | `Directions(origin, destination)` | `distance_text`⇥`duration_text`⇥`route_summary` |
 | `DistanceMatrix(origin, destination)` | `distance_text`⇥`duration_text` |
 | `PlacesSearch(query, radiusMeters)` | one `place_id`⇥`name`⇥`address`⇥`lat`⇥`lng` line per result |
+
+Like every other async control, Maps offers the four lifecycle events —
+`onComplete`, `onError`, `onTimeout` and `onCancelled` — alongside its own
+`onMapClick` / `onMarkerClick` / `onBoundsChanged`.
+
+> **Note.** `X"09"` above is the standard hexadecimal literal for a TAB. Write
+> any byte that way (`X"0D0A"` is CR LF); each *pair* of hex digits is one
+> character, so the digit count is always even.
 
 **Data binding.** A Maps control can be a standalone binding target: bind
 its `Markers` collection to a source with `Lat`/`Lng`/`Label` fields mapped

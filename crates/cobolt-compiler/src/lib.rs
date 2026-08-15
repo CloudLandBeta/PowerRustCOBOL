@@ -3250,11 +3250,11 @@ fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             v
         }
         "Maps" => vec![
-            ("Geocode(address: String) → String", "Look up an address; returns `lat\\tlng\\tformatted_address`. Fails \"not configured\" with no google_maps key set (R33)."),
-            ("ReverseGeocode(lat: String, lng: String) → String", "Look up coordinates; returns the formatted address."),
-            ("Directions(origin: String, destination: String) → String", "Route between two addresses; returns `distance_text\\tduration_text\\troute_summary`."),
-            ("DistanceMatrix(origin: String, destination: String) → String", "Distance/time between two addresses; returns `distance_text\\tduration_text`."),
-            ("PlacesSearch(query: String, radiusMeters: String) → String", "Text search for places; returns one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
+            ("Geocode(address: String)", "**Async** — starts the lookup and returns an EMPTY string at once. `onComplete` delivers `lat\\tlng\\tformatted_address` in `ResponseBody`. Fails \"not configured\" with no google_maps key set (R33)."),
+            ("ReverseGeocode(lat: String, lng: String)", "**Async** — `onComplete` delivers the formatted address in `ResponseBody`."),
+            ("Directions(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text\\troute_summary` in `ResponseBody`."),
+            ("DistanceMatrix(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text` in `ResponseBody`."),
+            ("PlacesSearch(query: String, radiusMeters: String)", "**Async** — `onComplete` delivers one `place_id\\tname\\taddress\\tlat\\tlng` line per result in `ResponseBody`."),
             (
                 "AddMarker(id: String, lat: String, lng: String, label: String, info: String)",
                 "Append one pin to Markers (ergonomic alternative to hand-formatting the TAB-separated property)."
@@ -4044,13 +4044,13 @@ fn methods_reference_doc() -> String {
         ),
         (
             "Maps",
-            "The OSM basemap needs no API key; only the five data methods below call the real Google Maps API and need a `google-maps` project credential (Settings → Integrations) — with none configured they fail immediately with `onError` (R33), never a crash or network call.",
+            "The OSM basemap needs no API key; only the five data methods below call the real Google Maps API and need a `google-maps` project credential (Settings → Integrations) — with none configured they fail immediately with `onError` (R33), never a crash or network call. **All five are ALWAYS async**: the call returns an empty string immediately, sets `Busy`, and the answer arrives in `ResponseBody` with `onComplete` (or `LastError` with `onError`). There is no Sync mode — do NOT write `MOVE Maps1::Geocode(...) TO X`, which only ever moves an empty string.",
             &[
-                ("Geocode(address: String) → String", "Returns `lat\\tlng\\tformatted_address`."),
-                ("ReverseGeocode(lat: String, lng: String) → String", "Returns the formatted address."),
-                ("Directions(origin: String, destination: String) → String", "Returns `distance_text\\tduration_text\\troute_summary`."),
-                ("DistanceMatrix(origin: String, destination: String) → String", "Returns `distance_text\\tduration_text`."),
-                ("PlacesSearch(query: String, radiusMeters: String) → String", "Returns one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
+                ("Geocode(address: String)", "Async. `onComplete`: `ResponseBody` = `lat\\tlng\\tformatted_address`."),
+                ("ReverseGeocode(lat: String, lng: String)", "Async. `onComplete`: `ResponseBody` = the formatted address."),
+                ("Directions(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\troute_summary`."),
+                ("DistanceMatrix(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text`."),
+                ("PlacesSearch(query: String, radiusMeters: String)", "Async. `onComplete`: `ResponseBody` = one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
                 ("AddMarker(id, lat, lng, label, info: String)", "Append one pin to `Markers`."),
                 ("RemoveMarker(id: String)", "Remove the marker with that id."),
             ],

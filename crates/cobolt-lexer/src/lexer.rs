@@ -252,6 +252,11 @@ impl<'src> Lexer<'src> {
 
             RawToken::FreeComment(text) => Token::Comment(text),
 
+            // A hex literal IS a character-string literal — it just spells its
+            // characters in hex — so it becomes the same token and works
+            // anywhere a quoted literal does (DELIMITED BY, MOVE, VALUE, …).
+            RawToken::HexString(s) => Token::StringLiteral(s),
+
             RawToken::StringDouble(s) | RawToken::StringSingle(s) => Token::StringLiteral(s),
 
             RawToken::Float(Some(text)) => {

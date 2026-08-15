@@ -25,6 +25,22 @@
 
 use logos::Logos;
 
+/// The characters a COBOL-85 hexadecimal literal (`X"0D0A"`) stands for: one
+/// character per PAIR of hex digits, byte value → character, so `X"09"` is a
+/// tab and `X"0D0A"` is CR LF. The slice still carries its `X` and both
+/// quotes; the regex has already guaranteed an even count of hex digits, so
+/// no pair here can fail to parse.
+fn hex_literal_chars(slice: &str) -> String {
+    slice[2..slice.len() - 1]
+        .as_bytes()
+        .chunks(2)
+        .filter_map(|pair| {
+            let text = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(text, 16).ok().map(|b| b as char)
+        })
+        .collect()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Raw token (logos layer)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,6 +58,17 @@ pub enum RawToken {
     // ── Free-form comment: *> to end of line ───────────────────────────────
     #[regex(r"\*>[^\n]*", |lex| lex.slice()[2..].trim().to_string())]
     FreeComment(String),
+
+    // ── Hexadecimal literal: X"09" / x'0D0A' (COBOL-85 standard) ───────────
+    // Each PAIR of hex digits is one character, so the count must be even —
+    // the regex enforces that rather than accepting a half byte. Listed
+    // BEFORE the plain string patterns: logos prefers the longer match, and
+    // this one starts a character earlier (at the `X`), so `X"09"` can no
+    // longer lex as the word `X` followed by the string `09` — which is what
+    // made a documented, standard literal a parse error at the `X`.
+    #[regex(r#"[Xx]"([0-9A-Fa-f]{2})*""#, |lex| hex_literal_chars(lex.slice()))]
+    #[regex(r#"[Xx]'([0-9A-Fa-f]{2})*'"#, |lex| hex_literal_chars(lex.slice()))]
+    HexString(String),
 
     // ── String literals ────────────────────────────────────────────────────
     // Double-quoted: "Hello, World!"  (doubled "" is an escaped quote)
