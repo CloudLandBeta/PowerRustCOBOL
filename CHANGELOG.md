@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.49] — 2026-08-14
+
+### Fixed — properties that were only decoration
+
+The 1.61.47 painter unification left a batch of inspector properties
+disconnected. The Knob's dead `Size` preset is gone (the dial is the size the
+control is drawn) and its `Accent` takes any colour from the picker, the six
+legacy names still resolving. The Gauge's `ShowNeedle`, `ShowScale`,
+`ShowThumb`, `Unit` (all three styles), `Text` override and threshold zone
+colouring all reach the paint. The Slider's `FillColor`/`TrackColor`/
+`ThumbColor` paint the travelled part, the rail and the knob — and the
+theme's travelled side is the highlighted one, not the muted grey. A menu's
+`Cursor` property applies on bar titles, dropdown rows and sidebar rows.
+
 ## [PowerRustCOBOL 1.61.48] — 2026-08-14
 
 ### Fixed — a radio group could show every button selected
