@@ -11794,6 +11794,18 @@ pub(crate) fn preview_accepts_update(expected: &str, key: &str) -> bool {
     key == expected || (expected == "Checked" && key == "Value")
 }
 
+/// A control may report more than one value — a ListBox writes its active row,
+/// its Ctrl-click selection AND its ticked set. The preview map holds one value
+/// per control, so these are kept beside it under `id::Prop` (see
+/// [`PreviewState::live`]). Listed explicitly rather than "everything else", so
+/// a transient the engine emits cannot quietly become preview state.
+pub(crate) fn preview_keeps_extra_update(key: &str) -> bool {
+    matches!(
+        key,
+        "SelectedItems" | "CheckedItems" | "SelectedIndex" | "RejectedFiles" | "DroppedFiles"
+    )
+}
+
 /// `FormState` for the live preview: injects the single per-control preview value
 /// into the right property key and supplies the OnFormLoad animation transform.
 /// The engine does everything else (spec 017 T4).
@@ -11806,6 +11818,20 @@ struct PreviewState<'a> {
 impl cobolt_forms::render::FormState for PreviewState<'_> {
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
         let mut c = base.clone();
+        // Values a control writes BESIDES its primary one — a ListBox's
+        // SelectedItems and CheckedItems, say — are keyed `id::Prop`. The map
+        // holds one value per control by design, and anything that did not fit
+        // that shape used to be dropped on the way back, so a second selection
+        // could never survive a frame in the preview.
+        let prefix = format!("{}::", base.id);
+        for (key, value) in self.values {
+            if let Some(prop) = key.strip_prefix(&prefix) {
+                c.set_prop(
+                    prop.to_owned(),
+                    cobolt_forms::PropValue::String(value.clone()),
+                );
+            }
+        }
         if let Some(v) = self.values.get(&base.id) {
             let key = preview_value_key(&base.control_type).to_owned();
             c.set_prop(key, cobolt_forms::PropValue::String(v.clone()));
@@ -12182,6 +12208,13 @@ impl CoboltApp {
                 .unwrap_or("Caption");
             if preview_accepts_update(expected, &key) {
                 self.designers[idx].1.preview_state.insert(id, val);
+            } else if preview_keeps_extra_update(&key) {
+                // A second value from the same control — kept under `id::Prop`,
+                // which `PreviewState::live` merges back onto the control.
+                self.designers[idx]
+                    .1
+                    .preview_state
+                    .insert(format!("{id}::{key}"), val);
             }
         }
 
@@ -15319,6 +15352,57 @@ mod preview_alpha_tests {
         println!(
             "\n  preview toggles — CheckBox/RadioButton report `Value`, Switch reports \
              `Checked`; all three now land in the map and read back as checked\n"
+        );
+    }
+
+    /// A ListBox reports three values — the active row, the Ctrl-click
+    /// selection and the ticked set — but the preview map holds one per
+    /// control. The extra two are kept beside it under `id::Prop` and merged
+    /// back on, or a second selection could never survive a frame.
+    #[test]
+    fn a_preview_keeps_a_controls_second_and_third_value() {
+        let expected = preview_value_key(&ControlType::ListBox);
+        assert_eq!(expected, "Value", "the list's primary value is the active row");
+        assert!(preview_keeps_extra_update("SelectedItems"));
+        assert!(preview_keeps_extra_update("CheckedItems"));
+        assert!(
+            !preview_keeps_extra_update("Caption"),
+            "…and only the values a control really reports are kept"
+        );
+
+        let list = Control::new("ListBox-1", ControlType::ListBox, 0, 0);
+        let mut values = std::collections::HashMap::new();
+        values.insert("ListBox-1".to_owned(), "Beta".to_owned());
+        values.insert(
+            "ListBox-1::SelectedItems".to_owned(),
+            "Alpha\nBeta".to_owned(),
+        );
+        values.insert("ListBox-1::CheckedItems".to_owned(), "Gamma".to_owned());
+        let anim = std::collections::HashMap::new();
+        let live = PreviewState {
+            values: &values,
+            anim: &anim,
+            form_w: 400.0,
+            form_h: 300.0,
+        }
+        .live(&list);
+
+        assert_eq!(
+            live.get_prop("Value").map(|v| v.as_str().to_owned()),
+            Some("Beta".to_owned())
+        );
+        assert_eq!(
+            live.get_prop("SelectedItems").map(|v| v.as_str().to_owned()),
+            Some("Alpha\nBeta".to_owned())
+        );
+        assert_eq!(
+            live.get_prop("CheckedItems").map(|v| v.as_str().to_owned()),
+            Some("Gamma".to_owned())
+        );
+
+        println!(
+            "\n  preview values — a ListBox's active row, its Ctrl-click selection and its \
+             ticked set all survive the trip back\n"
         );
     }
 }

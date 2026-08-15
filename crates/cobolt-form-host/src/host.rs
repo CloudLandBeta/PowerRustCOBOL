@@ -1589,14 +1589,41 @@ impl FormHost {
             for id in file_drop_zone_ids {
                 let key = format!("filedropzone:{id}");
                 if let Some(Some(path)) = crate::file_dialog::take(&key) {
-                    let val = path.display().to_string();
-                    self.state_entry_mut(&id).set("DroppedFiles", val.clone());
+                    // Browsing goes through the SAME intake as a drop — the
+                    // zone's extensions, size limit and destination folder — so
+                    // a file is judged by one set of rules however it arrived.
+                    let ctrl = self.controls.iter().find(|c| c.id == id);
+                    let prop = |key: &str| -> String {
+                        ctrl.and_then(|c| c.get_prop(key))
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default()
+                    };
+                    let intake = cobolt_forms::dropzone::take_files(
+                        &[path.display().to_string()],
+                        &prop("AllowedExtensions"),
+                        prop("MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
+                        &prop("DestinationFolder"),
+                    );
+                    let accepted = intake.accepted.join("\n");
+                    let rejected = intake.rejected_lines().join("\n");
+                    self.state_entry_mut(&id).set("DroppedFiles", accepted.clone());
+                    self.state_entry_mut(&id).set("RejectedFiles", rejected.clone());
                     let _ = self.input_tx.send(StateUpdate::new(
                         id.clone(),
                         "DroppedFiles".to_owned(),
-                        val,
+                        accepted,
                     ));
-                    self.send_event(FormEvent::new(id, "onFilesDropped".to_owned()));
+                    let _ = self.input_tx.send(StateUpdate::new(
+                        id.clone(),
+                        "RejectedFiles".to_owned(),
+                        rejected,
+                    ));
+                    if !intake.accepted.is_empty() {
+                        self.send_event(FormEvent::new(id.clone(), "onFilesDropped".to_owned()));
+                    }
+                    if !intake.rejected.is_empty() {
+                        self.send_event(FormEvent::new(id, "onFilesRejected".to_owned()));
+                    }
                     interacted = true;
                 }
             }

@@ -2388,6 +2388,9 @@ impl ControlType {
             ],
             ControlType::FileDropZone => &[
                 "onFilesDropped",
+                // Fired when a drop carried files the zone would not take, so a
+                // form can say WHY rather than appear to have ignored them.
+                "onFilesRejected",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -2495,6 +2498,10 @@ impl ControlType {
                 "onValueChanged",
             ],
             ControlType::ListBox => &[
+                // Fired when a row's tick box is clicked, carrying the whole
+                // checked set — the selection events below report the active
+                // row, which a tick never moves.
+                "onItemChecked",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -3178,6 +3185,36 @@ const TAB_CONTROL_MCP_TOOL: &str = r#"{"name":"manage_tab_control_tabs","descrip
 /// Almost everything starts opaque. A **CheckBox** starts fully transparent:
 /// it is a tick and a caption, not a card, and a painted face behind it only
 /// fights whatever it was dropped onto — a GroupBox, a Panel, the form itself.
+/// Air above and below a list row's text.
+pub const LIST_ROW_PAD: f32 = 2.0;
+/// The list's own inner margin, between its border and its rows.
+pub const LIST_FRAME_PAD: f32 = 3.0;
+
+/// One line of a control's own text, at its own font size.
+pub fn text_line_height(ctrl: &Control) -> f32 {
+    let fs = ctrl
+        .get_prop("FontSize")
+        .map(|v| v.as_i64())
+        .unwrap_or(14)
+        .clamp(4, 200) as f32;
+    fs * 1.35
+}
+
+/// The smallest a control may be dragged to.
+///
+/// 8×8 for most things — but a ListBox that cannot show one line of its own
+/// text is not a list, it is a sliver. The floor follows the control's own
+/// `FontSize`, so raising the font raises the floor with it.
+pub fn min_control_size(ctrl: &Control) -> (i32, i32) {
+    match ctrl.control_type {
+        ControlType::ListBox => {
+            let h = text_line_height(ctrl) + LIST_ROW_PAD * 2.0 + LIST_FRAME_PAD * 2.0;
+            (24, h.ceil() as i32)
+        }
+        _ => (8, 8),
+    }
+}
+
 pub fn default_transparency(control_type: &ControlType) -> i64 {
     match control_type {
         ControlType::CheckBox => 100,
@@ -3410,6 +3447,14 @@ impl Control {
                 props.insert("Items".into(), PropValue::String("".into()));
                 props.insert("SelectedIndex".into(), PropValue::Int(-1));
                 props.insert("MultiSelect".into(), PropValue::Bool(false));
+                // The two selections a list carries: `Value`/`SelectedIndex` is
+                // the ACTIVE row (the one the cursor is on, fully highlighted),
+                // `SelectedItems` the set the user built with Ctrl/Cmd, drawn
+                // in a dimmed version of the same highlight. `CheckedItems` is
+                // separate again — the ticked set, in any order and with gaps.
+                props.insert("SelectedItems".into(), PropValue::String("".into()));
+                props.insert("ShowCheckBoxes".into(), PropValue::Bool(false));
+                props.insert("CheckedItems".into(), PropValue::String("".into()));
                 props.insert("Sorted".into(), PropValue::Bool(false));
                 props.insert("BorderStyle".into(), PropValue::String("Single".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
@@ -3796,6 +3841,12 @@ impl Control {
             // native picker, R14/R15) — not a designer-editable default.
             ControlType::FileDropZone => {
                 props.insert("Hint".into(), PropValue::String("".into()));
+                // What the zone takes, and where it puts it (see `dropzone`).
+                // Empty/0 keeps the original behaviour: take anything, of any
+                // size, and leave it where it lies.
+                props.insert("AllowedExtensions".into(), PropValue::String("".into()));
+                props.insert("MaximumFileSizeKB".into(), PropValue::Int(0));
+                props.insert("DestinationFolder".into(), PropValue::String("".into()));
             }
             // Maps (spec 039 T8): the OpenStreetMap basemap needs no key at
             // all (R33) — `ApiKeySource` only gates the google_maps-backed
@@ -6310,6 +6361,36 @@ mod tests {
     /// no border keys of its own every checkbox was boxed in a grey rectangle
     /// the developer could not reach (operator, 2026-08-01). The keys must
     /// exist, and default to `None` so the fallback box is gone.
+    /// A ListBox may not be dragged below one line of its own text — a list
+    /// that cannot show a single item is a sliver, not a control — and the
+    /// floor follows its `FontSize`, so raising the font raises the floor.
+    #[test]
+    fn a_listbox_cannot_be_dragged_below_one_line() {
+        let mut lb = Control::new("ListBox-1", ControlType::ListBox, 0, 0);
+        let (w14, h14) = min_control_size(&lb);
+        assert!(w14 >= 24, "a list needs room for its text and a scrollbar");
+        assert!(
+            h14 as f32 >= text_line_height(&lb) + LIST_ROW_PAD * 2.0 + LIST_FRAME_PAD * 2.0 - 1.0,
+            "the floor must hold one row: {h14}px"
+        );
+
+        lb.set_prop("FontSize", PropValue::Int(28));
+        let (_, h28) = min_control_size(&lb);
+        assert!(
+            h28 > h14,
+            "a bigger font needs a taller floor: {h14}px at 14pt, {h28}px at 28pt"
+        );
+
+        // Everything else keeps the universal 8x8.
+        let button = Control::new("Button-1", ControlType::Button, 0, 0);
+        assert_eq!(min_control_size(&button), (8, 8));
+
+        println!(
+            "\n  minimum sizes — a ListBox floors at {h14}px tall at 14pt and {h28}px at 28pt; \
+             other controls stay at 8x8\n"
+        );
+    }
+
     #[test]
     fn checkbox_and_radio_button_expose_border_properties() {
         for t in ["CheckBox", "RadioButton"] {

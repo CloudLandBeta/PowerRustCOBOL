@@ -5684,7 +5684,23 @@ impl PropertiesPanel {
                 section_header(ui, "ListBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
                 bool_row_inline(ui, id, "MultiSelect", "Multi-select", ctrl, action);
+                bool_row_inline(ui, id, "ShowCheckBoxes", "Tick boxes", ctrl, action);
                 bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
+                // The three things a list reports, and which is which. Runtime
+                // values, like DroppedFiles — shown so the developer knows what
+                // to read, not to be typed in.
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(
+                        "At runtime: Value / SelectedIndex is the ACTIVE row; \
+                         SelectedItems is the Ctrl-click (Cmd on a Mac) selection, \
+                         drawn dimmed; CheckedItems is the ticked set. All three are \
+                         newline-separated where they hold more than one.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(2.0);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
@@ -6044,11 +6060,58 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // What the zone takes, and where it puts it. Blank/0 keeps the
+                // zone wide open: any file, any size, left where it lies.
+                {
+                    let cur = ctrl
+                        .get_prop("AllowedExtensions")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "AllowedExtensions",
+                        &cur,
+                        "Extensions:",
+                        "csv, xlsx  (blank = any)",
+                        action,
+                    );
+                }
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumFileSizeKB",
+                    "Maximum size",
+                    ctrl,
+                    action,
+                    0..=1_048_576,
+                    Some("KB"),
+                    0,
+                );
+                {
+                    let cur = ctrl
+                        .get_prop("DestinationFolder")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "DestinationFolder",
+                        &cur,
+                        "Destination:",
+                        "folder to copy accepted files into",
+                        action,
+                    );
+                }
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(
-                        "DroppedFiles is populated at runtime by a drop or the \
-                         native file picker — not a design-time property.",
+                        "DroppedFiles and RejectedFiles are populated at runtime by a \
+                         drop or the native file picker — not design-time properties. \
+                         A blank Extensions accepts any file; 0 KB is no size limit; a \
+                         blank Destination leaves files where they are.",
                     )
                     .small()
                     .weak(),

@@ -1392,13 +1392,40 @@ can bind directly to one source field with no repeating group needed. The
 bound field drives `Value` (Knob/Gauge) or `Checked` (Switch) automatically
 whenever the binding refreshes.
 
+#### ListBox — the active row, the selection, and the ticked set
+
+A ListBox carries three separate things, and a form reads whichever it needs:
+
+| Property | What it holds |
+|----------|---------------|
+| `Value` / `SelectedIndex` | The **active** row — the one the cursor is on, drawn in a full highlight. |
+| `SelectedItems` | The **selection** the user built with Ctrl-click (Cmd on a Mac), drawn in a dimmed version of the same highlight. Needs `MultiSelect`. |
+| `CheckedItems` | The **ticked** rows, when `ShowCheckBoxes` is on. |
+
+They are separate on purpose. Clicking a row makes it active *and* starts a
+one-row selection; Ctrl-clicking adds a row to the selection or takes it back
+out, and moves the cursor there either way. Ticking a box changes only
+`CheckedItems` — the active row does not move — and fires `onItemChecked`, so a
+list can be a set of choices and a cursor at the same time. `CheckedItems` keeps
+the order the user ticked in, gaps and all; it is not a contiguous range.
+
+```cobol
+      *>   every ticked row, one per line:
+           MOVE LIST-1::CheckedItems TO WS-TICKED
+      *>   …and the row the cursor is on:
+           MOVE LIST-1::Value        TO WS-ACTIVE
+```
+
+> **Note.** A ListBox cannot be drawn shorter than one line of its own text —
+> the designer's resize stops there, and the floor rises with `FontSize`.
+
 #### FileDropZone
 
 **FileDropZone** is a non-visual-in-spirit but visibly-rendered drop target:
 the user drags files onto it, or clicks it to open the platform's native
-file picker. Either way, the paths land in `DroppedFiles` — one absolute
-path per line — and `onFilesDropped` fires. Its only design-time property
-is `Hint` (placeholder text shown while empty).
+file picker. Either way, the zone applies its intake rules, the files it
+accepts land in `DroppedFiles` — one absolute path per line — and
+`onFilesDropped` fires.
 
 There is **no COBOL method** to open the picker or read a drop
 programmatically — it is purely a UI gesture. Read the result the normal
@@ -1409,6 +1436,46 @@ way once the event fires:
            MOVE FDZ-1::DroppedFiles TO WS-PATHS
       *>   WS-PATHS is newline-separated; UNSTRING or SEARCH it as usual.
 ```
+
+**What the zone accepts, and where it puts it.** Three design-time
+properties decide, and both routes in — a drop and the file picker — obey
+them, so a file is judged the same way however it arrived:
+
+| Property | Meaning |
+|----------|---------|
+| `AllowedExtensions` | `csv, xlsx` — what the zone takes. Case-blind, dots optional, separated by commas, semicolons or spaces. Blank accepts any file. |
+| `MaximumFileSizeKB` | The largest file the zone takes, in KB. `0` means no limit. |
+| `DestinationFolder` | A local folder that accepted files are **copied** into. Blank leaves files where they are. |
+
+With a destination set, the folder is created if it does not exist, and an
+existing file is **never** overwritten: a second `report.csv` lands as
+`report (2).csv`, a third as `report (3).csv`. `DroppedFiles` then reports
+each file at its new path — the copy your program owns, not the original the
+user dragged.
+
+Files the zone turns away are not lost in silence. They land in
+`RejectedFiles`, one per line as the path, a TAB, and the reason —
+`extension` or `too-big` — and `onFilesRejected` fires. A drop of ten files
+where three are refused fires **both** events, so a form can accept the
+seven and still say what happened to the rest:
+
+```cobol
+      *>   in the FDZ-1 onFilesRejected handler:
+           MOVE FDZ-1::RejectedFiles TO WS-REFUSED
+           UNSTRING WS-REFUSED DELIMITED BY X"09"
+               INTO WS-PATH WS-REASON
+           STRING "Not accepted: " WS-PATH " (" WS-REASON ")"
+               DELIMITED BY SIZE INTO WS-MESSAGE
+           MOVE WS-MESSAGE TO LABEL-STATUS::Caption
+```
+
+> **Note.** A file the platform cannot measure (an unreadable path, a
+> filesystem that will not report a size) is **accepted** rather than
+> refused — a zone must not swallow a file it merely failed to stat.
+
+> ⚠️ **Caveat.** The copy happens wherever the form runs, including in the
+> IDE's **Preview** — that is what makes the preview faithful. Point
+> `DestinationFolder` at a scratch folder while you are designing.
 
 `FileDropZone` is deliberately **not** a Data Binding Guardian target — its
 output is event-shaped (populated by user action), not a value a bound

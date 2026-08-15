@@ -1,5 +1,118 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.47] — 2026-08-14
+
+### Fixed — the highlight ate the list's border
+
+A highlighted row reached the frame so its corners would line up with the
+border's arc — and painted the rim away in the process, at the first row and at
+the last. It now stops short of the border on every side, by the border's own
+width plus a hairline, so the rim stays a continuous line with the highlight
+inside it. The corners alongside the arc keep what is left of the radius, since
+egui clips to an axis-aligned rect and a square band would still cut across it.
+
+### Changed — a list you can sweep, and tick without a modifier
+
+- **Press and drag takes every row the pointer crosses**, each once. With
+  `MultiSelect` they join one selection; with tick boxes they are ticked. The
+  scroll area still owns the drag, so the list scrolls under the pointer as the
+  sweep goes and the rows that pass beneath are taken in turn.
+- **No modifier is needed when tick boxes are on.** The boxes ARE the multiple
+  selection, so a plain click anywhere on a row ticks it and clicking again
+  clears it. Ctrl/Cmd remains what builds a selection in a list WITHOUT boxes.
+- A row is taken while the button is **down** over it rather than on release —
+  which is what makes a press-and-sweep work at all.
+
+## [PowerRustCOBOL 1.61.46] — 2026-08-14
+
+### Fixed — a ListBox's rows are rows again
+
+The list's items were egui widgets, which is why so little about them could be
+controlled. They are painted here now — a row is a full-width band with its own
+highlight, its own tick box and its own metrics:
+
+- **A list cannot be drawn shorter than one line of its own text.** The
+  designer's resize floor was a universal 8 px, so a list could be dragged down
+  to a sliver that could not show anything. The floor now follows the control's
+  `FontSize` — 29 px at 14 pt, 48 px at 28 pt.
+- **The highlight fills the width and is cut by the corner.** It used to be a
+  widget-sized box inset from the border. egui clips to an axis-aligned rect, so
+  a square band paints straight through a rounded corner and out past the
+  border — which a one- or two-line list shows most, every row being a corner
+  row. A row against the frame now takes the frame's own radius on the corners
+  it touches, and stays square everywhere else.
+- **Selected rows are dimmed.** The active row — the one the cursor is on —
+  keeps the full highlight; every other row in the selection wears the same
+  colour at 45 %, so a list says which is which.
+
+### Added — a ListBox that can collect
+
+- **Ctrl-click builds a selection** (Cmd on a Mac) when `MultiSelect` is on:
+  each held click adds a row or takes it out, a plain click starts over with
+  one. The set is `SelectedItems`, one item per line.
+- **`ShowCheckBoxes` gives every row a tick box**, collecting `CheckedItems` —
+  in the order the user ticked, gaps and all. Ticking never moves the active
+  row, and fires the new `onItemChecked` carrying the whole set.
+- **The two selections are separate properties**, because they are separate
+  things: `Value`/`SelectedIndex` is the active row, `SelectedItems` the
+  Ctrl-click selection, `CheckedItems` the ticked set.
+
+The IDE's preview keeps one value per control, so a list's second and third
+value would have been dropped there each frame — they are now kept beside it and
+merged back, the same fault that stopped a CheckBox toggling in 1.61.43.
+
+
+## [PowerRustCOBOL 1.61.44] — 2026-08-14
+
+### Fixed — the Knob, the Gauge and the NumericUpDown are one control again
+
+Three controls were drawn by the palette crate's widgets in the preview and the
+running form, and by our own painter on the canvas — so the RAD showed one thing
+and every other surface another. The widgets also size themselves from their own
+hints rather than the rect they are given, and letter their text with the ambient
+font, which no canvas can reproduce.
+
+All three now go through the **shared painter**, with their interaction added
+around it — the move the Switch already made in 1.61.40:
+
+- **The Knob** is the size it was drawn. The widget picked one of three fixed
+  pixel sizes (Small/Medium/Large) whatever the designed rect said; the dial now
+  scales with the control — an 80×96 knob draws a dial of r=28, a 200×220 one of
+  r=77 — keeping the proportions the preview always had (track, rim, face, inner
+  ring, indicator). Its value is centred on the control instead of being laid out
+  beside it, and it honours `FontSize`, `FontName` and `ForegroundColor` — which
+  is why the font size property appeared to do nothing.
+- **The Knob turns.** Drag it anywhere: up or right raises, down or left lowers,
+  a full sweep over about twice its own height, and the wheel nudges it a step.
+- **The Gauge** paints with the developer's colours — `ForegroundColor` for the
+  meter, `BackgroundColor` for its track — where before both came from the
+  crate's own palette. Its reading no longer sits on the band it reports: inside
+  the dial on a Radial, above the bar on a Linear, in the hole on a Donut, and
+  centred in all three.
+- **The NumericUpDown** shows the same field everywhere. The canvas used to
+  letter `▲▼` into its caption — a control that existed on no other surface —
+  while the preview drew an egui widget with its own background and hover.
+
+## [PowerRustCOBOL 1.61.45] — 2026-08-14
+
+### Added — a FileDropZone that knows what it wants
+
+A drop zone took whatever was dropped on it and reported where the files lay. It
+now has an intake, and both routes in — a drag and the native picker — obey it:
+
+- `AllowedExtensions` — `csv, xlsx`. Case-blind, dots optional. Blank accepts any
+  file.
+- `MaximumFileSizeKB` — the largest file taken. `0` is no limit.
+- `DestinationFolder` — accepted files are **copied** here, the folder created if
+  missing. An existing name is never overwritten: a second `report.csv` lands as
+  `report (2).csv`. `DroppedFiles` then reports each file at its new path.
+
+Refused files are not lost in silence: they land in `RejectedFiles`, one
+`path<TAB>reason` per line (`extension` or `too-big`), and fire the new
+`onFilesRejected`. A drop where some files are taken and others refused fires
+both events. A file the platform cannot measure is accepted rather than swallowed.
+
+
 ## [PowerRustCOBOL 1.61.43] — 2026-08-13
 
 ### Fixed — the CheckBox the Preview erased, and the click it threw away

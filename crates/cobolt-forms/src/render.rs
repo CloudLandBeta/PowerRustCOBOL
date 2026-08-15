@@ -3395,47 +3395,44 @@ fn render_interactive(
         // whether the bound value moved this frame, exactly like any other
         // egui widget.
         CT::Knob => {
-            use elegance::{Accent, Knob, KnobSize};
+            // Painted by the SHARED painter, like the check box and the switch
+            // beside it, so the canvas, the preview, the running form and the
+            // compiled binary draw one knob — at the size it was drawn, in the
+            // control's own font. The widget this replaced picked one of three
+            // fixed pixel sizes and laid its value out with egui, which is why
+            // the canvas and the preview disagreed on both.
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
 
-            let min_v: f64 = sv(ctrl, "Minimum").parse().unwrap_or(0.0);
-            let max_v: f64 = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0).max(min_v + 1.0);
-            let step: f64 = sv(ctrl, "Step").parse::<f64>().unwrap_or(1.0).max(0.0001);
-            let mut val: f64 = sv(ctrl, "Value").parse().unwrap_or(min_v).clamp(min_v, max_v);
-            let default_v: f64 = sv(ctrl, "DefaultValue").parse().unwrap_or(min_v);
-            let size = match sv(ctrl, "Size").as_str() {
-                "Small" => KnobSize::Small,
-                "Large" => KnobSize::Large,
-                _ => KnobSize::Medium,
-            };
-            let accent = match sv(ctrl, "Accent").as_str() {
-                "Green" => Accent::Green,
-                "Red" => Accent::Red,
-                "Purple" => Accent::Purple,
-                "Amber" => Accent::Amber,
-                "Sky" => Accent::Sky,
-                _ => Accent::Blue,
-            };
-            let bipolar = matches!(sv(ctrl, "Bipolar").as_str(), "1" | "true");
-            let show_value = matches!(sv(ctrl, "ShowValue").as_str(), "1" | "true");
-            let label = sv(ctrl, "Label");
+            let min_v: f32 = sv(ctrl, "Minimum").parse().unwrap_or(0.0);
+            let max_v: f32 = sv(ctrl, "Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
+            let step: f32 = sv(ctrl, "Step").parse::<f32>().unwrap_or(1.0).max(0.0001);
+            let val = paint::knob_value(ctrl).clamp(min_v, max_v);
 
-            let mut knob = Knob::new(&mut val, min_v..=max_v)
-                .size(size)
-                .accent(accent)
-                .step(step)
-                .default(default_v)
-                .show_value(show_value)
-                .enabled(enabled);
-            if bipolar {
-                knob = knob.bipolar();
-            }
-            if !label.is_empty() {
-                knob = knob.label(label);
-            }
-            let resp = ui.put(screen, knob);
+            let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
             focus_keyboard_events(ui, &resp, id, out, &bound);
-            if resp.changed() && enabled {
-                let s = format!("{val}");
+            // Turn it freely: drag up (or right) to raise, down (or left) to
+            // lower, a full sweep over about the control's own height.
+            let mut moved = val;
+            if enabled && resp.dragged() {
+                let d = resp.drag_delta();
+                // A full sweep takes about twice the knob's own height of
+                // travel — far enough to place a value precisely, close enough
+                // to reach either end in one gesture.
+                let travel = screen.height().max(60.0) * 2.0;
+                let span = max_v - min_v;
+                moved = (val + (d.x - d.y) / travel * span).clamp(min_v, max_v);
+            }
+            if enabled && resp.hovered() {
+                let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+                if wheel.abs() > 0.1 {
+                    moved = (moved + wheel.signum() * step).clamp(min_v, max_v);
+                }
+            }
+            // Snap to the step so a drag lands on values a handler can compare.
+            let snapped = min_v + ((moved - min_v) / step).round() * step;
+            let snapped = snapped.clamp(min_v, max_v);
+            if enabled && (snapped - val).abs() > f32::EPSILON {
+                let s = paint::format_knob_value(ctrl, snapped);
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), s.clone()));
                 out.events.push(UiEvent::change(id, &s));
@@ -3443,87 +3440,16 @@ fn render_interactive(
             }
         }
         CT::Gauge => {
-            use elegance::{GaugeZones, LinearGauge, ProgressRing, RadialGauge};
-
-            let min_v: f32 = sv(ctrl, "Minimum").parse().unwrap_or(0.0);
-            let max_v: f32 = sv(ctrl, "Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
-            let val: f32 = sv(ctrl, "Value").parse().unwrap_or(min_v);
-            let frac = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
-            let color_prop = sv(ctrl, "Color");
-            let color = if color_prop.is_empty() {
-                None
-            } else {
-                Some(paint::parse_color(&color_prop))
-            };
-            let warn = sv(ctrl, "WarningThreshold").parse::<f32>().ok();
-            let crit = sv(ctrl, "CriticalThreshold").parse::<f32>().ok();
-            let zones = match (warn, crit) {
-                (Some(w), Some(c)) => Some(GaugeZones::new(w, c)),
-                _ => None,
-            };
-            let unit = sv(ctrl, "Unit");
-            let text = sv(ctrl, "Text");
-
-            // Read-only (R10): the widget is placed for painting only — its
-            // Response is never inspected for interaction, and nothing in
-            // this arm can write Value.
-            match sv(ctrl, "GaugeStyle").as_str() {
-                "Linear" => {
-                    let mut g = LinearGauge::new(frac)
-                        .desired_width(screen.width())
-                        .height(sv(ctrl, "BarHeight").parse().unwrap_or(14.0));
-                    if let Some(c) = color {
-                        g = g.color(c);
-                    }
-                    if let Some(z) = zones {
-                        g = g.zones(z);
-                    }
-                    // LinearGauge has no `.unit()` — only Radial/ProgressRing
-                    // do (confirmed against the crate's real API, plan.md §4
-                    // Decision 4). `unit` is simply not applied here.
-                    let _ = &unit;
-                    if matches!(sv(ctrl, "ShowThumb").as_str(), "1" | "true") {
-                        g = g.thumb(true);
-                    }
-                    ui.put(screen, g);
-                }
-                "Donut" => {
-                    let mut g = ProgressRing::new(frac)
-                        .size(screen.width().min(screen.height()))
-                        .stroke_width(sv(ctrl, "StrokeWidth").parse().unwrap_or(8.0));
-                    if let Some(c) = color {
-                        g = g.color(c);
-                    }
-                    if let Some(z) = zones {
-                        g = g.zones(z);
-                    }
-                    if !unit.is_empty() {
-                        g = g.unit(unit);
-                    }
-                    if !text.is_empty() {
-                        g = g.text(text);
-                    }
-                    ui.put(screen, g);
-                }
-                _ => {
-                    let mut g = RadialGauge::new(frac).size(screen.width().min(screen.height()));
-                    if let Some(c) = color {
-                        g = g.color(c);
-                    }
-                    if let Some(z) = zones {
-                        g = g.zones(z);
-                    }
-                    if !unit.is_empty() {
-                        g = g.unit(unit);
-                    }
-                    if !text.is_empty() {
-                        g = g.text(text);
-                    }
-                    g = g.needle(matches!(sv(ctrl, "ShowNeedle").as_str(), "1" | "true"));
-                    g = g.show_scale(matches!(sv(ctrl, "ShowScale").as_str(), "1" | "true"));
-                    ui.put(screen, g);
-                }
-            }
+            // Painted by the SHARED painter, like the Knob and the Switch. The
+            // palette crate's gauges size themselves from a `size()` hint rather
+            // than the rect they are put in, take their colours from the crate's
+            // own palette (so `ForegroundColor`/`BackgroundColor` reached
+            // nothing), and lay their reading out with egui — which is how the
+            // canvas and the preview came to disagree about one control, and how
+            // the reading ended up sitting on the band it reports.
+            //
+            // A Gauge is read-only: nothing in this arm can write Value.
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
         }
         CT::Switch => {
             // Drawn through the SHARED painter, like the CheckBox and the
@@ -3585,12 +3511,31 @@ fn render_interactive(
                     .iter()
                     .map(|f| f.path().display().to_string())
                     .collect();
+                // What the zone accepts, and where it puts it: the same intake
+                // the click-to-browse path runs, so a file is judged by the same
+                // rules however it arrived.
+                let intake = crate::dropzone::take_files(
+                    &paths,
+                    &sv(ctrl, "AllowedExtensions"),
+                    sv(ctrl, "MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
+                    &sv(ctrl, "DestinationFolder"),
+                );
                 out.prop_updates.push((
                     id.to_owned(),
                     "DroppedFiles".to_owned(),
-                    paths.join("\n"),
+                    intake.accepted.join("\n"),
                 ));
-                out.events.push(UiEvent::ev(id, "onFilesDropped"));
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "RejectedFiles".to_owned(),
+                    intake.rejected_lines().join("\n"),
+                ));
+                if !intake.accepted.is_empty() {
+                    out.events.push(UiEvent::ev(id, "onFilesDropped"));
+                }
+                if !intake.rejected.is_empty() {
+                    out.events.push(UiEvent::ev(id, "onFilesRejected"));
+                }
             } else if fdz.response.clicked() && enabled {
                 // Click, not a drop — the host owns opening a native picker
                 // (T4). Not gated on `dropped_files` being non-empty above,
@@ -3718,47 +3663,45 @@ fn render_interactive(
             }
         }
         CT::NumericUpDown => {
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(30, 40, 80),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-                paint::SurfaceRole::Input,
-            );
+            // Face from the SHARED painter, dragging added here — so the canvas,
+            // the preview, the running form and the compiled binary show one
+            // field. It used to be an egui `DragValue` dropped onto a hand-drawn
+            // surface: the widget brought its own background, its own hover and
+            // the ambient font, none of which the canvas could draw — and the
+            // canvas answered by lettering "▲▼" into the caption, a control that
+            // existed on no other surface.
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+
             let min = sv(ctrl, "Minimum").parse::<f64>().unwrap_or(0.0);
-            let max = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0);
+            let max = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0).max(min);
             let step = sv(ctrl, "Step").parse::<f64>().unwrap_or(1.0).max(0.0001);
-            let mut val = sv(ctrl, "Value").parse::<f64>().unwrap_or(min);
-            // The value is an egui widget, so it drew in the ambient body font —
-            // the control's own `FontSize`/`FontName` never reached it, and the
-            // field showed text at a size the properties pane did not report.
-            let font = crate::fonts::font_id(
-                ui.ctx(),
-                &sv(ctrl, "FontName"),
-                paint::ctrl_font_size(ctrl),
-            );
-            let resp = ui
-                .scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
-                    ui.style_mut()
-                        .text_styles
-                        .insert(egui::TextStyle::Button, font.clone());
-                    ui.style_mut()
-                        .text_styles
-                        .insert(egui::TextStyle::Body, font);
-                    ui.put(
-                        screen,
-                        egui::DragValue::new(&mut val).range(min..=max).speed(step),
-                    )
-                })
-                .inner;
+            let val = sv(ctrl, "Value").parse::<f64>().unwrap_or(min).clamp(min, max);
+
+            let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
             focus_keyboard_events(ui, &resp, id, out, &bound);
-            if resp.changed() && enabled {
-                let s = format!("{val}");
+            let mut moved = val;
+            if enabled && resp.dragged() {
+                // One step per four pixels, the way a spinner's drag behaves.
+                let d = resp.drag_delta();
+                moved = (val + (d.x - d.y) as f64 / 4.0 * step).clamp(min, max);
+            }
+            if enabled && resp.hovered() {
+                let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+                if wheel.abs() > 0.1 {
+                    moved = (moved + wheel.signum() as f64 * step).clamp(min, max);
+                }
+            }
+            let snapped = (min + ((moved - min) / step).round() * step).clamp(min, max);
+            if enabled && (snapped - val).abs() > f64::EPSILON {
+                let s = if step.fract().abs() > f64::EPSILON {
+                    format!("{snapped:.2}")
+                } else {
+                    format!("{snapped:.0}")
+                };
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), s.clone()));
                 out.events.push(UiEvent::change(id, &s));
+                out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
         CT::ComboBox => {
@@ -3826,7 +3769,7 @@ fn render_interactive(
             );
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
-            let mut picked: Option<String> = None;
+            let mut picked: Option<(usize, String)> = None;
             let mut double_picked: Option<String> = None;
             // The items are egui widgets, so their text came from the AMBIENT
             // visuals — the one colour in this control the developer's
@@ -3843,49 +3786,245 @@ fn render_interactive(
                     paint::parse_color(&fg)
                 },
             );
-            ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+            // Rows painted here rather than assembled from egui widgets: a list
+            // row is a full-width band with its own highlight, its own tick box
+            // and its own clipping, none of which a `selectable_label` can be
+            // talked into. It also took the HOST's chrome metrics — the IDE's
+            // 30 px touch height and 8 px gaps — and spaced a list of one-word
+            // items like a menu.
+            let multi = matches!(sv(ctrl, "MultiSelect").as_str(), "1" | "true");
+            let show_checks = matches!(sv(ctrl, "ShowCheckBoxes").as_str(), "1" | "true");
+            let lines = |key: &str| -> Vec<String> {
+                sv(ctrl, key)
+                    .lines()
+                    .map(|l| l.to_owned())
+                    .filter(|l| !l.is_empty())
+                    .collect()
+            };
+            let mut selected = lines("SelectedItems");
+            let mut checked = lines("CheckedItems");
+            let mut selection_changed = false;
+            let mut checks_changed = false;
+
+            let row_h = crate::model::text_line_height(ctrl) + crate::model::LIST_ROW_PAD * 2.0;
+            let content = screen.shrink(crate::model::LIST_FRAME_PAD);
+            // The highlight for the ACTIVE row, and the dimmed one every other
+            // selected row wears — the same colour, half lit, so a list says
+            // which row the cursor is on and which are merely in the selection.
+            let active_fill = ui.visuals().selection.bg_fill;
+            let selected_fill = active_fill.gamma_multiply(0.45);
+            let corner = paint::corner_radius(ctrl) as u8;
+            // How far the highlight keeps off the border: the border's own width
+            // plus a hairline, so the rim reads as a continuous line rather than
+            // something the selection has eaten into.
+            const HIGHLIGHT_INSET: f32 = 2.0;
+            let border_w = sv(ctrl, "BorderWidth").parse::<f32>().unwrap_or(1.0).max(0.0);
+            let inner = screen.shrink(border_w + HIGHLIGHT_INSET);
+            let highlight_x = inner.x_range();
+
+            // The sweep: which rows this press has already taken. Cleared when
+            // the button comes up, so the next press starts a new gesture.
+            let sweep_id = ctrl_id.with("listbox-sweep");
+            let pointer_down = ui.input(|i| i.pointer.primary_down());
+            let pointer_pos = ui.input(|i| i.pointer.interact_pos());
+            let mut touched: Vec<usize> = if pointer_down {
+                ui.data(|d| d.get_temp(sweep_id)).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
                 if !enabled {
                     ui.disable();
                 }
                 egui::ScrollArea::vertical()
                     .id_salt(ctrl_id)
-                    .max_height(screen.height())
-                    // Fill the control instead of shrinking to the content. A
-                    // scroll area sizes itself to what it holds by default, so
-                    // the list's scrollbar came to rest just past the widest
-                    // item — a bar down the middle of the control rather than
-                    // against its right border, over the items themselves.
+                    .max_height(content.height())
+                    // Fill the control instead of shrinking to the content, so
+                    // the scrollbar rests against the right border rather than
+                    // just past the widest item.
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // List rows, not toolbar rows. Left alone, each item is
-                        // an egui widget and takes the HOST's chrome metrics —
-                        // the IDE's 30 px minimum touch height and 8 px gap —
-                        // which spaced a list of one-word items like a menu.
-                        // A list line is its text plus a little air, and that is
-                        // the same whatever chrome the surface around it uses.
-                        let spacing = ui.spacing_mut();
-                        spacing.item_spacing.y = 2.0;
-                        spacing.button_padding.y = 2.0;
-                        spacing.interact_size.y = 0.0;
-                        for item in &items {
-                            let resp = ui.selectable_label(
-                                &cur == item,
-                                egui::RichText::new(item).color(item_color),
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        let row_painter = ui.painter().with_clip_rect(screen);
+                        for (idx, item) in items.iter().enumerate() {
+                            let (row, resp) = ui.allocate_exact_size(
+                                vec2(ui.available_width(), row_h),
+                                Sense::click(),
                             );
-                            if resp.clicked() {
-                                picked = Some(item.clone());
+                            // The band spans the whole control — a highlight
+                            // stops at no inner margin — and is square-cornered
+                            // except where it meets the frame's own radius,
+                            // which cuts it exactly as the border does.
+                            // The band stops just SHORT of the border on every
+                            // side — the border stays visible and unbroken, with
+                            // a hairline of background between it and the
+                            // highlight. Reaching the frame instead painted the
+                            // rim away at the first and last row.
+                            let mut band =
+                                Rect::from_x_y_ranges(highlight_x, row.y_range()).intersect(inner);
+                            let is_active = &cur == item;
+                            let is_selected = selected.iter().any(|s| s == item);
+                            if is_active || is_selected && band.is_positive() {
+                                // Where the band runs alongside a rounded corner
+                                // it is rounded too, by what is left of the
+                                // radius once the inset is taken off: egui clips
+                                // to an axis-aligned rect, so a square band would
+                                // still cut across the arc.
+                                let inset_corner = (corner as f32 - HIGHLIGHT_INSET).max(0.0) as u8;
+                                let mut cr = egui::CornerRadius::ZERO;
+                                if band.top() <= inner.top() + 0.5 {
+                                    cr.nw = inset_corner;
+                                    cr.ne = inset_corner;
+                                }
+                                if band.bottom() >= inner.bottom() - 0.5 {
+                                    cr.sw = inset_corner;
+                                    cr.se = inset_corner;
+                                }
+                                row_painter.rect_filled(
+                                    band,
+                                    cr,
+                                    if is_active { active_fill } else { selected_fill },
+                                );
                             }
-                            if resp.double_clicked() {
+
+                            // A tick box per row, when the list wants them: what
+                            // it holds is a set the user builds by clicking, in
+                            // any order and with any gaps.
+                            let mut text_x = band.left() + crate::model::LIST_FRAME_PAD + 2.0;
+                            let mut check_hit = Rect::NOTHING;
+                            if show_checks {
+                                let d = (row_h - 4.0).clamp(9.0, 18.0);
+                                let box_rect = Rect::from_min_size(
+                                    pos2(text_x, band.center().y - d * 0.5),
+                                    vec2(d, d),
+                                );
+                                check_hit = box_rect.expand(3.0);
+                                let on = checked.iter().any(|c| c == item);
+                                row_painter.rect(
+                                    box_rect,
+                                    (d * 0.22) as u8,
+                                    if on { active_fill } else { Color32::TRANSPARENT },
+                                    Stroke::new(1.0, item_color),
+                                    egui::StrokeKind::Inside,
+                                );
+                                if on {
+                                    let tick = paint::caret_color(active_fill, item_color);
+                                    let p = |ux: f32, uy: f32| {
+                                        pos2(
+                                            box_rect.left() + ux * d,
+                                            box_rect.top() + uy * d,
+                                        )
+                                    };
+                                    let s = Stroke::new((d * 0.14).max(1.2), tick);
+                                    row_painter.line_segment([p(0.22, 0.52), p(0.42, 0.74)], s);
+                                    row_painter.line_segment([p(0.42, 0.74), p(0.80, 0.26)], s);
+                                }
+                                text_x = box_rect.right() + 6.0;
+                            }
+
+                            let text_colour = if is_active {
+                                paint::caret_color(active_fill, item_color)
+                            } else {
+                                item_color
+                            };
+                            row_painter.text(
+                                pos2(text_x, band.center().y),
+                                Align2::LEFT_CENTER,
+                                item,
+                                crate::fonts::font_id(
+                                    ui.ctx(),
+                                    &sv(ctrl, "FontName"),
+                                    paint::ctrl_font_size(ctrl),
+                                ),
+                                text_colour,
+                            );
+
+                            // A row is taken while the button is DOWN over it, not
+                            // on release: that is what makes a press-and-sweep
+                            // work. The list scrolls under the pointer as the
+                            // drag goes (the scroll area owns the drag), so every
+                            // row that passes beneath is taken in turn — and each
+                            // only once, however long the pointer rests on it.
+                            let over = pointer_down
+                                && pointer_pos.is_some_and(|p| {
+                                    Rect::from_x_y_ranges(screen.x_range(), row.y_range())
+                                        .contains(p)
+                                });
+                            let _ = &check_hit;
+                            if enabled && over && !touched.contains(&idx) {
+                                touched.push(idx);
+                                if show_checks {
+                                    // With tick boxes there is nothing to hold
+                                    // down: the boxes ARE the multiple selection,
+                                    // so a plain click anywhere on the row ticks
+                                    // it, and ticking it again clears it.
+                                    match checked.iter().position(|c| c == item) {
+                                        Some(at) => {
+                                            checked.remove(at);
+                                        }
+                                        None => checked.push(item.clone()),
+                                    }
+                                    checks_changed = true;
+                                    picked = Some((idx, item.clone()));
+                                } else {
+                                    // Ctrl (Cmd on a Mac) adds to or removes from
+                                    // the selection; a plain click replaces it —
+                                    // except mid-sweep, where every row the
+                                    // pointer crosses joins the one being built.
+                                    let sweeping = touched.len() > 1;
+                                    let additive = multi
+                                        && (sweeping
+                                            || ui.input(|i| {
+                                                i.modifiers.command || i.modifiers.ctrl
+                                            }));
+                                    if additive {
+                                        match selected.iter().position(|s| s == item) {
+                                            Some(at) => {
+                                                if !sweeping {
+                                                    selected.remove(at);
+                                                }
+                                            }
+                                            None => selected.push(item.clone()),
+                                        }
+                                    } else {
+                                        selected = vec![item.clone()];
+                                    }
+                                    selection_changed = true;
+                                    picked = Some((idx, item.clone()));
+                                }
+                            }
+                            if resp.double_clicked() && enabled {
                                 double_picked = Some(item.clone());
                             }
                         }
                     });
             });
-            if let Some(item) = picked {
+
+            ui.data_mut(|d| d.insert_temp(sweep_id, touched));
+            if let Some((idx, item)) = picked {
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), item.clone()));
+                out.prop_updates
+                    .push((id.to_owned(), "SelectedIndex".to_owned(), idx.to_string()));
                 out.events.push(UiEvent::change(id, &item));
                 out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
+            }
+            if selection_changed {
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "SelectedItems".to_owned(),
+                    selected.join("\n"),
+                ));
+            }
+            if checks_changed {
+                out.prop_updates.push((
+                    id.to_owned(),
+                    "CheckedItems".to_owned(),
+                    checked.join("\n"),
+                ));
+                out.events
+                    .push(UiEvent::with_value(id, "onItemChecked", &checked.join("\n")));
             }
             if let Some(item) = double_picked {
                 // spec 021 T12: item-level double click with the item text.
@@ -7182,25 +7321,34 @@ mod tests {
         controls: &[Control],
         chrome: impl FnMut(&mut egui::Style),
     ) -> (Vec<PaintedText>, Map<String, Rect>) {
-        fn collect(shape: &egui::Shape, out: &mut Vec<PaintedText>) {
+        // `clip` is the shape's own clip rect: text painted outside it never
+        // reaches the screen, so a harness that ignores it reports "escaped"
+        // glyphs that no one can see. Only the VISIBLE part is recorded, and a
+        // run clipped away entirely is not recorded at all.
+        fn collect(shape: &egui::Shape, clip: Rect, out: &mut Vec<PaintedText>) {
             match shape {
-                egui::Shape::Text(t) => out.push(PaintedText {
-                    text: t.galley.text().to_owned(),
-                    font: t
-                        .galley
-                        .job
-                        .sections
-                        .first()
-                        .map(|s| s.format.font_id.size)
-                        .unwrap_or(0.0),
-                    pos: t.pos,
-                    size: t.galley.size(),
-                    // Where the glyphs REALLY land: a job with `halign = Center`
-                    // treats `pos` as the text's centre, not its left edge, so
-                    // `pos` alone answers nothing about clipping.
-                    ink: t.visual_bounding_rect(),
-                }),
-                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                egui::Shape::Text(t) => {
+                    let ink = t.visual_bounding_rect().intersect(clip);
+                    if ink.is_positive() {
+                        out.push(PaintedText {
+                            text: t.galley.text().to_owned(),
+                            font: t
+                                .galley
+                                .job
+                                .sections
+                                .first()
+                                .map(|s| s.format.font_id.size)
+                                .unwrap_or(0.0),
+                            pos: t.pos,
+                            size: t.galley.size(),
+                            // Where the glyphs REALLY land: a job with
+                            // `halign = Center` treats `pos` as the text's
+                            // centre, not its left edge.
+                            ink,
+                        });
+                    }
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, clip, out)),
                 _ => {}
             }
         }
@@ -7235,7 +7383,7 @@ mod tests {
         );
         let mut out = Vec::new();
         for cs in &full.shapes {
-            collect(&cs.shape, &mut out);
+            collect(&cs.shape, cs.clip_rect, &mut out);
         }
         full.textures_delta.clear();
         (out, placed.into_inner())
@@ -7375,6 +7523,347 @@ mod tests {
         );
     }
 
+    /// Every filled rectangle painted for `controls`, with its corner radius —
+    /// for questions about a highlight's shape.
+    fn painted_bands(controls: &[Control]) -> Vec<(Rect, egui::CornerRadius, Color32)> {
+        fn collect(shape: &egui::Shape, out: &mut Vec<(Rect, egui::CornerRadius, Color32)>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push((r.rect, r.corner_radius, r.fill)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &input);
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        out
+    }
+
+    /// The highlight spans the list's whole width and is square — except where
+    /// it meets the frame's own rounded corner, which must cut it exactly as the
+    /// border is cut. egui clips to an axis-aligned rect, so a highlight left to
+    /// itself paints straight through the arc and out past the border, which is
+    /// what a one- or two-line list shows most: every row IS a corner row.
+    #[test]
+    fn a_listbox_highlight_fills_the_width_and_is_cut_by_the_corner() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 120);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+        // Alpha is the ACTIVE row — the first one, against the top corners.
+        lb.set_prop("Value", crate::PropValue::String("Alpha".to_owned()));
+        lb.set_prop("CornerRadius", crate::PropValue::Int(8));
+
+        let bands = painted_bands(&[lb.clone()]);
+        let (_, placed) = painted_captions(&[lb]);
+        let frame = *placed.get("ListBox-1").expect("placed");
+
+        // The highlight: a band as wide as the control, in the top half.
+        // Wide — but stopping short of the border, which stays visible.
+        let inset = 1.0 + 2.0; // BorderWidth 1 + the hairline
+        let band = bands
+            .iter()
+            .filter(|(r, _, _)| (r.width() - (frame.width() - inset * 2.0)).abs() <= 0.5)
+            .filter(|(r, _, _)| r.height() < frame.height() * 0.5 && r.top() < frame.center().y)
+            .max_by(|a, b| a.0.height().total_cmp(&b.0.height()))
+            .expect("the active row must be highlighted");
+        let (rect, corner, _) = band;
+
+        assert!(
+            rect.left() > frame.left() + 0.5 && rect.right() < frame.right() - 0.5,
+            "the highlight must stop short of the border, not paint over it: \
+             {rect:?} in {frame:?}"
+        );
+        assert!(
+            rect.top() > frame.top() + 0.5,
+            "…including at the top row: {rect:?} in {frame:?}"
+        );
+        assert!(
+            corner.nw > 0 && corner.ne > 0,
+            "the corners alongside the frame's arc are rounded, got {corner:?}"
+        );
+        assert_eq!(
+            (corner.sw, corner.se),
+            (0, 0),
+            "…and the inner edge stays square, got {corner:?}"
+        );
+
+        println!(
+            "\n  ListBox highlight — {}px wide inside a {}px control, starting {}px below the \
+             top border; corners nw/ne={}/{} follow the arc, sw/se square\n",
+            rect.width(),
+            frame.width(),
+            rect.top() - frame.top(),
+            corner.nw,
+            corner.ne
+        );
+    }
+
+    /// A list with `MultiSelect` builds a set with Ctrl (Cmd on a Mac): each
+    /// held click adds a row or takes it out again, and a plain click starts
+    /// over with one. The active row — the one the cursor is on — stays a
+    /// separate thing from the set, which is why they are separate properties.
+    #[test]
+    fn ctrl_click_builds_a_listbox_selection() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 140);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+        lb.set_prop("MultiSelect", crate::PropValue::Bool(true));
+
+        // Row pitch is the model's own: 14pt line + 2px of air each side.
+        let pitch = crate::model::text_line_height(&lb) + crate::model::LIST_ROW_PAD * 2.0;
+        let top = 28.0 + crate::model::LIST_FRAME_PAD;
+        let row_at = |n: usize| pos2(120.0, top + pitch * (n as f32 + 0.5));
+
+        // A held Ctrl is a modifier state that spans frames — released in the
+        // SAME batch, egui reports the end-of-batch state and the click reads
+        // as unmodified, exactly as it would if the user let go too early.
+        let held = Modifiers {
+            command: true,
+            ctrl: true,
+            ..Modifiers::default()
+        };
+        let press_at = |p: Pos2| Event::PointerButton {
+            pos: p,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: held,
+        };
+        let release_at = |p: Pos2| Event::PointerButton {
+            pos: p,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: held,
+        };
+
+        let (_, overrides) = drive(
+            &[lb],
+            vec![
+                // Plain click on Alpha…
+                (0.0, vec![Event::PointerMoved(row_at(0))]),
+                (0.05, vec![press(row_at(0))]),
+                (0.10, vec![release(row_at(0))]),
+                // …then Ctrl goes down and stays down for three clicks.
+                (0.15, vec![Event::ModifiersChanged(held)]),
+                (0.20, vec![Event::PointerMoved(row_at(2)), press_at(row_at(2))]),
+                (0.25, vec![release_at(row_at(2))]),
+                (0.30, vec![Event::PointerMoved(row_at(3)), press_at(row_at(3))]),
+                (0.35, vec![release_at(row_at(3))]),
+                // Ctrl-clicking Gamma again takes it back out.
+                (0.40, vec![Event::PointerMoved(row_at(2)), press_at(row_at(2))]),
+                (0.45, vec![release_at(row_at(2))]),
+                (0.50, vec![Event::ModifiersChanged(Modifiers::default())]),
+            ],
+        );
+        let props = overrides.get("ListBox-1").expect("the list wrote something");
+        assert_eq!(
+            props.get("SelectedItems").map(String::as_str),
+            Some("Alpha\nDelta"),
+            "Ctrl-click adds and removes; the plain click started the set"
+        );
+        assert_eq!(
+            props.get("Value").map(String::as_str),
+            Some("Gamma"),
+            "the ACTIVE row is the last one clicked — the cursor lands on a row \
+             whether the Ctrl-click added it or took it out"
+        );
+
+        println!(
+            "\n  ListBox multi-select — click Alpha, Ctrl-click Gamma, Delta, then Gamma \
+             again ⇒ SelectedItems \"Alpha, Delta\"; the cursor is on Gamma, which is the \
+             row it last touched\n"
+        );
+    }
+
+    /// With `ShowCheckBoxes` every row carries a tick box, and the boxes ARE the
+    /// multiple selection: a plain click anywhere on a row ticks it, with no
+    /// modifier to hold, and clicking again clears it. The set keeps whatever
+    /// order and gaps the user made.
+    #[test]
+    fn a_listbox_tick_box_collects_its_own_set() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 140);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+        lb.set_prop("ShowCheckBoxes", crate::PropValue::Bool(true));
+        lb.set_prop("Value", crate::PropValue::String("Beta".to_owned()));
+
+        let pitch = crate::model::text_line_height(&lb) + crate::model::LIST_ROW_PAD * 2.0;
+        let top = 28.0 + crate::model::LIST_FRAME_PAD;
+        // The tick box sits at the left of the row, inside the frame padding.
+        let box_at = |n: usize| pos2(28.0 + 8.0, top + pitch * (n as f32 + 0.5));
+
+        let (events, overrides) = drive(
+            &[lb],
+            vec![
+                (0.0, vec![Event::PointerMoved(box_at(3))]),
+                (0.05, vec![press(box_at(3))]),
+                (0.10, vec![release(box_at(3))]),
+                (0.15, vec![Event::PointerMoved(box_at(1))]),
+                (0.20, vec![press(box_at(1))]),
+                (0.25, vec![release(box_at(1))]),
+                (0.30, vec![]),
+            ],
+        );
+        let props = overrides.get("ListBox-1").expect("the list wrote something");
+        assert_eq!(
+            props.get("CheckedItems").map(String::as_str),
+            Some("Delta\nBeta"),
+            "the checked set keeps the order the user built it in"
+        );
+        assert_eq!(
+            props.get("Value").map(String::as_str),
+            Some("Beta"),
+            "the cursor follows the click, as it does anywhere else in the list"
+        );
+        assert_eq!(
+            props.get("SelectedItems").map(String::as_str),
+            None,
+            "…but the Ctrl-click selection is untouched: with tick boxes on, the \
+             ticks are the set"
+        );
+        assert!(
+            events.iter().any(|e| e.event == "onItemChecked"),
+            "and it reports itself: {events:?}"
+        );
+
+        println!(
+            "\n  ListBox tick boxes — a plain click on Delta then Beta ⇒ CheckedItems \
+             \"Delta, Beta\", with no modifier held\n"
+        );
+    }
+
+    /// Press and sweep: every row the pointer crosses with the button down is
+    /// taken, each once. With `MultiSelect` they join one selection; with tick
+    /// boxes they are ticked. Releasing ends the gesture, so the next press
+    /// starts a new one rather than continuing the old.
+    #[test]
+    fn a_sweep_takes_every_row_it_crosses() {
+        let rows_at = |lb: &Control, n: usize| {
+            let pitch = crate::model::text_line_height(lb) + crate::model::LIST_ROW_PAD * 2.0;
+            pos2(120.0, 28.0 + crate::model::LIST_FRAME_PAD + pitch * (n as f32 + 0.5))
+        };
+
+        // Multi-select: a sweep down four rows selects all four.
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 160);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+        lb.set_prop("MultiSelect", crate::PropValue::Bool(true));
+        let (_, overrides) = drive(
+            &[lb.clone()],
+            vec![
+                (0.0, vec![Event::PointerMoved(rows_at(&lb, 0))]),
+                (0.05, vec![press(rows_at(&lb, 0))]),
+                (0.10, vec![Event::PointerMoved(rows_at(&lb, 1))]),
+                (0.15, vec![Event::PointerMoved(rows_at(&lb, 2))]),
+                (0.20, vec![Event::PointerMoved(rows_at(&lb, 3))]),
+                (0.25, vec![release(rows_at(&lb, 3))]),
+                (0.30, vec![]),
+            ],
+        );
+        assert_eq!(
+            overrides
+                .get("ListBox-1")
+                .and_then(|p| p.get("SelectedItems"))
+                .map(String::as_str),
+            Some("Alpha\nBeta\nGamma\nDelta"),
+            "a sweep takes every row it crossed"
+        );
+
+        // Tick boxes: the same sweep ticks them.
+        let mut ticked = lb.clone();
+        ticked.set_prop("MultiSelect", crate::PropValue::Bool(false));
+        ticked.set_prop("ShowCheckBoxes", crate::PropValue::Bool(true));
+        let (_, overrides) = drive(
+            &[ticked.clone()],
+            vec![
+                (0.0, vec![Event::PointerMoved(rows_at(&ticked, 1))]),
+                (0.05, vec![press(rows_at(&ticked, 1))]),
+                (0.10, vec![Event::PointerMoved(rows_at(&ticked, 2))]),
+                (0.15, vec![release(rows_at(&ticked, 2))]),
+                (0.20, vec![]),
+            ],
+        );
+        assert_eq!(
+            overrides
+                .get("ListBox-1")
+                .and_then(|p| p.get("CheckedItems"))
+                .map(String::as_str),
+            Some("Beta\nGamma"),
+            "a sweep ticks every row it crossed"
+        );
+
+        println!(
+            "\n  ListBox sweep — pressing on row 1 and dragging to row 4 selects all four; \
+             with tick boxes, the same sweep ticks them\n"
+        );
+    }
+
+    /// A short ListBox still clips: with room for one or two lines, the items
+    /// that do not fit must be cut at the control's edge, not painted over
+    /// whatever sits below it.
+    #[test]
+    fn a_short_listbox_clips_its_items_to_its_own_frame() {
+        for height in [26, 40, 60] {
+            let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, height);
+            lb.set_prop(
+                "Items",
+                crate::PropValue::String(
+                    (1..=8).map(|n| format!("Item-{n}")).collect::<Vec<_>>().join("\n"),
+                ),
+            );
+            let (texts, placed) = painted_captions(&[lb]);
+            let frame = *placed.get("ListBox-1").expect("placed");
+            let escaped: Vec<&PaintedText> = texts
+                .iter()
+                .filter(|p| p.text.starts_with("Item-"))
+                .filter(|p| !frame.expand(1.0).contains_rect(p.ink))
+                .collect();
+            assert!(
+                escaped.is_empty(),
+                "at {height}px the list painted outside its frame {frame:?}: {escaped:?}"
+            );
+        }
+        println!(
+            "\n  ListBox clipping — at 26px, 40px and 60px tall, every painted item stays \
+             inside the control\n"
+        );
+    }
+
     /// A ListBox's lines are list lines: text plus a little air. Each item is an
     /// egui widget, so left alone it took the HOST's chrome metrics — in the IDE
     /// a 30 px minimum touch height and an 8 px gap — and a list of one-word
@@ -7421,7 +7910,9 @@ mod tests {
             .map(|p| p.size.y)
             .expect("Alpha must be painted");
         assert!(
-            pitch <= line + 6.0,
+            pitch <= crate::model::text_line_height(&ctrl("x", ControlType::ListBox, 0, 0, 10, 10))
+                + crate::model::LIST_ROW_PAD * 2.0
+                + 0.5,
             "a list line must be about its text ({line}px), got a pitch of {pitch}px"
         );
 
@@ -7516,6 +8007,249 @@ mod tests {
             "\n  toggle captions — a click at x=170 (well past the indicator) sets both \
              the CheckBox and the RadioButton\n"
         );
+    }
+
+    /// Every circle painted for `controls`, as `(centre, radius)`.
+    fn painted_circles(controls: &[Control]) -> Vec<(egui::Pos2, f32)> {
+        fn collect(shape: &egui::Shape, out: &mut Vec<(egui::Pos2, f32)>) {
+            match shape {
+                egui::Shape::Circle(c) => out.push((c.center, c.radius)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &input);
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        out
+    }
+
+    fn knob(id: &str, w: i32, h: i32, value: &str) -> Control {
+        let mut k = ctrl(id, ControlType::Knob, 20, 20, w, h);
+        k.set_prop("Value", crate::PropValue::String(value.to_owned()));
+        k
+    }
+
+    /// A Knob is the size it was DRAWN, and its value is centred under the dial.
+    /// The widget this replaced picked one of three fixed pixel sizes whatever
+    /// the designed rect said, and laid its value out with egui — so the canvas
+    /// and the preview disagreed about both, and the reading sat off-centre.
+    #[test]
+    fn a_knob_fills_its_rect_and_centres_its_value() {
+        let mut radii = Vec::new();
+        for (w, h) in [(80, 96), (200, 220)] {
+            let k = knob("Knob-1", w, h, "42");
+            let circles = painted_circles(&[k.clone()]);
+            let (texts, placed) = painted_captions(&[k]);
+            let rect = *placed.get("Knob-1").expect("placed");
+
+            // The dial: the biggest circle painted inside the control.
+            let dial = circles
+                .iter()
+                .filter(|(c, _)| rect.contains(*c))
+                .map(|(_, r)| *r)
+                .fold(0.0_f32, f32::max);
+            assert!(dial > 0.0, "the dial must be painted for {w}x{h}");
+            radii.push((w, h, dial));
+
+            let val = texts
+                .iter()
+                .find(|p| p.text.trim() == "42")
+                .expect("the value must be painted");
+            assert!(
+                (val.ink.center().x - rect.center().x).abs() <= 2.0,
+                "the value must be centred on the control: ink {:?}, control {:?}",
+                val.ink,
+                rect
+            );
+            assert!(
+                rect.expand(1.0).contains_rect(val.ink),
+                "…and stay inside it: ink {:?}, control {:?}",
+                val.ink,
+                rect
+            );
+        }
+
+        assert!(
+            radii[1].2 > radii[0].2 * 1.5,
+            "a knob drawn bigger must BE bigger: {radii:?}"
+        );
+        println!(
+            "\n  Knob — 80x96 draws a dial of r={:.0}, 200x220 one of r={:.0}; \
+             the value is centred on the control in both\n",
+            radii[0].2, radii[1].2
+        );
+    }
+
+    /// …and it turns. The preview drives the same painter, so the knob has to
+    /// carry its own dragging: press on it and pull, and the value follows.
+    #[test]
+    fn a_knob_turns_when_dragged() {
+        let k = knob("Knob-1", 120, 120, "50");
+        // Down the middle of the control, dragging UPWARD to raise the value.
+        let start = pos2(88.0, 88.0);
+        let (events, overrides) = drive(
+            &[k],
+            vec![
+                (0.0, vec![Event::PointerMoved(start)]),
+                (0.05, vec![press(start)]),
+                (0.10, vec![Event::PointerMoved(pos2(88.0, 48.0))]),
+                (0.15, vec![release(pos2(88.0, 48.0))]),
+            ],
+        );
+        let value = overrides
+            .get("Knob-1")
+            .and_then(|p| p.get("Value"))
+            .and_then(|v| v.parse::<f32>().ok());
+        assert!(
+            value.is_some_and(|v| v > 50.0),
+            "dragging up must raise the value, got {value:?} (events {})",
+            events.len()
+        );
+        println!(
+            "\n  Knob — a 40px upward drag on a 120px knob moved 50 → {}\n",
+            value.unwrap()
+        );
+    }
+
+    /// A Gauge paints with the colours the developer set — `ForegroundColor`
+    /// for the meter, `BackgroundColor` for its track — and keeps its reading
+    /// clear of the band it reports. The palette widget it replaced took both
+    /// colours from its own theme and dropped the reading at the control's
+    /// centre, which on a Radial is the middle of the sweep.
+    #[test]
+    fn a_gauge_paints_in_its_own_colours_and_keeps_its_reading_clear() {
+        let mut g = ctrl("Gauge-1", ControlType::Gauge, 20, 20, 160, 100);
+        g.set_prop("Value", crate::PropValue::Int(60));
+        g.set_prop(
+            "ForegroundColor",
+            crate::PropValue::String("#FFD400".to_owned()),
+        );
+        g.set_prop(
+            "BackgroundColor",
+            crate::PropValue::String("#402060".to_owned()),
+        );
+
+        let (texts, placed) = painted_captions(&[g.clone()]);
+        let rect = *placed.get("Gauge-1").expect("placed");
+        let reading = texts
+            .iter()
+            .find(|p| p.text.trim() == "60")
+            .expect("the reading must be painted");
+
+        // Centred on the control, and in its upper half — inside the dial,
+        // not down on the sweep's own centre line.
+        assert!(
+            (reading.ink.center().x - rect.center().x).abs() <= 2.0,
+            "the reading must be centred: ink {:?}, gauge {:?}",
+            reading.ink,
+            rect
+        );
+        assert!(
+            reading.ink.bottom() < rect.bottom() - rect.height() * 0.2,
+            "the reading must sit clear of the band: ink {:?}, gauge {:?}",
+            reading.ink,
+            rect
+        );
+
+        // The meter is drawn in the chosen colours. Arcs are line shapes, so
+        // look at every stroke the control painted.
+        let strokes = painted_stroke_colours(&[g]);
+        let has = |c: Color32| strokes.iter().any(|s| *s == c);
+        assert!(
+            has(Color32::from_rgb(0xFF, 0xD4, 0x00)),
+            "ForegroundColor must paint the meter, got {strokes:?}"
+        );
+        assert!(
+            has(Color32::from_rgb(0x40, 0x20, 0x60)),
+            "BackgroundColor must paint the track, got {strokes:?}"
+        );
+
+        println!(
+            "\n  Gauge — meter #FFD400 and track #402060 both reach the painter; \
+             the reading is centred at x={:.0} and clear of the band\n",
+            reading.ink.center().x
+        );
+    }
+
+    /// The colours of every stroked path painted for `controls`.
+    fn painted_stroke_colours(controls: &[Control]) -> Vec<Color32> {
+        fn collect(shape: &egui::Shape, out: &mut Vec<Color32>) {
+            match shape {
+                egui::Shape::Path(p) => {
+                    if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                        out.push(c);
+                    }
+                }
+                egui::Shape::LineSegment { stroke, .. } => out.push(stroke.color),
+                egui::Shape::Rect(r) => {
+                    out.push(r.fill);
+                    out.push(r.stroke.color);
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &input);
+                });
+            },
+        );
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        full.textures_delta.clear();
+        out
     }
 
     /// A RadioButton's frame follows its own `BorderStyle`, seeded `None`. That
