@@ -1050,54 +1050,88 @@ fn build_core(
     // shows the crate currently building.
     report(0.60, "Compiling…");
     use std::io::{BufRead as _, BufReader, Read as _};
-    let mut args = vec!["build"];
+    let mut base_args = vec!["build"];
     if !proj.project.debug_compilation {
-        args.push("--release");
+        base_args.push("--release");
     }
     // `--message-format=json` puts machine-readable diagnostics on **stdout**
     // and leaves the human "Compiling …" lines on stderr, so the progress bar
     // keeps working while the diagnostics become mappable back to the
     // developer's COBOL (spec 041 R10).
-    args.push("--message-format=json");
-    let mut child = std::process::Command::new("cargo")
-        .args(&args)
-        .current_dir(&build_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| toolchain_error("cargo", &e))?;
-
-    // Drain stdout on its own thread: reading the two pipes in sequence
-    // deadlocks as soon as one fills its buffer, and a JSON diagnostic stream
-    // fills quickly.
-    let json_reader = child.stdout.take().map(|mut out| {
-        std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = out.read_to_string(&mut buf);
-            buf
-        })
-    });
-
-    let mut captured = String::new();
-    let mut compiled = 0usize;
-    if let Some(err) = child.stderr.take() {
-        for line in BufReader::new(err).lines() {
-            let line = line.unwrap_or_default();
-            if let Some(rest) = line.trim_start().strip_prefix("Compiling ") {
-                compiled += 1;
-                let name = rest.split_whitespace().next().unwrap_or("");
-                // Asymptotically approach 0.95 as more crates finish.
-                let frac = 0.60 + 0.35 * (1.0 - 1.0 / (1.0 + compiled as f32 / 12.0));
-                report(frac.min(0.95), &format!("Compiling {name}…"));
+    base_args.push("--message-format=json");
+    // Resolve dependencies from the local cargo cache. Without `--offline`,
+    // cargo refreshes the registry index over the network before it lists and
+    // locks the dependency graph, so every first build of a project sat on
+    // "Updating crates.io index" before a single crate compiled. Every path
+    // dependency ships with the IDE and any machine that built it holds the
+    // registry crates in cache, so offline resolution is the normal case —
+    // exactly the documented contract (adding a crate needs the network,
+    // building does not). The one exception, a genuinely cold cache, is
+    // detected below and retried online, transparently.
+    let (status, captured, json, compiled) = {
+        let mut attempt_offline = true;
+        loop {
+            let mut args = base_args.clone();
+            if attempt_offline {
+                args.push("--offline");
             }
-            captured.push_str(&line);
-            captured.push('\n');
+            let mut child = std::process::Command::new("cargo")
+                .args(&args)
+                .current_dir(&build_dir)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| toolchain_error("cargo", &e))?;
+
+            // Drain stdout on its own thread: reading the two pipes in sequence
+            // deadlocks as soon as one fills its buffer, and a JSON diagnostic
+            // stream fills quickly.
+            let json_reader = child.stdout.take().map(|mut out| {
+                std::thread::spawn(move || {
+                    let mut buf = String::new();
+                    let _ = out.read_to_string(&mut buf);
+                    buf
+                })
+            });
+
+            let mut captured = String::new();
+            let mut compiled = 0usize;
+            if let Some(err) = child.stderr.take() {
+                for line in BufReader::new(err).lines() {
+                    let line = line.unwrap_or_default();
+                    if let Some(rest) = line.trim_start().strip_prefix("Compiling ") {
+                        compiled += 1;
+                        let name = rest.split_whitespace().next().unwrap_or("");
+                        // Asymptotically approach 0.95 as more crates finish.
+                        let frac =
+                            0.60 + 0.35 * (1.0 - 1.0 / (1.0 + compiled as f32 / 12.0));
+                        report(frac.min(0.95), &format!("Compiling {name}…"));
+                    }
+                    captured.push_str(&line);
+                    captured.push('\n');
+                }
+            }
+            let status = child.wait()?;
+            let json = json_reader
+                .and_then(|h| h.join().ok())
+                .unwrap_or_default();
+
+            // A cold cache fails RESOLUTION (before anything compiles) and
+            // cargo's error names the flag. Fetch online and rebuild; a
+            // failure with compiled crates is the developer's, not the
+            // cache's, and must surface as-is rather than build twice.
+            if attempt_offline
+                && !status.success()
+                && compiled == 0
+                && captured.contains("--offline")
+            {
+                report(0.60, "Fetching dependencies…");
+                attempt_offline = false;
+                continue;
+            }
+            break (status, captured, json, compiled);
         }
-    }
-    let status = child.wait()?;
-    let json = json_reader
-        .and_then(|h| h.join().ok())
-        .unwrap_or_default();
+    };
     if !status.success() {
         // A failure inside a developer's block is reported in their terms. Any
         // other failure — ours, or a dependency's — surfaces raw, because
@@ -2734,7 +2768,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "WarningThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns amber. Empty = zone coloring off; both this and CriticalThreshold must be set together, and while they are the zone owns the fill color: green below WarningThreshold, amber from it, red from CriticalThreshold."),
         "CriticalThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns red (see WarningThreshold)."),
         "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix appended to the Gauge's numeric readout, in every style, exactly as typed — write `\" rpm\"` if you want the space."),
-        "ShowNeedle" => (BOOL_DOMAIN, "Draws the Radial Gauge's needle."),
+        "ShowNeedle" => (BOOL_DOMAIN, "Draws the Gauge's needle (Radial and Donut styles)."),
         "ShowScale" => (BOOL_DOMAIN, "Draws the Radial Gauge's tick scale."),
         "BarHeight" => ("pixels > 0", "Linear Gauge bar thickness."),
         "ShowThumb" => (BOOL_DOMAIN, "Draws the Linear Gauge's end-of-fill thumb marker."),

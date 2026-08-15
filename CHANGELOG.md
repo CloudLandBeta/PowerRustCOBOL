@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.52] — 2026-08-15
+
+### Fixed — a build no longer waits on the registry index
+
+Every build shelled out to `cargo build` without `--offline`, so before a
+single crate compiled cargo went to the network to refresh the crates.io
+index and re-resolve the dependency graph. On a slow or unreachable
+connection that pause — "Updating crates.io index", then the dependency
+listing — was the longest part of building a small form application, and it
+happened even though nothing about the project had changed.
+
+Builds now resolve from the local cargo cache, which is the documented
+contract: registering a crate under Project's Crates needs the network,
+building does not. Measured on a real generated build, resolving the
+dependency graph went from 2.6 s with a warm index (7.4 s with a cold one)
+to 0.7 s — and that is with the network working; when it is slow or absent,
+the wait was as long as the connection took to give up.
+
+It also stops the graph drifting underneath a project. Re-resolving against
+a freshly refreshed index can pick newer versions of dependencies than the
+ones already built, which recompiles the whole graph for no reason a
+developer asked for — 1 m 50 s, on the same project that now finishes in a
+second. Resolving from the cache keeps a project on the crates it was built
+with.
+
+The one case that genuinely needs a fetch — a cold cache that has never seen
+one of the pinned crates — is detected from cargo's own resolution failure
+(it fails before anything compiles, and names the flag) and retried online
+automatically, reporting "Fetching dependencies…". A build that fails after
+crates started compiling is the developer's error and still surfaces exactly
+as it did, never built twice.
+
 ## [PowerRustCOBOL 1.61.51] — 2026-08-15
 
 ### Fixed — the Donut gauge gets its needle
