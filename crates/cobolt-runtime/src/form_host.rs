@@ -117,6 +117,11 @@ enum Kind {
     Root,
     Sync,
     Async,
+    /// 051 — a ContentPane occupant (the shell's `open-form:` door). It has
+    /// a handle so the published-property surface (`super::X`,
+    /// `GetProperty`/`SetProperty`, `SUPERHANDLE`) is uniform across both
+    /// surfaces, but no window of its own: window-only methods error.
+    Embedded,
 }
 
 #[derive(Debug)]
@@ -177,6 +182,29 @@ impl FormSupervisor {
     /// 049 R44 — the COBOL-driven MenuPane state.
     pub fn menu_pane_collapsed(&self) -> bool {
         self.menu_pane_collapsed
+    }
+
+    /// 051 — register a ContentPane occupant (the shell's `open-form:`
+    /// door) and return its handle. Pure registration: the shell builds the
+    /// occupant itself, so no `SpawnWindow` is emitted — the handle exists
+    /// so the occupant's published properties, `super::X` and the
+    /// windowHandler surface behave exactly as a child window's do.
+    pub fn open_embedded(&mut self, caller: &str, form_id: &str) -> String {
+        let handle = format!("W{}", self.next_handle);
+        self.next_handle += 1;
+        self.handles.insert(
+            handle.clone(),
+            HandleInfo {
+                form_id: form_id.trim().to_ascii_uppercase(),
+                kind: Kind::Embedded,
+                caller: Some(caller.to_string()),
+                modal: false,
+                waiting: false,
+                modal_reply: None,
+                props: HashMap::new(),
+            },
+        );
+        handle
     }
 
     /// The live handle whose form is `form_id`, if any (singleton lookup).
@@ -357,6 +385,26 @@ impl FormSupervisor {
             return Vec::new();
         }
         let m = method.trim().to_ascii_uppercase();
+        // 051 — an Embedded occupant has no window of its own, so the
+        // window-only methods have nothing to act on. Everything else on the
+        // handle surface (Close, state, properties, super) works unchanged.
+        let embedded = self
+            .handles
+            .get(handle)
+            .map(|i| i.kind == Kind::Embedded)
+            .unwrap_or(false);
+        if embedded
+            && matches!(
+                m.as_str(),
+                "FOCUS" | "SETFOCUS" | "SETWINDOWSTATE" | "SETFULLSCREEN" | "SETTITLEVISIBLE"
+            )
+        {
+            let _ = reply.send(Err(format!(
+                "the form under {handle} is embedded in the ContentPane — \
+                 \u{201c}{m}\u{201d} needs a form with its own window"
+            )));
+            return Vec::new();
+        }
         let actions = match m.as_str() {
             "CLOSE" => {
                 let acts = self.try_close(handle);
@@ -852,5 +900,97 @@ mod tests {
         });
         assert!(rx.try_recv().unwrap().is_err());
         println!("handle methods: SetFullScreen/Focus(restore-first)/GetFormState ok; closed handle errors");
+    }
+
+    /// A handle-method call against a live supervisor, returning the reply.
+    fn call(sup: &mut FormSupervisor, handle: &str, method: &str, args: &[&str]) -> Result<String, String> {
+        let (tx, rx) = channel();
+        sup.handle_request(FormRequest::HandleMethod {
+            handle: handle.into(),
+            method: method.into(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            reply: tx,
+        });
+        rx.try_recv().expect("a reply")
+    }
+
+    /// 051 D3 — an Embedded occupant's handle carries the same property/
+    /// state/super surface as a window's, so `super::X` and
+    /// `handle::"GetProperty"` behave identically on both surfaces.
+    #[test]
+    fn embedded_handle_has_the_uniform_property_surface() {
+        let mut sup = FormSupervisor::new("MAIN-FORM", "MAIN-FORM");
+        let h = sup.open_embedded(ROOT_HANDLE, "crm");
+        assert_eq!(h, "W1");
+        assert!(sup.is_open(&h));
+        assert_eq!(sup.form_id_of(&h), Some("CRM"));
+
+        // Published properties round-trip exactly as on a window handle.
+        assert!(call(&mut sup, &h, "SetProperty", &["Title", "Customers"]).is_ok());
+        assert_eq!(call(&mut sup, &h, "GetProperty", &["title"]).unwrap(), "Customers");
+        // One step up the loader chain is the shell.
+        assert_eq!(call(&mut sup, &h, "SuperHandle", &[]).unwrap(), ROOT_HANDLE);
+        // FormState mirrors like any form.
+        sup.note_form_state(&h, true);
+        assert_eq!(call(&mut sup, &h, "GetFormState", &[]).unwrap(), "Waiting");
+        sup.note_form_state(&h, false);
+
+        println!(
+            "embedded {h}: SetProperty/GetProperty round-trip, SuperHandle → W0, \
+             FormState mirror — 4/4 surface calls uniform"
+        );
+    }
+
+    /// 051 D3 — window-only methods on an Embedded occupant error instead of
+    /// acting on a window that does not exist; Close still works and takes
+    /// the occupant down with the ordinary CloseWindow/NotifyClosed pair.
+    #[test]
+    fn embedded_handle_rejects_window_only_methods_but_closes() {
+        let mut sup = FormSupervisor::new("MAIN-FORM", "MAIN-FORM");
+        let h = sup.open_embedded(ROOT_HANDLE, "CRM");
+
+        let mut rejected = Vec::new();
+        for m in ["Focus", "SetFocus", "SetWindowState", "SetFullScreen", "SetTitleVisible"] {
+            let err = call(&mut sup, &h, m, &["Normal"]).expect_err("window-only must error");
+            assert!(
+                err.contains("embedded"),
+                "{m}: the error names the reason, got {err:?}"
+            );
+            rejected.push(m);
+        }
+        assert!(sup.is_open(&h), "errors change nothing");
+
+        let acts = sup.try_close(&h);
+        assert_eq!(closed(&acts), vec![h.clone()]);
+        assert!(acts.contains(&HostAction::NotifyClosed { handle: h.clone() }));
+        assert!(!sup.is_open(&h));
+
+        println!(
+            "embedded {h}: {}/5 window-only methods rejected ({rejected:?}); \
+             Close → CloseWindow + NotifyClosed",
+            rejected.len()
+        );
+    }
+
+    /// 051 — the main form's close-all (037 R27) takes embedded occupants
+    /// with it: an occupant is part of the application, not a stray window.
+    #[test]
+    fn embedded_occupants_close_with_the_main_form() {
+        let mut sup = FormSupervisor::new("MAIN-FORM", "MAIN-FORM");
+        let occupant = sup.open_embedded(ROOT_HANDLE, "CRM");
+        let (child, _) = open(&mut sup, ROOT_HANDLE, "DETAIL", false, false);
+        let child = child.unwrap();
+
+        let acts = sup.try_close(ROOT_HANDLE);
+        let gone = closed(&acts);
+        assert!(gone.contains(&occupant), "occupant closes with the shell");
+        assert!(gone.contains(&child), "windows close with the shell");
+        assert!(gone.contains(&ROOT_HANDLE.to_string()));
+        assert!(acts.contains(&HostAction::Exit));
+
+        println!(
+            "main close-all: {} handles down ({gone:?}) + Exit — occupants included",
+            gone.len()
+        );
     }
 }

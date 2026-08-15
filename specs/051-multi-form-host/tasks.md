@@ -13,14 +13,14 @@ touches, the requirement(s) it satisfies, and how to verify it. The project
 stays green after every task. Feature branch: `feat/multi-form-host`
 (the `main` commit hook forbids working there).
 
-- [ ] **T0 — Branch + commit the spec artifacts**
+- [x] **T0 — Branch + commit the spec artifacts**
   - Files: `specs/051-multi-form-host/{spec,plan,tasks}.md`
   - Do: create `feat/multi-form-host` from `main`; commit the three spec
     documents so implementation diffs stay reviewable against them.
   - Verify: `git log --oneline -1` shows the spec commit on the feature
     branch; working tree clean.
 
-- [ ] **T1 — Supervisor: `Kind::Embedded` + embedded registration** (R3, R10
+- [x] **T1 — Supervisor: `Kind::Embedded` + embedded registration** (R3, R10
   groundwork; plan D3)
   - Files: `crates/cobolt-runtime/src/form_host.rs`
   - Do: add `Kind::Embedded`; an `open_embedded(caller, form_id)` entry that
@@ -33,7 +33,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
   - Verify: `cargo test -p cobolt-runtime --lib` green; the 8 pre-existing
     lifecycle tests untouched (no assertion edits in the diff).
 
-- [ ] **T2 — Host: closed-handle fan-out** (R8)
+- [x] **T2 — Host: closed-handle fan-out** (R8)
   - Files: `crates/cobolt-form-host/src/host.rs`
   - Do: replace the single `closed_tx` field with a small owned fan-out
     (`Vec<mpsc::Sender<String>>`); `HostAction::NotifyClosed` sends the handle
@@ -42,7 +42,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
   - Verify: `cargo test -p cobolt-form-host` green;
     `cargo build -p cobolt-cli` green (glue still compiles).
 
-- [ ] **T3 — Interpreter: SideMenu open methods + RETURNING gate** (R21, R22,
+- [x] **T3 — Interpreter: SideMenu open methods + RETURNING gate** (R21, R22,
   R23)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`,
     `crates/cobolt-runtime/tests/test_open_form_invoke.rs`
@@ -59,7 +59,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     replies; a *property* named `OpenStandAloneFormSync` on a TextBox still
     resolves as a property (fallback preserved — AC11's last clause).
 
-- [ ] **T4 — Semantic: signatures + load-path gate for the new pair** (R24,
+- [x] **T4 — Semantic: signatures + load-path gate for the new pair** (R24,
   R26-method-half)
   - Files: `crates/cobolt-semantic/src/resolver.rs`,
     `crates/cobolt-semantic/tests/test_open_form_signature.rs`,
@@ -72,7 +72,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     `Embedded` literal target → error, `Both` → clean, data-item → clean
     (AC13 method half); zero edits to existing assertions (AC6).
 
-- [ ] **T5 — Menu model: standalone action parsing + two-kind validation**
+- [x] **T5 — Menu model: standalone action parsing + two-kind validation**
   (R17, R26-menu-half)
   - Files: `crates/cobolt-forms/src/menu.rs`
   - Do: `open_standalone_target(item) -> Option<(&str, bool /*sync*/)>`
@@ -113,7 +113,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     `generated_binary_source_actually_compiles` unchanged and green (AC4
     build half).
 
-- [ ] **T8 — Host: `FormBody` extraction (behaviour-preserving)** (plan D4;
+- [x] **T8 — Host: `FormBody` extraction (behaviour-preserving)** (plan D4;
   groundwork for R3/R6/R10)
   - Files: `crates/cobolt-form-host/src/host.rs`
   - Do: mechanically move the per-form fields (`controls`, `state`, `anim`,
@@ -139,7 +139,10 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     `supervisor.try_close(handle)`; geometry overrides honoured (037 R21);
     spawn failure → error reply + visible runtime error line (R15), stub
     eprintln deleted; while `modal_children_of(root)` is non-empty the root
-    body renders under `ui.disable()`.
+    body renders under `ui.disable()`. **Q1 ruling:** the spawn helper
+    injects ONE shared `Arc<Mutex<RustBridge>>` into every interpreter
+    (root included) so EXEC RUST blocks in any form share the process-wide
+    object bridge; default construction keeps a private bridge.
   - Verify: `cargo test -p cobolt-form-host` green — headless tests through
     the frame driver: OpenForm → child body exists and renders; modal child →
     root input disabled; child close → NotifyClosed reaches **all**
@@ -181,7 +184,11 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     `onActivate(in)`; teardown + `onDestroy` when not preserved; preserved
     occupants keep their parked interpreter (plan D2); breadcrumb reflects
     `chain.segments()` after every swap; the `open-form:` stub eprintln is
-    deleted.
+    deleted. **Q2 ruling:** the shell TICKS parked occupants' enabled Timer
+    controls itself (per-timer clocks, `onTick` over the occupant's `ev_tx`
+    with backlog coalescing, `request_repaint_after` for the next due tick)
+    — timer handlers keep running off-pane; a headless test proves a parked
+    occupant's onTick count advances.
   - Verify: `cargo test -p cobolt-form-host` green — headless swap tests
     assert the event order, `onDestroy` iff not preserved, TextBox state
     surviving a preserve round-trip (AC3 shape), breadcrumb segments (AC1

@@ -391,6 +391,14 @@ impl<'a> ResolveCtx<'a> {
             Bool,
         }
         let m = method.trim().to_ascii_uppercase();
+        // The receiver each pair is written on — the error's example call
+        // must name the receiver the developer actually types (051: the
+        // standalone pair lives on a SideMenu control, not on `me`).
+        let receiver = if m.starts_with("OPENSTANDALONEFORM") {
+            "<side-menu-control>"
+        } else {
+            "me"
+        };
         let (params, signature): (&[(&str, P)], &str) = match m.as_str() {
             "OPENFORMSYNC" => (
                 &[
@@ -415,14 +423,39 @@ impl<'a> ResolveCtx<'a> {
                 ],
                 "\"OpenFormAsync\" USING form-id windowState x y width height",
             ),
+            // 051 R24 — the SideMenu pair mirrors the me:: pair exactly:
+            // same parameters, same Sync-only trailing modal.
+            "OPENSTANDALONEFORMSYNC" => (
+                &[
+                    ("form id", P::Text),
+                    ("formWindowState", P::Text),
+                    ("x", P::Number),
+                    ("y", P::Number),
+                    ("width", P::Number),
+                    ("height", P::Number),
+                    ("modal", P::Bool),
+                ],
+                "\"OpenStandAloneFormSync\" USING form-id windowState x y width height modal",
+            ),
+            "OPENSTANDALONEFORMASYNC" => (
+                &[
+                    ("form id", P::Text),
+                    ("formWindowState", P::Text),
+                    ("x", P::Number),
+                    ("y", P::Number),
+                    ("width", P::Number),
+                    ("height", P::Number),
+                ],
+                "\"OpenStandAloneFormAsync\" USING form-id windowState x y width height",
+            ),
             _ => return,
         };
         if args.len() != params.len() {
             self.error(
                 format!(
                     "INVOKE {m}: the COBOL-standard (space-separated) form requires all {} \
-                     parameters — got {}. Expected: INVOKE me {signature}. \
-                     (Use the comma form me::\"{}\"(…) for optional parameters.)",
+                     parameters — got {}. Expected: INVOKE {receiver} {signature}. \
+                     (Use the comma form {receiver}::\"{}\"(…) for optional parameters.)",
                     params.len(),
                     args.len(),
                     method.trim(),
@@ -447,7 +480,7 @@ impl<'a> ResolveCtx<'a> {
                 self.error(
                     format!(
                         "INVOKE {m}: parameter {} ({name}) has the wrong type. \
-                         Expected: INVOKE me {signature}.",
+                         Expected: INVOKE {receiver} {signature}.",
                         i + 1,
                     ),
                     args[i].span(),
@@ -462,7 +495,12 @@ impl<'a> ResolveCtx<'a> {
     /// a data-item target is dynamic and stays a runtime concern.
     fn check_open_form_target(&mut self, method: &str, args: &[Expr]) {
         let m = method.trim().to_ascii_uppercase();
-        if m != "OPENFORMSYNC" && m != "OPENFORMASYNC" {
+        // 051 R26 — the SideMenu's OpenStandAloneForm* pair opens the same
+        // standalone path, so it obeys the same gate.
+        if !matches!(
+            m.as_str(),
+            "OPENFORMSYNC" | "OPENFORMASYNC" | "OPENSTANDALONEFORMSYNC" | "OPENSTANDALONEFORMASYNC"
+        ) {
             return;
         }
         let Some(formats) = self.form_formats else {

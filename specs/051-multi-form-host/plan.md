@@ -153,27 +153,30 @@ message.
 
 ## 4. Key decisions & alternatives
 
-- **D1 (settles spec Q1) — EXEC RUST bridge is per form instance.** The
-  recon overturned the spec's lean: the "one object bridge" was never a
-  process-global — each block already runs against the *calling*
-  interpreter's `env`/`objects`/`bridge` (`exec_rust.rs:179-186`), and the
-  registry is a per-interpreter field of stateless `fn` pointers
-  (`interpreter.rs:658`). With per-form interpreters each form's blocks see
-  that form's state, which *matches R3/R4 isolation*. The genuinely
-  process-wide piece — the generated `cobolt_windows` viewport registry and
-  `PAINTER_READY` (`compiler/exec_rust.rs:139-140`) — stays shared: one
-  window-id namespace per process. — **Rejected:** a process-wide shared
-  `ObjectRegistry`, which would require locking the interpreters' `&mut`
-  state across threads and quietly break the isolation model; 041's wording
-  is updated to "one bridge per program instance" instead.
-- **D2 (settles spec Q2) — preserved occupants: thread alive, timers
-  paused.** The interpreter thread parks on its event channel; state, files
-  and storage stay warm. Timers are *render-driven* (`CT::Timer` fires from
-  `render_form`, clocked in egui memory — `render.rs:6377`), so an off-pane
-  form does not tick, and resumes on reactivation. Documented as a guide
-  caveat. — **Rejected:** hidden rendering to keep ticks (surprising
-  background work, wasted frames); moving timers off the render path (a
-  cross-cutting refactor with its own spec).
+- **D1 (spec Q1 — RULED BY THE OPERATOR, 2026-08-15: process-wide).** The
+  **`RustBridge`** — the Rust-side object-reference store every EXEC RUST
+  block reaches as `ctx.bridge` — becomes ONE shared store per process
+  (`Arc<Mutex<RustBridge>>`), injected into every spawned interpreter by the
+  shared spawn helper; a block holds the lock only for its own execution, so
+  blocks from different forms serialize on it. Handle ids created by one
+  form's blocks resolve in another's — the deliberate shared channel now
+  that COBOL storage is per-form. Each form's `env` (COBOL storage) and
+  `objects` (control registry) remain per-interpreter, per R3/R4; the
+  generated `cobolt_windows` viewport registry and `PAINTER_READY` were
+  already process-wide and stay so. Default construction keeps a private
+  bridge, so single-form runs are untouched. *(The plan's earlier
+  per-instance lean is superseded by the operator's ruling.)*
+- **D2 (spec Q2 — RULED BY THE OPERATOR, 2026-08-15: parked, state kept,
+  timers keep running).** A preserved off-pane occupant is not rendered and
+  its interpreter parks on its event channel — but its enabled Timer
+  controls keep ticking. Since `CT::Timer` is render-driven
+  (`render.rs:6377`), the shell ticks parked occupants itself: it tracks
+  each parked occupant's enabled Timers (`Interval`/`Enabled` from its
+  state), keeps a per-timer clock, sends `onTick` over that occupant's
+  `ev_tx` with the usual backlog coalescing, and schedules
+  `request_repaint_after` for the next due tick. On reactivation the
+  render-driven path resumes seamlessly. — **Rejected:** hidden full
+  rendering of parked occupants (wasted frames for one control type).
 - **D3 (settles spec Q3) — uniform handle surface for embedded occupants.**
   `Kind::Embedded` registers occupants in the supervisor, so
   `super::X`, `GetProperty`/`SetProperty`, `SUPERHANDLE` and

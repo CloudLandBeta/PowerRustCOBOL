@@ -163,6 +163,34 @@ pub struct FormHostConfig {
     pub hooks: Box<dyn HostHooks>,
 }
 
+/// 051 — the closed-handle broadcast, for real. `HostAction::NotifyClosed`
+/// was documented as "broadcast to every interpreter", but the transport was
+/// one `mpsc` pair — strictly single-consumer. With one interpreter per
+/// hosted form, every interpreter registers its own sender here and each
+/// close reaches all of them, so every `windowHandler` NULLs (037 R24)
+/// whichever form is holding it.
+pub(crate) struct ClosedFanout(Vec<mpsc::Sender<String>>);
+
+impl ClosedFanout {
+    pub(crate) fn new(root: mpsc::Sender<String>) -> Self {
+        Self(vec![root])
+    }
+
+    /// Register one more interpreter's receiver end.
+    pub(crate) fn register(&mut self, tx: mpsc::Sender<String>) {
+        self.0.push(tx);
+    }
+
+    /// Deliver `handle` to every registered interpreter. A dead receiver
+    /// (its interpreter already ended) is simply skipped — closing is
+    /// exactly when receivers die, so send errors here are ordinary.
+    pub(crate) fn send(&self, handle: &str) {
+        for tx in &self.0 {
+            let _ = tx.send(handle.to_owned());
+        }
+    }
+}
+
 /// The window title rule (spec 042 R17): the DESIGNED title wins; the
 /// fallback (the glue's choice — blank under run-form, branded in a compiled
 /// application) shows only when the design left the title blank.
@@ -370,44 +398,46 @@ impl FormHost {
         let (fx_hide_chrome, fx_transparent) = fx_window_flags(&fx_entrance);
 
         let host = FormHost {
-            form_name: form.name.clone(),
+            root: FormBody {
+                form_name: form.name.clone(),
+                theme_pack,
+                surface_theme,
+                glass_style,
+                controls: flat,
+                state,
+                bg_hex: form.background_color.clone(),
+                bg_gradient_enabled: form.background_gradient_enabled,
+                bg_gradient_start: form.background_gradient_start_color.clone(),
+                bg_gradient_end: form.background_gradient_end_color.clone(),
+                bg_gradient_direction: form.background_gradient_direction.clone(),
+                transparency: form.transparency.clamp(0, 100) as u8,
+                bg_image: form.background_image.clone(),
+                bg_mode: form.bg_image_mode,
+                use_theme_background: form.use_theme_background,
+                form_size: egui::vec2(fw, fh),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending,
+                finished,
+                start: std::time::Instant::now(),
+                lifecycle_sent: false,
+                db_dumped: false,
+                form_object,
+                anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
+                anim_started: false,
+                last_frame: None,
+                hovered: std::collections::HashSet::new(),
+            },
             surface,
-            theme_pack,
-            surface_theme,
-            glass_style,
             visuals_set: false,
-            controls: flat,
-            state,
-            bg_hex: form.background_color.clone(),
-            bg_gradient_enabled: form.background_gradient_enabled,
-            bg_gradient_start: form.background_gradient_start_color.clone(),
-            bg_gradient_end: form.background_gradient_end_color.clone(),
-            bg_gradient_direction: form.background_gradient_direction.clone(),
-            transparency: form.transparency.clamp(0, 100) as u8,
-            bg_image: form.background_image.clone(),
-            bg_mode: form.bg_image_mode,
-            use_theme_background: form.use_theme_background,
-            form_size: egui::vec2(fw, fh),
-            ev_tx,
-            input_tx,
-            state_rx,
-            display_rx,
-            pending,
-            finished,
-            start: std::time::Instant::now(),
-            lifecycle_sent: false,
             quit_sent: false,
-            db_dumped: false,
             diagnostics,
-            anim: cobolt_forms::anim::AnimRuntime::new(fw, fh),
-            anim_started: false,
-            last_frame: None,
-            hovered: std::collections::HashSet::new(),
             start_minimized: form.window_state == cobolt_forms::model::WindowState::Minimized,
             supervisor: cobolt_runtime::form_host::FormSupervisor::new(&form.name, &form.name),
             form_req_rx,
-            closed_tx,
-            form_object,
+            closed: ClosedFanout::new(closed_tx),
             fullscreen_actual: form.full_screen,
             fx_entrance,
             fx_exit,
@@ -448,265 +478,150 @@ impl FormHost {
 
 // ── FormHost ──────────────────────────────────────────────────────────────────
 
-pub struct FormHost {
-    form_name: String,
-    /// 049 — own window, or the shell's ContentPane (see [`Surface`]).
-    surface: Surface,
+/// 051 — everything that belongs to ONE hosted form: its design, live state,
+/// channels, animation clocks and per-form lifecycle one-shots. The root
+/// window holds one; each child window and each pane occupant holds its own,
+/// all rendered through the same frame path — one renderer, N forms.
+pub(crate) struct FormBody {
+    pub(crate) form_name: String,
     /// Resolved asset-pack theme (None = built-in Liquid Glass) + the form's
     /// glass style — pushed into the egui context so the unified painter reads
     /// the same theme state as under the IDE (spec 017 parity).
-    theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>>,
-    surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
-    glass_style: cobolt_forms::model::GlassStyle,
-    visuals_set: bool,
-    controls: Vec<cobolt_forms::Control>,
-    state: HashMap<String, CtrlState>,
-    bg_hex: String,
-    bg_gradient_enabled: bool,
-    bg_gradient_start: String,
-    bg_gradient_end: String,
-    bg_gradient_direction: String,
-    transparency: u8,
-    bg_image: String,
-    bg_mode: cobolt_forms::model::BgImageMode,
+    pub(crate) theme_pack: Option<Arc<cobolt_forms::theme_pack::ThemePack>>,
+    pub(crate) surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
+    pub(crate) glass_style: cobolt_forms::model::GlassStyle,
+    pub(crate) controls: Vec<cobolt_forms::Control>,
+    pub(crate) state: HashMap<String, CtrlState>,
+    pub(crate) bg_hex: String,
+    pub(crate) bg_gradient_enabled: bool,
+    pub(crate) bg_gradient_start: String,
+    pub(crate) bg_gradient_end: String,
+    pub(crate) bg_gradient_direction: String,
+    pub(crate) transparency: u8,
+    pub(crate) bg_image: String,
+    pub(crate) bg_mode: cobolt_forms::model::BgImageMode,
     /// The form's `UseThemeBackground` opt-in — the pack's background art
     /// replaces the form's own image when the active theme provides one.
-    use_theme_background: bool,
-    form_size: egui::Vec2,
-    ev_tx: mpsc::Sender<FormEvent>,
-    input_tx: mpsc::Sender<StateUpdate>,
-    state_rx: mpsc::Receiver<StateUpdate>,
-    display_rx: mpsc::Receiver<String>,
+    pub(crate) use_theme_background: bool,
+    pub(crate) form_size: egui::Vec2,
+    pub(crate) ev_tx: mpsc::Sender<FormEvent>,
+    pub(crate) input_tx: mpsc::Sender<StateUpdate>,
+    pub(crate) state_rx: mpsc::Receiver<StateUpdate>,
+    pub(crate) display_rx: mpsc::Receiver<String>,
     /// Events queued for the interpreter — lets the render Timer arm coalesce
     /// ticks against a backlog and drives the fast-repaint branch below.
-    pending: Arc<AtomicUsize>,
+    pub(crate) pending: Arc<AtomicUsize>,
     /// Set by the interpreter thread when the program ends (STOP RUN or error).
-    finished: Arc<AtomicBool>,
-    /// When the window opened. Input is ignored for a short warm-up so a click
-    /// in progress as the window appears can't fire a phantom event.
-    start: std::time::Instant,
-    lifecycle_sent: bool,
-    quit_sent: bool,
+    pub(crate) finished: Arc<AtomicBool>,
+    /// When the form appeared. Input is ignored for a short warm-up so a click
+    /// in progress as it appears can't fire a phantom event.
+    pub(crate) start: std::time::Instant,
+    pub(crate) lifecycle_sent: bool,
     /// One-shot guard for the `COBOLT_DATABIND_TRACE` render-side dump.
-    db_dumped: bool,
-    /// `COBOLT_FRAME_DIAGNOSTICS` — live per-update trace (R27). Without it a
-    /// host is a black box: "the label did not change" cannot be told apart
-    /// from "the handler never ran" or "the write went to a name that does
-    /// not exist".
-    diagnostics: bool,
-    /// Control animations (fly-in, fade, pulse, …) — the same effects the
-    /// designer preview shows, on every host.
-    anim: cobolt_forms::anim::AnimRuntime,
-    /// One-shot guard for the load-time (`OnFormLoad` / `OnShow`) animations.
-    anim_started: bool,
-    /// Previous frame's timestamp — the animation clock's delta.
-    last_frame: Option<std::time::Instant>,
-    /// Controls the pointer was inside last frame, so `OnHover` animations fire
-    /// on entry only. Hover/click triggers are derived from the rendered rects
-    /// rather than from `RenderOutput::events`, which the engine emits only for
-    /// events that have a bound COBOL handler.
-    hovered: std::collections::HashSet<String>,
-    /// 037 R13 — the form was designed to OPEN minimized; winit has no
-    /// pre-minimized builder, so the first frame sends the command once.
-    start_minimized: bool,
-    /// A screen-relative Start Position (the eight edge/corner positions or
-    /// Center) — `None` once applied, or when the form is `System`/`Custom`
-    /// and needs no first-frame command at all (`Custom` is already in the
-    /// viewport builder; `System` means "do not touch it").
-    pending_start_position: Option<cobolt_forms::model::FormStartPosition>,
-    /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
-    supervisor: cobolt_runtime::form_host::FormSupervisor,
-    /// Requests from the interpreter thread (OpenForm*, handle methods, …).
-    form_req_rx: mpsc::Receiver<cobolt_runtime::form_host::FormRequest>,
-    /// Broadcasts closed handles back to the interpreter (R24 NULLing).
-    closed_tx: mpsc::Sender<String>,
+    pub(crate) db_dumped: bool,
     /// The form's object name (UPPER) — receiver of form-level events.
-    form_object: String,
-    /// Last ACTUAL fullscreen state from ViewportInfo — onFullScreenChanged
-    /// fires only on real transitions (R14/AC8). Seeded with the designed
-    /// value so opening fullscreen-by-design is not a "change".
-    fullscreen_actual: bool,
-
-    // ── 038 window effects ───────────────────────────────────────────────────
-    /// Project entrance/exit effects, resolved by the glue
-    /// (Default = no effect). The kill-switch env zeroes both at parse time.
-    fx_entrance: cobolt_forms::window_fx::FxSpec,
-    fx_exit: cobolt_forms::window_fx::FxSpec,
-    /// Replay the entrance when the window is restored after minimize (R9).
-    fx_restore: bool,
-    /// The window was created SEE-THROUGH so its entrance could play over the
-    /// desktop (only effects that move/scale/fade the face — see
-    /// `WindowEffect::plays_over_desktop`). The form's own `transparency` then
-    /// reaches the desktop for the window's whole life, as designed.
-    fx_transparent: bool,
-    /// The title bar is designed to be visible but is currently OFF so the
-    /// entrance plays with no fixed chrome; it is switched back on the frame
-    /// the animation ends.
-    fx_chrome_pending: bool,
-    /// One-shot: the chrome was taken off for the EXIT animation.
-    fx_chrome_hidden_for_exit: bool,
-    /// When the current entrance playback started (first frame, or restore).
-    fx_entrance_start: Option<std::time::Instant>,
-    /// True once the entrance finished — gates the control load animations
-    /// (R8) and hands the frame back to the live UI.
-    fx_entrance_done: bool,
-    /// When the exit playback started; the actual close fires at its end.
-    fx_exit_start: Option<std::time::Instant>,
-    /// Deterministic MatrixRain seed (form name + size).
-    fx_seed: u32,
-    /// Last ACTUAL minimized state from ViewportInfo — the restore replay
-    /// triggers on the true→false edge only (R9).
-    minimized_actual: bool,
-    /// The per-host seam (R30) — e.g. the compiled application's
-    /// `cobolt_windows` replay.
-    hooks: Box<dyn HostHooks>,
-
-    // ── 049 Pane-mode observability (the parity suite reads these) ───────────
-    /// The rect the pane-fixed backdrop was painted into last frame
-    /// (`None` in Window mode, where the engine paints it).
-    last_pane_backdrop_rect: Option<egui::Rect>,
-    /// The resolved solid fill of that paint — a transparent form leaves the
-    /// pane region see-through (R43): alpha 0 here, while the shell chrome
-    /// stays opaque.
-    last_pane_backdrop_fill: Option<egui::Color32>,
-    /// The content scroll offset last frame (the host's own ScrollArea).
-    last_content_scroll: egui::Vec2,
-    /// 049 R44 — a COBOL-driven MenuPane state change awaiting the shell.
-    pending_menu_pane: Option<bool>,
+    pub(crate) form_object: String,
+    pub(crate) anim: cobolt_forms::anim::AnimRuntime,
+    pub(crate) anim_started: bool,
+    pub(crate) last_frame: Option<std::time::Instant>,
+    /// Control ids under the pointer last frame (animation hover triggers).
+    pub(crate) hovered: std::collections::HashSet<String>,
 }
 
-impl FormHost {
-    fn send_event(&mut self, ev: FormEvent) {
+impl FormBody {
+    pub(crate) fn send_event(&mut self, ev: FormEvent) {
         if self.ev_tx.send(ev).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
         }
     }
 
-    /// 049 R42 — every viewport command this host issues funnels through
-    /// here: in `Pane` mode the SHELL owns the only window, so a form-issued
-    /// window command is a no-op by construction rather than by scattered
-    /// guards.
-    fn viewport_cmd(&self, ctx: &egui::Context, cmd: egui::ViewportCommand) {
-        if self.surface == Surface::Window {
-            ctx.send_viewport_cmd(cmd);
+    /// See [`crate::state::state_entry_mut`].
+    pub(crate) fn state_entry_mut(&mut self, key: &str) -> &mut CtrlState {
+        state_entry_mut(&mut self.state, &self.controls, key)
+    }
+
+    /// Resolve a control id arriving from COBOL (upper-cased by the compiler)
+    /// to the designer's original-case state key — otherwise a handler's
+    /// property writes land in an orphan "LABEL-1" entry the renderer (which
+    /// looks up by the designed "Label-1" id) never reads.
+    pub(crate) fn resolve_ctrl_key(&self, id: &str) -> String {
+        if let Some(k) = self.state.keys().find(|k| k.eq_ignore_ascii_case(id)) {
+            return k.clone();
+        }
+        if let Some(c) = self.controls.iter().find(|c| {
+            c.explicit_control_array_id()
+                .map(|aid| aid.eq_ignore_ascii_case(id))
+                .unwrap_or(false)
+        }) {
+            return c.id.clone();
+        }
+        id.to_owned()
+    }
+
+    /// For a repeating-group member id (case-insensitive), return its
+    /// original-case id and the id of its repeating-GroupBox ancestor.
+    pub(crate) fn array_member_group(&self, ctrl_id: &str) -> Option<(String, String)> {
+        let member = self
+            .controls
+            .iter()
+            .find(|c| c.id.eq_ignore_ascii_case(ctrl_id))?;
+        let member_id = member.id.clone();
+        let mut cur = member;
+        loop {
+            let parent_id = cur.parent.as_deref()?;
+            let parent = self
+                .controls
+                .iter()
+                .find(|c| c.id.eq_ignore_ascii_case(parent_id))?;
+            let is_repeating = matches!(parent.control_type, cobolt_forms::ControlType::GroupBox)
+                && parent
+                    .get_prop("IsRepeatingGroup")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false);
+            if is_repeating {
+                return Some((member_id, parent.id.clone()));
+            }
+            cur = parent;
         }
     }
 
-    /// 037 — execute the supervisor's decisions against the real window.
-    /// Runs a worklist so follow-up actions (e.g. releasing a pending child
-    /// spawn) are applied in the same frame.
-    fn apply_host_actions(
-        &mut self,
-        ctx: &egui::Context,
-        actions: Vec<cobolt_runtime::form_host::HostAction>,
-    ) {
-        use cobolt_runtime::form_host::{HostAction, ROOT_HANDLE};
-        let mut work = actions;
-        while !work.is_empty() {
-            let mut next = Vec::new();
-            for act in work {
-                match act {
-                    HostAction::SpawnWindow {
-                        handle, form_id, ..
-                    } => {
-                        // Real child viewports land with the multi-viewport
-                        // host (T1 spike gating). Until then the spawn is
-                        // released immediately so callers never deadlock:
-                        // the handle NULLs, a held modal reply resolves.
-                        eprintln!(
-                            "form-host: OpenForm(\"{form_id}\") accepted, but child windows \
-                             are not hosted yet — releasing {handle} (multi-window host \
-                             pending)"
-                        );
-                        next.extend(self.supervisor.form_finished(&handle));
-                    }
-                    HostAction::CloseWindow { handle } => {
-                        if handle == ROOT_HANDLE {
-                            // 038 R10 — an allowed close plays the exit effect
-                            // first; the playback block performs the real
-                            // close when the animation completes. Vetoes never
-                            // reach this arm, so a refusal plays nothing.
-                            if self.fx_exit.is_active() && !self.quit_sent {
-                                if self.fx_exit_start.is_none() {
-                                    self.fx_exit_start = Some(std::time::Instant::now());
-                                }
-                            } else {
-                                if !self.quit_sent {
-                                    self.quit_sent = true;
-                                    let _ = self.ev_tx.send(FormEvent::quit());
-                                }
-                                self.viewport_cmd(ctx,egui::ViewportCommand::Close);
-                            }
-                        }
-                    }
-                    HostAction::FocusWindow { handle } => {
-                        if handle == ROOT_HANDLE {
-                            self.viewport_cmd(ctx,egui::ViewportCommand::Focus);
-                        }
-                    }
-                    HostAction::SetWindowState { handle, state } => {
-                        if handle == ROOT_HANDLE {
-                            let s = state.trim();
-                            if s.eq_ignore_ascii_case("Minimized") {
-                                self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(true));
-                            } else if s.eq_ignore_ascii_case("Maximized") {
-                                self.viewport_cmd(ctx,egui::ViewportCommand::Maximized(true));
-                            } else {
-                                self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(false));
-                                self.viewport_cmd(ctx,egui::ViewportCommand::Maximized(false));
-                            }
-                        }
-                    }
-                    HostAction::SetFullScreen { handle, on } => {
-                        if handle == ROOT_HANDLE {
-                            self.viewport_cmd(ctx,egui::ViewportCommand::Fullscreen(on));
-                        }
-                    }
-                    HostAction::SetTitleVisible { handle, on } => {
-                        if handle == ROOT_HANDLE {
-                            self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(on));
-                        }
-                    }
-                    HostAction::NotifyCloseRejected { handle } => {
-                        if handle == ROOT_HANDLE {
-                            let form = self.form_object.clone();
-                            self.send_event(FormEvent::new(form, "onCloseRejected"));
-                        }
-                    }
-                    // 049 — a property written THROUGH the supervisor
-                    // (`super::X = …` from another form). Forward it to this
-                    // form's interpreter (the FullScreen-echo route) so its
-                    // own `me::X` reads stay coherent. Visible application
-                    // (retitle/resize) lands with the shell host work.
-                    HostAction::SetFormProperty { handle, key, value } => {
-                        if handle == ROOT_HANDLE {
-                            let _ = self.input_tx.send(StateUpdate {
-                                ctrl_id: self.form_object.clone(),
-                                prop: key,
-                                value,
-                                instance_index: 0,
-                            });
-                        }
-                    }
-                    // 049 R44 — surfaced for the SHELL host, which applies it
-                    // to its MenuPane and persists it (R9). A classic window
-                    // host takes it nowhere.
-                    HostAction::SetMenuPaneCollapsed { collapsed } => {
-                        self.pending_menu_pane = Some(collapsed);
-                    }
-                    HostAction::NotifyClosed { handle } => {
-                        let _ = self.closed_tx.send(handle);
-                    }
-                    HostAction::Exit => {
-                        if !self.quit_sent {
-                            self.quit_sent = true;
-                            let _ = self.ev_tx.send(FormEvent::quit());
-                        }
-                        self.viewport_cmd(ctx,egui::ViewportCommand::Close);
-                    }
+    /// The form's background, resolved once and shared by the live render and
+    /// by the static face the window effects animate — so an entrance reveals
+    /// the form WITH its gradient / background image instead of jumping to it
+    /// when the animation ends.
+    pub(crate) fn backdrop(&self, ctx: &egui::Context) -> cobolt_forms::render::Backdrop {
+        // Background image texture (cached in egui memory by path).
+        let image = if self.bg_image.trim().is_empty() {
+            None
+        } else {
+            let path = self.bg_image.clone();
+            let id = egui::Id::new(("form_host_bg", path.as_str()));
+            let cached = ctx.memory(|m| m.data.get_temp::<Option<egui::TextureHandle>>(id));
+            let tex = match cached {
+                Some(t) => t,
+                None => {
+                    let loaded = cobolt_forms::paint::load_image_texture(ctx, &path);
+                    ctx.memory_mut(|m| m.data.insert_temp(id, loaded.clone()));
+                    loaded
                 }
-            }
-            work = next;
+            };
+            tex.map(|t| (t.id(), t.size_vec2()))
+        };
+        cobolt_forms::render::Backdrop {
+            color_hex: self.bg_hex.clone(),
+            transparency: self.transparency,
+            gradient_enabled: self.bg_gradient_enabled,
+            gradient_start_hex: self.bg_gradient_start.clone(),
+            gradient_end_hex: self.bg_gradient_end.clone(),
+            gradient_direction: self.bg_gradient_direction.clone(),
+            image,
+            image_mode: self.bg_mode,
+            use_theme_background: self.use_theme_background,
+            // The gradient / background image follows the WINDOW: it stretches
+            // over the whole thing when the user maximizes or drags it bigger,
+            // and stays form-sized when the window is dragged smaller. The
+            // controls keep their designed size either way.
+            window_size: Some(ctx.content_rect().size()),
         }
     }
 
@@ -716,7 +631,7 @@ impl FormHost {
     /// hit means the value landed under a differently-cased key than the render
     /// draws with — the classic run-form databind blank. Written once to
     /// `cobolt-databind-render.log` in the platform's diagnostics directory.
-    fn dump_databind_trace(&self) {
+    pub(crate) fn dump_databind_trace(&self) {
         use std::io::Write;
         let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
@@ -782,96 +697,213 @@ impl FormHost {
             let _ = writeln!(f, "  {k}");
         }
     }
+}
 
-    /// Resolve a control id arriving from COBOL (upper-cased by the compiler)
-    /// to the designer's original-case state key — otherwise a handler's
-    /// property writes land in an orphan "LABEL-1" entry the renderer (which
-    /// looks up by the designed "Label-1" id) never reads.
-    fn resolve_ctrl_key(&self, id: &str) -> String {
-        if let Some(k) = self.state.keys().find(|k| k.eq_ignore_ascii_case(id)) {
-            return k.clone();
-        }
-        if let Some(c) = self.controls.iter().find(|c| {
-            c.explicit_control_array_id()
-                .map(|aid| aid.eq_ignore_ascii_case(id))
-                .unwrap_or(false)
-        }) {
-            return c.id.clone();
-        }
-        id.to_owned()
-    }
+pub struct FormHost {
+    /// The ROOT form — the window (or pane occupant) this host started with.
+    root: FormBody,
+    /// 049 — own window, or the shell's ContentPane (see [`Surface`]).
+    surface: Surface,
+    visuals_set: bool,
+    quit_sent: bool,
+    /// `COBOLT_FRAME_DIAGNOSTICS` — live per-update trace (R27). Without it a
+    /// host is a black box: "the label did not change" cannot be told apart
+    /// from "the handler never ran" or "the write went to a name that does
+    /// not exist".
+    diagnostics: bool,
+    /// 037 R13 — the form was designed to OPEN minimized; winit has no
+    /// pre-minimized builder, so the first frame sends the command once.
+    start_minimized: bool,
+    /// A screen-relative Start Position (the eight edge/corner positions or
+    /// Center) — `None` once applied, or when the form is `System`/`Custom`
+    /// and needs no first-frame command at all (`Custom` is already in the
+    /// viewport builder; `System` means "do not touch it").
+    pending_start_position: Option<cobolt_forms::model::FormStartPosition>,
+    /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
+    supervisor: cobolt_runtime::form_host::FormSupervisor,
+    /// Requests from the interpreter thread (OpenForm*, handle methods, …).
+    form_req_rx: mpsc::Receiver<cobolt_runtime::form_host::FormRequest>,
+    /// Broadcasts closed handles back to EVERY interpreter (R24 NULLing).
+    closed: ClosedFanout,
+    /// Last ACTUAL fullscreen state from ViewportInfo — onFullScreenChanged
+    /// fires only on real transitions (R14/AC8). Seeded with the designed
+    /// value so opening fullscreen-by-design is not a "change".
+    fullscreen_actual: bool,
 
-    /// See [`crate::state::state_entry_mut`].
-    fn state_entry_mut(&mut self, key: &str) -> &mut CtrlState {
-        state_entry_mut(&mut self.state, &self.controls, key)
-    }
+    // ── 038 window effects ───────────────────────────────────────────────────
+    /// Project entrance/exit effects, resolved by the glue
+    /// (Default = no effect). The kill-switch env zeroes both at parse time.
+    fx_entrance: cobolt_forms::window_fx::FxSpec,
+    fx_exit: cobolt_forms::window_fx::FxSpec,
+    /// Replay the entrance when the window is restored after minimize (R9).
+    fx_restore: bool,
+    /// The window was created SEE-THROUGH so its entrance could play over the
+    /// desktop (only effects that move/scale/fade the face — see
+    /// `WindowEffect::plays_over_desktop`). The form's own `transparency` then
+    /// reaches the desktop for the window's whole life, as designed.
+    fx_transparent: bool,
+    /// The title bar is designed to be visible but is currently OFF so the
+    /// entrance plays with no fixed chrome; it is switched back on the frame
+    /// the animation ends.
+    fx_chrome_pending: bool,
+    /// One-shot: the chrome was taken off for the EXIT animation.
+    fx_chrome_hidden_for_exit: bool,
+    /// When the current entrance playback started (first frame, or restore).
+    fx_entrance_start: Option<std::time::Instant>,
+    /// True once the entrance finished — gates the control load animations
+    /// (R8) and hands the frame back to the live UI.
+    fx_entrance_done: bool,
+    /// When the exit playback started; the actual close fires at its end.
+    fx_exit_start: Option<std::time::Instant>,
+    /// Deterministic MatrixRain seed (form name + size).
+    fx_seed: u32,
+    /// Last ACTUAL minimized state from ViewportInfo — the restore replay
+    /// triggers on the true→false edge only (R9).
+    minimized_actual: bool,
+    /// The per-host seam (R30) — e.g. the compiled application's
+    /// `cobolt_windows` replay.
+    hooks: Box<dyn HostHooks>,
 
-    /// For a repeating-group member id (case-insensitive), return its
-    /// original-case id and the id of its repeating-GroupBox ancestor.
-    fn array_member_group(&self, ctrl_id: &str) -> Option<(String, String)> {
-        let member = self
-            .controls
-            .iter()
-            .find(|c| c.id.eq_ignore_ascii_case(ctrl_id))?;
-        let member_id = member.id.clone();
-        let mut cur = member;
-        loop {
-            let parent_id = cur.parent.as_deref()?;
-            let parent = self
-                .controls
-                .iter()
-                .find(|c| c.id.eq_ignore_ascii_case(parent_id))?;
-            let is_repeating = matches!(parent.control_type, cobolt_forms::ControlType::GroupBox)
-                && parent
-                    .get_prop("IsRepeatingGroup")
-                    .map(|v| v.as_bool())
-                    .unwrap_or(false);
-            if is_repeating {
-                return Some((member_id, parent.id.clone()));
-            }
-            cur = parent;
-        }
-    }
+    // ── 049 Pane-mode observability (the parity suite reads these) ───────────
+    /// The rect the pane-fixed backdrop was painted into last frame
+    /// (`None` in Window mode, where the engine paints it).
+    last_pane_backdrop_rect: Option<egui::Rect>,
+    /// The resolved solid fill of that paint — a transparent form leaves the
+    /// pane region see-through (R43): alpha 0 here, while the shell chrome
+    /// stays opaque.
+    last_pane_backdrop_fill: Option<egui::Color32>,
+    /// The content scroll offset last frame (the host's own ScrollArea).
+    last_content_scroll: egui::Vec2,
+    /// 049 R44 — a COBOL-driven MenuPane state change awaiting the shell.
+    pending_menu_pane: Option<bool>,
 }
 
 impl FormHost {
-    /// The form's background, resolved once and shared by the live render and
-    /// by the static face the window effects animate — so an entrance reveals
-    /// the form WITH its gradient / background image instead of jumping to it
-    /// when the animation ends.
-    fn backdrop(&self, ctx: &egui::Context) -> cobolt_forms::render::Backdrop {
-        // Background image texture (cached in egui memory by path).
-        let image = if self.bg_image.trim().is_empty() {
-            None
-        } else {
-            let path = self.bg_image.clone();
-            let id = egui::Id::new(("form_host_bg", path.as_str()));
-            let cached = ctx.memory(|m| m.data.get_temp::<Option<egui::TextureHandle>>(id));
-            let tex = match cached {
-                Some(t) => t,
-                None => {
-                    let loaded = cobolt_forms::paint::load_image_texture(ctx, &path);
-                    ctx.memory_mut(|m| m.data.insert_temp(id, loaded.clone()));
-                    loaded
+    /// 049 R42 — every viewport command this host issues funnels through
+    /// here: in `Pane` mode the SHELL owns the only window, so a form-issued
+    /// window command is a no-op by construction rather than by scattered
+    /// guards.
+    fn viewport_cmd(&self, ctx: &egui::Context, cmd: egui::ViewportCommand) {
+        if self.surface == Surface::Window {
+            ctx.send_viewport_cmd(cmd);
+        }
+    }
+
+    /// 037 — execute the supervisor's decisions against the real window.
+    /// Runs a worklist so follow-up actions (e.g. releasing a pending child
+    /// spawn) are applied in the same frame.
+    fn apply_host_actions(
+        &mut self,
+        ctx: &egui::Context,
+        actions: Vec<cobolt_runtime::form_host::HostAction>,
+    ) {
+        use cobolt_runtime::form_host::{HostAction, ROOT_HANDLE};
+        let mut work = actions;
+        while !work.is_empty() {
+            let mut next = Vec::new();
+            for act in work {
+                match act {
+                    HostAction::SpawnWindow {
+                        handle, form_id, ..
+                    } => {
+                        // Real child viewports land with the multi-viewport
+                        // host (T1 spike gating). Until then the spawn is
+                        // released immediately so callers never deadlock:
+                        // the handle NULLs, a held modal reply resolves.
+                        eprintln!(
+                            "form-host: OpenForm(\"{form_id}\") accepted, but child windows \
+                             are not hosted yet — releasing {handle} (multi-window host \
+                             pending)"
+                        );
+                        next.extend(self.supervisor.form_finished(&handle));
+                    }
+                    HostAction::CloseWindow { handle } => {
+                        if handle == ROOT_HANDLE {
+                            // 038 R10 — an allowed close plays the exit effect
+                            // first; the playback block performs the real
+                            // close when the animation completes. Vetoes never
+                            // reach this arm, so a refusal plays nothing.
+                            if self.fx_exit.is_active() && !self.quit_sent {
+                                if self.fx_exit_start.is_none() {
+                                    self.fx_exit_start = Some(std::time::Instant::now());
+                                }
+                            } else {
+                                if !self.quit_sent {
+                                    self.quit_sent = true;
+                                    let _ = self.root.ev_tx.send(FormEvent::quit());
+                                }
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Close);
+                            }
+                        }
+                    }
+                    HostAction::FocusWindow { handle } => {
+                        if handle == ROOT_HANDLE {
+                            self.viewport_cmd(ctx,egui::ViewportCommand::Focus);
+                        }
+                    }
+                    HostAction::SetWindowState { handle, state } => {
+                        if handle == ROOT_HANDLE {
+                            let s = state.trim();
+                            if s.eq_ignore_ascii_case("Minimized") {
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(true));
+                            } else if s.eq_ignore_ascii_case("Maximized") {
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Maximized(true));
+                            } else {
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(false));
+                                self.viewport_cmd(ctx,egui::ViewportCommand::Maximized(false));
+                            }
+                        }
+                    }
+                    HostAction::SetFullScreen { handle, on } => {
+                        if handle == ROOT_HANDLE {
+                            self.viewport_cmd(ctx,egui::ViewportCommand::Fullscreen(on));
+                        }
+                    }
+                    HostAction::SetTitleVisible { handle, on } => {
+                        if handle == ROOT_HANDLE {
+                            self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(on));
+                        }
+                    }
+                    HostAction::NotifyCloseRejected { handle } => {
+                        if handle == ROOT_HANDLE {
+                            let form = self.root.form_object.clone();
+                            self.root.send_event(FormEvent::new(form, "onCloseRejected"));
+                        }
+                    }
+                    // 049 — a property written THROUGH the supervisor
+                    // (`super::X = …` from another form). Forward it to this
+                    // form's interpreter (the FullScreen-echo route) so its
+                    // own `me::X` reads stay coherent. Visible application
+                    // (retitle/resize) lands with the shell host work.
+                    HostAction::SetFormProperty { handle, key, value } => {
+                        if handle == ROOT_HANDLE {
+                            let _ = self.root.input_tx.send(StateUpdate {
+                                ctrl_id: self.root.form_object.clone(),
+                                prop: key,
+                                value,
+                                instance_index: 0,
+                            });
+                        }
+                    }
+                    // 049 R44 — surfaced for the SHELL host, which applies it
+                    // to its MenuPane and persists it (R9). A classic window
+                    // host takes it nowhere.
+                    HostAction::SetMenuPaneCollapsed { collapsed } => {
+                        self.pending_menu_pane = Some(collapsed);
+                    }
+                    HostAction::NotifyClosed { handle } => {
+                        self.closed.send(&handle);
+                    }
+                    HostAction::Exit => {
+                        if !self.quit_sent {
+                            self.quit_sent = true;
+                            let _ = self.root.ev_tx.send(FormEvent::quit());
+                        }
+                        self.viewport_cmd(ctx,egui::ViewportCommand::Close);
+                    }
                 }
-            };
-            tex.map(|t| (t.id(), t.size_vec2()))
-        };
-        cobolt_forms::render::Backdrop {
-            color_hex: self.bg_hex.clone(),
-            transparency: self.transparency,
-            gradient_enabled: self.bg_gradient_enabled,
-            gradient_start_hex: self.bg_gradient_start.clone(),
-            gradient_end_hex: self.bg_gradient_end.clone(),
-            gradient_direction: self.bg_gradient_direction.clone(),
-            image,
-            image_mode: self.bg_mode,
-            use_theme_background: self.use_theme_background,
-            // The gradient / background image follows the WINDOW: it stretches
-            // over the whole thing when the user maximizes or drags it bigger,
-            // and stays form-sized when the window is dragged smaller. The
-            // controls keep their designed size either way.
-            window_size: Some(ctx.content_rect().size()),
+            }
+            work = next;
         }
     }
 
@@ -901,10 +933,10 @@ impl FormHost {
                 egui::Order::Foreground,
                 egui::Id::new("window_fx"),
             ));
-        let bg = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
-        let backdrop = self.backdrop(root_ui.ctx());
-        let controls = &self.controls;
-        let time = self.start.elapsed().as_secs_f64();
+        let bg = cobolt_forms::render::backdrop_color(&self.root.bg_hex, self.root.transparency);
+        let backdrop = self.root.backdrop(root_ui.ctx());
+        let controls = &self.root.controls;
+        let time = self.root.start.elapsed().as_secs_f64();
         cobolt_forms::window_fx::paint_window_fx(
             &painter,
             rect,
@@ -971,7 +1003,7 @@ impl eframe::App for FormHost {
         if self.fx_transparent {
             egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
         } else {
-            cobolt_forms::render::backdrop_color(&self.bg_hex, 0).to_normalized_gamma_f32()
+            cobolt_forms::render::backdrop_color(&self.root.bg_hex, 0).to_normalized_gamma_f32()
         }
     }
 
@@ -984,7 +1016,7 @@ impl FormHost {
     /// The form's DESIGNED size — the coordinate space its controls live in.
     /// In `Pane` mode this never follows the pane (049 R11/R35).
     pub fn designed_size(&self) -> egui::Vec2 {
-        self.form_size
+        self.root.form_size
     }
 
     /// 049 R41 — where the pane-fixed backdrop painted last frame (`None` in
@@ -1067,9 +1099,9 @@ impl FormHost {
         }
         // Theme pack + glass style for the unified painter (per frame — same
         // contract every host follows).
-        cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
-        cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
-        cobolt_forms::paint::set_surface_theme(ctx, self.surface_theme.clone());
+        cobolt_forms::paint::set_active_theme(ctx, self.root.theme_pack.clone());
+        cobolt_forms::paint::set_glass_style(ctx, self.root.glass_style);
+        cobolt_forms::paint::set_surface_theme(ctx, self.root.surface_theme.clone());
 
         // 047 R6 — Knob/Gauge/Switch/FileDropZone are real widgets from the
         // palette crate; they read their theme from the context and otherwise
@@ -1090,7 +1122,7 @@ impl FormHost {
         // unchanged. Themes with no such widgets do nothing here (050 — the
         // trait's default is a no-op), so this is no longer a test for one
         // particular theme.
-        self.surface_theme.install_widget_visuals(ctx);
+        self.root.surface_theme.install_widget_visuals(ctx);
 
         // The per-host seam (R30): e.g. the compiled application replays its
         // EXEC RUST block windows here, every frame — that is what
@@ -1101,7 +1133,7 @@ impl FormHost {
         // Program ended (STOP RUN / runtime error) → close the window — via
         // the exit effect when one is configured (038 R10, plan D6: one close
         // choreography regardless of why the window closes).
-        if self.finished.load(Ordering::Relaxed) {
+        if self.root.finished.load(Ordering::Relaxed) {
             if self.fx_exit.is_active() && self.fx_exit_start.is_none() {
                 self.fx_exit_start = Some(std::time::Instant::now());
             }
@@ -1163,7 +1195,7 @@ impl FormHost {
             if t_lin <= 0.0 {
                 if !self.quit_sent {
                     self.quit_sent = true;
-                    let _ = self.ev_tx.send(FormEvent::quit());
+                    let _ = self.root.ev_tx.send(FormEvent::quit());
                 }
                 self.viewport_cmd(ctx,egui::ViewportCommand::Close);
             } else {
@@ -1188,14 +1220,14 @@ impl FormHost {
             let fs = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
             if fs != self.fullscreen_actual {
                 self.fullscreen_actual = fs;
-                let _ = self.input_tx.send(StateUpdate {
-                    ctrl_id: self.form_object.clone(),
+                let _ = self.root.input_tx.send(StateUpdate {
+                    ctrl_id: self.root.form_object.clone(),
                     prop: "FullScreen".into(),
                     value: if fs { "1".into() } else { "0".into() },
                     instance_index: 0,
                 });
-                let form = self.form_object.clone();
-                self.send_event(FormEvent::new(form, "onFullScreenChanged"));
+                let form = self.root.form_object.clone();
+                self.root.send_event(FormEvent::new(form, "onFullScreenChanged"));
             }
 
             // 038 R9 — restore-after-minimize replays the ENTRANCE visuals
@@ -1218,27 +1250,28 @@ impl FormHost {
         // the entrance effect completes first, then the controls come alive
         // (038 R8). Without an entrance the gate opens on the first frame,
         // exactly as before.
-        if !self.anim_started && self.fx_entrance_done {
-            self.anim_started = true;
-            self.anim.start_form_load(&self.controls);
+        if !self.root.anim_started && self.fx_entrance_done {
+            self.root.anim_started = true;
+            self.root.anim.start_form_load(&self.root.controls);
         }
         let now = std::time::Instant::now();
         let dt = self
+            .root
             .last_frame
             .map(|t| now.duration_since(t).as_secs_f32())
             .unwrap_or(0.0);
-        self.last_frame = Some(now);
-        let animating = self.anim.tick(dt);
+        self.root.last_frame = Some(now);
+        let animating = self.root.anim.tick(dt);
 
         // Apply property changes coming from the COBOL interpreter. Route each
         // update to the designer-case state key (COBOL upper-cases ids), and
         // repeating-group member writes to the drawn card-instance id.
         let mut drained = 0usize;
-        while let Ok(u) = self.state_rx.try_recv() {
+        while let Ok(u) = self.root.state_rx.try_recv() {
             // 037 R16 — mirror the form object's FormState into the
             // supervisor so close vetoes see the live value.
             if u.prop.eq_ignore_ascii_case("FormState")
-                && u.ctrl_id.eq_ignore_ascii_case(&self.form_object)
+                && u.ctrl_id.eq_ignore_ascii_case(&self.root.form_object)
             {
                 self.supervisor.note_form_state(
                     cobolt_runtime::form_host::ROOT_HANDLE,
@@ -1250,38 +1283,39 @@ impl FormHost {
             if let Some(cmd) = anim_command(&u.prop) {
                 match cmd {
                     AnimCommand::Play => {
-                        self.anim
-                            .play_programmatic(&self.controls, &u.ctrl_id, &u.value)
+                        self.root.anim
+                            .play_programmatic(&self.root.controls, &u.ctrl_id, &u.value)
                     }
-                    AnimCommand::Stop => self.anim.stop_all(&u.ctrl_id),
-                    AnimCommand::Pause => self.anim.pause_all(&u.ctrl_id),
+                    AnimCommand::Stop => self.root.anim.stop_all(&u.ctrl_id),
+                    AnimCommand::Pause => self.root.anim.pause_all(&u.ctrl_id),
                 }
                 drained += 1;
                 continue;
             }
             let key = if u.instance_index > 0 {
-                match self.array_member_group(&u.ctrl_id) {
+                match self.root.array_member_group(&u.ctrl_id) {
                     Some((member_id, group_id)) => cobolt_forms::render::member_instance_id(
                         &group_id,
                         &member_id,
                         u.instance_index,
                     ),
-                    None => self.resolve_ctrl_key(&u.ctrl_id),
+                    None => self.root.resolve_ctrl_key(&u.ctrl_id),
                 }
             } else {
-                self.resolve_ctrl_key(&u.ctrl_id)
+                self.root.resolve_ctrl_key(&u.ctrl_id)
             };
             // R27 — the live trace: which designed control this write landed
             // on, or NO SUCH CONTROL with the ids that do exist. The routing
             // itself is unchanged; the trace only reports it.
             if self.diagnostics {
                 let matched = self
+                    .root
                     .state
                     .keys()
                     .find(|k| k.eq_ignore_ascii_case(&key))
                     .cloned();
                 let known: Vec<&str> = if matched.is_none() {
-                    self.state.keys().map(|s| s.as_str()).collect()
+                    self.root.state.keys().map(|s| s.as_str()).collect()
                 } else {
                     Vec::new()
                 };
@@ -1293,7 +1327,7 @@ impl FormHost {
                     &known,
                 );
             }
-            self.state_entry_mut(&key).set(&u.prop, u.value);
+            self.root.state_entry_mut(&key).set(&u.prop, u.value);
             drained += 1;
         }
 
@@ -1304,12 +1338,12 @@ impl FormHost {
         // "cards show designed defaults in run-form but not in preview". The IDE
         // sets this from the project's Data-bind trace setting — always (incl.
         // "0"), so test the value rather than mere presence.
-        if !self.db_dumped
+        if !self.root.db_dumped
             && crate::diagnostics::databind_trace_enabled()
-            && self.state.keys().any(|k| k.contains('.'))
+            && self.root.state.keys().any(|k| k.contains('.'))
         {
-            self.db_dumped = true;
-            self.dump_databind_trace();
+            self.root.db_dumped = true;
+            self.root.dump_databind_trace();
         }
 
         // DISPLAY output → stdout (the IDE pipes this into its Output pane).
@@ -1317,7 +1351,7 @@ impl FormHost {
         // DISPLAY lines sit in the buffer instead of reaching the reader live.
         {
             let mut any = false;
-            while let Ok(line) = self.display_rx.try_recv() {
+            while let Ok(line) = self.root.display_rx.try_recv() {
                 println!("{line}");
                 any = true;
             }
@@ -1328,20 +1362,20 @@ impl FormHost {
         }
 
         // Ignore input for a brief warm-up after the window appears.
-        let armed = self.start.elapsed().as_millis() > 450;
+        let armed = self.root.start.elapsed().as_millis() > 450;
 
         // Form-level lifecycle: onShow / onActivate fire once after warm-up
         // (unknown events are ignored by the generated dispatch loop, so this
         // is safe for any form).
-        if armed && !self.lifecycle_sent {
-            self.lifecycle_sent = true;
-            let name = self.form_name.clone();
-            self.send_event(FormEvent::new(&name, "onShow"));
-            self.send_event(FormEvent::new(&name, "onActivate"));
+        if armed && !self.root.lifecycle_sent {
+            self.root.lifecycle_sent = true;
+            let name = self.root.form_name.clone();
+            self.root.send_event(FormEvent::new(&name, "onShow"));
+            self.root.send_event(FormEvent::new(&name, "onActivate"));
         }
 
-        let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
-        let form_size = self.form_size;
+        let bg_fill = cobolt_forms::render::backdrop_color(&self.root.bg_hex, self.root.transparency);
+        let form_size = self.root.form_size;
 
         // 038 R7 — entrance playback: until the effect completes, paint the
         // animated STATIC face instead of the live UI (plan D1). Everything
@@ -1365,9 +1399,9 @@ impl FormHost {
                 // it would let the live UI paint one frame of every control
                 // standing at its finished position — a single-frame flash of
                 // exactly the picture the entrance just took care to withhold.
-                if !self.anim_started {
-                    self.anim_started = true;
-                    self.anim.start_form_load(&self.controls);
+                if !self.root.anim_started {
+                    self.root.anim_started = true;
+                    self.root.anim.start_form_load(&self.root.controls);
                 }
                 // The window wears its chrome again, arriving together with
                 // the finished form (038 — the title bar was off so nothing
@@ -1394,13 +1428,13 @@ impl FormHost {
         let mut pane_backdrop_fill: Option<egui::Color32> = None;
         let mut content_scroll = egui::Vec2::ZERO;
         let output = {
-            let controls = self.controls.clone();
+            let controls = self.root.controls.clone();
             let st = LiveState {
-                state: &self.state,
-                anim: &self.anim,
+                state: &self.root.state,
+                anim: &self.root.anim,
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
-            let backdrop = self.backdrop(ctx);
+            let backdrop = self.root.backdrop(ctx);
             let mut out = cobolt_forms::render::RenderOutput::default();
             // On a see-through window the panel must NOT fill: the engine
             // paints the same backdrop across the whole window a moment
@@ -1500,15 +1534,15 @@ impl FormHost {
                 let over = pointer.map(|p| rect.contains(p)).unwrap_or(false);
                 if over {
                     still_hovered.insert(id.clone());
-                    if !self.hovered.contains(id) {
-                        self.anim.fire_event(&self.controls, id, "onHoverEnter");
+                    if !self.root.hovered.contains(id) {
+                        self.root.anim.fire_event(&self.root.controls, id, "onHoverEnter");
                     }
                     if clicked {
-                        self.anim.fire_event(&self.controls, id, "onClick");
+                        self.root.anim.fire_event(&self.root.controls, id, "onClick");
                     }
                 }
             }
-            self.hovered = still_hovered;
+            self.root.hovered = still_hovered;
             for ev in &output.events {
                 // Pointer events are already covered by the rect pass above —
                 // taking them from here too would restart the same animation twice.
@@ -1517,7 +1551,7 @@ impl FormHost {
                 {
                     continue;
                 }
-                self.anim.fire_event(&self.controls, &ev.ctrl_id, &ev.event);
+                self.root.anim.fire_event(&self.root.controls, &ev.ctrl_id, &ev.event);
             }
         }
 
@@ -1526,8 +1560,9 @@ impl FormHost {
         let mut interacted = false;
         if armed {
             for (id, key, val) in &output.prop_updates {
-                self.state_entry_mut(id).set(key, val.clone());
+                self.root.state_entry_mut(id).set(key, val.clone());
                 let _ = self
+                    .root
                     .input_tx
                     .send(StateUpdate::new(id.clone(), key.clone(), val.clone()));
                 interacted = true;
@@ -1535,7 +1570,7 @@ impl FormHost {
             // Coalesce timer ticks against a still-queued backlog (WinForms
             // semantics) so a slow handler can't flood the event queue. User
             // events (clicks, edits, focus, quit) are never dropped.
-            let backlog = self.pending.load(Ordering::Relaxed) > 0;
+            let backlog = self.root.pending.load(Ordering::Relaxed) > 0;
             for ev in output.events {
                 let is_tick = ev.event.eq_ignore_ascii_case("onTick");
                 if is_tick && backlog {
@@ -1568,7 +1603,7 @@ impl FormHost {
                 } else {
                     (ev.ctrl_id.clone(), 0)
                 };
-                self.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
+                self.root.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
                 interacted = true;
             }
 
@@ -1581,6 +1616,7 @@ impl FormHost {
                 crate::file_dialog::begin(ctx, &key, crate::file_dialog::DialogSpec::open());
             }
             let file_drop_zone_ids: Vec<String> = self
+                .root
                 .controls
                 .iter()
                 .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::FileDropZone))
@@ -1592,7 +1628,7 @@ impl FormHost {
                     // Browsing goes through the SAME intake as a drop — the
                     // zone's extensions, size limit and destination folder — so
                     // a file is judged by one set of rules however it arrived.
-                    let ctrl = self.controls.iter().find(|c| c.id == id);
+                    let ctrl = self.root.controls.iter().find(|c| c.id == id);
                     let prop = |key: &str| -> String {
                         ctrl.and_then(|c| c.get_prop(key))
                             .map(|v| v.as_str().to_owned())
@@ -1606,23 +1642,23 @@ impl FormHost {
                     );
                     let accepted = intake.accepted.join("\n");
                     let rejected = intake.rejected_lines().join("\n");
-                    self.state_entry_mut(&id).set("DroppedFiles", accepted.clone());
-                    self.state_entry_mut(&id).set("RejectedFiles", rejected.clone());
-                    let _ = self.input_tx.send(StateUpdate::new(
+                    self.root.state_entry_mut(&id).set("DroppedFiles", accepted.clone());
+                    self.root.state_entry_mut(&id).set("RejectedFiles", rejected.clone());
+                    let _ = self.root.input_tx.send(StateUpdate::new(
                         id.clone(),
                         "DroppedFiles".to_owned(),
                         accepted,
                     ));
-                    let _ = self.input_tx.send(StateUpdate::new(
+                    let _ = self.root.input_tx.send(StateUpdate::new(
                         id.clone(),
                         "RejectedFiles".to_owned(),
                         rejected,
                     ));
                     if !intake.accepted.is_empty() {
-                        self.send_event(FormEvent::new(id.clone(), "onFilesDropped".to_owned()));
+                        self.root.send_event(FormEvent::new(id.clone(), "onFilesDropped".to_owned()));
                     }
                     if !intake.rejected.is_empty() {
-                        self.send_event(FormEvent::new(id, "onFilesRejected".to_owned()));
+                        self.root.send_event(FormEvent::new(id, "onFilesRejected".to_owned()));
                     }
                     interacted = true;
                 }
@@ -1641,8 +1677,8 @@ impl FormHost {
         let busy = drained > 0
             || interacted
             || animating
-            || self.anim.is_animating()
-            || self.pending.load(Ordering::Relaxed) > 0;
+            || self.root.anim.is_animating()
+            || self.root.pending.load(Ordering::Relaxed) > 0;
         let ms = if busy { 16 } else { 200 };
         ctx.request_repaint_after(std::time::Duration::from_millis(ms));
     }
@@ -1655,6 +1691,40 @@ impl FormHost {
 // the host emits, which events it sends, which gates open when. True OS-window
 // realities (real transparency, decorations, monitors) are the operator's
 // manual pass — stated in `zz_parity_report`.
+#[cfg(test)]
+mod closed_fanout_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    /// 051 / 037 R24 — one close reaches EVERY registered interpreter, and a
+    /// dead receiver silences nothing for the live ones.
+    #[test]
+    fn one_close_reaches_every_interpreter() {
+        let (root_tx, root_rx) = mpsc::channel();
+        let mut fanout = ClosedFanout::new(root_tx);
+        let (a_tx, a_rx) = mpsc::channel();
+        let (b_tx, b_rx) = mpsc::channel();
+        fanout.register(a_tx);
+        fanout.register(b_tx);
+
+        fanout.send("W3");
+        let got: Vec<String> = [&root_rx, &a_rx, &b_rx]
+            .iter()
+            .map(|rx| rx.try_recv().expect("delivered"))
+            .collect();
+        assert_eq!(got, vec!["W3", "W3", "W3"]);
+
+        // An interpreter that already ended (receiver dropped) is skipped;
+        // the survivors still hear the next close.
+        drop(a_rx);
+        fanout.send("W4");
+        assert_eq!(root_rx.try_recv().unwrap(), "W4");
+        assert_eq!(b_rx.try_recv().unwrap(), "W4");
+
+        println!("fan-out: 1 close × 3 receivers = 3 deliveries; dead receiver skipped, 2/2 survivors still served");
+    }
+}
+
 #[cfg(test)]
 mod parity {
     use super::*;
@@ -1781,7 +1851,7 @@ mod parity {
         }
 
         let ids = |h: &FormHost| -> Vec<String> {
-            h.controls.iter().map(|c| c.id.clone()).collect()
+            h.root.controls.iter().map(|c| c.id.clone()).collect()
         };
 
         let window = ids(&host_with_controls(Surface::Window));
@@ -1860,7 +1930,7 @@ mod parity {
         }
 
         let x_of = |h: &FormHost, id: &str| -> i32 {
-            h.controls.iter().find(|c| c.id == id).expect("control").rect.x
+            h.root.controls.iter().find(|c| c.id == id).expect("control").rect.x
         };
 
         // A window host is untouched: the rail is a control there like any
@@ -1977,7 +2047,7 @@ mod parity {
             gs: cobolt_forms::model::GlassStyle,
         ) -> usize {
             let (mut app, _pipes) = host_with_surface("none:0:linear", "none:0:linear", false, Surface::Window);
-            app.surface_theme = theme;
+            app.root.surface_theme = theme;
             let ctx = egui::Context::default();
             cobolt_forms::paint::set_glass_style(&ctx, gs);
             let mut input = egui::RawInput::default();
@@ -2107,7 +2177,7 @@ mod parity {
         };
         let cmds = frame(&mut app, &ctx, raw());
         assert!(
-            app.anim_started,
+            app.root.anim_started,
             "load animations start on the FIRST frame (no entrance gate)"
         );
         let wc = window_cmds(&cmds);
@@ -2148,7 +2218,7 @@ mod parity {
         frame(&mut app, &ctx, raw());
         assert!(!app.fx_entrance_done, "3s entrance cannot finish in one frame");
         assert!(
-            !app.anim_started,
+            !app.root.anim_started,
             "load animations are gated behind the entrance (038 R8)"
         );
 
@@ -2168,7 +2238,7 @@ mod parity {
         // position — a single-frame flash of exactly the picture the entrance
         // withheld.
         assert!(
-            app.anim_started,
+            app.root.anim_started,
             "load animations must start on the frame the entrance completes"
         );
     }
@@ -2226,7 +2296,7 @@ mod parity {
         let ctx = egui::Context::default();
         assert!(app.fx_entrance_done);
         frame(&mut app, &ctx, raw());
-        assert!(app.anim_started, "no entrance ⇒ load animations start at once");
+        assert!(app.root.anim_started, "no entrance ⇒ load animations start at once");
     }
 
     /// R9 — restoring after a minimize replays the ENTRANCE visuals only: the
@@ -2238,8 +2308,8 @@ mod parity {
         let ctx = egui::Context::default();
         // Settle the first entrance and the lifecycle one-shots.
         app.fx_entrance_done = true;
-        app.anim_started = true;
-        app.lifecycle_sent = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
         app.minimized_actual = true; // was minimized …
 
         // … and this frame reports it restored.
@@ -2261,7 +2331,7 @@ mod parity {
             started.elapsed() < Duration::from_millis(500),
             "the playback clock is fresh, not the first run's"
         );
-        assert!(app.anim_started, "control animations do NOT replay");
+        assert!(app.root.anim_started, "control animations do NOT replay");
         assert!(
             drain_events(&pipes).is_empty(),
             "a restore replay fires no form events"
@@ -2282,7 +2352,7 @@ mod parity {
             "no lifecycle before the 450 ms warm-up"
         );
 
-        app.start = Instant::now() - Duration::from_millis(600);
+        app.root.start = Instant::now() - Duration::from_millis(600);
         frame(&mut app, &ctx, raw());
         let evs = drain_events(&pipes);
         assert_eq!(

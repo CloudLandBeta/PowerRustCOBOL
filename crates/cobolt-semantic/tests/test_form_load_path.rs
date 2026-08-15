@@ -109,6 +109,38 @@ fn without_a_project_form_map_the_check_is_silent() {
     println!("no project map ⇒ silent (0 errors)");
 }
 
+// ── 051 R26 — the SideMenu pair obeys the same load-path gate ───────────────
+
+#[test]
+fn standalone_method_on_an_embedded_form_is_a_compile_error() {
+    let errs = errors_with_map(
+        r#"    INVOKE SIDE-1::"OpenStandAloneFormSync"("CRM-PANEL") RETURNING WS-H."#,
+    );
+    assert_eq!(errs.len(), 1, "one load-path error expected: {errs:?}");
+    assert!(
+        errs[0].contains("CRM-PANEL")
+            && errs[0].contains("Embedded")
+            && errs[0].contains("OpenStandAloneFormSync"),
+        "diagnostic names the form, its format, and the call: {}",
+        errs[0]
+    );
+    println!("standalone method on Embedded → {}", errs[0]);
+}
+
+#[test]
+fn standalone_method_valid_and_dynamic_targets_pass() {
+    // Both and Standalone formats pass; a data-item target stays dynamic.
+    let errs =
+        errors_with_map(r#"    INVOKE SIDE-1::"OpenStandAloneFormAsync"("CUST-LOOKUP") RETURNING WS-H."#);
+    assert!(errs.is_empty(), "Both must pass: {errs:?}");
+    let errs =
+        errors_with_map(r#"    INVOKE SIDE-1::"OpenStandAloneFormAsync"("MAIN-FORM") RETURNING WS-H."#);
+    assert!(errs.is_empty(), "Standalone must pass: {errs:?}");
+    let errs = errors_with_map(r#"    INVOKE SIDE-1::"OpenStandAloneFormSync"(WS-H) RETURNING WS-H."#);
+    assert!(errs.is_empty(), "dynamic target stays runtime: {errs:?}");
+    println!("standalone method: Both/Standalone/dynamic targets pass (0 errors, 3/3 cases)");
+}
+
 #[test]
 fn dynamic_targets_and_unknown_forms_are_not_checked() {
     // A data-item target is dynamic; an unknown literal has no format entry.

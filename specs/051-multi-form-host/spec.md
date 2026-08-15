@@ -329,22 +329,19 @@ interpreter; and `SpawnWindow` performs nothing for either surface.
 
 ## 7. Open questions
 
-- **Q1 — EXEC RUST object bridge scope.** Spec 041/042 promise "one object
-  bridge per process, so every block sees the same state". With one
-  interpreter per form, is the bridge (a) still process-wide — blocks in any
-  form share state, preserving the 041 contract verbatim — or (b)
-  per-interpreter, matching the storage-isolation model? **Recommendation:
-  (a) process-wide**, because it keeps the documented 041 contract and gives
-  EXEC RUST users a deliberate shared channel that COBOL storage no longer
-  provides. To be settled in `/plan`.
-- **Q2 — Interpreter thread lifetime for preserved occupants.** Does a
-  `preserve_previous_form` occupant's interpreter thread keep running (able
-  to process timers) while off-pane, or is it parked and only its state kept?
-  049 R26 implies the form object survives; the thread model is a `/plan`
-  decision.
-- **Q3 — Handle surface for embedded occupants.** 037 handles were specified
-  for windows. Does an embedded occupant get a windowHandler-compatible
-  handle (so `super`/handle property access is uniform, per 049 R30), with
-  window-only methods erroring? **Recommendation: yes, uniform surface.**
+- ~~**Q1 — EXEC RUST object bridge scope.**~~ **Resolved (operator,
+  2026-08-15): (a) process-wide.** The object bridge (the Rust-side
+  object-reference store EXEC RUST blocks share) is ONE per process — blocks
+  in any form resolve the same handles, the deliberate shared channel now
+  that COBOL storage is per-form. Each form's own COBOL storage and control
+  registry stay isolated per R3/R4.
+- ~~**Q2 — Interpreter thread lifetime for preserved occupants.**~~
+  **Resolved (operator, 2026-08-15): parked, state kept — except timers,
+  which keep running.** A preserved off-pane occupant is not rendered and
+  its interpreter sits parked on its event channel, but its enabled Timer
+  controls keep ticking and their handlers keep running while off-pane.
+- ~~**Q3 — Handle surface for embedded occupants.**~~ **Resolved (operator,
+  2026-08-15): yes — uniform surface.** Embedded occupants carry
+  windowHandler-compatible handles; window-only methods error.
 - ~~**Q4 — Sync-from-menu modality.**~~ **Resolved (operator, 2026-08-15):
   Sync is implicitly modal** — R19 stands as written.
