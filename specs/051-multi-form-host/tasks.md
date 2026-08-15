@@ -126,7 +126,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     baselines); `cargo build -p cobolt-ide -p cobolt-cli` green. Diff review:
     field moves only.
 
-- [ ] **T9 — Host: real `SpawnWindow` — child viewports, modal, fan-out
+- [x] **T9 — Host: real `SpawnWindow` — child viewports, modal, fan-out
   wiring** (R3, R4, R6, R7, R8, R9, R15; plan D7)
   - Files: `crates/cobolt-form-host/src/host.rs`,
     `crates/cobolt-form-host/src/lib.rs` (exports),
@@ -151,7 +151,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     AC2 shapes (Async continues, Sync blocks, handle NULL after close).
     `grep -rn "not hosted yet" crates/` returns nothing (AC7).
 
-- [ ] **T10 — rcrun glue: disk-backed `FormSource`** (R13 rcrun door)
+- [x] **T10 — rcrun glue: disk-backed `FormSource`** (R13 rcrun door)
   - Files: `crates/cobolt-cli/src/form_gui.rs`
   - Do: provider that resolves a form id against the project's forms
     (uppercased stem), loads the `.cfrm`, parses the sibling generated

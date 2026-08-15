@@ -1234,6 +1234,16 @@ impl FormHost {
         rx.try_recv().ok().flatten().unwrap_or_default()
     }
 
+    /// 051 R19/R28 — is the ROOT window blocked by a live modal child? The
+    /// shell disables its chrome (menu pane, breadcrumb) on this too, so the
+    /// whole application face waits together.
+    pub fn root_modal_blocked(&self) -> bool {
+        !self
+            .supervisor
+            .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
+            .is_empty()
+    }
+
     /// 051 — the child window under `handle`, if any.
     fn child_viewport(&self, handle: &str) -> Option<egui::ViewportId> {
         self.children
