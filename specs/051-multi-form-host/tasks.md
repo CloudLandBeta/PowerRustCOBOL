@@ -85,7 +85,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     table-test covers: `open-form:`×Standalone → error, standalone×Embedded →
     error, `Both` passes everywhere, unknown skipped, nested items walked.
 
-- [ ] **T6 — Compiler: two-kind menu validation at the build gate** (R26,
+- [x] **T6 — Compiler: two-kind menu validation at the build gate** (R26,
   R14)
   - Files: `crates/cobolt-compiler/src/lib.rs` (the sole
     `validate_menu_targets` call site)
@@ -96,7 +96,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     project fixture containing a mis-wired standalone item (AC13 menu half);
     existing 049 R17 test untouched (AC6).
 
-- [ ] **T7 — Compiler: per-form programs embedded** (R1, R2)
+- [x] **T7 — Compiler: per-form programs embedded** (R1, R2)
   - Files: `crates/cobolt-compiler/src/lib.rs`
   - Do: after the main parse, parse every other project form's generated
     `.cbl` (same tokenizer path, no copybook expansion — plan D8); stage each
@@ -222,7 +222,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
     executable. Remaining verification: `cargo test -p cobolt-ide` green,
     release rebuild in T16 so the bundled `rcrun` is fresh, operator AC8.
 
-- [ ] **T15 — Docs: System KB + Developer's Guide + chunked rebuild**
+- [x] **T15 — Docs: System KB + Developer's Guide + chunked rebuild**
   (steering; R21 docs)
   - Files: `crates/cobolt-compiler/src/lib.rs` (KB constants),
     `docs/developers-guide-en.md`, `assets/knowledge/chunked.data`
@@ -237,7 +237,7 @@ stays green after every task. Feature branch: `feat/multi-form-host`
   - Verify: `cargo run -p cobolt-ide --example build_chunked_kb` succeeds;
     `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb` green.
 
-- [ ] **T16 — Finalize** (AC4, AC7, AC8; operator gate)
+- [x] **T16 — Finalize** (AC4, AC7, AC8; operator gate)
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`
   - Do: bump the fix number `z`; CHANGELOG feature entry. Full sweep:
     `cargo test --workspace --no-fail-fast` — collect **every** "test result"

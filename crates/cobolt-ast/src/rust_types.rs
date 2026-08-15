@@ -201,10 +201,16 @@ const BLOCK_BINDINGS: &[(&str, &str, &str)] = &[
         "Box<cobolt_runtime::rust_bridge::BridgeValue>",
         "Box::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
     ),
+    // 051 Q1 — `Rust.Rc`/`Rust.Weak` are ATOMICALLY counted underneath
+    // (`Arc`/`sync::Weak`) since the object bridge became one-per-process:
+    // a bridged value may be touched from any form's interpreter thread, so
+    // non-atomic counts would be unsound (`Rc` is `!Send`). From COBOL the
+    // classes behave exactly as before — shared ownership, counts, upgrade/
+    // downgrade — the names stay, only the count got thread-safe.
     (
         "Rust.Rc",
-        "std::rc::Rc<cobolt_runtime::rust_bridge::BridgeValue>",
-        "std::rc::Rc::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
+        "std::sync::Arc<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::sync::Arc::new(cobolt_runtime::rust_bridge::BridgeValue::Null)",
     ),
     (
         "Rust.Arc",
@@ -213,8 +219,8 @@ const BLOCK_BINDINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "Rust.Weak",
-        "std::rc::Weak<cobolt_runtime::rust_bridge::BridgeValue>",
-        "std::rc::Weak::new()",
+        "std::sync::Weak<cobolt_runtime::rust_bridge::BridgeValue>",
+        "std::sync::Weak::new()",
     ),
     // `Cell` needs `Copy` to be useful at all, so it holds the integer.
     ("Rust.Cell", "std::cell::Cell<i64>", "std::cell::Cell::new(0)"),
