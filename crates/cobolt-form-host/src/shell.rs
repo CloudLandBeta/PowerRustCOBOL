@@ -293,6 +293,56 @@ impl NavChain {
         }
     }
 
+    /// **Home** — show the MAIN form again without destroying anything.
+    ///
+    /// Every entry above the root is PARKED (deactivated, still resident)
+    /// rather than destroyed, which is the whole difference from a breadcrumb
+    /// click on segment 0: the shell's own content pane comes back, no
+    /// `onDestroy` fires, no occupant is retired, and every other live form —
+    /// pane occupant or child window — carries on untouched. A later load of
+    /// a parked form revives that same instance, with its WORKING-STORAGE
+    /// exactly as it left it ([`Self::push_parked`]).
+    ///
+    /// A no-op at the root, so Home twice does not deactivate the main form.
+    pub fn park_to_root(&mut self) {
+        if self.entries.len() <= 1 {
+            return;
+        }
+        // Only the DISPLAYED form is active, so only it deactivates. Its
+        // ancestors already did when their child was pushed, and firing
+        // `onDeactivate` at them a second time would report a transition that
+        // never happened — a handler counting activations would drift.
+        if let Some(top) = self.entries.last_mut() {
+            top.resident.deactivate();
+        }
+        while self.entries.len() > 1 {
+            let e = self.entries.pop().expect("len checked");
+            self.parked.push(e);
+        }
+    }
+
+    /// Display a PARKED form again as a child of the current top — the shape
+    /// a load takes once Home has parked it. Without this, loading a form
+    /// after Home would push a SECOND entry for a form already sitting in the
+    /// parking lot: two chain entries and one live occupant, with the parked
+    /// one unreachable and never destroyed. `false` = nothing parked under
+    /// that name, so the caller pushes a fresh entry.
+    pub fn push_parked(&mut self, form_object: &str) -> bool {
+        let Some(at) = self
+            .parked
+            .iter()
+            .position(|p| p.form_object == form_object)
+        else {
+            return false;
+        };
+        let revived = self.parked.remove(at);
+        if let Some(top) = self.entries.last_mut() {
+            top.resident.deactivate();
+        }
+        self.entries.push(revived);
+        true
+    }
+
     /// R23 — a root-slot subsystem switch: unwind to the MAIN form (also
     /// destroying the parking lot — a preserved sibling of a dead subsystem
     /// has no way back), then the caller pushes the new subsystem.
@@ -1101,6 +1151,24 @@ impl ShellApp {
     fn process_menu_clicks(&mut self) {
         for click in self.shell.take_menu_clicks() {
             match click.action.as_deref() {
+                // Home — the shell's OWN content pane, back on screen, with
+                // no form opened to provide it. The forms that were on the
+                // pane are parked, not destroyed, so nothing else on screen
+                // notices: child windows keep running, and returning to a
+                // parked form revives that instance rather than restarting
+                // it. Already home ⇒ nothing at all, so a second click does
+                // not deactivate and reactivate the main form.
+                Some("home") => {
+                    if self.chain.len() > 1 {
+                        self.chain.park_to_root();
+                        // The contextual slot belongs to whatever occupies
+                        // the pane; at the root there is nothing to show —
+                        // the same rule a breadcrumb click on segment 0
+                        // follows.
+                        self.shell.mount_contextual_menu(None);
+                        self.host.show_occupant(None);
+                    }
+                }
                 Some(a) if a.starts_with("open-form:") => {
                     // 051 R10/R11 — the embedded door, for real: the target
                     // loads into the ContentPane as its own program instance;
@@ -1153,7 +1221,11 @@ impl ShellApp {
                     // preserve it, destroyed otherwise.
                     let mut destroyed: Vec<String> = Vec::new();
                     if self.chain.len() <= 1 {
-                        self.chain.push(entry);
+                        // A form parked by Home is REVIVED rather than
+                        // re-entered, so its storage survives the round trip.
+                        if !self.chain.push_parked(&target_upper) {
+                            self.chain.push(entry);
+                        }
                     } else {
                         let outgoing = self.chain.current().map(|e| e.form_object.clone());
                         self.chain.mark_top_preserve(click.preserve_previous_form);
@@ -1988,6 +2060,83 @@ mod tests {
                 log: log.clone(),
             }),
         }
+    }
+
+    /// Home — the shell's own content pane returns and NOTHING is destroyed.
+    /// This is the whole difference from a breadcrumb click on segment 0,
+    /// which destroys everything below it: Home only parks, so the forms that
+    /// were on the pane keep their WORKING-STORAGE and every other live form
+    /// carries on.
+    #[test]
+    fn home_parks_the_chain_back_to_the_root_without_destroying_anything() {
+        let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut chain = NavChain::default();
+        for name in ["MAIN", "CRM", "SALES"] {
+            chain.push(entry(name, false, &log));
+        }
+        log.borrow_mut().clear(); // the pushes' own deactivations
+
+        chain.park_to_root();
+
+        let events = log.borrow().clone();
+        assert!(
+            !events.iter().any(|e| e.ends_with(":destroy")),
+            "Home must not destroy anything, got {events:?}"
+        );
+        assert_eq!(
+            events,
+            vec!["SALES:deactivate".to_string()],
+            "only the DISPLAYED form deactivates; SALES's ancestors already had"
+        );
+        let segs: Vec<String> = chain.segments().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(segs, vec!["MAIN".to_string()], "the breadcrumb is just the root");
+        assert_eq!(
+            chain.resident_count(),
+            3,
+            "MAIN displayed, CRM and SALES parked — all three still alive"
+        );
+
+        // Home again at the root changes nothing at all (no stray deactivate).
+        log.borrow_mut().clear();
+        chain.park_to_root();
+        assert!(log.borrow().is_empty(), "Home at the root is a no-op");
+
+        println!(
+            "Home — chain MAIN>CRM>SALES collapsed to MAIN with 0 destroys, \
+             3 forms still resident, breadcrumb {segs:?}"
+        );
+    }
+
+    /// After Home, loading a parked form REVIVES that instance rather than
+    /// stacking a second entry for it. Without this the chain would hold an
+    /// unreachable parked twin that is never destroyed.
+    #[test]
+    fn a_form_parked_by_home_is_revived_not_duplicated() {
+        let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut chain = NavChain::default();
+        for name in ["MAIN", "CRM"] {
+            chain.push(entry(name, false, &log));
+        }
+        chain.park_to_root();
+        assert_eq!(chain.resident_count(), 2);
+
+        assert!(chain.push_parked("CRM"), "CRM was parked and must revive");
+        let segs: Vec<String> = chain.segments().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(segs, vec!["MAIN".to_string(), "CRM".to_string()]);
+        assert_eq!(
+            chain.resident_count(),
+            2,
+            "revived, not duplicated — no orphan left in the parking lot"
+        );
+        assert!(
+            !log.borrow().iter().any(|e| e.ends_with(":destroy")),
+            "reviving destroys nothing"
+        );
+
+        // A form that was never parked is not claimed from the lot.
+        assert!(!chain.push_parked("PAYROLL"));
+
+        println!("Home return — CRM revived from the parking lot, 2 residents, 0 destroys");
     }
 
     /// AC10 — clicking the CRM segment destroys CUST-LIST then SALES in that

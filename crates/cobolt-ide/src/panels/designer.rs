@@ -1101,6 +1101,8 @@ impl MenuEditorModal {
         match item.action.as_deref() {
             Some("close-application") => "close",
             Some("event") | None => "event",
+            // Home takes no target: it shows the shell form's own pane.
+            Some("home") => "home",
             Some(a) if a.starts_with("open-form:") => "open-form",
             // 051 R16/R17 — the SideMenu's standalone pair.
             Some(a) if a.starts_with("open-standalone-sync:") => "open-standalone-sync",
@@ -1109,14 +1111,18 @@ impl MenuEditorModal {
         }
     }
 
-    /// 051 R16 — the Action combo's choices: a SideMenu's menu offers five
-    /// (the standalone pair between the form loaders and Close), a MenuBar's
-    /// the classic three.
+    /// 051 R16 — the Action combo's choices: a SideMenu's menu offers six
+    /// (Home, then the standalone pair between the form loaders and Close), a
+    /// MenuBar's the classic three.
+    ///
+    /// Home is SideMenu-only on purpose: it restores the shell's ContentPane,
+    /// and only a SideMenu form has one.
     pub(crate) fn action_type_options(is_side_menu: bool) -> Vec<&'static str> {
         if is_side_menu {
             vec![
                 "event",
                 "open-form",
+                "home",
                 "open-standalone-sync",
                 "open-standalone-async",
                 "close",
@@ -7582,6 +7588,7 @@ impl DesignerPanel {
                                         let label_of = |key: &str| match key {
                                             "open-form" => tr.menu_action_open_form,
                                             "close" => tr.menu_action_close,
+                                            "home" => tr.menu_action_home,
                                             "open-standalone-sync" => {
                                                 tr.menu_action_open_standalone_sync
                                             }
@@ -7616,6 +7623,7 @@ impl DesignerPanel {
                                                                     "close-application".to_string()
                                                                 }
                                                                 "event" => "event".to_string(),
+                                                                "home" => "home".to_string(),
                                                                 other => {
                                                                     match MenuEditorModal::action_prefix(other) {
                                                                         Some(prefix) => format!(
@@ -15734,6 +15742,7 @@ mod menu_editor_051_tests {
             (Some("open-standalone-sync:REPORT"), "open-standalone-sync"),
             (Some("open-standalone-async:MONITOR"), "open-standalone-async"),
             (Some("close-application"), "close"),
+            (Some("home"), "home"),
             (Some("event"), "event"),
             (None, "event"),
             (Some("mystery:thing"), "event"),
@@ -15757,11 +15766,15 @@ mod menu_editor_051_tests {
         );
         assert_eq!(MenuEditorModal::action_prefix("event"), None);
         assert_eq!(MenuEditorModal::action_prefix("close"), None);
+        // Home names no form, so it must never grow a Target picker.
+        assert_eq!(MenuEditorModal::action_prefix("home"), None);
 
-        assert_eq!(
-            MenuEditorModal::action_type_options(true).len(),
-            5,
-            "a SideMenu's menu offers five actions"
+        let side = MenuEditorModal::action_type_options(true);
+        assert_eq!(side.len(), 6, "a SideMenu's menu offers six actions");
+        assert!(side.contains(&"home"), "Home is offered on a SideMenu: {side:?}");
+        assert!(
+            !MenuEditorModal::action_type_options(false).contains(&"home"),
+            "Home restores the shell's ContentPane, which a MenuBar form has not got"
         );
         assert_eq!(
             MenuEditorModal::action_type_options(false),

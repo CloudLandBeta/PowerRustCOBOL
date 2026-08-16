@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.56] — 2026-08-15
+
+### Added — a Home action for the sidebar
+
+A shell form has its own ContentPane content — whatever you drew on the form
+carrying the SideMenu — but once a menu item loaded another form into that
+pane there was no way back to it except a breadcrumb click, which destroys
+what it unwinds. Showing a main screen therefore meant building a form for it.
+
+The new **Home (main content pane)** sidebar action restores the shell form's
+own pane. It takes no target, because it opens nothing.
+
+Home never destroys. The form that was on the pane is **parked**: it gets
+`onDeactivate` but no `onDestroy`, keeps its WORKING-STORAGE, and a later load
+revives that same instance rather than starting a fresh one — the instant
+return *Preserve previous form* already gave siblings. Every other live form is
+untouched, child windows included. The breadcrumb collapses to the shell form
+and the contextual menu section empties, since that is what the pane is
+showing; Home while already home does nothing at all, firing neither
+`onDeactivate` nor `onActivate`.
+
+Offered on a SideMenu only — a MenuBar form has no ContentPane to restore.
+
 ## [PowerRustCOBOL 1.61.55] — 2026-08-15
 
 ### Fixed — Run Form could not find a form's generated code

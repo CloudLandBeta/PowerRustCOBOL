@@ -4063,6 +4063,32 @@ which of them may load it:
 Sync-opened window lives, its parent's whole face — the shell's chrome
 included — takes no input. Async windows are never modal.
 
+#### Going back to the shell's own pane — the Home action
+
+The shell form has its own ContentPane content: whatever you drew on the
+form that carries the SideMenu. Once a menu item has loaded another form into
+that pane, the shell's own content is behind it. The **Home** action brings it
+back — so a "main screen" needs **no form of its own**.
+
+Give any sidebar item the **Home (main content pane)** action. It takes no
+target, because it opens nothing: it simply shows the form the sidebar
+belongs to.
+
+> **Home never destroys.** The form that was on the pane is **parked**, not
+> closed: no `onDestroy` fires, its WORKING-STORAGE is intact, and loading it
+> again later revives that very instance rather than starting a fresh one —
+> the same "instant return" *Preserve previous form* gives you. Every other
+> live form is untouched, child windows included: they keep running and keep
+> their own state while you are at Home.
+>
+> The breadcrumb collapses to the shell form alone, since that is what the
+> pane is showing, and the contextual menu section empties for the same
+> reason. Home while already at Home does nothing at all — no `onDeactivate`,
+> no `onActivate`.
+
+⚠️ **Home is a SideMenu action only.** A MenuBar form has no ContentPane to
+restore, so the action is not offered there.
+
 The menu editor's **Target** list only offers the forms the chosen action may
 legally load, and the build enforces the same rule for literal form ids in
 COBOL — a mismatch is a compile error, not a surprise at run time.
