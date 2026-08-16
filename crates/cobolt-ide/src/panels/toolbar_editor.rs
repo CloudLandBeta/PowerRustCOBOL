@@ -276,7 +276,7 @@ pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcom
 
             // ── Tree | properties ─────────────────────────────────────────
             let total_w = ui.available_width();
-            let tree_w = (total_w * modal.split_ratio).clamp(180.0, total_w - 260.0);
+            let tree_w = tree_pane_width(total_w, modal.split_ratio);
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(tree_w);
@@ -332,6 +332,36 @@ pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcom
     }
     outcome
 }
+
+/// Width of the tree pane, given the room available and the developer's split.
+///
+/// The tree wants at least [`TREE_MIN_W`] and the properties pane at least
+/// [`PROPS_MIN_W`]. A modal narrower than both cannot honour both, and the tree
+/// gives way — the properties pane is where the work happens.
+///
+/// This exists as a function because it was a `clamp(180.0, total_w - 260.0)`
+/// inline, and `f32::clamp` PANICS when its low bound exceeds its high one. Any
+/// modal under 440 px wide killed the event loop (operator, 2026-08-16). Never
+/// hand `clamp` a computed maximum without pinning it above the minimum first.
+fn tree_pane_width(total_w: f32, split_ratio: f32) -> f32 {
+    let high = (total_w - PROPS_MIN_W).max(TREE_MIN_W);
+    // `clamp` PROPAGATES NaN rather than clamping it, so a bad ratio would come
+    // straight back out as a NaN width and land in a layout call.
+    let ratio = if split_ratio.is_finite() {
+        split_ratio.clamp(0.0, 1.0)
+    } else {
+        0.38
+    };
+    let want = total_w.max(0.0) * ratio;
+    if want.is_finite() {
+        want.clamp(TREE_MIN_W, high)
+    } else {
+        TREE_MIN_W
+    }
+}
+
+const TREE_MIN_W: f32 = 180.0;
+const PROPS_MIN_W: f32 = 260.0;
 
 fn show_tree(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui) {
     let groups = modal.def.groups.len();
@@ -812,6 +842,51 @@ mod tests {
              the selected group; groups and buttons reorder with the selection \
              following; deleting a button keeps its group, deleting a group takes its \
              buttons; empty selection is a no-op\n"
+        );
+    }
+
+    /// The split must never panic, at ANY width.
+    ///
+    /// It did: `clamp(180.0, total_w - 260.0)` hands `f32::clamp` a maximum
+    /// below its minimum as soon as the modal is under 440 px, and `clamp`
+    /// panics on that — which killed the whole event loop, not just the modal.
+    #[test]
+    fn the_split_never_panics_however_narrow_the_modal_gets() {
+        // Every width from nothing to a very wide window, and the whole range of
+        // splits including the degenerate ends.
+        let mut narrowest_ok = f32::MAX;
+        for w in 0..2000 {
+            let total = w as f32;
+            for ratio in [0.0_f32, 0.05, 0.38, 0.5, 0.95, 1.0] {
+                let got = tree_pane_width(total, ratio);
+                assert!(
+                    got.is_finite() && got > 0.0,
+                    "width {total} ratio {ratio} gave {got}"
+                );
+                assert!(
+                    got >= TREE_MIN_W,
+                    "the tree must keep its minimum: {got} at width {total}"
+                );
+                if total >= TREE_MIN_W + PROPS_MIN_W {
+                    assert!(
+                        total - got >= PROPS_MIN_W - 0.001,
+                        "with room for both, the properties pane must keep its \
+                         minimum: tree {got} of {total}"
+                    );
+                    narrowest_ok = narrowest_ok.min(total);
+                }
+            }
+        }
+        // Degenerate inputs must not produce a NaN either.
+        for ratio in [f32::NAN, f32::INFINITY, -1.0] {
+            let got = tree_pane_width(900.0, ratio);
+            assert!(got.is_finite(), "ratio {ratio} gave {got}");
+        }
+
+        println!(
+            "\n  Toolbar editor split — no panic across widths 0..2000 × 6 ratios; the \
+             tree never drops below {TREE_MIN_W}px, and from {narrowest_ok}px up the \
+             properties pane keeps its {PROPS_MIN_W}px; NaN/inf ratios stay finite\n"
         );
     }
 
