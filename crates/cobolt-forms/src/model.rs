@@ -2077,6 +2077,59 @@ impl ControlType {
         }
     }
 
+    /// Every built-in control type, once, in toolbox order.
+    ///
+    /// Anything that must cover "all controls" — above all the knowledge base
+    /// the IDE assistant reads — iterates THIS list instead of keeping its own.
+    /// Hand-kept copies are how the SideMenu came to be described in detail and
+    /// published nowhere: the description existed, the type was simply absent
+    /// from the array the generator walked. `Custom` is excluded: plugin
+    /// controls are discovered at run time, not enumerable here.
+    pub const ALL: &'static [ControlType] = &[
+        ControlType::Button,
+        ControlType::TextBox,
+        ControlType::Label,
+        ControlType::CheckBox,
+        ControlType::RadioButton,
+        ControlType::ListBox,
+        ControlType::ComboBox,
+        ControlType::GroupBox,
+        ControlType::Panel,
+        ControlType::TabControl,
+        ControlType::DataGrid,
+        ControlType::PictureBox,
+        ControlType::Animator,
+        ControlType::ProgressBar,
+        ControlType::MenuBar,
+        ControlType::SideMenu,
+        ControlType::ToolBar,
+        ControlType::StatusBar,
+        ControlType::Line,
+        ControlType::DateTimePicker,
+        ControlType::NumericUpDown,
+        ControlType::TreeView,
+        ControlType::Splitter,
+        ControlType::Timer,
+        ControlType::Shape,
+        ControlType::AgentObject,
+        ControlType::RestClient,
+        ControlType::SqlDatabase,
+        ControlType::IndexedFile,
+        ControlType::Slider,
+        ControlType::BarChart,
+        ControlType::LineChart,
+        ControlType::PieChart,
+        ControlType::AreaChart,
+        ControlType::ScatterChart,
+        ControlType::DonutChart,
+        ControlType::Knob,
+        ControlType::Gauge,
+        ControlType::Switch,
+        ControlType::FileDropZone,
+        ControlType::Maps,
+        ControlType::WebSearch,
+    ];
+
     pub fn as_str(&self) -> &str {
         match self {
             ControlType::Button => "Button",
@@ -3458,6 +3511,13 @@ impl Control {
                 // thickness, so a tall bar gets long blocks and a thin one short.
                 props.insert("BlockSize".into(), PropValue::Int(0));
                 props.insert("ShowValue".into(), PropValue::Bool(false));
+                // The frame was painted from constants no property could reach.
+                // These three keep the bar looking exactly as it did while
+                // putting it in the developer's hands, as on every other
+                // bordered control.
+                props.insert("BorderStyle".into(), PropValue::String("Single".into()));
+                props.insert("BorderColor".into(), PropValue::String("#8C8CA0".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
             }
             ControlType::ListBox => {
                 props.insert("Items".into(), PropValue::String("".into()));

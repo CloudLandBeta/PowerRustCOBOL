@@ -3160,29 +3160,62 @@ pub fn draw_control(
                 painter.rect_filled(seg, seg_corner, bar_c);
             }
         }
+        // The frame is the developer's, through the same three properties every
+        // other bordered control carries and the same painter — so `None` really
+        // draws nothing and Fixed3D/Raised/Sunken look here as they do there.
+        // It used to be two constants, a grey and a width, that no property
+        // could reach.
+        let border_style = ctrl
+            .get_prop("BorderStyle")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Single".into());
+        let user_bw = ctrl
+            .get_prop("BorderWidth")
+            .map(|v| v.as_i64() as f32)
+            .unwrap_or(1.0);
         let border_c = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
         } else {
-            Color32::from_rgba_premultiplied(140, 140, 160, a)
+            alpha_color(
+                ctrl.get_prop("BorderColor")
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(Color32::from_rgb(140, 140, 160)),
+            )
         };
-        painter.rect_stroke(
+        draw_control_border(
+            painter,
             rect,
-            corner,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, border_c),
-            egui::StrokeKind::Middle,
+            egui::CornerRadius::same(cr8(corner)),
+            &border_style,
+            if selected { 2.0_f32.max(user_bw) } else { user_bw },
+            border_c,
         );
         if ctrl
             .get_prop("ShowValue")
             .map(|v| v.as_bool())
             .unwrap_or(false)
         {
-            // The percentage sits on the trough, so it takes the trough's own
-            // text colour. Hard-wired black was invisible on every theme whose
-            // well is dark — the text was painted, and nobody could read it.
-            let txt_c = match theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text) {
-                Some(c) => theme_alpha(c, alpha_mul),
-                None => Color32::from_rgba_premultiplied(0, 0, 0, a),
-            };
+            // The percentage is text, so it takes the developer's
+            // ForegroundColor. Until they pick one it carries the universal
+            // white sentinel, which is not a choice — and white on the light
+            // default trough reads as nothing — so an untouched control falls
+            // back to the trough's own text colour instead. (Hard-wiring that
+            // fallback is what made the property look dead: legible, but never
+            // the colour the developer asked for.)
+            let txt_c = ctrl
+                .get_prop("ForegroundColor")
+                .filter(|v| {
+                    !v.as_str()
+                        .trim()
+                        .eq_ignore_ascii_case(crate::model::DEFAULT_FOREGROUND_COLOR)
+                })
+                .map(|v| alpha_color(parse_color(v.as_str())))
+                .unwrap_or_else(|| {
+                    match theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text) {
+                        Some(c) => theme_alpha(c, alpha_mul),
+                        None => Color32::from_rgba_premultiplied(0, 0, 0, a),
+                    }
+                });
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -11336,10 +11369,71 @@ slice = [4, 4, 4, 4]
             );
         }
 
+        // ── ForegroundColor ──────────────────────────────────────────────────
+        // The legible fallback above is for an UNTOUCHED control. A developer
+        // who picks a colour gets that colour — the fallback was hard-wired,
+        // which left ForegroundColor looking dead (locked on the theme's white).
+        let mut red_text = shown.clone();
+        red_text.set_prop("ForegroundColor", PropValue::String("#FF0000".into()));
+        for (name, theme) in [("Elegance", eleg()), ("Liquid Glass", glass())] {
+            let (_, texts) = ink(&red_text, theme, true);
+            assert_eq!(
+                (texts[0].r(), texts[0].g(), texts[0].b()),
+                (255, 0, 0),
+                "{name}: ForegroundColor must paint the percentage, got {:?}",
+                texts[0]
+            );
+        }
+
+        // ── Border ───────────────────────────────────────────────────────────
+        // Three properties, not two constants: None paints no frame at all,
+        // and a chosen colour is the one that lands.
+        let mut framed = bar(200, 24);
+        framed.set_prop("BorderColor", PropValue::String("#FF00FF".into()));
+        framed.set_prop("BorderWidth", PropValue::Int(3));
+        let strokes = |ct: &Control| -> Vec<(Color32, f32)> {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, false, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<(Color32, f32)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) if r.stroke.width > 0.0 => {
+                        out.push((r.stroke.color, r.stroke.width))
+                    }
+                    _ => {}
+                }
+            }
+            let mut seen = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut seen);
+            }
+            seen
+        };
+        let framed_strokes = strokes(&framed);
+        assert!(
+            framed_strokes
+                .iter()
+                .any(|(c, w)| (c.r(), c.g(), c.b()) == (255, 0, 255) && (*w - 3.0).abs() < 0.01),
+            "BorderColor and BorderWidth must paint the frame, got {framed_strokes:?}"
+        );
+        let mut bare = bar(200, 24);
+        bare.set_prop("BorderStyle", PropValue::String("None".into()));
+        assert!(
+            strokes(&bare).is_empty(),
+            "BorderStyle None must paint no frame, got {:?}",
+            strokes(&bare)
+        );
+
         println!(
             "\n  ProgressBar — Orientation (H fills x≤{:.0}, V fills y≥{:.0}), \
-             Style (Blocks ⇒ {} segments), BarColor, CornerRadius (10px trough) \
-             and ShowValue all reach the paint\n",
+             Style (Blocks ⇒ {} segments), BarColor, CornerRadius (10px trough), \
+             ShowValue, ForegroundColor and the three border properties \
+             all reach the paint\n",
             h0.max.x,
             v0.min.y,
             segs.len()

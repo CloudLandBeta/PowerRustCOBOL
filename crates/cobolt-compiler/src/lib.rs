@@ -2388,6 +2388,20 @@ Checklist before emitting a change-set: no nested program declares a `CONFIGURAT
 
 ## `EXEC RUST` — real Rust, compiled into the program
 
+> **A block is the developer's decision, never an assistant's.** This platform's
+> language is COBOL, and `EXEC RUST` exists for the developer who WANTS Rust —
+> a crate, an algorithm, something COBOL genuinely cannot reach. An assistant
+> writes a block ONLY when the developer asked for Rust in so many words ("in
+> Rust", "use EXEC RUST", "with the csv crate"). Absent that, write COBOL,
+> however long it comes out: copying one value into fifteen controls is fifteen
+> `MOVE` statements, and that is the correct answer, not a reason to reach for
+> Rust. Concision, readability, elegance and "the platform supports it" are not
+> reasons — the platform supporting a thing is not the developer asking for it.
+> The choice is not free either: it is the difference between a program that
+> runs interpreted and one that must be built, needs the Rust toolchain, and
+> cannot be stepped in the debugger (all three below). If a task truly cannot be
+> done in COBOL, say so and ask.
+
 `EXEC RUST … END-EXEC` is **compiled**, not interpreted. Each block becomes a real Rust function inside the crate the build already produces, so the whole language is available: closures, generics, iterator chains, `match`, `?`, and any `std` API. There is no micro-language and no subset.
 
 Because a block is compiled, **a program containing one is built before it runs**. *Run* does that build for you and starts the built binary; a program with no block keeps the fast interpreter path unchanged. Building needs a Rust toolchain; **the binary you produce does not** — it runs on machines with no Rust installed. Builds are for the host operating system only: build a Windows application on Windows, a macOS one on macOS.
@@ -3194,7 +3208,13 @@ fn control_purpose(name: &str) -> &'static str {
 
 /// `(signature, description)` pairs for the inline methods that apply to one
 /// control type (beyond the universal set documented in the shared section).
-fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
+///
+/// Public because this is THE list of what a control can be told to do: the
+/// knowledge base publishes it to the assistant, and the IDE editor folds it
+/// into IntelliSense. Two hand-kept copies is how they came to disagree — a
+/// Switch that documented `Toggle()` and never offered it, a ProgressBar whose
+/// value contract promised `Decrement()` the popup had never heard of.
+pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
     let text_methods: Vec<(&'static str, &'static str)> = vec![
         ("SetText(text: String)", "Replace the text content."),
         ("GetText() → String", "Read the text content."),
@@ -3418,49 +3438,10 @@ Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFOR
 
 /// Render the enriched Form Controls Reference (KB file 3).
 fn controls_reference_doc() -> String {
-    let control_types = [
-        cobolt_forms::ControlType::Button,
-        cobolt_forms::ControlType::TextBox,
-        cobolt_forms::ControlType::Label,
-        cobolt_forms::ControlType::CheckBox,
-        cobolt_forms::ControlType::RadioButton,
-        cobolt_forms::ControlType::ListBox,
-        cobolt_forms::ControlType::ComboBox,
-        cobolt_forms::ControlType::GroupBox,
-        cobolt_forms::ControlType::Panel,
-        cobolt_forms::ControlType::TabControl,
-        cobolt_forms::ControlType::DataGrid,
-        cobolt_forms::ControlType::PictureBox,
-        cobolt_forms::ControlType::ProgressBar,
-        cobolt_forms::ControlType::MenuBar,
-        cobolt_forms::ControlType::ToolBar,
-        cobolt_forms::ControlType::StatusBar,
-        cobolt_forms::ControlType::Line,
-        cobolt_forms::ControlType::DateTimePicker,
-        cobolt_forms::ControlType::NumericUpDown,
-        cobolt_forms::ControlType::TreeView,
-        cobolt_forms::ControlType::Splitter,
-        cobolt_forms::ControlType::Timer,
-        cobolt_forms::ControlType::Shape,
-        cobolt_forms::ControlType::Animator,
-        cobolt_forms::ControlType::AgentObject,
-        cobolt_forms::ControlType::RestClient,
-        cobolt_forms::ControlType::SqlDatabase,
-        cobolt_forms::ControlType::IndexedFile,
-        cobolt_forms::ControlType::Slider,
-        cobolt_forms::ControlType::BarChart,
-        cobolt_forms::ControlType::LineChart,
-        cobolt_forms::ControlType::PieChart,
-        cobolt_forms::ControlType::AreaChart,
-        cobolt_forms::ControlType::ScatterChart,
-        cobolt_forms::ControlType::DonutChart,
-        cobolt_forms::ControlType::Knob,
-        cobolt_forms::ControlType::Gauge,
-        cobolt_forms::ControlType::Switch,
-        cobolt_forms::ControlType::FileDropZone,
-        cobolt_forms::ControlType::Maps,
-        cobolt_forms::ControlType::WebSearch,
-    ];
+    // Every control the toolbox offers, from the model's own canonical list —
+    // never a copy of it. The copy that used to live here had quietly lost the
+    // SideMenu, so the assistant was never told the sidebar exists.
+    let control_types = cobolt_forms::ControlType::ALL;
 
     let mut doc = String::new();
     doc.push_str("# PowerRustCOBOL Form Controls Reference\n\n");
@@ -3799,7 +3780,7 @@ fn controls_reference_doc() -> String {
     );
 
     // ── Per-control sections ─────────────────────────────────────────────────
-    for ct in control_types {
+    for ct in control_types.iter().cloned() {
         let name = ct.as_str().to_owned();
         let (dw, dh) = ct.default_size();
         let events: Vec<&str> = ct.supported_events().to_vec();
@@ -5899,6 +5880,39 @@ generated = ["generated/inner-form1.cbl"]
             Some("generated/power-demo-1.cbl")
         );
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    /// The assistant must know about EVERY control the toolbox offers — not
+    /// the ones a hand-kept array happened to list. That array had lost the
+    /// SideMenu, so a detailed description of shell mode, `FullHeight`,
+    /// `Collapsed` and the menu actions sat in this file and reached nobody.
+    #[test]
+    fn every_control_the_toolbox_offers_is_published_to_the_assistant() {
+        let dir = temp_dir("kb-all-controls");
+        assert!(publish_system_documentation(&dir).is_ok());
+        let doc =
+            fs::read_to_string(dir.join("Knowledge Base").join("form_designer_controls.md"))
+                .unwrap();
+        let missing: Vec<&str> = cobolt_forms::ControlType::ALL
+            .iter()
+            .map(|ct| ct.as_str())
+            .filter(|name| !doc.contains(&format!("## Control: {name}")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "controls absent from the assistant's reference: {missing:?}"
+        );
+        // The SideMenu's own text, not just its heading — the description
+        // existed all along; only the publishing did not.
+        assert!(
+            doc.contains("SHELL mode"),
+            "the SideMenu section must carry its shell-mode description"
+        );
+        println!(
+            "\n  System KB — all {} control types published to the assistant\n",
+            cobolt_forms::ControlType::ALL.len()
+        );
     }
 
     #[test]

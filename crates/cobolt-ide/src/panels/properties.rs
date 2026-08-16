@@ -6183,6 +6183,7 @@ impl PropertiesPanel {
                 }
                 bool_row_inline(ui, id, "ShowValue", "Show value text", ctrl, action);
                 color_row(ui, id, "BarColor", ctrl, action);
+                border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
 

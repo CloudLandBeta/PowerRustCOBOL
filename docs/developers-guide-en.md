@@ -1387,11 +1387,14 @@ These properties decide how that reading looks:
 | `Style` | `Continuous` paints one unbroken run of colour; `Blocks` paints a row of segments. |
 | `Block size` | How long one block is, in pixels, along the axis the bar travels. Only `Blocks` uses it, so the row appears in the properties pane once you choose that style. **0** — the default — sizes each block from the bar's own thickness, so a tall bar gets long blocks and a thin one short. |
 | `BarColor` | The filled part. The trough behind it belongs to the theme. |
-| `ShowValue` | Draws the percentage across the middle of the bar, in whatever colour reads on that trough. |
+| `ShowValue` | Draws the percentage across the middle of the bar. |
+| `ForegroundColor` | The percentage's colour. Left at its default, the bar picks a colour that reads on the trough the theme painted. |
 
 `CornerRadius` rounds a progress bar the way it rounds every other bordered
 control (see *Corner radius* above) — trough, filled part and border together,
-square at `0`.
+square at `0`. The frame itself answers to the same `BorderStyle`,
+`BorderColor` and `BorderWidth` as any other bordered control, and
+`BorderStyle = None` leaves the bar with no frame at all.
 
 > **Note.** A `Blocks` bar never hides small progress: the last block is trimmed
 > to wherever `Value` reached, so a bar 3 % along shows a sliver rather than

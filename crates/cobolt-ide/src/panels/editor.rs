@@ -529,7 +529,22 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
         "GroupBox" => (UNIVERSAL_VISUAL, &[("SetCaption", "Change the title")]),
         _ => (UNIVERSAL_VISUAL, &[]),
     };
-    base.iter().chain(specific).copied().collect()
+    let mut out: Vec<Method> = base.iter().chain(specific).copied().collect();
+    // The knowledge base's own method table is the other half of this list, and
+    // keeping a second copy here is what let the two drift: a Switch documented
+    // `Toggle()` it never offered, a Gauge and a Maps had no methods here at
+    // all, and a ProgressBar's promised `Decrement()` was missing. Fold that
+    // table in — signature stripped to the bare name the popup inserts — so
+    // anything the assistant knows about, IntelliSense offers too. Nothing is
+    // taken away: names already listed keep their wording, since
+    // `method_names_for_type` validates real code against this list.
+    for (signature, description) in cobolt_compiler::control_method_docs(ctrl_type) {
+        let name = signature.split('(').next().unwrap_or(signature).trim();
+        if !name.is_empty() && !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            out.push((name, description));
+        }
+    }
+    out
 }
 
 /// The method names available on a control type (universal + type-specific), for
@@ -5325,6 +5340,128 @@ END-EVALUATE
         let items = build_completions("Line", source, &controls, &[], true);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"LineChart-1"));
+    }
+
+    /// Reported: "ProgressBar does not appear in IntelliSense of the COBOL
+    /// editor." Drives the real path — a form's controls through
+    /// `build_known_controls`, then the id list and the `::` member list.
+    #[test]
+    fn a_progress_bar_is_offered_by_intellisense_like_any_other_control() {
+        use cobolt_forms::{Control, ControlType, Form};
+
+        let mut form = Form::new("Main", "Main", 640, 480);
+        form.controls
+            .push(Control::new("ProgressBar-1", ControlType::ProgressBar, 10, 10));
+        form.controls
+            .push(Control::new("Button-1", ControlType::Button, 10, 60));
+        let known = build_known_controls(&form);
+
+        // The id itself, offered next to every other control's.
+        let source = "       PROCEDURE DIVISION.\n";
+        let completions = build_completions("Prog", source, &known, &[], true);
+        let ids: Vec<&str> = completions.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            ids.contains(&"ProgressBar-1"),
+            "the control id must be completable, got {ids:?}"
+        );
+
+        // `ProgressBar-1::` — every property the inspector shows, plus methods.
+        let pb = known
+            .iter()
+            .find(|k| k.id == "ProgressBar-1")
+            .expect("the form's progress bar is a known control");
+        let members: Vec<String> = member_completions(pb, "")
+            .iter()
+            .map(|i| i.label.clone())
+            .collect();
+        for want in [
+            "Value",
+            "Minimum",
+            "Maximum",
+            "Orientation",
+            "Style",
+            "BlockSize",
+            "BarColor",
+            "ShowValue",
+            "ForegroundColor",
+            "BorderStyle",
+            "BorderColor",
+            "BorderWidth",
+            "CornerRadius",
+        ] {
+            assert!(
+                members.iter().any(|m| m == want),
+                "ProgressBar-1:: must offer {want}, got {members:?}"
+            );
+        }
+        for want in ["SetValue", "GetValue", "Increment", "Decrement", "Reset"] {
+            assert!(
+                members.iter().any(|m| m == want),
+                "ProgressBar-1:: must offer the {want} method, got {members:?}"
+            );
+        }
+
+        println!(
+            "\n  ProgressBar IntelliSense — id completable, {} members offered\n",
+            members.len()
+        );
+    }
+
+    /// IntelliSense and the assistant must describe the same controls.
+    ///
+    /// They were two hand-kept tables: a Switch documented `Toggle()` the popup
+    /// had never heard of, a Gauge, Knob, Maps, SideMenu and WebSearch had no
+    /// methods here at all, and a ProgressBar's own value contract promised a
+    /// `Decrement()` that was missing. The editor now folds the knowledge
+    /// base's table into its own, so what Grace knows, the popup offers.
+    #[test]
+    fn intellisense_offers_every_method_the_knowledge_base_documents() {
+        let mut checked = 0usize;
+        for ct in cobolt_forms::ControlType::ALL {
+            let name = ct.as_str();
+            let offered: Vec<String> = methods_for_type(name)
+                .iter()
+                .map(|(m, _)| m.to_ascii_uppercase())
+                .collect();
+            for (signature, _) in cobolt_compiler::control_method_docs(name) {
+                let want = signature
+                    .split('(')
+                    .next()
+                    .unwrap_or(signature)
+                    .trim()
+                    .to_ascii_uppercase();
+                assert!(
+                    offered.contains(&want),
+                    "{name}:: must offer {want} — the knowledge base documents it"
+                );
+                checked += 1;
+            }
+        }
+
+        // The specific gaps reported, named so a regression says which.
+        let has = |t: &str, m: &str| {
+            methods_for_type(t)
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case(m))
+        };
+        assert!(has("ProgressBar", "Decrement"), "ProgressBar lost Decrement");
+        assert!(has("Switch", "Toggle"), "Switch lost Toggle");
+        assert!(has("Maps", "Geocode"), "Maps lost Geocode");
+        assert!(has("Gauge", "SetValue"), "Gauge lost SetValue");
+        assert!(has("Knob", "SetValue"), "Knob lost SetValue");
+        assert!(has("WebSearch", "Search"), "WebSearch lost Search");
+        assert!(has("SideMenu", "OpenStandAloneFormSync"), "SideMenu lost its window methods");
+        // Nothing the editor already offered may disappear: `method_names_for_type`
+        // validates real COBOL against this list.
+        assert!(has("Button", "PerformClick"), "Button lost PerformClick");
+        assert!(has("TreeView", "ExpandAll"), "TreeView lost ExpandAll");
+        assert!(has("Label", "Show"), "the universal set must survive");
+
+        println!(
+            "\n  IntelliSense — {} documented methods across {} control types, all offered\n",
+            checked,
+            cobolt_forms::ControlType::ALL.len()
+        );
     }
 
     #[test]

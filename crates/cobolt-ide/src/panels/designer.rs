@@ -8537,32 +8537,53 @@ impl DesignerPanel {
                                 }
                             });
                         ui.add_space(gap);
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("✨").size(15.0));
-                            let prompt =
-                                self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
-                            let can_send = !busy && !prompt.trim().is_empty();
-                            if ui
-                                .add_enabled(can_send, egui::Button::new(tr.ai_send))
-                                .clicked()
-                            {
-                                do_send = true;
-                            }
-                            if busy {
-                                ui.add(egui::Spinner::new());
-                                ui.label(
-                                    egui::RichText::new(tr.ai_thinking)
-                                        .small()
-                                        .color(Color32::from_gray(170)),
-                                );
-                                crate::panels::editor::token_counter(
-                                    ui,
-                                    Some(crate::llm::token_meter()),
-                                    11.0,
-                                    Color32::from_gray(170),
-                                );
-                            }
+                        // Just the Send button beside the box, sized as Grace's
+                        // is. The spark, the spinner, the "Thinking…" line and
+                        // the ↑in ↓out counter used to stack under it, which
+                        // turned the right-hand side into a narrow column of
+                        // status text; where a model is and what it has spent
+                        // belong on one line below the box, as in Grace.
+                        let prompt =
+                            self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
+                        let can_send = !busy && !prompt.trim().is_empty();
+                        if ui
+                            .add_enabled(
+                                can_send,
+                                egui::Button::new(tr.ai_send).min_size(egui::vec2(
+                                    crate::panels::CHAT_SEND_BUTTON_WIDTH,
+                                    36.0,
+                                )),
+                            )
+                            .clicked()
+                        {
+                            do_send = true;
+                        }
+                    });
+                    // Model-in-use + context gauge, then the running token
+                    // usage — the same status line Grace carries under her
+                    // prompt, in the same order and wording.
+                    ui.horizontal(|ui| {
+                        let fallback_model = project_root.and_then(|root| {
+                            crate::grace_host::grace_model_display_cached(root, llm_cfg)
                         });
+                        crate::panels::editor::chat_model_context_indicator(
+                            ui,
+                            &tr,
+                            fallback_model.as_deref(),
+                        );
+                        if busy {
+                            ui.add(egui::Spinner::new().size(12.0));
+                        }
+                        let (input_tokens, output_tokens) = crate::llm::token_meter();
+                        if input_tokens > 0 || output_tokens > 0 {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Tokens: {input_tokens} in / {output_tokens} out"
+                                ))
+                                .small()
+                                .color(crate::theme::active().text_dim),
+                            );
+                        }
                     });
                     if let Some(err) = &ai_status {
                         ui.label(

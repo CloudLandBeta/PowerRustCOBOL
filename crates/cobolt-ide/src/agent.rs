@@ -1005,6 +1005,7 @@ const FORM_DESIGNER_STEERING: &str = r#"# Form Designer Agent Steering
 - Use the supplied project inventory before claiming a file, form, indexed file, control, data item, property, or event does not exist.
 - Use exact control property names from the supplied schema. If the user uses a friendly name, map it to the real property before emitting an operation.
 - Prefer inline PowerRustCOBOL object syntax for generated COBOL: `<control>::<method>(...)` and `<control>::<property>`.
+- Write COBOL. Never emit an `EXEC RUST` block unless the developer asked for Rust in so many words. Repetition is not a reason: fifteen `MOVE` statements are the correct answer to fifteen controls.
 - Never remove required COBOL divisions from generated handlers. If the correct change is unclear after validation feedback, ask the developer for directions.
 "#;
 
@@ -1015,6 +1016,7 @@ const EVENT_HANDLER_STEERING: &str = r#"# COBOL Event Handler Script Agent Steer
 - Do not return `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or `END PROGRAM`; the IDE owns that scaffold.
 - Preserve existing declarations and code unless the user explicitly asks to change them.
 - Use inline PowerRustCOBOL object syntax: `<control>::<method>(...)` and `<control>::<property>`. Do not use `CALL` for control methods or properties.
+- Write COBOL. Never emit an `EXEC RUST` block unless the developer asked for Rust in so many words. Repetition is not a reason: fifteen `MOVE` statements are the correct answer to fifteen controls.
 - If a property, method, data item, or intended behavior cannot be determined, ask the developer for directions instead of guessing.
 "#;
 
@@ -1085,6 +1087,26 @@ A form is one compilation unit: the form itself is the OUTERMOST program, and ev
 - `PERFORM` reaches only a paragraph or section declared in the same body you are writing, and never crosses a program boundary. A `PERFORM` naming a procedure of another program is a compile error, not a style preference.
 - The generated infrastructure paragraphs (`<id>-OPEN`, `<id>-READ-NEXT`, the timer, chart, CSV-export and data-binding helpers) live in the OUTER program, so form-level code may `PERFORM` them but a handler may not. From a handler, use the control's `::` methods.
 - Do not use `CALL` for a control's own properties or methods — `::` is the only form for those.
+
+## `EXEC RUST` is the developer's choice, never yours
+
+The language of this platform is COBOL. `EXEC RUST` exists so a developer who
+WANTS Rust — for a crate, an algorithm, something COBOL genuinely cannot reach —
+can have it. It is not a shortcut for code you find repetitive.
+
+Emit an `EXEC RUST` block ONLY when the developer asked for Rust in so many
+words ("in Rust", "use EXEC RUST", "with the csv crate"). Absent that, write
+COBOL, however long it comes out. Setting fifteen controls is fifteen `MOVE`
+statements, and that is the CORRECT answer — not a reason to reach for Rust.
+
+Never justify a block by concision, readability, elegance, or "the platform
+supports it". The platform supporting a thing is not the developer asking for
+it. A block also changes what the developer gets: a program with `EXEC RUST`
+must be BUILT before it runs, needs the Rust toolchain installed, and cannot be
+stepped in the debugger. Choosing that for someone who only asked to copy a
+value is choosing badly on their behalf.
+
+If a task truly cannot be done in COBOL, say so and ask — do not decide alone.
 
 Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, the paragraphs a body declares for its own `PERFORM`s, and existing user code.
 "#;
@@ -1163,9 +1185,12 @@ Use inline control access:
 Do not use `CALL` for form/control methods or properties. Keep `CALL` only for real runtime/library procedures that have no inline method equivalent.
 "#];
 
-/// Superseded `RUSTCOBOL_SKILL` texts — silent on the nest, so nothing told an
-/// agent which verb reaches a common procedure.
-const LEGACY_RUSTCOBOL_SKILLS: &[&str] = &[r#"# PowerRustCOBOL Extensions Skill
+/// Superseded `RUSTCOBOL_SKILL` texts — the first silent on the nest, so
+/// nothing told an agent which verb reaches a common procedure; the second
+/// silent on `EXEC RUST`, which is how an agent came to answer "copy this value
+/// to fifteen controls" with a Rust block and defend it as concise.
+const LEGACY_RUSTCOBOL_SKILLS: &[&str] = &[
+    r#"# PowerRustCOBOL Extensions Skill
 
 PowerRustCOBOL extends COBOL-85 with inline form/control access:
 
@@ -1174,6 +1199,49 @@ PowerRustCOBOL extends COBOL-85 with inline form/control access:
 - Invoke a method with `<control>::<method>(<parameters>)`.
 
 Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, paragraph structure, and existing user code.
+"#,
+    r#"# PowerRustCOBOL Extensions Skill
+
+PowerRustCOBOL extends COBOL-85 with inline form/control access:
+
+- Get a property with `<control>::<property>`.
+- Set a property with `SET <control>::<property> TO <value>`.
+- Invoke a method with `<control>::<method>(<parameters>)`.
+
+## What a handler is, and how code reaches other code
+
+A form is one compilation unit: the form itself is the OUTERMOST program, and every event handler and every common procedure is a separate NESTED program inside it. That structure decides which verb reaches what.
+
+- `CALL "NAME"` is the only way to reach another program — that includes every common procedure created with `create_procedure`. Write `CALL "UPDATE-TOTAL".` or `CALL "RECALC" USING WS-QTY WS-PRICE.`.
+- `PERFORM` reaches only a paragraph or section declared in the same body you are writing, and never crosses a program boundary. A `PERFORM` naming a procedure of another program is a compile error, not a style preference.
+- The generated infrastructure paragraphs (`<id>-OPEN`, `<id>-READ-NEXT`, the timer, chart, CSV-export and data-binding helpers) live in the OUTER program, so form-level code may `PERFORM` them but a handler may not. From a handler, use the control's `::` methods.
+- Do not use `CALL` for a control's own properties or methods — `::` is the only form for those.
+
+Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, the paragraphs a body declares for its own `PERFORM`s, and existing user code.
+"#,
+];
+
+/// Superseded steering texts. Steering was seeded with `write_if_missing`, so
+/// every project created before a rule existed kept steering that never carried
+/// it — the `EXEC RUST` rule among them. Listed here, an untouched copy is
+/// refreshed on project open; a developer's own edits are left alone.
+const LEGACY_FORM_DESIGNER_STEERINGS: &[&str] = &[r#"# Form Designer Agent Steering
+
+- Build form changes as structured operations only; do not describe changes that are not present in the JSON change-set.
+- Use the supplied project inventory before claiming a file, form, indexed file, control, data item, property, or event does not exist.
+- Use exact control property names from the supplied schema. If the user uses a friendly name, map it to the real property before emitting an operation.
+- Prefer inline PowerRustCOBOL object syntax for generated COBOL: `<control>::<method>(...)` and `<control>::<property>`.
+- Never remove required COBOL divisions from generated handlers. If the correct change is unclear after validation feedback, ask the developer for directions.
+"#];
+
+const LEGACY_EVENT_HANDLER_STEERINGS: &[&str] = &[r#"# COBOL Event Handler Script Agent Steering
+
+- Return a complete event-handler body only when the user asks to write or change code.
+- The editable body must include `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, and `PROCEDURE DIVISION.`.
+- Do not return `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or `END PROGRAM`; the IDE owns that scaffold.
+- Preserve existing declarations and code unless the user explicitly asks to change them.
+- Use inline PowerRustCOBOL object syntax: `<control>::<method>(...)` and `<control>::<property>`. Do not use `CALL` for control methods or properties.
+- If a property, method, data item, or intended behavior cannot be determined, ask the developer for directions instead of guessing.
 "#];
 
 /// Seed the file, and also replace it when it still holds a superseded default
@@ -1210,7 +1278,11 @@ pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
     let form_dir = project_agent_dir(project_dir, FORM_DESIGNER_AGENT_DIR);
     let form_skills = form_dir.join(SKILLS_DIR);
     write_if_missing(&form_dir.join(PROMPT_FILE), &default_form_designer_prompt())?;
-    write_if_missing(&form_dir.join(STEERING_FILE), FORM_DESIGNER_STEERING)?;
+    write_or_refresh(
+        &form_dir.join(STEERING_FILE),
+        FORM_DESIGNER_STEERING,
+        LEGACY_FORM_DESIGNER_STEERINGS,
+    )?;
     write_or_refresh(
         &form_skills.join(RUSTCOBOL_SKILL_FILE),
         RUSTCOBOL_SKILL,
@@ -1227,7 +1299,11 @@ pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
         &event_dir.join(PROMPT_FILE),
         &default_event_handler_prompt(),
     )?;
-    write_if_missing(&event_dir.join(STEERING_FILE), EVENT_HANDLER_STEERING)?;
+    write_or_refresh(
+        &event_dir.join(STEERING_FILE),
+        EVENT_HANDLER_STEERING,
+        LEGACY_EVENT_HANDLER_STEERINGS,
+    )?;
     write_or_refresh(
         &event_skills.join(RUSTCOBOL_SKILL_FILE),
         RUSTCOBOL_SKILL,
@@ -1798,6 +1874,89 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `EXEC RUST` is the developer's choice, and every text an agent reads
+    /// must say so.
+    ///
+    /// Asked to copy `Knob-1`'s value into fifteen controls, an agent answered
+    /// with a Rust block and defended it as concise, readable and supported by
+    /// the platform (operator, 2026-08-16). Nothing it had been given ruled
+    /// that out, so the rule now lives in the steering BOTH code agents read
+    /// and in the extensions skill injected into every request.
+    #[test]
+    fn every_agent_text_reserves_exec_rust_for_an_explicit_request() {
+        for (name, text) in [
+            ("form designer steering", FORM_DESIGNER_STEERING),
+            ("event handler steering", EVENT_HANDLER_STEERING),
+            ("rustcobol skill", RUSTCOBOL_SKILL),
+        ] {
+            assert!(
+                text.contains("EXEC RUST"),
+                "{name} never mentions EXEC RUST, so nothing rules it out"
+            );
+            let lower = text.to_lowercase();
+            assert!(
+                lower.contains("unless the developer asked for rust")
+                    || lower.contains("only when the developer asked for rust"),
+                "{name} must reserve a block for an explicit request"
+            );
+        }
+        // The excuses the agent actually gave are named, so the rule answers
+        // the reasoning that produced the block rather than a generic ban.
+        let skill = RUSTCOBOL_SKILL.to_lowercase();
+        for excuse in ["concision", "readability", "platform supporting"] {
+            assert!(
+                skill.contains(excuse),
+                "the skill must refuse '{excuse}' as a reason"
+            );
+        }
+        println!("\n  EXEC RUST — reserved for an explicit request in all three agent texts\n");
+    }
+
+    /// A project seeded before a correction keeps the old text for the life of
+    /// the project unless an untouched default is refreshed on open — which is
+    /// how the `EXEC RUST` rule would have reached nobody who already had one.
+    #[test]
+    fn an_untouched_default_steering_is_refreshed_but_a_developer_edit_is_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "prc-steering-refresh-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for (file, current, legacy) in [
+            (
+                "form-steering.md",
+                FORM_DESIGNER_STEERING,
+                LEGACY_FORM_DESIGNER_STEERINGS,
+            ),
+            (
+                "event-steering.md",
+                EVENT_HANDLER_STEERING,
+                LEGACY_EVENT_HANDLER_STEERINGS,
+            ),
+        ] {
+            let stale = dir.join(file);
+            std::fs::write(&stale, legacy[0]).unwrap();
+            write_or_refresh(&stale, current, legacy).unwrap();
+            assert!(
+                std::fs::read_to_string(&stale).unwrap().contains("EXEC RUST"),
+                "{file}: an untouched steering must gain the new rule"
+            );
+
+            let mine = dir.join(format!("mine-{file}"));
+            std::fs::write(&mine, "# My own steering\n\n- Do it my way.\n").unwrap();
+            write_or_refresh(&mine, current, legacy).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&mine).unwrap(),
+                "# My own steering\n\n- Do it my way.\n",
+                "{file}: a developer's own steering is theirs"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A project seeded before the correction still holds the skill that told
     /// agents to keep `CALL` "only for real runtime/library procedures" — the
