@@ -18,6 +18,13 @@ cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-indexed  = { path = "../cobolt-indexed" }
+# The form model, WITHOUT its `render` feature — no egui reaches the
+# interpreter. `FDZ::CommitFiles()` copies a staged drop into its destination,
+# and the rules for that (what lands where, never overwriting, how a row reads)
+# are `cobolt_forms::dropzone`'s. Depending on them beats keeping a second copy
+# here: two tables of the same rule is how the IntelliSense/knowledge-base
+# drift got in, and a drop zone's rules are worth less to duplicate still.
+cobolt-forms    = { path = "../cobolt-forms" }
 thiserror       = { workspace = true }
 indexmap        = { workspace = true }
 serde          = { workspace = true, features = ["derive"] }

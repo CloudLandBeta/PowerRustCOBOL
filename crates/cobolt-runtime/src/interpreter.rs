@@ -6407,6 +6407,95 @@ impl Interpreter {
             .unwrap_or_default()
     }
 
+    /// `FDZ::CommitFiles()` — copy the files a `StageOnly` drop is holding into
+    /// `DestinationFolder`, and say what happened.
+    ///
+    /// This is the moment the form goes ahead. Until it is called, a staged drop
+    /// has written nothing: the files sit where they were dropped from, listed in
+    /// the zone's companion ListBox with a tick box each, and whoever dropped
+    /// them can untick one to leave it out. Unticked rows are skipped here, stay
+    /// in the list, and can be ticked again before a later call.
+    ///
+    /// Afterwards:
+    /// * `DroppedFiles` is the included files at their new paths (or their
+    ///   original path, for one whose copy failed — a form must still get the
+    ///   file it was given);
+    /// * the list's rows carry `✓` and the new path, or `✗` and the reason;
+    /// * `CommitSummary` reads `7 of 8 copied, 24.310 MB`, which is also what
+    ///   this returns so a handler can DISPLAY it without a second read.
+    ///
+    /// A zone holding nothing is not an error: it reports `0 of 0 copied`.
+    fn commit_staged_files(&mut self, zone: &str) -> String {
+        use cobolt_forms::dropzone;
+
+        let lines = |s: String| -> Vec<String> {
+            s.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        let staged = lines(self.obj_get(zone, "StagedFiles"));
+        let sizes: Vec<Option<u64>> = staged
+            .iter()
+            .map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+            .collect();
+
+        // Which rows are still ticked. With no list wired up there is nothing to
+        // untick, so everything staged is included.
+        let list = self.obj_get(zone, "FileListControl").trim().to_owned();
+        let ticked = (!list.is_empty()).then(|| lines(self.obj_get(&list, "CheckedItems")));
+        let included: Vec<bool> = staged
+            .iter()
+            .zip(&sizes)
+            .map(|(path, size)| match &ticked {
+                None => true,
+                Some(ticked) => {
+                    let label = dropzone::row_label(path, *size);
+                    ticked.iter().any(|t| *t == label)
+                }
+            })
+            .collect();
+
+        let to_copy: Vec<String> = staged
+            .iter()
+            .zip(&included)
+            .filter(|(_, keep)| **keep)
+            .map(|(p, _)| p.clone())
+            .collect();
+        let destination = self.obj_get(zone, "DestinationFolder");
+        let outcomes = dropzone::commit_files(&to_copy, &destination);
+
+        // Walk the staged list once, pairing each included file with its
+        // outcome, and build every answer as we go.
+        let mut next = outcomes.into_iter();
+        let mut rows: Vec<String> = Vec::with_capacity(staged.len());
+        let mut still_ticked: Vec<String> = Vec::new();
+        let mut landed: Vec<String> = Vec::new();
+        let mut paired: Vec<(Option<u64>, dropzone::CommitOutcome)> = Vec::new();
+        for ((path, size), keep) in staged.iter().zip(&sizes).zip(&included) {
+            if !keep {
+                rows.push(dropzone::excluded_row_label(path, *size));
+                continue;
+            }
+            let Some(outcome) = next.next() else { continue };
+            let row = dropzone::committed_row_label(path, *size, &outcome);
+            landed.push(outcome.path_or(path));
+            paired.push((*size, outcome));
+            still_ticked.push(row.clone());
+            rows.push(row);
+        }
+
+        let summary = dropzone::commit_summary(&paired);
+        if !list.is_empty() {
+            self.obj_set(&list, "Items", rows.join("\n"));
+            self.obj_set(&list, "CheckedItems", still_ticked.join("\n"));
+        }
+        self.obj_set(zone, "DroppedFiles", landed.join("\n"));
+        self.obj_set(zone, "CommitSummary", summary.clone());
+        summary
+    }
+
     /// Resolve a User Control property reference. `Child.Prop` is routed to the
     /// deployed child object `{receiver}-{Child}` when that child exists; otherwise
     /// the original receiver/property pair is preserved for backward compatibility.
@@ -7129,6 +7218,8 @@ impl Interpreter {
                 };
                 val(n.to_string())
             }
+            // ── FileDropZone: the confirmation half of a staged drop ──
+            "COMMITFILES" => val(self.commit_staged_files(obj)),
             // ── DataGrid data binding ──
             "GETROWCOUNT" => val(self.datagrid_rows(obj).len().to_string()),
             "GETCELLVALUE" => {
@@ -8811,6 +8902,8 @@ fn is_known_method(name: &str) -> bool {
             | "DELETEROW" | "CLEARROWS" | "SORT" | "SETFILTER" | "CLEARFILTERS"
             | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH"
             | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV"
+        // FileDropZone
+            | "COMMITFILES"
         // Databound controls (DataGrid + repeating GroupBox/ControlArray)
             | "REFRESHBINDING"
         // Charts (AddPoint appends one label/value point; Clear/Refresh above)

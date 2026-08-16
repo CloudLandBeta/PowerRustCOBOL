@@ -484,6 +484,7 @@ impl FormHost {
             child_interpreter_setup,
             shared_rust_bridge,
             surface,
+            toolbar_runner: crate::toolbar_actions::Runner::default(),
             visuals_set: false,
             quit_sent: false,
             diagnostics,
@@ -1036,6 +1037,9 @@ pub struct FormHost {
         Option<std::sync::Arc<std::sync::Mutex<cobolt_runtime::rust_bridge::RustBridge>>>,
     /// 049 — own window, or the shell's ContentPane (see [`Surface`]).
     surface: Surface,
+    /// Carries out a toolbar button's platform action, and finishes the window
+    /// captures that cannot complete on the frame that asked for them.
+    toolbar_runner: crate::toolbar_actions::Runner,
     visuals_set: bool,
     quit_sent: bool,
     /// `COBOLT_FRAME_DIAGNOSTICS` — live per-update trace (R27). Without it a
@@ -2475,34 +2479,110 @@ impl FormHost {
                             .map(|v| v.as_str().to_owned())
                             .unwrap_or_default()
                     };
-                    let intake = cobolt_forms::dropzone::take_files(
+                    let bool_prop = |key: &str, default: bool| -> bool {
+                        ctrl.and_then(|c| c.get_prop(key))
+                            .map(|v| v.as_bool())
+                            .unwrap_or(default)
+                    };
+                    // `apply_drop` also decides whether this copies now or only
+                    // stages for the form to confirm — the same answer the
+                    // drag-drop path gets.
+                    let writes = cobolt_forms::dropzone::apply_drop(
+                        &id,
                         &[path.display().to_string()],
-                        &prop("AllowedExtensions"),
-                        prop("MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
-                        &prop("DestinationFolder"),
+                        cobolt_forms::dropzone::ZoneRules {
+                            filter: &prop("AllowedExtensions"),
+                            max_kb: prop("MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
+                            destination: &prop("DestinationFolder"),
+                            stage_only: bool_prop("StageOnly", false),
+                            list_id: &prop("FileListControl"),
+                            already_staged: &self
+                                .root
+                                .state
+                                .get(&id)
+                                .and_then(|s| {
+                                    s.props
+                                        .iter()
+                                        .find(|(k, _)| k.eq_ignore_ascii_case("StagedFiles"))
+                                        .map(|(_, v)| v.clone())
+                                })
+                                .unwrap_or_default(),
+                        },
                     );
-                    let accepted = intake.accepted.join("\n");
-                    let rejected = intake.rejected_lines().join("\n");
-                    self.root.state_entry_mut(&id).set("DroppedFiles", accepted.clone());
-                    self.root.state_entry_mut(&id).set("RejectedFiles", rejected.clone());
-                    let _ = self.root.input_tx.send(StateUpdate::new(
-                        id.clone(),
-                        "DroppedFiles".to_owned(),
-                        accepted,
-                    ));
-                    let _ = self.root.input_tx.send(StateUpdate::new(
-                        id.clone(),
-                        "RejectedFiles".to_owned(),
-                        rejected,
-                    ));
-                    if !intake.accepted.is_empty() {
+                    for (target, key, value) in &writes.updates {
+                        self.root.state_entry_mut(target).set(key, value.clone());
+                        let _ = self.root.input_tx.send(StateUpdate::new(
+                            target.clone(),
+                            key.clone(),
+                            value.clone(),
+                        ));
+                    }
+                    if writes.accepted > 0 {
                         self.root.send_event(FormEvent::new(id.clone(), "onFilesDropped".to_owned()));
                     }
-                    if !intake.rejected.is_empty() {
+                    if writes.rejected > 0 {
                         self.root.send_event(FormEvent::new(id, "onFilesRejected".to_owned()));
                     }
                     interacted = true;
                 }
+            }
+
+            // ── Toolbar buttons whose action is the platform's work ──────────
+            //
+            // The renderer already fired the button's `onClick`, so the form has
+            // heard about the press either way; this is the deed itself.
+            for (ctrl_id, button_id, action) in output.toolbar_actions.clone() {
+                let parsed = cobolt_forms::toolbar::ToolbarAction::parse(&action);
+                // Copy/Cut/Paste act on whichever control has keyboard focus.
+                // egui reports that as a widget id, and a control's TextEdit is
+                // built with `Id::new(("rt_ctrl", <control id>))` — so the focused
+                // control is found by matching that back.
+                let focused = ctx.memory(|m| m.focused()).and_then(|focus| {
+                    self.root.controls.iter().find_map(|c| {
+                        (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                            let text = self
+                                .root
+                                .state
+                                .get(&c.id)
+                                .and_then(|s| {
+                                    s.props.iter().find_map(|(k, v)| {
+                                        (k.eq_ignore_ascii_case("Text")
+                                            || k.eq_ignore_ascii_case("Value"))
+                                        .then(|| v.clone())
+                                    })
+                                })
+                                .unwrap_or_default();
+                            (c.id.clone(), text)
+                        })
+                    })
+                });
+                let focused_ref =
+                    focused
+                        .as_ref()
+                        .map(|(id, text)| crate::toolbar_actions::Focused {
+                            control_id: id.as_str(),
+                            text: text.clone(),
+                        });
+                let (_outcome, new_text) =
+                    self.toolbar_runner.perform(ctx, &parsed, focused_ref);
+                // A Cut or a Paste changed the focused field: write it back the
+                // way a keystroke would have, so the form sees it.
+                if let (Some(text), Some((target, _))) = (new_text, focused) {
+                    self.root.state_entry_mut(&target).set("Text", text.clone());
+                    let _ = self.root.input_tx.send(StateUpdate::new(
+                        target.clone(),
+                        "Text".to_owned(),
+                        text,
+                    ));
+                    self.root
+                        .send_event(FormEvent::new(target, "onChange".to_owned()));
+                }
+                let _ = (&ctrl_id, &button_id);
+                interacted = true;
+            }
+            // A window capture asked for on an earlier frame finishes here.
+            if self.toolbar_runner.poll_capture(ctx).is_some() {
+                interacted = true;
             }
         }
 

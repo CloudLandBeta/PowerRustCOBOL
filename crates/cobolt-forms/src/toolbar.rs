@@ -1,0 +1,915 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! What a ToolBar is made of.
+//!
+//! A toolbar used to be a newline-separated list of words — `Items`, the same
+//! property a StatusBar has. It drew them in a row and that was the whole of it:
+//! no icons, no grouping, nothing to press.
+//!
+//! A real toolbar is **groups of buttons**. Each group is a frame with its own
+//! border, corner radius and padding; an invisible separator sets one group
+//! apart from the next. Every element inside a group is a button the developer
+//! controls completely — its icon and that icon's size and colour, its own size,
+//! a solid or gradient background, a drop shadow, its foreground colour, whether
+//! it is enabled, and what pressing it does.
+//!
+//! ```text
+//! ┌──────────────────┐   ┌──────────┐        ┌───────────┐
+//! │  ⎘   ✂   📋      │   │  🖨  ⇪   │        │   ▶       │
+//! └──────────────────┘   └──────────┘        └───────────┘
+//!    group "clipboard"    group "output"  ↑     group "run"
+//!                                    separator
+//! ```
+//!
+//! # Colours follow the form's theme
+//!
+//! Every colour here defaults to empty, and empty means *the form's theme
+//! decides* — the same rule the Gauge's `NeedleColor` follows. A colour the
+//! developer actually picks always wins. So a toolbar dropped on a themed form
+//! looks like it belongs there without being configured, and a toolbar that was
+//! configured keeps exactly what it was given.
+//!
+//! # Where it lives
+//!
+//! The whole definition is serialised into one control property,
+//! [`TOOLBAR_DEF_PROP`], the way a DataGrid keeps its advanced column metadata
+//! in `AdvancedGrid`. The form stays self-contained: no side-car file, and the
+//! `.cfrm` round-trip works with no new machinery.
+//!
+//! # Toolbars that already exist
+//!
+//! [`ToolbarDef::from_control`] never returns nothing. A toolbar with no
+//! definition but a populated `Items` is read as ONE group of plain labelled
+//! buttons, in order — so a form built before any of this keeps the toolbar it
+//! had, and editing it in the designer is what promotes it.
+
+use serde::{Deserialize, Serialize};
+
+use crate::model::Control;
+
+/// The control property the serialised definition lives in.
+pub const TOOLBAR_DEF_PROP: &str = "ToolbarLayout";
+
+/// Corner radius a group and a button are born with (operator decision,
+/// 2026-08-16). The artwork is rounded by default rather than square, so a
+/// toolbar looks finished before anyone opens the editor.
+pub const DEFAULT_CORNER_RADIUS: i64 = 10;
+
+/// Padding a group is born with, in pixels, between its frame and its buttons.
+pub const DEFAULT_GROUP_PADDING: i64 = 6;
+
+/// Width of the invisible gap that sets one group apart from the next.
+pub const DEFAULT_SEPARATOR_WIDTH: i64 = 12;
+
+/// Default button box, in pixels.
+pub const DEFAULT_BUTTON_SIZE: (i64, i64) = (32, 28);
+
+/// Default icon box inside a button, in pixels.
+pub const DEFAULT_ICON_SIZE: i64 = 18;
+
+fn default_true() -> bool {
+    true
+}
+fn is_true(b: &bool) -> bool {
+    *b
+}
+fn default_radius() -> i64 {
+    DEFAULT_CORNER_RADIUS
+}
+fn default_padding() -> i64 {
+    DEFAULT_GROUP_PADDING
+}
+fn default_separator_width() -> i64 {
+    DEFAULT_SEPARATOR_WIDTH
+}
+fn default_button_width() -> i64 {
+    DEFAULT_BUTTON_SIZE.0
+}
+fn default_button_height() -> i64 {
+    DEFAULT_BUTTON_SIZE.1
+}
+fn default_icon_size() -> i64 {
+    DEFAULT_ICON_SIZE
+}
+fn is_empty(s: &String) -> bool {
+    s.is_empty()
+}
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+
+/// What pressing a toolbar button does.
+///
+/// Serialised as a string, the way a menu item's action is, so the vocabulary is
+/// readable in the `.cfrm` and one variant can be added without breaking a form
+/// that was saved before it existed. Anything unrecognised parses as
+/// [`ToolbarAction::Event`], which is the harmless default: the button fires its
+/// own `onClick` and the developer's COBOL decides.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum ToolbarAction {
+    /// Fire the button's own `onClick` handler. The default.
+    #[default]
+    Event,
+    /// `PERFORM` one of the form's user procedures.
+    Procedure(String),
+    /// Open a **standalone** form as a modal window. Only standalone forms can
+    /// be opened this way (operator decision): an embedded form belongs in a
+    /// ContentPane, not in a window of its own.
+    OpenModal(String),
+    /// Send a document to the OS print dialog. The target is a file path, or the
+    /// name of a data item holding one — so a form can print the report it just
+    /// wrote.
+    Print(String),
+    /// Offer this form's window, as an image, to the OS share sheet.
+    Share,
+    /// Put an image of this form's window on the clipboard.
+    Screenshot,
+    /// OS clipboard, acting on whichever control has focus.
+    Copy,
+    Cut,
+    Paste,
+    /// Launch an external application: a path, optionally followed by arguments.
+    RunApp(String),
+    /// Open a terminal, optionally in a given directory.
+    OpenTerminal(String),
+}
+
+impl ToolbarAction {
+    /// Parse the stored string. Unknown verbs become [`ToolbarAction::Event`]
+    /// rather than an error: a form saved by a newer PowerRustCOBOL must still
+    /// open in an older one, with the button merely doing less.
+    pub fn parse(raw: &str) -> Self {
+        let raw = raw.trim();
+        let (verb, target) = match raw.split_once(':') {
+            Some((v, t)) => (v.trim(), t.trim().to_owned()),
+            None => (raw, String::new()),
+        };
+        match verb.to_ascii_lowercase().as_str() {
+            "procedure" => Self::Procedure(target),
+            "open-modal" => Self::OpenModal(target),
+            "print" => Self::Print(target),
+            "share" => Self::Share,
+            "screenshot" => Self::Screenshot,
+            "copy" => Self::Copy,
+            "cut" => Self::Cut,
+            "paste" => Self::Paste,
+            "run-app" => Self::RunApp(target),
+            "open-terminal" => Self::OpenTerminal(target),
+            _ => Self::Event,
+        }
+    }
+
+    /// The stored form, round-tripping [`ToolbarAction::parse`].
+    pub fn to_action_string(&self) -> String {
+        match self {
+            Self::Event => "event".into(),
+            Self::Procedure(t) => format!("procedure:{t}"),
+            Self::OpenModal(t) => format!("open-modal:{t}"),
+            Self::Print(t) => format!("print:{t}"),
+            Self::Share => "share".into(),
+            Self::Screenshot => "screenshot".into(),
+            Self::Copy => "copy".into(),
+            Self::Cut => "cut".into(),
+            Self::Paste => "paste".into(),
+            Self::RunApp(t) => format!("run-app:{t}"),
+            Self::OpenTerminal(t) => format!("open-terminal:{t}"),
+        }
+    }
+
+    /// Whether this action is carried out by the platform rather than by the
+    /// form's own COBOL — the ones that need a window, a clipboard, a printer or
+    /// another process. Used to decide what the running host has to do itself.
+    pub fn is_platform_action(&self) -> bool {
+        !matches!(self, Self::Event | Self::Procedure(_) | Self::OpenModal(_))
+    }
+
+    /// The designer-facing name of the verb, for the editor's picker.
+    pub fn verb(&self) -> &'static str {
+        match self {
+            Self::Event => "event",
+            Self::Procedure(_) => "procedure",
+            Self::OpenModal(_) => "open-modal",
+            Self::Print(_) => "print",
+            Self::Share => "share",
+            Self::Screenshot => "screenshot",
+            Self::Copy => "copy",
+            Self::Cut => "cut",
+            Self::Paste => "paste",
+            Self::RunApp(_) => "run-app",
+            Self::OpenTerminal(_) => "open-terminal",
+        }
+    }
+
+    /// Whether the verb takes a target, so the editor knows to offer the field.
+    pub fn takes_target(verb: &str) -> bool {
+        matches!(
+            verb,
+            "procedure" | "open-modal" | "print" | "run-app" | "open-terminal"
+        )
+    }
+
+    /// Every verb the editor offers, in the order it offers them: what the
+    /// form's own code does first, then what the platform does.
+    pub const VERBS: &'static [&'static str] = &[
+        "event",
+        "procedure",
+        "open-modal",
+        "print",
+        "share",
+        "screenshot",
+        "copy",
+        "cut",
+        "paste",
+        "run-app",
+        "open-terminal",
+    ];
+}
+
+// ── Buttons ───────────────────────────────────────────────────────────────────
+
+/// One pressable element of a group.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolbarButton {
+    pub id: String,
+    /// Text on the button. May be empty for an icon-only button.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub label: String,
+    /// Hover text. Empty draws none.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub tooltip: String,
+    /// A name from the hand-drawn icon catalogue (`icons::menu_icon_names`).
+    /// Empty draws no icon.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub icon: String,
+    #[serde(default = "default_icon_size")]
+    pub icon_size: i64,
+    /// Empty = the theme's own icon colour.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub icon_color: String,
+    #[serde(default = "default_button_width")]
+    pub width: i64,
+    #[serde(default = "default_button_height")]
+    pub height: i64,
+    /// Empty = the theme's button face.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub background_color: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub gradient: bool,
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub gradient_start_color: String,
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub gradient_end_color: String,
+    /// `Vertical` | `Horizontal` | `Diagonal`. Empty = `Vertical`.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub gradient_direction: String,
+    /// Empty = the theme's text colour.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub foreground_color: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shadow: bool,
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub shadow_color: String,
+    /// 0-100 %.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shadow_opacity: i64,
+    /// Pixels.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shadow_distance: i64,
+    /// 0-20 blur layers.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shadow_blur_strength: i64,
+    #[serde(default = "default_radius")]
+    pub corner_radius: i64,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub enabled: bool,
+    /// The stored action string — see [`ToolbarAction`].
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub action: String,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
+}
+
+impl ToolbarButton {
+    /// A new button with the defaults a developer expects: rounded, enabled, no
+    /// colour of its own so the theme dresses it, and its own `onClick` to run.
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            tooltip: String::new(),
+            icon: String::new(),
+            icon_size: DEFAULT_ICON_SIZE,
+            icon_color: String::new(),
+            width: DEFAULT_BUTTON_SIZE.0,
+            height: DEFAULT_BUTTON_SIZE.1,
+            background_color: String::new(),
+            gradient: false,
+            gradient_start_color: String::new(),
+            gradient_end_color: String::new(),
+            gradient_direction: String::new(),
+            foreground_color: String::new(),
+            shadow: false,
+            shadow_color: String::new(),
+            shadow_opacity: 0,
+            shadow_distance: 0,
+            shadow_blur_strength: 0,
+            corner_radius: DEFAULT_CORNER_RADIUS,
+            enabled: true,
+            action: String::new(),
+        }
+    }
+
+    pub fn action(&self) -> ToolbarAction {
+        ToolbarAction::parse(&self.action)
+    }
+}
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+
+/// A framed set of buttons.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolbarGroup {
+    pub id: String,
+    /// Designer-facing only — names the group in the editor, never drawn.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub label: String,
+    #[serde(default)]
+    pub buttons: Vec<ToolbarButton>,
+    /// `None` | `Single` | `Fixed3D`. Empty = `Single`; `None` draws no frame,
+    /// which is how a group becomes invisible while still grouping.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub border_style: String,
+    /// Empty = the theme's border colour.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub border_color: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub border_width: i64,
+    #[serde(default = "default_radius")]
+    pub corner_radius: i64,
+    /// Between the frame and the buttons, per group.
+    #[serde(default = "default_padding")]
+    pub padding: i64,
+    /// Empty = the theme's panel face; a group is see-through by default.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub background_color: String,
+    /// An invisible gap after this group, setting it apart from the next.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub separator_after: bool,
+    #[serde(default = "default_separator_width")]
+    pub separator_width: i64,
+}
+
+impl ToolbarGroup {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            buttons: Vec::new(),
+            border_style: String::new(),
+            border_color: String::new(),
+            border_width: 1,
+            corner_radius: DEFAULT_CORNER_RADIUS,
+            padding: DEFAULT_GROUP_PADDING,
+            background_color: String::new(),
+            separator_after: false,
+            separator_width: DEFAULT_SEPARATOR_WIDTH,
+        }
+    }
+
+    /// Whether this group draws a frame at all. `None` (or a zero width) means
+    /// the group still groups — its padding and separator apply — but nothing is
+    /// drawn around it.
+    pub fn draws_frame(&self) -> bool {
+        !self.border_style.eq_ignore_ascii_case("None") && self.border_width > 0
+    }
+
+    /// The group's width, laid out left to right: padding, each button, padding,
+    /// and the separator when one follows.
+    pub fn layout_width(&self, button_gap: i64) -> i64 {
+        let buttons: i64 = self.buttons.iter().map(|b| b.width).sum();
+        let gaps = button_gap * (self.buttons.len().saturating_sub(1) as i64);
+        let sep = if self.separator_after {
+            self.separator_width
+        } else {
+            0
+        };
+        self.padding * 2 + buttons + gaps + sep
+    }
+}
+
+// ── The whole toolbar ─────────────────────────────────────────────────────────
+
+/// Every group on one ToolBar.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub struct ToolbarDef {
+    #[serde(default)]
+    pub groups: Vec<ToolbarGroup>,
+    /// Gap between two buttons inside a group, in pixels.
+    #[serde(default = "default_button_gap")]
+    pub button_gap: i64,
+}
+
+fn default_button_gap() -> i64 {
+    4
+}
+
+impl ToolbarDef {
+    /// Read a control's toolbar. Never empty-handed:
+    ///
+    /// * a stored [`TOOLBAR_DEF_PROP`] is used as it stands;
+    /// * failing that, a populated `Items` becomes ONE group of plain labelled
+    ///   buttons, so a toolbar built before groups existed still has its
+    ///   buttons — and opening the editor is what turns it into a real one;
+    /// * a control with neither gives an empty toolbar, not an error.
+    pub fn from_control(control: &Control) -> Self {
+        if let Some(raw) = control.get_prop(TOOLBAR_DEF_PROP).map(|v| v.as_str()) {
+            let raw = raw.trim();
+            if !raw.is_empty() {
+                if let Ok(def) = serde_json::from_str::<Self>(raw) {
+                    return def;
+                }
+            }
+        }
+        let items = control
+            .get_prop("Items")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        Self::from_items(&items)
+    }
+
+    /// The legacy `Items` list as one group. Kept separate from
+    /// [`Self::from_control`] so the migration is testable on its own.
+    pub fn from_items(items: &str) -> Self {
+        let labels: Vec<&str> = items
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if labels.is_empty() {
+            return Self {
+                groups: Vec::new(),
+                button_gap: default_button_gap(),
+            };
+        }
+        let mut group = ToolbarGroup::new("group-1", "Items");
+        // The frame is off: these buttons were never grouped, and drawing a box
+        // round them would change how an existing form looks.
+        group.border_style = "None".into();
+        for (n, label) in labels.iter().enumerate() {
+            group
+                .buttons
+                .push(ToolbarButton::new(format!("button-{}", n + 1), *label));
+        }
+        Self {
+            groups: vec![group],
+            button_gap: default_button_gap(),
+        }
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    /// Whether anything at all is defined.
+    pub fn is_empty(&self) -> bool {
+        self.groups.iter().all(|g| g.buttons.is_empty())
+    }
+
+    /// Every button, with the group it belongs to, in draw order.
+    pub fn buttons(&self) -> impl Iterator<Item = (&ToolbarGroup, &ToolbarButton)> {
+        self.groups
+            .iter()
+            .flat_map(|g| g.buttons.iter().map(move |b| (g, b)))
+    }
+
+    /// Find a button by id, wherever it is.
+    pub fn button(&self, id: &str) -> Option<&ToolbarButton> {
+        self.buttons()
+            .find(|(_, b)| b.id.eq_ignore_ascii_case(id))
+            .map(|(_, b)| b)
+    }
+
+    /// An id no group is using yet.
+    pub fn next_group_id(&self) -> String {
+        let mut n = self.groups.len() + 1;
+        while self.groups.iter().any(|g| g.id == format!("group-{n}")) {
+            n += 1;
+        }
+        format!("group-{n}")
+    }
+
+    /// An id no button is using yet, anywhere on the toolbar — button ids are
+    /// what a handler and an action refer to, so they are unique per toolbar,
+    /// not per group.
+    pub fn next_button_id(&self) -> String {
+        let mut n = self.buttons().count() + 1;
+        while self.button(&format!("button-{n}")).is_some() {
+            n += 1;
+        }
+        format!("button-{n}")
+    }
+
+    /// Total width the toolbar wants, so the designer can warn when it does not
+    /// fit the control it is on.
+    pub fn layout_width(&self) -> i64 {
+        self.groups
+            .iter()
+            .map(|g| g.layout_width(self.button_gap))
+            .sum()
+    }
+
+    /// Where every group frame and every button goes, in toolbar-local pixels.
+    ///
+    /// Pure geometry — no egui, so it is testable without a window, and the
+    /// designer canvas, the preview, the running form and the compiled binary
+    /// all lay a toolbar out identically because they all call this.
+    ///
+    /// Groups run left to right. A group is as tall as its tallest button plus
+    /// its padding, centred vertically in `bar_h`; a button is centred in its
+    /// group. A group that would start past `bar_w` is dropped rather than drawn
+    /// half off the end — the designer reports the overflow instead
+    /// ([`Self::layout_width`] against the control's width).
+    pub fn layout(&self, bar_w: i64, bar_h: i64) -> Vec<GroupLayout> {
+        let mut out = Vec::with_capacity(self.groups.len());
+        let mut x = 0i64;
+        for (index, group) in self.groups.iter().enumerate() {
+            if group.buttons.is_empty() {
+                continue;
+            }
+            let tallest = group.buttons.iter().map(|b| b.height).max().unwrap_or(0);
+            let frame_h = (tallest + group.padding * 2).min(bar_h.max(1));
+            let frame_w = group.layout_width(self.button_gap)
+                - if group.separator_after {
+                    group.separator_width
+                } else {
+                    0
+                };
+            if x >= bar_w {
+                break;
+            }
+            let frame = Box2 {
+                x,
+                y: (bar_h - frame_h) / 2,
+                w: frame_w,
+                h: frame_h,
+            };
+            let mut buttons = Vec::with_capacity(group.buttons.len());
+            let mut bx = x + group.padding;
+            for button in &group.buttons {
+                buttons.push((
+                    button.id.clone(),
+                    Box2 {
+                        x: bx,
+                        y: frame.y + (frame_h - button.height) / 2,
+                        w: button.width,
+                        h: button.height,
+                    },
+                ));
+                bx += button.width + self.button_gap;
+            }
+            out.push(GroupLayout {
+                group_index: index,
+                frame,
+                buttons,
+            });
+            x += group.layout_width(self.button_gap);
+        }
+        out
+    }
+}
+
+/// A rectangle in toolbar-local pixels. Deliberately not egui's `Rect`: the
+/// layout is model-side so it can be tested and reasoned about without a window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Box2 {
+    pub x: i64,
+    pub y: i64,
+    pub w: i64,
+    pub h: i64,
+}
+
+impl Box2 {
+    pub fn right(&self) -> i64 {
+        self.x + self.w
+    }
+    pub fn bottom(&self) -> i64 {
+        self.y + self.h
+    }
+    pub fn contains(&self, px: i64, py: i64) -> bool {
+        px >= self.x && px < self.right() && py >= self.y && py < self.bottom()
+    }
+}
+
+/// One group's place on the bar, and its buttons' places within it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupLayout {
+    /// Index into [`ToolbarDef::groups`] — empty groups are skipped, so this is
+    /// not the position in this vector.
+    pub group_index: usize,
+    pub frame: Box2,
+    pub buttons: Vec<(String, Box2)>,
+}
+
+/// Which button is at a toolbar-local point, if any. What a click resolves to.
+pub fn button_at(layout: &[GroupLayout], px: i64, py: i64) -> Option<&str> {
+    layout
+        .iter()
+        .flat_map(|g| g.buttons.iter())
+        .find(|(_, box2)| box2.contains(px, py))
+        .map(|(id, _)| id.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{ControlType, PropValue};
+
+    #[test]
+    fn an_action_round_trips_through_its_stored_string() {
+        let cases = [
+            ("event", ToolbarAction::Event),
+            ("procedure:UPDATE-TOTAL", ToolbarAction::Procedure("UPDATE-TOTAL".into())),
+            ("open-modal:CUST-LOOKUP", ToolbarAction::OpenModal("CUST-LOOKUP".into())),
+            ("print:/tmp/report.pdf", ToolbarAction::Print("/tmp/report.pdf".into())),
+            ("share", ToolbarAction::Share),
+            ("screenshot", ToolbarAction::Screenshot),
+            ("copy", ToolbarAction::Copy),
+            ("cut", ToolbarAction::Cut),
+            ("paste", ToolbarAction::Paste),
+            ("run-app:/usr/bin/vim", ToolbarAction::RunApp("/usr/bin/vim".into())),
+            ("open-terminal:/tmp", ToolbarAction::OpenTerminal("/tmp".into())),
+        ];
+        for (stored, want) in &cases {
+            assert_eq!(&ToolbarAction::parse(stored), want, "parsing {stored:?}");
+            assert_eq!(&want.to_action_string(), stored, "writing {want:?}");
+        }
+
+        // A verb from a newer PowerRustCOBOL degrades to the button's own
+        // handler rather than refusing to open the form.
+        assert_eq!(ToolbarAction::parse("teleport:MARS"), ToolbarAction::Event);
+        assert_eq!(ToolbarAction::parse(""), ToolbarAction::Event);
+        // Case and stray spacing are the developer's, not the format's.
+        assert_eq!(
+            ToolbarAction::parse("  PRINT :  /tmp/a.pdf  "),
+            ToolbarAction::Print("/tmp/a.pdf".into())
+        );
+
+        // The platform carries out everything except the three that are the
+        // form's own code.
+        for cobol in ["event", "procedure:P", "open-modal:F"] {
+            assert!(!ToolbarAction::parse(cobol).is_platform_action(), "{cobol}");
+        }
+        for platform in ["print:/a", "share", "screenshot", "copy", "cut", "paste", "run-app:/a", "open-terminal:"] {
+            assert!(ToolbarAction::parse(platform).is_platform_action(), "{platform}");
+        }
+        // Every verb the editor offers must parse to itself.
+        for verb in ToolbarAction::VERBS {
+            let raw = if ToolbarAction::takes_target(verb) {
+                format!("{verb}:X")
+            } else {
+                (*verb).to_owned()
+            };
+            assert_eq!(
+                ToolbarAction::parse(&raw).verb(),
+                *verb,
+                "the editor offers {verb} but it does not round-trip"
+            );
+        }
+
+        println!(
+            "\n  Toolbar actions — {} verbs round-trip; an unknown verb degrades to \
+             the button's own onClick; 8 of them are the platform's work\n",
+            ToolbarAction::VERBS.len()
+        );
+    }
+
+    #[test]
+    fn groups_and_buttons_are_born_rounded_and_theme_coloured() {
+        let g = ToolbarGroup::new("group-1", "Clipboard");
+        let b = ToolbarButton::new("button-1", "Copy");
+        // Operator decision: 10, for both.
+        assert_eq!(g.corner_radius, DEFAULT_CORNER_RADIUS);
+        assert_eq!(b.corner_radius, DEFAULT_CORNER_RADIUS);
+        assert_eq!(DEFAULT_CORNER_RADIUS, 10);
+        // Every colour empty = the form's theme decides.
+        for colour in [
+            &g.border_color,
+            &g.background_color,
+            &b.background_color,
+            &b.foreground_color,
+            &b.icon_color,
+        ] {
+            assert!(colour.is_empty(), "a new element must carry no colour of its own");
+        }
+        assert!(b.enabled, "a new button is enabled");
+        assert_eq!(b.action().verb(), "event", "…and runs its own onClick");
+        assert!(g.draws_frame(), "a new group has a frame");
+
+        // `None` still groups — padding and separator apply — but draws nothing.
+        let mut invisible = ToolbarGroup::new("g", "");
+        invisible.border_style = "None".into();
+        assert!(!invisible.draws_frame());
+        assert_eq!(invisible.padding, DEFAULT_GROUP_PADDING);
+
+        println!(
+            "\n  Toolbar defaults — radius {} on groups and buttons, every colour \
+             unset (theme decides), enabled, own onClick\n",
+            DEFAULT_CORNER_RADIUS
+        );
+    }
+
+    /// A toolbar built before groups existed must not lose its buttons.
+    #[test]
+    fn a_legacy_items_toolbar_becomes_one_unframed_group() {
+        let mut ctrl = Control::new("TB-1", ControlType::ToolBar, 0, 0);
+        ctrl.set_prop("Items", PropValue::String("a\nb\n\nc\n".into()));
+
+        let def = ToolbarDef::from_control(&ctrl);
+        assert_eq!(def.groups.len(), 1, "one group");
+        let g = &def.groups[0];
+        assert_eq!(
+            g.buttons.iter().map(|b| b.label.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b", "c"],
+            "each item becomes a button, blank lines dropped, order kept"
+        );
+        assert!(
+            !g.draws_frame(),
+            "a frame round buttons that were never grouped would change how an \
+             existing form looks"
+        );
+        assert_eq!(def.button(&g.buttons[1].id).map(|b| b.label.as_str()), Some("b"));
+
+        // A stored definition wins over Items.
+        let mut real = ToolbarGroup::new("group-1", "Real");
+        real.buttons.push(ToolbarButton::new("button-1", "Save"));
+        let stored = ToolbarDef {
+            groups: vec![real],
+            button_gap: 4,
+        };
+        ctrl.set_prop(
+            TOOLBAR_DEF_PROP,
+            PropValue::String(stored.to_json().unwrap()),
+        );
+        let def = ToolbarDef::from_control(&ctrl);
+        assert_eq!(def, stored, "the stored definition is what is used");
+
+        // Unreadable JSON falls back to Items rather than losing the toolbar.
+        ctrl.set_prop(TOOLBAR_DEF_PROP, PropValue::String("{not json".into()));
+        assert_eq!(ToolbarDef::from_control(&ctrl).groups[0].buttons.len(), 3);
+
+        // A control with neither is empty, not an error.
+        let bare = Control::new("TB-2", ControlType::ToolBar, 0, 0);
+        assert!(ToolbarDef::from_control(&bare).is_empty());
+
+        println!(
+            "\n  Toolbar migration — Items \"a\\nb\\n\\nc\" ⇒ 1 unframed group of 3 \
+             buttons; a stored definition wins; bad JSON falls back to Items; a bare \
+             control is empty\n"
+        );
+    }
+
+    #[test]
+    fn the_definition_survives_json_and_ids_never_collide() {
+        let mut def = ToolbarDef::default();
+        let g1 = def.next_group_id();
+        let mut group = ToolbarGroup::new(&g1, "Clipboard");
+        for label in ["Copy", "Cut", "Paste"] {
+            let id = {
+                let mut probe = def.clone();
+                probe.groups.push(group.clone());
+                probe.next_button_id()
+            };
+            let mut b = ToolbarButton::new(id, label);
+            b.icon = label.to_ascii_lowercase();
+            b.action = label.to_ascii_lowercase();
+            group.buttons.push(b);
+        }
+        group.separator_after = true;
+        def.groups.push(group);
+
+        let json = def.to_json().expect("serialises");
+        let back: ToolbarDef = serde_json::from_str(&json).expect("deserialises");
+        assert_eq!(back, def, "the definition survives a JSON round-trip");
+
+        // Ids are unique across the whole toolbar, not per group.
+        let ids: Vec<&str> = def.buttons().map(|(_, b)| b.id.as_str()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), ids.len(), "button ids collide: {ids:?}");
+        assert_ne!(def.next_group_id(), g1);
+
+        // Width accounts for padding, buttons, gaps and the separator.
+        let g = &def.groups[0];
+        let want = g.padding * 2 + 3 * DEFAULT_BUTTON_SIZE.0 + 2 * def.button_gap + g.separator_width;
+        assert_eq!(def.layout_width(), want);
+
+        println!(
+            "\n  Toolbar definition — 1 group of 3 buttons round-trips through JSON \
+             ({} bytes), ids unique toolbar-wide, layout width {}px \
+             (padding {}×2 + 3 buttons + 2 gaps + separator {})\n",
+            json.len(),
+            def.layout_width(),
+            g.padding,
+            g.separator_width
+        );
+    }
+
+    /// The geometry every surface shares: groups left to right, the separator
+    /// showing up as a gap between frames rather than as anything drawn, and a
+    /// click landing on exactly one button.
+    #[test]
+    fn groups_lay_out_left_to_right_with_the_separator_as_a_gap() {
+        let mut def = ToolbarDef::default();
+
+        let mut clip = ToolbarGroup::new("group-1", "Clipboard");
+        for (n, label) in ["Copy", "Cut", "Paste"].iter().enumerate() {
+            clip.buttons
+                .push(ToolbarButton::new(format!("b{}", n + 1), *label));
+        }
+        clip.separator_after = true;
+        def.groups.push(clip);
+
+        let mut out = ToolbarGroup::new("group-2", "Output");
+        out.buttons.push(ToolbarButton::new("b4", "Print"));
+        def.groups.push(out);
+
+        // An empty group is skipped entirely — it has nothing to frame.
+        def.groups.push(ToolbarGroup::new("group-3", "Empty"));
+
+        let bar_h = 40;
+        let l = def.layout(1000, bar_h);
+        assert_eq!(l.len(), 2, "the empty group is not laid out");
+        assert_eq!(l[1].group_index, 1, "indices point back at the real groups");
+
+        // Group 1: padding, 3 buttons, 2 gaps — and the separator is NOT part of
+        // the frame, only of the distance to the next group.
+        let g1 = &l[0];
+        let frame_w = 6 * 2 + 3 * DEFAULT_BUTTON_SIZE.0 + 2 * def.button_gap;
+        assert_eq!(g1.frame.x, 0);
+        assert_eq!(g1.frame.w, frame_w, "the separator is outside the frame");
+        assert_eq!(g1.frame.h, DEFAULT_BUTTON_SIZE.1 + 6 * 2);
+        assert_eq!(
+            g1.frame.y,
+            (bar_h - g1.frame.h) / 2,
+            "the group is centred in the bar"
+        );
+
+        // The gap between the two frames IS the separator.
+        let g2 = &l[1];
+        assert_eq!(
+            g2.frame.x - g1.frame.right(),
+            DEFAULT_SEPARATOR_WIDTH,
+            "the invisible separator sets the groups apart"
+        );
+
+        // Buttons: inside the padding, in order, gap between them.
+        let b: Vec<&Box2> = g1.buttons.iter().map(|(_, r)| r).collect();
+        assert_eq!(b[0].x, g1.frame.x + 6);
+        assert_eq!(b[1].x - b[0].right(), def.button_gap);
+        for r in &b {
+            assert!(
+                r.y >= g1.frame.y && r.bottom() <= g1.frame.bottom(),
+                "a button must sit inside its frame: {r:?} in {:?}",
+                g1.frame
+            );
+        }
+
+        // A click lands on exactly one button, and on none in the padding or the
+        // separator.
+        assert_eq!(button_at(&l, b[0].x + 1, b[0].y + 1), Some("b1"));
+        assert_eq!(button_at(&l, b[2].x + 1, b[2].y + 1), Some("b3"));
+        assert_eq!(button_at(&l, g2.buttons[0].1.x + 1, g2.buttons[0].1.y + 1), Some("b4"));
+        assert_eq!(
+            button_at(&l, g1.frame.right() + 2, bar_h / 2),
+            None,
+            "the separator is not pressable"
+        );
+        assert_eq!(button_at(&l, g1.frame.x, g1.frame.y), None, "padding is not pressable");
+
+        // A bar too narrow drops whole groups rather than drawing half of one.
+        let narrow = def.layout(frame_w, bar_h);
+        assert_eq!(narrow.len(), 1, "only what starts inside the bar is laid out");
+
+        println!(
+            "\n  Toolbar layout — 2 groups ({} buttons) on a {}px bar: frame 1 at x0 \
+             w{}, frame 2 at x{} ({}px separator between), buttons inside their \
+             padding; clicks resolve to exactly one button, separator and padding \
+             to none; a {}px bar drops the second group\n",
+            def.buttons().count(),
+            bar_h,
+            g1.frame.w,
+            g2.frame.x,
+            DEFAULT_SEPARATOR_WIDTH,
+            frame_w
+        );
+    }
+}

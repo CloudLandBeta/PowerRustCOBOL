@@ -1647,6 +1647,9 @@ pub struct DesignerPanel {
 
     // ── Menu editor modal (spec 018) ────────────────────────────────────────
     pub menu_modal: Option<MenuEditorModal>,
+    /// The ToolBar editor, while it is open. Edits its own copy of the
+    /// definition, so Cancel really cancels.
+    pub toolbar_modal: Option<super::toolbar_editor::ToolbarEditorModal>,
 
     // ── Event editor modal ────────────────────────────────────────────────────
     /// When `Some`, a modal COBOL code editor is displayed over the canvas.
@@ -1787,6 +1790,7 @@ impl DesignerPanel {
             press_handle: None,
             press_form_edge: None,
             menu_modal: None,
+            toolbar_modal: None,
             event_modal: None,
             event_editor: super::editor::EditorPanel::new(),
             ai_prompt_editor: super::editor::EditorPanel::new(),
@@ -3147,6 +3151,66 @@ impl DesignerPanel {
         // If dropped over a container's content area, nest the new control in it
         // (spec 012). No-op when placed on the bare form.
         self.reparent_to_drop(&id);
+        // A FileDropZone comes with the list that shows what it is holding.
+        if matches!(ct, ControlType::FileDropZone) {
+            self.add_drop_zone_file_list(&id);
+        }
+    }
+
+    /// Give a new FileDropZone the companion ListBox that reviews its intake.
+    ///
+    /// A staged drop is only useful if the person doing the dropping can SEE
+    /// what they dropped and untick what they did not mean to send, so the list
+    /// arrives with the zone rather than being something to remember to wire up.
+    /// It is an ordinary ListBox: move it, resize it, restyle it, or delete it —
+    /// the zone reads `FileListControl` and simply has no list if it names
+    /// nothing.
+    ///
+    /// Seeded at the zone's own size, directly beneath it, with tick boxes on.
+    fn add_drop_zone_file_list(&mut self, zone_id: &str) {
+        let Some(zone) = self.form.find_control(zone_id) else {
+            return;
+        };
+        let (zx, zy, zw, zh) = (
+            zone.rect.x,
+            zone.rect.y,
+            zone.rect.w.max(1),
+            zone.rect.h.max(1),
+        );
+        let parent = zone.parent.clone();
+        let tab = zone.tab;
+        let gap = (self.form.grid_size as i32).max(4);
+
+        let list_id = self.next_unique_id(&ControlType::ListBox);
+        let mut list = Control::new(&list_id, ControlType::ListBox, zx, zy + zh + gap);
+        // "The same size as the FileDropZone control" — and from here it is a
+        // ListBox like any other, so the developer's own drag governs.
+        list.rect.w = zw;
+        list.rect.h = zh;
+        list.parent = parent;
+        list.tab = tab;
+        if let Some(style) = self.neumorphic_seed() {
+            list.apply_glass_style_defaults(style);
+        }
+        list.properties
+            .insert("ShowCheckBoxes".into(), PropValue::Bool(true));
+        let max_z = self.form.controls.iter().map(|c| c.z_order).max().unwrap_or(-1);
+        list.z_order = max_z + 1;
+
+        let index = self.form.controls.len();
+        self.apply(Cmd::AddControl { index, ctrl: list });
+        self.apply(Cmd::SetProperty {
+            id: zone_id.to_owned(),
+            key: "FileListControl".into(),
+            old: self
+                .form
+                .find_control(zone_id)
+                .and_then(|c| c.get_prop("FileListControl"))
+                .cloned(),
+            new: PropValue::String(list_id),
+        });
+        // The zone stays selected: the developer asked for a drop zone.
+        self.set_selected_one(Some(zone_id.to_owned()));
     }
 
     fn cascade_ids_for(&self, ids: &[String]) -> Vec<String> {
@@ -7027,6 +7091,9 @@ impl DesignerPanel {
         // ── Menu Editor Modal (spec 018) ──────────────────────────────────────
         self.show_menu_editor(ui);
 
+        // ── Toolbar Editor Modal ────────────────────────────────────────────
+        self.show_toolbar_editor(ui);
+
         // ── Event Editor Modal ──────────────────────────────────────────────────
         self.show_event_modal(ui, llm_cfg, project_root);
 
@@ -7161,6 +7228,39 @@ impl DesignerPanel {
     }
 
     /// Render the menu tree editor modal (spec 018).
+    /// Run the Toolbar Editor, and on Save put the definition back on the
+    /// control as one undoable property write — so ⌘Z undoes an entire editing
+    /// session in one step, which is what "I did not mean to save that" means.
+    fn show_toolbar_editor(&mut self, ui: &mut Ui) {
+        let Some(modal) = self.toolbar_modal.as_mut() else {
+            return;
+        };
+        let ctrl_id = modal.ctrl_id.clone();
+        match super::toolbar_editor::show(modal, ui.ctx()) {
+            super::toolbar_editor::EditorOutcome::Open => {}
+            super::toolbar_editor::EditorOutcome::Cancelled => {
+                self.toolbar_modal = None;
+            }
+            super::toolbar_editor::EditorOutcome::Save(json) => {
+                self.toolbar_modal = None;
+                let old = self
+                    .form
+                    .find_control(&ctrl_id)
+                    .and_then(|c| {
+                        c.get_prop(cobolt_forms::toolbar::TOOLBAR_DEF_PROP)
+                    })
+                    .cloned();
+                self.apply(Cmd::SetProperty {
+                    id: ctrl_id,
+                    key: cobolt_forms::toolbar::TOOLBAR_DEF_PROP.to_owned(),
+                    old,
+                    new: PropValue::String(json),
+                });
+                self.dirty = true;
+            }
+        }
+    }
+
     fn show_menu_editor(&mut self, ui: &mut Ui) {
         if self.menu_modal.is_none() {
             return;
@@ -8461,6 +8561,17 @@ impl DesignerPanel {
             .default_height(default_h)
             .min_width(360.0)
             .min_height(420.0)
+            // A ceiling, because a Window sizes itself from its CONTENT. That
+            // is the difference between this modal and Grace's prompt, which
+            // never misbehaves: hers lives in a panel whose width is its own,
+            // so nothing she puts inside can push it. This one had no ceiling,
+            // so any content taller or wider than the default simply took the
+            // room — and with a code editor inside, "content" is whatever has
+            // been typed. The ceiling is the same 70% of the screen the window
+            // opens at, so the developer's own drag still governs everything
+            // below it.
+            .max_width(default_w)
+            .max_height(default_h)
             .default_pos(default_pos)
             .constrain_to(roam)
             .frame(
@@ -8497,7 +8608,16 @@ impl DesignerPanel {
                 //    (See `.claude/agents/egui-resize-guardian.md` — deriving a
                 //    child's size from the parent's available space is exactly the
                 //    feedback loop that makes "resizable" widgets self-inflate.)
-                let editor_default_h = (default_h - 250.0).max(220.0);
+                // A CONSTANT opening height, not a share of the monitor. It was
+                // `70% of the screen − 250`, which on a large display is ~600 px
+                // for the code box alone — more than the rest of the modal's
+                // furniture leaves, so the window had to grow to hold it and
+                // the whole thing walked out to the edges. `Resize` hid that by
+                // seeding once and then living off its stored state; a box that
+                // reads its default every frame cannot hide it. 360 px shows
+                // about twenty lines and leaves the modal inside its own
+                // default size; the grip goes anywhere from here.
+                let editor_default_h = 360.0_f32;
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
@@ -8517,12 +8637,18 @@ impl DesignerPanel {
                 // only thing that changes the height.
                 let editor_min_h = 160.0_f32;
                 let editor_max_h = 4000.0_f32;
-                let editor_h = if self.event_editor_height > 0.0 {
-                    self.event_editor_height
-                } else {
-                    editor_default_h
+                // SEED ONCE, then never look at the screen again. `Resize` used
+                // its `default_size` only to seed its stored state; reading the
+                // default every frame instead — and the default is 70% of the
+                // SCREEN — made the box track the window, the window track the
+                // box, and the whole modal walk out to the edges. The stored
+                // height is the single source from the first frame onward, and
+                // only the grip writes it.
+                if self.event_editor_height <= 0.0 {
+                    self.event_editor_height =
+                        editor_default_h.clamp(editor_min_h, editor_max_h);
                 }
-                .clamp(editor_min_h, editor_max_h);
+                let editor_h = self.event_editor_height.clamp(editor_min_h, editor_max_h);
                 let editor_box = egui::vec2(editor_w, editor_h);
                 let editor_inner = ui.allocate_ui(editor_box, |ui| {
                     ui.set_min_size(editor_box);
@@ -8639,12 +8765,17 @@ impl DesignerPanel {
                         |rows: f32| rows * prompt_row + GLOBAL_AI_PROMPT_CHROME;
                     let prompt_min_height = prompt_height_for(1.0);
                     let prompt_max_height = prompt_height_for(6.0);
-                    let prompt_height = if self.event_ai_prompt_height > 0.0 {
-                        self.event_ai_prompt_height
-                    } else {
-                        prompt_height_for(3.0)
+                    // Seeded once, like the code box above. This one's default
+                    // is three text rows — it never touched the screen size —
+                    // but it takes the same rule so both boxes answer to the
+                    // stored value and the grip alone.
+                    if self.event_ai_prompt_height <= 0.0 {
+                        self.event_ai_prompt_height =
+                            prompt_height_for(3.0).clamp(prompt_min_height, prompt_max_height);
                     }
-                    .clamp(prompt_min_height, prompt_max_height);
+                    let prompt_height = self
+                        .event_ai_prompt_height
+                        .clamp(prompt_min_height, prompt_max_height);
                     ui.horizontal_top(|ui| {
                         let box_size = egui::vec2(text_w, prompt_height);
                         let inner = ui.allocate_ui(box_size, |ui| {
@@ -13506,6 +13637,81 @@ mod sticky_font_tests {
         // Default control font is 14pt since the 1.30.x control-defaults
         // update (operator decision 2026-07-16: keep 14).
         assert_eq!(font_of(&d, &first), ("Arial".to_string(), 14));
+    }
+
+    /// A FileDropZone arrives with the list that reviews its intake, at the
+    /// zone's own size, ticked boxes on, and already named in `FileListControl`
+    /// — so confirm-before-copy is one property away instead of a wiring job.
+    #[test]
+    fn a_file_drop_zone_brings_its_review_list_with_it() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_control(ControlType::FileDropZone, 40, 60);
+
+        assert_eq!(d.form.controls.len(), 2, "the zone and its list");
+        let zone = d.form.controls[0].clone();
+        let list = d.form.controls[1].clone();
+        assert_eq!(zone.control_type, ControlType::FileDropZone);
+        assert_eq!(list.control_type, ControlType::ListBox);
+
+        // Wired up, both ways round.
+        assert_eq!(
+            zone.get_prop("FileListControl").map(|v| v.as_str().to_owned()),
+            Some(list.id.clone()),
+            "the zone must name its list"
+        );
+        assert!(
+            list.get_prop("ShowCheckBoxes").is_some_and(|v| v.as_bool()),
+            "the review list needs its tick boxes"
+        );
+
+        // "The same size as the FileDropZone control", directly beneath it.
+        assert_eq!(
+            (list.rect.w, list.rect.h),
+            (zone.rect.w, zone.rect.h),
+            "the list opens at the zone's size"
+        );
+        assert_eq!(list.rect.x, zone.rect.x, "aligned with the zone");
+        assert!(
+            list.rect.y >= zone.rect.y + zone.rect.h,
+            "the list sits below the zone, not over it: list y {} vs zone bottom {}",
+            list.rect.y,
+            zone.rect.y + zone.rect.h
+        );
+
+        // The developer asked for a drop zone, so that is what is selected.
+        assert_eq!(d.selected_ids, vec![zone.id.clone()]);
+
+        // A second zone gets its own list, not a shared one.
+        d.add_control(ControlType::FileDropZone, 40, 300);
+        let ids: Vec<String> = d
+            .form
+            .controls
+            .iter()
+            .filter(|c| c.control_type == ControlType::FileDropZone)
+            .filter_map(|c| {
+                c.get_prop("FileListControl")
+                    .map(|v| v.as_str().to_owned())
+            })
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1], "each zone gets its own list");
+
+        // And it is an ordinary ListBox: deleting it leaves the zone working,
+        // just listless. (`FileListControl` naming a control that is gone is
+        // the same case as naming nothing — see `dropzone::apply_drop`.)
+        d.delete_ids_now(&[list.id.clone()]);
+        assert!(d.form.find_control(&list.id).is_none());
+        assert!(
+            d.form.find_control(&zone.id).is_some(),
+            "deleting the list must not take the zone with it"
+        );
+
+        println!(
+            "\n  FileDropZone companion — dropping a zone creates ListBox {:?} at the \
+             zone's {}x{}, tick boxes on, named in FileListControl; the zone stays \
+             selected; deleting the list leaves the zone; a second zone gets its own\n",
+            list.id, list.rect.w, list.rect.h
+        );
     }
 }
 

@@ -3904,6 +3904,15 @@ impl Control {
                 // Radial + Donut (the needle); the scale is Radial-only
                 props.insert("ShowNeedle".into(), PropValue::Bool(true));
                 props.insert("ShowScale".into(), PropValue::Bool(true));
+                // The needle's own ink. Empty = whatever colour the meter is
+                // drawn in (its `Color`, a zone, or the theme accent), which is
+                // how the needle has always been painted.
+                props.insert("NeedleColor".into(), PropValue::String("".into()));
+                // Where the readout sits, Radial only: `Up` inside the dial as
+                // it always has, `Down` under the needle's pivot. A Donut reads
+                // out in the hole and a Linear under its bar — neither has two
+                // places to choose between.
+                props.insert("ReadoutPosition".into(), PropValue::String("Up".into())); // Up | Down
                 // Linear-only
                 props.insert("BarHeight".into(), PropValue::Int(14));
                 props.insert("ShowThumb".into(), PropValue::Bool(true));
@@ -3928,6 +3937,16 @@ impl Control {
                 props.insert("AllowedExtensions".into(), PropValue::String("".into()));
                 props.insert("MaximumFileSizeKB".into(), PropValue::Int(0));
                 props.insert("DestinationFolder".into(), PropValue::String("".into()));
+                // Off = a drop copies then and there, which is what every zone
+                // has always done. On = the drop only STAGES, the files are
+                // listed for review, and the form's own COBOL calls
+                // `CommitFiles()` when the person doing the dropping is happy.
+                props.insert("StageOnly".into(), PropValue::Bool(false));
+                // The ListBox that shows what is staged, one tick-boxed row per
+                // file. Seeded with the companion the designer creates next to a
+                // new zone; empty (or naming a control that is gone) simply
+                // means no list, and the zone still works.
+                props.insert("FileListControl".into(), PropValue::String("".into()));
             }
             // Maps (spec 039 T8): the OpenStreetMap basemap needs no key at
             // all (R33) — `ApiKeySource` only gates the google_maps-backed

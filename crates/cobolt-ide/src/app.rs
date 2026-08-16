@@ -14116,6 +14116,19 @@ impl CoboltApp {
                     .for_side_menu(is_side_menu),
             );
         }
+        // The toolbar's own editor. Its definition lives on the control, not in a
+        // side-car file, so opening it is just reading the property back.
+        if let Some(ctrl_id) = inspector_action.open_toolbar_editor {
+            let def = self.designers[idx]
+                .1
+                .form
+                .find_control(&ctrl_id)
+                .map(cobolt_forms::toolbar::ToolbarDef::from_control)
+                .unwrap_or_default();
+            self.designers[idx].1.toolbar_modal = Some(
+                crate::panels::toolbar_editor::ToolbarEditorModal::new(ctrl_id, def),
+            );
+        }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_in_code {
             self.jump_to_event_code(idx, &ctrl_id, &ev_name);
         }
