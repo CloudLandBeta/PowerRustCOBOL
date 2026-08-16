@@ -1692,6 +1692,14 @@ pub struct DesignerPanel {
     /// the 3-row default); only the box's corner-grip drag writes it, clamped
     /// between the 1-row and 6-row limits.
     pub ai_prompt_height: f32,
+    /// The event editor's prompt-box height, on the same user-authoritative
+    /// contract as [`Self::ai_prompt_height`]: 0 = never dragged, and the only
+    /// writer is the grip. It exists because `egui::Resize` cannot honour that
+    /// contract — since 0.35 it does `desired = desired.max(measured_content)`
+    /// every frame, so a box holding a code editor ratchets open on its own.
+    pub event_ai_prompt_height: f32,
+    /// The event editor's code-box height — same contract, same reason.
+    pub event_editor_height: f32,
     pub global_ai_streaming: String,
     /// What the AI pane's transcript looked like last frame — turn count,
     /// streamed-buffer length, and whether the agents were working. Any change
@@ -1798,6 +1806,8 @@ impl DesignerPanel {
             global_ai_prompt: String::new(),
             orphan_notices: Vec::new(),
             ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
+            event_ai_prompt_height: 0.0, // idem, for the event editor's prompt
+            event_editor_height: 0.0,    // idem, for its code box
             global_ai_streaming: String::new(),
             ai_transcript_mark: (0, 0, false),
             ai_transcript_at_bottom: true,
@@ -8441,20 +8451,65 @@ impl DesignerPanel {
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
                     .corner_radius(egui::CornerRadius::same(6))
                     .inner_margin(egui::Margin::same(2));
-                egui::Resize::default()
-                    .id_salt("event_editor_code_box")
-                    .resizable([false, true])
-                    .min_size(egui::vec2(editor_w, 160.0))
-                    .max_size(egui::vec2(editor_w, 4000.0))
-                    .default_size(egui::vec2(editor_w, editor_default_h))
-                    .show(ui, |ui| {
-                        let sz = ui.available_size();
-                        ui.allocate_ui(sz, |ui| {
-                            frame.show(ui, |ui| {
-                                self.event_editor.render_code_area(&ectx, ui);
-                            });
-                        });
+                // The comment above states the contract; `egui::Resize` could
+                // not keep it. It grows to `desired.max(measured_content)` on
+                // every frame, and the content here is a code editor that
+                // measures whatever the developer has typed — so the box (and
+                // the modal with it) crept open on its own. A fixed allocation
+                // keeps the promise: content scrolls inside, the grip is the
+                // only thing that changes the height.
+                let editor_min_h = 160.0_f32;
+                let editor_max_h = 4000.0_f32;
+                let editor_h = if self.event_editor_height > 0.0 {
+                    self.event_editor_height
+                } else {
+                    editor_default_h
+                }
+                .clamp(editor_min_h, editor_max_h);
+                let editor_box = egui::vec2(editor_w, editor_h);
+                let editor_inner = ui.allocate_ui(editor_box, |ui| {
+                    ui.set_min_size(editor_box);
+                    ui.set_max_size(editor_box);
+                    frame.show(ui, |ui| {
+                        self.event_editor.render_code_area(&ectx, ui);
                     });
+                });
+                {
+                    let box_rect = editor_inner.response.rect;
+                    let grip_size = 14.0;
+                    let grip_rect = egui::Rect::from_min_size(
+                        box_rect.max - egui::vec2(grip_size, grip_size),
+                        egui::vec2(grip_size, grip_size),
+                    );
+                    let grip = ui.interact(
+                        grip_rect,
+                        egui::Id::new("event_editor_code_grip"),
+                        egui::Sense::drag(),
+                    );
+                    if grip.dragged() {
+                        self.event_editor_height =
+                            (editor_h + grip.drag_delta().y).clamp(editor_min_h, editor_max_h);
+                    }
+                    if grip.hovered() || grip.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    }
+                    let stroke = if grip.hovered() || grip.dragged() {
+                        ui.visuals().widgets.hovered.fg_stroke
+                    } else {
+                        ui.visuals().widgets.inactive.fg_stroke
+                    };
+                    let corner = box_rect.max - egui::vec2(5.0, 5.0);
+                    for step in 1..=3 {
+                        let offset = 3.0 * step as f32;
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(corner.x - offset, corner.y),
+                                egui::pos2(corner.x, corner.y - offset),
+                            ],
+                            stroke,
+                        );
+                    }
+                }
 
                 ui.add_space(4.0);
 
@@ -8506,36 +8561,92 @@ impl DesignerPanel {
                         ui.separator();
                     }
 
-                    // Prompt box on the LEFT (multiline, vertically resizable via
-                    // the grip at its bottom edge), Send button on the RIGHT.
+                    // Prompt box on the LEFT, Send button on the RIGHT.
+                    //
+                    // The box is a FIXED allocation. Its height comes from the
+                    // style's row height and the stored drag — never from the
+                    // content, never from remaining space — so it opens at the
+                    // 3-row default and stays there until the developer drags
+                    // the grip. This used to be an `egui::Resize`, which cannot
+                    // hold that line: since 0.35 it takes
+                    // `desired.max(measured_content)` every frame, so a box
+                    // wrapped around a code editor grew a little on every frame
+                    // and never came back down. Nobody dragged anything; it
+                    // simply inflated. (Same failure family as the modal
+                    // ratchet in `.claude/skills/egui-paint-regressions`.)
                     let btn_col_w = 96.0;
                     let gap = 8.0;
                     let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
+                    let prompt_row = ui.text_style_height(&egui::TextStyle::Body);
+                    let prompt_height_for =
+                        |rows: f32| rows * prompt_row + GLOBAL_AI_PROMPT_CHROME;
+                    let prompt_min_height = prompt_height_for(1.0);
+                    let prompt_max_height = prompt_height_for(6.0);
+                    let prompt_height = if self.event_ai_prompt_height > 0.0 {
+                        self.event_ai_prompt_height
+                    } else {
+                        prompt_height_for(3.0)
+                    }
+                    .clamp(prompt_min_height, prompt_max_height);
                     ui.horizontal_top(|ui| {
-                        egui::Resize::default()
-                            .id_salt("event_ai_prompt_box")
-                            .resizable([false, true])
-                            .min_size(egui::vec2(text_w, 40.0))
-                            .max_size(egui::vec2(text_w, 320.0))
-                            .default_size(egui::vec2(text_w, 64.0))
-                            .show(ui, |ui| {
-                                let sz = ui.available_size();
-                                ui.allocate_ui(sz, |ui| {
-                                    frame.show(ui, |ui| {
-                                        self.ai_prompt_editor.render_code_area(&ectx, ui);
-                                    });
-                                });
-                                let prompt =
-                                    self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
-                                // Enter inserts a newline; ⌘/Ctrl+Enter submits.
-                                let submit = ui.input(|i| {
-                                    i.key_pressed(egui::Key::Enter)
-                                        && (i.modifiers.command || i.modifiers.ctrl)
-                                }) && !prompt.trim().is_empty();
-                                if submit && !busy {
-                                    do_send = true;
-                                }
+                        let box_size = egui::vec2(text_w, prompt_height);
+                        let inner = ui.allocate_ui(box_size, |ui| {
+                            // Fill the box exactly: the editor scrolls INSIDE
+                            // it, and neither edge is negotiable by content.
+                            ui.set_min_size(box_size);
+                            ui.set_max_size(box_size);
+                            frame.show(ui, |ui| {
+                                self.ai_prompt_editor.render_code_area(&ectx, ui);
                             });
+                        });
+                        let prompt =
+                            self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
+                        // Enter inserts a newline; ⌘/Ctrl+Enter submits.
+                        let submit = ui.input(|i| {
+                            i.key_pressed(egui::Key::Enter)
+                                && (i.modifiers.command || i.modifiers.ctrl)
+                        }) && !prompt.trim().is_empty();
+                        if submit && !busy {
+                            do_send = true;
+                        }
+                        // Bottom-right grip — the ONLY writer of the height
+                        // besides the default. Registered after the box so it
+                        // wins the hit-test over the editor's text selection.
+                        let box_rect = inner.response.rect;
+                        let grip_size = 14.0;
+                        let grip_rect = egui::Rect::from_min_size(
+                            box_rect.max - egui::vec2(grip_size, grip_size),
+                            egui::vec2(grip_size, grip_size),
+                        );
+                        let grip = ui.interact(
+                            grip_rect,
+                            egui::Id::new("event_ai_prompt_grip"),
+                            egui::Sense::drag(),
+                        );
+                        if grip.dragged() {
+                            self.event_ai_prompt_height = (prompt_height
+                                + grip.drag_delta().y)
+                                .clamp(prompt_min_height, prompt_max_height);
+                        }
+                        if grip.hovered() || grip.dragged() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        }
+                        let stroke = if grip.hovered() || grip.dragged() {
+                            ui.visuals().widgets.hovered.fg_stroke
+                        } else {
+                            ui.visuals().widgets.inactive.fg_stroke
+                        };
+                        let corner = box_rect.max - egui::vec2(5.0, 5.0);
+                        for step in 1..=3 {
+                            let offset = 3.0 * step as f32;
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(corner.x - offset, corner.y),
+                                    egui::pos2(corner.x, corner.y - offset),
+                                ],
+                                stroke,
+                            );
+                        }
                         ui.add_space(gap);
                         // Just the Send button beside the box, sized as Grace's
                         // is. The spark, the spinner, the "Thinking…" line and
@@ -9098,7 +9209,15 @@ impl DesignerPanel {
                         ui.allocate_ui(sz, |ui| {
                             // Fill the box exactly so the content min-size
                             // equals the box (no auto-grow, no auto-shrink).
+                            // BOTH bounds are required, not just the minimum:
+                            // `Resize` takes `desired.max(measured_content)`
+                            // every frame, and a code editor measures the text
+                            // in it — so a min-only box drifts open a little on
+                            // each frame with a long handler in it, and never
+                            // gives the space back. Capping the maximum is what
+                            // makes "measured == box" true in both directions.
                             ui.set_min_size(sz);
+                            ui.set_max_size(sz);
                             frame.show(ui, |ui| {
                                 self.cs_editor.render_code_area(&ectx, ui);
                             });
@@ -12354,6 +12473,121 @@ mod shell_prop_tests {
             "049 FullHeight (designer) — on: pinned y=0 h=480 then followed a \
              resize to h=900 (width 200 untouched); off: kept the placed \
              y=60 h=250 across a resize to 1000 (3/3)"
+        );
+    }
+
+    /// The COBOL event editor's boxes hold the size they opened at.
+    ///
+    /// Reported: the prompt UI grew by itself — nobody dragged a grip, nobody
+    /// asked for a resize. Both boxes were `egui::Resize`, which since egui
+    /// 0.35 takes `desired.max(measured_content)` EVERY frame; their content is
+    /// a code editor that measures whatever has been typed, so each frame
+    /// nudged them open and none ever gave the space back. Rendering the modal
+    /// repeatedly with content far taller than either box is what catches that:
+    /// a ratchet shows up as a window that is bigger on frame 100 than on
+    /// frame 5.
+    #[test]
+    fn the_event_editor_boxes_do_not_inflate_on_their_own() {
+        let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        d.form.controls.push(cobolt_forms::Control::new(
+            "Button-1",
+            cobolt_forms::ControlType::Button,
+            10,
+            10,
+        ));
+        d.open_event_modal("Button-1", "onClick");
+        // Far more text than either box can show, in both the code editor and
+        // the prompt: if measured content can push a box open, this pushes it.
+        let long = "           DISPLAY \"a line of COBOL that is quite long indeed\".\n"
+            .repeat(200);
+        d.event_editor
+            .open_buffer(std::path::PathBuf::from("handler.cbl"), long.clone());
+        d.ai_prompt_editor
+            .open_buffer(std::path::PathBuf::from("prompt.txt"), long);
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let cfg = crate::llm::LlmConfig::defaults();
+        let mut sizes: Vec<egui::Vec2> = Vec::new();
+        for _ in 0..80 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            ));
+            ctx.run_ui(input, |ui| {
+                d.show_event_modal(ui, &cfg, None);
+            })
+            .textures_delta
+            .clear();
+            if let Some(rect) = ctx.memory(|m| m.area_rect(egui::Id::new("event_editor_modal"))) {
+                sizes.push(rect.size());
+            }
+        }
+
+        assert!(
+            sizes.len() >= 60,
+            "the modal should have been laid out on most frames, got {}",
+            sizes.len()
+        );
+        // Frame 5 onwards: egui needs a couple of frames to settle a new window.
+        let settled = sizes[5];
+        for (i, s) in sizes.iter().enumerate().skip(5) {
+            assert!(
+                (s.y - settled.y).abs() < 0.5 && (s.x - settled.x).abs() < 0.5,
+                "the event editor inflated at frame {i}: {settled:?} -> {s:?} \
+                 — a box is taking its size from its content again"
+            );
+        }
+        println!(
+            "\n  event editor stable at {:.0}x{:.0} px across {} frames, \
+             with 200 lines in both boxes\n",
+            settled.x,
+            settled.y,
+            sizes.len()
+        );
+    }
+
+    /// The rule the bug above taught, kept where it cannot be forgotten.
+    ///
+    /// `egui::Resize` takes `desired.max(measured_content)` every frame. That
+    /// is harmless around content whose measured size is bounded, and a ratchet
+    /// around anything that measures its own text — which is exactly what
+    /// `render_code_area` does. So a `Resize` may wrap a code editor ONLY if
+    /// its body pins the content to the box on BOTH sides: `set_min_size` alone
+    /// still lets a long handler push the box open (that is how the COBOL
+    /// Structure box drifted), and it is the missing `set_max_size` that makes
+    /// "measured == box" true.
+    ///
+    /// This guard found a third box the report had not named. Keep it.
+    #[test]
+    fn a_resize_around_a_code_editor_bounds_it_on_both_sides() {
+        let source = include_str!("designer.rs");
+        let lines: Vec<&str> = source.lines().collect();
+        let mut offenders = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            // Real construction only — prose and assert messages that merely
+            // name the type are not boxes.
+            if !line.contains("egui::Resize::default()") {
+                continue;
+            }
+            // The builder chain and its `.show(…)` body: far enough to cover a
+            // box, short enough not to reach unrelated code below it.
+            let body = lines[i..lines.len().min(i + 40)].join("\n");
+            if body.contains("render_code_area")
+                && !(body.contains("set_min_size") && body.contains("set_max_size"))
+            {
+                offenders.push(i + 1);
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "designer.rs line(s) {offenders:?}: an egui::Resize wraps a code editor \
+             without pinning it on both sides. It grows to \
+             `desired.max(measured_content)` every frame, so the box inflates on its \
+             own. Either bound the body with set_min_size AND set_max_size, or drop \
+             Resize for a fixed allocation whose only writer is a grip — as \
+             `event_ai_prompt_grip` and `event_editor_code_grip` do."
         );
     }
 
