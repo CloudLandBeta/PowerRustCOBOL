@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.58] — 2026-08-16
+
+### Fixed — the preview drew a collapsed sidebar at its designed width
+
+A form whose SideMenu is designed `Collapsed` previewed as a full-width bar
+carrying icon-only rows: it looked open and behaved closed, and the breadcrumb
+beside it — which positions itself from the rail's width — landed inside the
+bar instead of after it.
+
+A rail shown collapsed must be DRAWN at the collapsed width. The designer
+canvas and the running shell both did that; the preview did not, because the
+narrowing lived inside the designer panel where only the canvas could reach it.
+
+It now lives in `cobolt_forms::sidebar::rail_view`, and the canvas and the
+preview both call it, so the two cannot disagree about how wide a collapsed
+rail is. The SideMenu and the footer Panel it owns narrow together; every other
+control is untouched; and the designed rect is never modified — the narrowing is
+for painting, so selection, dragging and the saved `.cfrm` still see the design.
+
 ## [PowerRustCOBOL 1.61.57] — 2026-08-16
 
 ### Fixed — EVALUATE re-read its subject once per branch

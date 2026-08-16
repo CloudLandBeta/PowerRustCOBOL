@@ -12079,6 +12079,21 @@ impl CoboltApp {
             crate::panels::editor::build_known_controls(&self.designers[idx].1.form);
         let controls = self.designers[idx].1.form.controls.clone();
         let values_snap = self.designers[idx].1.preview_state.clone();
+        // A rail shown collapsed is DRAWN at the collapsed width — the same
+        // rule the designer canvas and the running shell follow. Without it the
+        // preview painted the rail at its DESIGNED width with collapsed,
+        // icon-only rows: a bar that looked open and behaved closed, with the
+        // breadcrumb (which positions from the rail width) landing inside it.
+        let controls = match cobolt_forms::breadcrumb::shell_side_menu_in(&controls) {
+            Some(side) => {
+                let collapsed = matches!(
+                    values_snap.get(&side.id).map(String::as_str),
+                    Some("1") | Some("true")
+                ) || (!values_snap.contains_key(&side.id) && side.side_menu_collapsed());
+                cobolt_forms::sidebar::rail_view(&controls, side, collapsed)
+            }
+            None => controls,
+        };
         let backdrop = {
             let d = &self.designers[idx].1;
             let bg_path = d.form.background_image.clone();

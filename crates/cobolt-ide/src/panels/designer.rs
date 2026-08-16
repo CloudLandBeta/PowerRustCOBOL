@@ -9191,28 +9191,10 @@ impl DesignerPanel {
         if !shown && !side.side_menu_collapsed() {
             return None; // open, and designed open: nothing to override
         }
-        let side_id = side.id.clone();
-        let footer_id = cobolt_forms::model::side_menu_footer_id(&side_id);
-        let width = cobolt_forms::sidebar::shown_width(side, shown) as i32;
-        Some(
-            controls
-                .iter()
-                .map(|c| {
-                    if c.id != side_id && c.id != footer_id {
-                        return c.clone();
-                    }
-                    let mut c = c.clone();
-                    // The footer Panel is pinned to the rail's column, so it
-                    // narrows with it — otherwise it hangs out over the
-                    // content area the moment the rail collapses.
-                    c.rect.w = width;
-                    if c.id == side_id {
-                        c.set_prop("Collapsed", shown);
-                    }
-                    c
-                })
-                .collect(),
-        )
+        // The narrowing itself is shared with the preview (and any other
+        // surface): one rule, so they cannot disagree about how wide a
+        // collapsed rail is.
+        Some(cobolt_forms::sidebar::rail_view(controls, side, shown))
     }
 
     /// 049 — the SideMenu seam under `(px, py)`, if any: the line between the

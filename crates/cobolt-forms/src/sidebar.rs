@@ -496,6 +496,45 @@ pub fn clamp_scroll(rect: Rect, state: &SidebarState<'_>) -> f32 {
     state.scroll.clamp(0.0, max_scroll(rect, state))
 }
 
+/// The controls to PAINT for a shell form whose rail is shown collapsed: the
+/// SideMenu and the footer Panel it owns, narrowed to the rail width, with the
+/// rail's live `Collapsed` state written on. Every other control is returned
+/// untouched.
+///
+/// A rail shown collapsed must be DRAWN at the collapsed width. Keeping the
+/// designed width and merely laying collapsed content out inside it gives a
+/// full-width bar of icon-only rows — the rail looks open and behaves closed,
+/// and the breadcrumb beside it, which positions from the rail width, lands in
+/// the middle of it.
+///
+/// Shared so every surface narrows identically. It existed only inside the
+/// designer canvas, which is exactly why the preview drew the wide-bar version
+/// while the canvas and the running shell agreed.
+///
+/// The DESIGN is never touched: this list is for painting, and selection,
+/// dragging and the saved `.cfrm` all still see the designed rect.
+pub fn rail_view(controls: &[Control], side: &Control, collapsed: bool) -> Vec<Control> {
+    let footer_id = crate::model::side_menu_footer_id(&side.id);
+    let width = shown_width(side, collapsed) as i32;
+    controls
+        .iter()
+        .map(|c| {
+            if c.id != side.id && c.id != footer_id {
+                return c.clone();
+            }
+            let mut c = c.clone();
+            // The footer Panel is pinned to the rail's column, so it narrows
+            // with it — otherwise it hangs out over the content area the
+            // moment the rail collapses.
+            c.rect.w = width;
+            if c.id == side.id {
+                c.set_prop("Collapsed", collapsed);
+            }
+            c
+        })
+        .collect()
+}
+
 /// Lay out the menu rows from `y` downwards, recursing into expanded parents.
 /// Rows are produced unconditionally — confining them to the pane is the
 /// caller's job, and doing it here is what lost the overflow.
@@ -1155,6 +1194,51 @@ mod tests {
             footer_rect(rect, &no_footer, false).is_none(),
             "a footer of zero height is the one case with no band"
         );
+    }
+
+    /// A rail shown collapsed is DRAWN narrow — the rule every surface shares.
+    /// The preview used to skip this and paint collapsed rows across the rail's
+    /// DESIGNED width, so the bar looked open while behaving closed and the
+    /// breadcrumb beside it landed inside the bar.
+    #[test]
+    fn a_collapsed_rail_is_drawn_at_the_collapsed_width_everywhere() {
+        use crate::model::{ControlType, Rect as MRect};
+
+        let mut side = Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 280, 920);
+        let mut footer = Control::new(
+            &crate::model::side_menu_footer_id("SideMenu-1"),
+            ControlType::Panel,
+            0,
+            860,
+        );
+        footer.rect = MRect::new(0, 860, 280, 60);
+        let mut other = Control::new("Label-1", ControlType::Label, 400, 40);
+        other.rect = MRect::new(400, 40, 200, 30);
+        let controls = vec![side.clone(), footer, other];
+
+        let collapsed_w = shown_width(&side, true) as i32;
+        assert!(
+            collapsed_w < 280,
+            "the collapsed rail must be narrower than the design ({collapsed_w})"
+        );
+
+        let view = rail_view(&controls, &side, true);
+        assert_eq!(view[0].rect.w, collapsed_w, "the rail narrows");
+        assert_eq!(view[1].rect.w, collapsed_w, "its footer narrows with it");
+        assert_eq!(view[2].rect.w, 200, "every other control is untouched");
+        assert!(
+            view[0].get_prop("Collapsed").map(|v| v.as_bool()).unwrap_or(false),
+            "the live collapsed state rides on the painted control"
+        );
+
+        // Shown OPEN, the rail keeps its designed width.
+        let open = rail_view(&controls, &side, false);
+        assert_eq!(open[0].rect.w, 280);
+        assert_eq!(open[1].rect.w, 280);
+
+        // The DESIGN is never touched — this list is for painting only.
+        assert_eq!(controls[0].rect.w, 280, "the designed rect is left alone");
     }
 
     /// Expanding a parent reveals its children as indented rows.
