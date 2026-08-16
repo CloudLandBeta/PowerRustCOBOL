@@ -209,6 +209,17 @@ pub struct RenderOutput {
     /// `DroppedFiles` prop write, the same channel the OS drag-drop path
     /// already uses.
     pub file_picker_requests: Vec<String>,
+    /// Toolbar buttons pressed this frame whose action the PLATFORM must carry
+    /// out — printing, sharing, a screenshot, the clipboard, another process.
+    /// `(toolbar control id, button id, action string)`.
+    ///
+    /// Same division of labour as `file_picker_requests`: `cobolt-forms` knows
+    /// which button was pressed and what it asked for, and takes no dependency
+    /// on a print panel, a share sheet or a process launcher to find out. The
+    /// host does the deed. A button whose action is the form's own business
+    /// (`event`, `procedure:`, `open-modal:`) never appears here — it goes out as
+    /// an ordinary `UiEvent` instead.
+    pub toolbar_actions: Vec<(String, String, String)>,
 }
 
 /// The size the backdrop covers: the form's own size, stretched to the host
@@ -3579,6 +3590,20 @@ fn render_interactive(
                 zone.show(ui)
             });
             let fdz = drop_resp.inner;
+            // The intake, in a line along the bottom of the zone: what is
+            // staged and waiting, and after the form goes ahead, what was
+            // copied. Drawn OVER the widget rather than replacing the hint, so
+            // the zone still says it takes files.
+            let summary = sv(ctrl, "CommitSummary");
+            if !summary.trim().is_empty() {
+                ui.painter().text(
+                    egui::pos2(screen.center().x, screen.bottom() - 4.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    summary,
+                    egui::FontId::proportional(11.0),
+                    ui.visuals().strong_text_color(),
+                );
+            }
             focus_keyboard_events(ui, &fdz.response, id, out, &bound);
             if !fdz.dropped_files.is_empty() && enabled {
                 // The OS drag-drop path needs no native dialog (egui's own
@@ -3597,27 +3622,26 @@ fn render_interactive(
                     .collect();
                 // What the zone accepts, and where it puts it: the same intake
                 // the click-to-browse path runs, so a file is judged by the same
-                // rules however it arrived.
-                let intake = crate::dropzone::take_files(
+                // rules however it arrived. `apply_drop` also decides whether
+                // this drop COPIES now or only stages for the form to confirm —
+                // one answer, shared with that path.
+                let writes = crate::dropzone::apply_drop(
+                    id,
                     &paths,
-                    &sv(ctrl, "AllowedExtensions"),
-                    sv(ctrl, "MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
-                    &sv(ctrl, "DestinationFolder"),
+                    crate::dropzone::ZoneRules {
+                        filter: &sv(ctrl, "AllowedExtensions"),
+                        max_kb: sv(ctrl, "MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
+                        destination: &sv(ctrl, "DestinationFolder"),
+                        stage_only: prop_bool(ctrl, "StageOnly", false),
+                        list_id: &sv(ctrl, "FileListControl"),
+                        already_staged: &sv(ctrl, "StagedFiles"),
+                    },
                 );
-                out.prop_updates.push((
-                    id.to_owned(),
-                    "DroppedFiles".to_owned(),
-                    intake.accepted.join("\n"),
-                ));
-                out.prop_updates.push((
-                    id.to_owned(),
-                    "RejectedFiles".to_owned(),
-                    intake.rejected_lines().join("\n"),
-                ));
-                if !intake.accepted.is_empty() {
+                out.prop_updates.extend(writes.updates);
+                if writes.accepted > 0 {
                     out.events.push(UiEvent::ev(id, "onFilesDropped"));
                 }
-                if !intake.rejected.is_empty() {
+                if writes.rejected > 0 {
                     out.events.push(UiEvent::ev(id, "onFilesRejected"));
                 }
             } else if fdz.response.clicked() && enabled {
@@ -6275,7 +6299,90 @@ fn render_interactive(
                 );
             }
         }
-        CT::ToolBar | CT::StatusBar => {
+        CT::ToolBar => {
+            paint::draw_surface_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(40, 46, 76),
+                paint::corner_radius(ctrl),
+                false,
+                alpha,
+                paint::SurfaceRole::Card,
+            );
+            // Groups of buttons, drawn by the ONE toolbar renderer, then made
+            // pressable. A button's `enabled` is its own — separate from the
+            // toolbar control's, which gates the lot.
+            let def = crate::toolbar::ToolbarDef::from_control(ctrl);
+            let pointer = ui.ctx().pointer_latest_pos();
+            let held = ui.ctx().input(|i| i.pointer.primary_down());
+            // Which button is under the pointer decides hover AND what a release
+            // lands on, so both are resolved from the same geometry.
+            let probe = crate::toolbar_paint::draw(
+                &painter,
+                screen,
+                &def,
+                alpha,
+                crate::toolbar_paint::Interaction::inert(),
+            );
+            let under = pointer.and_then(|p| {
+                probe
+                    .iter()
+                    .find(|(_, r)| r.contains(p))
+                    .map(|(id, _)| id.clone())
+            });
+            let live = under.as_deref().filter(|id| {
+                enabled && def.button(id).is_some_and(|b| b.enabled)
+            });
+            // Redraw with the pointer state now that it is known — cheap, and it
+            // keeps hover/press feedback in the shared renderer rather than
+            // duplicating the face logic here.
+            if live.is_some() {
+                crate::toolbar_paint::draw(
+                    &painter,
+                    screen,
+                    &def,
+                    alpha,
+                    crate::toolbar_paint::Interaction {
+                        hovered: live,
+                        pressed: if held { live } else { None },
+                    },
+                );
+            }
+            let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
+            if resp.clicked() && enabled {
+                if let Some(button_id) = live.map(str::to_owned) {
+                    let action = def
+                        .button(&button_id)
+                        .map(|b| b.action())
+                        .unwrap_or_default();
+                    if action.is_platform_action() {
+                        // The host prints, shares, captures, launches.
+                        out.toolbar_actions.push((
+                            id.to_owned(),
+                            button_id.clone(),
+                            action.to_action_string(),
+                        ));
+                    }
+                    // The form always hears about the press, whatever else
+                    // happens — a handler may want to log it, or refuse it.
+                    //
+                    // WHICH button it was arrives as `LastButton` on the toolbar,
+                    // written before the event so a handler reading
+                    // `TOOLBAR-1::LastButton` already sees this press. That is
+                    // what lets ONE handler serve a whole toolbar; the event also
+                    // carries the id as its value for hosts that use it.
+                    out.prop_updates.push((
+                        id.to_owned(),
+                        "LastButton".to_owned(),
+                        button_id.clone(),
+                    ));
+                    out.events
+                        .push(UiEvent::with_value(id, "onClick", &button_id));
+                }
+            }
+        }
+        CT::StatusBar => {
             paint::draw_surface_auto(
                 &painter,
                 screen,

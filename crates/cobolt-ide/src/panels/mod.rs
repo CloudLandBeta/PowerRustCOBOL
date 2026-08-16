@@ -35,6 +35,9 @@ pub mod rounded_clip;
 pub mod settings_form;
 pub mod target_picker;
 pub mod toolbar;
+// The ToolBar control's editor — groups, buttons and their actions. Every option
+// a toolbar has lives in this modal, not in the properties pane.
+pub mod toolbar_editor;
 pub mod toolbox;
 
 pub(crate) const CHAT_SEND_BUTTON_WIDTH: f32 = 96.0;

@@ -1425,9 +1425,24 @@ interaction, only from your own COBOL (`SetValue()` or `SET Gauge1::Value TO
 `ShowThumb`), or `Donut` (a full ring, plus `StrokeWidth` — and it draws the
 same `ShowNeedle` needle as the Radial, sweeping the full circle from the
 top, in the gauge's own colour). `Color` overrides the
-fill (empty = theme accent); `Unit` appends a suffix to the numeric readout
-in every style, exactly as you type it (write `" rpm"` if you want the
-space; `"%"` needs none); `Text` overrides the whole readout string.
+fill (empty = theme accent); `NeedleColor` gives the needle and its hub a
+colour of their own, independent of the meter's (empty = the meter's colour,
+which is the only ink the needle used to have); `Unit` appends a suffix to
+the numeric readout in every style; `Text` overrides the whole readout
+string.
+
+`Unit` is spaced off the number the way a reader would write it: a unit that
+begins with a letter or a digit gets one space — `"Parts"` reads `23 Parts`,
+`"rpm"` reads `1450 rpm` — while a symbol stays welded to it: `"%"` reads
+`23%`, `"°C"` reads `19°C`, `"$"` reads `40$`. Leading spaces you type are
+kept exactly as typed, so `" rpm"` still reads `1450 rpm`.
+
+`ReadoutPosition` chooses where a **Radial** prints that reading: `Up` (the
+default) inside the dial above the needle's pivot, or `Down` 5 px below the
+pivot, where a speedometer prints its number. On `Down` the dial gives up
+that much height, so the reading always lands inside the control. The
+property is Radial-only — a `Donut` reads out in the middle of its ring and
+a `Linear` beside its bar, and neither has a second place to put it.
 
 Set **both** `WarningThreshold` and `CriticalThreshold` — fractions of the
 `Minimum..Maximum` span, between `0.0` and `1.0` — to turn on automatic zone
@@ -1479,6 +1494,90 @@ the order the user ticked in, gaps and all; it is not a contiguous range.
 > **Note.** A ListBox cannot be drawn shorter than one line of its own text —
 > the designer's resize stops there, and the floor rises with `FontSize`.
 
+#### ToolBar
+
+A **ToolBar** is **groups of buttons**. Each group is a frame with its own
+border and corner radius; an invisible separator sets one group apart from the
+next; and every element inside a group is a button you control completely.
+
+> **Coming from PowerCOBOL or isCOBOL?** Their toolbars are a flat strip of
+> command buttons. This one is closer to a ribbon group: the grouping is part of
+> the model, not something you fake with spacing.
+
+**Everything is set in the Toolbar Editor.** The properties pane offers one
+button — **Edit Toolbar…** — because a toolbar has far more knobs than a pane
+can hold, and it is a thing you arrange while looking at it. The editor shows
+the tree of groups and their buttons on the left, the properties of whatever is
+selected on the right, and a live preview of the bar along the top, drawn by the
+same renderer the running form uses. Nothing is written to the control until you
+press **Save**, so Cancel really cancels.
+
+**A group** has: a border style (`Single` / `None` / `Fixed3D`), border colour
+and width, corner radius, its own padding between frame and buttons, a
+background, and *Separator after this group* with a width. `None` still groups —
+the padding and the separator still apply — it simply draws no frame.
+
+**A button** has: a label, a tooltip, an enabled flag, an icon from the built-in
+hand-drawn set with its own size and colour, a width and height, a corner
+radius, a background (solid, or a gradient with start/end colours and a
+direction), a foreground colour, a drop shadow (colour, opacity, distance,
+blur), and an **action**.
+
+**Corner radius defaults to 10** on both groups and buttons.
+
+**Colours follow the form's theme.** Every colour starts unset, and unset means
+*the theme decides* — a group's frame takes the theme's border, a button's face
+its raised card, the label and icon its text colour. A colour you actually pick
+always wins. So a toolbar dropped on a themed form belongs there before you
+configure anything.
+
+##### What a button does
+
+| Action | Effect |
+|---|---|
+| `event` | Fires the toolbar's `onClick`, carrying the button's id. The default. |
+| `procedure` | `PERFORM`s one of the form's procedures. |
+| `open-modal` | Opens a **standalone** form as a modal window. Standalone only — an embedded form belongs in a ContentPane. |
+| `print` | Opens the named document in the platform's viewer, where its print dialog is. |
+| `share` | Captures this form's window and hands the image to the OS for sharing. |
+| `screenshot` | Puts an image of this form's window on the clipboard. |
+| `copy` / `cut` / `paste` | The OS clipboard, acting on whichever control has keyboard focus. |
+| `run-app` | Launches another application. |
+| `open-terminal` | Opens a terminal, optionally in a given folder. |
+
+The form **always** hears the press as an `onClick` on the toolbar, whatever else
+the action does — so one handler can serve a whole toolbar by reading which
+button it was:
+
+```cobol
+      *>   in the TOOLBAR-1 onClick handler:
+           EVALUATE TOOLBAR-1::LastButton
+               WHEN "button-1"  PERFORM SAVE-RECORD
+               WHEN "button-2"  PERFORM DELETE-RECORD
+               WHEN OTHER       CONTINUE
+           END-EVALUATE
+```
+
+> **Note.** `run-app` and `open-terminal` start a process. The target is split on
+> whitespace and handed to the OS **directly — never to a shell**, so a path
+> built out of a data item cannot turn into a shell command. It is still your
+> form launching a real program: treat the target as code, not as data.
+
+> ⚠️ **Caveat.** A toolbar wider than the control it sits on loses whole groups
+> off the right-hand end rather than drawing half of one. The properties pane
+> shows the width it needs and warns when the control is too narrow.
+
+> **Existing toolbars keep working.** A ToolBar built before groups existed —
+> one with a plain `Items` list — is read as a single **unframed** group of
+> labelled buttons, in order. It looks exactly as it did; opening the editor is
+> what promotes it to a real toolbar.
+
+📷 Screenshot needed — `toolbar-editor.png`
+: Open a form with a ToolBar, press **Edit Toolbar…**, and build two groups —
+  one with three icon buttons, one with a single button — with a separator
+  between them. Capture the whole modal so the tree, the properties pane and the
+  live preview strip are all visible.
+
 #### FileDropZone
 
 **FileDropZone** is a non-visual-in-spirit but visibly-rendered drop target:
@@ -1488,14 +1587,17 @@ accepts land in `DroppedFiles` — one absolute path per line — and
 `onFilesDropped` fires.
 
 There is **no COBOL method** to open the picker or read a drop
-programmatically — it is purely a UI gesture. Read the result the normal
-way once the event fires:
+programmatically — getting files in is purely a UI gesture. Read the result
+the normal way once the event fires:
 
 ```cobol
       *>   in the FDZ-1 onFilesDropped handler:
            MOVE FDZ-1::DroppedFiles TO WS-PATHS
       *>   WS-PATHS is newline-separated; UNSTRING or SEARCH it as usual.
 ```
+
+The zone has exactly one method, `CommitFiles()`, and it belongs to the
+confirm-before-copying flow described further down.
 
 **What the zone accepts, and where it puts it.** Three design-time
 properties decide, and both routes in — a drop and the file picker — obey
@@ -1506,6 +1608,8 @@ them, so a file is judged the same way however it arrived:
 | `AllowedExtensions` | `csv, xlsx` — what the zone takes. Case-blind, dots optional, separated by commas, semicolons or spaces. Blank accepts any file. |
 | `MaximumFileSizeKB` | The largest file the zone takes, in KB. `0` means no limit. |
 | `DestinationFolder` | A local folder that accepted files are **copied** into. Blank leaves files where they are. |
+| `StageOnly` | Off (default): a drop copies immediately. On: a drop only *holds* the files for the operator to review, and your COBOL calls `CommitFiles()` to copy them. |
+| `FileListControl` | The id of the ListBox that reviews a staged intake. Seeded with the companion the designer creates next to a new zone; blank means no list. |
 
 With a destination set, the folder is created if it does not exist, and an
 existing file is **never** overwritten: a second `report.csv` lands as
@@ -1536,6 +1640,67 @@ seven and still say what happened to the rest:
 > ⚠️ **Caveat.** The copy happens wherever the form runs, including in the
 > IDE's **Preview** — that is what makes the preview faithful. Point
 > `DestinationFolder` at a scratch folder while you are designing.
+
+##### Letting the operator confirm before anything is copied
+
+By default the copy happens the moment the file lands, which leaves the
+operator no room to change their mind — a mis-drag is already in the folder.
+Tick **Confirm before copying** (`StageOnly`) and a drop copies *nothing*:
+
+1. The drop is judged exactly as above — refused files still fire
+   `onFilesRejected` — and the accepted ones are **held** at their original
+   paths in `StagedFiles`. `onFilesDropped` fires. `DestinationFolder` is not
+   even created.
+2. They appear in the ListBox named by `FileListControl`, one tick-boxed row
+   each, reading the path and the size: `/Users/ana/report.csv (12.345 MB)`.
+   `CommitSummary` reads `3 files staged, 24.310 MB`.
+3. The operator unticks anything they did not mean to send. An unticked row
+   **stays** in the list, marked `(excluded)`, so the exclusion is visible
+   and they can put it back.
+4. Your form decides what confirmation means — a Submit button, a validated
+   field, a supervisor's password — and calls `CommitFiles()`. Ticked files
+   are copied by the rules above; unticked ones are skipped.
+5. Each row becomes `✓ <new path> (12.345 MB)` or `✗ <path> (12.345 MB) —
+   <reason>`. `CommitSummary` becomes `7 of 8 copied, 24.310 MB`, which is
+   also what the method returns, and the zone paints it along its own bottom
+   edge. `DroppedFiles` becomes the included files at their new paths.
+
+```cobol
+      *>   in the SUBMIT-BUTTON onClick handler:
+           MOVE FDZ-1::CommitFiles() TO WS-SUMMARY
+           MOVE WS-SUMMARY TO LABEL-STATUS::Caption
+      *>   Now the files are in the folder — hand them to the application.
+           MOVE FDZ-1::DroppedFiles TO WS-PATHS
+           PERFORM SEND-TO-APPLICATION
+```
+
+**The review list is an ordinary ListBox.** Dropping a FileDropZone in the
+designer creates one directly beneath it, at the zone's own size, with tick
+boxes switched on, and names it in the zone's `FileListControl`. From that
+moment it is a ListBox like any other: move it, resize it, restyle it, put it
+on another tab — or delete it, and the zone simply works without a list.
+`FileListControl` naming a control that no longer exists means the same thing
+as naming nothing.
+
+A second drop **adds** to what is already staged rather than replacing it,
+and the same file dropped twice is held once. Calling `CommitFiles()` on a
+zone holding nothing is not an error: it reports `0 of 0 copied, 0.000 MB`.
+
+> **Note.** Sizes count a megabyte as 1,000,000 bytes, the way the operator's
+> own file browser does, so a number in the list matches the number they see
+> in Finder or Explorer.
+
+> ⚠️ **Caveat.** A file whose copy fails at commit time — an unwritable
+> folder, a full disk, a source that has since been moved — is reported `✗`
+> with the reason, and its entry in `DroppedFiles` is the **original** path.
+> Your program still receives the file it was handed; check `CommitSummary`
+> (or count the lines) before treating a batch as complete.
+
+> ⚠️ **Caveat.** `CommitFiles()` copies whatever is ticked, whenever you call
+> it. It is not tied to a form closing or to any built-in notion of "submit"
+> — PowerRustCOBOL has none. If two buttons can both submit, both must call
+> it, and calling it twice copies the ticked files twice (landing as
+> `report (2).csv`).
 
 `FileDropZone` is deliberately **not** a Data Binding Guardian target — its
 output is event-shaped (populated by user action), not a value a bound

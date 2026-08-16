@@ -74,6 +74,17 @@ pub mod sidebar;
 #[cfg(feature = "render")]
 pub mod breadcrumb;
 
+// What a ToolBar is made of: groups of buttons, each with its own frame, and an
+// action per button. Model only — no egui — so the designer's editor, the
+// renderer and the running host all read one definition.
+pub mod toolbar;
+
+// The ONE toolbar renderer — the sidebar's and breadcrumb's sibling, shared for
+// the same reason: a bar that looks different on the canvas than it does running
+// is a bar you cannot design against.
+#[cfg(feature = "render")]
+pub mod toolbar_paint;
+
 // Window entrance/exit effects (spec 038). Needs egui types only, so it is
 // gated with the other render modules.
 #[cfg(feature = "render")]

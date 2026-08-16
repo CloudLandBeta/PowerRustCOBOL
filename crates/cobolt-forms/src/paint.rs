@@ -2762,6 +2762,59 @@ pub fn draw_control(
                         theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140))
                     }),
                 );
+                // The needle's own colour, once the developer asks for one. Left
+                // blank it is the meter's colour, which is the only ink the
+                // needle has ever had — so an untouched gauge draws as before.
+                let needle_ink = {
+                    let named = ctrl
+                        .get_prop("NeedleColor")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    if named.trim().is_empty() {
+                        fill
+                    } else {
+                        alpha_color(parse_color(&named))
+                    }
+                };
+                // What it reads out: the developer's own `Text` when they set
+                // one, otherwise the value with `Unit` after it.
+                let reading = {
+                    let over = ctrl
+                        .get_prop("Text")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    if over.trim().is_empty() {
+                        let unit = ctrl
+                            .get_prop("Unit")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        format!("{val:.0}{}{unit}", unit_gap(&unit))
+                    } else {
+                        over
+                    }
+                };
+                // The reading is measured BEFORE the meter is laid out: a Radial
+                // asked to print its number under the pivot has to give up that
+                // much room at the bottom, and the text's own height is how much.
+                let readout_font = crate::fonts::font_id(
+                    painter.ctx(),
+                    &ctrl
+                        .get_prop("FontName")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default(),
+                    ctrl_font_size(ctrl),
+                );
+                let readout_h = painter
+                    .layout_no_wrap(reading.clone(), readout_font.clone(), Color32::WHITE)
+                    .size()
+                    .y;
+                // Radial only (Donut reads out in its hole, Linear under its
+                // bar — neither has a second place to put it). "Radial" is
+                // everything the style match does not claim, exactly as below.
+                let readout_down = !matches!(style.as_str(), "Linear" | "Donut")
+                    && ctrl
+                        .get_prop("ReadoutPosition")
+                        .is_some_and(|v| v.as_str().eq_ignore_ascii_case("Down"));
                 // Where the reading goes, per style. It used to be dropped at
                 // the control's centre whatever the meter was doing — which on
                 // a Radial is the middle of the sweep, so the number sat on the
@@ -2824,17 +2877,24 @@ pub fn draw_control(
                             let reach = (radius - stroke_w * 0.5).max(radius * 0.3);
                             painter.line_segment(
                                 [center, center + dir * reach],
-                                Stroke::new((radius * 0.06).max(1.5), fill),
+                                Stroke::new((radius * 0.06).max(1.5), needle_ink),
                             );
-                            painter.circle_filled(center, (radius * 0.10).max(2.5), fill);
+                            painter.circle_filled(center, (radius * 0.10).max(2.5), needle_ink);
                         }
                         // The hole is exactly where a donut's reading belongs.
                         (center, egui::Align2::CENTER_CENTER)
                     }
                     _ => {
                         // Radial: a half-circle speedometer, sweeping the top.
-                        let center = Pos2::new(rect.center().x, rect.bottom() - 6.0);
-                        let radius = (rect.width() * 0.5 - 4.0).min(rect.height() - 10.0).max(6.0);
+                        // A readout asked to sit under the pivot needs room the
+                        // dial is otherwise using, so the dial gives it up — its
+                        // own height plus the 5 px gap — and the number lands
+                        // below the needle instead of off the control's edge.
+                        let reserve = if readout_down { readout_h + 5.0 } else { 0.0 };
+                        let center = Pos2::new(rect.center().x, rect.bottom() - 6.0 - reserve);
+                        let radius = (rect.width() * 0.5 - 4.0)
+                            .min(rect.height() - 10.0 - reserve)
+                            .max(6.0);
                         draw_ring(painter, center, radius, radius * 0.18, 180.0, 180.0, frac, fill, track);
                         // The scale: ten divisions across the sweep, just inside
                         // the band, with a longer mark at each end and the
@@ -2862,21 +2922,29 @@ pub fn draw_control(
                             let dir = ray(180.0 + 180.0 * frac);
                             painter.line_segment(
                                 [center, center + dir * radius * 0.78],
-                                Stroke::new((radius * 0.06).max(1.5), fill),
+                                Stroke::new((radius * 0.06).max(1.5), needle_ink),
                             );
-                            painter.circle_filled(center, (radius * 0.10).max(2.5), fill);
+                            painter.circle_filled(center, (radius * 0.10).max(2.5), needle_ink);
                         }
-                        // Inside the dial, centred on the sweep's own centre and
-                        // well clear of the band at `radius`.
-                        (
-                            Pos2::new(center.x, center.y - radius * 0.30),
-                            egui::Align2::CENTER_BOTTOM,
-                        )
+                        if readout_down {
+                            // Under the pivot, 5 px clear of it, where a
+                            // speedometer prints its number.
+                            (
+                                Pos2::new(center.x, center.y + 5.0),
+                                egui::Align2::CENTER_TOP,
+                            )
+                        } else {
+                            // Inside the dial, centred on the sweep's own centre
+                            // and well clear of the band at `radius`.
+                            (
+                                Pos2::new(center.x, center.y - radius * 0.30),
+                                egui::Align2::CENTER_BOTTOM,
+                            )
+                        }
                     }
                 };
                 // The reading in the control's own font and colour, rescued so it
                 // stays legible on whatever the gauge sits on.
-                let fsize = ctrl_font_size(ctrl);
                 let tone = control_surface_tone(
                     painter.ctx(),
                     ctrl,
@@ -2886,37 +2954,11 @@ pub fn draw_control(
                     tone,
                     user_fg.unwrap_or(Color32::from_rgb(230, 230, 230)),
                 );
-                // What it reads out: the developer's own `Text` when they set
-                // one, otherwise the value with `Unit` appended exactly as
-                // typed — so both `"%"` and `" rpm"` come out the way they look
-                // in the inspector.
-                let reading = {
-                    let over = ctrl
-                        .get_prop("Text")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    if over.trim().is_empty() {
-                        let unit = ctrl
-                            .get_prop("Unit")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        format!("{val:.0}{unit}")
-                    } else {
-                        over
-                    }
-                };
                 painter.text(
                     value_pos,
                     value_anchor,
                     reading,
-                    crate::fonts::font_id(
-                        painter.ctx(),
-                        &ctrl
-                            .get_prop("FontName")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default(),
-                        fsize,
-                    ),
+                    readout_font,
                     Color32::from_rgba_premultiplied(
                         text_colour.r(),
                         text_colour.g(),
@@ -4002,7 +4044,15 @@ pub fn draw_control(
         // A SideMenu centres NOTHING: its ☰, its items and its empty hint are
         // all painted top-anchored down the rail, further below.
         CT::SideMenu => String::new(),
-        CT::ToolBar => "⬛ ToolBar".into(),
+        // A toolbar with buttons draws them (further below); only an empty one
+        // needs to say what it is.
+        CT::ToolBar => {
+            if crate::toolbar::ToolbarDef::from_control(ctrl).is_empty() {
+                "⬛ ToolBar (empty)".into()
+            } else {
+                String::new()
+            }
+        }
         CT::StatusBar => "▬ StatusBar".into(),
         // GroupBox draws its caption as a "legend" on the top-left border (below),
         // never as centered text.
@@ -4525,6 +4575,24 @@ pub fn draw_control(
             // the neighbouring controls.
             let clipped = painter.with_clip_rect(rect);
             paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
+        }
+    }
+
+    // ── ToolBar: the real groups and buttons, not a placeholder ──────────────
+    //
+    // Through the SAME renderer the running form uses, so what the developer
+    // arranges on the canvas is what they get. Inert: a canvas has no hover and
+    // no press, and clicking a control there selects it.
+    if matches!(ctrl.control_type, CT::ToolBar) {
+        let def = crate::toolbar::ToolbarDef::from_control(ctrl);
+        if !def.is_empty() {
+            crate::toolbar_paint::draw(
+                painter,
+                rect,
+                &def,
+                alpha_mul,
+                crate::toolbar_paint::Interaction::inert(),
+            );
         }
     }
 
@@ -7574,6 +7642,43 @@ fn draw_shape_silhouette_shadow(
     }
 }
 
+/// A drop shadow for something that is NOT a [`Control`] — a toolbar button,
+/// say, which lives inside one control rather than being one.
+///
+/// The properties come in as values instead of being read off a control, but the
+/// shadow is drawn by [`draw_regular_drop_shadow`], so a toolbar button's shadow
+/// and a Button's are the same artwork with the same falloff. `opacity` is
+/// 0-100 %, `blur_strength` is the layer count, `distance`/`direction_degrees`
+/// place it exactly as `ShadowDistance`/`ShadowDirection` do.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_loose_drop_shadow(
+    painter: &egui::Painter,
+    rect: Rect,
+    color: Color32,
+    opacity: i64,
+    distance: i64,
+    direction_degrees: f32,
+    blur_strength: i64,
+    corner_radius: f32,
+    alpha_mul: f32,
+) {
+    let opacity = (opacity.clamp(0, 100) as f32) / 100.0;
+    if opacity <= 0.0 {
+        return;
+    }
+    let rad = direction_degrees.to_radians();
+    let offset = Vec2::new(rad.cos(), rad.sin()) * distance.max(0) as f32;
+    let shadow = RegularDropShadow {
+        rect: rect.translate(offset),
+        color,
+        opacity,
+        blur_strength: blur_strength.clamp(0, 20) as usize,
+        corner_radius,
+        overlay: false,
+    };
+    draw_regular_drop_shadow(painter, &shadow, alpha_mul);
+}
+
 fn draw_regular_drop_shadow(painter: &egui::Painter, shadow: &RegularDropShadow, alpha_mul: f32) {
     let sc = shadow.color;
     if shadow.blur_strength == 0 {
@@ -7763,6 +7868,23 @@ pub fn knob_accent(name: &str) -> Color32 {
 /// on unless the developer turned it off — the same default its model carries.
 fn gauge_flag(ctrl: &Control, key: &str) -> bool {
     ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(true)
+}
+
+/// What goes between a Gauge's value and its `Unit` — a space, or nothing.
+///
+/// A unit that starts with a letter or a digit is a WORD, and a word wants the
+/// space a reader would type: `23 Parts`, `1450 rpm`. A symbol is welded to the
+/// number the way it is written everywhere else: `23%`, `19°C`, `40$`. A unit
+/// the developer already began with a space keeps exactly the spacing they
+/// typed — the first character is not alphanumeric, so nothing is added.
+///
+/// This replaces "appended exactly as typed", which made `Parts` come out as
+/// `23Parts` — legible only if you knew to type the space yourself.
+fn unit_gap(unit: &str) -> &'static str {
+    match unit.chars().next() {
+        Some(c) if c.is_alphanumeric() => " ",
+        _ => "",
+    }
 }
 
 pub fn gauge_zone_color(ctrl: &Control, frac: f32) -> Option<Color32> {
@@ -11835,6 +11957,219 @@ slice = [4, 4, 4, 4]
         );
     }
 
+    /// `NeedleColor` paints the needle and its hub, and nothing else on the
+    /// gauge (operator, 2026-08-16: "the needle needs a property to define its
+    /// colour"). Blank keeps the meter's own ink, which is all the needle ever
+    /// had, so an untouched gauge is unchanged.
+    #[test]
+    fn the_needle_takes_its_own_colour_without_repainting_the_meter() {
+        use crate::model::PropValue;
+
+        /// `(line-segment colours, circle fills, ring/arc path colours)`.
+        fn ink(ct: &Control) -> (Vec<Color32>, Vec<Color32>, Vec<Color32>) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(
+                s: &egui::Shape,
+                segs: &mut Vec<Color32>,
+                hubs: &mut Vec<Color32>,
+                bands: &mut Vec<Color32>,
+            ) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, segs, hubs, bands)),
+                    egui::Shape::LineSegment { stroke, .. } => segs.push(stroke.color),
+                    egui::Shape::Circle(c) => hubs.push(c.fill),
+                    egui::Shape::Path(p) => {
+                        if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                            bands.push(c);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let (mut segs, mut hubs, mut bands) = (Vec::new(), Vec::new(), Vec::new());
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut segs, &mut hubs, &mut bands);
+            }
+            (segs, hubs, bands)
+        }
+
+        let red = Color32::from_rgb(0xD9, 0x25, 0x25);
+        let green = Color32::from_rgb(0x16, 0xA3, 0x4A);
+
+        // Both styles that draw a needle answer to the property.
+        for style in ["Radial", "Donut"] {
+            let mut g = Control::new("G", CT::Gauge, 0, 0);
+            g.rect = crate::model::Rect::new(0, 0, 200, 140);
+            g.set_prop("GaugeStyle", PropValue::String(style.into()));
+            g.set_prop("Value", PropValue::Int(70));
+            g.set_prop("Color", PropValue::String("#16A34AFF".into()));
+            // Scale marks are drawn as line segments too, in the TRACK colour —
+            // off, so the only segments left belong to the needle.
+            g.set_prop("ShowScale", PropValue::Bool(false));
+
+            let (segs, hubs, _) = ink(&g);
+            assert!(
+                segs.contains(&green) && hubs.contains(&green),
+                "{style}: a blank NeedleColor must keep the meter's #16A34A — \
+                 segments {segs:?}, circles {hubs:?}"
+            );
+
+            g.set_prop("NeedleColor", PropValue::String("#D92525FF".into()));
+            let (segs, hubs, bands) = ink(&g);
+            assert!(
+                segs.contains(&red) && hubs.contains(&red),
+                "{style}: NeedleColor must paint the needle and its hub red — \
+                 segments {segs:?}, circles {hubs:?}"
+            );
+            assert!(
+                !segs.contains(&green) && !hubs.contains(&green),
+                "{style}: nothing of the needle may stay on the meter's colour — \
+                 segments {segs:?}, circles {hubs:?}"
+            );
+            assert!(
+                bands.contains(&green) && !bands.contains(&red),
+                "{style}: the meter's own band keeps #16A34A — the needle's \
+                 colour is the needle's alone, got {bands:?}"
+            );
+        }
+
+        println!(
+            "\n  Gauge — NeedleColor #D92525 paints needle + hub in Radial and \
+             Donut; the band stays on the meter's #16A34A; blank inherits it\n"
+        );
+    }
+
+    /// `ReadoutPosition` moves a Radial's value+unit from inside the dial to
+    /// under the needle's pivot, 5 px clear of it (operator, 2026-08-16). The
+    /// dial gives up that much room, so the number never lands off the control.
+    #[test]
+    fn a_radial_gauge_can_print_its_reading_below_the_needle() {
+        use crate::model::PropValue;
+
+        /// `(text rect, hub centre)` for the gauge as painted.
+        fn laid_out(ct: &Control) -> (Rect, Pos2) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            // The galley's LAYOUT box, not its ink: `visual_bounding_rect` starts
+            // at the first glyph's ink, a few px below the line's top, which is
+            // not where the painter was told to put the text.
+            fn walk(s: &egui::Shape, text: &mut Option<Rect>, hub: &mut Option<Pos2>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, text, hub)),
+                    egui::Shape::Text(t) => {
+                        *text = Some(Rect::from_min_size(t.pos, t.galley.size()))
+                    }
+                    // The hub is the only filled circle a Radial draws.
+                    egui::Shape::Circle(c) => *hub = Some(c.center),
+                    _ => {}
+                }
+            }
+            let (mut text, mut hub) = (None, None);
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut text, &mut hub);
+            }
+            (
+                text.expect("the gauge reads out"),
+                hub.expect("the needle's hub"),
+            )
+        }
+
+        let mut up = Control::new("G", CT::Gauge, 0, 0);
+        up.rect = crate::model::Rect::new(0, 0, 240, 150);
+        up.set_prop("Value", PropValue::Int(23));
+        up.set_prop("Unit", PropValue::String("Parts".into()));
+        let bottom = up.rect.y as f32 + up.rect.h as f32;
+
+        // Up — the default, unchanged: inside the dial, above the pivot.
+        let (text_up, hub_up) = laid_out(&up);
+        assert!(
+            text_up.bottom() < hub_up.y,
+            "Up must keep the reading above the hub: text {text_up:?}, hub {hub_up:?}"
+        );
+
+        let mut down = up.clone();
+        down.set_prop("ReadoutPosition", PropValue::String("Down".into()));
+        let (text_down, hub_down) = laid_out(&down);
+        assert!(
+            (text_down.top() - (hub_down.y + 5.0)).abs() < 1.0,
+            "Down must put the reading 5 px below the hub: text top {}, hub y {}",
+            text_down.top(),
+            hub_down.y
+        );
+        assert!(
+            text_down.bottom() <= bottom,
+            "the reading must stay inside the control: text bottom {} vs {bottom}",
+            text_down.bottom()
+        );
+        assert!(
+            hub_down.y < hub_up.y,
+            "the dial rises to make the room: hub {} vs {}",
+            hub_down.y,
+            hub_up.y
+        );
+
+        // Radial only: a Donut reads out in its hole and a Linear under its bar,
+        // and neither is moved by the property.
+        for style in ["Donut", "Linear"] {
+            let mut a = up.clone();
+            a.set_prop("GaugeStyle", PropValue::String(style.into()));
+            let mut b = a.clone();
+            b.set_prop("ReadoutPosition", PropValue::String("Down".into()));
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let place = |c: &Control| -> Rect {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+                let mut full = ctx.run_ui(input, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, c, false, true, 1.0, 1.0, None);
+                });
+                full.textures_delta.clear();
+                fn walk(s: &egui::Shape, text: &mut Option<Rect>) {
+                    match s {
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, text)),
+                        egui::Shape::Text(t) => {
+                            *text = Some(Rect::from_min_size(t.pos, t.galley.size()))
+                        }
+                        _ => {}
+                    }
+                }
+                let mut text = None;
+                for cs in &full.shapes {
+                    walk(&cs.shape, &mut text);
+                }
+                text.expect("the gauge reads out")
+            };
+            assert_eq!(
+                place(&a),
+                place(&b),
+                "{style} has one place for its reading — ReadoutPosition must not move it"
+            );
+        }
+
+        println!(
+            "\n  Gauge — ReadoutPosition: Up leaves \"23 Parts\" at y {:.0} (above the \
+             hub at {:.0}); Down puts it at y {:.0}, 5 px under the hub at {:.0}, \
+             inside the control's {bottom:.0}; Donut and Linear unmoved\n",
+            text_up.bottom(),
+            hub_up.y,
+            text_down.top(),
+            hub_down.y
+        );
+    }
+
     /// What the Gauge reads out: `Unit` is appended to the value, and `Text`
     /// replaces the whole reading.
     #[test]
@@ -11870,7 +12205,7 @@ slice = [4, 4, 4, 4]
         assert_eq!(reading(&g), "42", "a bare Gauge reads out its value");
 
         g.set_prop("Unit", PropValue::String("%".into()));
-        assert_eq!(reading(&g), "42%", "Unit is appended exactly as typed");
+        assert_eq!(reading(&g), "42%", "a symbol unit stays welded to the number");
 
         // …in every style, not just the two that once had an API for it.
         for style in ["Linear", "Donut"] {
@@ -11879,10 +12214,38 @@ slice = [4, 4, 4, 4]
             assert_eq!(reading(&styled), "42%", "{style} must carry the Unit too");
         }
 
+        // Reported (operator, 2026-08-16): `Unit` "Parts" read out as "42Parts".
+        // "Appended exactly as typed" put the burden of the space on the
+        // developer, and a word unit needs one every time.
+        for (unit, want) in [
+            ("Parts", "42 Parts"),
+            ("rpm", "42 rpm"),
+            ("3s", "42 3s"),
+            ("%", "42%"),
+            ("°C", "42°C"),
+            ("$", "42$"),
+            (" rpm", "42 rpm"),
+            ("  rpm", "42  rpm"),
+            ("", "42"),
+        ] {
+            let mut u = g.clone();
+            u.set_prop("Unit", PropValue::String(unit.into()));
+            assert_eq!(
+                reading(&u),
+                want,
+                "Unit {unit:?} must read out as {want:?}"
+            );
+        }
+
         g.set_prop("Text", PropValue::String("OFFLINE".into()));
         assert_eq!(reading(&g), "OFFLINE", "Text replaces the whole reading");
 
-        println!("\n  Gauge readout — 42 ⇒ \"42\", +Unit \"%\" ⇒ \"42%\" in all 3 styles, +Text ⇒ \"OFFLINE\"\n");
+        println!(
+            "\n  Gauge readout — 42 ⇒ \"42\", \"%\" ⇒ \"42%\" in all 3 styles, \
+             word units spaced (\"Parts\" ⇒ \"42 Parts\", \"rpm\" ⇒ \"42 rpm\"), \
+             symbols tight (\"°C\" ⇒ \"42°C\", \"$\" ⇒ \"42$\"), \
+             a typed space preserved (\" rpm\" ⇒ \"42 rpm\"), +Text ⇒ \"OFFLINE\"\n"
+        );
     }
 
     /// A caption never escapes its control: the font shrinks to fit, the way

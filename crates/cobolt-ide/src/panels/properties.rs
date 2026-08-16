@@ -607,6 +607,10 @@ pub struct InspectorAction {
     pub cs_del_proc: Option<usize>,
     /// Set when the "Edit Menu..." button is clicked for a MenuBar control.
     pub open_menu_editor: Option<String>,
+    /// A ToolBar whose groups and buttons the developer wants to edit. Every
+    /// option a toolbar has lives in that modal, so this pane offers one button
+    /// and nothing else (operator decision, 2026-08-16).
+    pub open_toolbar_editor: Option<String>,
     /// Set when the data-binding editor creates a new form-level binding.
     pub create_data_binding: Option<DataBindingDef>,
     /// `(old_id, new_id)` — set when the user renames the selected control in the
@@ -6001,9 +6005,16 @@ impl PropertiesPanel {
                 // its full-circle sweep — so the row sits above the per-style
                 // groups.
                 bool_row_inline(ui, id, "ShowNeedle", "Show needle", ctrl, action);
+                // Blank = the meter's own colour, which is what the needle has
+                // always taken.
+                color_row(ui, id, "NeedleColor", ctrl, action);
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("Radial style").small().weak());
                 bool_row_inline(ui, id, "ShowScale", "Show scale", ctrl, action);
+                // Where the value + Unit sit: inside the dial, or under the
+                // needle's pivot. Radial only — a Donut reads out in its hole
+                // and a Linear under its bar.
+                combo_row_inline(ui, id, "ReadoutPosition", ctrl, action, &["Up", "Down"]);
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("Linear style").small().weak());
                 int_prop_row(ui, id, "BarHeight", "Bar height", ctrl, action, 6..=200, None, 14);
@@ -6105,12 +6116,42 @@ impl PropertiesPanel {
                     );
                 }
                 ui.add_space(4.0);
+                // Confirm-before-copy, and the list that makes it worth having.
+                bool_row_inline(ui, id, "StageOnly", "Confirm before copying", ctrl, action);
+                {
+                    let cur = ctrl
+                        .get_prop("FileListControl")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "FileListControl",
+                        &cur,
+                        "File list:",
+                        "id of the ListBox that reviews the intake",
+                        action,
+                    );
+                }
+                ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(
-                        "DroppedFiles and RejectedFiles are populated at runtime by a \
-                         drop or the native file picker — not design-time properties. \
-                         A blank Extensions accepts any file; 0 KB is no size limit; a \
-                         blank Destination leaves files where they are.",
+                        "DroppedFiles, RejectedFiles, StagedFiles and CommitSummary are \
+                         populated at runtime by a drop or the native file picker — not \
+                         design-time properties. A blank Extensions accepts any file; 0 KB \
+                         is no size limit; a blank Destination leaves files where they are.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "With \"Confirm before copying\" on, a drop copies nothing: the \
+                         files are listed with a tick box each, and your COBOL calls \
+                         CommitFiles() when the operator is happy. Unticked files are \
+                         skipped. The list is an ordinary ListBox — the one created with \
+                         this zone, or any other you name here.",
                     )
                     .small()
                     .weak(),
@@ -6775,7 +6816,48 @@ impl PropertiesPanel {
             }
 
             // ── ToolBar / StatusBar ──────────────────────────────────────────
-            ControlType::ToolBar | ControlType::StatusBar if phase == TypeSection::Rest => {
+            // A ToolBar is groups of buttons, and all of it — the frames, the
+            // icons, the colours, the actions — is set in its own modal. Far too
+            // many knobs for this pane, and a toolbar is a thing you arrange
+            // while looking at it (operator decision, 2026-08-16).
+            ControlType::ToolBar if phase == TypeSection::Rest => {
+                section_header(ui, tr.sec_items);
+                if ui.button(tr.toolbar_edit).clicked() {
+                    action.open_toolbar_editor = Some(id.to_owned());
+                }
+                let def = cobolt_forms::toolbar::ToolbarDef::from_control(ctrl);
+                ui.label(
+                    egui::RichText::new(if def.is_empty() {
+                        "No groups yet.".to_owned()
+                    } else {
+                        format!(
+                            "{} group(s), {} button(s), {}px wide",
+                            def.groups.len(),
+                            def.buttons().count(),
+                            def.layout_width()
+                        )
+                    })
+                    .small()
+                    .weak(),
+                );
+                // A toolbar wider than the control it sits on loses whole groups
+                // off the end — worth saying here, where the width is editable.
+                if !def.is_empty() && def.layout_width() > ctrl.rect.w as i64 {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "⚠ Needs {}px but the control is {}px — the last group(s) \
+                             will not be drawn.",
+                            def.layout_width(),
+                            ctrl.rect.w
+                        ))
+                        .small()
+                        .color(egui::Color32::from_rgb(220, 160, 60)),
+                    );
+                }
+                ui.add_space(4.0);
+            }
+
+            ControlType::StatusBar if phase == TypeSection::Rest => {
                 section_header(ui, tr.sec_items);
                 let cur = ctrl
                     .get_prop("Items")

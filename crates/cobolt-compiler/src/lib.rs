@@ -3037,9 +3037,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Color" => ("hex color string or empty", "Gauge fill color; empty uses the active theme's accent. Ignored while zone coloring is on (see WarningThreshold)."),
         "WarningThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns amber. Empty = zone coloring off; both this and CriticalThreshold must be set together, and while they are the zone owns the fill color: green below WarningThreshold, amber from it, red from CriticalThreshold."),
         "CriticalThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns red (see WarningThreshold)."),
-        "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix appended to the Gauge's numeric readout, in every style, exactly as typed — write `\" rpm\"` if you want the space."),
+        "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix after the Gauge's numeric readout, in every style. A unit that starts with a letter or digit is spaced off the number (`\"Parts\"` reads `23 Parts`); a symbol is not (`\"%\"` reads `23%`, `\"°C\"` reads `19°C`). Leading spaces you type are kept as typed."),
         "ShowNeedle" => (BOOL_DOMAIN, "Draws the Gauge's needle (Radial and Donut styles)."),
+        "NeedleColor" => ("hex color string or empty", "Colour of the Gauge's needle and its hub (Radial and Donut). Empty = the colour the meter itself is drawn in, which is how the needle has always been painted. The meter's band is unaffected — this is the needle's colour alone."),
         "ShowScale" => (BOOL_DOMAIN, "Draws the Radial Gauge's tick scale."),
+        "ReadoutPosition" => ("one of: `Up` | `Down`", "Where a Radial Gauge prints its value + Unit: `Up` inside the dial, above the needle's pivot (the default), or `Down` 5 px below the pivot, where a speedometer prints its number. On `Down` the dial gives up that much height so the reading stays inside the control. Radial only — a Donut reads out in its hole and a Linear under its bar."),
         "BarHeight" => ("pixels > 0", "Linear Gauge bar thickness."),
         "ShowThumb" => (BOOL_DOMAIN, "Draws the Linear Gauge's end-of-fill thumb marker."),
         "StrokeWidth" => ("pixels > 0", "Donut Gauge ring thickness."),
@@ -3065,6 +3067,31 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RejectedFiles" => (
             "newline-separated `path<TAB>reason` (runtime-only, never a design-time default)",
             "Files the zone turned away, each with `extension` or `too-big` after a TAB.",
+        ),
+        // ── ToolBar ──
+        "ToolbarLayout" => (
+            "serialised toolbar definition (edited in the Toolbar Editor, not by hand)",
+            "A ToolBar's groups of buttons: each group's frame (border style/colour/width, corner radius, padding, background, separator) and each button's label, tooltip, icon + icon size/colour, size, corner radius, background (solid or gradient), foreground, drop shadow, enabled state and action. Set it through the designer's Toolbar Editor. Absent, a populated `Items` is read as one unframed group of labelled buttons, so a toolbar built before groups existed still works. Corner radius defaults to 10; every colour defaults to unset, meaning the form's theme decides.",
+        ),
+        "LastButton" => (
+            "toolbar button id (runtime-only, never a design-time default)",
+            "Which toolbar button was pressed last. Written before `onClick` fires, so ONE handler can serve a whole toolbar: `EVALUATE TOOLBAR-1::LastButton`.",
+        ),
+        "StageOnly" => (
+            BOOL_DOMAIN,
+            "Off (the default): a drop copies into DestinationFolder then and there. On: a drop copies NOTHING — the files are held, listed for review in FileListControl with a tick box each, and your COBOL calls `CommitFiles()` to do the copying once the operator is happy. Use it whenever the operator should be able to change their mind before anything is written.",
+        ),
+        "FileListControl" => (
+            "the id of a ListBox on the same form (blank = no list)",
+            "Where a staged drop shows what it is holding: one tick-boxed row per file, reading `<path> (12.345 MB)`. Unticking a row leaves that file out of the next `CommitFiles()` without removing it from the list, so the operator can see what they excluded and put it back. Dropping a FileDropZone in the designer creates this ListBox next to it, at the zone's own size, and names it here — it is an ordinary ListBox from then on, and naming a control that no longer exists simply means no list.",
+        ),
+        "StagedFiles" => (
+            "newline-separated absolute paths (runtime-only, never a design-time default)",
+            "What a StageOnly zone is holding, in list order, at their ORIGINAL paths — nothing has been copied yet. A second drop adds to this rather than replacing it, and the same file dropped twice is held once.",
+        ),
+        "CommitSummary" => (
+            "free text (runtime-only, never a design-time default)",
+            "One line about the intake, for a Label or a DISPLAY: `3 files staged, 24.310 MB` before the form goes ahead, `7 of 8 copied, 24.310 MB` after `CommitFiles()`. Megabytes count 1,000,000 bytes, so a size here matches the one the operator's own file browser shows.",
         ),
 
         // ── Maps (spec 039) ──
@@ -3175,7 +3202,7 @@ fn control_purpose(name: &str) -> &'static str {
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
         "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property). Menu items may carry an icon from the built-in catalogue: 660+ pure-vector icons in 26 categories (documents, editing, navigation, commerce, payroll, receivables, payments, stock control, transportation, logistics, financial, company departments, transaction kinds, civilian vehicles, military equipment, and more). Icons are resolution-independent line work tinted by the item's colour; the engine can also apply a second accent colour, a drop shadow, or a neumorphic emboss.",
         "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane); the collapsed rail is icon-only (an item with no icon falls back to its first letter). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. `Home (main content pane)` takes NO target and opens nothing: it puts the shell form's OWN ContentPane content back on screen, so a 'main screen' needs no form of its own. Home PARKS rather than destroys — the outgoing occupant gets onDeactivate but no onDestroy, keeps its WORKING-STORAGE, and a later load of it revives that same instance; every other live form, child windows included, is untouched. The breadcrumb collapses to the shell form and the contextual menu section empties; Home while already home does nothing. Home is offered on a SideMenu only, since a MenuBar form has no ContentPane to restore. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
-        "ToolBar" => "Horizontal strip of action items.",
+        "ToolBar" => "Groups of buttons in a horizontal strip. Each group is a frame with its own border and corner radius, separated from the next by an invisible gap; each button carries an icon, its own colours and an action. Built in the designer's Toolbar Editor (`ToolbarLayout`), not from a property list.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
         "DateTimePicker" => "Date/time input with calendar or spinner.",
@@ -3299,6 +3326,10 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("ExportCSV() → String", "Serialise the grid as CSV."),
             ("RefreshBinding() → Integer", "Re-hydrate rows from the bound data source; returns the row count."),
         ],
+        "FileDropZone" => vec![(
+            "CommitFiles() → String",
+            "Copy the files a staged drop is holding into DestinationFolder, and return the summary (`7 of 8 copied, 24.310 MB`). Only meaningful with StageOnly on: call it when the operator has finished reviewing the list. Files whose row was unticked are skipped and stay listed. Afterwards DroppedFiles is the included files at their new paths, each row carries `✓` and its new path or `✗` and the reason, and CommitSummary is the returned line.",
+        )],
         "Timer" => vec![
             ("Start()", "Set Enabled = 1 (ticks resume)."),
             ("Stop()", "Set Enabled = 0 (ticks stop)."),
@@ -3414,9 +3445,28 @@ Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueField
         "GroupBox" => "\
 ### Repeating groups (control arrays)\n\
 With `IsRepeatingGroup = 1` the GroupBox becomes a card template: set `ItemCount` (or bind `DataSource`) and address instance members as `Member(index)::Property` (1-based index). Handlers on members receive `CONTROL-ARRAY-INDEX`.\n",
+        "ToolBar" => "\
+### Groups of buttons, built in the Toolbar Editor\n\
+A ToolBar is not a list of words — it is groups of buttons. Its whole definition lives in the `ToolbarLayout` property, edited in the designer (properties pane → **Edit Toolbar…**), never written by hand. Each group is a frame with a border style (`Single`/`None`/`Fixed3D`), border colour and width, corner radius, its own padding and an optional invisible separator after it; `None` still groups but draws no frame. Each button has a label, tooltip, an icon from the built-in hand-drawn set with its own size and colour, a width/height, a corner radius, a background (solid or gradient), a foreground colour, a drop shadow, an enabled flag and an action. Corner radius defaults to 10. Every colour defaults to unset, which means the form's theme decides — a colour actually picked always wins.\n\
+\n\
+### What a press does\n\
+`event` fires the toolbar's own `onClick` (the default). `procedure:<NAME>` PERFORMs a form procedure. `open-modal:<FORM>` opens a STANDALONE form as a modal window. The rest are the platform's: `print:<path>` opens the document where its print dialog is, `share` captures the form's window and hands the image to the OS, `screenshot` puts that image on the clipboard, `copy`/`cut`/`paste` use the OS clipboard on whichever control has focus, `run-app:<path args>` launches an application, `open-terminal:<dir>` opens a terminal.\n\
+\n\
+Whatever the action, the form ALSO gets an `onClick` on the toolbar, and `LastButton` names the button that was pressed — written first, so one handler can serve the whole bar:\n\
+\n\
+```cobol\n\
+       TOOLBAR-1--ONCLICK.\n\
+           EVALUATE TOOLBAR-1::LastButton\n\
+               WHEN \"button-1\"  PERFORM SAVE-RECORD\n\
+               WHEN \"button-2\"  PERFORM DELETE-RECORD\n\
+               WHEN OTHER       CONTINUE\n\
+           END-EVALUATE.\n\
+```\n\
+\n\
+`run-app` and `open-terminal` start a real process: the target is split on whitespace and handed to the OS DIRECTLY, never to a shell, so a target built from a data item cannot become a shell command. A toolbar wider than its control loses whole groups off the end rather than drawing half of one. A ToolBar with only a legacy `Items` list is read as one unframed group of labelled buttons, so it keeps working untouched.\n",
         "FileDropZone" => "\
-### Usage (no INVOKE methods — it is purely a UI gesture)\n\
-There is no method to open the picker or read a drop programmatically. The user drags a file onto the control OR clicks it to open the native file picker; either way the platform runs the zone's intake and fires an event. Read the paths with `MOVE FDZ-1::DroppedFiles TO WS-PATHS`.\n\
+### Usage — a UI gesture in, one method out\n\
+There is no method to open the picker or read a drop programmatically. The user drags a file onto the control OR clicks it to open the native file picker; either way the platform runs the zone's intake and fires an event. Read the paths with `MOVE FDZ-1::DroppedFiles TO WS-PATHS`. The one method the zone has is `CommitFiles()`, which belongs to the staged flow below.\n\
 \n\
 ### What the zone accepts, and where it puts it\n\
 Three design-time properties decide, and both routes in (drop and picker) obey them:\n\
@@ -3425,7 +3475,26 @@ Three design-time properties decide, and both routes in (drop and picker) obey t
 - `MaximumFileSizeKB` — largest file taken, in KB. `0` is no limit.\n\
 - `DestinationFolder` — accepted files are COPIED here (the folder is created if missing). An existing name is never overwritten: `report.csv` lands as `report (2).csv`. Blank leaves files where they are.\n\
 \n\
-Accepted files appear in `DroppedFiles` — at their NEW path when a destination is set — and fire `onFilesDropped`. Refused files appear in `RejectedFiles`, one `path<TAB>reason` per line where reason is `extension` or `too-big`, and fire `onFilesRejected`. A drop of ten files where three are refused fires BOTH events. Nothing is refused silently.\n",
+Accepted files appear in `DroppedFiles` — at their NEW path when a destination is set — and fire `onFilesDropped`. Refused files appear in `RejectedFiles`, one `path<TAB>reason` per line where reason is `extension` or `too-big`, and fire `onFilesRejected`. A drop of ten files where three are refused fires BOTH events. Nothing is refused silently.\n\
+\n\
+### Letting the operator confirm first (`StageOnly`)\n\
+By default the copy happens the instant the file lands, which gives the operator no chance to change their mind. Turn `StageOnly` on and a drop copies **nothing**:\n\
+\n\
+1. The drop is judged as usual — refused files still fire `onFilesRejected` — and the accepted ones are HELD at their original paths in `StagedFiles`. `onFilesDropped` fires. `DestinationFolder` is not even created.\n\
+2. They are listed in the ListBox named by `FileListControl`, one tick-boxed row each, reading `<path> (12.345 MB)`. `CommitSummary` reads `3 files staged, 24.310 MB`.\n\
+3. The operator unticks anything they did not mean to send. An unticked row stays in the list, so the exclusion is visible and reversible.\n\
+4. Your own COBOL decides when the form goes ahead — a Submit button, a validated field, whatever the form means by confirmation — and calls `INVOKE FDZ-1 'CommitFiles'`. Ticked files are copied by exactly the rules above; unticked ones are skipped.\n\
+5. Each row becomes `✓ <new path> (12.345 MB)` or `✗ <path> (12.345 MB) — <reason>`, `CommitSummary` becomes `7 of 8 copied, 24.310 MB` (also the method's return value), and `DroppedFiles` becomes the included files at their new paths — at their original path for any whose copy failed, because the form must still get the file it was given.\n\
+\n\
+```cobol\n\
+       SUBMIT-BUTTON--ONCLICK.\n\
+           MOVE FDZ-1::CommitFiles() TO WS-SUMMARY\n\
+           MOVE WS-SUMMARY TO STATUS-LABEL::Caption\n\
+           MOVE FDZ-1::DroppedFiles TO WS-PATHS\n\
+           PERFORM SEND-TO-APPLICATION.\n\
+```\n\
+\n\
+A second drop adds to what is already staged rather than replacing it, and the same file dropped twice is held once. Calling `CommitFiles()` on a zone holding nothing is not an error — it reports `0 of 0 copied`. Megabytes count 1,000,000 bytes, matching the operator's own file browser.\n",
         "Maps" => "\
 ### Usage — basemap vs. data verbs, and the API key\n\
 The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) needs **no API key at all**. Only the five data methods (`Geocode`, `ReverseGeocode`, `Directions`, `DistanceMatrix`, `PlacesSearch`) call the real Google Maps API and need a project-level `google-maps` credential (Settings → Integrations) — with none configured they fail immediately with `LastError` = \"not configured\" and fire `onError`, never a crash, never a network call (R33). The key itself never appears in any property, generated `.cbl`, or the `.cfrm`.\n",

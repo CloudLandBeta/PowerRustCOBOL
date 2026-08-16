@@ -23,6 +23,11 @@ egui        = "0.36"
 eframe      = { version = "0.36", features = ["default_fonts"] }
 egui_extras = { version = "0.36", features = ["image"] }
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
+# A toolbar button's Copy/Cut/Paste and its window capture need the real OS
+# clipboard — text BOTH ways and an image out, which egui's own `copy_text` does
+# not cover. Already in the lock file: `egui-winit` depends on it, so this is a
+# direct edge onto a crate the build compiles either way.
+arboard     = { version = "3.6" }
 
 # Native file dialogs (FileDropZone click-to-browse) — opened asynchronously:
 # a synchronous dialog nests the OS event loop, which aborts winit 0.30 with
