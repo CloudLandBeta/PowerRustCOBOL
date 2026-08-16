@@ -3192,6 +3192,11 @@ pub const DEFAULT_BACKGROUND_COLOR: &str = "#F0F0F0";
 /// and the DataGrid renderer's gate can never drift apart.
 pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 
+/// A ProgressBar's seeded `BarColor`. Like [`DEFAULT_FOREGROUND_COLOR`], this
+/// value means "the developer has not chosen": a bar still carrying it takes
+/// the active theme's green, and only a different value is a real choice.
+pub const DEFAULT_BAR_COLOR: &str = "#00AA00";
+
 /// Default background of a NEW form — opaque graphite, the surface
 /// [`DEFAULT_FOREGROUND_COLOR`] (white) was chosen to read against.
 ///
@@ -3503,7 +3508,7 @@ impl Control {
                 props.insert("Minimum".into(), PropValue::Int(0));
                 props.insert("Maximum".into(), PropValue::Int(100));
                 props.insert("Value".into(), PropValue::Int(0));
-                props.insert("BarColor".into(), PropValue::String("#00AA00".into()));
+                props.insert("BarColor".into(), PropValue::String(DEFAULT_BAR_COLOR.into()));
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into()));
                 props.insert("Style".into(), PropValue::String("Continuous".into()));
                 // How long one block is under `Style = Blocks`, along the axis
@@ -4107,6 +4112,11 @@ impl Control {
             | ControlType::AreaChart
             | ControlType::ScatterChart
             | ControlType::DonutChart => Some(8),
+            // A deliberate choice, not the old look (operator, 2026-08-16):
+            // the bar's artwork was hard-wired to a 2 px round, so once
+            // `CornerRadius` actually reached the paint a seeded 0 would have
+            // squared off every existing bar. 10 rounds it properly.
+            ControlType::ProgressBar => Some(10),
             ControlType::TextBox
             | ControlType::ComboBox
             | ControlType::ListBox
@@ -4115,7 +4125,6 @@ impl Control {
             | ControlType::DataGrid
             | ControlType::NumericUpDown
             | ControlType::DateTimePicker
-            | ControlType::ProgressBar
             | ControlType::Slider
             | ControlType::Shape
             | ControlType::CheckBox
@@ -6775,7 +6784,15 @@ mod tests {
     #[test]
     fn bordered_controls_expose_corner_radius_016() {
         // Every bordered visual control carries CornerRadius with a default that
-        // preserves its current look (Button 3, charts 8, others 0).
+        // preserves its current look (Button 3, charts 8, others 0) — the
+        // progress bar excepted, rounded at 10 by operator decision.
+        assert_eq!(
+            Control::new("P", ControlType::ProgressBar, 0, 0)
+                .get_prop("CornerRadius")
+                .unwrap()
+                .as_i64(),
+            10
+        );
         assert_eq!(
             Control::new("B", ControlType::Button, 0, 0)
                 .get_prop("CornerRadius")
@@ -6798,7 +6815,6 @@ mod tests {
             ControlType::DataGrid,
             ControlType::NumericUpDown,
             ControlType::DateTimePicker,
-            ControlType::ProgressBar,
             ControlType::Slider,
             ControlType::Shape,
             ControlType::GroupBox,

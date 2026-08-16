@@ -1964,6 +1964,34 @@ impl DesignerPanel {
         }
         self.prompt_ac.sel = input.sel;
 
+        // IntelliSense appears only while the developer is WRITING (operator,
+        // 2026-08-16). This list used to be recomputed on every frame the box
+        // held focus, so it opened when the caret merely arrived somewhere —
+        // a click into a word, an arrow key, a backspace. Writing is what asks
+        // for it; anything else that moves the caret puts it away.
+        // (ArrowUp/ArrowDown/Tab never reach here while the list is open — the
+        // caller consumes them for its navigation — so choosing an entry with
+        // the keyboard is unaffected.)
+        let typing = ctx.input(|i| {
+            i.events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Text(t) if !t.is_empty()))
+        });
+        let moved_without_writing = ctx.input(|i| {
+            i.pointer.any_pressed()
+                || i.key_pressed(egui::Key::Backspace)
+                || i.key_pressed(egui::Key::Delete)
+                || i.key_pressed(egui::Key::ArrowLeft)
+                || i.key_pressed(egui::Key::ArrowRight)
+                || i.key_pressed(egui::Key::Home)
+                || i.key_pressed(egui::Key::End)
+                || i.key_pressed(egui::Key::PageUp)
+                || i.key_pressed(egui::Key::PageDown)
+        });
+        if moved_without_writing {
+            self.prompt_ac.close();
+        }
+
         // Recompute from the caret. The catalogue is built only while the box
         // has focus — it walks the form and parses working-storage, which is
         // not work to do on every frame of a pane nobody is typing into.
@@ -1971,21 +1999,23 @@ impl DesignerPanel {
             self.prompt_ac.close();
             return;
         };
-        let caret = char_to_byte(&self.global_ai_prompt, cursor.primary.index.0);
-        let catalog = crate::prompt_complete::Catalog::from_form(
-            &self.form,
-            crate::panels::editor::build_prompt_data_items(&self.form, ""),
-        );
-        match crate::prompt_complete::complete(&self.global_ai_prompt, caret, &catalog) {
-            Some(c) => {
-                if c.items != self.prompt_ac.items {
-                    self.prompt_ac.sel = 0; // a new list starts at the top
+        if typing {
+            let caret = char_to_byte(&self.global_ai_prompt, cursor.primary.index.0);
+            let catalog = crate::prompt_complete::Catalog::from_form(
+                &self.form,
+                crate::panels::editor::build_prompt_data_items(&self.form, ""),
+            );
+            match crate::prompt_complete::complete(&self.global_ai_prompt, caret, &catalog) {
+                Some(c) => {
+                    if c.items != self.prompt_ac.items {
+                        self.prompt_ac.sel = 0; // a new list starts at the top
+                    }
+                    self.prompt_ac.replace = (c.replace.start, c.replace.end);
+                    self.prompt_ac.items = c.items;
+                    self.prompt_ac.visible = true;
                 }
-                self.prompt_ac.replace = (c.replace.start, c.replace.end);
-                self.prompt_ac.items = c.items;
-                self.prompt_ac.visible = true;
+                None => self.prompt_ac.close(),
             }
-            None => self.prompt_ac.close(),
         }
 
         if let Some(clicked) = self.prompt_popup(ctx, box_rect) {
@@ -8126,6 +8156,33 @@ impl DesignerPanel {
                                 &program_id,
                                 &code,
                             ));
+                            // `EXEC RUST` only when the developer asked for it.
+                            // The request is the last thing they said in this
+                            // handler's conversation, which survives the fix
+                            // rounds below — so a block that comes back on a
+                            // retry is judged against the original ask, not
+                            // against the correction we sent.
+                            let request = self
+                                .event_modal
+                                .as_ref()
+                                .and_then(|m| {
+                                    m.ai_history
+                                        .iter()
+                                        .rev()
+                                        .find(|t| t.role == "user")
+                                        .map(|t| t.content.clone())
+                                })
+                                .unwrap_or_default();
+                            if let Some(line) =
+                                crate::agent::unrequested_exec_rust(&code, &request)
+                            {
+                                errs.push(crate::runner::DiagMsg {
+                                    line,
+                                    col: 1,
+                                    severity: crate::runner::DiagSeverity::Error,
+                                    message: crate::agent::unrequested_exec_rust_msg(),
+                                });
+                            }
                             if errs.is_empty() {
                                 self.event_editor.open_buffer(
                                     std::path::PathBuf::from(format!("{program_id}.handler")),
@@ -12548,7 +12605,10 @@ mod shell_prop_tests {
         );
     }
 
-    /// The rule the bug above taught, kept where it cannot be forgotten.
+    /// The rule the bug above taught, in the operator's own words
+    /// (2026-08-16): **if it is not through the grip resizer, no resize may
+    /// happen on its own** — barring a resize a written specification allows
+    /// explicitly. A box is not free to consult its content and grow.
     ///
     /// `egui::Resize` takes `desired.max(measured_content)` every frame. That
     /// is harmless around content whose measured size is bounded, and a ratchet

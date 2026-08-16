@@ -3528,20 +3528,54 @@ impl EditorPanel {
                             self.ac.member_mode = false;
                         }
 
+                        // IntelliSense appears only while the developer is
+                        // WRITING (operator, 2026-08-16) — never while deleting,
+                        // never while walking the caret over existing text with
+                        // the mouse or the keyboard. `response.changed()` cannot
+                        // tell those apart: a backspace changes the text just as
+                        // a letter does. The typing event itself can, so that is
+                        // the trigger. Ctrl+Space stays an explicit request and
+                        // is exempt.
+                        let typing = ctx.input(|i| {
+                            i.events
+                                .iter()
+                                .any(|e| matches!(e, egui::Event::Text(t) if !t.is_empty()))
+                        });
+                        // Moving the caret without writing closes an open list.
+                        // ArrowUp/ArrowDown/Tab never reach here while the popup
+                        // is open — they were consumed above for its own
+                        // navigation — so this cannot fight the developer
+                        // choosing an entry.
+                        let moved_without_writing = ctx.input(|i| {
+                            i.pointer.any_pressed()
+                                || i.key_pressed(Key::Backspace)
+                                || i.key_pressed(Key::Delete)
+                                || i.key_pressed(Key::ArrowLeft)
+                                || i.key_pressed(Key::ArrowRight)
+                                || i.key_pressed(Key::Home)
+                                || i.key_pressed(Key::End)
+                                || i.key_pressed(Key::PageUp)
+                                || i.key_pressed(Key::PageDown)
+                        });
+                        if self.ac.visible && moved_without_writing && !trigger_manual {
+                            self.ac.visible = false;
+                            self.ac.member_mode = false;
+                        }
+
                         let refresh = trigger_manual
-                            || (te_out.response.changed() && prefix.len() >= 2)
-                            || (te_out.response.changed() && invoke.is_some())
-                            || (te_out.response.changed() && member_ctrl.is_some())
-                            || (te_out.response.changed() && prop_ref.is_some());
+                            || (typing && prefix.len() >= 2)
+                            || (typing && invoke.is_some())
+                            || (typing && member_ctrl.is_some())
+                            || (typing && prop_ref.is_some());
 
                         if refresh
                             || (self.ac.visible && prefix.len() >= 1)
                             || (self.ac.visible && prop_ref.is_some())
-                            // An open popup re-filters on EVERY edit, so a
-                            // keystroke that matches nothing closes it on the
-                            // spot instead of waiting for a prefix long enough
-                            // to satisfy `refresh`.
-                            || (self.ac.visible && te_out.response.changed())
+                            // An open popup re-filters on every keystroke, so a
+                            // letter that matches nothing closes it on the spot
+                            // instead of waiting for a prefix long enough to
+                            // satisfy `refresh`.
+                            || (self.ac.visible && typing)
                         {
                             let (items, member_mode) = if let Some(pc) = &prop_ref {
                                 let v = match pc {

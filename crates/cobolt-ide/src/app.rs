@@ -4343,6 +4343,17 @@ impl CoboltApp {
                     .unwrap_or_default();
                 let action = {
                     let d = &mut st.designer;
+                    // Publish the form's surface theme before the inspector
+                    // draws. The colour picker offers the ACTIVE theme's
+                    // palette, read from the context — and this surface never
+                    // published one, so it fell back to Liquid Glass, which
+                    // supplies no swatches at all. The picker therefore opened
+                    // with an empty grid here while the same control's picker
+                    // on the designer canvas showed Elegance's 24 colours.
+                    cobolt_forms::paint::set_surface_theme(
+                        ui.ctx(),
+                        d.active_surface_theme.clone(),
+                    );
                     let sel = ctrl_id.as_deref().and_then(|id| d.form.find_control(id));
                     let form = &d.form as *const cobolt_forms::Form;
                     let props = &mut d.properties;
@@ -13907,6 +13918,22 @@ impl CoboltApp {
         // remains and the form reclaims the width.
         use crate::panels::designer::{PROPS_DEFAULT_W, PROPS_MIN_W, PROPS_TAB_W};
         let props_hidden = self.designers[idx].1.props_hidden;
+
+        // The colour picker's fixed grid is the ACTIVE theme's palette, read
+        // from the context — so this pane must publish its OWN form's theme
+        // before drawing. It never did: it relied on the canvas below having
+        // published one earlier, which makes the grid depend on paint order.
+        // With two designers open on differently-themed forms the picker showed
+        // whichever painted last, and before a canvas had ever run it showed
+        // Liquid Glass, which offers no swatches at all — an empty grid where
+        // Elegance's colours belong. (The canvas resolves the same theme a few
+        // hundred lines below; resolving it again here is cheap and makes the
+        // pane independent of that ordering.)
+        {
+            let form_theme = self.designers[idx].1.form.theme.clone();
+            let surface = self.resolve_surface_theme(form_theme.as_deref());
+            cobolt_forms::paint::set_surface_theme(panel_ui.ctx(), surface);
+        }
 
         // Rightmost region: the resizable properties content (only when open).
         let inspector_action = if !props_hidden {

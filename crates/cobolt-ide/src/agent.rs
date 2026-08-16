@@ -819,6 +819,51 @@ pub(crate) fn handler_body_shape_error(code: &str) -> Option<String> {
     None
 }
 
+/// The line of the first `EXEC RUST` block in `code` that `request` never asked
+/// for, 1-based — `None` when there is no block, or when the developer did ask.
+///
+/// `EXEC RUST` is the developer's choice (see the agents' steering and the
+/// extensions skill). The prompts say so, but a prompt is instruction and not
+/// enforcement: asked to copy one value into fifteen controls, an agent still
+/// answered with a Rust block and called it concise (operator, 2026-08-16).
+/// This is the part that cannot be talked out of it.
+///
+/// "Asked for it" is deliberately generous — any mention of Rust in the request
+/// counts, so a developer who wants a block gets one without fighting the
+/// checker. The one word that must NOT count is the platform's own name: this
+/// language is called RustCOBOL, so a request mentioning `RustCOBOL` (or
+/// `PowerRustCOBOL`) is talking about the product, not asking for Rust.
+pub fn unrequested_exec_rust(code: &str, request: &str) -> Option<u32> {
+    let asked_for_rust = {
+        let mut r = request.to_lowercase();
+        for product_name in ["powerrustcobol", "rustcobol"] {
+            r = r.replace(product_name, " ");
+        }
+        r.contains("rust")
+    };
+    if asked_for_rust {
+        return None;
+    }
+    code.lines().enumerate().find_map(|(i, line)| {
+        let code_part = line.split("*>").next().unwrap_or("");
+        code_part
+            .to_ascii_uppercase()
+            .contains("EXEC RUST")
+            .then_some(i as u32 + 1)
+    })
+}
+
+/// What the developer is told when a block they never asked for comes back.
+pub fn unrequested_exec_rust_msg() -> String {
+    "This handler contains an `EXEC RUST` block, and the request did not ask for \
+     Rust. Write it in COBOL: however many statements that takes is the correct \
+     answer — fifteen controls are fifteen MOVE statements. A block is not free \
+     either: it forces the program to be built, needs the Rust toolchain, and \
+     cannot be stepped in the debugger. If the task genuinely cannot be done in \
+     COBOL, say so and ask instead of choosing for the developer."
+        .to_string()
+}
+
 /// Message for a hallucinated property reference in generated code.
 fn bad_prop_msg((ctrl, prop): (String, String)) -> String {
     format!(
@@ -1883,6 +1928,64 @@ mod tests {
     /// the platform (operator, 2026-08-16). Nothing it had been given ruled
     /// that out, so the rule now lives in the steering BOTH code agents read
     /// and in the extensions skill injected into every request.
+    /// The enforcement behind the prompts: a block nobody asked for is refused,
+    /// and a block that was asked for goes through.
+    #[test]
+    fn exec_rust_is_refused_unless_the_request_asked_for_rust() {
+        let with_block = concat!(
+            "       PROCEDURE DIVISION.\n",
+            "           EXEC RUST\n",
+            "               let x = 1;\n",
+            "           END-EXEC.\n"
+        );
+        let plain = "       PROCEDURE DIVISION.\n           MOVE 1 TO WS-N.\n";
+
+        // Not asked for ⇒ refused, at the block's own line.
+        assert_eq!(
+            unrequested_exec_rust(with_block, "copy Knob-1's value to every numeric control"),
+            Some(2)
+        );
+        // Asked for ⇒ allowed, however it is worded.
+        for asked in [
+            "do this in Rust",
+            "use an EXEC RUST block",
+            "read it with the csv crate in rust",
+        ] {
+            assert_eq!(
+                unrequested_exec_rust(with_block, asked),
+                None,
+                "'{asked}' asks for Rust"
+            );
+        }
+        // No block ⇒ nothing to refuse.
+        assert_eq!(unrequested_exec_rust(plain, "anything"), None);
+
+        // The trap this product sets for itself: the LANGUAGE is called
+        // RustCOBOL, so naming it must not read as asking for Rust — otherwise
+        // half the requests in this IDE would authorise a block by accident.
+        for naming_the_product in [
+            "write this in RustCOBOL",
+            "use PowerRustCOBOL syntax",
+            "is this valid rustcobol?",
+        ] {
+            assert_eq!(
+                unrequested_exec_rust(with_block, naming_the_product),
+                Some(2),
+                "'{naming_the_product}' names the product, it does not ask for Rust"
+            );
+        }
+        // A comment mentioning the words is not a block.
+        assert_eq!(
+            unrequested_exec_rust("       *> no EXEC RUST here\n", "please"),
+            None
+        );
+
+        println!(
+            "\n  EXEC RUST — refused when unasked (incl. requests naming \
+             RustCOBOL itself), allowed when asked\n"
+        );
+    }
+
     #[test]
     fn every_agent_text_reserves_exec_rust_for_an_explicit_request() {
         for (name, text) in [

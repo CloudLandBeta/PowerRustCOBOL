@@ -3104,9 +3104,30 @@ pub fn draw_control(
         // The developer's BarColor is the fill in every style. The glass path
         // handed the frosted painter a hard-wired green, which is why the
         // property moved the swatch and left the bar untouched.
+        //
+        // Untouched, the bar takes the THEME's green rather than the built-in
+        // one — the same "still on the seeded default means the developer has
+        // not chosen" rule the background and foreground colours follow. A bar
+        // was the one control that ignored the palette it sat in: under
+        // Elegance every other control drew from the theme while the bar stayed
+        // its own shade of green.
         let bar_base = ctrl
             .get_prop("BarColor")
+            .filter(|v| {
+                !v.as_str()
+                    .trim()
+                    .eq_ignore_ascii_case(crate::model::DEFAULT_BAR_COLOR)
+            })
             .map(|v| parse_color(v.as_str()))
+            .or_else(|| {
+                theme_token(
+                    painter.ctx(),
+                    crate::surface_theme::ColorToken::Accent(
+                        crate::surface_theme::AccentName::Green,
+                    ),
+                )
+                .map(|c| theme_alpha(c, 1.0))
+            })
             .unwrap_or(Color32::from_rgb(0, 170, 0));
         let bar_c = alpha_color(bar_base);
         let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
@@ -7087,9 +7108,11 @@ pub fn draw_chart_preview(
 pub fn themed_corner_radius(ctx: &egui::Context, ctrl: &Control) -> f32 {
     // "Unset" cannot mean "absent": `Control::new` SEEDS `CornerRadius` on every
     // bordered control with that control's own default (Button 3, charts 8,
-    // everything else 0). Untouched therefore means "still equal to that
-    // default" — the same still-on-the-default convention the background and
-    // foreground colours use. Anything else is the developer's choice and wins.
+    // ProgressBar 10, everything else 0). Untouched therefore means "still equal
+    // to that default" — the same still-on-the-default convention the background
+    // and foreground colours use. Anything else is the developer's choice and
+    // wins. This list must match `Control::new`'s, or a control's own default
+    // reads as a deliberate choice and the theme stops being consulted.
     let seeded_default = match ctrl.control_type {
         ControlType::Button => 3.0,
         ControlType::BarChart
@@ -7098,6 +7121,7 @@ pub fn themed_corner_radius(ctx: &egui::Context, ctrl: &Control) -> f32 {
         | ControlType::AreaChart
         | ControlType::ScatterChart
         | ControlType::DonutChart => 8.0,
+        ControlType::ProgressBar => 10.0,
         _ => 0.0,
     };
     let raw = ctrl
@@ -7204,6 +7228,7 @@ pub fn corner_radius(ctrl: &Control) -> f32 {
             | ControlType::AreaChart
             | ControlType::ScatterChart
             | ControlType::DonutChart => 8.0,
+            ControlType::ProgressBar => 10.0,
             _ => 0.0,
         });
     let max_r = 0.5 * (ctrl.rect.w.min(ctrl.rect.h) as f32);
@@ -11330,6 +11355,33 @@ slice = [4, 4, 4, 4]
             flat.iter()
                 .any(|(c, _, _)| c.b() > c.r() && c.b() > c.g() && c.a() > 0),
             "a blue bar must paint blue ink, got {flat:?}"
+        );
+
+        // ── An untouched bar belongs to the theme it sits in ─────────────────
+        // Every other control treats "still on the seeded value" as "the
+        // developer has not chosen" and lets the theme answer. The bar was the
+        // exception: under Elegance everything around it drew from the palette
+        // while it stayed its own built-in green.
+        let mut untouched = bar(200, 24);
+        untouched.set_prop("Value", PropValue::Int(100));
+        let theme_green = eleg()
+            .token(crate::surface_theme::ColorToken::Accent(
+                crate::surface_theme::AccentName::Green,
+            ))
+            .expect("Elegance has a green accent");
+        let (eleg_ink, _) = ink(&untouched, eleg(), false);
+        assert!(
+            eleg_ink.iter().any(|(c, _, _)| (c.r(), c.g(), c.b())
+                == (theme_green.r(), theme_green.g(), theme_green.b())),
+            "an untouched bar must fill with the THEME's green {theme_green:?}, got {eleg_ink:?}"
+        );
+        // With no theme to ask, the built-in green stands.
+        let (glass_ink, _) = ink(&untouched, glass(), false);
+        assert!(
+            glass_ink
+                .iter()
+                .any(|(c, _, _)| (c.r(), c.g(), c.b()) == (0, 170, 0)),
+            "without a theme the built-in green stands, got {glass_ink:?}"
         );
 
         // ── CornerRadius ─────────────────────────────────────────────────────
