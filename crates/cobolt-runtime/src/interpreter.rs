@@ -3504,6 +3504,25 @@ impl Interpreter {
         whens: &[WhenClause],
         other_stmts: &[Stmt],
     ) -> Result<(), RuntimeError> {
+        // COBOL-85 evaluates each subject ONCE, then compares that value to
+        // every WHEN. Evaluating per WHEN — which is what the per-column match
+        // used to do — re-reads and re-allocates the subject for every branch,
+        // so an EVALUATE over N branches costs N subject evaluations. On the
+        // generated event loop's `EVALUATE COBOL-CONTROL-ID` that is one
+        // re-evaluation per wired control, per event.
+        //
+        // It is also the standard's rule rather than an optimisation of ours: a
+        // subject with a side effect (`FUNCTION RANDOM`, a reference-modified
+        // read) must not be re-run per branch.
+        let mut subject_values: Vec<Option<CobolValue>> = Vec::with_capacity(subjects.len());
+        for s in subjects {
+            subject_values.push(match s {
+                EvalSubject::Expr(e) => Some(self.eval_expr(e, e.span())?),
+                // TRUE/FALSE subjects carry no value — each WHEN evaluates its
+                // own condition, which is inherently per-branch.
+                _ => None,
+            });
+        }
         for (idx, when) in whens.iter().enumerate() {
             // A WHEN whose every column is OTHER is the catch-all.
             let is_other = !when.values.is_empty()
@@ -3526,7 +3545,8 @@ impl Interpreter {
                             break;
                         }
                     };
-                    if !self.when_value_matches(subj, val)? {
+                    let pre = subject_values.get(i).and_then(|v| v.as_ref());
+                    if !self.when_value_matches(subj, pre, val)? {
                         all = false;
                         break;
                     }
@@ -3553,28 +3573,45 @@ impl Interpreter {
         self.exec_stmts(other_stmts)
     }
 
+    /// `pre` is the subject's value, evaluated once by [`Self::exec_evaluate`];
+    /// `None` for a TRUE/FALSE subject, which has no value to compare.
     fn when_value_matches(
         &mut self,
         subject: &EvalSubject,
+        pre: Option<&CobolValue>,
         val: &WhenValue,
     ) -> Result<bool, RuntimeError> {
         match (subject, val) {
             (_, WhenValue::Any) => Ok(true),
             (_, WhenValue::Other) => Ok(false), // handled specially in exec_evaluate
-            (s, WhenValue::Not(inner)) => Ok(!self.when_value_matches(s, inner)?),
+            (s, WhenValue::Not(inner)) => Ok(!self.when_value_matches(s, pre, inner)?),
             (EvalSubject::True_, WhenValue::Condition(c)) => self.eval_condition(c),
             (EvalSubject::False_, WhenValue::Condition(c)) => Ok(!self.eval_condition(c)?),
             (EvalSubject::Expr(e), WhenValue::Literal(lit)) => {
-                let subj = self.eval_expr(e, e.span())?;
+                let owned;
+                let subj = match pre {
+                    Some(v) => v,
+                    None => {
+                        owned = self.eval_expr(e, e.span())?;
+                        &owned
+                    }
+                };
                 let lv = literal_to_value(lit);
-                Ok(compare_values(&subj, &lv, CmpOp::Eq))
+                Ok(compare_values(subj, &lv, CmpOp::Eq))
             }
             (EvalSubject::Expr(e), WhenValue::Range(lo, hi)) => {
-                let subj = self.eval_expr(e, e.span())?;
+                let owned;
+                let subj = match pre {
+                    Some(v) => v,
+                    None => {
+                        owned = self.eval_expr(e, e.span())?;
+                        &owned
+                    }
+                };
                 let lo_v = literal_to_value(lo);
                 let hi_v = literal_to_value(hi);
-                Ok(compare_values(&subj, &lo_v, CmpOp::Ge)
-                    && compare_values(&subj, &hi_v, CmpOp::Le))
+                Ok(compare_values(subj, &lo_v, CmpOp::Ge)
+                    && compare_values(subj, &hi_v, CmpOp::Le))
             }
             (EvalSubject::Expr(e), WhenValue::Condition(c)) => {
                 // EVALUATE expr WHEN condition — treat condition as boolean check

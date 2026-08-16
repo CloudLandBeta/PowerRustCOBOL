@@ -144,3 +144,151 @@ fn evaluate_when_not_value() {
     "#;
     assert_eq!(run_capture(src), vec!["NOT5"]);
 }
+
+// ── EVALUATE: the subject is evaluated once, and every form still matches ────
+//
+// `exec_evaluate` used to call `eval_expr` on the subject inside EVERY WHEN, so
+// an EVALUATE over N branches evaluated its subject N times. COBOL-85 evaluates
+// each subject ONCE and compares that value to every WHEN, which is both the
+// standard's rule and far cheaper — on the generated event loop's
+// `EVALUATE COBOL-CONTROL-ID` it was one re-read per wired control, per event.
+//
+// The matching itself must not have shifted, so these cover the paths that now
+// read the pre-computed value (literal, range, ALSO, NOT) and the one that
+// still evaluates per branch (a TRUE/FALSE subject, whose conditions are
+// inherently per-WHEN).
+
+#[test]
+fn evaluate_matches_a_literal_after_the_subject_is_hoisted() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EV1.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 C PIC X(8) VALUE "CTRL-3".
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           EVALUATE C
+               WHEN "CTRL-1" DISPLAY "ONE"
+               WHEN "CTRL-2" DISPLAY "TWO"
+               WHEN "CTRL-3" DISPLAY "THREE"
+               WHEN OTHER    DISPLAY "OTHER"
+           END-EVALUATE.
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["THREE"]);
+}
+
+#[test]
+fn evaluate_falls_to_other_when_nothing_matches() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EV2.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 C PIC X(8) VALUE "NOPE".
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           EVALUATE C
+               WHEN "CTRL-1" DISPLAY "ONE"
+               WHEN "CTRL-2" DISPLAY "TWO"
+               WHEN OTHER    DISPLAY "OTHER"
+           END-EVALUATE.
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["OTHER"]);
+}
+
+/// A THRU range reads the same hoisted value as a literal does.
+#[test]
+fn evaluate_matches_a_thru_range() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EV3.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 N PIC 9(3) VALUE 42.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           EVALUATE N
+               WHEN 1 THRU 10   DISPLAY "LOW"
+               WHEN 11 THRU 40  DISPLAY "MID"
+               WHEN 41 THRU 99  DISPLAY "HIGH"
+               WHEN OTHER       DISPLAY "OUT"
+           END-EVALUATE.
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["HIGH"]);
+}
+
+/// Every subject in an ALSO list is hoisted, and each column still matches its
+/// own subject — a mix-up here would pair column 2 against subject 1.
+#[test]
+fn evaluate_also_matches_each_column_against_its_own_subject() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EV4.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 A PIC X(4) VALUE "B".
+       01 B PIC X(4) VALUE "A".
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           EVALUATE A ALSO B
+               WHEN "A" ALSO "B" DISPLAY "AB"
+               WHEN "B" ALSO "A" DISPLAY "BA"
+               WHEN OTHER        DISPLAY "NEITHER"
+           END-EVALUATE.
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["BA"]);
+}
+
+/// A TRUE subject keeps evaluating its conditions per WHEN — there is no value
+/// to hoist, and each branch asks a different question.
+#[test]
+fn evaluate_true_still_tests_each_condition() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EV5.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 N PIC 9(3) VALUE 7.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           EVALUATE TRUE
+               WHEN N > 100 DISPLAY "BIG"
+               WHEN N > 5   DISPLAY "SMALL"
+               WHEN OTHER   DISPLAY "TINY"
+           END-EVALUATE.
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["SMALL"]);
+}
+
+/// The shape the generated event loop actually runs: a long chain where the
+/// LAST branch is the one that matches, nested one level deep.
+#[test]
+fn evaluate_matches_the_last_branch_of_a_long_nested_chain() {
+    let mut src = String::from(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. EV6.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 C PIC X(12) VALUE \"CTRL-40\".\n\
+         \x20      01 E PIC X(12) VALUE \"onClick\".\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN-PARA.\n\
+         \x20          EVALUATE C\n",
+    );
+    for i in 1..=40 {
+        src.push_str(&format!("               WHEN \"CTRL-{i}\"\n"));
+        src.push_str("                   EVALUATE E\n");
+        src.push_str(&format!(
+            "                       WHEN \"onClick\" DISPLAY \"HIT-{i}\"\n"
+        ));
+        src.push_str("                   END-EVALUATE\n");
+    }
+    src.push_str("           END-EVALUATE.\n           STOP RUN.\n");
+    assert_eq!(run_capture(&src), vec!["HIT-40"]);
+}

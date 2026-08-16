@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.57] — 2026-08-16
+
+### Fixed — EVALUATE re-read its subject once per branch
+
+`EVALUATE` evaluated its subject inside **every** `WHEN`, so a statement with N
+branches read and re-allocated that subject N times. COBOL-85 evaluates each
+subject **once** and compares that value to every branch, so this was a
+conformance gap as much as a cost: a subject with a side effect would have run
+once per branch rather than once.
+
+The subjects are now evaluated once, before the branches. A `TRUE`/`FALSE`
+subject still evaluates its conditions per branch, which is inherently
+per-branch work and unchanged.
+
+Every `EVALUATE` in every program gets cheaper, and the generated event loop
+most of all — its `EVALUATE COBOL-CONTROL-ID` is one branch per wired control,
+so it was re-reading the control id once per control, per event. Measured on a
+40-control loop: **21.1 µs → 15.3 µs per dispatched event, 28% off**, with the
+per-branch cost falling from 490 ns to 338 ns.
+
+Matching is untouched — literal, `THRU` range, `ALSO`, `NOT`, `WHEN OTHER` and
+`TRUE` subjects are all pinned by tests, including the long nested chain the
+event loop actually runs.
+
 ## [PowerRustCOBOL 1.61.56] — 2026-08-15
 
 ### Added — a Home action for the sidebar
