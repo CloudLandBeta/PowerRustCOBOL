@@ -4331,12 +4331,17 @@ fn detect_invoke_context(
             let rest = after[sp..].trim_start();
             if rest.starts_with('\'') || rest.starts_with('"') {
                 let mprefix = &rest[1..];
-                let ctrl_type = controls
-                    .iter()
-                    .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
-                    .map(|c| c.ctrl_type.clone())
-                    .unwrap_or_else(|| "Generic".into());
-                return Some((ctrl_tok, ctrl_type, mprefix.into()));
+                // Only while the method name is still being typed. Past its
+                // closing quote or the next space this INVOKE is finished and
+                // the line has moved on to operands — see `member_is_finished`.
+                if !member_is_finished(mprefix) {
+                    let ctrl_type = controls
+                        .iter()
+                        .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
+                        .map(|c| c.ctrl_type.clone())
+                        .unwrap_or_else(|| "Generic".into());
+                    return Some((ctrl_tok, ctrl_type, mprefix.into()));
+                }
             }
         }
     }
@@ -4365,15 +4370,39 @@ fn detect_invoke_context(
         // is not part of the member being filtered, so strip it.
         let after = &line[pos + 2..];
         let mprefix = after.strip_prefix('"').unwrap_or(after);
-        let ctrl_type = controls
-            .iter()
-            .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
-            .map(|c| c.ctrl_type.clone())
-            .unwrap_or_else(|| "Generic".into());
-        return Some((ctrl_tok, ctrl_type, mprefix.into()));
+        // The `::` has to belong to the word being typed RIGHT NOW. This looked
+        // for the last `::` anywhere on the line, so a second reference on the
+        // same line was read as a member of the FIRST receiver:
+        //
+        //     MOVE Knob-1::Value TO ProgressBar-1
+        //
+        // gave `Knob-1` a member prefix of "Value TO ProgressBar-1", which
+        // matches nothing on a Knob, so the popup shut and stayed shut for the
+        // rest of the line — no id completion, no keywords, nothing. Reported
+        // as "the progress bar has no IntelliSense" (operator, 2026-08-16),
+        // which is how it looks when the bar is always the second reference on
+        // its line and the Knob before it is the first.
+        if !member_is_finished(mprefix) {
+            let ctrl_type = controls
+                .iter()
+                .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
+                .map(|c| c.ctrl_type.clone())
+                .unwrap_or_else(|| "Generic".into());
+            return Some((ctrl_tok, ctrl_type, mprefix.into()));
+        }
     }
 
     None
+}
+
+/// Whether the text after a `::` (or after an `INVOKE`'s opening quote) has run
+/// past the member name, so the receiver it belonged to is no longer what the
+/// developer is typing at.
+///
+/// A member name is one word: whitespace ends it, and so does the closing quote
+/// of the `::"member"` / `INVOKE ctrl 'method'` forms.
+fn member_is_finished(member_pfx: &str) -> bool {
+    member_pfx.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'')
 }
 
 /// Build the member-completion list for a specific control instance, filtered by `member_pfx`.
@@ -5604,6 +5633,88 @@ END-EVALUATE
         assert_eq!(ctx("           DISPLAY Button-1::\"Cap").unwrap().2, "Cap");
         // A lone double quote (no `::`) opens no property/method popup.
         assert_eq!(detect_property_ref("           DISPLAY \""), None);
+    }
+
+    /// Reported: "progress bar controls do not trigger the IntelliSense in the
+    /// RAD COBOL event handler editor" (operator, 2026-08-16).
+    ///
+    /// Nothing to do with progress bars. The handler in question is the
+    /// operator's own multi-receiver MOVE:
+    ///
+    /// ```text
+    ///     MOVE Knob-1::Value TO ProgressBar-1::Value
+    ///                           Gauge-1::Value
+    /// ```
+    ///
+    /// A `::` anywhere earlier on the line claimed everything typed after it as
+    /// a member of THAT receiver, so the second reference on the line got a
+    /// member prefix of "Value TO Progr" — which matches nothing on a Knob, so
+    /// the popup closed and stayed closed for the rest of the line. The bar was
+    /// simply always the second reference; the Knob before it always worked.
+    #[test]
+    fn a_second_member_reference_on_one_line_still_completes() {
+        let controls = vec![
+            KnownControl {
+                id: "Knob-1".into(),
+                ctrl_type: "Knob".into(),
+                properties: cobolt_forms::model::property_names_for("Knob"),
+                extra_methods: vec![],
+            },
+            KnownControl {
+                id: "ProgressBar-1".into(),
+                ctrl_type: "ProgressBar".into(),
+                properties: cobolt_forms::model::property_names_for("ProgressBar"),
+                extra_methods: vec![],
+            },
+        ];
+        let ctx = |line: &str| detect_invoke_context(line, line.chars().count(), &controls);
+
+        // While the SECOND id is being typed, no receiver owns the caret — so
+        // the plain list runs and offers the id.
+        for line in [
+            "           MOVE Knob-1::Value TO Prog",
+            "           MOVE Knob-1::Value TO ProgressBar-1",
+            "           MOVE Knob-1::Value TO ",
+        ] {
+            assert!(
+                ctx(line).is_none(),
+                "a finished `::` must not own the rest of the line: {line:?}"
+            );
+        }
+        let source = "       PROCEDURE DIVISION.\n";
+        let offered = build_completions("Prog", source, &controls, &[], false);
+        assert!(
+            offered.iter().any(|i| i.label == "ProgressBar-1"),
+            "the second receiver's id must be completable, got {:?}",
+            offered.iter().map(|i| &i.label).collect::<Vec<_>>()
+        );
+
+        // And once its own `::` is typed, the members belong to IT, not to the
+        // Knob that opened the line.
+        let (id, ty, pfx) = ctx("           MOVE Knob-1::Value TO ProgressBar-1::")
+            .expect("the second `::` opens the member list");
+        assert_eq!(
+            (id.as_str(), ty.as_str(), pfx.as_str()),
+            ("PROGRESSBAR-1", "ProgressBar", "")
+        );
+        let (_, ty, pfx) = ctx("           MOVE Knob-1::Value TO ProgressBar-1::Val")
+            .expect("filtering works on the second receiver too");
+        assert_eq!((ty.as_str(), pfx.as_str()), ("ProgressBar", "Val"));
+
+        // The first receiver on the line is untouched.
+        let (id, ty, _) = ctx("           MOVE Knob-1::Val").expect("the first `::` still works");
+        assert_eq!((id.as_str(), ty.as_str()), ("KNOB-1", "Knob"));
+
+        // Three receivers, the operator's real shape: each answers for itself.
+        let (id, _, _) = ctx("           MOVE A-1::Value TO B-1::Value C-1::Va")
+            .expect("the third `::` owns the caret");
+        assert_eq!(id.as_str(), "C-1");
+
+        println!(
+            "\n  IntelliSense — a second `::` receiver on one line completes: \
+             `MOVE Knob-1::Value TO Prog` offers ProgressBar-1, `…ProgressBar-1::` \
+             lists ProgressBar members, and the Knob keeps its own\n"
+        );
     }
 
     #[test]
