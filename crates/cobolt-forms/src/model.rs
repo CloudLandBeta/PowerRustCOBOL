@@ -3453,6 +3453,10 @@ impl Control {
                 props.insert("BarColor".into(), PropValue::String("#00AA00".into()));
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into()));
                 props.insert("Style".into(), PropValue::String("Continuous".into()));
+                // How long one block is under `Style = Blocks`, along the axis
+                // the bar travels. 0 = automatic: sized from the bar's own
+                // thickness, so a tall bar gets long blocks and a thin one short.
+                props.insert("BlockSize".into(), PropValue::Int(0));
                 props.insert("ShowValue".into(), PropValue::Bool(false));
             }
             ControlType::ListBox => {

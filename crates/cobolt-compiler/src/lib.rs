@@ -2781,7 +2781,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ThousandsSeparator" => (BOOL_DOMAIN, "Shows a thousands separator."),
         "BarColor" => (COLOR_DOMAIN, "Filled-portion color of the progress bar."),
         "Orientation" => ("`Horizontal` | `Vertical`", "Layout axis."),
-        "Style" => ("`Continuous` | `Blocks`", "Progress bar fill style."),
+        "Style" => (
+            "`Continuous` | `Blocks`",
+            "Progress bar fill style: one unbroken run, or a row of segments.",
+        ),
+        "BlockSize" => (
+            "integer ≥ 0 (px, 0 = automatic)",
+            "Length of one block under `Style = Blocks`, along the axis the bar travels. \
+             0 sizes each block from the bar's own thickness.",
+        ),
         "ShowValue" => (BOOL_DOMAIN, "Draws the numeric value on the control."),
         "TickFrequency" => ("integer > 0 (value units)", "Draw a tick every N units."),
         "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn."),

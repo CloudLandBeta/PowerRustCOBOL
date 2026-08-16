@@ -3142,7 +3142,7 @@ pub fn draw_control(
         } else {
             egui::Rect::from_min_size(rect.min, Vec2::new(rect.width() * pct, rect.height()))
         };
-        let block_len = blocks.then(|| progressbar_block_len(rect, vertical));
+        let block_len = blocks.then(|| progressbar_block_len(ctrl, rect, vertical));
         for seg in progressbar_segments(filled, vertical, block_len) {
             // A short block must not over-round into a lozenge.
             let seg_corner = corner.min(seg.width().min(seg.height()) * 0.5);
@@ -7093,9 +7093,18 @@ const PROGRESS_BLOCK_GAP: f32 = 2.0;
 
 /// How long one block of a `Blocks`-style ProgressBar is, along the travel axis.
 ///
-/// Derived from the bar's thickness — the segmented look reads as a row of
-/// near-square tiles, so a thick bar gets long blocks and a thin one short.
-pub(crate) fn progressbar_block_len(rect: egui::Rect, vertical: bool) -> f32 {
+/// The developer's `BlockSize` when they set one. At its default of 0 the size
+/// is automatic: derived from the bar's thickness, so the segmented look reads
+/// as a row of near-square tiles whatever the bar's proportions.
+pub(crate) fn progressbar_block_len(ctrl: &Control, rect: egui::Rect, vertical: bool) -> f32 {
+    let chosen = ctrl
+        .get_prop("BlockSize")
+        .map(|v| v.as_i64())
+        .unwrap_or(0)
+        .max(0) as f32;
+    if chosen > 0.0 {
+        return chosen;
+    }
     let thickness = if vertical {
         rect.width()
     } else {
@@ -11334,6 +11343,75 @@ slice = [4, 4, 4, 4]
             h0.max.x,
             v0.min.y,
             segs.len()
+        );
+    }
+
+    /// `BlockSize` sets how long one block of a segmented bar is. At its
+    /// default of 0 the size stays automatic — read off the bar's thickness —
+    /// so a form that never touches it looks exactly as it did.
+    #[test]
+    fn a_segmented_progress_bar_takes_the_developers_block_size() {
+        use crate::model::PropValue;
+
+        /// The widths of the blocks a full bar paints, in order.
+        fn widths(ct: &Control) -> Vec<f32> {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, false, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<(Color32, Rect)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) => out.push((r.fill, r.rect)),
+                    _ => {}
+                }
+            }
+            let mut seen = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut seen);
+            }
+            seen.into_iter()
+                // Everything but the full-width trough and the hollow border.
+                .filter(|(c, r)| c.a() > 0 && r.width() < 199.5 && r.area() > 1.0)
+                .map(|(_, r)| r.width())
+                .collect()
+        }
+
+        let mut auto = Control::new("PB", CT::ProgressBar, 0, 0);
+        auto.rect = crate::model::Rect::new(0, 0, 200, 24);
+        auto.set_prop("Value", PropValue::Int(100));
+        auto.set_prop("Style", PropValue::String("Blocks".into()));
+        let mut sized = auto.clone();
+        sized.set_prop("BlockSize", PropValue::Int(8));
+
+        let (a, s) = (widths(&auto), widths(&sized));
+        // Automatic: two thirds of the bar's 24pt thickness.
+        assert!(
+            (a[0] - 15.84).abs() < 0.5,
+            "0 must keep the automatic size, got {:.2}",
+            a[0]
+        );
+        // Chosen: 8pt, every block but the clipped last one.
+        assert!(
+            s.iter().rev().skip(1).all(|w| (*w - 8.0).abs() < 0.01),
+            "BlockSize must set the block length, got {s:?}"
+        );
+        assert!(
+            s.len() > a.len(),
+            "shorter blocks means more of them: {} at 8pt vs {} automatic",
+            s.len(),
+            a.len()
+        );
+
+        println!(
+            "\n  ProgressBar Blocks — automatic ⇒ {} blocks of {:.2}pt, \
+             BlockSize 8 ⇒ {} blocks of 8pt\n",
+            a.len(),
+            a[0],
+            s.len()
         );
     }
 

@@ -1376,6 +1376,31 @@ for forms that set them.
 > from a track bar: the "done" side carries the colour, and the side still to
 > travel stays neutral.
 
+#### Styling a ProgressBar
+
+A progress bar reports where `Value` sits between `Minimum` and `Maximum`.
+These properties decide how that reading looks:
+
+| Property | Paints |
+|---|---|
+| `Orientation` | `Horizontal` fills left to right; `Vertical` fills **bottom to top**, like a column rising. |
+| `Style` | `Continuous` paints one unbroken run of colour; `Blocks` paints a row of segments. |
+| `Block size` | How long one block is, in pixels, along the axis the bar travels. Only `Blocks` uses it, so the row appears in the properties pane once you choose that style. **0** — the default — sizes each block from the bar's own thickness, so a tall bar gets long blocks and a thin one short. |
+| `BarColor` | The filled part. The trough behind it belongs to the theme. |
+| `ShowValue` | Draws the percentage across the middle of the bar, in whatever colour reads on that trough. |
+
+`CornerRadius` rounds a progress bar the way it rounds every other bordered
+control (see *Corner radius* above) — trough, filled part and border together,
+square at `0`.
+
+> **Note.** A `Blocks` bar never hides small progress: the last block is trimmed
+> to wherever `Value` reached, so a bar 3 % along shows a sliver rather than
+> nothing at all.
+
+> **Coming from PowerCOBOL?** These are the two styles you already know from a
+> Windows progress control — smooth and segmented — with the block length in
+> your hands rather than fixed by the control's height.
+
 #### Knob, Gauge, and Switch
 
 **Knob** is a rotary dial the user drags to set a numeric `Value` within

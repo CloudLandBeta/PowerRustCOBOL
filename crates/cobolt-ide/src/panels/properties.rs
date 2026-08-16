@@ -6163,6 +6163,24 @@ impl PropertiesPanel {
                     &["Horizontal", "Vertical"],
                 );
                 combo_row_inline(ui, id, "Style", ctrl, action, &["Continuous", "Blocks"]);
+                // Only Blocks has blocks to size. 0 = automatic, sized from the
+                // bar's own thickness.
+                if ctrl
+                    .get_prop("Style")
+                    .is_some_and(|v| v.as_str().eq_ignore_ascii_case("Blocks"))
+                {
+                    int_prop_row(
+                        ui,
+                        id,
+                        "BlockSize",
+                        tr.lbl_block_size,
+                        ctrl,
+                        action,
+                        0..=200,
+                        None,
+                        0,
+                    );
+                }
                 bool_row_inline(ui, id, "ShowValue", "Show value text", ctrl, action);
                 color_row(ui, id, "BarColor", ctrl, action);
                 ui.add_space(4.0);
