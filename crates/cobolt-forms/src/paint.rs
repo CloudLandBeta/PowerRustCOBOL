@@ -1466,6 +1466,13 @@ pub fn draw_neumorphic_user_border(
 /// Shared glass-card colour for every non-visual control.
 const NV_CARD: Color32 = Color32::from_rgb(40, 54, 84);
 
+/// How far a Slider's tick marks reach beyond its track.
+const TICK_LEN: f32 = 5.0;
+/// Room a Slider's min/max labels need under the ticks — the 9pt label's line
+/// height. Part of the assembly's own height, so the whole slider centres as
+/// one block instead of the labels hanging off the rect's bottom edge.
+const SLIDER_LABEL_H: f32 = 11.0;
+
 /// Light "glass" colour for the stroke icons + labels.
 pub fn nv_icon_color(a: u8) -> Color32 {
     Color32::from_rgba_premultiplied(212, 226, 255, a)
@@ -2391,6 +2398,11 @@ pub fn draw_control(
                 }
             });
 
+        // Where the horizontal min/max labels sit. Set by the horizontal arm so
+        // the labels ride with the assembly instead of being pinned to the
+        // rect's bottom edge; the vertical arm keeps its own placement.
+        let mut h_label_y = rect.max.y - 1.0;
+
         if vertical {
             // ── Vertical glass slider ────────────────────────────────────────
             let track_half_w = (rect.width() * 0.18).clamp(4.0, 12.0);
@@ -2478,7 +2490,22 @@ pub fn draw_control(
         } else {
             // ── Horizontal glass slider ──────────────────────────────────────
             let track_half_h = (rect.height() * 0.18).clamp(4.0, 12.0);
-            let cy = rect.center().y;
+            // The slider is ONE assembly — track, thumb, ticks and the min/max
+            // labels — and it is centred as a whole. Centring the track alone
+            // while the labels stayed pinned to `rect.max.y` split it in two:
+            // the labels hugged the bottom edge, the track sat at the middle,
+            // and every pixel of extra height opened a gap at the TOP only. A
+            // 780x75 slider carried 22px of dead space above and 3 below.
+            let tick_room = if tick_st != "None" { TICK_LEN + 1.0 } else { 0.0 };
+            let label_room = SLIDER_LABEL_H;
+            let above = (track_half_h * 2.0 + 6.0) * 0.5;
+            let below = (above).max(track_half_h + tick_room) + label_room;
+            let content_h = above + below;
+            // Centre the assembly, and never push it off the top of a rect too
+            // short to hold it.
+            let cy = (rect.min.y + above + ((rect.height() - content_h) * 0.5).max(0.0))
+                .min(rect.max.y - below.min(rect.height()));
+            h_label_y = (cy + below - 1.0).min(rect.max.y - 1.0);
             let track_l = rect.min.x + 10.0;
             let track_r = rect.max.x - 10.0;
             let track_w = (track_r - track_l).max(1.0);
@@ -2580,14 +2607,14 @@ pub fn draw_control(
             );
         } else {
             painter.text(
-                Pos2::new(rect.min.x + 2.0, rect.max.y - 1.0),
+                Pos2::new(rect.min.x + 2.0, h_label_y),
                 egui::Align2::LEFT_BOTTOM,
                 format!("{}", min_v as i64),
                 font_s.clone(),
                 lbl_c,
             );
             painter.text(
-                Pos2::new(rect.max.x - 2.0, rect.max.y - 1.0),
+                Pos2::new(rect.max.x - 2.0, h_label_y),
                 egui::Align2::RIGHT_BOTTOM,
                 format!("{}", max_v as i64),
                 font_s.clone(),
@@ -3064,20 +3091,24 @@ pub fn draw_control(
 
     // ── ProgressBar ───────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::ProgressBar) {
+        // Spec 016's canonical radius drives the WHOLE control — trough, fill
+        // and border. It used to reach only the neumorphic halo while the
+        // artwork underneath was hard-wired to 2 px, so the property moved
+        // nothing a developer could see.
+        let corner = themed_corner_radius(painter.ctx(), ctrl);
         // In Neumorphic mode draw the dual-shadow halo BEFORE the bar's own artwork.
         if is_neumorphic {
-            let corner_r = ctrl
-                .get_prop("CornerRadius")
-                .map(|v| v.as_i64() as f32)
-                .unwrap_or(4.0);
-            draw_neumorphic_shadow_only(painter, rect, corner_r, alpha_mul);
+            draw_neumorphic_shadow_only(painter, rect, corner, alpha_mul);
         }
         let bg_c = Color32::from_rgba_premultiplied(220, 220, 220, a);
-        let bar_c = alpha_color(
-            ctrl.get_prop("BarColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(Color32::from_rgb(0, 170, 0)),
-        );
+        // The developer's BarColor is the fill in every style. The glass path
+        // handed the frosted painter a hard-wired green, which is why the
+        // property moved the swatch and left the bar untouched.
+        let bar_base = ctrl
+            .get_prop("BarColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::from_rgb(0, 170, 0));
+        let bar_c = alpha_color(bar_base);
         let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
         let min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
         let max = ctrl
@@ -3086,26 +3117,48 @@ pub fn draw_control(
             .unwrap_or(100)
             .max(1) as f32;
         let pct = ((val - min) / (max - min)).clamp(0.0, 1.0);
+        let vertical = ctrl
+            .get_prop("Orientation")
+            .map(|v| v.as_str().starts_with(['V', 'v']))
+            .unwrap_or(false);
+        let blocks = ctrl
+            .get_prop("Style")
+            .map(|v| v.as_str().eq_ignore_ascii_case("Blocks"))
+            .unwrap_or(false);
         // 047 — the trough is the control's well; under Elegance it takes the
         // palette rather than the built-in light grey.
         let bg_c = match theme_token(painter.ctx(), crate::surface_theme::ColorToken::InputBg) {
             Some(c) => theme_alpha(c, alpha_mul),
             None => bg_c,
         };
-        painter.rect_filled(rect, 2.0, bg_c);
-        let bar = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width() * pct, rect.height()));
-        if glass {
-            draw_surface_auto(
-                painter,
-                bar,
-                Color32::from_rgb(0, 170, 0),
-                2.0,
-                false,
-                alpha_mul * pct,
-                SurfaceRole::Accent,
-            );
+        painter.rect_filled(rect, corner, bg_c);
+        // A vertical bar fills bottom → top, the way a column of liquid rises;
+        // a horizontal one fills left → right.
+        let filled = if vertical {
+            egui::Rect::from_min_max(
+                Pos2::new(rect.min.x, rect.max.y - rect.height() * pct),
+                rect.max,
+            )
         } else {
-            painter.rect_filled(bar, 2.0, bar_c);
+            egui::Rect::from_min_size(rect.min, Vec2::new(rect.width() * pct, rect.height()))
+        };
+        let block_len = blocks.then(|| progressbar_block_len(rect, vertical));
+        for seg in progressbar_segments(filled, vertical, block_len) {
+            // A short block must not over-round into a lozenge.
+            let seg_corner = corner.min(seg.width().min(seg.height()) * 0.5);
+            if glass {
+                draw_surface_auto(
+                    painter,
+                    seg,
+                    bar_base,
+                    seg_corner,
+                    false,
+                    alpha_mul,
+                    SurfaceRole::Accent,
+                );
+            } else {
+                painter.rect_filled(seg, seg_corner, bar_c);
+            }
         }
         let border_c = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
@@ -3114,7 +3167,7 @@ pub fn draw_control(
         };
         painter.rect_stroke(
             rect,
-            2.0,
+            corner,
             Stroke::new(if selected { 2.0 } else { 1.0 }, border_c),
             egui::StrokeKind::Middle,
         );
@@ -3123,16 +3176,23 @@ pub fn draw_control(
             .map(|v| v.as_bool())
             .unwrap_or(false)
         {
+            // The percentage sits on the trough, so it takes the trough's own
+            // text colour. Hard-wired black was invisible on every theme whose
+            // well is dark — the text was painted, and nobody could read it.
+            let txt_c = match theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text) {
+                Some(c) => theme_alpha(c, alpha_mul),
+                None => Color32::from_rgba_premultiplied(0, 0, 0, a),
+            };
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 format!("{:.0}%", pct * 100.0),
                 egui::FontId::proportional(ctrl_font_size(ctrl)),
-                Color32::from_rgba_premultiplied(0, 0, 0, a),
+                txt_c,
             );
         }
         if is_neumorphic {
-            draw_neumorphic_overlay_shadow_only(painter, rect, 2.0, alpha_mul);
+            draw_neumorphic_overlay_shadow_only(painter, rect, corner, alpha_mul);
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
             draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -7026,6 +7086,67 @@ pub fn themed_corner_radius(ctx: &egui::Context, ctrl: &Control) -> f32 {
         }
         None => corner_radius(ctrl),
     }
+}
+
+/// Gap between two blocks of a `Blocks`-style ProgressBar, along the travel axis.
+const PROGRESS_BLOCK_GAP: f32 = 2.0;
+
+/// How long one block of a `Blocks`-style ProgressBar is, along the travel axis.
+///
+/// Derived from the bar's thickness — the segmented look reads as a row of
+/// near-square tiles, so a thick bar gets long blocks and a thin one short.
+pub(crate) fn progressbar_block_len(rect: egui::Rect, vertical: bool) -> f32 {
+    let thickness = if vertical {
+        rect.width()
+    } else {
+        rect.height()
+    };
+    (thickness * 0.66).clamp(4.0, 40.0)
+}
+
+/// The runs of ink a ProgressBar's fill is made of.
+///
+/// `Continuous` is a single run — the filled part of the track. `Blocks` chops
+/// that run into fixed-length segments separated by [`PROGRESS_BLOCK_GAP`],
+/// growing from the origin edge: the left of a horizontal bar, the BOTTOM of a
+/// vertical one. The last segment is clipped to the fill edge, so any non-zero
+/// progress shows ink instead of waiting for a whole block to be earned.
+pub(crate) fn progressbar_segments(
+    filled: egui::Rect,
+    vertical: bool,
+    block_len: Option<f32>,
+) -> Vec<egui::Rect> {
+    let span = if vertical {
+        filled.height()
+    } else {
+        filled.width()
+    };
+    if span < 0.5 {
+        return Vec::new();
+    }
+    let Some(block) = block_len else {
+        return vec![filled];
+    };
+    let block = block.max(1.0);
+    let step = block + PROGRESS_BLOCK_GAP;
+    let mut out = Vec::new();
+    let mut off = 0.0;
+    while off < span - 0.5 {
+        let len = block.min(span - off);
+        out.push(if vertical {
+            egui::Rect::from_min_max(
+                Pos2::new(filled.min.x, filled.max.y - off - len),
+                Pos2::new(filled.max.x, filled.max.y - off),
+            )
+        } else {
+            egui::Rect::from_min_max(
+                Pos2::new(filled.min.x + off, filled.min.y),
+                Pos2::new(filled.min.x + off + len, filled.max.y),
+            )
+        });
+        off += step;
+    }
+    out
 }
 
 pub fn corner_radius(ctrl: &Control) -> f32 {
@@ -11032,6 +11153,187 @@ slice = [4, 4, 4, 4]
         println!(
             "\n  Switch — 52pt control ⇒ {ws:.0}pt track, 200pt ⇒ {wb:.0}pt; \
              ON follows Accent (Blue ≠ Red) under both themes\n"
+        );
+    }
+
+    /// Every property the ProgressBar inspector offers must reach the paint.
+    ///
+    /// As reported: CornerRadius and ShowValue did nothing, Orientation was
+    /// stuck on Horizontal, Style on Continuous, and BarColor on green. Four of
+    /// the five never reached the painter at all; BarColor reached only the
+    /// flat path, while the glass path — the one both the canvas and Run Form
+    /// use — was handed a hard-wired green.
+    #[test]
+    fn a_progress_bar_honours_every_property_it_offers() {
+        use crate::model::PropValue;
+
+        /// `(fill, rect, corner radius)` of every rect the control paints, and
+        /// the colour of every string.
+        ///
+        /// `glass` picks the surface: the frosted fill the canvas and Run Form
+        /// use, or the flat one the thumbnails use. The bar's GEOMETRY is
+        /// decided before that branch and is the same on both, so the layout
+        /// assertions read it off the flat path — one rect per run of ink,
+        /// instead of the two dozen layers frost stacks up.
+        fn ink(
+            ct: &Control,
+            theme: Arc<dyn crate::surface_theme::SurfaceTheme>,
+            glass: bool,
+        ) -> (Vec<(Color32, Rect, f32)>, Vec<Color32>) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, theme);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, glass, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(
+                s: &egui::Shape,
+                rects: &mut Vec<(Color32, Rect, f32)>,
+                texts: &mut Vec<Color32>,
+            ) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rects, texts)),
+                    egui::Shape::Rect(r) => {
+                        rects.push((r.fill, r.rect, r.corner_radius.nw as f32))
+                    }
+                    egui::Shape::Text(t) => {
+                        texts.push(t.override_text_color.unwrap_or(t.fallback_color))
+                    }
+                    _ => {}
+                }
+            }
+            let (mut rects, mut texts) = (Vec::new(), Vec::new());
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut rects, &mut texts);
+            }
+            (rects, texts)
+        }
+
+        let bar = |w: i32, h: i32| {
+            let mut c = Control::new("PB", CT::ProgressBar, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, w, h);
+            c.set_prop("Value", PropValue::Int(50));
+            c
+        };
+        // The runs of bar ink: everything that is neither the full-size trough
+        // nor invisible.
+        let fills = |ct: &Control| {
+            let (rects, _) = ink(ct, glass(), false);
+            let full =
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(ct.rect.w as f32, ct.rect.h as f32));
+            rects
+                .into_iter()
+                .filter(|(c, r, _)| {
+                    c.a() > 0 && r.area() > 1.0 && (r.width() < full.width() - 0.5
+                        || r.height() < full.height() - 0.5)
+                })
+                .map(|(_, r, _)| r)
+                .collect::<Vec<_>>()
+        };
+
+        // ── Orientation ──────────────────────────────────────────────────────
+        let horiz = fills(&bar(200, 24));
+        let mut v = bar(24, 200);
+        v.set_prop("Orientation", PropValue::String("Vertical".into()));
+        let vert = fills(&v);
+        assert_eq!(horiz.len(), 1, "a continuous bar is one run of ink");
+        assert_eq!(vert.len(), 1);
+        let (h0, v0) = (horiz[0], vert[0]);
+        assert!(
+            (h0.max.x - 100.0).abs() <= 1.0 && h0.height() >= 23.0,
+            "Horizontal at 50% must fill the left half, got {h0:?}"
+        );
+        assert!(
+            (v0.min.y - 100.0).abs() <= 1.0 && (v0.max.y - 200.0).abs() <= 1.0,
+            "Vertical at 50% must fill the BOTTOM half, got {v0:?}"
+        );
+
+        // ── Style ────────────────────────────────────────────────────────────
+        let mut blocky = bar(200, 24);
+        blocky.set_prop("Style", PropValue::String("Blocks".into()));
+        let segs = fills(&blocky);
+        assert!(
+            segs.len() >= 5,
+            "Blocks must paint a row of segments, got {} run(s)",
+            segs.len()
+        );
+        assert!(
+            segs.iter().all(|r| r.width() < 20.0),
+            "…each one shorter than the bar"
+        );
+        assert!(
+            segs.iter().map(|r| r.max.x).fold(0.0_f32, f32::max) <= 101.0,
+            "…and none past the 50% mark"
+        );
+
+        // ── BarColor, on the surface the IDE actually paints ──────────────────
+        let mut green = bar(200, 24);
+        green.set_prop("Value", PropValue::Int(100));
+        let mut blue = green.clone();
+        blue.set_prop("BarColor", PropValue::String("#2563EB".into()));
+        for (name, theme) in [("Elegance", eleg()), ("Liquid Glass", glass())] {
+            let (g, _) = ink(&green, theme.clone(), true);
+            let (b, _) = ink(&blue, theme, true);
+            assert_ne!(
+                format!("{g:?}"),
+                format!("{b:?}"),
+                "{name}: BarColor must drive the frosted fill"
+            );
+        }
+        // Flat surfaces carry the developer's colour literally.
+        let (flat, _) = ink(&blue, glass(), false);
+        assert!(
+            flat.iter()
+                .any(|(c, _, _)| c.b() > c.r() && c.b() > c.g() && c.a() > 0),
+            "a blue bar must paint blue ink, got {flat:?}"
+        );
+
+        // ── CornerRadius ─────────────────────────────────────────────────────
+        let mut round = bar(200, 24);
+        round.set_prop("CornerRadius", PropValue::Int(10));
+        let (rects, _) = ink(&round, glass(), true);
+        assert!(
+            rects
+                .iter()
+                .any(|(_, r, cr)| r.width() >= 199.0 && (*cr - 10.0).abs() < 0.6),
+            "the trough must follow CornerRadius, got {:?}",
+            rects.iter().map(|(_, _, cr)| *cr).collect::<Vec<_>>()
+        );
+
+        // ── ShowValue ────────────────────────────────────────────────────────
+        let mut shown = bar(200, 24);
+        shown.set_prop("ShowValue", PropValue::Bool(true));
+        assert!(ink(&bar(200, 24), eleg(), true).1.is_empty(), "off ⇒ no text");
+        for (name, theme) in [("Elegance", eleg()), ("Liquid Glass", glass())] {
+            let (rects, texts) = ink(&shown, theme, true);
+            assert_eq!(texts.len(), 1, "{name}: the percentage must be painted");
+            // Painted is not read: black on a dark well is what "ignored"
+            // looked like. The text has to stand off the trough it sits on.
+            let trough = rects
+                .iter()
+                .find(|(c, r, _)| r.width() >= 199.0 && c.a() > 0)
+                .map(|(c, _, _)| *c)
+                .expect("the trough is painted");
+            let lum = |c: Color32| {
+                0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32
+            };
+            assert!(
+                (lum(texts[0]) - lum(trough)).abs() > 40.0,
+                "{name}: the percentage must be legible on the trough \
+                 (text {:?} vs trough {trough:?})",
+                texts[0]
+            );
+        }
+
+        println!(
+            "\n  ProgressBar — Orientation (H fills x≤{:.0}, V fills y≥{:.0}), \
+             Style (Blocks ⇒ {} segments), BarColor, CornerRadius (10px trough) \
+             and ShowValue all reach the paint\n",
+            h0.max.x,
+            v0.min.y,
+            segs.len()
         );
     }
 
