@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.76] — 2026-08-17
+
+### Fixed — a nested ToolBar's buttons were unknown to the COBOL editor
+
+`build_known_controls` listed the buttons of top-level ToolBars only, so a toolbar
+inside a Panel or a tab page had buttons the editor did not know: no completion for
+them, and the handler gate reporting a perfectly good
+`TOOLBAR-1-GROUP-1-BUTTON-1::BackgroundColor` as unknown. Every other side of this
+already walked the whole tree — `find_button`, codegen and the object seed — so the
+editor was the odd one out. It walks it now.
+
+### A toolbar's buttons belong to their own form, and that is now pinned
+
+Confirmed and tested rather than assumed (operator, 2026-08-17): a ToolBar's buttons
+are seeded as objects of **whichever form holds the toolbar**, Standalone or
+Embedded, and of no other form. One builder — `seeding::build_object_seed` — serves
+every form instance there is: the root form under `rcrun run-form` and in a compiled
+binary, a child window, and a ContentPane occupant. So a form's own COBOL can read
+and recolour its own buttons whether that form has a window or sits in a pane, and
+two forms carrying identically-named toolbars never see each other's.
+
+The test covers the operator's own shape — an Embedded form with a ToolBar nested in
+a Panel — because the two bugs before it were both a fix that reached one form path
+and not the other.
+
 ## [PowerRustCOBOL 1.61.75] — 2026-08-17
 
 ### Fixed — two frame paths that had drifted apart

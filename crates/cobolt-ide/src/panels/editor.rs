@@ -973,24 +973,32 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
     // exposes: its colours and its tooltip, and nothing else. That makes a write
     // to a button's geometry an error while the developer is typing, rather than a
     // refusal they meet when the form runs.
-    for bar in form
-        .controls
-        .iter()
-        .filter(|c| c.control_type == cobolt_forms::ControlType::ToolBar)
-    {
-        let def = cobolt_forms::toolbar::ToolbarDef::from_control(bar);
-        for (group, button) in def.buttons() {
-            list.push(KnownControl {
-                id: cobolt_forms::toolbar::button_control_id(&bar.id, &group.id, &button.id),
-                ctrl_type: "ToolbarButton".to_string(),
-                properties: cobolt_forms::toolbar::BUTTON_WRITABLE
-                    .iter()
-                    .map(|p| (*p).to_string())
-                    .collect(),
-                extra_methods: vec!["SetProperty".into(), "GetProperty".into()],
-            });
+    // Nested toolbars count: a bar inside a Panel or a tab page is addressed the
+    // same way, and `find_button`, codegen and the object seed all walk the whole
+    // tree. Listing only the top level here would have made a perfectly good write
+    // look unknown in the editor.
+    fn collect_toolbar_buttons(controls: &[cobolt_forms::Control], out: &mut Vec<KnownControl>) {
+        for ctrl in controls {
+            if ctrl.control_type == cobolt_forms::ControlType::ToolBar {
+                let def = cobolt_forms::toolbar::ToolbarDef::from_control(ctrl);
+                for (group, button) in def.buttons() {
+                    out.push(KnownControl {
+                        id: cobolt_forms::toolbar::button_control_id(
+                            &ctrl.id, &group.id, &button.id,
+                        ),
+                        ctrl_type: "ToolbarButton".to_string(),
+                        properties: cobolt_forms::toolbar::BUTTON_WRITABLE
+                            .iter()
+                            .map(|p| (*p).to_string())
+                            .collect(),
+                        extra_methods: vec!["SetProperty".into(), "GetProperty".into()],
+                    });
+                }
+            }
+            collect_toolbar_buttons(&ctrl.children, out);
         }
     }
+    collect_toolbar_buttons(&form.controls, &mut list);
 
     list.push(KnownControl {
         id: "self".to_string(),

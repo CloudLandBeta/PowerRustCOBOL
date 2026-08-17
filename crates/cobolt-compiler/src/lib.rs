@@ -3482,6 +3482,8 @@ Anything else — width, height, corner radius, label, icon, enabled, action —
 ### How a button reaches COBOL\n\
 A toolbar button is NOT a control — the toolbar owns the layout, so a button has no entry in `form.controls`. It is named by a DERIVED id instead, `<toolbar>-<group>-<button>` upper-cased: `TOOLBAR-1` + `group-2` + `button-1` ⇒ `TOOLBAR-1-GROUP-2-BUTTON-1`. The press arrives under that id and the generated event loop dispatches on it, which is how `procedure:` and `open-modal:` reach anything — a `procedure:` button becomes `CALL \"<NAME>\"` (a user procedure is a nested program, IS COMMON) and an `open-modal:` button becomes `INVOKE ME::\"OpenFormSync\"(\"<FORM>\")`, whose one-argument form is modal. Nothing types the derived id by hand.\n\
 \n\
+A ToolBar's buttons belong to the form HOLDING the toolbar, Standalone or Embedded alike: they are seeded as objects of that form's program (one builder serves the root form, a child window and a ContentPane occupant), so an embedded form's own COBOL reads and recolours its own buttons and two forms with identically-named toolbars never see each other's. A toolbar nested inside a Panel or a tab page is no different.\n\
+\n\
 `COBOL-CONTROL-ID` is `PIC X(64)`, so the three names together must fit 64 characters. A button whose derived id is longer, or a `procedure:`/`open-modal:` button naming nothing, gets a COMMENT in the generated source saying which button it is and what to fix — never a `WHEN` that could not fire.\n\
 \n\
 ### Pressing a button in Preview\n\
