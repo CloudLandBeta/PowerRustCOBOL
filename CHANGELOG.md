@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.73] — 2026-08-17
+
+### Fixed — two of the eleven toolbar actions did nothing
+
+`procedure:<NAME>` and `open-modal:<FORM>` were offered by the Toolbar Editor's
+picker, described in the Developer's Guide and carried in the compiler's
+knowledge base. Neither did anything at all.
+
+The generated event loop dispatches what sits in a control's `events` table, and
+a toolbar button is deliberately **not** a control — the toolbar owns its layout.
+Nothing in `form.controls` named a button, so the per-control walk never saw one
+and codegen contained no reference to toolbars whatsoever. The two actions had
+nowhere to arrive.
+
+A button is now named by a derived id, `<toolbar>-<group>-<button>` upper-cased,
+from a single function (`cobolt_forms::toolbar::button_control_id`) that both
+sides call, so the id the press is raised under and the id the `WHEN` waits for
+cannot drift. The renderer fires the button's own `onClick` under it beside the
+toolbar's existing one, and codegen walks each ToolBar's definition and emits the
+dispatch: a `procedure:` button becomes `CALL "<NAME>"` — a user procedure is a
+nested program, `IS COMMON`, so the outer program's loop can reach it — and an
+`open-modal:` button becomes `INVOKE ME::"OpenFormSync"("<FORM>")`, whose
+one-argument form is modal.
+
+Nothing fails in silence. `COBOL-CONTROL-ID` is `PIC X(64)`, so a derived id
+longer than that could never match its own `WHEN`; that button, and one naming no
+procedure or no form, gets a comment in the generated source saying which button
+it is and what to shorten — never a branch that cannot fire. A form whose only
+toolbar button is one of those still generates valid COBOL: the refusals are
+written outside the `EVALUATE`, so it never opens one it cannot fill.
+
+## [PowerRustCOBOL 1.61.72] — 2026-08-17
+
+### Fixed — a toolbar button did nothing in Preview
+
+Preview drew a toolbar, resolved the press, and threw the answer away. Every
+button was dead at design time, so the only way to find out whether one worked
+was to run the form — and a toolbar is *built* in Preview.
+
+The reason was a boundary, not an oversight: the code that carries a platform
+action out lived in `cobolt-form-host`, which the IDE deliberately does not link
+(Run Form talks to it through the `rcrun` child process). It has moved to
+`cobolt_forms::toolbar_actions`, beside `toolbar_paint` and behind the same
+`render` feature, for the same reason that module is there — **every surface that
+draws a toolbar must also be able to press one**. The running host now reads it
+from there too, so the two cannot drift.
+
+Preview carries out the six actions that need only the platform — `print`,
+`run-app`, `open-terminal`, `copy`, `cut`, `paste` — and reports each result, or
+its reason for failing, in the Output pane. `screenshot` and `share` are refused
+**with a reason**: Preview is a pane inside the IDE window, so a capture there
+would hand back a picture of the IDE rather than of the form. `event`,
+`procedure:` and `open-modal:` still belong to Run Form, which has an
+interpreter.
+
 ## [PowerRustCOBOL 1.61.58] — 2026-08-16
 
 ### Fixed — the preview drew a collapsed sidebar at its designed width

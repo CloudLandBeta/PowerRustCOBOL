@@ -1965,6 +1965,98 @@ fn write_nested_program(
     out.push('\n');
 }
 
+/// One toolbar button the event loop has to dispatch, and what it does.
+struct ToolbarDispatch {
+    /// The derived `<toolbar>-<group>-<button>` id the press arrives under.
+    control_id: String,
+    /// Where it came from, for the comment when something is wrong.
+    origin: String,
+    /// The action, already known to be the form's own COBOL.
+    action: cobolt_forms::toolbar::ToolbarAction,
+}
+
+/// Every toolbar button whose action is the FORM's own COBOL — `procedure:` and
+/// `open-modal:`.
+///
+/// A button is not a `Control`: the toolbar owns its layout, so it has no
+/// `events` table for the per-control walk to find. Codegen reads each ToolBar's
+/// definition instead and dispatches under the button's derived id. Without this
+/// pass those two actions cannot reach anything at all, whatever the designer
+/// offers.
+///
+/// `event` is left out on purpose — the renderer already fires the toolbar's own
+/// `onClick`, which is that action's whole meaning — and so are the platform
+/// actions, which the host carries out without COBOL's help.
+fn collect_toolbar_dispatch(all_controls: &[&Control]) -> Vec<ToolbarDispatch> {
+    use cobolt_forms::toolbar::{ToolbarAction, ToolbarDef};
+    let mut out: Vec<ToolbarDispatch> = Vec::new();
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::ToolBar)
+    {
+        let def = ToolbarDef::from_control(ctrl);
+        for (group, button) in def.buttons() {
+            let action = button.action();
+            if !matches!(action, ToolbarAction::Procedure(_) | ToolbarAction::OpenModal(_)) {
+                continue;
+            }
+            let control_id =
+                cobolt_forms::toolbar::button_control_id(&ctrl.id, &group.id, &button.id);
+            // A hand-edited `.cfrm` can repeat an id; a second WHEN on the same
+            // literal would simply never be reached, so keep the first.
+            if out.iter().any(|d| d.control_id == control_id) {
+                continue;
+            }
+            out.push(ToolbarDispatch {
+                control_id,
+                origin: format!("{}/{}/{}", ctrl.id, group.id, button.id),
+                action,
+            });
+        }
+    }
+    out
+}
+
+/// The one statement a toolbar button's `WHEN` runs, or the reason it gets none.
+///
+/// Nothing fails in silence: a button naming no procedure, naming no form, or
+/// carrying an id too long for `COBOL-CONTROL-ID` yields an `Err` the generator
+/// writes into the source as a comment — which the developer can read, since
+/// Generated Code is a category in the project tree — instead of a `WHEN` that
+/// could never fire.
+fn toolbar_when_statement(d: &ToolbarDispatch) -> Result<String, String> {
+    use cobolt_forms::toolbar::{ToolbarAction, MAX_BUTTON_CONTROL_ID};
+    if d.control_id.len() > MAX_BUTTON_CONTROL_ID {
+        return Err(format!(
+            "cannot be dispatched: its id \"{}\" is {} characters and \
+             COBOL-CONTROL-ID holds {}. Shorten the toolbar, group or button name.",
+            d.control_id,
+            d.control_id.len(),
+            MAX_BUTTON_CONTROL_ID
+        ));
+    }
+    match &d.action {
+        ToolbarAction::Procedure(name) if name.trim().is_empty() => {
+            Err("asks to run a procedure but names none.".to_owned())
+        }
+        ToolbarAction::OpenModal(form_id) if form_id.trim().is_empty() => {
+            Err("asks to open a modal form but names none.".to_owned())
+        }
+        // A user procedure is a nested program, `IS COMMON`, so the event loop
+        // in the outer program can CALL it by name.
+        ToolbarAction::Procedure(name) => Ok(format!("CALL \"{}\"", name.trim())),
+        // One argument means MODAL: `OpenFormSync`'s comma-form default. The
+        // handle is already NULL by the time a modal returns, so nothing is
+        // RETURNING-ed into.
+        ToolbarAction::OpenModal(form_id) => Ok(format!(
+            "INVOKE ME::\"OpenFormSync\"(\"{}\")",
+            form_id.trim()
+        )),
+        // `collect_toolbar_dispatch` admits nothing else.
+        other => Err(format!("has an action the event loop cannot run: {other:?}")),
+    }
+}
+
 fn write_event_loop(out: &mut String, form: &Form) {
     out.push_str("       COBOL-EVENT-LOOP.\n");
     out.push_str("           PERFORM UNTIL COBOL-QUIT = 1\n");
@@ -1976,6 +2068,25 @@ fn write_event_loop(out: &mut String, form: &Form) {
         .iter()
         .filter(|c| !c.events.is_empty())
         .collect();
+    // Toolbar buttons split into the ones the loop can dispatch and the ones it
+    // must explain. The refusals are written as comments OUTSIDE the EVALUATE:
+    // a form whose only dispatchable thing was a broken button would otherwise
+    // get an `EVALUATE` with no `WHEN` at all, which is not COBOL.
+    let (dispatchable, refused): (Vec<_>, Vec<_>) = collect_toolbar_dispatch(&all_controls)
+        .into_iter()
+        .map(|d| {
+            let verdict = toolbar_when_statement(&d);
+            (d, verdict)
+        })
+        .partition(|(_, verdict)| verdict.is_ok());
+    for (d, verdict) in &refused {
+        if let Err(reason) = verdict {
+            out.push_str(&format!(
+                "      *> Toolbar button {} {reason}\n",
+                d.origin
+            ));
+        }
+    }
 
     // Form-level events dispatched through the loop. `onLoad` / `onClose` are
     // CALLed directly from COBOL-MAIN (not via the loop), so they're excluded
@@ -1987,7 +2098,7 @@ fn write_event_loop(out: &mut String, form: &Form) {
         .filter(|e| e.event != "onLoad" && e.event != "onClose")
         .collect();
 
-    if controls_with_events.is_empty() && form_loop_events.is_empty() {
+    if controls_with_events.is_empty() && form_loop_events.is_empty() && dispatchable.is_empty() {
         // No events — nothing to dispatch.
         out.push_str("               *> No event handlers defined yet.\n");
         out.push_str("               CONTINUE\n");
@@ -2043,6 +2154,16 @@ fn write_event_loop(out: &mut String, form: &Form) {
                     ));
                 }
             }
+            out.push_str("                       END-EVALUATE\n");
+        }
+        // Toolbar buttons last: they are dispatched under a derived id, which
+        // cannot collide with a control's own, so the order is only cosmetic.
+        for (d, verdict) in &dispatchable {
+            let Ok(statement) = verdict else { continue };
+            out.push_str(&format!("                   WHEN \"{}\"\n", d.control_id));
+            out.push_str("                       EVALUATE COBOL-EVENT-ID\n");
+            out.push_str("                           WHEN \"onClick\"\n");
+            out.push_str(&format!("                               {statement}\n"));
             out.push_str("                       END-EVALUATE\n");
         }
         out.push_str("               END-EVALUATE\n");
@@ -3133,6 +3254,133 @@ mod tests {
         assert!(src.contains("Delimiter: \";\". Mode: All."));
         assert!(src.contains("Column order and filtered/all rows follow the DataGrid settings."));
         assert!(src.contains("INVOKE GRID-1 'ExportCSV'"));
+    }
+
+    /// A ToolBar whose buttons carry `procedure:` and `open-modal:`.
+    fn toolbar_form(buttons: &[(&str, &str, &str)]) -> Form {
+        use cobolt_forms::toolbar::{ToolbarButton, ToolbarDef, ToolbarGroup, TOOLBAR_DEF_PROP};
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut group = ToolbarGroup::new("group-1", "File");
+        for (id, label, action) in buttons {
+            let mut b = ToolbarButton::new(*id, *label);
+            b.action = (*action).to_owned();
+            group.buttons.push(b);
+        }
+        let def = ToolbarDef {
+            groups: vec![group],
+            button_gap: 4,
+        };
+        let mut bar = Control::new("TOOLBAR-1", ControlType::ToolBar, 0, 0);
+        bar.set_prop(TOOLBAR_DEF_PROP, PropValue::String(def.to_json().unwrap()));
+        form.add_control(bar);
+        form
+    }
+
+    /// `procedure:` and `open-modal:` were offered by the editor, documented in
+    /// the guide — and reached nothing. The event loop can only dispatch what it
+    /// has a `WHEN` for, and a toolbar button is not a `Control`, so the
+    /// per-control walk never saw one. Codegen now reads each ToolBar's
+    /// definition and dispatches under the button's derived id.
+    #[test]
+    fn a_toolbar_buttons_procedure_and_modal_are_dispatched() {
+        let form = toolbar_form(&[
+            ("button-1", "Save", "procedure:UPDATE-TOTAL"),
+            ("button-2", "Find", "open-modal:CUST-LOOKUP"),
+            // Neither of these belongs in the loop: `event` IS the toolbar's own
+            // onClick, and the platform carries `print` out without COBOL.
+            ("button-3", "Log", "event"),
+            ("button-4", "Print", "print:/tmp/report.pdf"),
+        ]);
+        let src = generate(&form);
+
+        assert!(
+            src.contains("WHEN \"TOOLBAR-1-GROUP-1-BUTTON-1\""),
+            "the procedure button has no WHEN\n{src}"
+        );
+        assert!(
+            src.contains("CALL \"UPDATE-TOTAL\""),
+            "the procedure is never called\n{src}"
+        );
+        assert!(
+            src.contains("WHEN \"TOOLBAR-1-GROUP-1-BUTTON-2\""),
+            "the open-modal button has no WHEN\n{src}"
+        );
+        assert!(
+            src.contains("INVOKE ME::\"OpenFormSync\"(\"CUST-LOOKUP\")"),
+            "the modal form is never opened\n{src}"
+        );
+        for dead in [
+            "WHEN \"TOOLBAR-1-GROUP-1-BUTTON-3\"",
+            "WHEN \"TOOLBAR-1-GROUP-1-BUTTON-4\"",
+        ] {
+            assert!(!src.contains(dead), "{dead} does not belong in the loop\n{src}");
+        }
+        // The derived id the renderer fires is the one the loop waits for.
+        assert_eq!(
+            cobolt_forms::toolbar::button_control_id("TOOLBAR-1", "group-1", "button-1"),
+            "TOOLBAR-1-GROUP-1-BUTTON-1"
+        );
+
+        println!(
+            "\n  Toolbar dispatch — 4 buttons: `procedure:UPDATE-TOTAL` ⇒ WHEN \
+             \"TOOLBAR-1-GROUP-1-BUTTON-1\" CALL \"UPDATE-TOTAL\", \
+             `open-modal:CUST-LOOKUP` ⇒ INVOKE ME::\"OpenFormSync\", and `event` + \
+             `print:` get no WHEN (the toolbar's own onClick and the platform do those)\n"
+        );
+    }
+
+    /// A button that cannot be dispatched says so in the generated source rather
+    /// than emitting a `WHEN` that can never fire.
+    #[test]
+    fn a_toolbar_button_that_cannot_be_dispatched_is_reported() {
+        // Nothing named.
+        let src = generate(&toolbar_form(&[
+            ("button-1", "A", "procedure:"),
+            ("button-2", "B", "open-modal:"),
+        ]));
+        assert!(
+            src.contains("asks to run a procedure but names none"),
+            "an empty procedure target must be reported\n{src}"
+        );
+        assert!(
+            src.contains("asks to open a modal form but names none"),
+            "an empty modal target must be reported\n{src}"
+        );
+        assert!(
+            !src.contains("WHEN \"TOOLBAR-1-GROUP-1-BUTTON-1\""),
+            "…and must not get a WHEN\n{src}"
+        );
+
+        // An id longer than COBOL-CONTROL-ID could never match its own WHEN, so
+        // it is reported instead of quietly generating a dead button.
+        use cobolt_forms::toolbar::MAX_BUTTON_CONTROL_ID;
+        let long_group = "g".repeat(MAX_BUTTON_CONTROL_ID);
+        let id = cobolt_forms::toolbar::button_control_id("TOOLBAR-1", &long_group, "button-1");
+        assert!(id.len() > MAX_BUTTON_CONTROL_ID);
+        let mut form = toolbar_form(&[("button-1", "A", "procedure:UPDATE-TOTAL")]);
+        {
+            use cobolt_forms::toolbar::{ToolbarDef, TOOLBAR_DEF_PROP};
+            let bar = &mut form.controls[0];
+            let mut def = ToolbarDef::from_control(bar);
+            def.groups[0].id = long_group;
+            bar.set_prop(TOOLBAR_DEF_PROP, PropValue::String(def.to_json().unwrap()));
+        }
+        let src = generate(&form);
+        assert!(
+            src.contains("cannot be dispatched: its id"),
+            "an over-long derived id must be reported\n{src}"
+        );
+        assert!(
+            !src.contains("CALL \"UPDATE-TOTAL\""),
+            "…and must not be dispatched\n{src}"
+        );
+
+        println!(
+            "\n  Toolbar dispatch, refusals — `procedure:` and `open-modal:` with no \
+             target are reported in the generated source and get no WHEN; a derived id \
+             over {MAX_BUTTON_CONTROL_ID} characters (COBOL-CONTROL-ID's width) is \
+             reported rather than generating a WHEN that could never fire\n"
+        );
     }
 
     #[test]

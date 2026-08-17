@@ -641,9 +641,14 @@ impl ToolbarDef {
 
     /// Find a button by id, wherever it is.
     pub fn button(&self, id: &str) -> Option<&ToolbarButton> {
-        self.buttons()
-            .find(|(_, b)| b.id.eq_ignore_ascii_case(id))
-            .map(|(_, b)| b)
+        self.button_with_group(id).map(|(_, b)| b)
+    }
+
+    /// Find a button by id together with the group holding it — what
+    /// [`button_control_id`] needs, since a button's outside-world id is built
+    /// from all three names.
+    pub fn button_with_group(&self, id: &str) -> Option<(&ToolbarGroup, &ToolbarButton)> {
+        self.buttons().find(|(_, b)| b.id.eq_ignore_ascii_case(id))
     }
 
     /// An id no group is using yet.
@@ -739,6 +744,48 @@ impl ToolbarDef {
         }
         out
     }
+}
+
+// ── Naming a button from outside its toolbar ───────────────────────────────────
+
+/// The longest derived button id the generated event loop can dispatch.
+///
+/// `COBOL-CONTROL-ID` is `PIC X(64)`, so an id longer than that arrives
+/// truncated and could never match its own `WHEN` — a button that looks bound
+/// and is dead. Codegen reports one it cannot dispatch instead of emitting a
+/// `WHEN` that can never fire.
+pub const MAX_BUTTON_CONTROL_ID: usize = 64;
+
+/// The id a toolbar button answers to OUTSIDE its toolbar:
+/// `<toolbar>-<group>-<button>`, upper-cased (operator, 2026-08-17).
+///
+/// A button is deliberately not a [`Control`] — the toolbar owns its layout, so
+/// there is nothing in `form.controls` to name it, and nothing for the designer's
+/// drag/resize machinery to grab. But the two places that must name it, must
+/// name it the SAME: the event the renderer fires when the button is pressed,
+/// and the `WHEN` the generated event loop dispatches on. Both call this.
+///
+/// Ids inside a [`ToolbarDef`] are machine-made (`group-1`, `button-2`), so the
+/// result is a valid COBOL word by construction. A hand-edited `.cfrm` could put
+/// anything there, so anything outside `A-Z 0-9 -` is mapped to a hyphen rather
+/// than trusted into generated source.
+pub fn button_control_id(toolbar_id: &str, group_id: &str, button_id: &str) -> String {
+    let mut out = String::with_capacity(
+        toolbar_id.len() + group_id.len() + button_id.len() + 2,
+    );
+    for (n, part) in [toolbar_id, group_id, button_id].iter().enumerate() {
+        if n > 0 {
+            out.push('-');
+        }
+        for ch in part.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch.to_ascii_uppercase());
+            } else {
+                out.push('-');
+            }
+        }
+    }
+    out
 }
 
 /// A rectangle in toolbar-local pixels. Deliberately not egui's `Rect`: the
@@ -1054,6 +1101,63 @@ mod tests {
              40%: an unset button takes all of it, a button overriding size+colour+shadow \
              keeps the group's width and opacity; layout measures {}px\n",
             g.layout_width(4)
+        );
+    }
+
+    /// A button's id OUTSIDE its toolbar. The renderer fires a press under it and
+    /// the generated event loop dispatches on it, so the two must agree exactly —
+    /// which is why there is one function and not two conventions.
+    #[test]
+    fn a_button_is_named_by_its_toolbar_its_group_and_itself() {
+        assert_eq!(
+            button_control_id("TOOLBAR-1", "group-1", "button-1"),
+            "TOOLBAR-1-GROUP-1-BUTTON-1"
+        );
+        // Case is the designer's, not the format's.
+        assert_eq!(
+            button_control_id("Tb", "Clipboard", "Copy"),
+            "TB-CLIPBOARD-COPY"
+        );
+        // Ids inside a definition are machine-made, but a hand-edited `.cfrm`
+        // can hold anything — and nothing but a COBOL word may reach generated
+        // source, so everything else becomes a hyphen.
+        assert_eq!(
+            button_control_id("TB 1", "my group!", "btn.2"),
+            "TB-1-MY-GROUP--BTN-2"
+        );
+        assert_eq!(
+            button_control_id("  TB  ", " g ", " b "),
+            "TB-G-B",
+            "surrounding space is not part of a name"
+        );
+
+        // The result is a COBOL word: starts with a letter, then letters, digits
+        // and hyphens.
+        let id = button_control_id("TOOLBAR-1", "group-1", "button-1");
+        assert!(crate::model::is_valid_control_id(&id), "{id} is not addressable");
+
+        // And it must fit COBOL-CONTROL-ID, or the WHEN it generates could never
+        // match. Codegen reports one that does not rather than emitting it.
+        assert!(id.len() <= MAX_BUTTON_CONTROL_ID);
+        assert_eq!(MAX_BUTTON_CONTROL_ID, 64, "COBOL-CONTROL-ID is PIC X(64)");
+
+        // A press resolves button → group → derived id through one lookup.
+        let mut def = ToolbarDef::default();
+        let mut g = ToolbarGroup::new("group-7", "Output");
+        g.buttons.push(ToolbarButton::new("button-3", "Print"));
+        def.groups.push(g);
+        let (group, button) = def.button_with_group("button-3").expect("found");
+        assert_eq!(
+            button_control_id("BAR", &group.id, &button.id),
+            "BAR-GROUP-7-BUTTON-3"
+        );
+        assert!(def.button_with_group("nope").is_none());
+
+        println!(
+            "\n  Toolbar button ids — TOOLBAR-1/group-1/button-1 ⇒ \
+             \"TOOLBAR-1-GROUP-1-BUTTON-1\"; case is normalised, anything outside a \
+             COBOL word becomes a hyphen, and the result fits COBOL-CONTROL-ID's \
+             {MAX_BUTTON_CONTROL_ID} characters\n"
         );
     }
 

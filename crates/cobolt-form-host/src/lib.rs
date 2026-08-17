@@ -39,9 +39,6 @@ pub mod host;
 pub mod seeding;
 pub mod shell;
 pub mod state;
-// Carrying out a toolbar button's platform action: printing, sharing, the
-// clipboard, a window capture, another process.
-pub mod toolbar_actions;
 
 pub use host::{
     fx_duration_ms, load_host_icon, run, ChildThemeSource, FormHost, FormHostConfig, FormSource,

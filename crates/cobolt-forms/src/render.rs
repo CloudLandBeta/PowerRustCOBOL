@@ -6417,6 +6417,19 @@ fn render_interactive(
                     ));
                     out.events
                         .push(UiEvent::with_value(id, "onClick", &button_id));
+                    // …and the BUTTON's own `onClick`, under the id it answers
+                    // to outside this toolbar. A button is not a `Control`, so
+                    // nothing in `form.controls` names it — this derived id is
+                    // what the generated event loop dispatches on, and the only
+                    // reason `procedure:` and `open-modal:` can reach anything.
+                    // It is fired for EVERY press: the loop simply has no `WHEN`
+                    // for a button nothing is attached to, exactly as for a
+                    // control with no handler.
+                    if let Some((group, _)) = def.button_with_group(&button_id) {
+                        out.events.push(UiEvent::click(&crate::toolbar::button_control_id(
+                            id, &group.id, &button_id,
+                        )));
+                    }
                 }
             }
         }
@@ -9254,6 +9267,103 @@ mod tests {
 
     fn names(evs: &[UiEvent]) -> Vec<&str> {
         evs.iter().map(|e| e.event.as_str()).collect()
+    }
+
+    /// Pressing a toolbar button raises TWO `onClick`s: the toolbar's own, which
+    /// is what lets one handler serve a whole bar, and the button's own under the
+    /// derived `<toolbar>-<group>-<button>` id.
+    ///
+    /// The second one is why `procedure:` and `open-modal:` can reach anything: a
+    /// toolbar button is not a `Control`, so nothing in `form.controls` names it,
+    /// and the generated event loop can only dispatch what it has a `WHEN` for.
+    /// Both sides derive that id from the same function, so the press and the
+    /// `WHEN` cannot drift apart.
+    #[test]
+    fn a_toolbar_press_raises_the_bars_click_and_the_buttons_own() {
+        use crate::toolbar::{button_control_id, ToolbarButton, ToolbarDef, ToolbarGroup};
+
+        let (bar_w, bar_h) = (300, 44);
+        let mut group = ToolbarGroup::new("group-1", "File");
+        group.buttons.push(ToolbarButton::new("button-1", "Save"));
+        group.buttons.push(ToolbarButton::new("button-2", "Find"));
+        let def = ToolbarDef {
+            groups: vec![group],
+            button_gap: 4,
+        };
+
+        let mut bar = ctrl("TOOLBAR-1", ControlType::ToolBar, 20, 20, bar_w, bar_h);
+        bar.set_prop(
+            crate::toolbar::TOOLBAR_DEF_PROP,
+            crate::PropValue::String(def.to_json().unwrap()),
+        );
+
+        // Click the SECOND button, from the model's own geometry rather than a
+        // hand-computed offset — the layout is what the painter used.
+        let layout = def.layout(bar_w as i64, bar_h as i64);
+        let (id, box2) = &layout[0].buttons[1];
+        assert_eq!(id, "button-2");
+        let at = pos2(
+            20.0 + box2.x as f32 + box2.w as f32 / 2.0,
+            20.0 + box2.y as f32 + box2.h as f32 / 2.0,
+        );
+
+        let (events, overrides) = drive(
+            &[bar],
+            vec![
+                (0.0, vec![Event::PointerMoved(at)]),
+                (0.05, vec![press(at)]),
+                (0.10, vec![release(at)]),
+            ],
+        );
+
+        // WHICH button it was, for the one-handler-per-bar route.
+        assert_eq!(
+            overrides
+                .get("TOOLBAR-1")
+                .and_then(|p| p.get("LastButton"))
+                .map(String::as_str),
+            Some("button-2"),
+            "LastButton must name the button that was pressed"
+        );
+
+        let derived = button_control_id("TOOLBAR-1", "group-1", "button-2");
+        assert_eq!(derived, "TOOLBAR-1-GROUP-1-BUTTON-2");
+        let clicks: Vec<(&str, Option<&str>)> = events
+            .iter()
+            .filter(|e| e.event == "onClick")
+            .map(|e| (e.ctrl_id.as_str(), e.value.as_deref()))
+            .collect();
+        assert_eq!(
+            clicks,
+            vec![
+                ("TOOLBAR-1", Some("button-2")),
+                (derived.as_str(), None),
+            ],
+            "the bar hears the press, then the button's own id does"
+        );
+
+        // A press that lands on nothing raises nothing — the padding between the
+        // frame and the first button is not a button.
+        let gap = pos2(20.0 + 1.0, 20.0 + bar_h as f32 / 2.0);
+        let (none, _) = drive(
+            &[ctrl("TOOLBAR-2", ControlType::ToolBar, 20, 20, bar_w, bar_h)],
+            vec![
+                (0.0, vec![Event::PointerMoved(gap)]),
+                (0.05, vec![press(gap)]),
+                (0.10, vec![release(gap)]),
+            ],
+        );
+        assert!(
+            !names(&none).contains(&"onClick"),
+            "a press on the group's padding is not a button press: {:?}",
+            names(&none)
+        );
+
+        println!(
+            "\n  Toolbar press — clicking button-2 of a 2-button group raises onClick on \
+             TOOLBAR-1 (value \"button-2\") AND on the derived id {derived}, and writes \
+             LastButton; a press on the group's padding raises nothing\n"
+        );
     }
 
     /// The Switch is clickable at its DESIGNED size, and raises the directional

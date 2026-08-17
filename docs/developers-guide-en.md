@@ -1564,8 +1564,8 @@ strip. Delete it, rename it, or build around it.
 | Action | Effect |
 |---|---|
 | `event` | Fires the toolbar's `onClick`, carrying the button's id. The default. |
-| `procedure` | `PERFORM`s one of the form's procedures. |
-| `open-modal` | Opens a **standalone** form as a modal window. Standalone only — an embedded form belongs in a ContentPane. |
+| `procedure` | Runs one of the form's procedures, by name. |
+| `open-modal` | Opens a **standalone** form as a modal window — the press waits until that window closes. Standalone only: an embedded form belongs in a ContentPane. |
 | `print` | Opens the named document in the platform's viewer, where its print dialog is. |
 | `share` | Captures this form's window and hands the image to the OS for sharing. |
 | `screenshot` | Puts an image of this form's window on the clipboard. |
@@ -1586,10 +1586,68 @@ button it was:
            END-EVALUATE
 ```
 
+##### How a button reaches your code
+
+A toolbar button is **not** a control. The toolbar owns the layout — that is what
+keeps the buttons lined up and out of the designer's drag handles — so a button
+has no entry of its own among the form's controls.
+
+It still needs a name, because two things have to agree on one: the press, and
+the generated event loop that dispatches it. That name is derived, and it is
+`<toolbar>-<group>-<button>` in upper case:
+
+```text
+   ToolBar  TOOLBAR-1
+     group  group-1
+    button  button-2      ⇒   TOOLBAR-1-GROUP-1-BUTTON-2
+```
+
+You do not type it anywhere — `procedure` and `open-modal` are wired through it
+for you — but it is what you will see in the generated code, and it is the id the
+press arrives under:
+
+```cobol
+      *>   generated, in COBOL-EVENT-LOOP:
+           EVALUATE COBOL-CONTROL-ID
+               WHEN "TOOLBAR-1-GROUP-1-BUTTON-1"
+                   EVALUATE COBOL-EVENT-ID
+                       WHEN "onClick"
+                           CALL "UPDATE-TOTAL"
+                   END-EVALUATE
+               WHEN "TOOLBAR-1-GROUP-1-BUTTON-2"
+                   EVALUATE COBOL-EVENT-ID
+                       WHEN "onClick"
+                           INVOKE ME::"OpenFormSync"("CUST-LOOKUP")
+                   END-EVALUATE
+           END-EVALUATE
+```
+
+> ⚠️ **Caveat.** `COBOL-CONTROL-ID` holds **64 characters**, so the three names
+> together must fit in 64. A button whose derived id is longer cannot be
+> dispatched; rather than generate a branch that could never fire, PowerRustCOBOL
+> writes a comment into the generated source telling you which button it was and
+> what to shorten. The same happens to a `procedure` or `open-modal` button that
+> names nothing at all.
+
 > **Note.** `run-app` and `open-terminal` start a process. The target is split on
 > whitespace and handed to the OS **directly — never to a shell**, so a path
 > built out of a data item cannot turn into a shell command. It is still your
 > form launching a real program: treat the target as code, not as data.
+
+##### Trying a toolbar in Preview
+
+You do not have to run the form to press a button. **Preview carries out the six
+platform actions itself** — `print`, `run-app`, `open-terminal`, `copy`, `cut`
+and `paste` — and writes what happened, or why it could not, into the **Output**
+pane. That is where a toolbar gets built, so that is where its buttons have to
+work.
+
+Two of the actions deliberately do **not** run in Preview:
+
+| Action | Why not |
+|---|---|
+| `screenshot`, `share` | They capture the form's **own window**. In Preview the form is a pane inside the IDE, so a capture would hand you a picture of the IDE instead. Preview says so rather than quietly returning the wrong image — use **Run Form**. |
+| `event`, `procedure`, `open-modal` | These are your form's COBOL. Preview draws the form but runs no interpreter, so it leaves them to **Run Form**. |
 
 > ⚠️ **Caveat.** A toolbar wider than the control it sits on loses whole groups
 > off the right-hand end rather than drawing half of one. The properties pane

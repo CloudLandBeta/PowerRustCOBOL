@@ -85,6 +85,13 @@ pub mod toolbar;
 #[cfg(feature = "render")]
 pub mod toolbar_paint;
 
+// Carrying out a toolbar button's PLATFORM action: printing, sharing, the
+// clipboard, a window capture, another process. Beside `toolbar_paint` for the
+// same reason — every surface that DRAWS a toolbar must also be able to PRESS
+// one, so the running host and the designer's Preview share this.
+#[cfg(feature = "render")]
+pub mod toolbar_actions;
+
 // Window entrance/exit effects (spec 038). Needs egui types only, so it is
 // gated with the other render modules.
 #[cfg(feature = "render")]
