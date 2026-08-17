@@ -6548,15 +6548,43 @@ fn render_interactive(
                     / 1000.0;
                 let mem = ctrl_id.with("last_tick");
                 let now = ui.input(|i| i.time);
+                // A frame that lands a WHISKER before the deadline has still met
+                // it. Repaint scheduling is a hint with millisecond granularity,
+                // and the clock arithmetic is binary floating point, so "early by
+                // a microsecond" is routine — and without this it cost a whole
+                // interval. The allowance never affects the RATE, because the
+                // schedule below advances by exactly one interval either way; it
+                // only decides which frame carries the tick.
+                const DEADLINE_TOLERANCE_S: f64 = 0.001;
+                let due = interval_s - DEADLINE_TOLERANCE_S;
                 let last = match ui.ctx().memory(|m| m.data.get_temp::<f64>(mem)) {
                     None => {
                         ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
                         now
                     }
-                    Some(last) if now - last >= interval_s => {
+                    Some(last) if now - last >= due => {
                         out.events.push(UiEvent::ev(id, "onTick"));
-                        ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
-                        now
+                        // Advance the SCHEDULE, not the observation.
+                        //
+                        // Storing `now` re-bases the whole cadence on whenever the
+                        // frame happened to land, so a frame arriving a hair early
+                        // — which is what floating-point time and a repaint hint
+                        // guarantee will happen — cost a WHOLE interval. Measured:
+                        // a 100 ms Timer fired 182 times in 300 intervals, and the
+                        // losses read exactly like a timer quietly giving up.
+                        //
+                        // A form that was genuinely stalled (parked off-pane, its
+                        // window dragged, a long handler) resyncs to `now` rather
+                        // than firing a burst of catch-up ticks: a Timer never
+                        // repays missed time, which is the semantics a PowerCOBOL
+                        // or isCOBOL developer already expects.
+                        let next = if now - last >= interval_s * 2.0 {
+                            now
+                        } else {
+                            last + interval_s
+                        };
+                        ui.ctx().memory_mut(|m| m.data.insert_temp(mem, next));
+                        next
                     }
                     Some(last) => last,
                 };
@@ -10274,6 +10302,87 @@ mod tests {
             all.extend(events.into_inner());
         }
         all
+    }
+
+    /// A Timer keeps ticking, for as long as the form runs.
+    ///
+    /// Reported 2026-08-17: "timer events are dying after some dozens of times.
+    /// It stops silently, no warnings, just stops." This drives the renderer over
+    /// hundreds of intervals and counts every tick, so a Timer that quietly gives
+    /// up cannot pass.
+    #[test]
+    fn a_timer_keeps_ticking_for_hundreds_of_intervals() {
+        let interval_ms = 100.0_f64;
+        let timer = [ctrlp(
+            "Tmr",
+            ControlType::Timer,
+            0,
+            0,
+            1,
+            1,
+            &[("Interval", "100"), ("Enabled", "true")],
+        )];
+
+        // One frame per interval, so every frame is a tick that is due. 300 of
+        // them is far past "some dozens".
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let frames = 300usize;
+        let mut ticks = 0usize;
+        let mut first_gap: Option<usize> = None;
+        for i in 0..frames {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * interval_ms / 1000.0);
+            let events = RefCell::new(Vec::<UiEvent>::new());
+            ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let inp = RenderInput {
+                            controls: &timer,
+                            state: &DesignedState,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        let out = render_form(ui, &inp);
+                        events.borrow_mut().extend(out.events);
+                    });
+            })
+            .textures_delta.clear();
+            let got = events
+                .into_inner()
+                .iter()
+                .filter(|e| e.event == "onTick")
+                .count();
+            if got > 0 {
+                ticks += got;
+            } else if i > 0 && first_gap.is_none() {
+                // Frame 0 only establishes the clock, so it never ticks.
+                first_gap = Some(i);
+            }
+        }
+
+        // Frame 0 sets the baseline; every frame after it is one interval on.
+        assert_eq!(
+            ticks,
+            frames - 1,
+            "a Timer must not stop: {ticks} ticks over {frames} intervals, first \
+             missing at frame {first_gap:?}"
+        );
+
+        println!(
+            "\n  Timer endurance — a 100 ms Timer driven over {frames} intervals fired \
+             {ticks} times, one per interval with no gap; the clock is egui time and the \
+             wake-up is rescheduled from the tick that just fired, so it cannot drift into \
+             silence\n"
+        );
     }
 
     #[test]

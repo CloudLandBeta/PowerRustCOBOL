@@ -3209,7 +3209,7 @@ fn control_purpose(name: &str) -> &'static str {
         "NumericUpDown" => "Integer input with spinner arrows.",
         "TreeView" => "Hierarchical node list.",
         "Splitter" => "Draggable divider between two areas.",
-        "Timer" => "Non-visual: fires `onTick` every Interval ms.",
+        "Timer" => "Non-visual: fires `onTick` every Interval ms. Steady cadence — each tick schedules the next ONE INTERVAL on, so the rate does not drift with frame timing — and it never repays missed time: a handler slower than the interval, or a stalled form, gets ONE tick on return, not a burst. A handler eight events behind has its ticks coalesced until it catches up; a click, an edit or a focus change is never coalesced.",
         "Shape" => "Decorative rectangle / circle / triangle.",
         "Animator" => "Plays an animated image (GIF / WebP / APNG).",
         "AgentObject" => "Non-visual LLM client (ask a model from COBOL).",
