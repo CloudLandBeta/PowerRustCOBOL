@@ -4323,11 +4323,33 @@ Everything the sidebar draws is anchored to its **top** and grows downward — t
 
 **Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
 renders beside its label on every surface — the designer canvas, the preview,
-the Run Form pane and the running shell's MenuPane. The **collapsed rail is
-icon-only**: an item shows its icon, or its first letter if it has none, so
-every item stays reachable at rail width. The SideMenu's **IconEffect**
-property (`None` | `Shadow` | `Neumorphic`) chooses how those icons are
-painted — `Neumorphic` matches the IDE's Neumorphic surface style.
+the Run Form pane and the running shell's MenuPane. The SideMenu's
+**IconEffect** property (`None` | `Shadow` | `Neumorphic`) chooses how those
+icons are painted — `Neumorphic` matches the IDE's Neumorphic surface style.
+
+**What the collapsed rail carries.** The rail is one icon wide, so an item earns
+a place on it only when it can be reached *by its icon*: it has **an icon**, it
+has **an action**, and it is **not a group**.
+
+| Left off, and why |
+|---|
+| **A group.** Its meaning is the list it opens, and a rail has nowhere to open one to. Its qualifying children come up **in its place** instead — the rail is your shortcuts, not your structure. |
+| **An item with an action but no icon.** Nothing to draw and nothing to aim at. |
+| **An item with an icon but no action.** A label wearing a picture; the rail has no room for labels. |
+
+So a menu of *Home*, *Samples* (a group holding *Dashboard*, *Form 1*, *Form 2*
+and an icon-less *CMS*) and *SaaS* collapses to five icons: Home, Dashboard,
+Form 1, Form 2, SaaS. The **open form's operations** follow the same rule and
+appear below a divider. Nothing is special-cased by name — *Home* is there
+because it has an icon and an action.
+
+> **Note.** This is the rule to design *to*: if you want a screen on the rail,
+> give its menu item an icon and an action. A group that you also want reachable
+> should have a leaf item of its own, rather than relying on the group row.
+
+**Indentation.** A group and everything inside it share one left edge — the
+group's own name. Nesting shows as a small offset of the child's **icon**, so an
+expanded menu still has a straight left edge to read down.
 
 **The sidebar is live in Preview and Run Form.** Clicking the ☰ collapses and
 opens the rail (firing `onMenuOpen`/`onMenuClose`), and clicking an item row

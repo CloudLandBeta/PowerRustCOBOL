@@ -69,6 +69,12 @@ const SECTION_H: f32 = 30.0;
 pub const HEADER_H: f32 = 120.0;
 pub const FOOTER_H: f32 = 72.0;
 const PAD_X: f32 = 12.0;
+
+/// How far a nested row's ICON shifts right of its parent's (operator,
+/// 2026-08-17). Small on purpose: the label column is shared with the group
+/// above, so the icon has one icon-width of gutter to move within and must
+/// still finish clear of the text.
+const NEST_INDENT: f32 = 6.0;
 const ICON: f32 = 22.0;
 const RADIUS: f32 = 10.0;
 
@@ -426,8 +432,12 @@ pub fn layout(rect: Rect, state: &SidebarState<'_>) -> Vec<SidebarRow> {
     // during the walk (which is what this did) is exactly why the rail clipped
     // its own menu with no way to see the rest.
     let mut y = band.min.y - clamp_scroll(rect, state);
-    let mut prefix = Vec::new();
-    walk_rows(state.items, &mut prefix, 0, &mut y, rect, state, &mut rows);
+    if state.collapsed {
+        rail_rows(state.items, &mut y, rect, &mut rows);
+    } else {
+        let mut prefix = Vec::new();
+        walk_rows(state.items, &mut prefix, 0, &mut y, rect, state, &mut rows);
+    }
 
     // ── Footer pane ─────────────────────────────────────────────────────────
     // Anchored to the bottom, full width, and hidden on the collapsed rail —
@@ -537,6 +547,124 @@ pub fn rail_view(controls: &[Control], side: &Control, collapsed: bool) -> Vec<C
 
 /// Lay out the menu rows from `y` downwards, recursing into expanded parents.
 /// Rows are produced unconditionally — confining them to the pane is the
+/// Whether an item earns a place on the COLLAPSED rail (operator, 2026-08-17).
+///
+/// The rail is one icon wide, so an item has to be reachable BY its icon. Three
+/// things follow, and they are the whole rule:
+///
+/// * **It must have an icon.** An item with an action but no icon has nothing to
+///   draw and nothing to aim at — a blank row that does something when clicked.
+/// * **It must do something.** An item with no action is a label, and a rail has
+///   no room for labels.
+/// * **It must not be a group.** A group's whole meaning is the list it opens,
+///   and there is nowhere on a rail to open one to. Its qualifying CHILDREN come
+///   up in its place instead ([`rail_rows`]), so nothing reachable is lost —
+///   which is the point: the rail is the shortcuts, not the structure.
+///
+/// Deliberately not special-cased by label: "Home" appears because it has an
+/// icon and an action like anything else, not because of what it is called.
+/// A rule that reads names would break the moment the menu is in Portuguese.
+pub fn shows_on_rail(item: &MenuItem) -> bool {
+    let filled = |s: &Option<String>| s.as_deref().map(|v| !v.trim().is_empty()).unwrap_or(false);
+    item.item_type != MenuItemType::Separator
+        && !item.has_children()
+        && filled(&item.icon)
+        && filled(&item.action)
+}
+
+/// Lay out the COLLAPSED rail: every item that [`shows_on_rail`] accepts, at
+/// whatever depth it sits, flattened to one column of icons.
+///
+/// Each row keeps its TRUE path into the item tree, so a child surfaced from
+/// inside a group still resolves through [`item_at`] and still belongs to the
+/// slot its top-level ancestor belongs to — which is how the shell tells a root
+/// menu click from an open form's.
+///
+/// A divider is emitted only BETWEEN two icons. That drops the section titles
+/// that no longer separate anything now the groups are gone, and keeps the one
+/// that still means something: the rule between the application's own menu and
+/// the operations of the form that is open.
+fn rail_rows(items: &[MenuItem], y: &mut f32, rect: Rect, rows: &mut Vec<SidebarRow>) {
+    enum Entry {
+        Icon { id: String, path: Vec<usize> },
+        Divider(String),
+    }
+    fn walk(items: &[MenuItem], prefix: &mut Vec<usize>, out: &mut Vec<Entry>) {
+        for (i, item) in items.iter().enumerate() {
+            prefix.push(i);
+            if item.item_type == MenuItemType::Separator {
+                // The label rides along: the rail draws an ellipsis, but the row
+                // still knows which section it came from.
+                out.push(Entry::Divider(item.section_title().unwrap_or_default().to_owned()));
+            } else if shows_on_rail(item) {
+                out.push(Entry::Icon {
+                    id: item.id.clone(),
+                    path: prefix.clone(),
+                });
+            }
+            // A group contributes nothing itself, but what is INSIDE it can.
+            if item.has_children() {
+                walk(&item.items, prefix, out);
+            }
+            prefix.pop();
+        }
+    }
+    let mut entries = Vec::new();
+    walk(items, &mut Vec::new(), &mut entries);
+
+    // Keep a divider only where an icon precedes it and an icon follows.
+    let mut keep = vec![false; entries.len()];
+    let mut seen_icon = false;
+    for (i, e) in entries.iter().enumerate() {
+        match e {
+            Entry::Icon { .. } => {
+                keep[i] = true;
+                seen_icon = true;
+            }
+            Entry::Divider(_) => {
+                keep[i] = seen_icon
+                    && entries[i + 1..]
+                        .iter()
+                        .any(|later| matches!(later, Entry::Icon { .. }));
+            }
+        }
+    }
+    // …and only ONE where several fell together.
+    let mut last_was_divider = false;
+    for (i, e) in entries.iter().enumerate() {
+        if !keep[i] {
+            continue;
+        }
+        match e {
+            Entry::Divider(label) => {
+                if last_was_divider {
+                    continue;
+                }
+                last_was_divider = true;
+                rows.push(SidebarRow::whole(
+                    RowKind::Section(label.clone()),
+                    Rect::from_min_size(Pos2::new(rect.min.x, *y), Vec2::new(rect.width(), SECTION_H)),
+                ));
+                *y += SECTION_H;
+            }
+            Entry::Icon { id, path } => {
+                last_was_divider = false;
+                rows.push(SidebarRow::whole(
+                    RowKind::Item {
+                        id: id.clone(),
+                        path: path.clone(),
+                        // A rail has one column; indenting an icon by how deep
+                        // it used to sit would only push it off centre.
+                        depth: 0,
+                    },
+                    Rect::from_min_size(Pos2::new(rect.min.x, *y), Vec2::new(rect.width(), ROW_H)),
+                ));
+                *y += ROW_H + ROW_GAP;
+            }
+        }
+    }
+}
+
 /// caller's job, and doing it here is what lost the overflow.
 fn walk_rows(
     items: &[MenuItem],
@@ -848,8 +976,17 @@ fn paint_item(
     }
 
     let content = if active { pal.on_accent } else if enabled { pal.fg } else { pal.dim };
-    let indent = depth as f32 * 16.0;
     let icon = state.icon_size;
+    // Everything in a group lines up under the group's NAME (operator,
+    // 2026-08-17). The label column is therefore the same at every depth, and
+    // the nesting is carried by a small offset of the ICON alone.
+    //
+    // The indent used to be 16 px and moved the label with it, so a child's
+    // name started 16 px right of its parent's and the menu had no left edge to
+    // read down. It is capped at [`NEST_INDENT`] because the icon has to finish
+    // before that shared label column — there is exactly one icon's width of
+    // gutter, and a bigger indent would push the icon into the text.
+    let indent = if depth == 0 { 0.0 } else { NEST_INDENT };
     let icon_c = if state.collapsed {
         rect.center()
     } else {
@@ -893,8 +1030,9 @@ fn paint_item(
         return;
     }
 
-    // Label.
-    let label_x = rect.min.x + PAD_X + indent + icon + 10.0;
+    // Label. NOT indented — see the note above `indent`: a group and everything
+    // inside it share one left edge, which is the group's own name.
+    let label_x = rect.min.x + PAD_X + icon + 10.0;
     let mut right = rect.max.x - PAD_X;
 
     // Chevron for a row that owns children.
@@ -1010,22 +1148,37 @@ mod tests {
         egui::Context::default()
     }
 
+    /// The AdminMart-style menu these tests are laid out from.
+    ///
+    /// The leaf items carry an `action` as well as an icon, because a real one
+    /// does: navigation is dispatched entirely from the action string
+    /// (`home`, `open-form:…`), so an item without one does nothing when it is
+    /// clicked. They were icon-only here until the collapsed rail started
+    /// requiring both, which is a fixture that had drifted from what it stood
+    /// for rather than a rule that was too strict.
     fn sample() -> Vec<MenuItem> {
         let mut home = MenuItem::new_separator("s1");
         home.label = "Home".into();
         let mut modern = MenuItem::new_action("modern", "Modern");
         modern.icon = Some("home".into());
+        modern.action = Some("home".into());
         modern.badge = Some("New".into());
         let mut analytical = MenuItem::new_action("analytical", "Analytical");
         analytical.icon = Some("chart-bar".into());
+        analytical.action = Some("open-form:ANALYTICS".into());
         let mut apps = MenuItem::new_separator("s2");
         apps.label = "Apps".into();
         let mut chat = MenuItem::new_action("chat", "Chat");
         chat.icon = Some("chat".into());
+        chat.action = Some("open-form:CHAT".into());
         chat.badge = Some("6".into());
         chat.badge_style = BadgeStyle::Count;
         let mut level = MenuItem::new_action("level", "Menu Level");
-        level.items.push(MenuItem::new_action("sub", "Salma"));
+        level.icon = Some("grid-view".into());
+        let mut sub = MenuItem::new_action("sub", "Salma");
+        sub.icon = Some("user".into());
+        sub.action = Some("open-form:SALMA".into());
+        level.items.push(sub);
         vec![home, modern, analytical, apps, chat, level]
     }
 
@@ -1261,30 +1414,172 @@ mod tests {
         );
     }
 
-    /// The collapsed rail keeps every item reachable and turns section titles
-    /// into ellipsis dividers.
+    /// The collapsed rail carries what can be reached BY AN ICON, and nothing
+    /// else (operator, 2026-08-17).
+    ///
+    /// It used to carry every top-level item, which put groups on it — a row
+    /// that opens a list with nowhere to open it to — while hiding the very
+    /// items inside them that a shortcut rail exists for.
     #[test]
-    fn collapsed_rail_keeps_items_and_uses_ellipsis_dividers() {
-        let items = sample();
+    fn the_collapsed_rail_carries_only_what_an_icon_can_reach() {
+        let mut items = sample();
+        // An item that does something but has no icon: nothing to draw and
+        // nothing to aim at.
+        let mut unlabelled = MenuItem::new_action("no-icon", "Reports");
+        unlabelled.action = Some("open-form:REPORTS".into());
+        items.push(unlabelled);
+        // An icon that does nothing: a label wearing a picture.
+        let mut inert = MenuItem::new_action("no-action", "Section");
+        inert.icon = Some("folder".into());
+        items.push(inert);
+
         let none: Vec<String> = Vec::new();
         let st = state(&items, true, &none);
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, 700.0));
         let rows = layout(rect, &st);
-        let n_items = rows
+        let shown: Vec<&str> = rows
             .iter()
-            .filter(|r| matches!(r.kind, RowKind::Item { .. }))
-            .count();
-        assert_eq!(n_items, 4, "every top-level item survives the rail");
+            .filter_map(|r| match &r.kind {
+                RowKind::Item { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+
         assert_eq!(
-            rows.iter()
-                .filter(|r| matches!(&r.kind, RowKind::Section(t) if !t.is_empty()))
-                .count(),
-            2,
-            "sections become the rail's group dividers"
+            shown,
+            vec!["modern", "analytical", "chat", "sub"],
+            "the rail is icons with actions — `level` is a group, `no-icon` has \
+             nothing to draw, `no-action` does nothing, and `sub` comes up out of \
+             the group that no longer appears"
         );
+
+        // A surfaced child keeps its TRUE path, or the shell could not tell which
+        // menu slot the click belongs to, nor find the item again.
+        let sub_path = rows.iter().find_map(|r| match &r.kind {
+            RowKind::Item { id, path, depth } if id == "sub" => Some((path.clone(), *depth)),
+            _ => None,
+        });
+        let (path, depth) = sub_path.expect("the child is on the rail");
+        assert_eq!(path, vec![5, 0], "the path still walks the real tree");
+        assert_eq!(item_at(&items, &path).map(|i| i.label.as_str()), Some("Salma"));
+        assert_eq!(depth, 0, "a one-column rail does not indent");
+
+        // Dividers survive only between two icons: "Home" led the list with
+        // nothing above it, "Apps" sits between two icons and stays.
+        let dividers: Vec<&str> = rows
+            .iter()
+            .filter_map(|r| match &r.kind {
+                RowKind::Section(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(dividers, vec!["Apps"], "a divider needs an icon on both sides");
+
         for r in &rows {
             assert!(rect.contains_rect(r.rect), "{:?} escaped the rail", r.kind);
         }
+
+        println!(
+            "\n  Collapsed rail — 6 top-level entries + 2 edge cases reduce to 4 icons \
+             (modern, analytical, chat, and `sub` surfaced from the group above it); the \
+             group, the icon-less action and the action-less icon are all dropped; the \
+             surfaced child keeps path [5,0] so its slot and its item still resolve; 1 of \
+             2 section dividers survives\n"
+        );
+    }
+
+    /// A group and everything inside it share ONE left edge — the group's own
+    /// name (operator, 2026-08-17).
+    ///
+    /// The indent used to move the label as well as the icon, so a child's name
+    /// began 16 px right of its parent's and the expanded menu had no left edge
+    /// to read down. Nesting now shows in the icon alone.
+    #[test]
+    fn a_groups_children_line_up_under_its_name() {
+        let items = sample();
+        let expanded = vec!["level".to_string()];
+        let st = state(&items, false, &expanded);
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(260.0, 700.0));
+        let rows = layout(rect, &st);
+
+        // Paint for real and read back where each label landed.
+        let ctx = ctx();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui.painter(), rect, &rows, &st);
+        });
+        out.textures_delta.clear();
+        let mut label_x: Vec<(String, f32)> = Vec::new();
+        for cs in &out.shapes {
+            if let egui::Shape::Text(t) = &cs.shape {
+                let text = t.galley.text().to_owned();
+                if !text.trim().is_empty() {
+                    label_x.push((text, t.pos.x));
+                }
+            }
+        }
+        let x_of = |needle: &str| -> f32 {
+            label_x
+                .iter()
+                .find(|(t, _)| t == needle)
+                .unwrap_or_else(|| panic!("'{needle}' was not painted: {label_x:?}"))
+                .1
+        };
+
+        let group = x_of("Menu Level");
+        let child = x_of("Salma");
+        assert!(
+            (group - child).abs() < 0.01,
+            "a child's name must start where its group's name does: group {group}, \
+             child {child}"
+        );
+        // …and it is the same edge every top-level row uses.
+        assert!((x_of("Modern") - group).abs() < 0.01);
+        assert!((x_of("Chat") - group).abs() < 0.01);
+
+        println!(
+            "\n  Sidebar alignment — 'Menu Level', its child 'Salma', 'Modern' and 'Chat' \
+             all start at x={group:.1}: one left edge down the whole menu, with nesting \
+             carried by a {NEST_INDENT:.0}px icon offset instead of a moved label\n"
+        );
+    }
+
+    /// The rule itself, item by item.
+    #[test]
+    fn shows_on_rail_wants_an_icon_an_action_and_no_children() {
+        let mut good = MenuItem::new_action("a", "Good");
+        good.icon = Some("home".into());
+        good.action = Some("home".into());
+        assert!(shows_on_rail(&good));
+
+        let mut no_icon = good.clone();
+        no_icon.icon = None;
+        assert!(!shows_on_rail(&no_icon), "nothing to draw");
+        let mut blank_icon = good.clone();
+        blank_icon.icon = Some("   ".into());
+        assert!(!shows_on_rail(&blank_icon), "whitespace is not an icon");
+
+        let mut no_action = good.clone();
+        no_action.action = None;
+        assert!(!shows_on_rail(&no_action), "nothing to do");
+        let mut blank_action = good.clone();
+        blank_action.action = Some(String::new());
+        assert!(!shows_on_rail(&blank_action));
+
+        let mut group = good.clone();
+        group.items.push(MenuItem::new_action("kid", "Kid"));
+        assert!(!shows_on_rail(&group), "a group opens a list; a rail has no room");
+
+        let mut separator = MenuItem::new_separator("s");
+        separator.icon = Some("home".into());
+        separator.action = Some("home".into());
+        assert!(!shows_on_rail(&separator), "a separator is not an element");
+
+        println!(
+            "\n  Rail rule — an item needs an icon AND an action AND no children; a \
+             missing or blank icon, a missing or blank action, a group and a separator \
+             are each refused\n"
+        );
     }
 
     /// A menu taller than its pane SCROLLS — it does not silently lose its
