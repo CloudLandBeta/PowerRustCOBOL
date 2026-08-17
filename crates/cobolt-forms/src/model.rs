@@ -2325,6 +2325,127 @@ impl ControlType {
         }
     }
 
+    /// The events that must fire when `property` CHANGES, whoever changed it.
+    ///
+    /// A form's events divide in two (operator, 2026-08-17):
+    ///
+    /// * **Observer** events report that something *is now different* —
+    ///   `onChange`, `onValueChanged`, `onTextChanged`, `onVisibleChanged`. They
+    ///   are about the value, not about who touched it, so a Timer handler doing
+    ///   `MOVE 5 TO KNOB-1::Value` must fire them exactly as a drag does.
+    /// * **Passive** events report a user's ACT — `onClick`, `onMouseDown`,
+    ///   `onGotFocus`, `onDblClick`. There is no act to report when COBOL writes
+    ///   a property, so they must NOT fire. This function never returns one.
+    ///
+    /// Only the observer half lives here. The interaction paths in
+    /// `render::render_form` fire both halves for real input; this is what the
+    /// running host consults when the INTERPRETER writes a property, which fired
+    /// nothing at all before — the reported bug being a Timer raising a Knob's
+    /// `Value` with the Knob's `onValueChanged` never running.
+    ///
+    /// The result is filtered against [`Self::supported_events`], so a control
+    /// can never be handed an event it does not declare.
+    pub fn observer_events_for(&self, property: &str) -> Vec<&'static str> {
+        let p = property.trim();
+        let eq = |name: &str| p.eq_ignore_ascii_case(name);
+
+        // Shared by every control that has them: visibility and availability are
+        // observable on anything.
+        let mut names: Vec<&'static str> = if eq("Visible") {
+            vec!["onVisibleChanged"]
+        } else if eq("Enabled") {
+            vec!["onEnabledChanged"]
+        } else {
+            match self {
+                // Numeric value controls. `onChange` is the historical name and
+                // `onValueChanged` the explicit one; both are declared, so both
+                // fire — a form may have bound either.
+                ControlType::Knob
+                | ControlType::Slider
+                | ControlType::NumericUpDown
+                | ControlType::ProgressBar
+                | ControlType::Gauge
+                | ControlType::DateTimePicker => {
+                    if eq("Value") {
+                        vec!["onChange", "onValueChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                // Text.
+                ControlType::TextBox => {
+                    if eq("Text") {
+                        vec!["onChange", "onTextChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                // Checked things.
+                ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch => {
+                    if eq("Checked") {
+                        vec!["onChange", "onCheckedChanged", "onValueChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                // Lists: the selection, and the list itself.
+                ControlType::ComboBox | ControlType::ListBox => {
+                    if eq("SelectedIndex") {
+                        vec!["onChange", "onSelectedIndexChanged"]
+                    } else if eq("Text") {
+                        vec!["onChange", "onTextChanged"]
+                    } else if eq("Items") {
+                        vec!["onDataChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                // Data surfaces.
+                ControlType::DataGrid => {
+                    if eq("Rows") || eq("Columns") || eq("DataSource") {
+                        vec!["onDataChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                ControlType::TreeView => {
+                    if eq("Items") {
+                        vec!["onDataChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                ControlType::BarChart
+                | ControlType::LineChart
+                | ControlType::PieChart
+                | ControlType::AreaChart
+                | ControlType::ScatterChart
+                | ControlType::DonutChart => {
+                    if eq("Data") || eq("Series") || eq("DataSource") {
+                        vec!["onDataChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                // Captions and labels.
+                ControlType::Label | ControlType::Button | ControlType::GroupBox => {
+                    if eq("Caption") {
+                        vec!["onTextChanged"]
+                    } else {
+                        vec![]
+                    }
+                }
+                _ => vec![],
+            }
+        };
+
+        // A control only ever hears an event it declares.
+        let declared = self.supported_events();
+        names.retain(|n| declared.iter().any(|d| d.eq_ignore_ascii_case(n)));
+        names.dedup();
+        names
+    }
+
     pub fn supported_events(&self) -> &'static [&'static str] {
         match self {
             ControlType::Button => &[
@@ -7716,6 +7837,177 @@ mod tests {
         assert_eq!(ControlType::Gauge.default_size(), (140, 90));
         assert_eq!(ControlType::Switch.default_size(), (52, 28));
         assert_eq!(ControlType::FileDropZone.default_size(), (220, 100));
+    }
+
+    #[test]
+    /// The reported bug, and the audit of every other control for the same
+    /// thing: an OBSERVER event must fire when its property changes, whoever
+    /// changed it — and a PASSIVE event must never fire from a property write.
+    #[test]
+    fn observer_events_fire_for_a_written_property_and_passive_ones_never_do() {
+        // The bug as reported: a Timer raising a Knob's Value.
+        let knob = ControlType::Knob.observer_events_for("Value");
+        assert!(
+            knob.contains(&"onValueChanged"),
+            "a Knob's Value must be observable — this is the reported bug: {knob:?}"
+        );
+        assert!(knob.contains(&"onChange"), "…and its historical name too");
+
+        // Every value-bearing control, audited. A control that DECLARES a value
+        // event must fire it on a write; one that declares none has nothing to
+        // fire, and that is a finding in its own right — recorded here rather
+        // than papered over.
+        let mut silent: Vec<String> = Vec::new();
+        for ct in [
+            ControlType::Slider,
+            ControlType::NumericUpDown,
+            ControlType::ProgressBar,
+            ControlType::Gauge,
+            ControlType::DateTimePicker,
+        ] {
+            let declares = ct
+                .supported_events()
+                .iter()
+                .any(|e| *e == "onValueChanged" || *e == "onChange");
+            let got = ct.observer_events_for("Value");
+            if declares {
+                assert!(
+                    !got.is_empty(),
+                    "{ct:?} declares a value event but a Value write does not fire it"
+                );
+            } else {
+                assert!(
+                    got.is_empty(),
+                    "{ct:?} declares no value event, so nothing may be fired: {got:?}"
+                );
+                silent.push(ct.as_str().to_owned());
+            }
+        }
+        // The Gauge is the one that matters: it is READ-ONLY to the user, so a
+        // Timer or a handler is the ONLY thing that ever moves it — and it has no
+        // value event to announce that with. Giving it one adds a capability to
+        // the control, which is the operator's call, not a bug fix's.
+        assert_eq!(
+            silent,
+            vec!["Gauge"],
+            "the set of value controls with no value event changed"
+        );
+        // The rest of the state-bearing controls, by the same rule: declared ⇒
+        // must fire, not declared ⇒ recorded as a gap rather than asserted away.
+        let mut gaps: Vec<String> = Vec::new();
+        for (ct, prop, candidates) in [
+            (ControlType::TextBox, "Text", &["onChange", "onTextChanged"][..]),
+            (ControlType::CheckBox, "Checked", &["onChange", "onCheckedChanged"][..]),
+            (ControlType::RadioButton, "Checked", &["onChange", "onCheckedChanged"][..]),
+            (ControlType::Switch, "Checked", &["onChange", "onCheckedChanged"][..]),
+            (ControlType::ComboBox, "SelectedIndex", &["onChange", "onSelectedIndexChanged"][..]),
+            (ControlType::ListBox, "SelectedIndex", &["onChange", "onSelectedIndexChanged"][..]),
+            (ControlType::DataGrid, "Rows", &["onDataChanged"][..]),
+            (ControlType::TreeView, "Items", &["onDataChanged"][..]),
+        ] {
+            let declares = ct
+                .supported_events()
+                .iter()
+                .any(|e| candidates.iter().any(|c| e.eq_ignore_ascii_case(c)));
+            let got = ct.observer_events_for(prop);
+            if declares {
+                assert!(
+                    !got.is_empty(),
+                    "{ct:?} declares one of {candidates:?} but a {prop} write fires nothing"
+                );
+            } else {
+                assert!(got.is_empty(), "{ct:?} may not fire what it does not declare");
+                gaps.push(format!("{}.{prop}", ct.as_str()));
+            }
+        }
+
+        // Visible/Enabled are observable on anything that declares them.
+        let mut vis = 0usize;
+        for ct in ControlType::ALL {
+            if ct.supported_events().contains(&"onVisibleChanged") {
+                assert!(
+                    ct.observer_events_for("Visible")
+                        .contains(&"onVisibleChanged"),
+                    "{ct:?} declares onVisibleChanged but a Visible write does not fire it"
+                );
+                vis += 1;
+            }
+        }
+        assert!(vis > 10, "expected most controls to observe Visible, got {vis}");
+
+        // ── The other half of the rule ───────────────────────────────────
+        // A property write is not a user act, so no passive event may EVER come
+        // out of this — on any control, for any property.
+        const PASSIVE: &[&str] = &[
+            "onClick",
+            "onDblClick",
+            "onDoubleClick",
+            "onRightClick",
+            "onMiddleClick",
+            "onMouseDown",
+            "onMouseUp",
+            "onMouseMove",
+            "onMouseEnter",
+            "onMouseLeave",
+            "onMouseWheel",
+            "onContextMenu",
+            "onGotFocus",
+            "onLostFocus",
+            "onKeyPress",
+            "onEnterPressed",
+            "onEscapePressed",
+            "onHoverEnter",
+            "onHoverLeave",
+            "onLoad",
+            "onDestroy",
+            "onFilesDropped",
+            "onFilesRejected",
+        ];
+        let probed = [
+            "Value", "Text", "Checked", "Visible", "Enabled", "Caption", "Items",
+            "SelectedIndex", "Rows", "Columns", "Data", "Width", "Height", "X", "Y",
+            "BackgroundColor", "FontSize", "Interval",
+        ];
+        let mut checks = 0usize;
+        for ct in ControlType::ALL {
+            for prop in probed {
+                for got in ct.observer_events_for(prop) {
+                    assert!(
+                        !PASSIVE.contains(&got),
+                        "{ct:?} would fire the PASSIVE event {got} for a write to \
+                         {prop} — a property write is not a user action"
+                    );
+                    // And it must be an event the control actually declares.
+                    assert!(
+                        ct.supported_events().iter().any(|d| d.eq_ignore_ascii_case(got)),
+                        "{ct:?} would fire {got}, which it does not declare"
+                    );
+                    checks += 1;
+                }
+            }
+        }
+
+        // Geometry and styling are not observable: nothing declares an event for
+        // them, so a resize from COBOL must stay silent here.
+        for prop in ["Width", "BackgroundColor", "FontSize"] {
+            assert!(
+                ControlType::Knob.observer_events_for(prop).is_empty(),
+                "{prop} is not an observable value"
+            );
+        }
+        // An unknown property is silent, not a panic.
+        assert!(ControlType::Knob.observer_events_for("NoSuchProp").is_empty());
+        assert!(ControlType::Knob.observer_events_for("").is_empty());
+
+        println!(
+            "\n  Observer/passive audit — {checks} (control, property) ⇒ event pairs across \
+             {} control types: every one is an observer the control declares, none is \
+             passive. Knob Value ⇒ {knob:?}; {vis} controls observe Visible; geometry and \
+             colour observe nothing.\n  FINDINGS — no event declared to announce a \
+             change, so a write to these can tell the form nothing: value controls \
+             {silent:?}, others {gaps:?}\n",
+            ControlType::ALL.len()
+        );
     }
 
     #[test]
