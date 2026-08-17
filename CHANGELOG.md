@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.77] — 2026-08-17
+
+### Fixed — a Timer stopped firing, silently
+
+Reported: *"timer events are dying after some dozens of times. It stops silently,
+no warnings, just stops."* Two independent causes, both of which lose ticks with
+nothing to report — a dropped tick has no error to raise.
+
+**The tick schedule was re-based on the frame, not on the interval.** After firing,
+the Timer stored the time of the frame that happened to carry the tick. A frame
+arriving a whisker *before* the deadline therefore cost a whole interval — and a
+frame arriving marginally early is routine, because a repaint request is a hint
+with millisecond granularity and the arithmetic is binary floating point. Measured
+on a 100 ms Timer driven over 300 intervals: **182 ticks**. The schedule now
+advances by exactly one interval, and a deadline is treated as met within 1 ms; a
+form that was genuinely stalled (parked off-pane, its window dragged, a long
+handler) resyncs instead of firing a burst of catch-up ticks, which is the
+semantics a PowerCOBOL or isCOBOL developer already expects. Same run now: **299
+of 299**.
+
+**The tick coalescing starved the Timer.** A due tick was dropped whenever *any*
+event was outstanding. Harmless until observer events arrived in 1.61.75 — a Timer
+handler that raises a Gauge or sets a Label now queues one or two `onChange`
+events per tick, so something was nearly always outstanding and the following tick
+went in the bin. Coalescing now waits until the interpreter is genuinely behind
+(8 events), which still guarantees what it was for: a handler slower than its
+interval is never handed a growing queue of ticks. A user event — a click, an
+edit, focus — is never coalesced, as before.
+
+Also: the backlog counter was decremented with a load-then-store, which could lose
+the GUI thread's increment landing between the two and leave the host's view of the
+backlog wrong for the rest of the run. It is an atomic saturating decrement now.
+
+The last duplicated `RenderOutput` consumer went the way of the other two: property
+updates and event forwarding are one shared method, so the root form's path and a
+child window's cannot disagree about when a tick is dropped.
+
 ## [PowerRustCOBOL 1.61.76] — 2026-08-17
 
 ### Fixed — a nested ToolBar's buttons were unknown to the COBOL editor

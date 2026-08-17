@@ -5215,11 +5215,18 @@ impl Interpreter {
                         WaitOutcome::Ui(ev) => {
                             // One event left the queue — let the host coalesce
                             // timer ticks against the now-shallower backlog.
+                            //
+                            // A saturating decrement, done ATOMICALLY. The
+                            // load-then-store it replaces could lose the GUI
+                            // thread's `fetch_add` landing between the two, which
+                            // made the host's view of the backlog drift away from
+                            // the truth for the rest of the run.
                             if let Some(c) = &self.event_pending {
-                                let prev = c.load(std::sync::atomic::Ordering::Relaxed);
-                                if prev > 0 {
-                                    c.store(prev - 1, std::sync::atomic::Ordering::Relaxed);
-                                }
+                                let _ = c.fetch_update(
+                                    std::sync::atomic::Ordering::Relaxed,
+                                    std::sync::atomic::Ordering::Relaxed,
+                                    |v| if v > 0 { Some(v - 1) } else { None },
+                                );
                             }
                             // Fold any UI-driven value changes (the slider drag /
                             // text edit that produced this event, etc.) into the

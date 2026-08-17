@@ -2287,6 +2287,13 @@ In words:
 >   fires `onResponse` when `Ask` returns a reply. These dispatch on the next
 >   `COBOL-WAIT-EVENT` return.
 > - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+>   A Timer keeps a **steady cadence**: each tick schedules the next one interval
+>   on, so the rate does not drift with however the frames happen to land. It also
+>   never **repays** missed time — if your handler takes longer than the interval,
+>   or the form was stalled, you get one tick when it comes back, not a burst of
+>   the ones you missed. A handler that has fallen badly behind (eight events
+>   queued) has its ticks coalesced until it catches up; a click, an edit or a
+>   focus change is never coalesced.
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).

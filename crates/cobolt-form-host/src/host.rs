@@ -605,6 +605,85 @@ impl FormBody {
         state_entry_mut(&mut self.state, &self.controls, key)
     }
 
+    /// How far the interpreter may fall behind before a due Timer tick is dropped.
+    ///
+    /// Coalescing exists so a handler slower than its interval cannot be handed an
+    /// ever-growing queue of ticks (WinForms semantics: a Timer never repays missed
+    /// time). It used to drop a tick whenever ANY event was outstanding, which
+    /// became a starvation bug the moment observer events arrived (1.61.75): a
+    /// Timer handler that writes a Gauge or a Label queues one or two `onChange`
+    /// events per tick, so there was almost always something outstanding and the
+    /// next tick was dropped — a Timer that quietly stops after a while, which is
+    /// exactly what was reported.
+    ///
+    /// A handler that is keeping up never has this many events outstanding; one
+    /// that does is genuinely behind and should not be given more ticks. If this
+    /// ever needs to be sharper, the right rule is to count outstanding TICKS
+    /// rather than events — that needs the interpreter to report what kind of event
+    /// it consumed, which this does not.
+    pub(crate) const TICK_COALESCE_BACKLOG: usize = 8;
+
+    /// Forward one frame's property updates and UI events to the interpreter,
+    /// coalescing Timer ticks against the backlog. Returns whether anything was
+    /// sent.
+    ///
+    /// Shared by the root and child paths for the reason
+    /// [`Self::apply_interpreter_update`] gives: two consumers of one
+    /// `RenderOutput` drift, and two of them already had.
+    pub(crate) fn forward_interaction(
+        &mut self,
+        prop_updates: &[(String, String, String)],
+        events: Vec<cobolt_forms::render::UiEvent>,
+    ) -> bool {
+        let mut sent = false;
+        // Live values first, so a handler woken by the event that follows reads the
+        // value that caused it.
+        for (id, key, val) in prop_updates {
+            self.state_entry_mut(id).set(key, val.clone());
+            let _ = self
+                .input_tx
+                .send(StateUpdate::new(id.clone(), key.clone(), val.clone()));
+            sent = true;
+        }
+        let backlog = self.pending.load(Ordering::Relaxed) >= Self::TICK_COALESCE_BACKLOG;
+        for ev in events {
+            // User events (clicks, edits, focus, quit) are never dropped.
+            if ev.event.eq_ignore_ascii_case("onTick") && backlog {
+                continue;
+            }
+            // Instanced repeating-group members are drawn with the id
+            // "group.group-N.member" — dispatch to the designed (base) member id,
+            // forwarding the 1-based instance index so the handler receives
+            // CONTROL-ARRAY-INDEX.
+            let (dispatch_id, inst) = if ev.ctrl_id.contains('.') {
+                let base = ev
+                    .ctrl_id
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&ev.ctrl_id)
+                    .to_string();
+                let inst = {
+                    let parts: Vec<&str> = ev.ctrl_id.split('.').collect();
+                    if parts.len() >= 2 {
+                        parts[1]
+                            .rsplit('-')
+                            .next()
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    }
+                };
+                (base, inst)
+            } else {
+                (ev.ctrl_id.clone(), 0)
+            };
+            self.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
+            sent = true;
+        }
+        sent
+    }
+
     /// Everything one frame's interaction asks of the PLATFORM rather than of the
     /// form's COBOL: a FileDropZone's native file picker, and a toolbar button's
     /// platform action (print, share, capture, the clipboard, another process).
@@ -1173,43 +1252,9 @@ impl FormBody {
             }
 
             // Live values to the interpreter, then the events — with the
-            // root's timer-tick backlog coalescing.
-            for (id, key, val) in &output.prop_updates {
-                self.state_entry_mut(id).set(key, val.clone());
-                let _ = self
-                    .input_tx
-                    .send(StateUpdate::new(id.clone(), key.clone(), val.clone()));
-            }
-            let backlog = self.pending.load(Ordering::Relaxed) > 0;
-            for ev in output.events {
-                let is_tick = ev.event.eq_ignore_ascii_case("onTick");
-                if is_tick && backlog {
-                    continue;
-                }
-                let (dispatch_id, inst) = if ev.ctrl_id.contains('.') {
-                    let base = ev
-                        .ctrl_id
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(&ev.ctrl_id)
-                        .to_string();
-                    let inst = {
-                        let parts: Vec<&str> = ev.ctrl_id.split('.').collect();
-                        if parts.len() >= 2 {
-                            parts[1]
-                                .rsplit('-')
-                                .next()
-                                .and_then(|s| s.parse::<usize>().ok())
-                                .unwrap_or(0)
-                        } else {
-                            0
-                        }
-                    };
-                    (base, inst)
-                } else {
-                    (ev.ctrl_id.clone(), 0)
-                };
-                self.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
+            // timer-tick backlog coalescing. Shared with the root's path.
+            if self.forward_interaction(&output.prop_updates, output.events) {
+                platform_acted = true;
             }
 
             // A FileDropZone's native picker and a toolbar button's platform
@@ -2687,51 +2732,12 @@ impl FormHost {
         // handlers read the live value), and forward UI events — once armed.
         let mut interacted = false;
         if armed {
-            for (id, key, val) in &output.prop_updates {
-                self.root.state_entry_mut(id).set(key, val.clone());
-                let _ = self
-                    .root
-                    .input_tx
-                    .send(StateUpdate::new(id.clone(), key.clone(), val.clone()));
-                interacted = true;
-            }
-            // Coalesce timer ticks against a still-queued backlog (WinForms
-            // semantics) so a slow handler can't flood the event queue. User
-            // events (clicks, edits, focus, quit) are never dropped.
-            let backlog = self.root.pending.load(Ordering::Relaxed) > 0;
-            for ev in output.events {
-                let is_tick = ev.event.eq_ignore_ascii_case("onTick");
-                if is_tick && backlog {
-                    continue;
-                }
-                // Instanced repeating-group members are drawn with the id
-                // "group.group-N.member" — dispatch to the designed (base)
-                // member id, forwarding the 1-based instance index so the
-                // handler receives CONTROL-ARRAY-INDEX.
-                let (dispatch_id, inst) = if ev.ctrl_id.contains('.') {
-                    let base = ev
-                        .ctrl_id
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(&ev.ctrl_id)
-                        .to_string();
-                    let inst = {
-                        let parts: Vec<&str> = ev.ctrl_id.split('.').collect();
-                        if parts.len() >= 2 {
-                            parts[1]
-                                .rsplit('-')
-                                .next()
-                                .and_then(|s| s.parse::<usize>().ok())
-                                .unwrap_or(0)
-                        } else {
-                            0
-                        }
-                    };
-                    (base, inst)
-                } else {
-                    (ev.ctrl_id.clone(), 0)
-                };
-                self.root.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
+            // Live values, then the events with Timer-tick coalescing — shared
+            // with the child-window path.
+            if self
+                .root
+                .forward_interaction(&output.prop_updates, output.events)
+            {
                 interacted = true;
             }
 
@@ -3597,6 +3603,131 @@ mod parity {
              before: 1.61.71 reached only the child-window path); re-writing 5 fires \
              nothing; writing 7 fires the observers and never onClick"
         );
+    }
+
+    /// A Timer whose handler writes a property must keep ticking.
+    ///
+    /// Reported 2026-08-17: "timer events are dying after some dozens of times. It
+    /// stops silently, no warnings, just stops."
+    ///
+    /// Tick coalescing dropped a due tick whenever ANY event was outstanding. That
+    /// was harmless until observer events arrived (1.61.75): a Timer handler that
+    /// raises a Gauge or sets a Label queues one or two `onChange`/`onValueChanged`
+    /// events per tick, so there was nearly always something outstanding, and the
+    /// next tick went in the bin. Silently — a dropped tick has nothing to report.
+    ///
+    /// The guard now waits until the interpreter is genuinely behind.
+    #[test]
+    fn a_timer_is_not_starved_by_the_events_its_own_handler_causes() {
+        let body_pending = Arc::new(AtomicUsize::new(0));
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+
+        // A tick, and the two observer events a handler writing one value causes.
+        let tick = || cobolt_forms::render::UiEvent {
+            ctrl_id: "TMR-1".to_owned(),
+            event: "onTick".to_owned(),
+            value: None,
+        };
+        let drain = |rx: &mpsc::Receiver<FormEvent>| -> Vec<String> {
+            rx.try_iter().map(|e| e.event_id).collect()
+        };
+
+        let mut body = timer_body(ev_tx, input_tx, Arc::clone(&body_pending));
+
+        // One or two events outstanding is a handler keeping up, not a backlog:
+        // the tick must go through.
+        for outstanding in [0usize, 1, 2, FormBody::TICK_COALESCE_BACKLOG - 1] {
+            body_pending.store(outstanding, Ordering::Relaxed);
+            let _ = drain(&ev_rx);
+            body.forward_interaction(&[], vec![tick()]);
+            assert_eq!(
+                drain(&ev_rx),
+                vec!["onTick".to_owned()],
+                "with {outstanding} event(s) outstanding the tick must still be sent"
+            );
+        }
+
+        // Genuinely behind: the tick is coalesced away, which is the rule's point.
+        body_pending.store(FormBody::TICK_COALESCE_BACKLOG, Ordering::Relaxed);
+        let _ = drain(&ev_rx);
+        body.forward_interaction(&[], vec![tick()]);
+        assert!(
+            drain(&ev_rx).is_empty(),
+            "a handler {} events behind must not be given more ticks",
+            FormBody::TICK_COALESCE_BACKLOG
+        );
+
+        // …and a USER event is never dropped, however far behind the handler is.
+        body_pending.store(FormBody::TICK_COALESCE_BACKLOG * 10, Ordering::Relaxed);
+        let _ = drain(&ev_rx);
+        body.forward_interaction(
+            &[],
+            vec![cobolt_forms::render::UiEvent {
+                ctrl_id: "BTN-1".to_owned(),
+                event: "onClick".to_owned(),
+                value: None,
+            }],
+        );
+        assert_eq!(
+            drain(&ev_rx),
+            vec!["onClick".to_owned()],
+            "a click is never coalesced — only ticks are"
+        );
+
+        println!(
+            "timer starvation — a tick survives 0, 1, 2 and {} outstanding events (a \
+             handler that writes one value queues two of them, which is why ANY \
+             outstanding event used to kill the timer); it is coalesced only once the \
+             interpreter is {} events behind, and a click is never coalesced at all",
+            FormBody::TICK_COALESCE_BACKLOG - 1,
+            FormBody::TICK_COALESCE_BACKLOG
+        );
+    }
+
+    /// A body with one Timer, wired to test channels.
+    fn timer_body(
+        ev_tx: mpsc::Sender<FormEvent>,
+        input_tx: mpsc::Sender<StateUpdate>,
+        pending: Arc<AtomicUsize>,
+    ) -> FormBody {
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let timer = cobolt_forms::Control::new("TMR-1", cobolt_forms::ControlType::Timer, 0, 0);
+        FormBody {
+            form_name: "TIMER-FORM".to_owned(),
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            glass_style: cobolt_forms::model::GlassStyle::default(),
+            controls: vec![timer],
+            state: HashMap::new(),
+            bg_hex: String::new(),
+            bg_gradient_enabled: false,
+            bg_gradient_start: String::new(),
+            bg_gradient_end: String::new(),
+            bg_gradient_direction: String::new(),
+            transparency: 0,
+            bg_image: String::new(),
+            bg_mode: cobolt_forms::model::BgImageMode::default(),
+            use_theme_background: false,
+            form_size: egui::vec2(320.0, 200.0),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending,
+            finished: Arc::new(AtomicBool::new(false)),
+            start: Instant::now(),
+            lifecycle_sent: true,
+            db_dumped: false,
+            form_object: "TIMER-FORM".to_owned(),
+            anim: cobolt_forms::anim::AnimRuntime::default(),
+            anim_started: true,
+            last_frame: None,
+            hovered: std::collections::HashSet::new(),
+            parked_timer_clocks: HashMap::new(),
+            toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+        }
     }
 
     // ── Group 3: effects gating (R5–R10) ─────────────────────────────────────
