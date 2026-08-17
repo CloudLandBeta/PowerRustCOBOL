@@ -912,6 +912,53 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "bunker",
         ],
     ),
+    (
+        "Selection",
+        &[
+            "select-item",
+            "select-all",
+            "select-invert",
+            "select-none",
+            "lasso",
+            "move",
+            "arrows",
+        ],
+    ),
+    (
+        "Design",
+        &[
+            "paint-bucket",
+            "fill",
+            "color-palette",
+            "object",
+            "equation",
+            "rotate-left",
+            "rotate-right",
+            "flip-horizontal",
+            "flip-vertical",
+            "fit-to-window",
+            "thumbnails",
+        ],
+    ),
+    (
+        "Application",
+        &[
+            "window",
+            "form",
+            "application",
+            "bundle",
+            "component",
+            "find-replace",
+            "spelling",
+            "speech",
+            "volume-up",
+            "volume-down",
+            "sleep",
+            "quit",
+            "globe",
+            "local",
+        ],
+    ),
 ];
 
 /// Every icon name, in catalogue order.
@@ -1098,6 +1145,7 @@ pub(crate) fn icon_shapes(name: &str) -> Option<Vec<IconShape>> {
         .or_else(|| departments_transactions_shapes(name))
         .or_else(|| vehicles_military_shapes(name))
         .or_else(|| devices_cloud_shapes(name))
+        .or_else(|| forms_tools_shapes(name))
 }
 
 /// Document, Edit, Navigation, Action.
@@ -6435,6 +6483,291 @@ fn vehicles_military_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(2.5, 17.0), (21.5, 17.0)]),
             rr(8.5, 12.5, 7.0, 2.2, 0.5),
             d(12.0, 9.8, 0.8),
+        ],
+
+        _ => return None,
+    })
+}
+
+/// Selection, Design, Application — the verbs and objects a form editor needs
+/// (operator, 2026-08-17). Chunk 12.
+///
+/// Nothing here is new machinery: same 24-unit grid, same single stroke, fills
+/// only where a small shape reads better solid than outlined.
+#[rustfmt::skip]
+fn forms_tools_shapes(name: &str) -> Option<Vec<IconShape>> {
+    Some(match name {
+        // ── Selection ──────────────────────────────────────────────────────
+        // One marquee motif runs through the four `select-*` icons, so they
+        // read as a family and differ only in what is selected.
+        "select-item" => vec![
+            rr(4.5, 4.5, 15.0, 15.0, 1.2),
+            d(4.5, 4.5, 1.1), d(19.5, 4.5, 1.1),
+            d(4.5, 19.5, 1.1), d(19.5, 19.5, 1.1),
+        ],
+        "select-all" => vec![
+            rr(3.0, 3.0, 18.0, 18.0, 1.2),
+            rr(6.5, 6.5, 4.5, 4.5, 0.6),
+            rr(13.0, 6.5, 4.5, 4.5, 0.6),
+            rr(6.5, 13.0, 4.5, 4.5, 0.6),
+            rr(13.0, 13.0, 4.5, 4.5, 0.6),
+        ],
+        // Half in, half out: the diagonal wedge IS the inversion.
+        "select-invert" => vec![
+            rr(3.5, 3.5, 17.0, 17.0, 1.2),
+            pf(&[(3.5, 20.5), (20.5, 3.5), (20.5, 20.5)]),
+            p(&[(3.5, 20.5), (20.5, 3.5)]),
+        ],
+        // Nothing in the marquee — a cross, not a slash, so it cannot be read
+        // as the diagonal that means "invert".
+        "select-none" => vec![
+            rr(4.5, 4.5, 15.0, 15.0, 1.2),
+            p(&[(9.0, 9.0), (15.0, 15.0)]),
+            p(&[(15.0, 9.0), (9.0, 15.0)]),
+        ],
+        // A drawn loop that has not quite closed, with its drawstring.
+        "lasso" => vec![
+            pathc(vec![
+                L(12.0, 4.0),
+                B(18.5, 4.0, 21.0, 8.0, 21.0, 10.5),
+                B(21.0, 14.0, 17.0, 16.5, 12.0, 16.5),
+                B(7.0, 16.5, 3.0, 14.0, 3.0, 10.5),
+                B(3.0, 8.0, 5.5, 4.0, 12.0, 4.0),
+            ]),
+            path(vec![L(8.0, 15.8), Q(7.0, 19.0, 9.0, 20.5)]),
+            d(9.6, 21.0, 1.2),
+        ],
+        // The classic four-way cursor.
+        "move" => vec![
+            p(&[(12.0, 3.0), (12.0, 21.0)]),
+            p(&[(3.0, 12.0), (21.0, 12.0)]),
+            pf(&[(12.0, 2.0), (9.6, 5.4), (14.4, 5.4)]),
+            pf(&[(12.0, 22.0), (9.6, 18.6), (14.4, 18.6)]),
+            pf(&[(2.0, 12.0), (5.4, 9.6), (5.4, 14.4)]),
+            pf(&[(22.0, 12.0), (18.6, 9.6), (18.6, 14.4)]),
+        ],
+        // A PAIR of arrows — the shape collection, not the move cursor.
+        "arrows" => vec![
+            p(&[(4.5, 14.5), (14.5, 4.5)]),
+            pf(&[(16.5, 2.5), (10.8, 4.0), (15.0, 8.2)]),
+            p(&[(9.5, 19.5), (19.5, 9.5)]),
+            pf(&[(7.5, 21.5), (13.2, 20.0), (9.0, 15.8)]),
+        ],
+
+        // ── Design ─────────────────────────────────────────────────────────
+        // An upright pail with a swing handle, and one drop leaving it. The
+        // first attempt was a tilted pouring bucket and read as a tent.
+        "paint-bucket" => vec![
+            pathc(vec![
+                L(5.5, 8.5), L(17.5, 8.5), L(16.0, 20.0), L(7.0, 20.0),
+            ]),
+            path(vec![L(5.5, 8.5), Q(11.5, 2.5, 17.5, 8.5)]),
+            p(&[(6.2, 13.0), (16.8, 13.0)]),
+            pathc(vec![
+                L(20.5, 12.5),
+                Q(22.5, 15.5, 22.5, 17.0), Q(22.5, 19.0, 20.5, 19.0),
+                Q(18.5, 19.0, 18.5, 17.0), Q(18.5, 15.5, 20.5, 12.5),
+            ]),
+        ],
+        // A level rising in a shape: the wave is what says "filling".
+        "fill" => vec![
+            pc(&[(4.0, 3.5), (20.0, 3.5), (20.0, 20.5), (4.0, 20.5)]),
+            IconShape::FillPath(vec![
+                L(4.0, 13.0),
+                Q(8.0, 10.5, 12.0, 13.0), Q(16.0, 15.5, 20.0, 13.0),
+                L(20.0, 20.5), L(4.0, 20.5),
+            ]),
+            path(vec![
+                L(4.0, 13.0),
+                Q(8.0, 10.5, 12.0, 13.0), Q(16.0, 15.5, 20.0, 13.0),
+            ]),
+        ],
+        "color-palette" => vec![
+            pathc(vec![
+                L(12.0, 3.0),
+                B(18.5, 3.0, 21.5, 7.5, 21.5, 12.0),
+                B(21.5, 16.0, 18.0, 16.5, 16.0, 16.5),
+                B(14.5, 16.5, 14.0, 17.5, 14.5, 18.5),
+                B(15.2, 20.0, 14.0, 21.0, 12.0, 21.0),
+                B(6.5, 21.0, 2.5, 17.0, 2.5, 12.0),
+                B(2.5, 7.0, 6.0, 3.0, 12.0, 3.0),
+            ]),
+            d(8.0, 8.5, 1.3),
+            d(13.5, 6.8, 1.3),
+            d(17.5, 10.5, 1.3),
+            d(7.0, 14.5, 1.3),
+        ],
+        // An isometric cube: a shape you can place, rather than a picture.
+        "object" => vec![
+            pc(&[(12.0, 2.8), (20.5, 7.5), (20.5, 16.5), (12.0, 21.2), (3.5, 16.5), (3.5, 7.5)]),
+            p(&[(12.0, 2.8), (12.0, 12.0)]),
+            p(&[(12.0, 12.0), (20.5, 7.5)]),
+            p(&[(12.0, 12.0), (3.5, 7.5)]),
+        ],
+        // `x =` — an equation reads as its own notation.
+        "equation" => vec![
+            p(&[(4.0, 7.5), (10.5, 15.5)]),
+            p(&[(10.5, 7.5), (4.0, 15.5)]),
+            p(&[(13.5, 9.8), (20.5, 9.8)]),
+            p(&[(13.5, 13.8), (20.5, 13.8)]),
+        ],
+        "rotate-left" => vec![
+            a(12.0, 12.5, 8.0, 200.0, 500.0),
+            pf(&[(4.0, 12.5), (8.6, 10.0), (8.6, 15.0)]),
+        ],
+        "rotate-right" => vec![
+            a(12.0, 12.5, 8.0, 340.0, 40.0),
+            pf(&[(20.0, 12.5), (15.4, 10.0), (15.4, 15.0)]),
+        ],
+        // Mirrored wedges either side of the axis they flip about.
+        "flip-horizontal" => vec![
+            p(&[(12.0, 2.5), (12.0, 21.5)]),
+            pc(&[(9.5, 6.0), (2.5, 12.0), (9.5, 18.0)]),
+            pf(&[(14.5, 6.0), (21.5, 12.0), (14.5, 18.0)]),
+        ],
+        "flip-vertical" => vec![
+            p(&[(2.5, 12.0), (21.5, 12.0)]),
+            pc(&[(6.0, 9.5), (12.0, 2.5), (18.0, 9.5)]),
+            pf(&[(6.0, 14.5), (12.0, 21.5), (18.0, 14.5)]),
+        ],
+        "fit-to-window" => vec![
+            rr(2.5, 4.5, 19.0, 15.0, 1.5),
+            p(&[(6.5, 8.5), (9.5, 11.5)]),
+            pf(&[(6.0, 8.0), (10.2, 8.0), (6.0, 12.2)]),
+            p(&[(17.5, 15.5), (14.5, 12.5)]),
+            pf(&[(18.0, 16.0), (13.8, 16.0), (18.0, 11.8)]),
+        ],
+        // Pictures in a grid: the mountain says these are images, not tiles.
+        "thumbnails" => vec![
+            rr(2.5, 3.5, 8.5, 8.0, 1.0),
+            p(&[(4.0, 9.8), (6.2, 7.0), (7.8, 9.0), (9.0, 7.8), (9.5, 9.8)]),
+            d(8.6, 6.0, 0.8),
+            rr(13.0, 3.5, 8.5, 8.0, 1.0),
+            rr(2.5, 13.0, 8.5, 8.0, 1.0),
+            rr(13.0, 13.0, 8.5, 8.0, 1.0),
+        ],
+
+        // ── Application ────────────────────────────────────────────────────
+        // One window frame underpins window / form / application, so the three
+        // read as the same object at three levels of detail.
+        "window" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.5),
+            p(&[(2.5, 8.5), (21.5, 8.5)]),
+            d(5.5, 6.2, 0.8), d(8.2, 6.2, 0.8), d(10.9, 6.2, 0.8),
+        ],
+        "form" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.5),
+            p(&[(2.5, 8.5), (21.5, 8.5)]),
+            rr(5.5, 11.0, 13.0, 2.4, 0.5),
+            p(&[(5.5, 16.0), (13.0, 16.0)]),
+            rrf(15.5, 15.0, 3.0, 2.2, 0.5),
+        ],
+        // A window with a pointer in it: a program being USED, which is what
+        // separates it from the bare `window` frame above. Four dots in a tile
+        // read as a domino, not an application.
+        "application" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.5),
+            p(&[(2.5, 8.5), (21.5, 8.5)]),
+            pf(&[(10.0, 10.5), (10.0, 19.5), (12.3, 17.2), (13.9, 20.5), (15.6, 19.7), (14.0, 16.6), (17.2, 16.3)]),
+        ],
+        // A tied parcel: the band and the knot are what make it a BUNDLE
+        // rather than the plain box `package-*` already draws.
+        "bundle" => vec![
+            rr(3.0, 7.5, 18.0, 13.0, 1.2),
+            p(&[(12.0, 7.5), (12.0, 20.5)]),
+            p(&[(3.0, 13.5), (21.0, 13.5)]),
+            path(vec![L(12.0, 7.5), Q(9.0, 4.5, 10.5, 3.2), Q(12.0, 2.2, 12.0, 7.5)]),
+            path(vec![L(12.0, 7.5), Q(15.0, 4.5, 13.5, 3.2), Q(12.0, 2.2, 12.0, 7.5)]),
+        ],
+        // A puzzle piece — the part that plugs into something bigger. A tab on
+        // top and a tab on the right, both real curves; the first attempt read
+        // as a notched box.
+        "component" => vec![
+            pathc(vec![
+                L(4.5, 5.5), L(9.0, 5.5),
+                Q(9.0, 2.0, 12.0, 2.0), Q(15.0, 2.0, 15.0, 5.5),
+                L(19.5, 5.5), L(19.5, 10.0),
+                Q(23.0, 10.0, 23.0, 13.0), Q(23.0, 16.0, 19.5, 16.0),
+                L(19.5, 20.5), L(4.5, 20.5),
+            ]),
+        ],
+        // THIS becomes THAT: two fields and the arrow between them. Arrows
+        // crammed inside a lens turned to mud at a menu row's size.
+        "find-replace" => vec![
+            rr(2.5, 3.5, 10.0, 6.0, 1.0),
+            rr(11.5, 14.5, 10.0, 6.0, 1.0),
+            path(vec![L(7.5, 10.5), Q(7.5, 14.0, 12.5, 14.0)]),
+            pf(&[(14.5, 14.0), (11.2, 12.3), (11.2, 15.7)]),
+        ],
+        // Lines of text, the proof-reader's squiggle under them, and a tick to
+        // say it passed. The letter "A" the first attempt drew was too fine to
+        // survive a 16 px row.
+        "spelling" => vec![
+            p(&[(3.0, 6.0), (18.0, 6.0)]),
+            p(&[(3.0, 10.0), (13.0, 10.0)]),
+            path(vec![
+                L(3.0, 15.5), Q(4.7, 13.3, 6.4, 15.5), Q(8.1, 17.7, 9.8, 15.5),
+                Q(11.5, 13.3, 13.2, 15.5),
+            ]),
+            p(&[(4.0, 19.0), (8.0, 22.0), (14.0, 13.5)]),
+        ],
+        // Words SAID rather than written: the same bubble `comment` uses, with a
+        // wave inside instead of lines of text. Two attempts at a talking head
+        // (head + shoulders + sound arcs) collapsed into a blob at a menu row's
+        // size — too many curves in too little space.
+        "speech" => vec![
+            chat_bubble(),
+            path(vec![
+                L(6.5, 11.0), Q(8.2, 8.4, 9.9, 11.0), Q(11.6, 13.6, 13.3, 11.0),
+                Q(15.0, 8.4, 16.7, 11.0),
+            ]),
+        ],
+        "volume-up" => vec![
+            pc(&[(3.0, 9.5), (7.0, 9.5), (11.5, 5.5), (11.5, 18.5), (7.0, 14.5), (3.0, 14.5)]),
+            a(13.5, 12.0, 3.2, 300.0, 60.0),
+            p(&[(18.5, 8.5), (18.5, 13.5)]),
+            p(&[(16.0, 11.0), (21.0, 11.0)]),
+        ],
+        "volume-down" => vec![
+            pc(&[(3.0, 9.5), (7.0, 9.5), (11.5, 5.5), (11.5, 18.5), (7.0, 14.5), (3.0, 14.5)]),
+            a(13.5, 12.0, 3.2, 300.0, 60.0),
+            p(&[(15.5, 11.0), (21.0, 11.0)]),
+        ],
+        // A crescent: the one shape that means "asleep" without words.
+        "sleep" => vec![
+            pathc(vec![
+                L(19.0, 15.5),
+                B(13.0, 18.5, 6.5, 15.0, 6.5, 9.5),
+                B(6.5, 7.0, 7.6, 5.0, 9.0, 3.5),
+                B(3.0, 5.5, 1.5, 13.0, 6.0, 18.0),
+                B(9.5, 21.5, 16.0, 20.5, 19.0, 15.5),
+            ]),
+        ],
+        // Out through the door — distinct from `power`, which switches off.
+        "quit" => vec![
+            p(&[(13.0, 3.5), (4.0, 3.5), (4.0, 20.5), (13.0, 20.5)]),
+            p(&[(10.5, 12.0), (20.5, 12.0)]),
+            pf(&[(22.0, 12.0), (17.5, 9.4), (17.5, 14.6)]),
+        ],
+        "globe" => vec![
+            c(12.0, 12.0, 9.0),
+            p(&[(3.0, 12.0), (21.0, 12.0)]),
+            IconShape::Arc(12.0, 12.0, 4.6, 270.0, 450.0),
+            IconShape::Arc(12.0, 12.0, 4.6, 90.0, 270.0),
+            path(vec![L(4.6, 7.0), Q(12.0, 10.0, 19.4, 7.0)]),
+            path(vec![L(4.6, 17.0), Q(12.0, 14.0, 19.4, 17.0)]),
+        ],
+        // One place, not the whole world: the pin, and the ground it stands on.
+        "local" => vec![
+            pathc(vec![
+                L(12.0, 3.0),
+                B(15.6, 3.0, 18.0, 5.6, 18.0, 8.8),
+                B(18.0, 12.5, 13.5, 15.5, 12.0, 17.5),
+                B(10.5, 15.5, 6.0, 12.5, 6.0, 8.8),
+                B(6.0, 5.6, 8.4, 3.0, 12.0, 3.0),
+            ]),
+            d(12.0, 8.8, 1.6),
+            IconShape::Arc(12.0, 19.5, 8.0, 200.0, 340.0),
         ],
 
         _ => return None,
