@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.81] — 2026-08-17
+
+### Changed — the collapsed rail carries only what an icon can reach
+
+The collapsed SideMenu showed every **top-level** item and nothing else. That put
+**groups** on it — a row whose whole meaning is the list it opens, with nowhere on
+a one-icon rail to open it to — while hiding the very items inside those groups
+that a shortcut rail exists for.
+
+An item is now on the rail when, and only when, it has **an icon**, **an action**,
+and **no children** (operator, 2026-08-17):
+
+- an item with an action but no icon has nothing to draw and nothing to aim at;
+- an item with no action is a label, and a rail has no room for labels;
+- a group is dropped, and its qualifying **children come up in its place** —
+  wherever they sit in the tree, flattened into one column.
+
+The open form's operations ride the same rule: the shell mounts them as a second
+slot in the same list, so a form's operations appear on the rail exactly when they
+carry an icon and an action.
+
+A surfaced child keeps its **true path** into the item tree, so the shell still
+resolves the item it names and still tells a root-menu click from an open form's —
+that routing reads the path's first index. Section dividers survive only *between*
+two icons, which drops the titles that no longer separate anything and keeps the
+one that still does: the rule between the application's menu and the open form's
+operations.
+
+Nothing is special-cased by label. "Home" is on the rail because it has an icon
+and an action, not because of what it is called — a rule that read names would
+break the moment the menu was in Portuguese.
+
+### Fixed — a group's children did not line up with the group
+
+The expanded menu indented a nested row by 16 px and moved the **label** with the
+icon, so a child's name began 16 px right of its parent's and the menu had no left
+edge to read down. A group and everything inside it now share one left edge — the
+group's own name — and the nesting is carried by a 6 px offset of the **icon**
+alone, which is all the gutter there is before the shared label column.
+
 ## [PowerRustCOBOL 1.61.80] — 2026-08-17
 
 ### Added — national flag icons, `flag-<ISO 3166-1 alpha-2>`
