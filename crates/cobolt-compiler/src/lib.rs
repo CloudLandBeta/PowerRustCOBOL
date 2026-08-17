@@ -3456,7 +3456,7 @@ A button's own value wins; where it says nothing its GROUP decides; where the gr
 Separately from the groups, the ToolBar control itself has `BorderStyle`, `BorderColor`, `BorderWidth`, `CornerRadius`, `Transparency` and `BackgroundColor`. A new toolbar is rounded at 10, has NO border and is 100 % transparent, so it reads as buttons sitting on the form rather than a panel laid over it — and it arrives holding one group with one folder-open button, so a dropped ToolBar shows what a toolbar is.\n\
 \n\
 ### What a press does\n\
-`event` fires the toolbar's own `onClick` (the default). `procedure:<NAME>` PERFORMs a form procedure. `open-modal:<FORM>` opens a STANDALONE form as a modal window. The rest are the platform's: `print:<path>` opens the document where its print dialog is, `share` captures the form's window and hands the image to the OS, `screenshot` puts that image on the clipboard, `copy`/`cut`/`paste` use the OS clipboard on whichever control has focus, `run-app:<path args>` launches an application, `open-terminal:<dir>` opens a terminal.\n\
+`event` fires the toolbar's own `onClick` (the default). `procedure:<NAME>` runs one of the form's procedures by name. `open-modal:<FORM>` opens a STANDALONE form as a modal window, and the press waits until that window closes. The rest are the platform's: `print:<path>` opens the document where its print dialog is, `share` captures the form's window and hands the image to the OS, `screenshot` puts that image on the clipboard, `copy`/`cut`/`paste` use the OS clipboard on whichever control has focus, `run-app:<path args>` launches an application, `open-terminal:<dir>` opens a terminal.\n\
 \n\
 Whatever the action, the form ALSO gets an `onClick` on the toolbar, and `LastButton` names the button that was pressed — written first, so one handler can serve the whole bar:\n\
 \n\
@@ -3470,6 +3470,11 @@ Whatever the action, the form ALSO gets an `onClick` on the toolbar, and `LastBu
 ```\n\
 \n\
 `run-app` and `open-terminal` start a real process: the target is split on whitespace and handed to the OS DIRECTLY, never to a shell, so a target built from a data item cannot become a shell command. A toolbar wider than its control loses whole groups off the end rather than drawing half of one. A ToolBar with only a legacy `Items` list is read as one unframed group of labelled buttons, so it keeps working untouched.\n\
+\n\
+### How a button reaches COBOL\n\
+A toolbar button is NOT a control — the toolbar owns the layout, so a button has no entry in `form.controls`. It is named by a DERIVED id instead, `<toolbar>-<group>-<button>` upper-cased: `TOOLBAR-1` + `group-2` + `button-1` ⇒ `TOOLBAR-1-GROUP-2-BUTTON-1`. The press arrives under that id and the generated event loop dispatches on it, which is how `procedure:` and `open-modal:` reach anything — a `procedure:` button becomes `CALL \"<NAME>\"` (a user procedure is a nested program, IS COMMON) and an `open-modal:` button becomes `INVOKE ME::\"OpenFormSync\"(\"<FORM>\")`, whose one-argument form is modal. Nothing types the derived id by hand.\n\
+\n\
+`COBOL-CONTROL-ID` is `PIC X(64)`, so the three names together must fit 64 characters. A button whose derived id is longer, or a `procedure:`/`open-modal:` button naming nothing, gets a COMMENT in the generated source saying which button it is and what to fix — never a `WHEN` that could not fire.\n\
 \n\
 ### Pressing a button in Preview\n\
 Preview honours the platform actions — `print`, `run-app`, `open-terminal`, `copy`, `cut`, `paste` — so a toolbar can be tried while it is being built; every press writes its result (or its reason for failing) to the Output pane. The two CAPTURES do not run there: Preview is a pane inside the IDE window, so `screenshot` and `share` would return a picture of the IDE rather than of the form, and they say so instead. Run Form gives the form a window of its own to capture. The three COBOL actions (`event`, `procedure:`, `open-modal:`) need the interpreter, so they too belong to Run Form.\n",
