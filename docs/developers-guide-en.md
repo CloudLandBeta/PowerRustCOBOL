@@ -1591,6 +1591,21 @@ button it was:
 > built out of a data item cannot turn into a shell command. It is still your
 > form launching a real program: treat the target as code, not as data.
 
+##### Trying a toolbar in Preview
+
+You do not have to run the form to press a button. **Preview carries out the six
+platform actions itself** — `print`, `run-app`, `open-terminal`, `copy`, `cut`
+and `paste` — and writes what happened, or why it could not, into the **Output**
+pane. That is where a toolbar gets built, so that is where its buttons have to
+work.
+
+Two of the actions deliberately do **not** run in Preview:
+
+| Action | Why not |
+|---|---|
+| `screenshot`, `share` | They capture the form's **own window**. In Preview the form is a pane inside the IDE, so a capture would hand you a picture of the IDE instead. Preview says so rather than quietly returning the wrong image — use **Run Form**. |
+| `event`, `procedure`, `open-modal` | These are your form's COBOL. Preview draws the form but runs no interpreter, so it leaves them to **Run Form**. |
+
 > ⚠️ **Caveat.** A toolbar wider than the control it sits on loses whole groups
 > off the right-hand end rather than drawing half of one. The properties pane
 > shows the width it needs and warns when the control is too narrow.

@@ -6,10 +6,18 @@
 
 //! Carrying out a toolbar button's PLATFORM action.
 //!
-//! `cobolt-forms` decides which button was pressed and what it asked for, and
-//! takes no dependency on a printer, a clipboard or a process launcher to work
-//! that out. This is where the deed is done — the same division of labour the
-//! FileDropZone's native picker uses.
+//! [`crate::toolbar`] decides which button was pressed and what it asked for,
+//! and takes no dependency on a printer, a clipboard or a process launcher to
+//! work that out. This is where the deed is done — the same division of labour
+//! the FileDropZone's native picker uses.
+//!
+//! # Who calls this
+//!
+//! It sits beside [`crate::toolbar_paint`], behind the same `render` feature,
+//! for the same reason: **every surface that draws a toolbar must also be able
+//! to press one**. The running host does (`rcrun run-form` and a compiled
+//! binary), and so does the designer's Preview — a button that works when the
+//! form runs but does nothing in Preview is a button you cannot design against.
 //!
 //! The actions the form's own COBOL carries out (`event`, `procedure:`,
 //! `open-modal:`) never reach here; they leave the renderer as ordinary events.
@@ -31,7 +39,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cobolt_forms::toolbar::ToolbarAction;
+use crate::toolbar::ToolbarAction;
 
 /// What became of one press.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,7 +103,7 @@ impl Runner {
     /// through the same channel a keystroke would have.
     pub fn perform(
         &mut self,
-        ctx: &eframe::egui::Context,
+        ctx: &egui::Context,
         action: &ToolbarAction,
         focused: Option<Focused<'_>>,
     ) -> (Outcome, Option<String>) {
@@ -163,7 +171,7 @@ impl Runner {
             ToolbarAction::OpenTerminal(dir) => (open_terminal(dir), None),
         };
         if outcome.is_error() {
-            eprintln!("form-host: toolbar action: {}", outcome.message());
+            eprintln!("toolbar action: {}", outcome.message());
         }
         self.last = Some(outcome.clone());
         (outcome, new_text)
@@ -171,14 +179,14 @@ impl Runner {
 
     fn request_capture(
         &mut self,
-        ctx: &eframe::egui::Context,
+        ctx: &egui::Context,
         what: Capture,
     ) -> Outcome {
         // A second press while one is in flight is not an error — it is the same
         // request again, and the reply will serve it.
         self.pending = Some(what);
-        ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Screenshot(
-            eframe::egui::UserData::default(),
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(
+            egui::UserData::default(),
         ));
         Outcome::Pending(match what {
             Capture::ToClipboard => "Capturing the window…".into(),
@@ -188,11 +196,11 @@ impl Runner {
 
     /// Call once a frame. Picks up a screenshot reply and finishes what asked
     /// for it. Does nothing when nothing is pending.
-    pub fn poll_capture(&mut self, ctx: &eframe::egui::Context) -> Option<Outcome> {
+    pub fn poll_capture(&mut self, ctx: &egui::Context) -> Option<Outcome> {
         let what = self.pending?;
         let image = ctx.input(|i| {
             i.events.iter().find_map(|e| match e {
-                eframe::egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
                 _ => None,
             })
         })?;
@@ -212,7 +220,7 @@ impl Runner {
             },
         };
         if outcome.is_error() {
-            eprintln!("form-host: toolbar capture: {}", outcome.message());
+            eprintln!("toolbar capture: {}", outcome.message());
         }
         self.last = Some(outcome.clone());
         Some(outcome)
@@ -228,21 +236,20 @@ fn clipboard_text() -> Result<String, String> {
     cb.get_text().map_err(|e| e.to_string())
 }
 
-fn image_to_clipboard(image: &eframe::egui::ColorImage) -> Result<(), String> {
-    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    // egui hands back premultiplied RGBA; arboard wants straight RGBA bytes.
+/// egui hands a capture back as PREMULTIPLIED RGBA; the clipboard and every
+/// PNG encoder want straight RGBA. Both consumers need the same bytes, so the
+/// un-premultiply happens once, here, through epaint's own conversion.
+fn unmultiplied_rgba(image: &egui::ColorImage) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(image.width() * image.height() * 4);
-    for px in image.as_raw().chunks_exact(4) {
-        let a = px[3];
-        let un = |c: u8| -> u8 {
-            if a == 0 {
-                0
-            } else {
-                ((c as f32 / (a as f32 / 255.0)).min(255.0)) as u8
-            }
-        };
-        bytes.extend_from_slice(&[un(px[0]), un(px[1]), un(px[2]), a]);
+    for px in &image.pixels {
+        bytes.extend_from_slice(&px.to_srgba_unmultiplied());
     }
+    bytes
+}
+
+fn image_to_clipboard(image: &egui::ColorImage) -> Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    let bytes = unmultiplied_rgba(image);
     cb.set_image(arboard::ImageData {
         width: image.width(),
         height: image.height(),
@@ -252,25 +259,13 @@ fn image_to_clipboard(image: &eframe::egui::ColorImage) -> Result<(), String> {
 }
 
 /// Write the capture out as a PNG so the OS has a file to share.
-fn write_png(image: &eframe::egui::ColorImage) -> Result<PathBuf, String> {
+fn write_png(image: &egui::ColorImage) -> Result<PathBuf, String> {
     let dir = std::env::temp_dir();
     // The name is stable per process so a form sharing repeatedly does not fill
     // the temp directory with captures.
     let path = dir.join(format!("powerrustcobol-share-{}.png", std::process::id()));
     let (w, h) = (image.width() as u32, image.height() as u32);
-    let mut bytes = Vec::with_capacity((w * h * 4) as usize);
-    for px in image.as_raw().chunks_exact(4) {
-        let a = px[3];
-        let un = |c: u8| -> u8 {
-            if a == 0 {
-                0
-            } else {
-                ((c as f32 / (a as f32 / 255.0)).min(255.0)) as u8
-            }
-        };
-        bytes.extend_from_slice(&[un(px[0]), un(px[1]), un(px[2]), a]);
-    }
-    let buf = image::RgbaImage::from_raw(w, h, bytes)
+    let buf = image::RgbaImage::from_raw(w, h, unmultiplied_rgba(image))
         .ok_or_else(|| "the capture did not make a valid image".to_owned())?;
     buf.save(&path).map_err(|e| e.to_string())?;
     Ok(path)
@@ -421,7 +416,7 @@ mod tests {
 
         // The COBOL-side actions must never be routed here.
         let mut runner = Runner::default();
-        let ctx = eframe::egui::Context::default();
+        let ctx = egui::Context::default();
         for action in [
             ToolbarAction::Event,
             ToolbarAction::Procedure("P".into()),
@@ -444,7 +439,7 @@ mod tests {
     #[test]
     fn the_clipboard_verbs_need_a_focused_field_and_report_what_they_moved() {
         let mut runner = Runner::default();
-        let ctx = eframe::egui::Context::default();
+        let ctx = egui::Context::default();
 
         for action in [ToolbarAction::Copy, ToolbarAction::Cut, ToolbarAction::Paste] {
             let (outcome, text) = runner.perform(&ctx, &action, None);
@@ -491,7 +486,7 @@ mod tests {
     #[test]
     fn a_capture_is_pending_until_the_image_arrives() {
         let mut runner = Runner::default();
-        let ctx = eframe::egui::Context::default();
+        let ctx = egui::Context::default();
 
         for action in [ToolbarAction::Screenshot, ToolbarAction::Share] {
             let (outcome, _) = runner.perform(&ctx, &action, None);

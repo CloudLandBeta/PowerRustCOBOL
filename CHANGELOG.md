@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.72] — 2026-08-17
+
+### Fixed — a toolbar button did nothing in Preview
+
+Preview drew a toolbar, resolved the press, and threw the answer away. Every
+button was dead at design time, so the only way to find out whether one worked
+was to run the form — and a toolbar is *built* in Preview.
+
+The reason was a boundary, not an oversight: the code that carries a platform
+action out lived in `cobolt-form-host`, which the IDE deliberately does not link
+(Run Form talks to it through the `rcrun` child process). It has moved to
+`cobolt_forms::toolbar_actions`, beside `toolbar_paint` and behind the same
+`render` feature, for the same reason that module is there — **every surface that
+draws a toolbar must also be able to press one**. The running host now reads it
+from there too, so the two cannot drift.
+
+Preview carries out the six actions that need only the platform — `print`,
+`run-app`, `open-terminal`, `copy`, `cut`, `paste` — and reports each result, or
+its reason for failing, in the Output pane. `screenshot` and `share` are refused
+**with a reason**: Preview is a pane inside the IDE window, so a capture there
+would hand back a picture of the IDE rather than of the form. `event`,
+`procedure:` and `open-modal:` still belong to Run Form, which has an
+interpreter.
+
 ## [PowerRustCOBOL 1.61.58] — 2026-08-16
 
 ### Fixed — the preview drew a collapsed sidebar at its designed width

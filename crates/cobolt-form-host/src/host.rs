@@ -484,7 +484,7 @@ impl FormHost {
             child_interpreter_setup,
             shared_rust_bridge,
             surface,
-            toolbar_runner: crate::toolbar_actions::Runner::default(),
+            toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             visuals_set: false,
             quit_sent: false,
             diagnostics,
@@ -1087,7 +1087,7 @@ pub struct FormHost {
     surface: Surface,
     /// Carries out a toolbar button's platform action, and finishes the window
     /// captures that cannot complete on the frame that asked for them.
-    toolbar_runner: crate::toolbar_actions::Runner,
+    toolbar_runner: cobolt_forms::toolbar_actions::Runner,
     visuals_set: bool,
     quit_sent: bool,
     /// `COBOLT_FRAME_DIAGNOSTICS` — live per-update trace (R27). Without it a
@@ -2607,7 +2607,7 @@ impl FormHost {
                 let focused_ref =
                     focused
                         .as_ref()
-                        .map(|(id, text)| crate::toolbar_actions::Focused {
+                        .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
                             control_id: id.as_str(),
                             text: text.clone(),
                         });

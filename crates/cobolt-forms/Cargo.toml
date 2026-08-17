@@ -39,9 +39,14 @@ egui-elegance = { version = "0.15.0", optional = true }
 # ring compiles C) for one HTTP-client shape across the workspace, though
 # this crate's usage (OSM tile fetch, spec 039) is independent of it.
 ureq = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }
+# A toolbar button's Copy/Cut/Paste and its window capture need the real OS
+# clipboard — text BOTH ways and an image out, which egui's own `copy_text` does
+# not cover. Already in the lock file: `egui-winit` depends on it, so this is a
+# direct edge onto a crate the build compiles either way.
+arboard     = { version = "3.6", optional = true }
 
 [features]
-render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq"]
+render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:arboard"]
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

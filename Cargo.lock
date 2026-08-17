@@ -1355,7 +1355,6 @@ dependencies = [
 name = "cobolt-form-host"
 version = "0.2.0"
 dependencies = [
- "arboard",
  "cobolt-ast",
  "cobolt-forms",
  "cobolt-lexer",
@@ -1375,6 +1374,7 @@ dependencies = [
 name = "cobolt-forms"
 version = "0.2.0"
 dependencies = [
+ "arboard",
  "cobolt-ast",
  "cobolt-media",
  "egui",

@@ -3469,7 +3469,10 @@ Whatever the action, the form ALSO gets an `onClick` on the toolbar, and `LastBu
            END-EVALUATE.\n\
 ```\n\
 \n\
-`run-app` and `open-terminal` start a real process: the target is split on whitespace and handed to the OS DIRECTLY, never to a shell, so a target built from a data item cannot become a shell command. A toolbar wider than its control loses whole groups off the end rather than drawing half of one. A ToolBar with only a legacy `Items` list is read as one unframed group of labelled buttons, so it keeps working untouched.\n",
+`run-app` and `open-terminal` start a real process: the target is split on whitespace and handed to the OS DIRECTLY, never to a shell, so a target built from a data item cannot become a shell command. A toolbar wider than its control loses whole groups off the end rather than drawing half of one. A ToolBar with only a legacy `Items` list is read as one unframed group of labelled buttons, so it keeps working untouched.\n\
+\n\
+### Pressing a button in Preview\n\
+Preview honours the platform actions — `print`, `run-app`, `open-terminal`, `copy`, `cut`, `paste` — so a toolbar can be tried while it is being built; every press writes its result (or its reason for failing) to the Output pane. The two CAPTURES do not run there: Preview is a pane inside the IDE window, so `screenshot` and `share` would return a picture of the IDE rather than of the form, and they say so instead. Run Form gives the form a window of its own to capture. The three COBOL actions (`event`, `procedure:`, `open-modal:`) need the interpreter, so they too belong to Run Form.\n",
         "FileDropZone" => "\
 ### Usage — a UI gesture in, one method out\n\
 There is no method to open the picker or read a drop programmatically. The user drags a file onto the control OR clicks it to open the native file picker; either way the platform runs the zone's intake and fires an event. Read the paths with `MOVE FDZ-1::DroppedFiles TO WS-PATHS`. The one method the zone has is `CommitFiles()`, which belongs to the staged flow below.\n\

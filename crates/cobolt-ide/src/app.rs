@@ -239,6 +239,12 @@ pub struct CoboltApp {
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
     designer_activation_requests: DesignerActivationRequests,
+    /// Carries out a toolbar button's PLATFORM action pressed in **Preview**,
+    /// so a toolbar can be tried at design time instead of only under Run Form.
+    /// Shared by every open preview: an action is begun and finished inside one
+    /// frame, so there is no per-preview state to keep apart. (Window captures
+    /// are deliberately NOT routed here — see `show_preview_window`.)
+    preview_toolbar_runner: cobolt_forms::toolbar_actions::Runner,
     #[allow(dead_code)]
     pub(crate) clipboard: Option<DesignerClipboard>,
     /// Spec 046 R3/R4 — the project-relative destination directory for a
@@ -1096,6 +1102,7 @@ impl CoboltApp {
             forms_list: FormsListPanel::new(),
             designers: Vec::new(),
             designer_activation_requests: DesignerActivationRequests::default(),
+            preview_toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             clipboard: None,
             pending_form_paste: None,
             pending_paste_conflict: None,
@@ -11817,6 +11824,31 @@ pub(crate) fn preview_keeps_extra_update(key: &str) -> bool {
     )
 }
 
+/// What Preview does with one toolbar-button press.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PreviewPress {
+    /// The form's own COBOL owns this action, and Preview has no interpreter to
+    /// run it. Nothing to say — Run Form is where it happens.
+    LeaveToTheForm,
+    /// A window capture, refused with a reason. Preview is a PANE inside the IDE
+    /// window, so a capture taken here photographs the IDE and not the form — the
+    /// wrong image, silently. Run Form gives the form a window of its own.
+    NeedsRunForm,
+    /// Preview carries it out itself.
+    Perform,
+}
+
+/// The whole Preview rule for a toolbar action, in one place so a test can pin
+/// every verb without standing up a designer window (operator, 2026-08-17).
+pub(crate) fn preview_press(action: &cobolt_forms::toolbar::ToolbarAction) -> PreviewPress {
+    use cobolt_forms::toolbar::ToolbarAction as TA;
+    match action {
+        _ if !action.is_platform_action() => PreviewPress::LeaveToTheForm,
+        TA::Screenshot | TA::Share => PreviewPress::NeedsRunForm,
+        _ => PreviewPress::Perform,
+    }
+}
+
 /// `FormState` for the live preview: injects the single per-control preview value
 /// into the right property key and supplies the OnFormLoad animation transform.
 /// The engine does everything else (spec 017 T4).
@@ -12161,6 +12193,7 @@ impl CoboltApp {
         };
 
         let mut updates: Vec<(String, String, String)> = Vec::new();
+        let mut toolbar_presses: Vec<(String, String, String)> = Vec::new();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(panel_ui, |ui| {
@@ -12180,7 +12213,10 @@ impl CoboltApp {
                         };
                         let out = cobolt_forms::render::render_form(ui, &input);
                         updates = out.prop_updates;
-                        // Preview has no COBOL event loop; UI events are discarded.
+                        // Preview has no COBOL event loop; UI events are
+                        // discarded — but a toolbar button's PLATFORM action
+                        // needs no interpreter, so those are carried out below.
+                        toolbar_presses = out.toolbar_actions;
 
                         // 049 — the shell's breadcrumb, static (one segment, the
                         // form itself). Drawn AFTER `render_form`, which is a
@@ -12222,6 +12258,65 @@ impl CoboltApp {
                         }
                     });
             });
+
+        // ── Toolbar buttons whose action is the platform's work ───────────────
+        //
+        // Preview is where a toolbar gets BUILT, so its buttons have to be
+        // pressable here and not only under Run Form: print a document, launch
+        // an application, open a terminal, use the clipboard. None of those need
+        // an interpreter, which is why Preview can honour them at all — the three
+        // COBOL actions (`event`, `procedure:`, `open-modal:`) do, and are left
+        // to the running form.
+        for (ctrl_id, button_id, action) in toolbar_presses {
+            let parsed = cobolt_forms::toolbar::ToolbarAction::parse(&action);
+            match preview_press(&parsed) {
+                PreviewPress::LeaveToTheForm => continue,
+                PreviewPress::NeedsRunForm => {
+                    self.output.push_status(format!(
+                        "Preview: {ctrl_id}/{button_id} — `{}` captures the form's own \
+                         window, which only exists under Run Form",
+                        parsed.verb()
+                    ));
+                    continue;
+                }
+                PreviewPress::Perform => {}
+            }
+            // Copy/Cut/Paste act on whichever control has keyboard focus. egui
+            // reports that as a widget id, and a control's TextEdit is built with
+            // `Id::new(("rt_ctrl", <control id>))` — so the focused control is
+            // found by matching that back. Same rule as the running host.
+            let focused = ctx.memory(|m| m.focused()).and_then(|focus| {
+                controls.iter().find_map(|c| {
+                    (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                        let text = self.designers[idx]
+                            .1
+                            .preview_state
+                            .get(&c.id)
+                            .cloned()
+                            .unwrap_or_default();
+                        (c.id.clone(), text)
+                    })
+                })
+            });
+            let focused_ref = focused
+                .as_ref()
+                .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
+                    control_id: id.as_str(),
+                    text: text.clone(),
+                });
+            let (outcome, new_text) = self
+                .preview_toolbar_runner
+                .perform(ctx, &parsed, focused_ref);
+            // Nothing fails in silence: the Output pane carries the reason, the
+            // same way the running host logs it.
+            self.output
+                .push_status(format!("Preview: {}", outcome.message()));
+            // A Cut or a Paste changed the focused field — feed it back through
+            // the update path a keystroke would have taken.
+            if let (Some(text), Some((target, _))) = (new_text, focused) {
+                updates.push((target, "Text".to_owned(), text));
+            }
+        }
 
         // Apply the engine's value updates back to the preview value map so the
         // next frame renders the edited state (text typed, slider moved, combo
@@ -15467,6 +15562,80 @@ mod preview_alpha_tests {
         println!(
             "\n  preview values — a ListBox's active row, its Ctrl-click selection and its \
              ticked set all survive the trip back\n"
+        );
+    }
+}
+
+#[cfg(test)]
+mod preview_toolbar_tests {
+    use super::*;
+    use cobolt_forms::toolbar::ToolbarAction as TA;
+
+    /// Every one of the eleven toolbar verbs, and what Preview does with it.
+    ///
+    /// A toolbar is BUILT in Preview, so a button that only works under Run Form
+    /// is a button you cannot design against. Six of the verbs need nothing but
+    /// the platform and are carried out here; three are the form's own COBOL and
+    /// need an interpreter Preview does not have; and the two captures are
+    /// refused ON PURPOSE — Preview is a pane inside the IDE window, so a capture
+    /// taken here would return a picture of the IDE.
+    #[test]
+    fn preview_performs_the_platform_verbs_and_refuses_the_captures() {
+        let carried_out = [
+            TA::Print("/tmp/report.pdf".into()),
+            TA::Copy,
+            TA::Cut,
+            TA::Paste,
+            TA::RunApp("/usr/bin/vim".into()),
+            TA::OpenTerminal("/tmp".into()),
+        ];
+        for action in &carried_out {
+            assert_eq!(
+                preview_press(action),
+                PreviewPress::Perform,
+                "`{}` needs nothing but the platform — Preview must honour it",
+                action.verb()
+            );
+        }
+
+        for action in [TA::Screenshot, TA::Share] {
+            assert_eq!(
+                preview_press(&action),
+                PreviewPress::NeedsRunForm,
+                "`{}` would photograph the IDE, not the form",
+                action.verb()
+            );
+        }
+
+        for action in [
+            TA::Event,
+            TA::Procedure("UPDATE-TOTAL".into()),
+            TA::OpenModal("CUST-LOOKUP".into()),
+        ] {
+            assert_eq!(
+                preview_press(&action),
+                PreviewPress::LeaveToTheForm,
+                "`{}` is the form's own COBOL",
+                action.verb()
+            );
+        }
+
+        // Every advertised verb is accounted for — a new one cannot slip in
+        // without a decision being made about it here.
+        assert_eq!(
+            carried_out.len() + 2 + 3,
+            TA::VERBS.len(),
+            "the editor offers {} verbs; this test covers {}",
+            TA::VERBS.len(),
+            carried_out.len() + 5
+        );
+
+        println!(
+            "\n  Preview toolbar — all {} verbs decided: 6 carried out (print, copy, cut, \
+             paste, run-app, open-terminal), 2 refused with a reason (screenshot, share — \
+             they would capture the IDE window), 3 left to the running form (event, \
+             procedure, open-modal)\n",
+            TA::VERBS.len()
         );
     }
 }
