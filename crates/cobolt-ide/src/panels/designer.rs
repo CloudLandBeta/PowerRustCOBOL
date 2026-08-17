@@ -7232,6 +7232,19 @@ impl DesignerPanel {
     /// control as one undoable property write — so ⌘Z undoes an entire editing
     /// session in one step, which is what "I did not mean to save that" means.
     fn show_toolbar_editor(&mut self, ui: &mut Ui) {
+        if self.toolbar_modal.is_none() {
+            return;
+        }
+        // Publish THIS form's theme before the modal draws. The colour picker's
+        // fixed grid is the active theme's palette, read from the egui context,
+        // and 1.61.64 was the bug where a surface hosting the picker had not
+        // published one: an empty grid exactly where the palette belongs. Doing
+        // it here rather than trusting the canvas to have gone first is the point
+        // — paint order is not a guarantee (that is what 1.61.64 got wrong).
+        cobolt_forms::paint::set_active_theme(ui.ctx(), self.active_theme_pack.clone());
+        cobolt_forms::paint::set_glass_style(ui.ctx(), self.form.glass_style);
+        cobolt_forms::paint::set_surface_theme(ui.ctx(), self.active_surface_theme.clone());
+
         let Some(modal) = self.toolbar_modal.as_mut() else {
             return;
         };

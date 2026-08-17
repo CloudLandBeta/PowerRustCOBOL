@@ -994,34 +994,42 @@ fn combo_row(ui: &mut egui::Ui, label: &str, value: &mut String, options: &[&str
 
 /// A colour, with "unset" as a real state — that is what defers to the group,
 /// and then to the theme.
+///
+/// The swatch is [`crate::panels::properties::color_edit_button_closing`], the
+/// SAME picker every RAD control property uses (operator, 2026-08-17). Rolling a
+/// second one here meant egui's default button, which has none of the theme's
+/// palette grid — a developer picking a group's colour got a different tool from
+/// the one they use everywhere else in the IDE.
+///
+/// Unset survives it: the picker needs a concrete colour, so an unset row seeds
+/// it with a neutral and only writes when the developer actually picks, and the
+/// ✕ puts the row back to inheriting.
 fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String, unset_hint: &str) {
+    use crate::panels::properties::{color32_to_hex, color_edit_button_closing, hex_to_color32};
+
     ui.label(label);
     ui.horizontal(|ui| {
-        let mut rgba = if value.trim().is_empty() {
-            [0.5_f32, 0.5, 0.5, 1.0]
+        let unset = value.trim().is_empty();
+        let mut color = if unset {
+            egui::Color32::from_gray(160)
         } else {
-            let c = cobolt_forms::paint::parse_color(value);
-            [
-                c.r() as f32 / 255.0,
-                c.g() as f32 / 255.0,
-                c.b() as f32 / 255.0,
-                c.a() as f32 / 255.0,
-            ]
+            hex_to_color32(value)
         };
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
-            *value = format!(
-                "#{:02X}{:02X}{:02X}{:02X}",
-                (rgba[0] * 255.0) as u8,
-                (rgba[1] * 255.0) as u8,
-                (rgba[2] * 255.0) as u8,
-                (rgba[3] * 255.0) as u8
-            );
+        if color_edit_button_closing(ui, &mut color).changed() {
+            *value = color32_to_hex(color);
         }
         if value.trim().is_empty() {
             ui.label(egui::RichText::new(unset_hint).small().weak());
-        } else if ui.small_button("✕").clicked() {
-            // Back to unset — the group, then the theme, decides again.
-            value.clear();
+        } else {
+            ui.label(
+                egui::RichText::new(color32_to_hex(color))
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.small_button("✕").clicked() {
+                // Back to unset — the group, then the theme, decides again.
+                value.clear();
+            }
         }
     });
     ui.end_row();
