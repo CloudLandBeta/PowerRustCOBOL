@@ -27,6 +27,9 @@ use std::sync::mpsc::Receiver;
 use crate::i18n::Tr;
 use crate::llm::{provider_key_slot, LlmConfig, LlmResponse, Provider, PROVIDERS};
 
+/// `file_dialog` key for the credential-file Browse… picker.
+const CREDENTIAL_FILE_DIALOG: &str = "models:credential-file";
+
 pub struct ModelsModal {
     pub open: bool,
     /// Index into [`PROVIDERS`], clamped each frame.
@@ -50,6 +53,11 @@ pub struct ModelsModal {
     /// In-flight test-connection request.
     test_rx: Option<Receiver<LlmResponse>>,
     test_msg: Option<String>,
+    /// The credential-file path being edited, and the last thing the store said
+    /// about it — a refusal, or where the keys were written.
+    store_path_buf: String,
+    store_msg: Option<String>,
+    store_refused: bool,
     /// Cached "semantic model on disk" probe — `None` re-probes next frame.
     semantic_ready: Option<bool>,
 }
@@ -108,8 +116,154 @@ impl ModelsModal {
             auto_fetch_pending: true,
             test_rx: None,
             test_msg: None,
+            store_path_buf: String::new(),
+            store_msg: None,
+            store_refused: false,
             semantic_ready: None,
         }
+    }
+
+    /// Where the developer's keys are kept, and the one rule about it.
+    ///
+    /// Not per provider: this is where EVERY key goes. It sits at the foot of the
+    /// manager because it is the answer to "will I have to paste this again
+    /// tomorrow?", which is the question the key field above raises.
+    fn storage_section(&mut self, ui: &mut egui::Ui, llm: &mut LlmConfig, tr: &Tr) -> bool {
+        use crate::model_config_store::{self as store, Vault};
+
+        let mut changed = false;
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label(egui::RichText::new(tr.creds_where).strong());
+        ui.label(egui::RichText::new(tr.creds_where_hint).small().weak());
+        ui.add_space(4.0);
+
+        if self.store_path_buf.is_empty() {
+            self.store_path_buf = llm.credential_file_path().display().to_string();
+        }
+
+        for vault in Vault::ALL.iter().copied() {
+            let label = match vault {
+                Vault::Session => tr.creds_session,
+                Vault::LocalFile => tr.creds_local_file,
+                Vault::OsVault => tr.creds_os_vault,
+            };
+            let available = vault.available();
+            ui.horizontal(|ui| {
+                let mut chosen = llm.credential_vault == vault;
+                let response = ui.add_enabled(
+                    available,
+                    egui::RadioButton::new(chosen, label),
+                );
+                if response.clicked() && available {
+                    chosen = true;
+                    llm.credential_vault = vault;
+                    self.store_msg = None;
+                    self.store_refused = false;
+                    changed = true;
+                }
+                let _ = chosen;
+                if !available {
+                    ui.label(
+                        egui::RichText::new(
+                            tr.creds_ships_in
+                                .replacen("{}", store::OS_VAULT_SHIPS_IN, 1),
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
+            });
+        }
+
+        if llm.credential_vault != Vault::LocalFile {
+            return changed;
+        }
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(tr.creds_file);
+            if ui
+                .add(egui::TextEdit::singleline(&mut self.store_path_buf).desired_width(320.0))
+                .changed()
+            {
+                self.store_msg = None;
+                self.store_refused = false;
+            }
+            if ui.button(tr.creds_browse).clicked() {
+                crate::file_dialog::begin(
+                    ui.ctx(),
+                    CREDENTIAL_FILE_DIALOG,
+                    crate::file_dialog::DialogSpec::save()
+                        .file_name("llm_config.json")
+                        .filter("JSON", &["json"]),
+                );
+            }
+        });
+
+        // The suggested paths, as one-click buttons. `/tmp` first: nothing there
+        // can be committed, and it does not survive a reboot (operator).
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(tr.creds_suggested).small().weak());
+            for path in store::suggested_paths() {
+                let shown = path.display().to_string();
+                if ui.small_button(&shown).clicked() {
+                    self.store_path_buf = shown;
+                    self.store_msg = None;
+                    self.store_refused = false;
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui.button(tr.creds_use_file).clicked() {
+                let path = std::path::PathBuf::from(self.store_path_buf.trim());
+                match store::validate(&path) {
+                    Ok(()) => {
+                        llm.credential_file = path.display().to_string();
+                        self.store_refused = false;
+                        self.store_msg = Some(
+                            tr.creds_will_write
+                                .replacen("{}", &path.display().to_string(), 1),
+                        );
+                        changed = true;
+                    }
+                    Err(refusal) => {
+                        crate::error_log::record(refusal.message());
+                        self.store_refused = true;
+                        self.store_msg = Some(refusal.message().to_owned());
+                    }
+                }
+            }
+            if ui.button(tr.creds_forget_file).clicked() {
+                let path = llm.credential_file_path();
+                match store::forget(&path) {
+                    Ok(()) => {
+                        llm.credential_vault = Vault::Session;
+                        self.store_refused = false;
+                        self.store_msg =
+                            Some(tr.creds_forgot.replacen("{}", &path.display().to_string(), 1));
+                        changed = true;
+                    }
+                    Err(e) => {
+                        self.store_refused = true;
+                        self.store_msg = Some(e);
+                    }
+                }
+            }
+        });
+
+        if let Some(msg) = &self.store_msg {
+            ui.add_space(4.0);
+            let text = egui::RichText::new(msg).small();
+            ui.label(if self.store_refused {
+                text.color(ui.visuals().error_fg_color)
+            } else {
+                text
+            });
+        }
+        changed
     }
 
     /// Forget the cached "semantic model on disk" probe — the app calls this
@@ -245,6 +399,7 @@ impl ModelsModal {
         let mut do_delete = false;
         let mut do_semantic_download = false;
         let mut select: Option<usize> = None;
+        let mut storage_changed = false;
 
         // Seeded size only: after opening, egui window state owns user resizing.
         egui::Window::new(tr.providers_title)
@@ -517,8 +672,24 @@ impl ModelsModal {
                                 egui::RichText::new(e).color(ui.visuals().error_fg_color).small(),
                             );
                         }
+
+                        // Where every key is kept — the answer to "will I have to
+                        // paste this again tomorrow?".
+                        if self.storage_section(ui, llm, tr) {
+                            storage_changed = true;
+                        }
                     });
             });
+
+        // A Browse… choice arrives on a later frame (a synchronous dialog nests
+        // the OS event loop, which aborts winit).
+        if let Some(picked) = crate::file_dialog::take(CREDENTIAL_FILE_DIALOG) {
+            if let Some(path) = picked {
+                self.store_path_buf = path.display().to_string();
+                self.store_msg = None;
+                self.store_refused = false;
+            }
+        }
 
         if let Some(i) = select {
             // Keep whatever the developer typed for the provider they are
@@ -566,6 +737,12 @@ impl ModelsModal {
         }
         if do_semantic_download {
             action.semantic_download_requested = true;
+        }
+        // A storage choice must reach disk as soon as it is made: it decides
+        // whether the key already typed above survives the session.
+        if storage_changed {
+            action.applied = true;
+            action.save_requested = true;
         }
 
         if !open {

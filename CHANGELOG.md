@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.78] — 2026-08-17
+
+### Added — keep the model configuration, and its API keys, where you choose
+
+An API key used to live for exactly one run: `LlmConfig::api_keys` is
+`#[serde(skip)]` and the OS-native store is behind a kill switch until it has a
+management UI, so nothing reached disk and every session asked again. That was a
+deliberate trade — "losing keys on restart is the accepted cost; leaking one is not
+recoverable" — and it made the AI features tedious to use.
+
+The foot of the **Model Providers Manager** now offers the other half of it
+(operator, 2026-08-17):
+
+- **Not kept** — the default, unchanged. Nothing is persisted unless asked.
+- **A local file** — the whole model configuration, keys included, written to a
+  file the developer names. Owner-only (`0600`), with a clear-text warning inside,
+  and read straight back on the next run.
+- **The OS credential store** — offered and refused: it **ships in RC3**, once it
+  has a UI that can inspect, rotate and clear what it holds. Shown rather than
+  hidden so nobody has to guess whether it is coming.
+
+**A file may never live inside a git working tree**, and there is no override. The
+check walks the path's ancestors for a `.git` — accepting a `.git` *file* as
+readily as a directory, so a submodule or `git worktree` checkout counts — and the
+refusal names the repository it found. It is applied twice: when the path is chosen
+*and* again at the moment keys are written, so a folder that became a repository in
+between cannot take one either. `/tmp/llm_config.json` is offered first because
+nothing there can be committed and it does not survive a reboot, which for a
+credential is a feature.
+
+The machine-wide config file is untouched: it still carries no credential, only the
+choice and the path. An explicit key deletion still beats a file that remembers it.
+
+New module `model_config_store` holds the vault choice, the guard and the file
+format; `LlmConfig` gained `credential_vault` and `credential_file`, both
+`#[serde(default)]` so existing configs open unchanged. The vault is stored through
+its own parser rather than by derive, so the file reads `"local-file"` and a value
+written by a newer build degrades to "not kept" instead of costing the developer
+every other setting in that file.
+
 ## [PowerRustCOBOL 1.61.77] — 2026-08-17
 
 ### Fixed — a Timer stopped firing, silently
