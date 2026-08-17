@@ -430,7 +430,13 @@ fn color_picker_body(ui: &mut Ui, id: egui::Id, color: &mut Color32) -> bool {
     changed
 }
 
-fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
+/// THE colour picker — the one every RAD control property uses.
+///
+/// `pub(crate)` so surfaces outside this pane use the same one rather than
+/// egui's default button: the Toolbar Editor's group and button colours are
+/// picked here too (operator, 2026-08-17). The fixed grid is the active theme's
+/// palette, which is the part that would be lost by rolling a second picker.
+pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
     use egui::color_picker::show_color_at;
     use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
 
