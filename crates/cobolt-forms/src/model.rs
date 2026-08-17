@@ -3751,8 +3751,32 @@ impl Control {
                     props.insert("HeaderIcon".into(), PropValue::String(String::new()));
                 }
             }
-            ControlType::ToolBar | ControlType::StatusBar => {
+            ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
+            }
+            // A ToolBar's own frame, which had no properties at all — it drew a
+            // hard-wired card and there was no way to change it (operator,
+            // 2026-08-17). The defaults are its decision: rounded at 10, NO
+            // border, and a fully transparent background, so a new toolbar reads
+            // as buttons sitting on the form rather than as a panel laid over it.
+            ControlType::ToolBar => {
+                props.insert("Items".into(), PropValue::String("".into()));
+                props.insert("CornerRadius".into(), PropValue::Int(10));
+                props.insert("BorderStyle".into(), PropValue::String("None".into()));
+                props.insert("BorderColor".into(), PropValue::String("#888888".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
+                // 100 % transparent. The frame is there to be turned ON, not off.
+                props.insert("Transparency".into(), PropValue::Int(100));
+                // One group, one button, folder-open — so a dropped ToolBar shows
+                // what a toolbar is instead of an empty strip.
+                props.insert(
+                    crate::toolbar::TOOLBAR_DEF_PROP.into(),
+                    PropValue::String(
+                        crate::toolbar::ToolbarDef::example()
+                            .to_json()
+                            .unwrap_or_default(),
+                    ),
+                );
             }
             ControlType::Line => {
                 props.insert("LineColor".into(), PropValue::String("#000000".into()));

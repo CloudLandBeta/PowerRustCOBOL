@@ -6854,6 +6854,44 @@ impl PropertiesPanel {
                         .color(egui::Color32::from_rgb(220, 160, 60)),
                     );
                 }
+                // The bar's OWN frame. It had none of this — the strip drew a
+                // hard-wired card nobody could change (operator, 2026-08-17).
+                // Defaults: radius 10, no border, fully transparent.
+                ui.add_space(4.0);
+                section_header(ui, tr.sec_appearance);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "BorderStyle",
+                    ctrl,
+                    action,
+                    &["None", "Single", "Fixed3D"],
+                );
+                color_row(ui, id, "BorderColor", ctrl, action);
+                int_prop_row(ui, id, "BorderWidth", "Border width", ctrl, action, 0..=40, None, 1);
+                int_prop_row(
+                    ui,
+                    id,
+                    "CornerRadius",
+                    "Corner radius",
+                    ctrl,
+                    action,
+                    0..=60,
+                    None,
+                    10,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Transparency",
+                    "Transparency",
+                    ctrl,
+                    action,
+                    0..=100,
+                    Some("%"),
+                    100,
+                );
+                color_row(ui, id, "BackgroundColor", ctrl, action);
                 ui.add_space(4.0);
             }
 

@@ -12907,15 +12907,31 @@ mod elegance_baseline_tests {
         // scale ticks, a needle and its hub — 13 leaves — and the fixture holds
         // exactly one Gauge. Every row moved by exactly +13, which is that one
         // control and nothing else.
+        //
+        // Re-blessed in 1.61.69: the ToolBar. By operator decision a new toolbar
+        // is fully transparent with NO border, so it stops drawing the card and
+        // rim it used to — and instead draws the example it now ships with, one
+        // group holding one folder-open button. Both halves show in the numbers:
+        // the card it gave up costs a lot in Classic and Enhanced and almost
+        // nothing in Neumorphic, while the button and its icon cost the same
+        // everywhere. Hence Classic −62, Enhanced −70, and Neumorphic +7 — the
+        // +7 being what is left when there was no expensive card to lose.
+        //
+        // Both themes in each style moved by the SAME amount, which is what says
+        // one control moved rather than the seam: no pack here skins a toolbar.
+        // And the only painting this release touched is the ToolBar's — the
+        // `CT::ToolBar` label arm and the toolbar draw block in this file, plus
+        // that control's seeded properties in the model. No other control type is
+        // reachable from those changes.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1374),
-            ("asset-pack", GS::Classic, 1196),
-            ("liquid-glass", GS::Enhanced, 1482),
-            ("asset-pack", GS::Enhanced, 1278),
-            ("liquid-glass", GS::Neumorphic, 500),
-            ("asset-pack", GS::Neumorphic, 516),
-            ("liquid-glass", GS::NeumorphicDark, 500),
-            ("asset-pack", GS::NeumorphicDark, 516),
+            ("liquid-glass", GS::Classic, 1312),
+            ("asset-pack", GS::Classic, 1134),
+            ("liquid-glass", GS::Enhanced, 1412),
+            ("asset-pack", GS::Enhanced, 1208),
+            ("liquid-glass", GS::Neumorphic, 507),
+            ("asset-pack", GS::Neumorphic, 523),
+            ("liquid-glass", GS::NeumorphicDark, 507),
+            ("asset-pack", GS::NeumorphicDark, 523),
         ];
         for (theme, gs, want) in expected {
             let got = rows

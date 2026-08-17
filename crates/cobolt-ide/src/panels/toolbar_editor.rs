@@ -18,7 +18,9 @@
 //! of the definition, so Cancel really cancels — a developer can open it, try
 //! three arrangements, and walk away with the toolbar they started with.
 
-use cobolt_forms::toolbar::{ToolbarAction, ToolbarButton, ToolbarDef, ToolbarGroup};
+use cobolt_forms::toolbar::{
+    ButtonStyle, ToolbarAction, ToolbarButton, ToolbarDef, ToolbarGroup,
+};
 use eframe::egui;
 use egui::Color32;
 
@@ -99,13 +101,27 @@ impl ToolbarEditorModal {
             },
         };
         let id = self.def.next_button_id();
+        // Carry the LAST button's settings over (operator, 2026-08-17). Building
+        // a toolbar means six buttons that differ only in icon and action, and
+        // re-entering the size and colours on each was the work.
+        //
+        // The last button anywhere on the bar, not just in this group, so the
+        // run of buttons a developer is adding keeps its look as they move on to
+        // the next group. Its identity is NOT carried: no label, no icon, no
+        // tooltip, no action — those are what makes it a different button.
+        let inherited = self
+            .def
+            .buttons()
+            .last()
+            .map(|(_, b)| b.style.clone())
+            .unwrap_or_default();
         let Some(group) = self.def.groups.get_mut(gi) else {
             return;
         };
         let n = group.buttons.len() + 1;
-        group
-            .buttons
-            .push(ToolbarButton::new(id, format!("Button {n}")));
+        let mut button = ToolbarButton::new(id, format!("Button {n}"));
+        button.style = inherited;
+        group.buttons.push(button);
         self.selected = Selection::Button(gi, group.buttons.len() - 1);
     }
 
@@ -491,26 +507,38 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
             let Some(g) = modal.def.groups.get_mut(gi) else {
                 return;
             };
-            text_row(ui, "Name:", &mut g.label);
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(tr.sec_appearance).small().weak());
-            combo_row(ui, "Border:", &mut g.border_style, &["Single", "None", "Fixed3D"]);
-            color_row(ui, "Border colour:", &mut g.border_color);
-            int_row(ui, "Border width:", &mut g.border_width, 0, 40);
-            int_row(ui, "Corner radius:", &mut g.corner_radius, 0, 60);
-            int_row(ui, "Padding:", &mut g.padding, 0, 60);
-            color_row(ui, "Background:", &mut g.background_color);
-            ui.add_space(4.0);
-            ui.checkbox(&mut g.separator_after, tr.toolbar_separator_after);
-            if g.separator_after {
-                int_row(ui, "Separator width:", &mut g.separator_width, 0, 200);
-            }
+            prop_grid(ui, "group", |ui| {
+                text_row(ui, "Name:", &mut g.label);
+                section(ui, tr.sec_appearance);
+                combo_row(ui, "Border:", &mut g.border_style, &["Single", "None", "Fixed3D"]);
+                color_row(ui, "Border colour:", &mut g.border_color, "theme");
+                int_row(ui, "Border width:", &mut g.border_width, 0, 40);
+                int_row(ui, "Corner radius:", &mut g.corner_radius, 0, 60);
+                int_row(ui, "Padding:", &mut g.padding, 0, 60);
+                color_row(ui, "Background:", &mut g.background_color, "theme");
+                ui.label(tr.toolbar_separator_after);
+                ui.checkbox(&mut g.separator_after, "");
+                ui.end_row();
+                if g.separator_after {
+                    int_row(ui, "Separator width:", &mut g.separator_width, 0, 200);
+                }
+                // The same appearance a button has, applied to every button in
+                // the group unless that button says otherwise.
+                section(ui, "Defaults for this group's buttons");
+                style_rows(ui, &mut g.button_defaults, &ButtonStyle::default(), "theme");
+            });
         }
         Selection::Button(gi, bi) => {
             ui.label(egui::RichText::new(tr.toolbar_button_props).strong());
-            // The icon picker needs the button, but so does everything else, so
-            // take the flags out first and borrow the button once.
             let mut open_picker = false;
+            // What the group would give this button, so every inheritable row can
+            // show the value it is actually inheriting.
+            let group_defaults = modal
+                .def
+                .groups
+                .get(gi)
+                .map(|g| g.button_defaults.clone())
+                .unwrap_or_default();
             {
                 let Some(b) = modal
                     .def
@@ -520,64 +548,48 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                 else {
                     return;
                 };
-                text_row(ui, "Label:", &mut b.label);
-                text_row(ui, "Tooltip:", &mut b.tooltip);
-                ui.checkbox(&mut b.enabled, "Enabled");
-
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new("Icon").small().weak());
-                ui.horizontal(|ui| {
+                prop_grid(ui, "button", |ui| {
+                    // A button shows a label OR an icon, never both. Editing one
+                    // clears the other, and the row says so.
+                    let mut label = b.label.clone();
+                    if text_row(ui, "Label:", &mut label) {
+                        b.set_label(label);
+                    }
                     ui.label("Icon:");
-                    let shown = if b.icon.trim().is_empty() {
-                        "(none)".to_owned()
-                    } else {
-                        b.icon.clone()
-                    };
-                    if ui.button(shown).clicked() {
-                        open_picker = true;
-                    }
-                    if !b.icon.trim().is_empty() && ui.small_button("✕").clicked() {
-                        b.icon.clear();
-                    }
-                });
-                int_row(ui, "Icon size:", &mut b.icon_size, 4, 128);
-                color_row(ui, "Icon colour:", &mut b.icon_color);
-
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(tr.sec_geometry).small().weak());
-                int_row(ui, "Width:", &mut b.width, 8, 400);
-                int_row(ui, "Height:", &mut b.height, 8, 400);
-                int_row(ui, "Corner radius:", &mut b.corner_radius, 0, 60);
-
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(tr.sec_colors).small().weak());
-                color_row(ui, "Background:", &mut b.background_color);
-                color_row(ui, "Foreground:", &mut b.foreground_color);
-                ui.checkbox(&mut b.gradient, "Gradient background");
-                if b.gradient {
-                    color_row(ui, "From:", &mut b.gradient_start_color);
-                    color_row(ui, "To:", &mut b.gradient_end_color);
-                    combo_row(
-                        ui,
-                        "Direction:",
-                        &mut b.gradient_direction,
-                        &["Vertical", "Horizontal", "Diagonal"],
+                    ui.horizontal(|ui| {
+                        let shown = if b.icon.trim().is_empty() {
+                            "(none)".to_owned()
+                        } else {
+                            b.icon.clone()
+                        };
+                        if ui.button(shown).clicked() {
+                            open_picker = true;
+                        }
+                        if !b.icon.trim().is_empty() && ui.small_button("✕").clicked() {
+                            b.icon.clear();
+                        }
+                    });
+                    ui.end_row();
+                    ui.label("");
+                    ui.label(
+                        egui::RichText::new(if b.icon.trim().is_empty() {
+                            "A label or an icon — setting one clears the other."
+                        } else {
+                            "Icon set; a label would replace it."
+                        })
+                        .small()
+                        .weak(),
                     );
-                }
+                    ui.end_row();
+                    text_row(ui, "Tooltip:", &mut b.tooltip);
+                    bool_row(ui, "Enabled:", &mut b.enabled);
 
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(tr.sec_shadow).small().weak());
-                ui.checkbox(&mut b.shadow, "Drop shadow");
-                if b.shadow {
-                    color_row(ui, "Shadow colour:", &mut b.shadow_color);
-                    int_row(ui, "Opacity %:", &mut b.shadow_opacity, 0, 100);
-                    int_row(ui, "Distance:", &mut b.shadow_distance, 0, 40);
-                    int_row(ui, "Blur:", &mut b.shadow_blur_strength, 0, 20);
-                }
+                    section(ui, tr.toolbar_action);
+                    action_row(ui, b, tr);
 
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(tr.toolbar_action).small().weak());
-                action_row(ui, b, tr);
+                    section(ui, tr.sec_appearance);
+                    style_rows(ui, &mut b.style, &group_defaults, "group");
+                });
             }
             if open_picker {
                 modal.icon_picker_open = true;
@@ -586,6 +598,109 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
             }
             show_icon_picker(modal, ui.ctx(), gi, bi);
         }
+    }
+}
+
+/// The appearance rows, shared by a group's defaults and a button's overrides.
+///
+/// ONE function for both levels, so the two can never offer different fields —
+/// which is the whole point of a group's settings being the buttons' defaults.
+/// `inherited` is what the level above would give, shown greyed on a row the
+/// developer has not set; `unset_hint` names that level ("group" on a button,
+/// "theme" on a group).
+fn style_rows(
+    ui: &mut egui::Ui,
+    style: &mut ButtonStyle,
+    inherited: &ButtonStyle,
+    unset_hint: &str,
+) {
+    use cobolt_forms::toolbar::{DEFAULT_BUTTON_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_ICON_SIZE};
+
+    opt_int_row(
+        ui,
+        "Icon size:",
+        &mut style.icon_size,
+        4,
+        128,
+        inherited.icon_size.unwrap_or(DEFAULT_ICON_SIZE),
+    );
+    color_row(ui, "Icon colour:", &mut style.icon_color, unset_hint);
+    opt_int_row(
+        ui,
+        "Width:",
+        &mut style.width,
+        8,
+        400,
+        inherited.width.unwrap_or(DEFAULT_BUTTON_SIZE.0),
+    );
+    opt_int_row(
+        ui,
+        "Height:",
+        &mut style.height,
+        8,
+        400,
+        inherited.height.unwrap_or(DEFAULT_BUTTON_SIZE.1),
+    );
+    opt_int_row(
+        ui,
+        "Corner radius:",
+        &mut style.corner_radius,
+        0,
+        60,
+        inherited.corner_radius.unwrap_or(DEFAULT_CORNER_RADIUS),
+    );
+    color_row(ui, "Background:", &mut style.background_color, unset_hint);
+    color_row(ui, "Foreground:", &mut style.foreground_color, unset_hint);
+
+    opt_bool_row(
+        ui,
+        "Gradient:",
+        &mut style.gradient,
+        inherited.gradient.unwrap_or(false),
+    );
+    if style.gradient.or(inherited.gradient).unwrap_or(false) {
+        color_row(ui, "From:", &mut style.gradient_start_color, unset_hint);
+        color_row(ui, "To:", &mut style.gradient_end_color, unset_hint);
+        combo_row(
+            ui,
+            "Direction:",
+            &mut style.gradient_direction,
+            &["Vertical", "Horizontal", "Diagonal"],
+        );
+    }
+
+    opt_bool_row(
+        ui,
+        "Drop shadow:",
+        &mut style.shadow,
+        inherited.shadow.unwrap_or(false),
+    );
+    if style.shadow.or(inherited.shadow).unwrap_or(false) {
+        color_row(ui, "Shadow colour:", &mut style.shadow_color, unset_hint);
+        opt_int_row(
+            ui,
+            "Opacity %:",
+            &mut style.shadow_opacity,
+            0,
+            100,
+            inherited.shadow_opacity.unwrap_or(25),
+        );
+        opt_int_row(
+            ui,
+            "Distance:",
+            &mut style.shadow_distance,
+            0,
+            40,
+            inherited.shadow_distance.unwrap_or(2),
+        );
+        opt_int_row(
+            ui,
+            "Blur:",
+            &mut style.shadow_blur_strength,
+            0,
+            20,
+            inherited.shadow_blur_strength.unwrap_or(0),
+        );
     }
 }
 
@@ -748,7 +863,8 @@ fn show_icon_picker(modal: &mut ToolbarEditorModal, ctx: &egui::Context, gi: usi
             .get_mut(gi)
             .and_then(|g| g.buttons.get_mut(bi))
         {
-            b.icon = name;
+            // Through the setter, so choosing an icon takes the label away.
+            b.set_icon(name);
         }
         close = true;
     }
@@ -757,23 +873,102 @@ fn show_icon_picker(modal: &mut ToolbarEditorModal, ctx: &egui::Context, gi: usi
     }
 }
 
-// ── Small rows, matching the properties pane's conventions ────────────────────
+// ── Rows, in a two-column grid: label | value ─────────────────────────────────
+//
+// Every row is one `Grid` row, so the labels line up down the left and the
+// widgets down the right (operator, 2026-08-17) — `ui.horizontal` per row left
+// each widget wherever its own label ended, which is what the screenshot showed.
 //
 // Field labels are plain text here, as they are in `properties.rs` — only the
 // modal's chrome and section headers go through `Tr`.
 
-fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.text_edit_singleline(value);
-    });
+/// Open the two-column grid the rows below expect to be inside.
+fn prop_grid<R>(ui: &mut egui::Ui, salt: &str, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    egui::Grid::new(format!("tb-grid-{salt}"))
+        .num_columns(2)
+        .spacing([10.0, 4.0])
+        .striped(false)
+        .show(ui, body)
+        .inner
+}
+
+/// A section heading that spans both columns.
+fn section(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).small().weak());
+    ui.end_row();
+}
+
+fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) -> bool {
+    ui.label(label);
+    let changed = ui.text_edit_singleline(value).changed();
+    ui.end_row();
+    changed
+}
+
+fn bool_row(ui: &mut egui::Ui, label: &str, value: &mut bool) {
+    ui.label(label);
+    ui.checkbox(value, "");
+    ui.end_row();
 }
 
 fn int_row(ui: &mut egui::Ui, label: &str, value: &mut i64, lo: i64, hi: i64) {
+    ui.label(label);
+    ui.add(egui::DragValue::new(value).range(lo..=hi).speed(0.4));
+    ui.end_row();
+}
+
+/// An inheritable number: blank means "whatever my group says".
+fn opt_int_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Option<i64>,
+    lo: i64,
+    hi: i64,
+    inherited: i64,
+) {
+    ui.label(label);
     ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add(egui::DragValue::new(value).range(lo..=hi).speed(0.4));
+        let mut shown = value.unwrap_or(inherited);
+        if ui
+            .add(egui::DragValue::new(&mut shown).range(lo..=hi).speed(0.4))
+            .changed()
+        {
+            *value = Some(shown);
+        }
+        match value {
+            None => {
+                ui.label(egui::RichText::new("group").small().weak());
+            }
+            Some(_) => {
+                if ui.small_button("✕").clicked() {
+                    *value = None;
+                }
+            }
+        }
     });
+    ui.end_row();
+}
+
+/// An inheritable switch: blank means "whatever my group says".
+fn opt_bool_row(ui: &mut egui::Ui, label: &str, value: &mut Option<bool>, inherited: bool) {
+    ui.label(label);
+    ui.horizontal(|ui| {
+        let mut shown = value.unwrap_or(inherited);
+        if ui.checkbox(&mut shown, "").changed() {
+            *value = Some(shown);
+        }
+        match value {
+            None => {
+                ui.label(egui::RichText::new("group").small().weak());
+            }
+            Some(_) => {
+                if ui.small_button("✕").clicked() {
+                    *value = None;
+                }
+            }
+        }
+    });
+    ui.end_row();
 }
 
 fn combo_row(ui: &mut egui::Ui, label: &str, value: &mut String, options: &[&str]) {
@@ -784,24 +979,24 @@ fn combo_row(ui: &mut egui::Ui, label: &str, value: &mut String, options: &[&str
     } else {
         value.clone()
     };
-    ui.horizontal(|ui| {
-        ui.label(label);
-        egui::ComboBox::from_id_salt((label, options.len()))
-            .selected_text(shown.clone())
-            .show_ui(ui, |ui| {
-                for opt in options {
-                    if ui.selectable_label(shown == *opt, *opt).clicked() {
-                        *value = (*opt).to_owned();
-                    }
+    ui.label(label);
+    egui::ComboBox::from_id_salt((label, options.len()))
+        .selected_text(shown.clone())
+        .show_ui(ui, |ui| {
+            for opt in options {
+                if ui.selectable_label(shown == *opt, *opt).clicked() {
+                    *value = (*opt).to_owned();
                 }
-            });
-    });
+            }
+        });
+    ui.end_row();
 }
 
-/// A colour, with "unset" as a real state — that is what defers to the theme.
-fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String) {
+/// A colour, with "unset" as a real state — that is what defers to the group,
+/// and then to the theme.
+fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String, unset_hint: &str) {
+    ui.label(label);
     ui.horizontal(|ui| {
-        ui.label(label);
         let mut rgba = if value.trim().is_empty() {
             [0.5_f32, 0.5, 0.5, 1.0]
         } else {
@@ -823,12 +1018,13 @@ fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String) {
             );
         }
         if value.trim().is_empty() {
-            ui.label(egui::RichText::new("theme").small().weak());
+            ui.label(egui::RichText::new(unset_hint).small().weak());
         } else if ui.small_button("✕").clicked() {
-            // Back to unset — the theme decides again.
+            // Back to unset — the group, then the theme, decides again.
             value.clear();
         }
     });
+    ui.end_row();
 }
 
 #[cfg(test)]
@@ -955,6 +1151,75 @@ mod tests {
             "\n  Toolbar editor split — no panic across widths 0..2000 × 6 ratios; the \
              tree never drops below {TREE_MIN_W}px, and from {narrowest_ok}px up the \
              properties pane keeps its {PROPS_MIN_W}px; NaN/inf ratios stay finite\n"
+        );
+    }
+
+    /// A new button keeps the last one's appearance, and nothing of its identity.
+    ///
+    /// Building a toolbar is six buttons that differ only in icon and action;
+    /// re-entering the size and colours on each was the work (operator,
+    /// 2026-08-17).
+    #[test]
+    fn a_new_button_inherits_the_previous_ones_look_but_not_its_identity() {
+        let mut m = modal();
+        m.add_button();
+
+        // Dress the first button.
+        {
+            let b = &mut m.def.groups[0].buttons[0];
+            b.style.icon_size = Some(30);
+            b.style.width = Some(44);
+            b.style.background_color = "#204080FF".into();
+            b.style.shadow = Some(true);
+            b.set_icon("folder-open");
+            b.tooltip = "Open".into();
+            b.action = "print:/tmp/a.pdf".into();
+        }
+
+        m.add_button();
+        let (first, second) = {
+            let bs = &m.def.groups[0].buttons;
+            (bs[0].clone(), bs[1].clone())
+        };
+
+        // The look carries over, in full.
+        assert_eq!(second.style, first.style, "the appearance must carry over");
+        assert_eq!(second.style.icon_size, Some(30));
+        assert_eq!(second.style.background_color, "#204080FF");
+
+        // The identity does NOT — that is what makes it a different button.
+        assert_ne!(second.id, first.id);
+        assert!(second.icon.is_empty(), "not the same icon");
+        assert!(second.tooltip.is_empty(), "not the same tooltip");
+        assert!(second.action.is_empty(), "not the same action");
+        assert_eq!(second.action().verb(), "event", "…so it runs its own onClick");
+
+        // It carries across groups too: the run of buttons keeps its look when
+        // the developer moves on.
+        m.add_group();
+        m.add_button();
+        let third = m.def.groups[1].buttons[0].clone();
+        assert_eq!(
+            third.style.icon_size,
+            Some(30),
+            "the look follows into the next group"
+        );
+
+        // And the very first button of an empty toolbar inherits nothing, so it
+        // is the theme's.
+        let mut fresh = modal();
+        fresh.add_button();
+        assert_eq!(
+            fresh.def.groups[0].buttons[0].style,
+            ButtonStyle::default(),
+            "with nothing to inherit from, a button starts plain"
+        );
+
+        println!(
+            "\n  Toolbar editor — a new button inherits the previous one's style \
+             (icon 30, width 44, #204080, shadow) across groups, and none of its \
+             identity (id, icon, tooltip, action); the first button of an empty \
+             toolbar starts plain\n"
         );
     }
 

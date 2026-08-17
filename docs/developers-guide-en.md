@@ -1517,19 +1517,47 @@ and width, corner radius, its own padding between frame and buttons, a
 background, and *Separator after this group* with a width. `None` still groups —
 the padding and the separator still apply — it simply draws no frame.
 
-**A button** has: a label, a tooltip, an enabled flag, an icon from the built-in
-hand-drawn set with its own size and colour, a width and height, a corner
-radius, a background (solid, or a gradient with start/end colours and a
-direction), a foreground colour, a drop shadow (colour, opacity, distance,
-blur), and an **action**.
+**A button** has: a label **or** an icon, a tooltip, an enabled flag, an
+**action**, and an appearance — icon size and colour, a width and height, a
+corner radius, a background (solid, or a gradient with start/end colours and a
+direction), a foreground colour and a drop shadow (colour, opacity, distance,
+blur).
+
+**A label and an icon are mutually exclusive.** A toolbar button shows one
+thing, so setting a label clears the icon and choosing an icon clears the
+label. Use the tooltip for the words when you want an icon.
 
 **Corner radius defaults to 10** on both groups and buttons.
 
-**Colours follow the form's theme.** Every colour starts unset, and unset means
-*the theme decides* — a group's frame takes the theme's border, a button's face
-its raised card, the label and icon its text colour. A colour you actually pick
-always wins. So a toolbar dropped on a themed form belongs there before you
-configure anything.
+##### Three levels of appearance
+
+A button's own value wins. Where the button says nothing, its **group**
+decides. Where the group says nothing either, the **form's theme** does.
+
+That is what makes a group worth having: set the icon size, or the background,
+or the shadow once on the group and every button in it follows — and one button
+can still disagree, field by field. In the editor an inherited row is marked
+`group` (or `theme` on a group), and the ✕ beside a value you have set puts it
+back to inheriting.
+
+**Adding a button copies the previous one's appearance** — its size, colours,
+gradient and shadow, but never its icon, tooltip or action. Building a toolbar
+is usually six buttons that differ only in icon and action, so you set the look
+once.
+
+##### The bar's own frame
+
+Separately from the groups, the ToolBar control itself has `BorderStyle`,
+`BorderColor`, `BorderWidth`, `CornerRadius`, `Transparency` and
+`BackgroundColor` in the properties pane.
+
+A new toolbar is **rounded at 10, has no border, and is 100 % transparent** — so
+it reads as buttons sitting on your form rather than as a panel laid over it.
+Turn the border on when you want the strip to be visible in its own right.
+
+A new toolbar also arrives holding **one group with one folder-open button**, so
+a ToolBar you have just dropped shows what a toolbar is instead of an empty
+strip. Delete it, rename it, or build around it.
 
 ##### What a button does
 
