@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.79] — 2026-08-17
+
+### Added — 32 hand-drawn icons for form actions and objects
+
+Three new catalogue categories, in the existing style: same 24-unit grid, same
+single 1.5-unit stroke, fills only where a small shape reads better solid.
+
+- **Selection** — `select-item`, `select-all`, `select-invert`, `select-none`,
+  `lasso`, `move`, `arrows`. One marquee motif runs through the four `select-*`
+  icons so they read as a family and differ only in what is selected.
+- **Design** — `paint-bucket`, `fill`, `color-palette`, `object`, `equation`,
+  `rotate-left`, `rotate-right`, `flip-horizontal`, `flip-vertical`,
+  `fit-to-window`, `thumbnails`.
+- **Application** — `window`, `form`, `application`, `bundle`, `component`,
+  `find-replace`, `spelling`, `speech`, `volume-up`, `volume-down`, `sleep`,
+  `quit`, `globe`, `local`. One window frame underpins window / form /
+  application, so the three read as the same object at three levels of detail.
+
+Everything else the operator asked for was already drawn and was left alone:
+File (`doc-blank`), Open File (`doc-open`), Cut (`scissors`), Brush, Find
+(`magnifier`), Delete (`trash`), Lock, Settings (`gear`), Zoom
+(`zoom-in`/`zoom-out`), Left/Center/Right (`align-*`), Import, Export, Help
+(`help-circle`), Audio (`volume`), Mute, Comment, Mail, Share, Flag, Archive,
+Smartphone, Profile.
+
+**`cargo run -p cobolt-forms --features render --example icon_png_sheet`** renders a
+contact sheet to a PNG — each icon at 56 px to judge the drawing and at 16 px to
+judge whether it survives a menu row. Seven of these thirty-two were redrawn
+because of what it showed: the paint bucket read as a tent, the puzzle piece as a
+notched box, and a talking head collapsed into a blob twice before becoming a
+bubble with a wave in it. An icon that compiles is not an icon that reads.
+
 ## [PowerRustCOBOL 1.61.78] — 2026-08-17
 
 ### Added — keep the model configuration, and its API keys, where you choose

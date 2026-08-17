@@ -1974,15 +1974,19 @@ as a YAML file alongside the `.cfrm`.
 reorder items up to 3 levels deep. Each item has:
 
 - **Label** — the text shown in the menu.
-- **Icon** — an optional icon from the built-in catalogue: **700+ pure-vector
-  icons in 30 categories** — documents, editing, navigation, communication,
+- **Icon** — an optional icon from the built-in catalogue: **740+ pure-vector
+  icons in 33 categories** — documents, editing, navigation, communication,
   media, commerce, payroll, receivables, payments, stock control,
   transportation, logistics, financial, company **departments**, transaction
   kinds (buy, sell, return, chargeback, …), civilian **vehicles**,
   **military** vehicles & equipment, **devices** (computers, retro-computers,
   tablets, smartphones, wearables), **SaaS** applications (CRM, ERP, BI, LMS,
-  CMS, ITSM, POS, chatbot, …), **PaaS** services (aPaaS through AIaaS) and
-  **ERP modules** (FI, CO, SD, MM, PP, QM, PM, SCM). Icons are drawn as
+  CMS, ITSM, POS, chatbot, …), **PaaS** services (aPaaS through AIaaS),
+  **ERP modules** (FI, CO, SD, MM, PP, QM, PM, SCM), **selection** tools
+  (marquee, select all/none/invert, lasso, move), **design** tools (paint
+  bucket, fill, palette, rotate, flip, fit to window, thumbnails) and
+  **application** objects (window, form, application, bundle, component, find
+  and replace, spelling, speech, sleep, quit, globe, local). Icons are drawn as
   resolution-independent line work — the same icon is crisp in a 16 px menu
   row or a 128 px tile — and take the menu item's colour. The engine can also
   render any icon with a second accent colour, a drop shadow, or a neumorphic
