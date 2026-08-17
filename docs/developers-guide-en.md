@@ -4327,6 +4327,23 @@ the Run Form pane and the running shell's MenuPane. The SideMenu's
 **IconEffect** property (`None` | `Shadow` | `Neumorphic`) chooses how those
 icons are painted — `Neumorphic` matches the IDE's Neumorphic surface style.
 
+**One icon size per rail state.** The inspector offers two:
+
+| Property | Inspector row | What it sizes |
+|---|---|---|
+| `IconSize` | **Icon size (Open)** | Menu-item icons while the sidebar is open, beside their labels. |
+| `IconSizeCollapsed` | **Icon size (Collapsed)** | Menu-item icons on the collapsed rail, where the icon *is* the row. |
+
+Both default to 22 points and take any value from 8 to 64. They are separate
+because the two states are two designs: next to a label an icon must not
+overpower the text, while alone on a 72-point rail that same size reads as
+lost. Icons are drawn as vectors, so any value is a clean scale rather than a
+stretched bitmap.
+
+> **Note.** A form designed before **Icon size (Collapsed)** existed simply uses
+> its open size in both states, so nothing you already drew changes until you
+> set it.
+
 **What the collapsed rail carries.** The rail is one icon wide, so an item earns
 a place on it only when it can be reached *by its icon*: it has **an icon**, it
 has **an action**, and it is **not a group**.

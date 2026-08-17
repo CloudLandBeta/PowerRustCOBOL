@@ -3851,9 +3851,17 @@ impl Control {
                     props.insert("Collapsed".into(), PropValue::Bool(false));
                     // How menu-item icons are painted: None | Shadow | Neumorphic.
                     props.insert("IconEffect".into(), PropValue::String("None".into()));
-                    // Menu-item icon size, in points. Icons are vectors, so
-                    // this is a clean scale rather than a resample.
+                    // Menu-item icon size, in points, per rail state. Icons are
+                    // vectors, so this is a clean scale rather than a resample.
+                    //
+                    // Two sizes because the two states are two designs: OPEN,
+                    // an icon sits beside a label and must not overpower it;
+                    // COLLAPSED, the icon IS the row, and the size that read
+                    // correctly next to text is small alone on a rail. A form
+                    // saved before the collapsed size existed falls back to the
+                    // open one, so nothing that was designed changes.
                     props.insert("IconSize".into(), PropValue::Int(22));
+                    props.insert("IconSizeCollapsed".into(), PropValue::Int(22));
                     // The three panes: a header carrying the logo, the menu,
                     // and a footer holding the developer's Panel. The menu
                     // pane is whatever height is left between them.

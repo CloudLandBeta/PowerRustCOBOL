@@ -1327,8 +1327,11 @@ pub struct Tr {
     pub prop_full_height: &'static str,
     /// 049 — the SideMenu's Collapsed property row (the state it opens in).
     pub prop_collapsed: &'static str,
-    /// 049 — the SideMenu's menu-item icon size row.
-    pub prop_icon_size: &'static str,
+    /// 049 — the SideMenu's menu-item icon size while the rail is OPEN.
+    pub prop_icon_size_open: &'static str,
+    /// 049 — …and while it is COLLAPSED. Two rows because the two rail states
+    /// are two designs: beside a label, and alone on the rail.
+    pub prop_icon_size_collapsed: &'static str,
     /// 049 — the SideMenu's header logo image row.
     pub prop_header_image: &'static str,
     /// 049 — the collapsed rail's header mark (a catalogue icon name).
@@ -2450,7 +2453,8 @@ const EN: Tr = Tr {
     menu_edit_btn: "Edit Menu...",
     prop_full_height: "Full height",
     prop_collapsed: "Start collapsed",
-    prop_icon_size: "Icon size",
+    prop_icon_size_open: "Icon size (Open)",
+    prop_icon_size_collapsed: "Icon size (Collapsed)",
     prop_header_image: "Header image:",
     prop_header_icon: "Header icon (collapsed):",
     lbl_theme: "Theme",
@@ -3542,7 +3546,8 @@ const ES: Tr = Tr {
     menu_edit_btn: "Editar Menu...",
     prop_full_height: "Altura completa",
     prop_collapsed: "Iniciar contraído",
-    prop_icon_size: "Tamaño de icono",
+    prop_icon_size_open: "Tamaño de icono (abierta)",
+    prop_icon_size_collapsed: "Tamaño de icono (contraída)",
     prop_header_image: "Imagen de cabecera:",
     prop_header_icon: "Icono de cabecera (contraída):",
     lbl_theme: "Tema",
@@ -4634,7 +4639,8 @@ const PT: Tr = Tr {
     menu_edit_btn: "Editar Menu...",
     prop_full_height: "Altura total",
     prop_collapsed: "Iniciar recolhido",
-    prop_icon_size: "Tamanho do ícone",
+    prop_icon_size_open: "Tamanho do ícone (aberta)",
+    prop_icon_size_collapsed: "Tamanho do ícone (recolhida)",
     prop_header_image: "Imagem do cabeçalho:",
     prop_header_icon: "Ícone do cabeçalho (recolhida):",
     lbl_theme: "Tema",
@@ -5725,7 +5731,8 @@ const JA: Tr = Tr {
     menu_edit_btn: "メニュー編集...",
     prop_full_height: "ウィンドウ全高",
     prop_collapsed: "折りたたんで開始",
-    prop_icon_size: "アイコンサイズ",
+    prop_icon_size_open: "アイコンサイズ(展開時)",
+    prop_icon_size_collapsed: "アイコンサイズ(折りたたみ時)",
     prop_header_image: "ヘッダー画像:",
     prop_header_icon: "ヘッダーアイコン(折りたたみ時):",
     lbl_theme: "テーマ",
@@ -6824,7 +6831,8 @@ const ZH: Tr = Tr {
     menu_edit_btn: "编辑菜单...",
     prop_full_height: "整窗高度",
     prop_collapsed: "启动时折叠",
-    prop_icon_size: "图标大小",
+    prop_icon_size_open: "图标大小(展开时)",
+    prop_icon_size_collapsed: "图标大小(收起时)",
     prop_header_image: "页眉图片:",
     prop_header_icon: "页眉图标(收起时):",
     lbl_theme: "主题",
@@ -7916,7 +7924,8 @@ const FR: Tr = Tr {
     menu_edit_btn: "Editer le menu...",
     prop_full_height: "Hauteur totale",
     prop_collapsed: "Demarrer replie",
-    prop_icon_size: "Taille d'icone",
+    prop_icon_size_open: "Taille d'icone (ouverte)",
+    prop_icon_size_collapsed: "Taille d'icone (reduite)",
     prop_header_image: "Image d'en-tete:",
     prop_header_icon: "Icone d'en-tete (reduite):",
     lbl_theme: "Theme",
