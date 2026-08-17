@@ -4347,9 +4347,18 @@ because it has an icon and an action.
 > give its menu item an icon and an action. A group that you also want reachable
 > should have a leaf item of its own, rather than relying on the group row.
 
-**Indentation.** A group and everything inside it share one left edge — the
-group's own name. Nesting shows as a small offset of the child's **icon**, so an
-expanded menu still has a straight left edge to read down.
+**Indentation.** A group's items are **indented** under it, one level at a time.
+The whole row moves: an item that has an icon carries that icon in with its
+label, so the icon keeps its place beside the text at every level and each level
+has its own column to read down.
+
+**Home stands apart on the rail.** On the collapsed rail, an item whose action is
+**Home (main content pane)** is followed by a whole row's worth of extra space,
+so the distance from it to the icon beneath is twice the distance between any
+other two icons. It is the item's *action* that earns the space, not its
+label — call a row "Home" without the Home action and it is an ordinary icon,
+and the space follows the action if you move it elsewhere. (Where a section
+divider already falls beneath Home, nothing is added: the divider separates.)
 
 **The sidebar is live in Preview and Run Form.** Clicking the ☰ collapses and
 opens the rail (firing `onMenuOpen`/`onMenuClose`), and clicking an item row

@@ -70,11 +70,17 @@ pub const HEADER_H: f32 = 120.0;
 pub const FOOTER_H: f32 = 72.0;
 const PAD_X: f32 = 12.0;
 
-/// How far a nested row's ICON shifts right of its parent's (operator,
-/// 2026-08-17). Small on purpose: the label column is shared with the group
-/// above, so the icon has one icon-width of gutter to move within and must
-/// still finish clear of the text.
-const NEST_INDENT: f32 = 6.0;
+/// How far one level of nesting shifts a row right (operator, 2026-08-17).
+///
+/// It shifts the WHOLE row — the icon and the label together — so a group's
+/// children read as a block set in from their group, and an item that has an
+/// icon keeps that icon the same distance from its own label at every depth.
+/// A brief attempt at holding one shared label column, with only the icon
+/// stepping in, is what this replaced: it left an icon adrift between two
+/// columns and no indentation to read the structure by.
+///
+/// Applied per level, so level two is set in twice as far as level one.
+const NEST_INDENT: f32 = 16.0;
 const ICON: f32 = 22.0;
 const RADIUS: f32 = 10.0;
 
@@ -586,7 +592,7 @@ pub fn shows_on_rail(item: &MenuItem) -> bool {
 /// the operations of the form that is open.
 fn rail_rows(items: &[MenuItem], y: &mut f32, rect: Rect, rows: &mut Vec<SidebarRow>) {
     enum Entry {
-        Icon { id: String, path: Vec<usize> },
+        Icon { id: String, path: Vec<usize>, home: bool },
         Divider(String),
     }
     fn walk(items: &[MenuItem], prefix: &mut Vec<usize>, out: &mut Vec<Entry>) {
@@ -600,6 +606,7 @@ fn rail_rows(items: &[MenuItem], y: &mut f32, rect: Rect, rows: &mut Vec<Sidebar
                 out.push(Entry::Icon {
                     id: item.id.clone(),
                     path: prefix.clone(),
+                    home: is_home(item),
                 });
             }
             // A group contributes nothing itself, but what is INSIDE it can.
@@ -629,26 +636,32 @@ fn rail_rows(items: &[MenuItem], y: &mut f32, rect: Rect, rows: &mut Vec<Sidebar
             }
         }
     }
-    // …and only ONE where several fell together.
+    // …and only ONE where several fell together. The survivors are collected
+    // first, because laying a row out needs to know what comes AFTER it.
+    let mut final_entries: Vec<&Entry> = Vec::new();
     let mut last_was_divider = false;
     for (i, e) in entries.iter().enumerate() {
         if !keep[i] {
             continue;
         }
         match e {
+            Entry::Divider(_) if last_was_divider => continue,
+            Entry::Divider(_) => last_was_divider = true,
+            Entry::Icon { .. } => last_was_divider = false,
+        }
+        final_entries.push(e);
+    }
+
+    for (i, e) in final_entries.iter().enumerate() {
+        match e {
             Entry::Divider(label) => {
-                if last_was_divider {
-                    continue;
-                }
-                last_was_divider = true;
                 rows.push(SidebarRow::whole(
                     RowKind::Section(label.clone()),
                     Rect::from_min_size(Pos2::new(rect.min.x, *y), Vec2::new(rect.width(), SECTION_H)),
                 ));
                 *y += SECTION_H;
             }
-            Entry::Icon { id, path } => {
-                last_was_divider = false;
+            Entry::Icon { id, path, home } => {
                 rows.push(SidebarRow::whole(
                     RowKind::Item {
                         id: id.clone(),
@@ -660,9 +673,29 @@ fn rail_rows(items: &[MenuItem], y: &mut f32, rect: Rect, rows: &mut Vec<Sidebar
                     Rect::from_min_size(Pos2::new(rect.min.x, *y), Vec2::new(rect.width(), ROW_H)),
                 ));
                 *y += ROW_H + ROW_GAP;
+                // HOME stands apart from the icons under it (operator,
+                // 2026-08-17): a whole row's worth of extra space, so the
+                // distance from Home to the next icon is exactly twice the
+                // distance between any other two.
+                //
+                // Only where an icon actually follows — a divider already
+                // separates, and trailing space at the foot of the rail
+                // separates nothing.
+                if *home && matches!(final_entries.get(i + 1), Some(Entry::Icon { .. })) {
+                    *y += ROW_H + ROW_GAP;
+                }
             }
         }
     }
+}
+
+/// Whether an item is the shell's HOME (spec 051), by its ACTION.
+///
+/// Never by its label: the action is the same string in every language, and a
+/// rule that read "Home" would stop working the moment the menu was written in
+/// Portuguese — the same reason [`shows_on_rail`] special-cases nothing.
+pub fn is_home(item: &MenuItem) -> bool {
+    item.action.as_deref() == Some("home")
 }
 
 /// caller's job, and doing it here is what lost the overflow.
@@ -948,6 +981,36 @@ fn paint_section(painter: &egui::Painter, rect: Rect, title: &str, state: &Sideb
     );
 }
 
+/// How far a row at `depth` is set in from the rail's left padding.
+///
+/// ONE offset for the whole row: [`item_icon_rect`] and [`item_label_x`] both
+/// start from it, which is what keeps a child's icon and its label moving
+/// together instead of drifting apart (operator, 2026-08-17).
+fn nest_offset(depth: usize) -> f32 {
+    depth as f32 * NEST_INDENT
+}
+
+/// The box a row's icon is drawn in. Centred on the rail when collapsed —
+/// there is one column there, and indenting it would only push it off centre.
+fn item_icon_rect(rect: Rect, depth: usize, icon: f32, collapsed: bool) -> Rect {
+    let c = if collapsed {
+        rect.center()
+    } else {
+        Pos2::new(
+            rect.min.x + PAD_X + nest_offset(depth) + icon * 0.5,
+            rect.center().y,
+        )
+    };
+    Rect::from_center_size(c, Vec2::splat(icon))
+}
+
+/// Where a row's label starts — the icon box it follows, plus a gap. An item
+/// with no icon still starts here, so a menu of mixed items keeps one text
+/// column per level rather than one per item.
+fn item_label_x(rect: Rect, depth: usize, icon: f32) -> f32 {
+    rect.min.x + PAD_X + nest_offset(depth) + icon + 10.0
+}
+
 fn paint_item(
     painter: &egui::Painter,
     rect: Rect,
@@ -977,32 +1040,17 @@ fn paint_item(
 
     let content = if active { pal.on_accent } else if enabled { pal.fg } else { pal.dim };
     let icon = state.icon_size;
-    // Everything in a group lines up under the group's NAME (operator,
-    // 2026-08-17). The label column is therefore the same at every depth, and
-    // the nesting is carried by a small offset of the ICON alone.
-    //
-    // The indent used to be 16 px and moved the label with it, so a child's
-    // name started 16 px right of its parent's and the menu had no left edge to
-    // read down. It is capped at [`NEST_INDENT`] because the icon has to finish
-    // before that shared label column — there is exactly one icon's width of
-    // gutter, and a bigger indent would push the icon into the text.
-    let indent = if depth == 0 { 0.0 } else { NEST_INDENT };
-    let icon_c = if state.collapsed {
-        rect.center()
-    } else {
-        Pos2::new(rect.min.x + PAD_X + indent + icon * 0.5, rect.center().y)
-    };
+    // A group's children are INDENTED, icon and label alike (operator,
+    // 2026-08-17): the row moves as one, so the icon keeps its place beside its
+    // own label wherever the item sits in the tree.
+    let icon_box = item_icon_rect(rect, depth, icon, state.collapsed);
+    let icon_c = icon_box.center();
 
     match &item.icon {
         Some(name) => {
             let mut style = state.icon_style;
             style.color = content;
-            crate::icons::draw_menu_icon_styled(
-                painter,
-                Rect::from_center_size(icon_c, Vec2::splat(icon)),
-                name,
-                &style,
-            );
+            crate::icons::draw_menu_icon_styled(painter, icon_box, name, &style);
         }
         None if state.collapsed => {
             // Icon-only rail: the initial keeps an iconless item reachable.
@@ -1030,9 +1078,9 @@ fn paint_item(
         return;
     }
 
-    // Label. NOT indented — see the note above `indent`: a group and everything
-    // inside it share one left edge, which is the group's own name.
-    let label_x = rect.min.x + PAD_X + icon + 10.0;
+    // Label — indented by the same offset the icon took, so the two stay one
+    // row and each level has its own text column.
+    let label_x = item_label_x(rect, depth, icon);
     let mut right = rect.max.x - PAD_X;
 
     // Chevron for a row that owns children.
@@ -1488,14 +1536,14 @@ mod tests {
         );
     }
 
-    /// A group and everything inside it share ONE left edge — the group's own
-    /// name (operator, 2026-08-17).
+    /// A group's children are INDENTED — the icon and the label together
+    /// (operator, 2026-08-17).
     ///
-    /// The indent used to move the label as well as the icon, so a child's name
-    /// began 16 px right of its parent's and the expanded menu had no left edge
-    /// to read down. Nesting now shows in the icon alone.
+    /// The row moves as one unit. It briefly held a single shared label column
+    /// with only the icon stepping in, which left the icon adrift between two
+    /// columns and gave the expanded menu no indentation to read at all.
     #[test]
-    fn a_groups_children_line_up_under_its_name() {
+    fn a_groups_children_are_indented_icon_and_label_together() {
         let items = sample();
         let expanded = vec!["level".to_string()];
         let st = state(&items, false, &expanded);
@@ -1529,18 +1577,127 @@ mod tests {
         let group = x_of("Menu Level");
         let child = x_of("Salma");
         assert!(
-            (group - child).abs() < 0.01,
-            "a child's name must start where its group's name does: group {group}, \
-             child {child}"
+            (child - group - NEST_INDENT).abs() < 0.01,
+            "a child's name is set in one level from its group's: group {group}, \
+             child {child}, expected {}",
+            group + NEST_INDENT
         );
-        // …and it is the same edge every top-level row uses.
+        // Every top-level row still shares one edge — only nesting moves a row.
         assert!((x_of("Modern") - group).abs() < 0.01);
         assert!((x_of("Chat") - group).abs() < 0.01);
 
+        // The ICON takes the same step, so it keeps its own distance from its
+        // own label at every depth — the row moves as one.
+        let row = Rect::from_min_size(Pos2::ZERO, Vec2::new(260.0, ROW_H));
+        let parent_icon = item_icon_rect(row, 0, ICON, false);
+        let child_icon = item_icon_rect(row, 1, ICON, false);
+        assert!(
+            (child_icon.min.x - parent_icon.min.x - NEST_INDENT).abs() < 0.01,
+            "the icon is indented with the label: {} vs {}",
+            parent_icon.min.x,
+            child_icon.min.x
+        );
+        assert_eq!(parent_icon.size(), child_icon.size(), "indenting is not resizing");
+        let gap = |d: usize| item_label_x(row, d, ICON) - item_icon_rect(row, d, ICON, false).max.x;
+        assert!(
+            (gap(0) - gap(1)).abs() < 0.01,
+            "icon-to-label gap must not change with depth: {} vs {}",
+            gap(0),
+            gap(1)
+        );
+
         println!(
-            "\n  Sidebar alignment — 'Menu Level', its child 'Salma', 'Modern' and 'Chat' \
-             all start at x={group:.1}: one left edge down the whole menu, with nesting \
-             carried by a {NEST_INDENT:.0}px icon offset instead of a moved label\n"
+            "\n  Sidebar indentation — top-level 'Menu Level', 'Modern' and 'Chat' start at \
+             x={group:.1}; the child 'Salma' at x={child:.1}, one {NEST_INDENT:.0}px level in, \
+             with its icon stepped by the same {NEST_INDENT:.0}px and the {:.0}px icon-to-label \
+             gap unchanged at both depths\n",
+            gap(0)
+        );
+    }
+
+    /// HOME stands apart on the collapsed rail (operator, 2026-08-17): the
+    /// distance from it to the icon below is twice the distance between any
+    /// other two — and it is found by its ACTION, never by its label.
+    #[test]
+    fn home_keeps_twice_the_distance_from_the_icon_below_it() {
+        let none: Vec<String> = Vec::new();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, 900.0));
+        let centres = |items: &[MenuItem]| -> Vec<(String, f32)> {
+            layout(rect, &state(items, true, &none))
+                .iter()
+                .filter_map(|r| match &r.kind {
+                    RowKind::Item { id, .. } => Some((id.clone(), r.rect.center().y)),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        // `modern` is the fixture's Home: action "home", and it is followed on
+        // the rail by `analytical`.
+        let items = sample();
+        let ys = centres(&items);
+        let y_of = |id: &str| -> f32 {
+            ys.iter().find(|(i, _)| i == id).unwrap_or_else(|| panic!("{id} is not on the rail: {ys:?}")).1
+        };
+        let regular = ROW_H + ROW_GAP;
+        assert!(
+            ((y_of("analytical") - y_of("modern")) - regular * 2.0).abs() < 0.01,
+            "Home to the icon below it must be twice {regular}: {}",
+            y_of("analytical") - y_of("modern")
+        );
+        assert!(
+            ((y_of("sub") - y_of("chat")) - regular).abs() < 0.01,
+            "every other pair keeps the regular distance: {}",
+            y_of("sub") - y_of("chat")
+        );
+
+        // The LABEL decides nothing. Calling something "Home" earns no space…
+        let mut renamed = sample();
+        renamed[1].action = Some("open-form:START".into());
+        renamed[1].label = "Home".into();
+        renamed[2].label = "Not Home".into();
+        let ys = centres(&renamed);
+        let y2 = |id: &str| ys.iter().find(|(i, _)| i == id).unwrap().1;
+        assert!(
+            ((y2("analytical") - y2("modern")) - regular).abs() < 0.01,
+            "a row merely CALLED Home is an ordinary icon"
+        );
+
+        // …and the action alone moves the space to whichever row carries it.
+        let mut moved = sample();
+        moved[1].action = Some("open-form:START".into());
+        moved[4].action = Some("home".into()); // `chat`, with `sub` below it
+        let ys = centres(&moved);
+        let y3 = |id: &str| ys.iter().find(|(i, _)| i == id).unwrap().1;
+        assert!(
+            ((y3("analytical") - y3("modern")) - regular).abs() < 0.01,
+            "the row that lost the action lost the space"
+        );
+        assert!(
+            ((y3("sub") - y3("chat")) - regular * 2.0).abs() < 0.01,
+            "the row that gained it gained the space: {}",
+            y3("sub") - y3("chat")
+        );
+        assert!(is_home(&moved[4]) && !is_home(&moved[1]));
+
+        // A Home with a DIVIDER under it is already separated, so nothing is
+        // added: the distance is the regular one plus the divider itself.
+        let mut before_divider = sample();
+        before_divider[1].action = Some("open-form:START".into());
+        before_divider[2].action = Some("home".into()); // `analytical`, then "Apps"
+        let ys = centres(&before_divider);
+        let y4 = |id: &str| ys.iter().find(|(i, _)| i == id).unwrap().1;
+        assert!(
+            ((y4("chat") - y4("analytical")) - (regular + SECTION_H)).abs() < 0.01,
+            "a divider separates on its own: {}",
+            y4("chat") - y4("analytical")
+        );
+
+        println!(
+            "\n  Collapsed rail spacing — icons sit {regular:.0}px apart; Home ('modern', \
+             action \"home\") sits {:.0}px above the next icon, exactly twice; renaming a \
+             row 'Home' changes nothing and moving the ACTION moves the space with it\n",
+            y_of("analytical") - y_of("modern")
         );
     }
 
