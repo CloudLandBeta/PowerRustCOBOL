@@ -959,6 +959,48 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "local",
         ],
     ),
+    // National flags, `flag-<ISO 3166-1 alpha-2>`: every UN member state, plus
+    // the Holy See, Palestine and Kosovo. These are LINE drawings on a
+    // monochrome grid, so flags that differ only in colour share a drawing —
+    // see the note above `flag_field` for the operator decision behind that.
+    (
+        "Flags",
+        &[
+            "flag-ad", "flag-ae", "flag-af", "flag-ag", "flag-al", "flag-am",
+            "flag-ao", "flag-ar", "flag-at", "flag-au", "flag-az", "flag-ba",
+            "flag-bb", "flag-bd", "flag-be", "flag-bf", "flag-bg", "flag-bh",
+            "flag-bi", "flag-bj", "flag-bn", "flag-bo", "flag-br", "flag-bs",
+            "flag-bt", "flag-bw", "flag-by", "flag-bz", "flag-ca", "flag-cd",
+            "flag-cf", "flag-cg", "flag-ch", "flag-ci", "flag-cl", "flag-cm",
+            "flag-cn", "flag-co", "flag-cr", "flag-cu", "flag-cv", "flag-cy",
+            "flag-cz", "flag-de", "flag-dj", "flag-dk", "flag-dm", "flag-do",
+            "flag-dz", "flag-ec", "flag-ee", "flag-eg", "flag-er", "flag-es",
+            "flag-et", "flag-fi", "flag-fj", "flag-fm", "flag-fr", "flag-ga",
+            "flag-gb", "flag-gd", "flag-ge", "flag-gh", "flag-gm", "flag-gn",
+            "flag-gq", "flag-gr", "flag-gt", "flag-gw", "flag-gy", "flag-hn",
+            "flag-hr", "flag-ht", "flag-hu", "flag-id", "flag-ie", "flag-il",
+            "flag-in", "flag-iq", "flag-ir", "flag-is", "flag-it", "flag-jm",
+            "flag-jo", "flag-jp", "flag-ke", "flag-kg", "flag-kh", "flag-ki",
+            "flag-km", "flag-kn", "flag-kp", "flag-kr", "flag-kw", "flag-kz",
+            "flag-la", "flag-lb", "flag-lc", "flag-li", "flag-lk", "flag-lr",
+            "flag-ls", "flag-lt", "flag-lu", "flag-lv", "flag-ly", "flag-ma",
+            "flag-mc", "flag-md", "flag-me", "flag-mg", "flag-mh", "flag-mk",
+            "flag-ml", "flag-mm", "flag-mn", "flag-mr", "flag-mt", "flag-mu",
+            "flag-mv", "flag-mw", "flag-mx", "flag-my", "flag-mz", "flag-na",
+            "flag-ne", "flag-ng", "flag-ni", "flag-nl", "flag-no", "flag-np",
+            "flag-nr", "flag-nz", "flag-om", "flag-pa", "flag-pe", "flag-pg",
+            "flag-ph", "flag-pk", "flag-pl", "flag-ps", "flag-pt", "flag-pw",
+            "flag-py", "flag-qa", "flag-ro", "flag-rs", "flag-ru", "flag-rw",
+            "flag-sa", "flag-sb", "flag-sc", "flag-sd", "flag-se", "flag-sg",
+            "flag-si", "flag-sk", "flag-sl", "flag-sm", "flag-sn", "flag-so",
+            "flag-sr", "flag-ss", "flag-st", "flag-sv", "flag-sy", "flag-sz",
+            "flag-td", "flag-tg", "flag-th", "flag-tj", "flag-tl", "flag-tm",
+            "flag-tn", "flag-to", "flag-tr", "flag-tt", "flag-tv", "flag-tz",
+            "flag-ua", "flag-ug", "flag-us", "flag-uy", "flag-uz", "flag-va",
+            "flag-vc", "flag-ve", "flag-vn", "flag-vu", "flag-ws", "flag-xk",
+            "flag-ye", "flag-za", "flag-zm", "flag-zw",
+        ],
+    ),
 ];
 
 /// Every icon name, in catalogue order.
@@ -1146,6 +1188,7 @@ pub(crate) fn icon_shapes(name: &str) -> Option<Vec<IconShape>> {
         .or_else(|| vehicles_military_shapes(name))
         .or_else(|| devices_cloud_shapes(name))
         .or_else(|| forms_tools_shapes(name))
+        .or_else(|| flag_shapes(name))
 }
 
 /// Document, Edit, Navigation, Action.
@@ -6769,6 +6812,322 @@ fn forms_tools_shapes(name: &str) -> Option<Vec<IconShape>> {
             d(12.0, 8.8, 1.6),
             IconShape::Arc(12.0, 19.5, 8.0, 200.0, 340.0),
         ],
+
+        _ => return None,
+    })
+}
+
+// ── National flags ──────────────────────────────────────────────────────────
+//
+// ⚠️ Read this before adding one.
+//
+// These are LINE drawings on the same monochrome grid as every other icon: one
+// tint colour, at most one accent, no per-shape colour. A national flag is
+// mostly defined by its COLOURS, so a great many of them reduce to the same
+// drawing here — Italy, Ireland, France, Belgium, Romania, Chad, Mali and Guinea
+// are all "three vertical bands" and are genuinely indistinguishable. That was
+// put to the operator (2026-08-17) and they asked for the full set anyway, so
+// the collisions are deliberate and known, not an oversight to be reported.
+//
+// What CAN be told apart is geometry: band direction and count, a canton, a
+// cross, a saltire, a hoist triangle, a disc, a crescent, a star. Every flag
+// below is composed from those, so the ones that differ, differ honestly.
+
+/// The flag field: a 19×13 rectangle (close to the common 3:2), centred.
+const FLAG_X: f32 = 2.5;
+const FLAG_Y: f32 = 5.5;
+const FLAG_W: f32 = 19.0;
+const FLAG_H: f32 = 13.0;
+
+fn flag_field() -> IconShape {
+    rr(FLAG_X, FLAG_Y, FLAG_W, FLAG_H, 0.8)
+}
+
+/// The field, plus whatever is on it.
+fn flag(charges: Vec<IconShape>) -> Vec<IconShape> {
+    let mut v = vec![flag_field()];
+    v.extend(charges);
+    v
+}
+
+/// `n` vertical bands — the `n - 1` dividing lines between them.
+fn vbands(n: usize) -> Vec<IconShape> {
+    (1..n)
+        .map(|i| {
+            let x = FLAG_X + FLAG_W * i as f32 / n as f32;
+            p(&[(x, FLAG_Y), (x, FLAG_Y + FLAG_H)])
+        })
+        .collect()
+}
+
+/// `n` horizontal bands.
+fn hbands(n: usize) -> Vec<IconShape> {
+    (1..n)
+        .map(|i| {
+            let y = FLAG_Y + FLAG_H * i as f32 / n as f32;
+            p(&[(FLAG_X, y), (FLAG_X + FLAG_W, y)])
+        })
+        .collect()
+}
+
+/// A canton in the upper hoist, sized as a fraction of the field.
+fn canton(wf: f32, hf: f32) -> IconShape {
+    rr(FLAG_X, FLAG_Y, FLAG_W * wf, FLAG_H * hf, 0.4)
+}
+
+/// A charge centred on the field, at (dx, dy) from its centre.
+fn flag_centre(dx: f32, dy: f32) -> (f32, f32) {
+    (FLAG_X + FLAG_W / 2.0 + dx, FLAG_Y + FLAG_H / 2.0 + dy)
+}
+
+/// A filled disc on the field.
+fn fdisc(dx: f32, dy: f32, r: f32) -> IconShape {
+    let (cx, cy) = flag_centre(dx, dy);
+    d(cx, cy, r)
+}
+
+/// An outlined disc on the field.
+fn fring(dx: f32, dy: f32, r: f32) -> IconShape {
+    let (cx, cy) = flag_centre(dx, dy);
+    c(cx, cy, r)
+}
+
+/// A five-pointed star, filled, centred at (dx, dy) from the field centre.
+fn fstar(dx: f32, dy: f32, r: f32) -> IconShape {
+    let (cx, cy) = flag_centre(dx, dy);
+    star_at(cx, cy, r)
+}
+
+/// A five-pointed star anywhere on the grid.
+fn star_at(cx: f32, cy: f32, r: f32) -> IconShape {
+    let mut pts = Vec::with_capacity(10);
+    for i in 0..10 {
+        // Point up: start at -90°, alternating outer/inner radius.
+        let ang = (-90.0 + i as f32 * 36.0).to_radians();
+        let rad = if i % 2 == 0 { r } else { r * 0.42 };
+        pts.push((cx + rad * ang.cos(), cy + rad * ang.sin()));
+    }
+    IconShape::FillPath(pts.into_iter().map(|(x, y)| L(x, y)).collect())
+}
+
+/// A crescent opening toward the fly, with its companion star.
+fn crescent_star(dx: f32) -> Vec<IconShape> {
+    let (cx, cy) = flag_centre(dx, 0.0);
+    vec![
+        IconShape::Arc(cx, cy, 3.6, 55.0, 305.0),
+        IconShape::Arc(cx + 1.3, cy, 2.9, 300.0, 60.0),
+        star_at(cx + 5.0, cy, 1.5),
+    ]
+}
+
+/// A centred cross reaching the edges.
+fn centred_cross() -> Vec<IconShape> {
+    let (cx, cy) = flag_centre(0.0, 0.0);
+    vec![
+        p(&[(cx, FLAG_Y), (cx, FLAG_Y + FLAG_H)]),
+        p(&[(FLAG_X, cy), (FLAG_X + FLAG_W, cy)]),
+    ]
+}
+
+/// A Nordic cross — the upright shifted toward the hoist.
+fn nordic_cross() -> Vec<IconShape> {
+    let x = FLAG_X + FLAG_W * 0.36;
+    let cy = FLAG_Y + FLAG_H / 2.0;
+    vec![
+        p(&[(x, FLAG_Y), (x, FLAG_Y + FLAG_H)]),
+        p(&[(FLAG_X, cy), (FLAG_X + FLAG_W, cy)]),
+    ]
+}
+
+/// A saltire — corner to corner, both ways.
+fn saltire() -> Vec<IconShape> {
+    vec![
+        p(&[(FLAG_X, FLAG_Y), (FLAG_X + FLAG_W, FLAG_Y + FLAG_H)]),
+        p(&[(FLAG_X + FLAG_W, FLAG_Y), (FLAG_X, FLAG_Y + FLAG_H)]),
+    ]
+}
+
+/// A triangle based on the hoist, reaching `depth` of the way across.
+fn hoist_triangle(depth: f32) -> IconShape {
+    pf(&[
+        (FLAG_X, FLAG_Y),
+        (FLAG_X + FLAG_W * depth, FLAG_Y + FLAG_H / 2.0),
+        (FLAG_X, FLAG_Y + FLAG_H),
+    ])
+}
+
+/// A band along the hoist, `wf` of the field wide.
+fn hoist_band(wf: f32) -> IconShape {
+    let x = FLAG_X + FLAG_W * wf;
+    p(&[(x, FLAG_Y), (x, FLAG_Y + FLAG_H)])
+}
+
+/// National flags, `flag-<ISO 3166-1 alpha-2>`. Chunk 13.
+///
+/// See the note above [`flag_field`] for why many of these share a drawing.
+#[rustfmt::skip]
+fn flag_shapes(name: &str) -> Option<Vec<IconShape>> {
+    // A short cross that stops before the edges — Switzerland, Denmark's
+    // neighbours in style, and every "couped" cross.
+    let couped_cross = || -> Vec<IconShape> {
+        let (cx, cy) = flag_centre(0.0, 0.0);
+        vec![
+            p(&[(cx, cy - 4.0), (cx, cy + 4.0)]),
+            p(&[(cx - 4.0, cy), (cx + 4.0, cy)]),
+        ]
+    };
+    // The six-pointed star of Israel, as two crossed triangles.
+    let hexagram = || -> Vec<IconShape> {
+        let (cx, cy) = flag_centre(0.0, 0.0);
+        let r = 3.2;
+        vec![
+            pc(&[(cx, cy - r), (cx + r * 0.866, cy + r * 0.5), (cx - r * 0.866, cy + r * 0.5)]),
+            pc(&[(cx, cy + r), (cx + r * 0.866, cy - r * 0.5), (cx - r * 0.866, cy - r * 0.5)]),
+        ]
+    };
+    // A striped field (USA, Greece, Malaysia, Uruguay, Thailand). Capped at 5
+    // in practice: the field is 13 units tall and the stroke is 1.5, so seven
+    // stripes very nearly touch and nine fill in solid at a menu row's size.
+    // Nobody can count stripes on a 16 px icon anyway — what has to survive is
+    // "striped", and the canton is what separates these from one another.
+    let stripes = |n: usize| -> Vec<IconShape> {
+        (1..n)
+            .map(|i| {
+                let y = FLAG_Y + FLAG_H * i as f32 / n as f32;
+                p(&[(FLAG_X, y), (FLAG_X + FLAG_W, y)])
+            })
+            .collect()
+    };
+
+    Some(match name {
+        // ── Europe ─────────────────────────────────────────────────────────
+        "flag-fr" | "flag-it" | "flag-ie" | "flag-be" | "flag-ro" | "flag-md"
+        | "flag-ad" => flag(vbands(3)),
+        "flag-de" | "flag-nl" | "flag-ru" | "flag-hu" | "flag-bg" | "flag-ee"
+        | "flag-lt" | "flag-lu" | "flag-rs" | "flag-si" | "flag-sk" | "flag-hr" => flag(hbands(3)),
+        "flag-at" | "flag-lv" => flag(hbands(3)),
+        "flag-pl" | "flag-ua" | "flag-mc" | "flag-sm" | "flag-by" => flag(hbands(2)),
+        "flag-pt" => { let mut v = flag(vec![hoist_band(0.4)]); v.push(fring(-1.5, 0.0, 2.4)); v }
+        "flag-es" => { let mut v = flag(hbands(3)); v.push(fring(-4.0, 0.0, 1.8)); v }
+        "flag-dk" | "flag-no" | "flag-se" | "flag-fi" | "flag-is" => flag(nordic_cross()),
+        "flag-ch" => flag(couped_cross()),
+        "flag-gb" => { let mut v = flag(saltire()); v.extend(centred_cross()); v }
+        "flag-gr" => { let mut v = flag(stripes(5)); v.push(canton(0.42, 0.55)); v }
+        "flag-cy" | "flag-xk" => flag(vec![fring(0.0, -1.0, 2.6), fstar(0.0, 3.0, 1.2)]),
+        "flag-al" | "flag-me" | "flag-mk" => flag(vec![fdisc(0.0, 0.0, 3.0)]),
+        "flag-ba" => flag(vec![pf(&[(9.0, FLAG_Y), (18.0, FLAG_Y), (9.0, FLAG_Y + FLAG_H)])]),
+        "flag-cz" => flag(vec![
+            p(&[(FLAG_X, FLAG_Y + FLAG_H / 2.0), (FLAG_X + FLAG_W, FLAG_Y + FLAG_H / 2.0)]),
+            hoist_triangle(0.42),
+        ]),
+        "flag-mt" => { let mut v = flag(vec![hoist_band(0.5)]); v.push(fring(-6.0, -3.5, 1.2)); v }
+        "flag-li" => { let mut v = flag(hbands(2)); v.push(fring(-6.0, -3.5, 1.2)); v }
+        "flag-va" => { let mut v = flag(vec![hoist_band(0.5)]); v.extend(couped_cross()); v }
+
+        // ── Asia ───────────────────────────────────────────────────────────
+        "flag-jp" | "flag-bd" | "flag-pw" | "flag-la" => flag(vec![fdisc(0.0, 0.0, 3.2)]),
+        "flag-in" | "flag-ne" => { let mut v = flag(hbands(3)); v.push(fring(0.0, 0.0, 2.2)); v }
+        "flag-id" | "flag-sg" => flag(hbands(2)),
+        "flag-cn" => flag(vec![
+            fstar(-6.0, -3.0, 2.0),
+            fstar(-2.6, -4.6, 0.9), fstar(-1.4, -2.9, 0.9),
+            fstar(-1.6, -0.9, 0.9), fstar(-3.2, 0.4, 0.9),
+        ]),
+        "flag-vn" | "flag-ma" | "flag-so" | "flag-tl" => flag(vec![fstar(0.0, 0.0, 3.2)]),
+        "flag-kr" => flag(vec![
+            fring(0.0, 0.0, 2.8),
+            path(vec![L(9.5, 12.0), Q(11.0, 9.6, 12.0, 12.0), Q(13.0, 14.4, 14.5, 12.0)]),
+            p(&[(4.8, 8.2), (7.0, 9.6)]), p(&[(17.0, 8.2), (19.2, 9.6)]),
+            p(&[(4.8, 15.8), (7.0, 14.4)]), p(&[(17.0, 15.8), (19.2, 14.4)]),
+        ]),
+        "flag-kp" => { let mut v = flag(stripes(5)); v.push(fring(-4.0, 0.0, 1.8)); v }
+        "flag-il" => { let mut v = flag(vec![
+            p(&[(FLAG_X, FLAG_Y + 2.2), (FLAG_X + FLAG_W, FLAG_Y + 2.2)]),
+            p(&[(FLAG_X, FLAG_Y + FLAG_H - 2.2), (FLAG_X + FLAG_W, FLAG_Y + FLAG_H - 2.2)]),
+        ]); v.extend(hexagram()); v }
+        "flag-tr" | "flag-tn" | "flag-dz" | "flag-mr" | "flag-az" | "flag-tm"
+        | "flag-uz" | "flag-mv" | "flag-pk" | "flag-ly" | "flag-km" => flag(crescent_star(0.0)),
+        "flag-sa" | "flag-af" | "flag-iq" | "flag-ir" | "flag-eg" | "flag-sy"
+        | "flag-ye" | "flag-jo" | "flag-ps" | "flag-kw" | "flag-ae" | "flag-sd" => flag(hbands(3)),
+        "flag-qa" | "flag-bh" => flag(vec![p(&[
+            (FLAG_X + 6.0, FLAG_Y), (FLAG_X + 4.0, FLAG_Y + 2.2),
+            (FLAG_X + 6.0, FLAG_Y + 4.3), (FLAG_X + 4.0, FLAG_Y + 6.5),
+            (FLAG_X + 6.0, FLAG_Y + 8.7), (FLAG_X + 4.0, FLAG_Y + 10.8),
+            (FLAG_X + 6.0, FLAG_Y + FLAG_H),
+        ])]),
+        "flag-om" | "flag-ge" => { let mut v = flag(hbands(3)); v.push(hoist_band(0.28)); v }
+        "flag-lb" => { let mut v = flag(vec![
+            p(&[(FLAG_X, FLAG_Y + 3.2), (FLAG_X + FLAG_W, FLAG_Y + 3.2)]),
+            p(&[(FLAG_X, FLAG_Y + FLAG_H - 3.2), (FLAG_X + FLAG_W, FLAG_Y + FLAG_H - 3.2)]),
+        ]); v.push(pf(&[(12.0, 8.8), (14.4, 13.2), (9.6, 13.2)])); v }
+        "flag-lk" | "flag-bt" | "flag-bn" => flag(vec![
+            rr(FLAG_X + 6.0, FLAG_Y + 2.0, 12.0, 9.0, 0.5),
+        ]),
+        "flag-np" => vec![
+            pathc(vec![
+                L(4.5, 3.0), L(18.0, 10.0), L(9.0, 10.0),
+                L(18.0, 17.5), L(4.5, 17.5),
+            ]),
+            fdisc(-4.0, -3.4, 1.1),
+            star_at(9.0, 15.0, 1.4),
+        ],
+        "flag-my" | "flag-ph" => { let mut v = flag(stripes(5)); v.push(canton(0.45, 0.5)); v }
+        "flag-th" | "flag-cr" | "flag-kh" | "flag-mm" => flag(stripes(5)),
+        "flag-mn" | "flag-am" | "flag-kg" | "flag-tj" => flag(vbands(3)),
+        "flag-kz" | "flag-vc" => flag(vec![fdisc(0.0, -1.0, 2.0), fstar(0.0, 3.2, 1.2)]),
+
+        // ── Africa ─────────────────────────────────────────────────────────
+        "flag-td" | "flag-ml" | "flag-gn" | "flag-ci" | "flag-ng" | "flag-sn"
+        | "flag-cm" | "flag-ga" | "flag-bj" | "flag-gw" | "flag-bf" => flag(vbands(3)),
+        "flag-gh" | "flag-et" | "flag-sl" | "flag-mw" | "flag-gm"
+        | "flag-bw" | "flag-ls" | "flag-ug" | "flag-rw" | "flag-bi" | "flag-cg"
+        | "flag-cf" | "flag-tg" => flag(hbands(3)),
+        "flag-za" | "flag-mz" | "flag-tz" | "flag-cd" | "flag-na"
+        | "flag-st" | "flag-dj" | "flag-ss" | "flag-er" | "flag-sz" | "flag-zw"
+        | "flag-zm" | "flag-ke" | "flag-ao" | "flag-mg" | "flag-gq" | "flag-lr"
+        | "flag-mu" | "flag-sc" | "flag-cv" => {
+            let mut v = flag(hbands(3)); v.push(hoist_triangle(0.38)); v
+        }
+
+        // ── Americas ───────────────────────────────────────────────────────
+        "flag-us" => { let mut v = flag(stripes(5)); v.push(canton(0.4, 0.54)); v }
+        "flag-ca" | "flag-pe" => { let mut v = flag(vec![hoist_band(0.25), hoist_band(0.75)]); v.push(fdisc(0.0, 0.0, 2.4)); v }
+        "flag-br" => flag(vec![
+            pc(&[(12.0, 7.0), (19.5, 12.0), (12.0, 17.0), (4.5, 12.0)]),
+            fring(0.0, 0.0, 2.6),
+        ]),
+        "flag-ar" | "flag-hn" | "flag-ni" | "flag-sv" | "flag-gt" => {
+            let mut v = flag(hbands(3)); v.push(fdisc(0.0, 0.0, 2.0)); v
+        }
+        "flag-mx" | "flag-co" | "flag-ve" | "flag-ec" | "flag-bo" => {
+            let mut v = flag(hbands(3)); v.push(fring(0.0, 0.0, 2.0)); v
+        }
+        "flag-cl" | "flag-cu" | "flag-tt" => {
+            let mut v = flag(hbands(2)); v.push(canton(0.36, 0.5)); v.push(fstar(-6.0, -3.2, 1.3)); v
+        }
+        "flag-uy" => { let mut v = flag(stripes(5)); v.push(canton(0.42, 0.55)); v }
+        "flag-jm" => flag(saltire()),
+        "flag-py" | "flag-do" => { let mut v = flag(hbands(3)); v.extend(centred_cross()); v }
+        "flag-bs" | "flag-gy" | "flag-bz" | "flag-pa" | "flag-ht"
+        | "flag-sr" | "flag-ag" | "flag-bb" | "flag-dm" | "flag-gd" | "flag-kn"
+        | "flag-lc" => { let mut v = flag(hbands(3)); v.push(hoist_triangle(0.38)); v }
+
+        // ── Oceania ────────────────────────────────────────────────────────
+        "flag-au" | "flag-nz" | "flag-fj" | "flag-tv" => {
+            let mut v = flag(vec![canton(0.45, 0.5)]);
+            v.push(fstar(4.0, 1.5, 1.4)); v.push(fstar(6.5, -2.5, 1.0));
+            v
+        }
+        "flag-pg" => flag(vec![
+            p(&[(FLAG_X, FLAG_Y), (FLAG_X + FLAG_W, FLAG_Y + FLAG_H)]),
+            fstar(4.0, 2.0, 1.3),
+        ]),
+        "flag-ws" | "flag-to" => { let mut v = flag(vec![canton(0.45, 0.5)]); v.push(fstar(-4.5, -3.0, 1.4)); v }
+        "flag-ki" | "flag-nr" | "flag-mh" | "flag-sb" | "flag-vu" | "flag-fm" => {
+            let mut v = flag(vec![p(&[(FLAG_X, FLAG_Y + FLAG_H), (FLAG_X + FLAG_W, FLAG_Y)])]);
+            v.push(fstar(-4.5, 2.5, 1.3));
+            v
+        }
 
         _ => return None,
     })

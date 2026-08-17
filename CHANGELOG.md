@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.80] — 2026-08-17
+
+### Added — national flag icons, `flag-<ISO 3166-1 alpha-2>`
+
+196 flags: every UN member state, plus the Holy See, Palestine and Kosovo. The
+catalogue is now **939 icons across 34 categories**.
+
+They are built from a small vocabulary of flag motifs rather than drawn one at a
+time — field, vertical and horizontal bands, a striped field, a canton, a centred
+cross, a Nordic cross, a saltire, a hoist triangle or band, a disc, a ring, a
+five-pointed star, a crescent-and-star, a hexagram. Each country is then a line or
+two, which is what makes 196 of them reviewable at all.
+
+> ⚠️ **Many of these share a drawing, and that is deliberate.** These are line
+> icons on the same monochrome grid as everything else — one tint colour, at most
+> one accent, no per-shape colour — and a national flag is mostly defined by its
+> **colours**. Italy, Ireland, France, Belgium, Romania, Chad, Mali and Guinea are
+> all "three vertical bands" here and are genuinely indistinguishable. This was put
+> to the operator with the alternatives (skip them, a recognisable subset, or a
+> separate colour subsystem) and the full monochrome set was chosen anyway, so the
+> collisions are known and accepted rather than an oversight.
+>
+> What *is* distinguishable is geometry, and every flag that has some uses it:
+> Nepal keeps its double pennant, the Union Jack its saltire under a cross, Brazil
+> its lozenge and disc, Korea its taegeuk and four trigram marks, Israel its
+> hexagram between two bars, China its five stars, Switzerland its couped cross,
+> and every crescent, hoist triangle and canton is drawn where the flag has one.
+
+Stripe counts are capped at five. The field is 13 units tall against a 1.5-unit
+stroke, so seven stripes nearly touch and nine fill in solid at a menu row's size —
+and nobody counts stripes on a 16 px icon. What has to survive is "striped"; the
+canton is what tells those flags apart.
+
 ## [PowerRustCOBOL 1.61.79] — 2026-08-17
 
 ### Added — 32 hand-drawn icons for form actions and objects

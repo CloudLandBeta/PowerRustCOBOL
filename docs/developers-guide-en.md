@@ -1974,8 +1974,8 @@ as a YAML file alongside the `.cfrm`.
 reorder items up to 3 levels deep. Each item has:
 
 - **Label** — the text shown in the menu.
-- **Icon** — an optional icon from the built-in catalogue: **740+ pure-vector
-  icons in 33 categories** — documents, editing, navigation, communication,
+- **Icon** — an optional icon from the built-in catalogue: **930+ pure-vector
+  icons in 34 categories** — documents, editing, navigation, communication,
   media, commerce, payroll, receivables, payments, stock control,
   transportation, logistics, financial, company **departments**, transaction
   kinds (buy, sell, return, chargeback, …), civilian **vehicles**,
@@ -1986,11 +1986,21 @@ reorder items up to 3 levels deep. Each item has:
   (marquee, select all/none/invert, lasso, move), **design** tools (paint
   bucket, fill, palette, rotate, flip, fit to window, thumbnails) and
   **application** objects (window, form, application, bundle, component, find
-  and replace, spelling, speech, sleep, quit, globe, local). Icons are drawn as
+  and replace, spelling, speech, sleep, quit, globe, local) and **national
+  flags** (`flag-br`, `flag-jp`, `flag-gb`, … — every UN member state, plus the
+  Holy See, Palestine and Kosovo). Icons are drawn as
   resolution-independent line work — the same icon is crisp in a 16 px menu
   row or a 128 px tile — and take the menu item's colour. The engine can also
   render any icon with a second accent colour, a drop shadow, or a neumorphic
   emboss.
+
+  > ⚠️ **Caveat — national flags are line drawings.** Every icon in the
+  > catalogue is monochrome: it takes one colour from you, and a flag is mostly
+  > defined by its colours. So the flags carry their **geometry** — bands,
+  > crosses, cantons, crescents, stars, Nepal's pennant, Brazil's lozenge — and
+  > flags that differ only in colour look the same here. `flag-it` and `flag-ie`
+  > are both three vertical bands. Use them where the country is already named in
+  > the row beside them, not as the only way to tell one country from another.
 - **Moving items.** Besides *Move Up*/*Move Down*, the **Indent** button makes
   the selected item a child of the item above it, and **Outdent** promotes it
   back beside its parent — together they move an item between any sections and
