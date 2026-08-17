@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.82] — 2026-08-17
+
+### Fixed — a group's items are indented, icon and label together
+
+1.61.81 gave a group and its children **one shared label column**, carrying the
+nesting in a 6 px offset of the icon alone. Seen in the running IDE that reads as
+no indentation at all, and it leaves a child's icon adrift between two columns.
+
+A group's items are now **indented under it**, one level at a time, and the whole
+row moves: the icon travels in with the label, so an item's icon keeps its place
+beside its own text at every level and each level has a column of its own to read
+down (operator, 2026-08-17).
+
+### Fixed — Home stands apart on the collapsed rail
+
+On the collapsed rail every icon sat the same distance from the next, so *Home* —
+the one row that leaves the current screen entirely — read as just another
+shortcut. It is now followed by a whole row's worth of extra space, making the
+distance from Home to the icon beneath **twice** the distance between any other
+two icons.
+
+The space is earned by the item's **action** (`home`), never by its label: a row
+merely *called* "Home" is an ordinary icon, and moving the action to another item
+moves the space with it — the same rule that keeps the rail working when the menu
+is written in Portuguese. Where a section divider already falls beneath Home,
+nothing is added; the divider separates on its own.
+
 ## [PowerRustCOBOL 1.61.81] — 2026-08-17
 
 ### Changed — the collapsed rail carries only what an icon can reach
