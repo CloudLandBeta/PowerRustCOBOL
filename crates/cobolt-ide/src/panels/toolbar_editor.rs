@@ -195,19 +195,28 @@ pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcom
         });
 
     let mut outcome = EditorOutcome::Open;
-    // A CONSTANT opening size, not a share of the monitor — the same rule the
-    // event-handler modal follows, and for the same reason.
-    let default_size = egui::vec2(900.0, 560.0);
+    // 70 % of the HOST window's height (operator, 2026-08-17) — a toolbar is
+    // arranged while looking at it, and the panes need the room.
+    let modal_h = modal_height(screen.height());
+    // `default_size`/`max_size` are the CONTENT box; the title bar is added on
+    // top, so 70 % of the host means 70 % minus the bar.
+    let default_size = egui::vec2(
+        900.0_f32.min(screen.width() - 40.0).max(520.0),
+        content_height(modal_h),
+    );
+    // The ceiling IS the opening size, exactly as the event-handler modal does
+    // it. A `Window` takes its size from its CONTENT, so a ceiling looser than
+    // the default is an invitation to grow: the previous one was
+    // `screen.height() - 40`, which let the panes push the window out to the
+    // edges. The developer's own drag still governs everything below this.
+    let panes_h = panes_height(modal_h);
 
     egui::Window::new(tr.toolbar_editor_title)
         .id(egui::Id::new("toolbar_editor_modal"))
         .collapsible(false)
         .resizable(true)
         .default_size(default_size)
-        .max_size(egui::vec2(
-            default_size.x.max(screen.width() - 40.0),
-            default_size.y.max(screen.height() - 40.0),
-        ))
+        .max_size(default_size)
         .default_pos(screen.center() - default_size * 0.5)
         .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(12)))
         .show(ctx, |ui| {
@@ -275,22 +284,39 @@ pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcom
             ui.add_space(8.0);
 
             // ── Tree | properties ─────────────────────────────────────────
+            //
+            // Both panes are given the room the modal reserved for them —
+            // `panes_h`, derived from the window's own opening height and NEVER
+            // from `available_height()`, which is the feedback loop that makes a
+            // pane and its window inflate each other.
+            //
+            // `auto_shrink([false, false])` is what makes the properties pane
+            // FILL that box. Without it a ScrollArea shrinks to its content, so
+            // a button with few properties drew a pane a fraction of the size of
+            // the space it had (operator screenshot, 2026-08-17).
             let total_w = ui.available_width();
             let tree_w = tree_pane_width(total_w, modal.split_ratio);
+            let tree_scroll_h = (panes_h - 22.0).max(PANE_MIN_H - 22.0);
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(tree_w);
+                    ui.set_min_height(panes_h);
                     ui.label(egui::RichText::new(tr.toolbar_groups).strong());
                     egui::ScrollArea::vertical()
                         .id_salt("toolbar_tree")
-                        .max_height(300.0)
+                        .auto_shrink([false, false])
+                        .min_scrolled_height(tree_scroll_h)
+                        .max_height(tree_scroll_h)
                         .show(ui, |ui| show_tree(modal, ui));
                 });
                 ui.separator();
                 ui.vertical(|ui| {
+                    ui.set_min_height(panes_h);
                     egui::ScrollArea::vertical()
                         .id_salt("toolbar_props")
-                        .max_height(300.0)
+                        .auto_shrink([false, false])
+                        .min_scrolled_height(panes_h)
+                        .max_height(panes_h)
                         .show(ui, |ui| show_props(modal, ui, &tr));
                 });
             });
@@ -362,6 +388,48 @@ fn tree_pane_width(total_w: f32, split_ratio: f32) -> f32 {
 
 const TREE_MIN_W: f32 = 180.0;
 const PROPS_MIN_W: f32 = 260.0;
+
+/// Smallest the modal opens at, however short the host window is.
+const MODAL_MIN_H: f32 = 380.0;
+/// The window's title bar, which `Window::max_size` does NOT cover.
+///
+/// `max_size` bounds the CONTENT area; the title bar is added on top of it. So a
+/// content ceiling of 70 % produced a window of 70 % + 38 px, at every host size
+/// tested — a constant offset, which is what identified it. Asking for 70 % of
+/// the host therefore means giving the content 70 % **minus this**.
+const TITLE_BAR_H: f32 = 38.0;
+
+/// Everything inside the content area that is NOT the two panes: the inner
+/// margins, the action row, the live preview strip, the separators and spacing,
+/// and the Save/Cancel footer.
+///
+/// Deliberately generous. The panes are sized as `content − this`, and if that
+/// comes out too large the content wants more room than the ceiling allows — at
+/// which point the footer, being last, is what gets pushed out of view.
+const MODAL_CHROME_H: f32 = 212.0;
+/// Smallest either pane is given, whatever is left over.
+const PANE_MIN_H: f32 = 160.0;
+
+/// The window's CONTENT height for a modal whose total is `modal_h` — what goes
+/// to `default_size`/`max_size`, the title bar taken off.
+fn content_height(modal_h: f32) -> f32 {
+    (modal_h - TITLE_BAR_H).max(MODAL_MIN_H - TITLE_BAR_H)
+}
+
+/// Height reserved for the two panes in a modal of `modal_h`.
+///
+/// Kept as a function so the regression test can assert the arithmetic without
+/// standing up a window: the panes must grow with the host and must never be
+/// computed from the space they are currently sitting in.
+fn panes_height(modal_h: f32) -> f32 {
+    (content_height(modal_h) - MODAL_CHROME_H).max(PANE_MIN_H)
+}
+
+/// The modal's opening height for a host window of `host_h` — 70 % of it.
+fn modal_height(host_h: f32) -> f32 {
+    let host_h = if host_h.is_finite() { host_h.max(0.0) } else { MODAL_MIN_H };
+    (host_h * 0.70).clamp(MODAL_MIN_H, (host_h - 40.0).max(MODAL_MIN_H))
+}
 
 fn show_tree(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui) {
     let groups = modal.def.groups.len();
@@ -888,6 +956,135 @@ mod tests {
              tree never drops below {TREE_MIN_W}px, and from {narrowest_ok}px up the \
              properties pane keeps its {PROPS_MIN_W}px; NaN/inf ratios stay finite\n"
         );
+    }
+
+    /// The modal opens at 70 % of the host window, the panes take everything
+    /// that is not chrome, and neither is ever derived from the space it happens
+    /// to be sitting in.
+    #[test]
+    fn the_modal_takes_seventy_percent_of_the_host_and_gives_the_rest_to_the_panes() {
+        // 70 % on any host tall enough for it to mean anything.
+        for host in [800.0_f32, 1000.0, 1200.0, 1600.0, 2160.0] {
+            let h = modal_height(host);
+            assert!(
+                (h - host * 0.70).abs() < 0.01,
+                "host {host} should open at {}, got {h}",
+                host * 0.70
+            );
+            assert!(h <= host - 40.0, "the modal must fit the host: {h} of {host}");
+        }
+        // A short host cannot give 70 % and still be usable, so the floor wins —
+        // and the modal never exceeds the host either way.
+        for host in [0.0_f32, 200.0, 400.0, 540.0] {
+            let h = modal_height(host);
+            assert!(h >= MODAL_MIN_H, "host {host} gave {h}, below the floor");
+            assert!(h.is_finite());
+        }
+        assert!(modal_height(f32::NAN).is_finite(), "a NaN host must not spread");
+
+        // The panes grow WITH the host: taller window, taller panes.
+        let small = panes_height(modal_height(800.0));
+        let large = panes_height(modal_height(1600.0));
+        assert!(
+            large > small + 200.0,
+            "the panes must take the extra room: {small} then {large}"
+        );
+        assert!(
+            panes_height(MODAL_MIN_H) >= PANE_MIN_H,
+            "even at the floor the panes get their minimum"
+        );
+        // Chrome plus panes must fit inside the modal, or the content pushes
+        // against the window's ceiling.
+        for host in [800.0_f32, 1200.0, 2160.0] {
+            let modal = modal_height(host);
+            assert!(
+                panes_height(modal) + MODAL_CHROME_H <= modal + 0.01,
+                "panes + chrome ({} + {MODAL_CHROME_H}) overflow a {modal}px modal",
+                panes_height(modal)
+            );
+        }
+
+        println!(
+            "\n  Toolbar editor size — 70% of the host (800⇒{:.0}, 1200⇒{:.0}, 2160⇒{:.0}); \
+             panes take the rest ({:.0}⇒{:.0}px of panes at a 1200px host); floor {MODAL_MIN_H} \
+             on a short host; NaN stays finite\n",
+            modal_height(800.0),
+            modal_height(1200.0),
+            modal_height(2160.0),
+            modal_height(1200.0),
+            panes_height(modal_height(1200.0))
+        );
+    }
+
+    /// The pane boxes must be STABLE across frames.
+    ///
+    /// This is the failure this project keeps re-learning: a pane sized from its
+    /// available space and a window sized from its content grow each other, one
+    /// frame at a time, until the window is at the screen edges. Rendering the
+    /// real modal repeatedly is the only way to catch it — the arithmetic above
+    /// looks fine either way.
+    #[test]
+    fn rendering_the_modal_repeatedly_never_grows_it() {
+        let ctx = egui::Context::default();
+        let mut m = modal();
+        // A toolbar with enough content that both panes have something to scroll.
+        m.add_group();
+        for _ in 0..12 {
+            m.add_button();
+        }
+        m.selected = Selection::Button(0, 0);
+
+        // Two host heights, so a modal that ignores the host shows up as a
+        // height that does not move when the host does.
+        let mut report = String::new();
+        for host_h in [900.0_f32, 1400.0] {
+            let host = egui::vec2(1440.0, host_h);
+            let mut seen: Vec<f32> = Vec::new();
+            for _ in 0..10 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, host));
+                let mut full = ctx.run_ui(input, |ui| {
+                    let _ = super::show(&mut m, ui.ctx());
+                });
+                full.textures_delta.clear();
+                if let Some(rect) =
+                    ctx.memory(|mem| mem.area_rect(egui::Id::new("toolbar_editor_modal")))
+                {
+                    seen.push(rect.height());
+                }
+            }
+            assert!(
+                seen.len() >= 4,
+                "the modal should have been laid out on most frames, got {seen:?}"
+            );
+            let settled = *seen.last().unwrap();
+            let want = modal_height(host_h);
+
+            // The one thing that must never happen: growing frame after frame.
+            // egui's `Resize` steps toward its target over the first few frames,
+            // which is a settle, not creep — so the tail is what must be flat.
+            let tail = &seen[4..];
+            let lo = tail.iter().cloned().fold(f32::MAX, f32::min);
+            let hi = tail.iter().cloned().fold(f32::MIN, f32::max);
+            assert!(
+                hi - lo < 1.0,
+                "the modal kept growing after settling on a {host_h}px host: {seen:?}"
+            );
+            // And it must actually follow the host, at 70 % give or take the
+            // chrome slack — not sit at some size of its own.
+            assert!(
+                (settled - want).abs() <= 4.0,
+                "a {host_h}px host should give a {want:.0}px modal, got {settled:.0} \
+                 (content {:.0}, panes {:.0}) — check TITLE_BAR_H/MODAL_CHROME_H: {seen:?}",
+                content_height(want),
+                panes_height(want)
+            );
+            report.push_str(&format!(
+                "{host_h:.0}px host ⇒ wanted {want:.0}, settled {settled:.0}; "
+            ));
+        }
+
+        println!("\n  Toolbar editor stability — 10 frames each, 12 buttons: {report}no frame-over-frame growth.\n");
     }
 
     /// The action picker writes the stored string the model reads back.
