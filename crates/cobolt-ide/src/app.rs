@@ -12270,7 +12270,17 @@ impl CoboltApp {
         for (ctrl_id, button_id, action) in toolbar_presses {
             let parsed = cobolt_forms::toolbar::ToolbarAction::parse(&action);
             match preview_press(&parsed) {
-                PreviewPress::LeaveToTheForm => continue,
+                // Say so. A press that produces nothing AND says nothing is the
+                // thing this whole area exists to stop: the developer cannot tell
+                // "Preview does not run COBOL" from "my action is broken".
+                PreviewPress::LeaveToTheForm => {
+                    self.output.push_status(format!(
+                        "Preview: {ctrl_id}/{button_id} — `{}` is the form's own COBOL, \
+                         which Preview does not run. Use Run Form.",
+                        parsed.to_action_string()
+                    ));
+                    continue;
+                }
                 PreviewPress::NeedsRunForm => {
                     self.output.push_status(format!(
                         "Preview: {ctrl_id}/{button_id} — `{}` captures the form's own \

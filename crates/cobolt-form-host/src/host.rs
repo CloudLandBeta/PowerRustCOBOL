@@ -474,6 +474,7 @@ impl FormHost {
                 last_frame: None,
                 hovered: std::collections::HashSet::new(),
                 parked_timer_clocks: HashMap::new(),
+                toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             },
             children: Vec::new(),
             occupants: HashMap::new(),
@@ -484,7 +485,6 @@ impl FormHost {
             child_interpreter_setup,
             shared_rust_bridge,
             surface,
-            toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             visuals_set: false,
             quit_sent: false,
             diagnostics,
@@ -584,6 +584,13 @@ pub(crate) struct FormBody {
     /// PARKED (off-pane): render-driven timers stop with the rendering, so
     /// the host ticks these instead and timer handlers keep running.
     pub(crate) parked_timer_clocks: HashMap<String, std::time::Instant>,
+    /// Carries out a toolbar button's PLATFORM action, and finishes the
+    /// two-frame window captures.
+    ///
+    /// Per FORM, not per host: a capture is of one window, so a child window's
+    /// screenshot is its own. It used to live on the host, which is part of why
+    /// only the root form ever ran a toolbar action at all.
+    pub(crate) toolbar_runner: cobolt_forms::toolbar_actions::Runner,
 }
 
 impl FormBody {
@@ -596,6 +603,264 @@ impl FormBody {
     /// See [`crate::state::state_entry_mut`].
     pub(crate) fn state_entry_mut(&mut self, key: &str) -> &mut CtrlState {
         state_entry_mut(&mut self.state, &self.controls, key)
+    }
+
+    /// Everything one frame's interaction asks of the PLATFORM rather than of the
+    /// form's COBOL: a FileDropZone's native file picker, and a toolbar button's
+    /// platform action (print, share, capture, the clipboard, another process).
+    /// Returns whether anything happened, for frame scheduling.
+    ///
+    /// **One place on purpose**, the same reason as
+    /// [`Self::apply_interpreter_update`]: this ran on the ROOT form's path only,
+    /// so in a child window or a ContentPane occupant every platform toolbar
+    /// action and every click-to-browse was silently dead. Two consumers of one
+    /// `RenderOutput` will always drift; there is now one.
+    /// The two lists are taken separately rather than as a whole `RenderOutput`
+    /// because both callers have already moved its `events` out by this point.
+    pub(crate) fn run_platform_requests(
+        &mut self,
+        ctx: &egui::Context,
+        file_pickers: &[String],
+        toolbar_actions: &[(String, String, String)],
+    ) -> bool {
+        let mut acted = false;
+
+        // FileDropZone click → native picker (spec 039 T4). `cobolt-forms` has no
+        // native-dialog dependency by design (see render.rs's
+        // `RenderOutput::file_picker_requests` doc comment) — this crate owns the
+        // non-blocking dialog (spec 042 R25).
+        for id in file_pickers {
+            let key = format!("filedropzone:{id}");
+            crate::file_dialog::begin(ctx, &key, crate::file_dialog::DialogSpec::open());
+        }
+        let file_drop_zone_ids: Vec<String> = self
+            .controls
+            .iter()
+            .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::FileDropZone))
+            .map(|c| c.id.clone())
+            .collect();
+        for id in file_drop_zone_ids {
+            let key = format!("filedropzone:{id}");
+            if let Some(Some(path)) = crate::file_dialog::take(&key) {
+                // Browsing goes through the SAME intake as a drop — the zone's
+                // extensions, size limit and destination folder — so a file is
+                // judged by one set of rules however it arrived.
+                let ctrl = self.controls.iter().find(|c| c.id == id);
+                let prop = |key: &str| -> String {
+                    ctrl.and_then(|c| c.get_prop(key))
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default()
+                };
+                let bool_prop = |key: &str, default: bool| -> bool {
+                    ctrl.and_then(|c| c.get_prop(key))
+                        .map(|v| v.as_bool())
+                        .unwrap_or(default)
+                };
+                // `apply_drop` also decides whether this copies now or only stages
+                // for the form to confirm — the same answer the drag-drop path gets.
+                let writes = cobolt_forms::dropzone::apply_drop(
+                    &id,
+                    &[path.display().to_string()],
+                    cobolt_forms::dropzone::ZoneRules {
+                        filter: &prop("AllowedExtensions"),
+                        max_kb: prop("MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
+                        destination: &prop("DestinationFolder"),
+                        stage_only: bool_prop("StageOnly", false),
+                        list_id: &prop("FileListControl"),
+                        already_staged: &self
+                            .state
+                            .get(&id)
+                            .and_then(|s| {
+                                s.props
+                                    .iter()
+                                    .find(|(k, _)| k.eq_ignore_ascii_case("StagedFiles"))
+                                    .map(|(_, v)| v.clone())
+                            })
+                            .unwrap_or_default(),
+                    },
+                );
+                for (target, key, value) in &writes.updates {
+                    self.state_entry_mut(target).set(key, value.clone());
+                    let _ = self.input_tx.send(StateUpdate::new(
+                        target.clone(),
+                        key.clone(),
+                        value.clone(),
+                    ));
+                }
+                if writes.accepted > 0 {
+                    self.send_event(FormEvent::new(id.clone(), "onFilesDropped".to_owned()));
+                }
+                if writes.rejected > 0 {
+                    self.send_event(FormEvent::new(id, "onFilesRejected".to_owned()));
+                }
+                acted = true;
+            }
+        }
+
+        // ── Toolbar buttons whose action is the platform's work ───────────────
+        //
+        // The renderer already fired the button's `onClick`, so the form has heard
+        // about the press either way; this is the deed itself.
+        for (ctrl_id, button_id, action) in toolbar_actions {
+            let parsed = cobolt_forms::toolbar::ToolbarAction::parse(action);
+            // Copy/Cut/Paste act on whichever control has keyboard focus. egui
+            // reports that as a widget id, and a control's TextEdit is built with
+            // `Id::new(("rt_ctrl", <control id>))` — so the focused control is
+            // found by matching that back.
+            let focused = ctx.memory(|m| m.focused()).and_then(|focus| {
+                self.controls.iter().find_map(|c| {
+                    (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                        let text = self
+                            .state
+                            .get(&c.id)
+                            .and_then(|s| {
+                                s.props.iter().find_map(|(k, v)| {
+                                    (k.eq_ignore_ascii_case("Text")
+                                        || k.eq_ignore_ascii_case("Value"))
+                                    .then(|| v.clone())
+                                })
+                            })
+                            .unwrap_or_default();
+                        (c.id.clone(), text)
+                    })
+                })
+            });
+            let focused_ref = focused
+                .as_ref()
+                .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
+                    control_id: id.as_str(),
+                    text: text.clone(),
+                });
+            let (_outcome, new_text) = self.toolbar_runner.perform(ctx, &parsed, focused_ref);
+            // A Cut or a Paste changed the focused field: write it back the way a
+            // keystroke would have, so the form sees it.
+            if let (Some(text), Some((target, _))) = (new_text, focused) {
+                self.state_entry_mut(&target).set("Text", text.clone());
+                let _ = self.input_tx.send(StateUpdate::new(
+                    target.clone(),
+                    "Text".to_owned(),
+                    text,
+                ));
+                self.send_event(FormEvent::new(target, "onChange".to_owned()));
+            }
+            let _ = (&ctrl_id, &button_id);
+            acted = true;
+        }
+        // A window capture asked for on an earlier frame finishes here.
+        if self.toolbar_runner.poll_capture(ctx).is_some() {
+            acted = true;
+        }
+        acted
+    }
+
+    /// Apply one interpreter → UI property update, and fire the OBSERVER events
+    /// the change earns.
+    ///
+    /// **One place on purpose.** There are two frame paths — the ROOT form's
+    /// (`FormHost::ui_impl`, what `rcrun run-form` shows) and a CHILD window's or
+    /// ContentPane occupant's ([`Self::child_frame`]) — and they had drifted apart
+    /// in opposite directions:
+    ///
+    /// * the observer events (1.61.71) were added to the child path only, so a
+    ///   Timer doing `MOVE 5 TO KNOB-1::Value` in the MAIN form still fired
+    ///   nothing — the very bug that change set out to fix;
+    /// * the toolbar-button write routing (1.61.74) was added to the root path
+    ///   only, so recolouring a button in a child form did nothing.
+    ///
+    /// Both call this now, so neither can be fixed without the other.
+    pub(crate) fn apply_interpreter_update(&mut self, u: StateUpdate, diagnostics: bool) {
+        let key = if u.instance_index > 0 {
+            match self.array_member_group(&u.ctrl_id) {
+                Some((member_id, group_id)) => cobolt_forms::render::member_instance_id(
+                    &group_id,
+                    &member_id,
+                    u.instance_index,
+                ),
+                None => self.resolve_ctrl_key(&u.ctrl_id),
+            }
+        } else {
+            self.resolve_ctrl_key(&u.ctrl_id)
+        };
+        // R27 — the live trace: which designed control this write landed on, or
+        // NO SUCH CONTROL with the ids that do exist. The routing itself is
+        // unchanged; the trace only reports it.
+        if diagnostics {
+            let matched = self
+                .state
+                .keys()
+                .find(|k| k.eq_ignore_ascii_case(&key))
+                .cloned();
+            let known: Vec<&str> = if matched.is_none() {
+                self.state.keys().map(|s| s.as_str()).collect()
+            } else {
+                Vec::new()
+            };
+            crate::diagnostics::trace_state_update(
+                &u.ctrl_id,
+                &u.prop,
+                &u.value,
+                matched.as_deref(),
+                &known,
+            );
+        }
+        // A write to a toolbar BUTTON is not a write to a control: a button's
+        // appearance comes from its toolbar's stored definition and from nowhere
+        // else, so the change belongs in that definition. Rewriting it there means
+        // the renderer needs to know nothing about live button state — it reads
+        // `ToolbarLayout` off the live control as it always has, and the next
+        // frame is already correct.
+        //
+        // The interpreter has already refused anything but a colour or a tooltip,
+        // out loud; this only carries an allowed write home.
+        if self.apply_toolbar_button_write(&key, &u.prop, &u.value) {
+            return;
+        }
+        // An OBSERVER event reports that a value is now different, whoever made it
+        // different — so a Timer handler doing `MOVE 5 TO KNOB-1::Value` has to
+        // fire the Knob's `onValueChanged` exactly as a drag does.
+        //
+        // Only when the value actually CHANGED: an observer that fires on a write
+        // of the same value is a spurious event, and — since a handler may well
+        // write the property it was woken for — it is also what stops the obvious
+        // feedback loop.
+        //
+        // Passive events (`onClick`, `onMouseDown`, `onGotFocus`) are never raised
+        // here. There is no user act to report.
+        let observers: Vec<&'static str> = self
+            .controls
+            .iter()
+            .find(|c| c.id == key)
+            .map(|c| c.control_type.observer_events_for(&u.prop))
+            .unwrap_or_default();
+        let changed = if observers.is_empty() {
+            false
+        } else {
+            self.state
+                .get(&key)
+                .and_then(|s| {
+                    s.props
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(&u.prop))
+                        .map(|(_, v)| v != &u.value)
+                })
+                // Nothing stored yet: the interpreter's seeding pass writes every
+                // designed value on startup, and a form must not wake to a burst
+                // of change events for values that never changed. Compare against
+                // the DESIGN value instead.
+                .unwrap_or_else(|| {
+                    self.controls
+                        .iter()
+                        .find(|c| c.id == key)
+                        .and_then(|c| c.get_prop(&u.prop).map(|v| v.as_str() != u.value))
+                        .unwrap_or(false)
+                })
+        };
+        self.state_entry_mut(&key).set(&u.prop, u.value);
+        if changed {
+            for event in observers {
+                self.send_event(FormEvent::new(key.clone(), event.to_owned()));
+            }
+        }
     }
 
     /// Carry a COBOL write to a toolbar BUTTON into its toolbar's definition, so
@@ -811,67 +1076,9 @@ impl FormBody {
         let updates: Vec<StateUpdate> = self.state_rx.try_iter().collect();
         let drained = updates.len();
         for u in updates {
-            let key = if u.instance_index > 0 {
-                match self.array_member_group(&u.ctrl_id) {
-                    Some((member_id, group_id)) => cobolt_forms::render::member_instance_id(
-                        &group_id,
-                        &member_id,
-                        u.instance_index,
-                    ),
-                    None => self.resolve_ctrl_key(&u.ctrl_id),
-                }
-            } else {
-                self.resolve_ctrl_key(&u.ctrl_id)
-            };
-            // An OBSERVER event reports that a value is now different, whoever
-            // made it different — so a Timer handler doing
-            // `MOVE 5 TO KNOB-1::Value` has to fire the Knob's `onValueChanged`
-            // exactly as a drag does. This applied the write and fired nothing,
-            // which is the reported bug (operator, 2026-08-17) and applied to
-            // every observer event on every control, not just the Knob.
-            //
-            // Only when the value actually CHANGED: an observer that fires on a
-            // write of the same value is a spurious event, and — since a handler
-            // may well write the property it was woken for — it is also what
-            // stops the obvious feedback loop.
-            //
-            // Passive events (`onClick`, `onMouseDown`, `onGotFocus`) are never
-            // raised here. There is no user act to report.
-            let observers: Vec<&'static str> = self
-                .controls
-                .iter()
-                .find(|c| c.id == key)
-                .map(|c| c.control_type.observer_events_for(&u.prop))
-                .unwrap_or_default();
-            let changed = if observers.is_empty() {
-                false
-            } else {
-                self.state
-                    .get(&key)
-                    .and_then(|s| {
-                        s.props
-                            .iter()
-                            .find(|(k, _)| k.eq_ignore_ascii_case(&u.prop))
-                            .map(|(_, v)| v != &u.value)
-                    })
-                    // Nothing stored yet: the interpreter's seeding pass writes
-                    // every designed value on startup, and a form must not wake
-                    // to a burst of change events for values that never changed.
-                    // Compare against the DESIGN value instead.
-                    .unwrap_or_else(|| {
-                        self.controls
-                            .iter()
-                            .find(|c| c.id == key)
-                            .and_then(|c| c.get_prop(&u.prop).map(|v| v.as_str() != u.value))
-                            .unwrap_or(false)
-                    })
-            };
-            self.state_entry_mut(&key).set(&u.prop, u.value);
-            if changed {
-                for event in observers {
-                    self.send_event(FormEvent::new(key.clone(), event.to_owned()));
-                }
-            }
+            // A child form rides the same diagnostics switch the root does; the
+            // host reads it once at start-up, a body reads it here.
+            self.apply_interpreter_update(u, crate::diagnostics::frame_diagnostics_enabled());
         }
 
         // DISPLAY → stdout (the IDE's Output pane reads it there).
@@ -933,6 +1140,7 @@ impl FormBody {
             out
         };
 
+        let mut platform_acted = false;
         if armed && !blocked {
             // Animation triggers from this frame's interaction — the root's
             // rect-derived hover/click rules.
@@ -1003,11 +1211,23 @@ impl FormBody {
                 };
                 self.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
             }
+
+            // A FileDropZone's native picker and a toolbar button's platform
+            // action. This ran on the ROOT form only, so a toolbar in a child
+            // window or a ContentPane occupant had eight dead actions and its
+            // FileDropZone would not open a picker.
+            if self.run_platform_requests(
+                ctx,
+                &output.file_picker_requests,
+                &output.toolbar_actions,
+            ) {
+                platform_acted = true;
+            }
         }
 
         // A busy child keeps frames coming; an idle one rides the root's
         // heartbeat.
-        if drained > 0 || animating || self.anim.is_animating() {
+        if drained > 0 || platform_acted || animating || self.anim.is_animating() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
     }
@@ -1134,7 +1354,6 @@ pub struct FormHost {
     surface: Surface,
     /// Carries out a toolbar button's platform action, and finishes the window
     /// captures that cannot complete on the frame that asked for them.
-    toolbar_runner: cobolt_forms::toolbar_actions::Runner,
     visuals_set: bool,
     quit_sent: bool,
     /// `COBOLT_FRAME_DIAGNOSTICS` — live per-update trace (R27). Without it a
@@ -1747,6 +1966,7 @@ impl FormHost {
             last_frame: None,
             hovered: std::collections::HashSet::new(),
             parked_timer_clocks: HashMap::new(),
+            toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
         };
         Ok((body, form))
     }
@@ -2211,55 +2431,10 @@ impl FormHost {
                 drained += 1;
                 continue;
             }
-            let key = if u.instance_index > 0 {
-                match self.root.array_member_group(&u.ctrl_id) {
-                    Some((member_id, group_id)) => cobolt_forms::render::member_instance_id(
-                        &group_id,
-                        &member_id,
-                        u.instance_index,
-                    ),
-                    None => self.root.resolve_ctrl_key(&u.ctrl_id),
-                }
-            } else {
-                self.root.resolve_ctrl_key(&u.ctrl_id)
-            };
-            // R27 — the live trace: which designed control this write landed
-            // on, or NO SUCH CONTROL with the ids that do exist. The routing
-            // itself is unchanged; the trace only reports it.
-            if self.diagnostics {
-                let matched = self
-                    .root
-                    .state
-                    .keys()
-                    .find(|k| k.eq_ignore_ascii_case(&key))
-                    .cloned();
-                let known: Vec<&str> = if matched.is_none() {
-                    self.root.state.keys().map(|s| s.as_str()).collect()
-                } else {
-                    Vec::new()
-                };
-                crate::diagnostics::trace_state_update(
-                    &u.ctrl_id,
-                    &u.prop,
-                    &u.value,
-                    matched.as_deref(),
-                    &known,
-                );
-            }
-            // A write to a toolbar BUTTON is not a write to a control: a button's
-            // appearance comes from its toolbar's stored definition and from
-            // nowhere else, so the change belongs in that definition. Rewriting it
-            // there means the renderer needs to know nothing about live button
-            // state — it reads `ToolbarLayout` off the live control as it always
-            // has, and the next frame is already correct.
-            //
-            // The interpreter has already refused anything but a colour or a
-            // tooltip, out loud; this only carries an allowed write home.
-            if self.root.apply_toolbar_button_write(&key, &u.prop, &u.value) {
-                drained += 1;
-                continue;
-            }
-            self.root.state_entry_mut(&key).set(&u.prop, u.value);
+            // Routing, the toolbar-button door and the OBSERVER events all live in
+            // one place, shared with the child-window path — see
+            // `FormBody::apply_interpreter_update` for why that matters.
+            self.root.apply_interpreter_update(u, self.diagnostics);
             drained += 1;
         }
 
@@ -2560,136 +2735,13 @@ impl FormHost {
                 interacted = true;
             }
 
-            // FileDropZone click → native picker (spec 039 T4). `cobolt-forms`
-            // has no native-dialog dependency by design (see render.rs's
-            // `RenderOutput::file_picker_requests` doc comment) — this crate
-            // owns the non-blocking dialog (spec 042 R25).
-            for id in &output.file_picker_requests {
-                let key = format!("filedropzone:{id}");
-                crate::file_dialog::begin(ctx, &key, crate::file_dialog::DialogSpec::open());
-            }
-            let file_drop_zone_ids: Vec<String> = self
-                .root
-                .controls
-                .iter()
-                .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::FileDropZone))
-                .map(|c| c.id.clone())
-                .collect();
-            for id in file_drop_zone_ids {
-                let key = format!("filedropzone:{id}");
-                if let Some(Some(path)) = crate::file_dialog::take(&key) {
-                    // Browsing goes through the SAME intake as a drop — the
-                    // zone's extensions, size limit and destination folder — so
-                    // a file is judged by one set of rules however it arrived.
-                    let ctrl = self.root.controls.iter().find(|c| c.id == id);
-                    let prop = |key: &str| -> String {
-                        ctrl.and_then(|c| c.get_prop(key))
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default()
-                    };
-                    let bool_prop = |key: &str, default: bool| -> bool {
-                        ctrl.and_then(|c| c.get_prop(key))
-                            .map(|v| v.as_bool())
-                            .unwrap_or(default)
-                    };
-                    // `apply_drop` also decides whether this copies now or only
-                    // stages for the form to confirm — the same answer the
-                    // drag-drop path gets.
-                    let writes = cobolt_forms::dropzone::apply_drop(
-                        &id,
-                        &[path.display().to_string()],
-                        cobolt_forms::dropzone::ZoneRules {
-                            filter: &prop("AllowedExtensions"),
-                            max_kb: prop("MaximumFileSizeKB").parse::<i64>().unwrap_or(0),
-                            destination: &prop("DestinationFolder"),
-                            stage_only: bool_prop("StageOnly", false),
-                            list_id: &prop("FileListControl"),
-                            already_staged: &self
-                                .root
-                                .state
-                                .get(&id)
-                                .and_then(|s| {
-                                    s.props
-                                        .iter()
-                                        .find(|(k, _)| k.eq_ignore_ascii_case("StagedFiles"))
-                                        .map(|(_, v)| v.clone())
-                                })
-                                .unwrap_or_default(),
-                        },
-                    );
-                    for (target, key, value) in &writes.updates {
-                        self.root.state_entry_mut(target).set(key, value.clone());
-                        let _ = self.root.input_tx.send(StateUpdate::new(
-                            target.clone(),
-                            key.clone(),
-                            value.clone(),
-                        ));
-                    }
-                    if writes.accepted > 0 {
-                        self.root.send_event(FormEvent::new(id.clone(), "onFilesDropped".to_owned()));
-                    }
-                    if writes.rejected > 0 {
-                        self.root.send_event(FormEvent::new(id, "onFilesRejected".to_owned()));
-                    }
-                    interacted = true;
-                }
-            }
-
-            // ── Toolbar buttons whose action is the platform's work ──────────
-            //
-            // The renderer already fired the button's `onClick`, so the form has
-            // heard about the press either way; this is the deed itself.
-            for (ctrl_id, button_id, action) in output.toolbar_actions.clone() {
-                let parsed = cobolt_forms::toolbar::ToolbarAction::parse(&action);
-                // Copy/Cut/Paste act on whichever control has keyboard focus.
-                // egui reports that as a widget id, and a control's TextEdit is
-                // built with `Id::new(("rt_ctrl", <control id>))` — so the focused
-                // control is found by matching that back.
-                let focused = ctx.memory(|m| m.focused()).and_then(|focus| {
-                    self.root.controls.iter().find_map(|c| {
-                        (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
-                            let text = self
-                                .root
-                                .state
-                                .get(&c.id)
-                                .and_then(|s| {
-                                    s.props.iter().find_map(|(k, v)| {
-                                        (k.eq_ignore_ascii_case("Text")
-                                            || k.eq_ignore_ascii_case("Value"))
-                                        .then(|| v.clone())
-                                    })
-                                })
-                                .unwrap_or_default();
-                            (c.id.clone(), text)
-                        })
-                    })
-                });
-                let focused_ref =
-                    focused
-                        .as_ref()
-                        .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
-                            control_id: id.as_str(),
-                            text: text.clone(),
-                        });
-                let (_outcome, new_text) =
-                    self.toolbar_runner.perform(ctx, &parsed, focused_ref);
-                // A Cut or a Paste changed the focused field: write it back the
-                // way a keystroke would have, so the form sees it.
-                if let (Some(text), Some((target, _))) = (new_text, focused) {
-                    self.root.state_entry_mut(&target).set("Text", text.clone());
-                    let _ = self.root.input_tx.send(StateUpdate::new(
-                        target.clone(),
-                        "Text".to_owned(),
-                        text,
-                    ));
-                    self.root
-                        .send_event(FormEvent::new(target, "onChange".to_owned()));
-                }
-                let _ = (&ctrl_id, &button_id);
-                interacted = true;
-            }
-            // A window capture asked for on an earlier frame finishes here.
-            if self.toolbar_runner.poll_capture(ctx).is_some() {
+            // A FileDropZone's native picker and a toolbar button's platform
+            // action — shared with the child-window path.
+            if self.root.run_platform_requests(
+                ctx,
+                &output.file_picker_requests,
+                &output.toolbar_actions,
+            ) {
                 interacted = true;
             }
         }
@@ -3413,6 +3465,138 @@ mod parity {
             .try_iter()
             .map(|e| (e.ctrl_id, e.event_id))
             .collect()
+    }
+
+    /// An OBSERVER event fires when the INTERPRETER changes a value, on the ROOT
+    /// form — the one `rcrun run-form` shows.
+    ///
+    /// This is the reported bug (operator, 2026-08-17). 1.61.71 added observer
+    /// events to `FormBody::child_frame`, the path a CHILD window and a
+    /// ContentPane occupant take, and the root form takes neither: a Timer doing
+    /// `MOVE 5 TO KNOB-1::Value` in the main form still fired nothing at all —
+    /// exactly the symptom that change set out to cure. Both paths now go through
+    /// `FormBody::apply_interpreter_update`, so neither can be fixed alone again.
+    #[test]
+    fn an_interpreter_write_fires_the_observer_event_on_the_root_form() {
+        fn knob_host() -> (FormHost, Pipes) {
+            let form = cobolt_forms::Form::new("MAIN", "Main", 320, 200);
+            let mut knob = cobolt_forms::Control::new("KNOB-1", cobolt_forms::ControlType::Knob, 10, 10);
+            knob.set_prop("Value", cobolt_forms::PropValue::String("0".into()));
+            let (ev_tx, ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (_form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let finished = Arc::new(AtomicBool::new(false));
+            let (host, _form) = FormHost::new(FormHostConfig {
+                form,
+                flat: vec![knob],
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::clone(&finished),
+                form_req_rx,
+                closed_tx,
+                form_req_tx: _form_req_tx.clone(),
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: FxSpec::parse(""),
+                fx_exit: FxSpec::parse(""),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Window,
+            });
+            (
+                host,
+                Pipes {
+                    ev_rx,
+                    _input_rx,
+                    _state_tx,
+                    _display_tx,
+                    finished,
+                    _form_req_tx,
+                    _closed_rx,
+                },
+            )
+        }
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let (mut app, pipes) = knob_host();
+
+        // Warm-up: input is ignored for a moment after a form appears, and the
+        // lifecycle events go out on the first frames. Clear them.
+        frame(&mut app, &ctx, raw());
+        std::thread::sleep(Duration::from_millis(220));
+        frame(&mut app, &ctx, raw());
+        let _ = drain_events(&pipes);
+
+        // A Timer handler raising the knob: exactly `MOVE 5 TO KNOB-1::Value`.
+        pipes
+            ._state_tx
+            .send(StateUpdate::new("KNOB-1".to_owned(), "Value".to_owned(), "5".to_owned()))
+            .expect("the host is listening");
+        frame(&mut app, &ctx, raw());
+
+        let events = drain_events(&pipes);
+        for want in ["onValueChanged", "onChange"] {
+            assert!(
+                events
+                    .iter()
+                    .any(|(id, ev)| id == "KNOB-1" && ev == want),
+                "a write to KNOB-1::Value must fire {want}, got {events:?}"
+            );
+        }
+        // …and the value itself landed, so the knob is drawn where it was put.
+        assert_eq!(
+            app.root
+                .state
+                .get("KNOB-1")
+                .and_then(|s| s.props.iter().find(|(k, _)| *k == "Value").map(|(_, v)| v.as_str())),
+            Some("5")
+        );
+
+        // Writing the SAME value again is not a change, so it fires nothing — an
+        // observer that re-fires is a spurious event, and a handler that writes
+        // the property it was woken for would otherwise loop.
+        pipes
+            ._state_tx
+            .send(StateUpdate::new("KNOB-1".to_owned(), "Value".to_owned(), "5".to_owned()))
+            .expect("still listening");
+        frame(&mut app, &ctx, raw());
+        assert!(
+            drain_events(&pipes).is_empty(),
+            "a write of the same value must fire nothing"
+        );
+
+        // A PASSIVE event is never raised by a write: there is no user act.
+        pipes
+            ._state_tx
+            .send(StateUpdate::new("KNOB-1".to_owned(), "Value".to_owned(), "7".to_owned()))
+            .expect("still listening");
+        frame(&mut app, &ctx, raw());
+        let events = drain_events(&pipes);
+        assert!(
+            !events.iter().any(|(_, ev)| ev == "onClick"),
+            "a write is not a click: {events:?}"
+        );
+
+        println!(
+            "observer events on the ROOT form — MOVE 5 TO KNOB-1::Value fires \
+             onValueChanged AND onChange on the main form's path (it fired NOTHING \
+             before: 1.61.71 reached only the child-window path); re-writing 5 fires \
+             nothing; writing 7 fires the observers and never onClick"
+        );
     }
 
     // ── Group 3: effects gating (R5–R10) ─────────────────────────────────────
