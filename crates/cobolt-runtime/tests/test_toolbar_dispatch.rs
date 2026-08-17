@@ -119,6 +119,103 @@ fn toolbar_procedure_and_open_modal_generate_source_that_parses() {
     );
 }
 
+/// A button carries its own handler — that is what makes it first-class, rather
+/// than one `onClick` on the toolbar working out which button was pressed.
+///
+/// The handler becomes a nested program under the button's derived id, and the
+/// loop CALLs it. Where a button has BOTH a handler and an action, the handler
+/// runs FIRST: an `open-modal:` button whose handler fills in the fields the modal
+/// reads only works in that order.
+#[test]
+fn a_buttons_own_handler_is_emitted_and_runs_before_its_action() {
+    let mut form = toolbar_form(
+        &[("button-1", "open-modal:CUST-LOOKUP"), ("button-2", "event")],
+        &[],
+    );
+    {
+        use cobolt_forms::toolbar::{ToolbarDef, TOOLBAR_DEF_PROP};
+        let bar = &mut form.controls[0];
+        let mut def = ToolbarDef::from_control(bar);
+        // A handler is a whole nested program, so it declares its own storage —
+        // exactly as a control's handler does.
+        for (n, code) in [
+            (
+                0,
+                "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n\
+                 \x20      01 WS-KEY PIC X(8) VALUE SPACES.\n\
+                 \x20      PROCEDURE DIVISION.\n           MOVE \"X\" TO WS-KEY.",
+            ),
+            (1, "       PROCEDURE DIVISION.\n           DISPLAY \"pressed\"."),
+        ] {
+            def.groups[0].buttons[n].ensure_event("onClick").code = code.into();
+        }
+        bar.set_prop(TOOLBAR_DEF_PROP, PropValue::String(def.to_json().unwrap()));
+    }
+    let src = generate(&form);
+
+    let errors = parse_errors(&src);
+    assert!(
+        errors.is_empty(),
+        "the generated source must be real COBOL: {errors:#?}\n{src}"
+    );
+
+    let modal_btn = button_control_id("TOOLBAR-1", "group-1", "button-1");
+    let plain_btn = button_control_id("TOOLBAR-1", "group-1", "button-2");
+    let modal_handler = format!("{modal_btn}--ONCLICK");
+    let plain_handler = format!("{plain_btn}--ONCLICK");
+
+    // Each handler is a nested program, IS COMMON like every other woven
+    // procedure, carrying the developer's own body.
+    for handler in [&modal_handler, &plain_handler] {
+        assert!(
+            src.contains(&format!("PROGRAM-ID. {handler} IS COMMON PROGRAM.")),
+            "{handler} was never emitted\n{src}"
+        );
+        assert!(
+            src.contains(&format!("END PROGRAM {handler}.")),
+            "{handler} was never closed\n{src}"
+        );
+    }
+    assert!(
+        src.contains("MOVE \"X\" TO WS-KEY."),
+        "the developer's body must be in the nested program\n{src}"
+    );
+
+    // A button whose action is `event` still gets a WHEN — its handler IS the
+    // thing to run, so without one the button would be first-class in the editor
+    // and dead at run time.
+    let branch = |id: &str| -> String {
+        let at = src
+            .find(&format!("WHEN \"{id}\""))
+            .unwrap_or_else(|| panic!("no WHEN for {id}\n{src}"));
+        let rest = &src[at..];
+        let end = rest.find("END-EVALUATE").unwrap_or(rest.len());
+        rest[..end].to_owned()
+    };
+    assert!(branch(&plain_btn).contains(&format!("CALL \"{plain_handler}\"")));
+
+    // Handler first, then the action.
+    let both = branch(&modal_btn);
+    let call_at = both
+        .find(&format!("CALL \"{modal_handler}\""))
+        .unwrap_or_else(|| panic!("the handler is not called\n{both}"));
+    let open_at = both
+        .find("INVOKE ME::\"OpenFormSync\"")
+        .unwrap_or_else(|| panic!("the modal is not opened\n{both}"));
+    assert!(
+        call_at < open_at,
+        "the handler must run before the modal opens\n{both}"
+    );
+
+    println!(
+        "\n  Toolbar button handlers, end to end — 2 bound onClick handlers become \
+         nested programs ({modal_handler}, {plain_handler}), both IS COMMON, with the \
+         developer's body inside; 0 parse errors; the button that ALSO opens a modal \
+         calls its handler first (offset {call_at}) and opens the modal second \
+         (offset {open_at})\n"
+    );
+}
+
 /// The actions the loop must NOT take over: `event` IS the toolbar's own
 /// `onClick`, and the platform actions are carried out without COBOL's help. A
 /// form holding only those must still generate source that parses — in

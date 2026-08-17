@@ -373,6 +373,53 @@ impl ButtonStyle {
 
 // ── Buttons ───────────────────────────────────────────────────────────────────
 
+/// A handler the developer attached to one button.
+///
+/// Deliberately NOT an [`crate::model::EventBinding`]: that type carries a
+/// `paragraph` field kept for `.cfrm` XML compatibility, and a button's handler
+/// has no legacy to be compatible with. The nested-program name is DERIVED from
+/// the button's own id whenever it is needed, so renaming a group cannot leave a
+/// stale paragraph name behind in the JSON.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ButtonEvent {
+    /// The event name, e.g. `onClick`.
+    pub event: String,
+    /// The complete handler body — `ENVIRONMENT DIVISION` through
+    /// `PROCEDURE DIVISION` and its statements, exactly as a control's handler
+    /// stores it. Empty means "not written yet".
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub code: String,
+}
+
+impl ButtonEvent {
+    pub fn new(event: impl Into<String>) -> Self {
+        Self {
+            event: event.into(),
+            code: String::new(),
+        }
+    }
+
+    pub fn has_code(&self) -> bool {
+        !self.code.trim().is_empty()
+    }
+
+    pub fn code_line_count(&self) -> usize {
+        if self.has_code() {
+            self.code.lines().count()
+        } else {
+            0
+        }
+    }
+}
+
+/// The events a toolbar button can raise.
+///
+/// One, and it is the one a button is for. The renderer knows which button was
+/// pressed and nothing else about it — there is no per-button hover history to
+/// build an enter/leave pair from — so offering more would be offering handlers
+/// that never run.
+pub const BUTTON_EVENTS: &[&str] = &["onClick"];
+
 /// One pressable element of a group.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolbarButton {
@@ -398,6 +445,13 @@ pub struct ToolbarButton {
     /// This button's own appearance, over its group's.
     #[serde(default, skip_serializing_if = "is_default_style")]
     pub style: ButtonStyle,
+    /// The developer's own code for this button, one entry per bound event.
+    ///
+    /// This is what makes a button first-class: it carries its own handler
+    /// instead of leaving one `onClick` on the toolbar to work out which button
+    /// was pressed. Both still work — the toolbar's `onClick` fires either way.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<ButtonEvent>,
 }
 
 fn is_default_style(s: &ButtonStyle) -> bool {
@@ -417,11 +471,26 @@ impl ToolbarButton {
             enabled: true,
             action: String::new(),
             style: ButtonStyle::default(),
+            events: Vec::new(),
         }
     }
 
     pub fn action(&self) -> ToolbarAction {
         ToolbarAction::parse(&self.action)
+    }
+
+    /// This button's binding for `event`, if it has one.
+    pub fn event(&self, event: &str) -> Option<&ButtonEvent> {
+        self.events.iter().find(|e| e.event == event)
+    }
+
+    /// The binding for `event`, creating an empty one if it is not there —
+    /// the same shape as `Control::ensure_event`.
+    pub fn ensure_event(&mut self, event: &str) -> &mut ButtonEvent {
+        if self.event(event).is_none() {
+            self.events.push(ButtonEvent::new(event));
+        }
+        self.events.iter_mut().find(|e| e.event == event).unwrap()
     }
 
     /// Give the button a label, which takes its icon away.
@@ -627,6 +696,17 @@ impl ToolbarDef {
         serde_json::to_string(self)
     }
 
+    /// Read a stored definition back. `None` for anything unreadable, so a
+    /// caller can fall back the way [`Self::from_control`] does rather than
+    /// replacing a toolbar with an empty one.
+    pub fn from_json(raw: &str) -> Option<Self> {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        serde_json::from_str(raw).ok()
+    }
+
     /// Whether anything at all is defined.
     pub fn is_empty(&self) -> bool {
         self.groups.iter().all(|g| g.buttons.is_empty())
@@ -786,6 +866,186 @@ pub fn button_control_id(toolbar_id: &str, group_id: &str, button_id: &str) -> S
         }
     }
     out
+}
+
+/// Where a button lives, found from the id it answers to outside its toolbar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ButtonRef {
+    /// The ToolBar control holding it.
+    pub toolbar_id: String,
+    /// Its group's id inside that toolbar.
+    pub group_id: String,
+    /// Its own id inside that toolbar.
+    pub button_id: String,
+}
+
+/// Find the toolbar button whose derived control id is `control_id`, over every
+/// ToolBar in `controls` — nested ones included, since a toolbar can sit inside
+/// a Panel or a tab page.
+///
+/// This is the inverse of [`button_control_id`], and it is what lets a write, a
+/// handler lookup and a designer click all start from the one id a button is
+/// known by.
+pub fn find_button(controls: &[Control], control_id: &str) -> Option<ButtonRef> {
+    fn walk(controls: &[Control], want: &str, out: &mut Option<ButtonRef>) {
+        for ctrl in controls {
+            if out.is_some() {
+                return;
+            }
+            if ctrl.control_type == crate::model::ControlType::ToolBar {
+                let def = ToolbarDef::from_control(ctrl);
+                for (group, button) in def.buttons() {
+                    if button_control_id(&ctrl.id, &group.id, &button.id)
+                        .eq_ignore_ascii_case(want)
+                    {
+                        *out = Some(ButtonRef {
+                            toolbar_id: ctrl.id.clone(),
+                            group_id: group.id.clone(),
+                            button_id: button.id.clone(),
+                        });
+                        return;
+                    }
+                }
+            }
+            walk(&ctrl.children, want, out);
+        }
+    }
+    let want = control_id.trim();
+    if want.is_empty() {
+        return None;
+    }
+    let mut out = None;
+    walk(controls, want, &mut out);
+    out
+}
+
+// ── What COBOL may change about a button ──────────────────────────────────────
+
+/// The properties a form's COBOL may write on a toolbar button: its **colours**
+/// and its **tooltip** (operator, 2026-08-17). Nothing else.
+///
+/// The toolbar owns the layout, which is why geometry is not programmable — a
+/// button that could move itself would break the arrangement the developer built
+/// in the editor, and there would be nothing to put it back. Everything else
+/// about a button was decided at design time and stays decided.
+///
+/// A write to anything else is REFUSED, and loudly (operator, 2026-08-17): a
+/// silent no-op is how a developer loses an afternoon wondering why the line did
+/// nothing. See [`apply_button_write`].
+pub const BUTTON_WRITABLE: &[&str] = &[
+    "Tooltip",
+    "BackgroundColor",
+    "ForegroundColor",
+    "IconColor",
+    "GradientStartColor",
+    "GradientEndColor",
+    "ShadowColor",
+];
+
+/// Whether COBOL may write `prop` on a toolbar button. Case-insensitive, the way
+/// every other property reference is.
+pub fn button_writable(prop: &str) -> bool {
+    BUTTON_WRITABLE
+        .iter()
+        .any(|w| w.eq_ignore_ascii_case(prop.trim()))
+}
+
+/// Why a write to a toolbar button could not be carried out. Carries a message
+/// fit to put in front of the developer, because that is the whole point of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WriteRefused(pub String);
+
+impl std::fmt::Display for WriteRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The message a refused write reports. Names the button, the property, and what
+/// IS allowed — a refusal that does not say what to do instead is half a refusal.
+pub fn refusal_message(control_id: &str, prop: &str) -> WriteRefused {
+    WriteRefused(format!(
+        "'{}::{}' cannot be written: a toolbar button is laid out by its toolbar, \
+         so only its colours and its tooltip can change while the form runs \
+         (allowed: {})",
+        control_id,
+        prop.trim(),
+        BUTTON_WRITABLE.join(", ")
+    ))
+}
+
+/// Carry an allowed write into the definition, so the next frame draws it.
+///
+/// A button's appearance comes from the definition and nothing else, so a live
+/// change IS a change to the definition — which is why the host applies a write
+/// by editing the stored `ToolbarLayout` rather than by keeping a second,
+/// parallel notion of what a button looks like.
+///
+/// `button_id` is the button's own id inside the toolbar, not its derived
+/// control id.
+pub fn apply_button_write(
+    def: &mut ToolbarDef,
+    button_id: &str,
+    prop: &str,
+    value: &str,
+) -> Result<(), WriteRefused> {
+    if !button_writable(prop) {
+        return Err(refusal_message(button_id, prop));
+    }
+    let Some(button) = def
+        .groups
+        .iter_mut()
+        .flat_map(|g| g.buttons.iter_mut())
+        .find(|b| b.id.eq_ignore_ascii_case(button_id))
+    else {
+        return Err(WriteRefused(format!(
+            "this toolbar has no button '{button_id}'"
+        )));
+    };
+    let prop = prop.trim();
+    let value = value.trim().to_owned();
+    if prop.eq_ignore_ascii_case("Tooltip") {
+        button.tooltip = value;
+        return Ok(());
+    }
+    // A colour. Empty puts the field back to inheriting — from the group, then
+    // from the form's theme — which is the same meaning it has in the editor, so
+    // COBOL can undo a colour as well as set one.
+    let field = match prop.to_ascii_lowercase().as_str() {
+        "backgroundcolor" => &mut button.style.background_color,
+        "foregroundcolor" => &mut button.style.foreground_color,
+        "iconcolor" => &mut button.style.icon_color,
+        "gradientstartcolor" => &mut button.style.gradient_start_color,
+        "gradientendcolor" => &mut button.style.gradient_end_color,
+        "shadowcolor" => &mut button.style.shadow_color,
+        // `BUTTON_WRITABLE` and this match are the same list; a name in one and
+        // not the other is a bug, not a refusal to report to the developer.
+        other => unreachable!("{other} is writable but has no field"),
+    };
+    *field = value;
+    Ok(())
+}
+
+/// Carry a write into a toolbar's stored definition, and hand back the JSON to
+/// store in its place.
+///
+/// `designed` is the toolbar as the developer built it; `live` is whatever a
+/// PREVIOUS write already stored, if any. The live one wins — starting from the
+/// designed definition every time would undo the last change with every new one,
+/// so a form recolouring two buttons would only ever show the second.
+pub fn write_into_layout(
+    designed: &ToolbarDef,
+    live: Option<&str>,
+    button_id: &str,
+    prop: &str,
+    value: &str,
+) -> Result<String, WriteRefused> {
+    let mut def = live
+        .and_then(ToolbarDef::from_json)
+        .unwrap_or_else(|| designed.clone());
+    apply_button_write(&mut def, button_id, prop, value)?;
+    def.to_json()
+        .map_err(|e| WriteRefused(format!("the change could not be stored: {e}")))
 }
 
 /// A rectangle in toolbar-local pixels. Deliberately not egui's `Rect`: the
@@ -1158,6 +1418,247 @@ mod tests {
              \"TOOLBAR-1-GROUP-1-BUTTON-1\"; case is normalised, anything outside a \
              COBOL word becomes a hyphen, and the result fits COBOL-CONTROL-ID's \
              {MAX_BUTTON_CONTROL_ID} characters\n"
+        );
+    }
+
+    /// A button carries its own handler, and it survives the JSON round-trip the
+    /// whole definition makes through the `ToolbarLayout` property. A handler that
+    /// did not survive being saved would be worse than no handler at all.
+    #[test]
+    fn a_button_carries_its_own_handler_through_the_round_trip() {
+        let mut def = ToolbarDef::default();
+        let mut g = ToolbarGroup::new("group-1", "File");
+        let mut save = ToolbarButton::new("button-1", "Save");
+        save.ensure_event("onClick").code =
+            "       PROCEDURE DIVISION.\n           PERFORM WRITE-RECORD.".into();
+        // A second call finds the binding rather than adding another.
+        assert_eq!(save.ensure_event("onClick").event, "onClick");
+        assert_eq!(save.events.len(), 1, "one binding per event");
+        g.buttons.push(save);
+        // A button with no handler carries no `events` at all — nothing is added
+        // to a form just by opening the editor.
+        g.buttons.push(ToolbarButton::new("button-2", "Find"));
+        def.groups.push(g);
+
+        let json = def.to_json().expect("serialises");
+        assert!(
+            !json.contains("\"button-2\",\"events\""),
+            "an unbound button must not carry an empty events list: {json}"
+        );
+        let back = ToolbarDef::from_json(&json).expect("deserialises");
+        assert_eq!(back, def, "the handler survives the round-trip");
+
+        let bound = back.button("button-1").expect("found");
+        let ev = bound.event("onClick").expect("bound");
+        assert!(ev.has_code());
+        assert_eq!(ev.code_line_count(), 2);
+        assert!(
+            back.button("button-2").expect("found").events.is_empty(),
+            "an unbound button stays unbound"
+        );
+        // Only the events the renderer can actually raise are offered, so no
+        // handler can be written that never runs.
+        assert_eq!(BUTTON_EVENTS, &["onClick"]);
+
+        // Unreadable JSON is `None`, so a caller can fall back rather than
+        // replacing a toolbar with an empty one.
+        assert!(ToolbarDef::from_json("{not json").is_none());
+        assert!(ToolbarDef::from_json("   ").is_none());
+
+        println!(
+            "\n  Toolbar button handlers — a 2-line onClick on button-1 survives the \
+             ToolbarLayout JSON round-trip ({} bytes); button-2, unbound, stores no \
+             events key at all; only {:?} is offered\n",
+            json.len(),
+            BUTTON_EVENTS
+        );
+    }
+
+    /// What COBOL may change about a button while the form runs: its colours and
+    /// its tooltip. The toolbar owns the layout, so geometry is not the form's to
+    /// move — and a refusal SAYS SO rather than doing nothing (operator,
+    /// 2026-08-17).
+    #[test]
+    fn cobol_may_recolour_a_button_and_may_not_move_it() {
+        let mut def = ToolbarDef::default();
+        let mut g = ToolbarGroup::new("group-1", "File");
+        g.buttons.push(ToolbarButton::new("button-1", "Save"));
+        def.groups.push(g);
+
+        // Every allowed property lands where the painter reads it.
+        for (prop, value) in [
+            ("Tooltip", "Save the record"),
+            ("BackgroundColor", "#204080FF"),
+            ("ForegroundColor", "#FFFFFFFF"),
+            ("IconColor", "#FFCC00FF"),
+            ("GradientStartColor", "#101010FF"),
+            ("GradientEndColor", "#303030FF"),
+            ("ShadowColor", "#000000AA"),
+        ] {
+            assert!(button_writable(prop), "{prop} must be writable");
+            apply_button_write(&mut def, "button-1", prop, value)
+                .unwrap_or_else(|e| panic!("{prop}: {e}"));
+        }
+        let b = def.button("button-1").expect("found");
+        assert_eq!(b.tooltip, "Save the record");
+        assert_eq!(b.style.background_color, "#204080FF");
+        assert_eq!(b.style.foreground_color, "#FFFFFFFF");
+        assert_eq!(b.style.icon_color, "#FFCC00FF");
+        assert_eq!(b.style.gradient_start_color, "#101010FF");
+        assert_eq!(b.style.gradient_end_color, "#303030FF");
+        assert_eq!(b.style.shadow_color, "#000000AA");
+        // A colour set from COBOL is resolved exactly like one set in the editor.
+        let group = &def.groups[0];
+        assert_eq!(
+            group.buttons[0].resolved(group).background_color,
+            "#204080FF"
+        );
+
+        // Blank puts a colour back to inheriting, the same meaning the editor's ✕
+        // gives it — so COBOL can undo a colour as well as set one.
+        apply_button_write(&mut def, "button-1", "BackgroundColor", "  ").expect("blank is allowed");
+        assert!(def
+            .button("button-1")
+            .expect("found")
+            .style
+            .background_color
+            .is_empty());
+
+        // Case is the developer's, not the format's.
+        apply_button_write(&mut def, "BUTTON-1", "backgroundcolor", "#112233FF")
+            .expect("case-insensitive");
+        assert_eq!(
+            def.button("button-1").expect("found").style.background_color,
+            "#112233FF"
+        );
+
+        // Everything else is refused, and the refusal names the button, the
+        // property and what IS allowed.
+        for prop in ["Width", "Height", "X", "Y", "CornerRadius", "Label", "Icon", "Enabled", "Action"] {
+            assert!(!button_writable(prop), "{prop} must not be writable");
+            let err = apply_button_write(&mut def, "button-1", prop, "40")
+                .expect_err("must be refused");
+            assert!(err.0.contains(prop), "the refusal must name {prop}: {}", err.0);
+            assert!(
+                err.0.contains("colours and its tooltip"),
+                "…and say what is allowed: {}",
+                err.0
+            );
+        }
+        // A button that is not there is refused too, not created.
+        assert!(apply_button_write(&mut def, "button-9", "Tooltip", "x").is_err());
+        assert_eq!(def.buttons().count(), 1);
+
+        println!(
+            "\n  Toolbar button writes — {} properties accepted (Tooltip + 6 colours) and \
+             applied where the painter reads them; blank restores inheriting; \
+             Width/Height/X/Y/CornerRadius/Label/Icon/Enabled/Action all refused with a \
+             message naming the property and the allowed set\n",
+            BUTTON_WRITABLE.len()
+        );
+    }
+
+    /// Two writes in a row both stick.
+    ///
+    /// A button's appearance comes from the stored definition and nothing else, so
+    /// a live change IS a change to that definition. Starting from the DESIGNED
+    /// definition each time would undo the previous change with every new one — a
+    /// form recolouring two buttons would only ever show the second.
+    #[test]
+    fn a_second_write_keeps_the_first() {
+        let mut designed = ToolbarDef::default();
+        let mut g = ToolbarGroup::new("group-1", "File");
+        g.buttons.push(ToolbarButton::new("button-1", "Save"));
+        g.buttons.push(ToolbarButton::new("button-2", "Find"));
+        designed.groups.push(g);
+
+        // First write: no live definition yet, so the designed one is the start.
+        let after_one =
+            write_into_layout(&designed, None, "button-1", "BackgroundColor", "#204080FF")
+                .expect("allowed");
+        // Second write, on the OTHER button, starting from what the first stored.
+        let after_two = write_into_layout(
+            &designed,
+            Some(&after_one),
+            "button-2",
+            "Tooltip",
+            "Find a record",
+        )
+        .expect("allowed");
+
+        let def = ToolbarDef::from_json(&after_two).expect("readable");
+        assert_eq!(
+            def.button("button-1").expect("found").style.background_color,
+            "#204080FF",
+            "the first write must survive the second"
+        );
+        assert_eq!(
+            def.button("button-2").expect("found").tooltip,
+            "Find a record"
+        );
+        // The designed definition itself is never touched — it is the `.cfrm`.
+        assert!(designed
+            .button("button-1")
+            .expect("found")
+            .style
+            .background_color
+            .is_empty());
+
+        // An unreadable live value falls back to the design rather than losing the
+        // toolbar, and a refused property is still refused here.
+        let recovered =
+            write_into_layout(&designed, Some("{not json"), "button-1", "Tooltip", "X")
+                .expect("allowed");
+        assert_eq!(
+            ToolbarDef::from_json(&recovered)
+                .expect("readable")
+                .buttons()
+                .count(),
+            2,
+            "a bad live value must not lose the buttons"
+        );
+        assert!(write_into_layout(&designed, None, "button-1", "Width", "80").is_err());
+
+        println!(
+            "\n  Toolbar live layout — recolouring button-1 then re-tooltipping button-2 \
+             leaves BOTH changes in the stored definition; the designed definition is \
+             never modified; an unreadable live value falls back to the design (2 buttons \
+             kept) and a refused property is still refused\n"
+        );
+    }
+
+    /// The id a press arrives under, turned back into the button it names — over
+    /// nested controls too, since a toolbar can sit inside a Panel.
+    #[test]
+    fn a_derived_id_finds_its_way_back_to_its_button() {
+        let mut def = ToolbarDef::default();
+        let mut g = ToolbarGroup::new("group-2", "Output");
+        g.buttons.push(ToolbarButton::new("button-3", "Print"));
+        def.groups.push(g);
+
+        let mut bar = Control::new("TB", ControlType::ToolBar, 0, 0);
+        bar.set_prop(TOOLBAR_DEF_PROP, PropValue::String(def.to_json().unwrap()));
+        // Nested one level down: the walk must reach it.
+        let mut panel = Control::new("PANEL-1", ControlType::Panel, 0, 0);
+        panel.children.push(bar);
+        let controls = vec![panel];
+
+        let id = button_control_id("TB", "group-2", "button-3");
+        let found = find_button(&controls, &id).expect("a nested toolbar's button is findable");
+        assert_eq!(found.toolbar_id, "TB");
+        assert_eq!(found.group_id, "group-2");
+        assert_eq!(found.button_id, "button-3");
+        // Case-insensitive, like every other control reference from COBOL.
+        assert_eq!(find_button(&controls, &id.to_ascii_lowercase()), Some(found));
+
+        assert!(find_button(&controls, "TB-GROUP-2-BUTTON-9").is_none());
+        assert!(find_button(&controls, "PANEL-1").is_none(), "a control is not a button");
+        assert!(find_button(&controls, "  ").is_none());
+
+        println!(
+            "\n  Toolbar button lookup — {id} resolves to TB/group-2/button-3 through a \
+             Panel, case-insensitively; an unknown id, a plain control and a blank all \
+             resolve to nothing\n"
         );
     }
 

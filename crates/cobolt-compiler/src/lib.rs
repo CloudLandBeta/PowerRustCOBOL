@@ -3471,6 +3471,14 @@ Whatever the action, the form ALSO gets an `onClick` on the toolbar, and `LastBu
 \n\
 `run-app` and `open-terminal` start a real process: the target is split on whitespace and handed to the OS DIRECTLY, never to a shell, so a target built from a data item cannot become a shell command. A toolbar wider than its control loses whole groups off the end rather than drawing half of one. A ToolBar with only a legacy `Items` list is read as one unframed group of labelled buttons, so it keeps working untouched.\n\
 \n\
+### A button's own handler\n\
+A button carries its OWN code, not just the toolbar's one `onClick`. In the Toolbar Editor select a button, and under **Events** bind `onClick` with **Edit code** — that keeps the toolbar (as Save would) and opens the COBOL editor on the handler; saving puts it back into the toolbar. `onClick` is the only event offered, because it is the only one a button can raise. Where a button has more than one thing to run, the order is fixed: the TOOLBAR's `onClick` first, then the BUTTON's own `onClick`, then its action — so an `open-modal:` button whose handler prepares what the modal reads works as written.\n\
+\n\
+### Changing a button while the form runs\n\
+COBOL may write a button's COLOURS and its TOOLTIP, and nothing else: `Tooltip`, `BackgroundColor`, `ForegroundColor`, `IconColor`, `GradientStartColor`, `GradientEndColor`, `ShadowColor`. A colour set to SPACES goes back to inheriting (group, then theme), the same meaning the editor's ✕ has. `MOVE \"#204080FF\" TO TOOLBAR-1-GROUP-1-BUTTON-1::BackgroundColor.`\n\
+\n\
+Anything else — width, height, corner radius, label, icon, enabled, action — is a RUNTIME ERROR naming the property and the allowed set, through all three doors (`x::Prop`, `CALL \"COBOL-SET-PROPERTY\"`, `INVOKE x \"SetProperty\"`). A button is laid out BY ITS TOOLBAR, so a button that could move itself would leave nothing to put it back; a silent no-op would be worse. Reads are never refused. The COBOL editor flags a refused property as it is typed.\n\
+\n\
 ### How a button reaches COBOL\n\
 A toolbar button is NOT a control — the toolbar owns the layout, so a button has no entry in `form.controls`. It is named by a DERIVED id instead, `<toolbar>-<group>-<button>` upper-cased: `TOOLBAR-1` + `group-2` + `button-1` ⇒ `TOOLBAR-1-GROUP-2-BUTTON-1`. The press arrives under that id and the generated event loop dispatches on it, which is how `procedure:` and `open-modal:` reach anything — a `procedure:` button becomes `CALL \"<NAME>\"` (a user procedure is a nested program, IS COMMON) and an `open-modal:` button becomes `INVOKE ME::\"OpenFormSync\"(\"<FORM>\")`, whose one-argument form is modal. Nothing types the derived id by hand.\n\
 \n\

@@ -598,6 +598,53 @@ impl FormBody {
         state_entry_mut(&mut self.state, &self.controls, key)
     }
 
+    /// Carry a COBOL write to a toolbar BUTTON into its toolbar's definition, so
+    /// the next frame draws it. Returns whether `id` named a button at all.
+    ///
+    /// A button's appearance lives in the toolbar's `ToolbarLayout` and nowhere
+    /// else, so a live change IS a change to that definition. Rewriting it there
+    /// keeps the renderer out of it entirely: it reads the layout off the live
+    /// control exactly as it always has.
+    ///
+    /// The interpreter has already refused anything but a colour or a tooltip and
+    /// said so; a write that gets here is one the button allows. A refusal that
+    /// still surfaces (a button that has since gone, say) is reported, not
+    /// swallowed.
+    pub(crate) fn apply_toolbar_button_write(&mut self, id: &str, prop: &str, value: &str) -> bool {
+        let Some(found) = cobolt_forms::toolbar::find_button(&self.controls, id) else {
+            return false;
+        };
+        // The designed definition, read the same way the renderer reads it — so a
+        // legacy `Items` toolbar is not silently replaced by an empty one.
+        let designed = self
+            .controls
+            .iter()
+            .find(|c| c.id == found.toolbar_id)
+            .map(cobolt_forms::toolbar::ToolbarDef::from_control)
+            .unwrap_or_default();
+        // …and whatever a previous write already stored, which wins.
+        let live = self.state.get(&found.toolbar_id).and_then(|s| {
+            s.props
+                .iter()
+                .find(|(k, _)| *k == cobolt_forms::toolbar::TOOLBAR_DEF_PROP)
+                .map(|(_, v)| v.clone())
+        });
+        match cobolt_forms::toolbar::write_into_layout(
+            &designed,
+            live.as_deref(),
+            &found.button_id,
+            prop,
+            value,
+        ) {
+            Ok(json) => {
+                self.state_entry_mut(&found.toolbar_id)
+                    .set(cobolt_forms::toolbar::TOOLBAR_DEF_PROP, json);
+            }
+            Err(refused) => eprintln!("toolbar: {id}::{prop} — {refused}"),
+        }
+        true
+    }
+
     /// Resolve a control id arriving from COBOL (upper-cased by the compiler)
     /// to the designer's original-case state key — otherwise a handler's
     /// property writes land in an orphan "LABEL-1" entry the renderer (which
@@ -2198,6 +2245,19 @@ impl FormHost {
                     matched.as_deref(),
                     &known,
                 );
+            }
+            // A write to a toolbar BUTTON is not a write to a control: a button's
+            // appearance comes from its toolbar's stored definition and from
+            // nowhere else, so the change belongs in that definition. Rewriting it
+            // there means the renderer needs to know nothing about live button
+            // state — it reads `ToolbarLayout` off the live control as it always
+            // has, and the next frame is already correct.
+            //
+            // The interpreter has already refused anything but a colour or a
+            // tooltip, out loud; this only carries an allowed write home.
+            if self.root.apply_toolbar_button_write(&key, &u.prop, &u.value) {
+                drained += 1;
+                continue;
             }
             self.root.state_entry_mut(&key).set(&u.prop, u.value);
             drained += 1;

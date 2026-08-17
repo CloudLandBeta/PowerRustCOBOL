@@ -1575,7 +1575,7 @@ strip. Delete it, rename it, or build around it.
 
 The form **always** hears the press as an `onClick` on the toolbar, whatever else
 the action does — so one handler can serve a whole toolbar by reading which
-button it was:
+button it was (a button can also carry its **own** handler; see below):
 
 ```cobol
       *>   in the TOOLBAR-1 onClick handler:
@@ -1585,6 +1585,65 @@ button it was:
                WHEN OTHER       CONTINUE
            END-EVALUATE
 ```
+
+##### Giving a button its own handler
+
+A button can carry its **own COBOL**, instead of one `onClick` on the toolbar
+working out which button was pressed. In the Toolbar Editor, select a button and
+look under **Events**: `onClick` with a dot — hollow when there is no code, filled
+when there is — and **Edit code**.
+
+Clicking it keeps the toolbar exactly as **Save** would and hands over to the
+COBOL editor, so you are never looking at two modals with two Saves. Write the
+handler, save it, and it goes back into the toolbar.
+
+`onClick` is the only event a button offers, because it is the only one the
+platform can raise for a button: the toolbar knows which button was pressed and
+nothing else about it. An event you could bind but that never fired would be
+worse than no event.
+
+Both routes work at once, and in a fixed order:
+
+1. the toolbar's `onClick` (with `LastButton` naming the button),
+2. the button's own `onClick`,
+3. and finally the button's **action**, if it has one.
+
+So a `procedure` or `open-modal` button whose handler prepares what the procedure
+or the form needs works the way you would write it — the handler runs first.
+
+##### Changing a button while the form runs
+
+A button lets your COBOL change its **colours** and its **tooltip**:
+
+```cobol
+           MOVE "#204080FF" TO TOOLBAR-1-GROUP-1-BUTTON-1::BackgroundColor.
+           MOVE "Record saved" TO TOOLBAR-1-GROUP-1-BUTTON-1::Tooltip.
+```
+
+| Writable | |
+|---|---|
+| `Tooltip` | The hover text. |
+| `BackgroundColor`, `ForegroundColor`, `IconColor` | The button's face, its text and its icon. |
+| `GradientStartColor`, `GradientEndColor` | Its gradient, when it has one. |
+| `ShadowColor` | Its drop shadow. |
+
+Setting a colour to **spaces** puts it back to inheriting — from its group, then
+from the form's theme — exactly what the ✕ beside it does in the editor.
+
+**Everything else is refused, and refused out loud.** A write to a button's width,
+height, corner radius, label, icon, enabled flag or action is a **runtime error**
+naming the property and what is allowed instead:
+
+```cobol
+      *>   this stops the form with an error, on purpose:
+           MOVE "200" TO TOOLBAR-1-GROUP-1-BUTTON-1::Width.
+```
+
+That is deliberate. The toolbar owns the layout — it is what keeps the buttons
+arranged the way you built them, and a button that could move itself would leave
+nothing to put it back. A write that silently did nothing is how an afternoon goes
+missing, so the form says so instead. The COBOL editor also knows: a refused
+property is flagged as you type, before you ever run the form.
 
 ##### How a button reaches your code
 

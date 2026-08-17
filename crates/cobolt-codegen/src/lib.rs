@@ -1837,9 +1837,26 @@ fn write_nested_programs(
     all_controls: &[&Control],
     user_lines: &mut Vec<(u32, u32)>,
 ) {
+    // A toolbar button's handler is emitted here too. It is not in any control's
+    // `events` table — the toolbar owns its buttons — so the walk below would
+    // never reach it, and a bound handler would have a `WHEN` calling a program
+    // that was never written.
+    let toolbar_handlers: Vec<(String, String, String, String)> =
+        collect_toolbar_dispatch(all_controls)
+            .into_iter()
+            .filter(|d| toolbar_when_branches(d).is_ok())
+            .flat_map(|d| {
+                let origin = d.origin.clone();
+                d.handlers
+                    .into_iter()
+                    .map(move |(para, event, code)| (para, event, code, origin.clone()))
+            })
+            .collect();
+
     let has_any = !form.form_events.is_empty()
         || all_controls.iter().any(|c| !c.events.is_empty())
-        || !form.user_procedures.is_empty();
+        || !form.user_procedures.is_empty()
+        || !toolbar_handlers.is_empty();
     if !has_any {
         return;
     }
@@ -1882,6 +1899,21 @@ fn write_nested_programs(
                 user_lines,
             );
         }
+    }
+
+    // Toolbar button handlers. `IS COMMON` like every other woven procedure, so
+    // a button's handler can CALL a user procedure and be CALLed in turn.
+    for (paragraph, event, code, origin) in &toolbar_handlers {
+        write_nested_program(
+            out,
+            paragraph,
+            event,
+            code,
+            &format!("toolbar button {origin} {event} handler"),
+            true,
+            None,
+            user_lines,
+        );
     }
 
     // User procedures (spec 005) — nested programs callable by name from the
@@ -1965,28 +1997,33 @@ fn write_nested_program(
     out.push('\n');
 }
 
-/// One toolbar button the event loop has to dispatch, and what it does.
+/// One toolbar button the event loop has to dispatch, and everything it runs.
 struct ToolbarDispatch {
     /// The derived `<toolbar>-<group>-<button>` id the press arrives under.
     control_id: String,
     /// Where it came from, for the comment when something is wrong.
     origin: String,
-    /// The action, already known to be the form's own COBOL.
-    action: cobolt_forms::toolbar::ToolbarAction,
+    /// The action, when it is the form's own COBOL. `None` = `event` or a
+    /// platform action, neither of which the loop runs.
+    action: Option<cobolt_forms::toolbar::ToolbarAction>,
+    /// The button's own handlers: `(nested-program name, event, source)`.
+    handlers: Vec<(String, String, String)>,
 }
 
-/// Every toolbar button whose action is the FORM's own COBOL — `procedure:` and
-/// `open-modal:`.
+/// Every toolbar button the generated event loop has something to do for: one
+/// carrying the developer's own handler, and one whose action is the FORM's own
+/// COBOL (`procedure:` / `open-modal:`).
 ///
-/// A button is not a `Control`: the toolbar owns its layout, so it has no
-/// `events` table for the per-control walk to find. Codegen reads each ToolBar's
-/// definition instead and dispatches under the button's derived id. Without this
-/// pass those two actions cannot reach anything at all, whatever the designer
-/// offers.
+/// A button is not a `Control`: the toolbar owns its layout, so it has no entry
+/// for the per-control walk to find. Codegen reads each ToolBar's definition
+/// instead and dispatches under the button's derived id. Without this pass a
+/// button's handler and those two actions cannot reach anything at all, whatever
+/// the designer offers.
 ///
-/// `event` is left out on purpose — the renderer already fires the toolbar's own
-/// `onClick`, which is that action's whole meaning — and so are the platform
-/// actions, which the host carries out without COBOL's help.
+/// The `event` action is not listed as an action here — the renderer already
+/// fires the toolbar's own `onClick`, which is that action's whole meaning — and
+/// neither are the platform actions, which the host carries out without COBOL.
+/// A button can still have a handler alongside any of them.
 fn collect_toolbar_dispatch(all_controls: &[&Control]) -> Vec<ToolbarDispatch> {
     use cobolt_forms::toolbar::{ToolbarAction, ToolbarDef};
     let mut out: Vec<ToolbarDispatch> = Vec::new();
@@ -1996,12 +2033,27 @@ fn collect_toolbar_dispatch(all_controls: &[&Control]) -> Vec<ToolbarDispatch> {
     {
         let def = ToolbarDef::from_control(ctrl);
         for (group, button) in def.buttons() {
-            let action = button.action();
-            if !matches!(action, ToolbarAction::Procedure(_) | ToolbarAction::OpenModal(_)) {
-                continue;
-            }
             let control_id =
                 cobolt_forms::toolbar::button_control_id(&ctrl.id, &group.id, &button.id);
+            let action = match button.action() {
+                a @ (ToolbarAction::Procedure(_) | ToolbarAction::OpenModal(_)) => Some(a),
+                _ => None,
+            };
+            let handlers: Vec<(String, String, String)> = button
+                .events
+                .iter()
+                .filter(|e| e.has_code())
+                .map(|e| {
+                    (
+                        cobolt_forms::model::derive_paragraph_name(&control_id, &e.event),
+                        e.event.clone(),
+                        e.code.clone(),
+                    )
+                })
+                .collect();
+            if action.is_none() && handlers.is_empty() {
+                continue;
+            }
             // A hand-edited `.cfrm` can repeat an id; a second WHEN on the same
             // literal would simply never be reached, so keep the first.
             if out.iter().any(|d| d.control_id == control_id) {
@@ -2011,20 +2063,28 @@ fn collect_toolbar_dispatch(all_controls: &[&Control]) -> Vec<ToolbarDispatch> {
                 control_id,
                 origin: format!("{}/{}/{}", ctrl.id, group.id, button.id),
                 action,
+                handlers,
             });
         }
     }
     out
 }
 
-/// The one statement a toolbar button's `WHEN` runs, or the reason it gets none.
+/// The inner `EVALUATE COBOL-EVENT-ID` for one toolbar button — one entry per
+/// event, with the statements that event runs in order — or the reason the button
+/// gets no `WHEN` at all.
+///
+/// Where a button has BOTH a handler and an action, the handler runs FIRST. That
+/// is not arbitrary: an `open-modal:` button whose handler fills in the fields
+/// the modal reads only works in that order, and the reverse order has no case
+/// to make for it.
 ///
 /// Nothing fails in silence: a button naming no procedure, naming no form, or
 /// carrying an id too long for `COBOL-CONTROL-ID` yields an `Err` the generator
 /// writes into the source as a comment — which the developer can read, since
 /// Generated Code is a category in the project tree — instead of a `WHEN` that
 /// could never fire.
-fn toolbar_when_statement(d: &ToolbarDispatch) -> Result<String, String> {
+fn toolbar_when_branches(d: &ToolbarDispatch) -> Result<Vec<(String, Vec<String>)>, String> {
     use cobolt_forms::toolbar::{ToolbarAction, MAX_BUTTON_CONTROL_ID};
     if d.control_id.len() > MAX_BUTTON_CONTROL_ID {
         return Err(format!(
@@ -2035,26 +2095,52 @@ fn toolbar_when_statement(d: &ToolbarDispatch) -> Result<String, String> {
             MAX_BUTTON_CONTROL_ID
         ));
     }
-    match &d.action {
-        ToolbarAction::Procedure(name) if name.trim().is_empty() => {
-            Err("asks to run a procedure but names none.".to_owned())
+    let mut branches: Vec<(String, Vec<String>)> = Vec::new();
+    for (paragraph, event, _) in &d.handlers {
+        let slot = match branches.iter_mut().find(|(e, _)| e == event) {
+            Some(slot) => slot,
+            None => {
+                branches.push((event.clone(), Vec::new()));
+                branches.last_mut().expect("just pushed")
+            }
+        };
+        slot.1.push(format!("CALL \"{paragraph}\""));
+    }
+    let action_statement = match &d.action {
+        None => None,
+        Some(ToolbarAction::Procedure(name)) if name.trim().is_empty() => {
+            return Err("asks to run a procedure but names none.".to_owned())
         }
-        ToolbarAction::OpenModal(form_id) if form_id.trim().is_empty() => {
-            Err("asks to open a modal form but names none.".to_owned())
+        Some(ToolbarAction::OpenModal(form_id)) if form_id.trim().is_empty() => {
+            return Err("asks to open a modal form but names none.".to_owned())
         }
         // A user procedure is a nested program, `IS COMMON`, so the event loop
         // in the outer program can CALL it by name.
-        ToolbarAction::Procedure(name) => Ok(format!("CALL \"{}\"", name.trim())),
+        Some(ToolbarAction::Procedure(name)) => Some(format!("CALL \"{}\"", name.trim())),
         // One argument means MODAL: `OpenFormSync`'s comma-form default. The
         // handle is already NULL by the time a modal returns, so nothing is
         // RETURNING-ed into.
-        ToolbarAction::OpenModal(form_id) => Ok(format!(
+        Some(ToolbarAction::OpenModal(form_id)) => Some(format!(
             "INVOKE ME::\"OpenFormSync\"(\"{}\")",
             form_id.trim()
         )),
-        // `collect_toolbar_dispatch` admits nothing else.
-        other => Err(format!("has an action the event loop cannot run: {other:?}")),
+        // `collect_toolbar_dispatch` stores nothing else as an action.
+        Some(other) => {
+            return Err(format!(
+                "has an action the event loop cannot run: {other:?}"
+            ))
+        }
+    };
+    if let Some(statement) = action_statement {
+        match branches.iter_mut().find(|(e, _)| e == "onClick") {
+            Some((_, stmts)) => stmts.push(statement),
+            None => branches.push(("onClick".to_owned(), vec![statement])),
+        }
     }
+    if branches.is_empty() {
+        return Err("has nothing for the event loop to run.".to_owned());
+    }
+    Ok(branches)
 }
 
 fn write_event_loop(out: &mut String, form: &Form) {
@@ -2075,7 +2161,7 @@ fn write_event_loop(out: &mut String, form: &Form) {
     let (dispatchable, refused): (Vec<_>, Vec<_>) = collect_toolbar_dispatch(&all_controls)
         .into_iter()
         .map(|d| {
-            let verdict = toolbar_when_statement(&d);
+            let verdict = toolbar_when_branches(&d);
             (d, verdict)
         })
         .partition(|(_, verdict)| verdict.is_ok());
@@ -2159,11 +2245,15 @@ fn write_event_loop(out: &mut String, form: &Form) {
         // Toolbar buttons last: they are dispatched under a derived id, which
         // cannot collide with a control's own, so the order is only cosmetic.
         for (d, verdict) in &dispatchable {
-            let Ok(statement) = verdict else { continue };
+            let Ok(branches) = verdict else { continue };
             out.push_str(&format!("                   WHEN \"{}\"\n", d.control_id));
             out.push_str("                       EVALUATE COBOL-EVENT-ID\n");
-            out.push_str("                           WHEN \"onClick\"\n");
-            out.push_str(&format!("                               {statement}\n"));
+            for (event, statements) in branches {
+                out.push_str(&format!("                           WHEN \"{event}\"\n"));
+                for statement in statements {
+                    out.push_str(&format!("                               {statement}\n"));
+                }
+            }
             out.push_str("                       END-EVALUATE\n");
         }
         out.push_str("               END-EVALUATE\n");
