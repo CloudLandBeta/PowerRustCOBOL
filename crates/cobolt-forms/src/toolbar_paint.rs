@@ -28,6 +28,7 @@ use egui::{Color32, Painter, Rect, Vec2};
 use crate::paint;
 use crate::surface_theme::ColorToken as Tok;
 use crate::toolbar::{Box2, ToolbarButton, ToolbarDef, ToolbarGroup};
+use crate::toolbar as cobolt_forms_style;
 
 /// How a button is being touched right now, so the face can answer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -100,10 +101,14 @@ pub fn draw(
                 continue;
             };
             let screen = to_screen(*box2);
+            // The button's own style over its group's over the built-in — one
+            // call, so the painter never has to know there are layers.
+            let style = button.resolved(group);
             draw_button(
                 painter,
                 screen,
                 button,
+                &style,
                 &theme,
                 alpha_mul,
                 interaction.state_of(id),
@@ -211,6 +216,7 @@ fn draw_button(
     painter: &Painter,
     rect: Rect,
     button: &ToolbarButton,
+    style: &cobolt_forms_style::ResolvedStyle,
     theme: &Theme,
     alpha_mul: f32,
     state: ButtonState,
@@ -218,18 +224,18 @@ fn draw_button(
     // A disabled button is drawn, not hidden — it has to show that it is there
     // and unavailable. Everything about it fades together.
     let alpha_mul = if button.enabled { alpha_mul } else { alpha_mul * 0.45 };
-    let radius_px = button.corner_radius.clamp(0, 200);
+    let radius_px = style.corner_radius.clamp(0, 200);
     let radius = radius_px as u8;
 
-    if button.shadow {
+    if style.shadow {
         paint::draw_loose_drop_shadow(
             painter,
             rect,
-            chosen(&button.shadow_color).unwrap_or(Color32::BLACK),
-            if button.shadow_opacity > 0 { button.shadow_opacity } else { 25 },
-            if button.shadow_distance > 0 { button.shadow_distance } else { 2 },
+            chosen(&style.shadow_color).unwrap_or(Color32::BLACK),
+            if style.shadow_opacity > 0 { style.shadow_opacity } else { 25 },
+            if style.shadow_distance > 0 { style.shadow_distance } else { 2 },
             90.0,
-            button.shadow_blur_strength,
+            style.shadow_blur_strength,
             radius_px as f32,
             alpha_mul,
         );
@@ -237,14 +243,14 @@ fn draw_button(
 
     // The face: a gradient when asked for, otherwise a solid — the developer's
     // colour, or the theme's raised card.
-    let base = chosen(&button.background_color).unwrap_or(theme.card_raised);
-    if button.gradient {
-        let start = chosen(&button.gradient_start_color).unwrap_or(base);
-        let end = chosen(&button.gradient_end_color).unwrap_or(base);
-        let dir = if button.gradient_direction.trim().is_empty() {
+    let base = chosen(&style.background_color).unwrap_or(theme.card_raised);
+    if style.gradient {
+        let start = chosen(&style.gradient_start_color).unwrap_or(base);
+        let end = chosen(&style.gradient_end_color).unwrap_or(base);
+        let dir = if style.gradient_direction.trim().is_empty() {
             "Vertical"
         } else {
-            button.gradient_direction.trim()
+            style.gradient_direction.trim()
         };
         let mesh = paint::background_gradient_mesh(
             rect,
@@ -261,17 +267,19 @@ fn draw_button(
     // Icon and label share the button: an icon-only button centres its icon, a
     // label-only button centres its text, and a button with both puts the icon
     // on the left of the text.
-    let ink = chosen(&button.foreground_color).unwrap_or(if button.enabled {
+    let ink = chosen(&style.foreground_color).unwrap_or(if button.enabled {
         theme.text
     } else {
         theme.dim_text
     });
     let ink = faded(ink, alpha_mul);
-    let icon_ink = faded(chosen(&button.icon_color).unwrap_or(ink), alpha_mul);
+    let icon_ink = faded(chosen(&style.icon_color).unwrap_or(ink), alpha_mul);
 
+    // A button carries a label OR an icon, never both — the model keeps that
+    // true, and the icon wins here if an old definition somehow holds both.
     let has_icon = !button.icon.trim().is_empty();
-    let label = button.label.trim();
-    let icon_side = (button.icon_size.clamp(4, 512) as f32).min(rect.height() - 2.0);
+    let label = if has_icon { "" } else { button.label.trim() };
+    let icon_side = (style.icon_size.clamp(4, 512) as f32).min(rect.height() - 2.0);
 
     let galley = (!label.is_empty()).then(|| {
         painter.layout_no_wrap(
@@ -325,23 +333,23 @@ mod tests {
     fn every_button_is_drawn_and_reported_where_the_layout_put_it() {
         let mut def = ToolbarDef::default();
         let mut g = ToolbarGroup::new("group-1", "Clipboard");
+        // Labelled buttons, no icons — a button carries one or the other.
         for (n, label) in ["Copy", "Cut", "Paste"].iter().enumerate() {
-            let mut b = ToolbarButton::new(format!("b{}", n + 1), *label);
-            b.icon = "home".into();
-            g.buttons.push(b);
+            g.buttons
+                .push(ToolbarButton::new(format!("b{}", n + 1), *label));
         }
         g.separator_after = true;
         def.groups.push(g);
         let mut g2 = ToolbarGroup::new("group-2", "Output");
         let mut disabled = ToolbarButton::new("b4", "Print");
         disabled.enabled = false;
-        disabled.shadow = true;
+        disabled.style.shadow = Some(true);
         g2.buttons.push(disabled);
         let mut gradient = ToolbarButton::new("b5", "");
-        gradient.icon = "chart-bar".into();
-        gradient.gradient = true;
-        gradient.gradient_start_color = "#204080".into();
-        gradient.gradient_end_color = "#4080C0".into();
+        gradient.set_icon("chart-bar");
+        gradient.style.gradient = Some(true);
+        gradient.style.gradient_start_color = "#204080".into();
+        gradient.style.gradient_end_color = "#4080C0".into();
         g2.buttons.push(gradient);
         def.groups.push(g2);
 

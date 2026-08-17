@@ -101,6 +101,9 @@ fn is_empty(s: &String) -> bool {
 fn is_false(b: &bool) -> bool {
     !*b
 }
+fn is_zero(n: &i64) -> bool {
+    *n == 0
+}
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -231,36 +234,42 @@ impl ToolbarAction {
     ];
 }
 
-// ── Buttons ───────────────────────────────────────────────────────────────────
+// ── How a button looks ────────────────────────────────────────────────────────
 
-/// One pressable element of a group.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ToolbarButton {
-    pub id: String,
-    /// Text on the button. May be empty for an icon-only button.
-    #[serde(default, skip_serializing_if = "is_empty")]
-    pub label: String,
-    /// Hover text. Empty draws none.
-    #[serde(default, skip_serializing_if = "is_empty")]
-    pub tooltip: String,
-    /// A name from the hand-drawn icon catalogue (`icons::menu_icon_names`).
-    /// Empty draws no icon.
-    #[serde(default, skip_serializing_if = "is_empty")]
-    pub icon: String,
-    #[serde(default = "default_icon_size")]
-    pub icon_size: i64,
-    /// Empty = the theme's own icon colour.
+/// Everything about a button's APPEARANCE, with every field optional.
+///
+/// One struct, used at two levels, which is what makes a group's settings the
+/// defaults for its buttons (operator, 2026-08-17):
+///
+/// * on a [`ToolbarGroup`] it is the default for every button in that group;
+/// * on a [`ToolbarButton`] it is that button's own override.
+///
+/// [`ButtonStyle::resolve`] walks button → group → built-in, so an unset field
+/// means "whatever my group says", and an unset field on the group means
+/// "whatever the theme says". A field the developer sets anywhere wins over
+/// everything above it.
+///
+/// Colours are `String` and empty means unset; the rest are `Option` because a
+/// zero corner radius and a zero shadow distance are real choices that a
+/// sentinel would swallow.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ButtonStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_size: Option<i64>,
     #[serde(default, skip_serializing_if = "is_empty")]
     pub icon_color: String,
-    #[serde(default = "default_button_width")]
-    pub width: i64,
-    #[serde(default = "default_button_height")]
-    pub height: i64,
-    /// Empty = the theme's button face.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radius: Option<i64>,
     #[serde(default, skip_serializing_if = "is_empty")]
     pub background_color: String,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub gradient: bool,
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub foreground_color: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<bool>,
     #[serde(default, skip_serializing_if = "is_empty")]
     pub gradient_start_color: String,
     #[serde(default, skip_serializing_if = "is_empty")]
@@ -268,67 +277,176 @@ pub struct ToolbarButton {
     /// `Vertical` | `Horizontal` | `Diagonal`. Empty = `Vertical`.
     #[serde(default, skip_serializing_if = "is_empty")]
     pub gradient_direction: String,
-    /// Empty = the theme's text colour.
-    #[serde(default, skip_serializing_if = "is_empty")]
-    pub foreground_color: String,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub shadow: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<bool>,
     #[serde(default, skip_serializing_if = "is_empty")]
     pub shadow_color: String,
     /// 0-100 %.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub shadow_opacity: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_opacity: Option<i64>,
     /// Pixels.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub shadow_distance: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_distance: Option<i64>,
     /// 0-20 blur layers.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub shadow_blur_strength: i64,
-    #[serde(default = "default_radius")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_blur_strength: Option<i64>,
+}
+
+/// A style with every field decided — what the painter actually draws from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedStyle {
+    pub icon_size: i64,
+    pub icon_color: String,
+    pub width: i64,
+    pub height: i64,
     pub corner_radius: i64,
+    pub background_color: String,
+    pub foreground_color: String,
+    pub gradient: bool,
+    pub gradient_start_color: String,
+    pub gradient_end_color: String,
+    pub gradient_direction: String,
+    pub shadow: bool,
+    pub shadow_color: String,
+    pub shadow_opacity: i64,
+    pub shadow_distance: i64,
+    pub shadow_blur_strength: i64,
+}
+
+/// The first of `a` then `b` that the developer actually set.
+fn pick_str<'a>(a: &'a str, b: &'a str) -> String {
+    if !a.trim().is_empty() {
+        a.to_owned()
+    } else {
+        b.to_owned()
+    }
+}
+
+impl ButtonStyle {
+    /// Resolve `self` (a button's overrides) against `group` (its group's
+    /// defaults), falling back to the built-in values.
+    pub fn resolve(&self, group: &ButtonStyle) -> ResolvedStyle {
+        ResolvedStyle {
+            icon_size: self
+                .icon_size
+                .or(group.icon_size)
+                .unwrap_or(DEFAULT_ICON_SIZE),
+            icon_color: pick_str(&self.icon_color, &group.icon_color),
+            width: self
+                .width
+                .or(group.width)
+                .unwrap_or(DEFAULT_BUTTON_SIZE.0),
+            height: self
+                .height
+                .or(group.height)
+                .unwrap_or(DEFAULT_BUTTON_SIZE.1),
+            corner_radius: self
+                .corner_radius
+                .or(group.corner_radius)
+                .unwrap_or(DEFAULT_CORNER_RADIUS),
+            background_color: pick_str(&self.background_color, &group.background_color),
+            foreground_color: pick_str(&self.foreground_color, &group.foreground_color),
+            gradient: self.gradient.or(group.gradient).unwrap_or(false),
+            gradient_start_color: pick_str(
+                &self.gradient_start_color,
+                &group.gradient_start_color,
+            ),
+            gradient_end_color: pick_str(&self.gradient_end_color, &group.gradient_end_color),
+            gradient_direction: pick_str(&self.gradient_direction, &group.gradient_direction),
+            shadow: self.shadow.or(group.shadow).unwrap_or(false),
+            shadow_color: pick_str(&self.shadow_color, &group.shadow_color),
+            shadow_opacity: self
+                .shadow_opacity
+                .or(group.shadow_opacity)
+                .unwrap_or(0),
+            shadow_distance: self
+                .shadow_distance
+                .or(group.shadow_distance)
+                .unwrap_or(0),
+            shadow_blur_strength: self
+                .shadow_blur_strength
+                .or(group.shadow_blur_strength)
+                .unwrap_or(0),
+        }
+    }
+}
+
+// ── Buttons ───────────────────────────────────────────────────────────────────
+
+/// One pressable element of a group.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolbarButton {
+    pub id: String,
+    /// Text on the button.
+    ///
+    /// A button carries a label OR an icon, never both (operator, 2026-08-17) —
+    /// see [`ToolbarButton::set_label`] and [`ToolbarButton::set_icon`], which
+    /// keep that true by clearing the other one.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub label: String,
+    /// Hover text. Empty draws none.
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub tooltip: String,
+    /// A name from the hand-drawn icon catalogue (`icons::menu_icon_names`).
+    #[serde(default, skip_serializing_if = "is_empty")]
+    pub icon: String,
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub enabled: bool,
     /// The stored action string — see [`ToolbarAction`].
     #[serde(default, skip_serializing_if = "is_empty")]
     pub action: String,
+    /// This button's own appearance, over its group's.
+    #[serde(default, skip_serializing_if = "is_default_style")]
+    pub style: ButtonStyle,
 }
 
-fn is_zero(n: &i64) -> bool {
-    *n == 0
+fn is_default_style(s: &ButtonStyle) -> bool {
+    *s == ButtonStyle::default()
 }
 
 impl ToolbarButton {
-    /// A new button with the defaults a developer expects: rounded, enabled, no
-    /// colour of its own so the theme dresses it, and its own `onClick` to run.
+    /// A new button: enabled, its own `onClick` to run, and no appearance of its
+    /// own — so it looks like whatever its group says, which in turn looks like
+    /// whatever the form's theme says.
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
             tooltip: String::new(),
             icon: String::new(),
-            icon_size: DEFAULT_ICON_SIZE,
-            icon_color: String::new(),
-            width: DEFAULT_BUTTON_SIZE.0,
-            height: DEFAULT_BUTTON_SIZE.1,
-            background_color: String::new(),
-            gradient: false,
-            gradient_start_color: String::new(),
-            gradient_end_color: String::new(),
-            gradient_direction: String::new(),
-            foreground_color: String::new(),
-            shadow: false,
-            shadow_color: String::new(),
-            shadow_opacity: 0,
-            shadow_distance: 0,
-            shadow_blur_strength: 0,
-            corner_radius: DEFAULT_CORNER_RADIUS,
             enabled: true,
             action: String::new(),
+            style: ButtonStyle::default(),
         }
     }
 
     pub fn action(&self) -> ToolbarAction {
         ToolbarAction::parse(&self.action)
+    }
+
+    /// Give the button a label, which takes its icon away.
+    ///
+    /// A toolbar button shows one thing. Letting it hold both meant deciding at
+    /// paint time which won, and the developer could not tell from the editor
+    /// which they would get.
+    pub fn set_label(&mut self, label: impl Into<String>) {
+        self.label = label.into();
+        if !self.label.trim().is_empty() {
+            self.icon.clear();
+        }
+    }
+
+    /// Give the button an icon, which takes its label away.
+    pub fn set_icon(&mut self, icon: impl Into<String>) {
+        self.icon = icon.into();
+        if !self.icon.trim().is_empty() {
+            self.label.clear();
+        }
+    }
+
+    /// What this button draws as, given its group.
+    pub fn resolved(&self, group: &ToolbarGroup) -> ResolvedStyle {
+        self.style.resolve(&group.button_defaults)
     }
 }
 
@@ -365,6 +483,10 @@ pub struct ToolbarGroup {
     pub separator_after: bool,
     #[serde(default = "default_separator_width")]
     pub separator_width: i64,
+    /// How every button in this group looks unless it says otherwise. Set the
+    /// icon size once here rather than on each of six buttons.
+    #[serde(default, skip_serializing_if = "is_default_style")]
+    pub button_defaults: ButtonStyle,
 }
 
 impl ToolbarGroup {
@@ -381,6 +503,7 @@ impl ToolbarGroup {
             background_color: String::new(),
             separator_after: false,
             separator_width: DEFAULT_SEPARATOR_WIDTH,
+            button_defaults: ButtonStyle::default(),
         }
     }
 
@@ -392,9 +515,14 @@ impl ToolbarGroup {
     }
 
     /// The group's width, laid out left to right: padding, each button, padding,
-    /// and the separator when one follows.
+    /// and the separator when one follows. Button widths are the RESOLVED ones,
+    /// so a size set once on the group is what the layout measures.
     pub fn layout_width(&self, button_gap: i64) -> i64 {
-        let buttons: i64 = self.buttons.iter().map(|b| b.width).sum();
+        let buttons: i64 = self
+            .buttons
+            .iter()
+            .map(|b| b.resolved(self).width)
+            .sum();
         let gaps = button_gap * (self.buttons.len().saturating_sub(1) as i64);
         let sep = if self.separator_after {
             self.separator_width
@@ -474,6 +602,27 @@ impl ToolbarDef {
         }
     }
 
+    /// What a brand-new ToolBar starts as: one group holding one button, with
+    /// the folder-open icon (operator, 2026-08-17).
+    ///
+    /// An empty toolbar shows nothing but a hint, which tells a developer
+    /// nothing about what a toolbar IS. One real button does — and it is a
+    /// button, so pressing it fires the toolbar's `onClick` like any other.
+    pub fn example() -> Self {
+        let mut group = ToolbarGroup::new("group-1", "File");
+        // The default frame is off, so the example reads as buttons on the form
+        // rather than as a box the developer has to go and switch off.
+        group.border_style = "None".into();
+        let mut button = ToolbarButton::new("button-1", "");
+        button.set_icon("folder-open");
+        button.tooltip = "Open".into();
+        group.buttons.push(button);
+        Self {
+            groups: vec![group],
+            button_gap: default_button_gap(),
+        }
+    }
+
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
@@ -544,7 +693,12 @@ impl ToolbarDef {
             if group.buttons.is_empty() {
                 continue;
             }
-            let tallest = group.buttons.iter().map(|b| b.height).max().unwrap_or(0);
+            let tallest = group
+                .buttons
+                .iter()
+                .map(|b| b.resolved(group).height)
+                .max()
+                .unwrap_or(0);
             let frame_h = (tallest + group.padding * 2).min(bar_h.max(1));
             let frame_w = group.layout_width(self.button_gap)
                 - if group.separator_after {
@@ -564,16 +718,17 @@ impl ToolbarDef {
             let mut buttons = Vec::with_capacity(group.buttons.len());
             let mut bx = x + group.padding;
             for button in &group.buttons {
+                let style = button.resolved(group);
                 buttons.push((
                     button.id.clone(),
                     Box2 {
                         x: bx,
-                        y: frame.y + (frame_h - button.height) / 2,
-                        w: button.width,
-                        h: button.height,
+                        y: frame.y + (frame_h - style.height) / 2,
+                        w: style.width,
+                        h: style.height,
                     },
                 ));
-                bx += button.width + self.button_gap;
+                bx += style.width + self.button_gap;
             }
             out.push(GroupLayout {
                 group_index: index,
@@ -695,17 +850,18 @@ mod tests {
     fn groups_and_buttons_are_born_rounded_and_theme_coloured() {
         let g = ToolbarGroup::new("group-1", "Clipboard");
         let b = ToolbarButton::new("button-1", "Copy");
+        let resolved = b.resolved(&g);
         // Operator decision: 10, for both.
         assert_eq!(g.corner_radius, DEFAULT_CORNER_RADIUS);
-        assert_eq!(b.corner_radius, DEFAULT_CORNER_RADIUS);
+        assert_eq!(resolved.corner_radius, DEFAULT_CORNER_RADIUS);
         assert_eq!(DEFAULT_CORNER_RADIUS, 10);
         // Every colour empty = the form's theme decides.
         for colour in [
             &g.border_color,
             &g.background_color,
-            &b.background_color,
-            &b.foreground_color,
-            &b.icon_color,
+            &resolved.background_color,
+            &resolved.foreground_color,
+            &resolved.icon_color,
         ] {
             assert!(colour.is_empty(), "a new element must carry no colour of its own");
         }
@@ -730,6 +886,10 @@ mod tests {
     #[test]
     fn a_legacy_items_toolbar_becomes_one_unframed_group() {
         let mut ctrl = Control::new("TB-1", ControlType::ToolBar, 0, 0);
+        // A control loaded from a `.cfrm` written before groups existed has no
+        // definition at all — only `Items`. A NEW control is seeded with the
+        // example toolbar, so that has to come off to be the legacy case.
+        ctrl.properties.shift_remove(TOOLBAR_DEF_PROP);
         ctrl.set_prop("Items", PropValue::String("a\nb\n\nc\n".into()));
 
         let def = ToolbarDef::from_control(&ctrl);
@@ -766,8 +926,29 @@ mod tests {
         assert_eq!(ToolbarDef::from_control(&ctrl).groups[0].buttons.len(), 3);
 
         // A control with neither is empty, not an error.
-        let bare = Control::new("TB-2", ControlType::ToolBar, 0, 0);
+        let mut bare = Control::new("TB-2", ControlType::ToolBar, 0, 0);
+        bare.properties.shift_remove(TOOLBAR_DEF_PROP);
         assert!(ToolbarDef::from_control(&bare).is_empty());
+
+        // …while a BRAND-NEW control comes with the example: one group, one
+        // folder-open button, so a dropped toolbar shows what a toolbar is.
+        let fresh = Control::new("TB-3", ControlType::ToolBar, 0, 0);
+        let def = ToolbarDef::from_control(&fresh);
+        assert_eq!(def.groups.len(), 1, "one group");
+        assert_eq!(def.groups[0].buttons.len(), 1, "one button");
+        assert_eq!(def.groups[0].buttons[0].icon, "folder-open");
+        assert!(
+            def.groups[0].buttons[0].label.is_empty(),
+            "an icon button carries no label"
+        );
+        assert!(!def.groups[0].draws_frame(), "the example group has no frame");
+        // And the control's own frame: rounded 10, no border, fully transparent.
+        assert_eq!(fresh.get_prop("CornerRadius").map(|v| v.as_i64()), Some(10));
+        assert_eq!(
+            fresh.get_prop("BorderStyle").map(|v| v.as_str().to_owned()),
+            Some("None".to_owned())
+        );
+        assert_eq!(fresh.get_prop("Transparency").map(|v| v.as_i64()), Some(100));
 
         println!(
             "\n  Toolbar migration — Items \"a\\nb\\n\\nc\" ⇒ 1 unframed group of 3 \
@@ -820,6 +1001,94 @@ mod tests {
             def.layout_width(),
             g.padding,
             g.separator_width
+        );
+    }
+
+    /// A group's settings are its buttons' defaults, and a button's own values
+    /// win over them (operator, 2026-08-17).
+    #[test]
+    fn a_group_dresses_its_buttons_and_a_button_can_still_disagree() {
+        let mut g = ToolbarGroup::new("group-1", "File");
+        // Set once on the group instead of on each of three buttons.
+        g.button_defaults.icon_size = Some(30);
+        g.button_defaults.width = Some(44);
+        g.button_defaults.background_color = "#204080FF".into();
+        g.button_defaults.shadow = Some(true);
+        g.button_defaults.shadow_opacity = Some(40);
+
+        let plain = ToolbarButton::new("b1", "A");
+        let mut own = ToolbarButton::new("b2", "B");
+        own.style.icon_size = Some(12);
+        own.style.background_color = "#FF0000FF".into();
+        own.style.shadow = Some(false);
+        g.buttons.push(plain);
+        g.buttons.push(own);
+
+        // A button that says nothing takes the group's word for everything.
+        let a = g.buttons[0].resolved(&g);
+        assert_eq!(a.icon_size, 30);
+        assert_eq!(a.width, 44);
+        assert_eq!(a.background_color, "#204080FF");
+        assert!(a.shadow);
+        assert_eq!(a.shadow_opacity, 40);
+        // …and for anything the group ALSO left alone, the built-in value.
+        assert_eq!(a.height, DEFAULT_BUTTON_SIZE.1);
+        assert_eq!(a.corner_radius, DEFAULT_CORNER_RADIUS);
+        assert!(a.foreground_color.is_empty(), "still the theme's");
+
+        // A button that disagrees wins, field by field — the ones it did not
+        // mention still come from the group.
+        let b = g.buttons[1].resolved(&g);
+        assert_eq!(b.icon_size, 12, "its own size");
+        assert_eq!(b.background_color, "#FF0000FF", "its own colour");
+        assert!(!b.shadow, "its own switch, and `false` is a real choice");
+        assert_eq!(b.width, 44, "the group's width, which it never overrode");
+        assert_eq!(b.shadow_opacity, 40, "…and the group's opacity");
+
+        // The layout measures the RESOLVED width, so a size set on the group is
+        // the size the bar is laid out at.
+        assert_eq!(g.layout_width(4), g.padding * 2 + 44 + 44 + 4);
+
+        println!(
+            "\n  Toolbar inheritance — group sets icon 30 / width 44 / #204080 / shadow \
+             40%: an unset button takes all of it, a button overriding size+colour+shadow \
+             keeps the group's width and opacity; layout measures {}px\n",
+            g.layout_width(4)
+        );
+    }
+
+    /// A button shows a label OR an icon, never both.
+    #[test]
+    fn a_label_and_an_icon_are_mutually_exclusive() {
+        let mut b = ToolbarButton::new("b1", "Save");
+        assert_eq!(b.label, "Save");
+        assert!(b.icon.is_empty());
+
+        // An icon takes the label away.
+        b.set_icon("folder-open");
+        assert_eq!(b.icon, "folder-open");
+        assert!(b.label.is_empty(), "the label must go when an icon arrives");
+
+        // …and a label takes the icon away.
+        b.set_label("Open");
+        assert_eq!(b.label, "Open");
+        assert!(b.icon.is_empty(), "the icon must go when a label arrives");
+
+        // Clearing one does NOT invent the other: a button with neither is
+        // legal (an empty spacer), so setting blank is not a swap.
+        b.set_label("");
+        assert!(b.label.is_empty() && b.icon.is_empty());
+        b.set_icon("");
+        assert!(b.label.is_empty() && b.icon.is_empty());
+        // Blank-but-whitespace counts as blank, not as a value that clears.
+        b.set_icon("home");
+        b.set_label("   ");
+        assert_eq!(b.icon, "home", "whitespace is not a label");
+
+        println!(
+            "\n  Toolbar button — label and icon are exclusive: set_icon clears the \
+             label, set_label clears the icon, and setting either to blank (or \
+             whitespace) clears nothing\n"
         );
     }
 

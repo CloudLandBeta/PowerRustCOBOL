@@ -6300,15 +6300,53 @@ fn render_interactive(
             }
         }
         CT::ToolBar => {
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(40, 46, 76),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-                paint::SurfaceRole::Card,
-            );
+            // The bar's own frame, from its own properties. It used to be a
+            // hard-wired card the developer could not touch; the defaults now
+            // reproduce nothing at all — radius 10, no border, fully transparent
+            // — so a toolbar reads as buttons on the form until asked otherwise.
+            let radius = paint::corner_radius(ctrl);
+            let transparency = sv(ctrl, "Transparency")
+                .parse::<i64>()
+                .unwrap_or(0)
+                .clamp(0, 100);
+            if transparency < 100 {
+                let face = paint::parse_color(&sv(ctrl, "BackgroundColor"));
+                let face = if face.a() > 0 {
+                    face
+                } else {
+                    Color32::from_rgb(40, 46, 76)
+                };
+                let opacity = 1.0 - (transparency as f32 / 100.0);
+                paint::draw_surface_auto(
+                    &painter,
+                    screen,
+                    face,
+                    radius,
+                    false,
+                    alpha * opacity,
+                    paint::SurfaceRole::Card,
+                );
+            }
+            let border_style = sv(ctrl, "BorderStyle");
+            let border_w = sv(ctrl, "BorderWidth").parse::<f32>().unwrap_or(1.0);
+            if !border_style.eq_ignore_ascii_case("None") && border_w > 0.0 {
+                let bc = paint::parse_color(&sv(ctrl, "BorderColor"));
+                let bc = if bc.a() > 0 { bc } else { Color32::from_gray(136) };
+                painter.rect_stroke(
+                    screen,
+                    radius,
+                    egui::Stroke::new(
+                        border_w,
+                        Color32::from_rgba_premultiplied(
+                            bc.r(),
+                            bc.g(),
+                            bc.b(),
+                            (bc.a() as f32 * alpha) as u8,
+                        ),
+                    ),
+                    egui::StrokeKind::Inside,
+                );
+            }
             // Groups of buttons, drawn by the ONE toolbar renderer, then made
             // pressable. A button's `enabled` is its own — separate from the
             // toolbar control's, which gates the lot.
