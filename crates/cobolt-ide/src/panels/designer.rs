@@ -1371,6 +1371,31 @@ fn validate_handler_semantics(
         if let Some(ev) = probe.form_events.iter_mut().find(|e| e.event == event_name) {
             ev.code = candidate.to_string();
         }
+    } else if let Some(found) = cobolt_forms::toolbar::find_button(&probe.controls, ctrl_id) {
+        // A toolbar button's handler lives inside its toolbar's definition, so
+        // splicing it in means rewriting that property. Without this the gate
+        // regenerated the form WITHOUT the candidate and passed anything.
+        if let Some(mut def) = probe
+            .find_control(&found.toolbar_id)
+            .map(cobolt_forms::toolbar::ToolbarDef::from_control)
+        {
+            if let Some(button) = def
+                .groups
+                .iter_mut()
+                .flat_map(|g| g.buttons.iter_mut())
+                .find(|b| b.id == found.button_id)
+            {
+                button.ensure_event(event_name).code = candidate.to_string();
+            }
+            if let (Ok(json), Some(ctrl)) =
+                (def.to_json(), probe.find_control_mut(&found.toolbar_id))
+            {
+                ctrl.set_prop(
+                    cobolt_forms::toolbar::TOOLBAR_DEF_PROP,
+                    cobolt_forms::PropValue::String(json),
+                );
+            }
+        }
     } else if let Some(ctrl) = probe.find_control_mut(ctrl_id) {
         ctrl.ensure_event(event_name);
         if let Some(ev) = ctrl.events.iter_mut().find(|e| e.event == event_name) {
@@ -4089,6 +4114,27 @@ impl DesignerPanel {
                     (pid, String::new())
                 });
             (pid, code, format!("Form · {}", event_name))
+        } else if let Some(found) =
+            cobolt_forms::toolbar::find_button(&self.form.controls, ctrl_id)
+        {
+            // A toolbar button. Its handler lives inside the toolbar's own
+            // definition, not in any control's events table, so it is read from
+            // there — under the same derived id and the same nested-program name
+            // codegen uses.
+            let code = self
+                .form
+                .find_control(&found.toolbar_id)
+                .map(cobolt_forms::toolbar::ToolbarDef::from_control)
+                .and_then(|d| {
+                    d.button(&found.button_id)
+                        .and_then(|b| b.event(event_name).map(|e| e.code.clone()))
+                })
+                .unwrap_or_default();
+            (
+                cobolt_forms::model::derive_paragraph_name(ctrl_id, event_name),
+                code,
+                format!("{} · {}", ctrl_id, event_name),
+            )
         } else {
             let ev = self
                 .form
@@ -4225,6 +4271,43 @@ impl DesignerPanel {
                 ev.code = source;
                 self.dirty = true;
             }
+        } else if let Some(found) =
+            cobolt_forms::toolbar::find_button(&self.form.controls, ctrl_id)
+        {
+            // A toolbar button's handler goes back into the toolbar's definition,
+            // as one undoable property write — the same shape the Toolbar Editor's
+            // own Save uses, so ⌘Z takes the handler back out in one step.
+            let Some(mut def) = self
+                .form
+                .find_control(&found.toolbar_id)
+                .map(cobolt_forms::toolbar::ToolbarDef::from_control)
+            else {
+                return;
+            };
+            let Some(button) = def
+                .groups
+                .iter_mut()
+                .flat_map(|g| g.buttons.iter_mut())
+                .find(|b| b.id == found.button_id)
+            else {
+                return;
+            };
+            button.ensure_event(event_name).code = source;
+            let Ok(json) = def.to_json() else {
+                return;
+            };
+            let old = self
+                .form
+                .find_control(&found.toolbar_id)
+                .and_then(|c| c.get_prop(cobolt_forms::toolbar::TOOLBAR_DEF_PROP))
+                .cloned();
+            self.apply(Cmd::SetProperty {
+                id: found.toolbar_id,
+                key: cobolt_forms::toolbar::TOOLBAR_DEF_PROP.to_owned(),
+                old,
+                new: PropValue::String(json),
+            });
+            self.dirty = true;
         } else if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
             ctrl.ensure_event(event_name);
             if let Some(ev) = ctrl.events.iter_mut().find(|e| e.event == event_name) {
@@ -7270,6 +7353,36 @@ impl DesignerPanel {
                     new: PropValue::String(json),
                 });
                 self.dirty = true;
+            }
+            // "Edit code" on a button: keep the toolbar exactly as Save would,
+            // then open the COBOL editor on that button's handler. Two modals at
+            // once would leave the developer with two Saves to reason about, so
+            // this one steps aside.
+            super::toolbar_editor::EditorOutcome::SaveAndEditEvent(json, button_id, event) => {
+                self.toolbar_modal = None;
+                let old = self
+                    .form
+                    .find_control(&ctrl_id)
+                    .and_then(|c| c.get_prop(cobolt_forms::toolbar::TOOLBAR_DEF_PROP))
+                    .cloned();
+                let group_id = cobolt_forms::toolbar::ToolbarDef::from_json(&json)
+                    .and_then(|d| {
+                        d.button_with_group(&button_id)
+                            .map(|(g, _)| g.id.clone())
+                    })
+                    .unwrap_or_default();
+                self.apply(Cmd::SetProperty {
+                    id: ctrl_id.clone(),
+                    key: cobolt_forms::toolbar::TOOLBAR_DEF_PROP.to_owned(),
+                    old,
+                    new: PropValue::String(json),
+                });
+                self.dirty = true;
+                // The handler is opened under the id the button answers to
+                // everywhere else — the one the event loop dispatches on.
+                let target =
+                    cobolt_forms::toolbar::button_control_id(&ctrl_id, &group_id, &button_id);
+                self.open_event_modal(&target, &event);
             }
         }
     }

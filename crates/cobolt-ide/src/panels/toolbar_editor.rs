@@ -53,6 +53,13 @@ pub struct ToolbarEditorModal {
     /// own drag; never derived from the available width (that is the feedback
     /// loop that makes a pane inflate).
     split_ratio: f32,
+    /// A button whose handler the developer asked to edit: `(button id, event)`.
+    ///
+    /// Editing code happens in the COBOL editor, not in here — so this closes the
+    /// modal, saving the definition on the way out, and the designer opens the
+    /// handler. Nesting a code editor inside this window would put two modals on
+    /// screen at once and leave the developer with two Saves to reason about.
+    edit_event: Option<(String, String)>,
 }
 
 impl ToolbarEditorModal {
@@ -70,6 +77,7 @@ impl ToolbarEditorModal {
             icon_search: String::new(),
             icon_picker_gen: 0,
             split_ratio: 0.38,
+            edit_event: None,
         }
     }
 
@@ -191,6 +199,9 @@ pub enum EditorOutcome {
     Cancelled,
     /// Save the JSON onto the control's `ToolbarLayout` property.
     Save(String),
+    /// Save the JSON, then open the COBOL editor on this button's handler.
+    /// `(json, button id, event)`.
+    SaveAndEditEvent(String, String, String),
 }
 
 /// Draw the modal. Returns what the designer should do about it.
@@ -336,6 +347,20 @@ pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcom
                         .show(ui, |ui| show_props(modal, ui, &tr));
                 });
             });
+
+            // A click on a button's "Edit code" closes the editor, keeping the
+            // definition, and hands over to the COBOL editor.
+            if let Some((button_id, event)) = modal.edit_event.take() {
+                match modal.def.to_json() {
+                    Ok(json) => {
+                        outcome = EditorOutcome::SaveAndEditEvent(json, button_id, event)
+                    }
+                    Err(e) => {
+                        tracing::error!(target: "toolbar", "toolbar save failed: {e}");
+                        outcome = EditorOutcome::Cancelled;
+                    }
+                }
+            }
 
             ui.add_space(8.0);
             ui.separator();
@@ -531,6 +556,7 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
         Selection::Button(gi, bi) => {
             ui.label(egui::RichText::new(tr.toolbar_button_props).strong());
             let mut open_picker = false;
+            let mut edit_event: Option<(String, String)> = None;
             // What the group would give this button, so every inheritable row can
             // show the value it is actually inheriting.
             let group_defaults = modal
@@ -587,9 +613,17 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                     section(ui, tr.toolbar_action);
                     action_row(ui, b, tr);
 
+                    section(ui, tr.sec_events);
+                    if let Some(event) = events_rows(ui, b, tr) {
+                        edit_event = Some((b.id.clone(), event));
+                    }
+
                     section(ui, tr.sec_appearance);
                     style_rows(ui, &mut b.style, &group_defaults, "group");
                 });
+            }
+            if let Some(target) = edit_event {
+                modal.edit_event = Some(target);
             }
             if open_picker {
                 modal.icon_picker_open = true;
@@ -702,6 +736,61 @@ fn style_rows(
             inherited.shadow_blur_strength.unwrap_or(0),
         );
     }
+}
+
+/// One row per event a button can raise, with a dot for "has code" and a link to
+/// write it. Returns the event the developer asked to edit, if any.
+///
+/// This is what makes a button first-class: its own handler instead of one
+/// `onClick` on the toolbar sorting out which button was pressed. Both still
+/// work — the toolbar's `onClick` fires either way, and `LastButton` still names
+/// the button — so a toolbar built the old way keeps behaving the old way.
+///
+/// The visual is the properties inspector's event row deliberately: a developer
+/// who has bound a Button's `onClick` should recognise this on sight.
+fn events_rows(
+    ui: &mut egui::Ui,
+    b: &ToolbarButton,
+    tr: &crate::i18n::Tr,
+) -> Option<String> {
+    let mut asked: Option<String> = None;
+    for event in cobolt_forms::toolbar::BUTTON_EVENTS {
+        let bound = b.event(event);
+        let has_code = bound.map(|e| e.has_code()).unwrap_or(false);
+        let lines = bound.map(|e| e.code_line_count()).unwrap_or(0);
+        ui.label(*event);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(if has_code { "●" } else { "○" }).color(if has_code {
+                    Color32::from_rgb(100, 220, 100)
+                } else {
+                    Color32::from_rgb(120, 120, 120)
+                }),
+            );
+            let link = ui
+                .add(
+                    egui::Label::new(
+                        egui::RichText::new(tr.toolbar_edit_code)
+                            .color(Color32::from_rgb(200, 200, 100)),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text(tr.toolbar_edit_code_hint);
+            if has_code {
+                ui.label(
+                    egui::RichText::new(format!("({lines} {})", tr.hint_lines))
+                        .small()
+                        .weak(),
+                );
+            }
+            if link.clicked() {
+                asked = Some((*event).to_owned());
+            }
+        });
+        ui.end_row();
+    }
+    asked
 }
 
 /// The action picker: a verb, and the target the verb needs.

@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.74] — 2026-08-17
+
+### Added — first-class toolbar buttons
+
+A toolbar button can now carry **its own COBOL**, and let a running form change
+**its colours and its tooltip**. Until now a whole toolbar shared one `onClick`
+on the bar, and a handler had to read `LastButton` and sort out which button had
+been pressed.
+
+**Its own handler.** `ToolbarButton` gained `events`, which round-trip through the
+`ToolbarLayout` property with the rest of the definition. Select a button in the
+Toolbar Editor and bind `onClick` under **Events** → **Edit code**: that keeps the
+toolbar exactly as Save would and hands over to the COBOL editor, rather than
+stacking a second modal with a second Save inside the first. Codegen emits the
+handler as a nested program (`IS COMMON`, like every other woven procedure) under
+the button's derived id, and the event loop CALLs it. `onClick` is the only event
+offered — it is the only one a toolbar can raise for a button, and an event you
+could bind but that never fired would be worse than none.
+
+Where a button has more than one thing to run the order is fixed: the toolbar's
+`onClick`, then the button's own, then its action. An `open-modal:` button whose
+handler fills in the fields the modal reads only works that way round.
+
+**Colours and tooltip, from COBOL.** `Tooltip`, `BackgroundColor`,
+`ForegroundColor`, `IconColor`, `GradientStartColor`, `GradientEndColor` and
+`ShadowColor` are writable; a colour set to spaces goes back to inheriting from
+its group and then the theme, the same meaning the ✕ has in the editor. A write
+lands in the toolbar's stored definition, which is where a button's appearance
+comes from — so the renderer needed no change at all, and two writes in a row both
+stick.
+
+**Everything else is refused, out loud** (operator decision). Width, height,
+corner radius, label, icon, enabled, action: a runtime error naming the property
+and what is allowed instead, through all three doors (`x::Prop`,
+`CALL "COBOL-SET-PROPERTY"`, `INVOKE x "SetProperty"`). The toolbar owns the
+layout — that is what keeps the buttons arranged as they were built, and a button
+that could move itself would leave nothing to put it back. Reads are never
+refused, and the COBOL editor flags a refused property as it is typed, so most
+of these never reach a run at all.
+
 ## [PowerRustCOBOL 1.61.73] — 2026-08-17
 
 ### Fixed — two of the eleven toolbar actions did nothing

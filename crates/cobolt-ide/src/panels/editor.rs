@@ -967,6 +967,31 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
         })
         .collect();
 
+    // Toolbar buttons, under the derived ids they answer to. A button is not a
+    // control — its toolbar owns the layout — but COBOL still addresses it, so
+    // IntelliSense should complete it and the handler gate should know what it
+    // exposes: its colours and its tooltip, and nothing else. That makes a write
+    // to a button's geometry an error while the developer is typing, rather than a
+    // refusal they meet when the form runs.
+    for bar in form
+        .controls
+        .iter()
+        .filter(|c| c.control_type == cobolt_forms::ControlType::ToolBar)
+    {
+        let def = cobolt_forms::toolbar::ToolbarDef::from_control(bar);
+        for (group, button) in def.buttons() {
+            list.push(KnownControl {
+                id: cobolt_forms::toolbar::button_control_id(&bar.id, &group.id, &button.id),
+                ctrl_type: "ToolbarButton".to_string(),
+                properties: cobolt_forms::toolbar::BUTTON_WRITABLE
+                    .iter()
+                    .map(|p| (*p).to_string())
+                    .collect(),
+                extra_methods: vec!["SetProperty".into(), "GetProperty".into()],
+            });
+        }
+    }
+
     list.push(KnownControl {
         id: "self".to_string(),
         ctrl_type: "Form".to_string(),

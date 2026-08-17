@@ -106,6 +106,54 @@ pub fn build_object_seed(
             }
             (c.id.clone(), c.control_type.as_str().to_string(), props)
         }))
+        .chain(flat.iter().flat_map(toolbar_button_seed))
+        .collect()
+}
+
+/// One entry per toolbar BUTTON, under the derived id it answers to
+/// (`<toolbar>-<group>-<button>`) and the class `ToolbarButton`.
+///
+/// A button is not a control, so nothing above seeds it — and without a registry
+/// entry COBOL could neither read a button's tooltip nor be told that writing its
+/// width is refused, because the runtime would have no idea the id named a
+/// button. The seeded props are the button's own designed values, resolved
+/// through its group so a colour set once on the group reads back on every button
+/// in it.
+fn toolbar_button_seed(
+    ctrl: &cobolt_forms::Control,
+) -> Vec<(String, String, Vec<(String, String)>)> {
+    if ctrl.control_type != cobolt_forms::ControlType::ToolBar {
+        return Vec::new();
+    }
+    let def = cobolt_forms::toolbar::ToolbarDef::from_control(ctrl);
+    def.buttons()
+        .map(|(group, button)| {
+            let style = button.resolved(group);
+            let id = cobolt_forms::toolbar::button_control_id(&ctrl.id, &group.id, &button.id);
+            let props = vec![
+                ("Name".to_string(), id.clone()),
+                ("ToolBar".to_string(), ctrl.id.clone()),
+                ("Group".to_string(), group.id.clone()),
+                ("Button".to_string(), button.id.clone()),
+                ("Label".to_string(), button.label.clone()),
+                ("Icon".to_string(), button.icon.clone()),
+                ("Tooltip".to_string(), button.tooltip.clone()),
+                (
+                    "Enabled".to_string(),
+                    if button.enabled { "1" } else { "0" }.to_string(),
+                ),
+                ("Action".to_string(), button.action.clone()),
+                ("BackgroundColor".to_string(), style.background_color),
+                ("ForegroundColor".to_string(), style.foreground_color),
+                ("IconColor".to_string(), style.icon_color),
+                ("GradientStartColor".to_string(), style.gradient_start_color),
+                ("GradientEndColor".to_string(), style.gradient_end_color),
+                ("ShadowColor".to_string(), style.shadow_color),
+                ("Width".to_string(), style.width.to_string()),
+                ("Height".to_string(), style.height.to_string()),
+            ];
+            (id, "ToolbarButton".to_string(), props)
+        })
         .collect()
 }
 
