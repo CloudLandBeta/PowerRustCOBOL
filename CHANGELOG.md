@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.83] — 2026-08-17
+
+### Added — a SideMenu sizes its icons per rail state
+
+The sidebar had **one** menu-item icon size for both rail states, so a size
+chosen to sit politely beside a label was the same size left alone on a
+72-point rail. There is now one for each, in the inspector as **Icon size
+(Open)** and **Icon size (Collapsed)**:
+
+| Property | Sizes |
+|---|---|
+| `IconSize` | Menu-item icons while the sidebar is open, beside their labels. |
+| `IconSizeCollapsed` | Menu-item icons on the collapsed rail, where the icon *is* the row. |
+
+Both default to 22 points and accept 8–64. Every surface reads them from the
+same place — designer canvas, preview, Run Form and the running shell — and both
+values ride on the sidebar's paint state, so a surface that collapses the rail
+after building that state still draws at the matching size.
+
+A form designed before the collapsed size existed uses its **open** size in both
+states: a new property may not restyle a rail nobody has touched. A value too
+small to draw is refused the same way, falling back rather than painting a speck.
+
 ## [PowerRustCOBOL 1.61.82] — 2026-08-17
 
 ### Fixed — a group's items are indented, icon and label together

@@ -6788,7 +6788,18 @@ impl PropertiesPanel {
                         action,
                         &["None", "Shadow", "Neumorphic"],
                     );
-                    int_row_inline(ui, id, "IconSize", tr.prop_icon_size, ctrl, action, 8..=64);
+                    // One size per rail state: an icon beside a label and an
+                    // icon that IS the row are two different pictures.
+                    int_row_inline(ui, id, "IconSize", tr.prop_icon_size_open, ctrl, action, 8..=64);
+                    int_row_inline(
+                        ui,
+                        id,
+                        "IconSizeCollapsed",
+                        tr.prop_icon_size_collapsed,
+                        ctrl,
+                        action,
+                        8..=64,
+                    );
                     // The sidebar's four menu colours live in Basic instead of
                     // a section of their own: they are the rail's ICON
                     // colours, and four rows did not earn a separate header.

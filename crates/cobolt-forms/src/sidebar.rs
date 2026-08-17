@@ -227,9 +227,18 @@ pub struct SidebarState<'a> {
     pub hovered: Option<usize>,
     /// Style for menu-item icons (the SideMenu's `IconEffect`).
     pub icon_style: crate::icons::IconStyle,
-    /// Menu-item icon size in points (the control's `IconSize`). Icons are
-    /// vectors, so this scales cleanly at any value.
+    /// Menu-item icon size in points while the rail is OPEN (the control's
+    /// `IconSize`). Icons are vectors, so this scales cleanly at any value.
     pub icon_size: f32,
+    /// Menu-item icon size in points while the rail is COLLAPSED (the
+    /// control's `IconSizeCollapsed`).
+    ///
+    /// Its own size because the two states are two designs: open, the icon sits
+    /// beside a label and must not overpower it; collapsed, the icon IS the row.
+    /// BOTH are carried, and [`Self::collapsed`] picks between them at paint
+    /// time — a caller that flips the state after building this state gets the
+    /// matching size without rebuilding.
+    pub icon_size_collapsed: f32,
     /// How far the MENU pane is scrolled, in points. The header and footer
     /// panes never move — only the rows between them. A rail with more items
     /// than height used to simply drop the overflow on the floor; now the
@@ -319,10 +328,12 @@ pub fn state_for_control<'a>(
                 .unwrap_or("None"),
             palette.fg,
         ),
-        icon_size: ctrl
-            .get_prop("IconSize")
-            .map(|v| v.as_i64() as f32)
-            .filter(|s| *s >= 4.0)
+        icon_size: icon_size_prop(ctrl, "IconSize").unwrap_or(ICON),
+        // A form designed before the collapsed size existed falls back to the
+        // OPEN one, which is exactly how it looked then — a new property may
+        // not restyle a rail nobody has touched.
+        icon_size_collapsed: icon_size_prop(ctrl, "IconSizeCollapsed")
+            .or_else(|| icon_size_prop(ctrl, "IconSize"))
             .unwrap_or(ICON),
         scroll: 0.0,
         // `parse_color` yields a PREMULTIPLIED colour, so fading it means
@@ -400,6 +411,15 @@ pub fn state_for_control<'a>(
         .map(|s| s.faded(alpha as f32 / 255.0)),
         font,
     }
+}
+
+/// One of the two icon-size properties, in points — `None` when it is absent
+/// or too small to draw, which is what lets the collapsed size fall back to
+/// the open one instead of to a constant.
+fn icon_size_prop(ctrl: &Control, key: &str) -> Option<f32> {
+    ctrl.get_prop(key)
+        .map(|v| v.as_i64() as f32)
+        .filter(|s| *s >= 4.0)
 }
 
 /// Every parent id in `items`, for surfaces that show the tree open.
@@ -1039,7 +1059,9 @@ fn paint_item(
     }
 
     let content = if active { pal.on_accent } else if enabled { pal.fg } else { pal.dim };
-    let icon = state.icon_size;
+    // Each rail state draws at its own size — the icon beside a label and the
+    // icon that IS the row are two different pictures.
+    let icon = if state.collapsed { state.icon_size_collapsed } else { state.icon_size };
     // A group's children are INDENTED, icon and label alike (operator,
     // 2026-08-17): the row moves as one, so the icon keeps its place beside its
     // own label wherever the item sits in the tree.
@@ -1255,6 +1277,7 @@ mod tests {
             hovered: None,
             icon_style: crate::icons::IconStyle::tint(Color32::WHITE),
             icon_size: ICON,
+            icon_size_collapsed: ICON,
             scroll: 0.0,
             bg: Color32::TRANSPARENT,
             backdrop: Color32::TRANSPARENT,
@@ -1612,6 +1635,75 @@ mod tests {
              with its icon stepped by the same {NEST_INDENT:.0}px and the {:.0}px icon-to-label \
              gap unchanged at both depths\n",
             gap(0)
+        );
+    }
+
+    /// Each rail state draws its icons at its OWN size (operator,
+    /// 2026-08-17): `IconSize` open, `IconSizeCollapsed` on the rail.
+    ///
+    /// One size could not serve both — beside a label an icon must not
+    /// overpower the text, and alone on a rail that same size is lost.
+    #[test]
+    fn each_rail_state_draws_icons_at_its_own_size() {
+        let ctx = ctx();
+        let items = sample();
+        let none: Vec<String> = Vec::new();
+
+        let mut ctrl = Control::new("SIDE", crate::ControlType::SideMenu, 0, 0);
+        ctrl.set_prop("IconSize", 20i64);
+        ctrl.set_prop("IconSizeCollapsed", 34i64);
+        let st = state_for_control(&ctx, &ctrl, &items, 255, &none);
+        assert_eq!((st.icon_size, st.icon_size_collapsed), (20.0, 34.0));
+
+        // BOTH ride on the state, and `collapsed` picks: a surface that flips
+        // the rail after building the state still draws the matching size.
+        let row = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, ROW_H));
+        let drawn = |collapsed: bool| {
+            let size = if collapsed { st.icon_size_collapsed } else { st.icon_size };
+            item_icon_rect(row, 0, size, collapsed).width()
+        };
+        assert_eq!(drawn(false), 20.0);
+        assert_eq!(drawn(true), 34.0);
+
+        // A form saved before the collapsed size existed keeps the look it was
+        // designed with: the open size serves both.
+        let mut old = Control::new("OLD", crate::ControlType::SideMenu, 0, 0);
+        old.set_prop("IconSize", 26i64);
+        old.properties.shift_remove("IconSizeCollapsed");
+        let st = state_for_control(&ctx, &old, &items, 255, &none);
+        assert_eq!(
+            (st.icon_size, st.icon_size_collapsed),
+            (26.0, 26.0),
+            "an absent collapsed size falls back to the open one, not to a constant"
+        );
+
+        // Neither set → the built-in size, and a value too small to draw is
+        // refused rather than painted as a speck.
+        let bare = Control::new("BARE", crate::ControlType::SideMenu, 0, 0);
+        let mut bare = bare.clone();
+        bare.properties.shift_remove("IconSize");
+        bare.properties.shift_remove("IconSizeCollapsed");
+        let st = state_for_control(&ctx, &bare, &items, 255, &none);
+        assert_eq!((st.icon_size, st.icon_size_collapsed), (ICON, ICON));
+        let mut tiny = Control::new("TINY", crate::ControlType::SideMenu, 0, 0);
+        tiny.set_prop("IconSize", 30i64);
+        tiny.set_prop("IconSizeCollapsed", 0i64);
+        let st = state_for_control(&ctx, &tiny, &items, 255, &none);
+        assert_eq!(st.icon_size_collapsed, 30.0, "0 is not a size; the open one stands in");
+
+        // The DEFAULT for a new SideMenu is the same in both states, so adding
+        // the property restyles nothing until the developer chooses to.
+        let fresh = Control::new("NEW", crate::ControlType::SideMenu, 0, 0);
+        assert_eq!(
+            fresh.get_prop("IconSize").map(|v| v.as_i64()),
+            fresh.get_prop("IconSizeCollapsed").map(|v| v.as_i64())
+        );
+
+        println!(
+            "\n  Sidebar icon sizes — IconSize 20pt open / IconSizeCollapsed 34pt on the rail, \
+             both carried on the state so the painter picks by rail state; an absent or \
+             unusable collapsed size falls back to the open one (26→26, 0→30); neither set \
+             gives {ICON:.0}pt; a new SideMenu defaults both to the same value\n"
         );
     }
 
