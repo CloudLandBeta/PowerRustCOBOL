@@ -34,6 +34,7 @@ pub mod fonts;
 pub mod form_runtime;
 pub mod git_exec;
 pub mod grace_host;
+pub mod model_config_store;
 pub mod model_policy;
 pub mod grace_session;
 pub mod i18n;

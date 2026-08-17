@@ -100,6 +100,17 @@ pub struct LlmConfig {
     /// "if security doesn't matter here, plaintext is the accepted fallback."
     #[serde(default)]
     natively_stored_slots: HashSet<String>,
+    /// Where this configuration and its API keys are kept (operator,
+    /// 2026-08-17). The default keeps NO credential: persisting one is the
+    /// developer's decision, not an assumption this file makes for them.
+    /// See [`crate::model_config_store`].
+    #[serde(default)]
+    pub credential_vault: crate::model_config_store::Vault,
+    /// The file [`crate::model_config_store::Vault::LocalFile`] writes to. Empty
+    /// means the suggested default. Never inside a git working tree — the store
+    /// refuses that, and refuses it again at the moment of writing.
+    #[serde(default)]
+    pub credential_file: String,
     /// Optional second model powering the **Pedantic Agent** (reviewer). When
     /// configured it must differ from the primary provider+model pair; its
     /// API key lives in [`Self::api_keys`] like any other model's.
@@ -328,6 +339,8 @@ impl LlmConfig {
             api_keys: std::collections::HashMap::new(),
             deleted_api_key_slots: HashSet::new(),
             natively_stored_slots: HashSet::new(),
+            credential_vault: crate::model_config_store::Vault::default(),
+            credential_file: String::new(),
             reviewer_provider: String::new(),
             reviewer_endpoint: String::new(),
             reviewer_model: String::new(),
@@ -852,6 +865,10 @@ impl LlmConfig {
         // beside the credentials it pairs with, not in any project file.
         machine.provider_configs = self.provider_configs.clone();
         machine.provider_models = self.provider_models.clone();
+        // The developer's storage choice is machine-wide too, and it is the one
+        // setting that decides whether a credential outlives the process.
+        machine.credential_vault = self.credential_vault;
+        machine.credential_file = self.credential_file.clone();
 
         for slot in &self.deleted_api_key_slots {
             machine.api_keys.remove(slot);
@@ -890,7 +907,73 @@ impl LlmConfig {
             let backup = config_backup_path(path);
             std::fs::copy(path, &backup).map_err(|e| e.to_string())?;
         }
+        self.write_credential_file()?;
         Ok(())
+    }
+
+    /// The file the developer asked for, when they asked for one.
+    ///
+    /// Separate from the machine config on purpose: that file must never carry a
+    /// key (`api_keys` is `#[serde(skip)]` precisely so it cannot), and this one
+    /// exists to carry them. A path that has become unusable — the folder went
+    /// away, or the file was moved into a repository since it was chosen — is
+    /// reported rather than silently skipped: a developer who asked for their key
+    /// to be kept must not find out it was not.
+    fn write_credential_file(&self) -> Result<(), String> {
+        use crate::model_config_store::Vault;
+        match self.credential_vault {
+            Vault::Session => Ok(()),
+            Vault::OsVault => Err(format!(
+                "The OS credential store ships in {}; choose a local file for now.",
+                crate::model_config_store::OS_VAULT_SHIPS_IN
+            )),
+            Vault::LocalFile => {
+                let path = self.credential_file_path();
+                crate::model_config_store::save(&path, self, now_unix())
+            }
+        }
+    }
+
+    /// The credential file this configuration uses — the developer's path, or the
+    /// suggested default when they have not named one.
+    pub fn credential_file_path(&self) -> std::path::PathBuf {
+        let chosen = self.credential_file.trim();
+        if chosen.is_empty() {
+            crate::model_config_store::default_local_path()
+        } else {
+            std::path::PathBuf::from(chosen)
+        }
+    }
+
+    /// Take the keys from the developer's credential file, if that is where they
+    /// asked for them to be kept.
+    ///
+    /// A value already in memory wins: the same rule
+    /// [`Self::hydrate_native_keys`] follows, so a key typed this session is never
+    /// overwritten by an older one on disk.
+    fn hydrate_credential_file(&mut self) {
+        if self.credential_vault != crate::model_config_store::Vault::LocalFile {
+            return;
+        }
+        let path = self.credential_file_path();
+        let Ok(file) = crate::model_config_store::load(&path) else {
+            // Not there yet, or unreadable. That is the ordinary "no key" state —
+            // the first save will create it.
+            return;
+        };
+        for (slot, key) in file.api_keys {
+            if key.trim().is_empty() {
+                continue;
+            }
+            if self.deleted_api_key_slots.contains(&slot) {
+                // An explicit deletion outranks a file that still remembers.
+                continue;
+            }
+            self.api_keys.entry(slot.clone()).or_insert(key);
+            self.api_key_saved_at
+                .entry(slot)
+                .or_insert(file.saved_at);
+        }
     }
 }
 
@@ -942,6 +1025,10 @@ fn load_machine_config_at(path: &Path) -> LlmConfig {
     }
     let mut cfg = LlmConfig::finish_load(cfg, recovered || merged_backup_key, path);
     cfg.hydrate_native_keys();
+    // …then the developer's own credential file, if that is where they asked for
+    // their keys to be kept. After the native store, so a slot the vault owns is
+    // not shadowed by a stale copy in a file.
+    cfg.hydrate_credential_file();
     if merged_backup_key {
         // Once a missing credential/profile has been recovered, make both
         // files known-good so a later primary-file failure cannot lose it.
@@ -8177,6 +8264,112 @@ mod tests {
             loaded.api_keys.get(&slot),
             None,
             "a key survived a restart without a vault to survive in"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// …and the other half of that trade: when the developer ASKS for a local
+    /// file, the key survives a restart.
+    ///
+    /// The test above pins that a key reaches no disk by default, which is right —
+    /// and is exactly why the AI features asked for the key every single run. This
+    /// one pins the opt-in (operator, 2026-08-17): the machine config still carries
+    /// no credential, the developer's own file does, and a new run comes back with
+    /// the key already in hand.
+    #[test]
+    fn a_key_survives_a_restart_in_the_developers_own_file() {
+        use crate::model_config_store::Vault;
+
+        let dir = std::env::temp_dir()
+            .join(format!("prc_llm_local_file_{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let machine = dir.join("llm_config.json");
+        let chosen = dir.join("my_keys.json");
+        let slot = format!("test-localfile-{}", crate::agents_db::new_uuid());
+
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.credential_vault = Vault::LocalFile;
+        cfg.credential_file = chosen.display().to_string();
+        cfg.provider = "anthropic".into();
+        cfg.store_api_key(slot.clone(), "sk-kept-on-purpose");
+        cfg.save_machine_at(&machine).unwrap();
+
+        // The MACHINE config still carries no credential — that file travels in
+        // backups and support bundles, and nothing about it changed.
+        let machine_raw = std::fs::read_to_string(&machine).unwrap();
+        assert!(
+            !machine_raw.contains("sk-kept-on-purpose"),
+            "the machine config must never carry a key:\n{machine_raw}"
+        );
+        // …but it does remember WHERE the developer asked for them to be kept.
+        assert!(machine_raw.contains("local-file"), "{machine_raw}");
+        assert!(machine_raw.contains("my_keys.json"), "{machine_raw}");
+
+        // The developer's own file has it, and says what it is.
+        let chosen_raw = std::fs::read_to_string(&chosen).unwrap();
+        assert!(chosen_raw.contains("sk-kept-on-purpose"));
+        assert!(chosen_raw.contains("clear text"), "the file must warn");
+
+        // A new run: the key is already there, nothing to retype.
+        let loaded = LlmConfig::load_machine_at(&machine);
+        assert_eq!(loaded.credential_vault, Vault::LocalFile);
+        assert_eq!(
+            loaded.api_keys.get(&slot).map(String::as_str),
+            Some("sk-kept-on-purpose"),
+            "the developer asked for the key to be kept and it was not"
+        );
+
+        // Deleting the credential outranks a file that still remembers it, or a
+        // deletion could never be made to stick.
+        let mut after = LlmConfig::load_machine_at(&machine);
+        after.forget_credential_slot(&slot);
+        after.save_machine_at(&machine).unwrap();
+        let reloaded = LlmConfig::load_machine_at(&machine);
+        assert_eq!(
+            reloaded.api_keys.get(&slot),
+            None,
+            "an explicit deletion must beat the file"
+        );
+
+        println!(
+            "\n  Credential storage — with Vault::LocalFile the key reaches the \
+             developer's own file (0600, clear-text warning) and NOT the machine \
+             config, which records only the choice and the path; a restart comes back \
+             with the key in hand, and an explicit deletion still wins\n"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A credential file inside a git working tree is refused at the moment of
+    /// SAVING, not merely when it was typed — so a folder that became a repository
+    /// after the choice was made cannot leak the key either.
+    #[test]
+    fn a_credential_file_is_refused_inside_a_repository_even_at_save_time() {
+        use crate::model_config_store::Vault;
+
+        let dir = std::env::temp_dir()
+            .join(format!("prc_llm_repo_guard_{}", crate::agents_db::new_uuid()));
+        let repo = dir.join("project");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let machine = dir.join("llm_config.json");
+        let chosen = repo.join("keys.json");
+        let slot = format!("test-repo-{}", crate::agents_db::new_uuid());
+
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.credential_vault = Vault::LocalFile;
+        cfg.credential_file = chosen.display().to_string();
+        cfg.store_api_key(slot, "sk-must-not-land");
+
+        let err = cfg.save_machine_at(&machine).expect_err("must refuse");
+        assert!(err.contains("git repository"), "{err}");
+        assert!(!chosen.exists(), "nothing may be written into a repository");
+
+        println!(
+            "\n  Credential storage — a file inside a git working tree is refused when \
+             the keys are actually written, not only when the path was chosen, so a \
+             folder that became a repository afterwards still cannot take one\n"
         );
 
         let _ = std::fs::remove_dir_all(dir);

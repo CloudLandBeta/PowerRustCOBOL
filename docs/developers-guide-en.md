@@ -368,6 +368,42 @@ Ollama needs no key at all — a reachable endpoint is enough.
 > one is kept and the others are named in the Output panel — re-enter one in
 > the Model Providers Manager if it was the one you wanted.
 
+##### Where your keys are kept
+
+By default a key lives for **one run**. Nothing is written to disk, and the next
+time you open the IDE it asks again. That is deliberate — a key on disk is a key
+that can be copied, backed up or committed — but it is tedious, so at the foot of
+the Model Providers Manager you decide for yourself:
+
+| Choice | What happens |
+|---|---|
+| **Not kept** | The default. Keys live in this process only, and are asked for again next run. |
+| **A local file** | The whole model configuration, keys included, is written to a file you name. Created owner-readable only (mode `0600` on macOS and Linux) and carrying a plain-text warning at the top. Reopening the IDE picks the keys straight back up. |
+| **The OS credential store** | Your platform's own vault — Keychain, Credential Manager, Secret Service. Offered but **not selectable yet: it ships in RC3**, once it has a UI that can inspect, rotate and clear what it holds. |
+
+**A file may never live inside a git repository.** This is not a preference and
+there is no override. If the path you choose sits anywhere under a `.git` — at the
+repository root, buried ten folders down, or in a submodule or `git worktree`
+checkout — it is refused, and the refusal names the repository so you know which
+one you hit. A committed key is published, and a published key cannot be taken
+back.
+
+`/tmp/llm_config.json` is offered first for exactly that reason: nothing in `/tmp`
+can be committed, and it does not survive a reboot — which for a credential is a
+feature. Click a suggested path or type your own, press **Use this file**, and the
+keys are written when the configuration is saved. **Forget the file** deletes it
+and goes back to not keeping keys at all.
+
+The machine-wide configuration file is unchanged: it still carries **no
+credential**, only your choice of where keys go and the path you picked. Deleting a
+key in the manager still deletes it — an explicit deletion always beats a file that
+remembers.
+
+> ⚠️ **Caveat.** A file holds your keys in clear text. It is protected by file
+> permissions and nothing else: anything running as you can read it, and it will be
+> in any backup that copies the folder. If that is not acceptable, leave the choice
+> on **Not kept** until the OS credential store arrives in RC3.
+
 **Agents Manager.** The *AI agents* row opens the project's provisioned agent
 database, in three tabs.
 

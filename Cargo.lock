@@ -1444,6 +1444,7 @@ dependencies = [
  "syntect",
  "sysinfo",
  "tar",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",
