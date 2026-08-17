@@ -1701,12 +1701,13 @@ and `paste` — and writes what happened, or why it could not, into the **Output
 pane. That is where a toolbar gets built, so that is where its buttons have to
 work.
 
-Two of the actions deliberately do **not** run in Preview:
+The other five do **not** run in Preview — and each says so in the Output pane
+rather than leaving you to guess:
 
 | Action | Why not |
 |---|---|
 | `screenshot`, `share` | They capture the form's **own window**. In Preview the form is a pane inside the IDE, so a capture would hand you a picture of the IDE instead. Preview says so rather than quietly returning the wrong image — use **Run Form**. |
-| `event`, `procedure`, `open-modal` | These are your form's COBOL. Preview draws the form but runs no interpreter, so it leaves them to **Run Form**. |
+| `event`, `procedure`, `open-modal` | These are your form's COBOL. Preview draws the form but runs no interpreter, so it names the action and leaves it to **Run Form**. |
 
 > ⚠️ **Caveat.** A toolbar wider than the control it sits on loses whole groups
 > off the right-hand end rather than drawing half of one. The properties pane

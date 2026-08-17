@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.75] — 2026-08-17
+
+### Fixed — two frame paths that had drifted apart
+
+The host has two paths that consume a rendered frame: the **root** form's
+(`ui_impl` — what `rcrun run-form` shows and what a compiled binary runs) and a
+**child window's or ContentPane occupant's** (`child_frame`). They are meant to
+behave identically. They did not, and each was missing what the other had.
+
+**A Knob's `onValueChanged` never fired on the main form.** 1.61.71 added observer
+events — the rule that `MOVE 5 TO KNOB-1::Value` must fire `onValueChanged`
+exactly as a drag does — to the **child** path only. The root form takes neither
+of that path's branches, so the write was applied and nothing was raised: the
+reported bug, unfixed, in the one place it was reported. It applied to every
+observer event on every control, not just the Knob.
+
+**Every platform toolbar action was dead in a child form.** The reverse gap: the
+block that prints, shares, captures, uses the clipboard and launches a process ran
+on the **root** path only. A toolbar inside a child window or a ContentPane
+occupant had eight advertised actions doing nothing, and its FileDropZone would
+not open a picker either.
+
+Both are now single methods on `FormBody` — `apply_interpreter_update` and
+`run_platform_requests` — called from both paths, so neither can be fixed alone
+again. The toolbar action runner moved onto the form body with them, which is
+where it belonged: a window capture is of one window, so a child's screenshot is
+its own.
+
+### Fixed — Preview said nothing when a button's action was the form's COBOL
+
+Pressing a `procedure:`, `open-modal:` or `event` button in Preview did nothing and
+reported nothing, so there was no way to tell "Preview does not run COBOL" from "my
+action is broken". It now says which action it was and that Run Form runs it —
+the same courtesy the refused captures already had.
+
 ## [PowerRustCOBOL 1.61.74] — 2026-08-17
 
 ### Added — first-class toolbar buttons
