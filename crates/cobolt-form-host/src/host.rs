@@ -776,7 +776,55 @@ impl FormBody {
             } else {
                 self.resolve_ctrl_key(&u.ctrl_id)
             };
+            // An OBSERVER event reports that a value is now different, whoever
+            // made it different — so a Timer handler doing
+            // `MOVE 5 TO KNOB-1::Value` has to fire the Knob's `onValueChanged`
+            // exactly as a drag does. This applied the write and fired nothing,
+            // which is the reported bug (operator, 2026-08-17) and applied to
+            // every observer event on every control, not just the Knob.
+            //
+            // Only when the value actually CHANGED: an observer that fires on a
+            // write of the same value is a spurious event, and — since a handler
+            // may well write the property it was woken for — it is also what
+            // stops the obvious feedback loop.
+            //
+            // Passive events (`onClick`, `onMouseDown`, `onGotFocus`) are never
+            // raised here. There is no user act to report.
+            let observers: Vec<&'static str> = self
+                .controls
+                .iter()
+                .find(|c| c.id == key)
+                .map(|c| c.control_type.observer_events_for(&u.prop))
+                .unwrap_or_default();
+            let changed = if observers.is_empty() {
+                false
+            } else {
+                self.state
+                    .get(&key)
+                    .and_then(|s| {
+                        s.props
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case(&u.prop))
+                            .map(|(_, v)| v != &u.value)
+                    })
+                    // Nothing stored yet: the interpreter's seeding pass writes
+                    // every designed value on startup, and a form must not wake
+                    // to a burst of change events for values that never changed.
+                    // Compare against the DESIGN value instead.
+                    .unwrap_or_else(|| {
+                        self.controls
+                            .iter()
+                            .find(|c| c.id == key)
+                            .and_then(|c| c.get_prop(&u.prop).map(|v| v.as_str() != u.value))
+                            .unwrap_or(false)
+                    })
+            };
             self.state_entry_mut(&key).set(&u.prop, u.value);
+            if changed {
+                for event in observers {
+                    self.send_event(FormEvent::new(key.clone(), event.to_owned()));
+                }
+            }
         }
 
         // DISPLAY → stdout (the IDE's Output pane reads it there).
