@@ -1662,8 +1662,15 @@ the generated event loop that dispatches it. That name is derived, and it is
 ```
 
 You do not type it anywhere — `procedure` and `open-modal` are wired through it
-for you — but it is what you will see in the generated code, and it is the id the
-press arrives under:
+for you — but it is what you will see in the generated code, it is the id the press
+arrives under, and it is how your COBOL addresses the button:
+
+> **The buttons belong to their own form.** A ToolBar works the same in a
+> **Standalone** form and in an **Embedded** one loaded into a ContentPane, and in
+> both cases its buttons exist in **that form's** program — the one holding the
+> toolbar. Read them, recolour them and handle them from that form's COBOL, exactly
+> as you would a control. Two forms carrying identically-named toolbars never see
+> each other's buttons.
 
 ```cobol
       *>   generated, in COBOL-EVENT-LOOP:

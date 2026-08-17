@@ -362,4 +362,121 @@ mod tests {
         let cross = build_object_seed(&form, &flat, None, Some("SRCH"));
         assert!(cross[1].2.iter().all(|(k, _)| k != "_ResolvedSearchApiKey"));
     }
+
+    /// A toolbar's BUTTONS are seeded as objects of this form, so the form's own
+    /// COBOL can address them (operator, 2026-08-17).
+    ///
+    /// This one builder serves every form instance there is — the root form (via
+    /// `rcrun run-form` and a compiled binary), a child window, and a ContentPane
+    /// occupant (`FormHost::build_form_instance`) — so a toolbar's buttons exist in
+    /// the interpreter of whichever form holds the toolbar, whether that form is
+    /// Standalone or Embedded, and in no other. That is the point of pinning it
+    /// here: the two bugs before this one were both a fix that reached one form
+    /// path and not the other.
+    #[test]
+    fn a_toolbars_buttons_are_seeded_as_objects_of_their_own_form() {
+        use cobolt_forms::toolbar::{
+            button_control_id, ToolbarButton, ToolbarDef, ToolbarGroup, TOOLBAR_DEF_PROP,
+        };
+
+        let mut group = ToolbarGroup::new("group-1", "File");
+        let mut save = ToolbarButton::new("button-1", "");
+        save.set_icon("folder-open");
+        save.tooltip = "Open a record".into();
+        // A colour set on the GROUP is what an unset button inherits, so the seeded
+        // value has to be the RESOLVED one or a read-back would come up empty.
+        group.button_defaults.background_color = "#204080FF".into();
+        group.buttons.push(save);
+        let mut disabled = ToolbarButton::new("button-2", "Find");
+        disabled.enabled = false;
+        group.buttons.push(disabled);
+        let def = ToolbarDef {
+            groups: vec![group],
+            button_gap: 4,
+        };
+
+        // Nested inside a Panel — a toolbar does not have to sit at the top level,
+        // and the seed walks the FLAT list, which is what makes that work.
+        let mut bar = Control::new("TB", ControlType::ToolBar, 0, 0);
+        bar.set_prop(TOOLBAR_DEF_PROP, PropValue::String(def.to_json().unwrap()));
+        let panel = Control::new("PANEL-1", ControlType::Panel, 0, 0);
+
+        // An EMBEDDED form: the case the operator is building — a toolbar in a form
+        // loaded into a ContentPane by a sidebar.
+        let mut form = cobolt_forms::Form::new("EMB-FORM", "Embedded", 400, 300);
+        form.form_format = cobolt_forms::model::FormFormat::Embedded;
+        let flat = vec![panel, bar];
+        form.controls = flat.clone();
+
+        let seed = build_object_seed(&form, &flat, None, None);
+        let entry = |id: &str| {
+            seed.iter()
+                .find(|(seed_id, _, _)| seed_id == id)
+                .unwrap_or_else(|| panic!("{id} is not in the seed: {:?}", ids(&seed)))
+        };
+
+        let b1 = button_control_id("TB", "group-1", "button-1");
+        let b2 = button_control_id("TB", "group-1", "button-2");
+        assert_eq!(b1, "TB-GROUP-1-BUTTON-1");
+
+        for id in [&b1, &b2] {
+            let (_, class, _) = entry(id);
+            assert_eq!(
+                class, "ToolbarButton",
+                "{id} must be seeded as a button, not as a control"
+            );
+        }
+
+        let (_, _, props) = entry(&b1);
+        let get = |k: &str| {
+            props
+                .iter()
+                .find(|(name, _)| name == k)
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(get("Tooltip"), Some("Open a record"));
+        assert_eq!(get("Icon"), Some("folder-open"));
+        assert_eq!(get("Enabled"), Some("1"));
+        assert_eq!(
+            get("BackgroundColor"),
+            Some("#204080FF"),
+            "a colour inherited from the group must read back on the button"
+        );
+        // Where the button is, so a handler can find its way back to the toolbar.
+        assert_eq!(get("ToolBar"), Some("TB"));
+        assert_eq!(get("Group"), Some("group-1"));
+        assert_eq!(get("Button"), Some("button-1"));
+
+        let (_, _, props2) = entry(&b2);
+        assert_eq!(
+            props2
+                .iter()
+                .find(|(k, _)| k == "Enabled")
+                .map(|(_, v)| v.as_str()),
+            Some("0"),
+            "a button designed disabled reads back disabled"
+        );
+
+        // A form with NO toolbar seeds no buttons — nothing is invented.
+        let (plain, plain_flat) = form_with(Control::new("Label-1", ControlType::Label, 0, 0));
+        let plain_seed = build_object_seed(&plain, &plain_flat, None, None);
+        assert!(
+            plain_seed.iter().all(|(_, class, _)| class != "ToolbarButton"),
+            "a form without a toolbar must seed no buttons"
+        );
+
+        println!(
+            "\n  Toolbar button seeding — an EMBEDDED form with a ToolBar nested in a Panel \
+             seeds {} objects: the form, 2 controls and 2 ToolbarButtons ({b1}, {b2}) \
+             carrying their tooltip, icon, enabled flag, their group-inherited colour and \
+             where they live. ONE builder serves the root form, a child window and a \
+             ContentPane occupant, so a toolbar's buttons exist in its own form's \
+             interpreter and nowhere else\n",
+            seed.len()
+        );
+    }
+
+    fn ids(seed: &[(String, String, Vec<(String, String)>)]) -> Vec<&str> {
+        seed.iter().map(|(id, _, _)| id.as_str()).collect()
+    }
 }
