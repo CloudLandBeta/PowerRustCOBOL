@@ -5765,6 +5765,28 @@ impl PropertiesPanel {
                     None,
                     200,
                 );
+                // The open dropdown's two highlights, opening on the colours it
+                // is drawing rather than on a stored value it may not have —
+                // both properties start empty, meaning the popup's own.
+                let (eff_selected, eff_hover) = cobolt_forms::paint::combo_popup_fills(ctrl);
+                color_row_effective(
+                    ui,
+                    id,
+                    "ActiveItemColor",
+                    "Selected item",
+                    ctrl,
+                    action,
+                    eff_selected,
+                );
+                color_row_effective(
+                    ui,
+                    id,
+                    "HoverItemColor",
+                    "Hovered item",
+                    ctrl,
+                    action,
+                    eff_hover,
+                );
                 ui.add_space(4.0);
             }
 
@@ -9177,8 +9199,12 @@ fn color_row_labeled(
 /// The swatch opens on `effective` — the colour the control is drawing right
 /// now — so an unnamed colour shows what the form shows instead of a
 /// placeholder it never draws. Picking one writes hex and PINS it; a pinned row
-/// grows a reset, because a property whose default is "whatever the palette
-/// says" is otherwise a door that only shuts.
+/// grows a reset, because a property whose default is computed rather than
+/// stored is otherwise a door that only shuts.
+///
+/// What "default" means is the caller's business — the palette's selection
+/// colour for a ListBox, the popup's own constant for a ComboBox — so the row
+/// says "default" and never names one of them.
 fn color_row_effective(
     ui: &mut Ui,
     ctrl_id: &str,
@@ -9209,7 +9235,7 @@ fn color_row_effective(
         if named
             && ui
                 .small_button("↺")
-                .on_hover_text("Back to the theme's colour")
+                .on_hover_text("Back to the default colour")
                 .clicked()
         {
             action.set_props.push((
@@ -9222,7 +9248,7 @@ fn color_row_effective(
             RichText::new(if named {
                 color32_to_hex(color)
             } else {
-                "theme".to_owned()
+                "default".to_owned()
             })
             .monospace()
             .small()
