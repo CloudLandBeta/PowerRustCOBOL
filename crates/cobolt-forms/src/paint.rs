@@ -3297,12 +3297,30 @@ fn draw_control_body(
             .get_prop("Style")
             .map(|v| v.as_str().eq_ignore_ascii_case("Blocks"))
             .unwrap_or(false);
-        // 047 — the trough is the control's well; under Elegance it takes the
-        // palette rather than the built-in light grey.
-        let bg_c = match theme_token(painter.ctx(), crate::surface_theme::ColorToken::InputBg) {
-            Some(c) => theme_alpha(c, alpha_mul),
-            None => bg_c,
-        };
+        // The trough is the part of the bar NOT yet travelled, and it is the
+        // developer's BackgroundColor — the Appearance "Back colour" row was
+        // dead here, because the trough only ever asked the theme. Same
+        // precedence the fill above uses: a colour the developer actually
+        // chose wins; still on the seeded default means they have not chosen,
+        // so the theme's well colour answers; failing that, the built-in grey.
+        let bg_c = ctrl
+            .get_prop("BackgroundColor")
+            .map(|v| v.as_str().to_owned())
+            .filter(|raw| {
+                let t = raw.trim().trim_start_matches('#');
+                !t.is_empty()
+                    && !t.eq_ignore_ascii_case(
+                        crate::model::DEFAULT_BACKGROUND_COLOR.trim_start_matches('#'),
+                    )
+            })
+            .map(|raw| parse_color(&raw))
+            .filter(|c| c.a() > 0)
+            .map(alpha_color)
+            .or_else(|| {
+                theme_token(painter.ctx(), crate::surface_theme::ColorToken::InputBg)
+                    .map(|c| theme_alpha(c, alpha_mul))
+            })
+            .unwrap_or(bg_c);
         painter.rect_filled(rect, corner, bg_c);
         // A vertical bar fills bottom → top, the way a column of liquid rises;
         // a horizontal one fills left → right.
@@ -12241,6 +12259,75 @@ slice = [4, 4, 4, 4]
     /// the five never reached the painter at all; BarColor reached only the
     /// flat path, while the glass path — the one both the canvas and Run Form
     /// use — was handed a hard-wired green.
+    #[test]
+    fn a_progress_bars_back_colour_paints_the_untravelled_part() {
+        use crate::model::PropValue;
+
+        /// The fill of every full-size rect the control paints — the trough is
+        /// the one that spans the whole control.
+        fn trough_fills(ct: &Control) -> Vec<Color32> {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, false, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let want = Rect::from_min_size(Pos2::ZERO, Vec2::new(ct.rect.w as f32, ct.rect.h as f32));
+            let mut out = Vec::new();
+            fn walk(s: &egui::Shape, want: Rect, out: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, want, out)),
+                    egui::Shape::Rect(r) => {
+                        if (r.rect.width() - want.width()).abs() <= 0.5
+                            && (r.rect.height() - want.height()).abs() <= 0.5
+                            && r.fill.a() > 0
+                        {
+                            out.push(r.fill);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, want, &mut out);
+            }
+            out
+        }
+
+        let mut bar = Control::new("PB", CT::ProgressBar, 0, 0);
+        bar.rect = crate::model::Rect::new(0, 0, 200, 24);
+        bar.set_prop("Value", PropValue::Int(50));
+
+        // Untouched: the trough is whatever the theme says, never magenta.
+        let before = trough_fills(&bar);
+        assert!(
+            !before.iter().any(|c| *c == Color32::from_rgb(0xFF, 0x00, 0xFF)),
+            "nothing paints magenta until the developer asks for it"
+        );
+
+        // Chosen: the untravelled part takes the developer's Back colour. This
+        // row was dead — the trough only ever asked the theme.
+        bar.set_prop("BackgroundColor", PropValue::String("#FF00FF".into()));
+        let after = trough_fills(&bar);
+        assert!(
+            after.iter().any(|c| *c == Color32::from_rgb(0xFF, 0x00, 0xFF)),
+            "the trough must take BackgroundColor, got {after:?}"
+        );
+
+        // The seeded default is not a choice, so it must not override the theme.
+        bar.set_prop(
+            "BackgroundColor",
+            PropValue::String(crate::model::DEFAULT_BACKGROUND_COLOR.into()),
+        );
+        assert_eq!(
+            trough_fills(&bar),
+            before,
+            "still on the default means the developer has not chosen"
+        );
+    }
+
     #[test]
     fn a_progress_bar_honours_every_property_it_offers() {
         use crate::model::PropValue;

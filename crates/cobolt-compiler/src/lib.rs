@@ -2794,7 +2794,12 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "LargeChange" => ("integer > 0", "Page Up/Down increment."),
         "DecimalPlaces" => ("0-6", "Fractional digits displayed."),
         "ThousandsSeparator" => (BOOL_DOMAIN, "Shows a thousands separator."),
-        "BarColor" => (COLOR_DOMAIN, "Filled-portion color of the progress bar."),
+        "BarColor" => (
+            COLOR_DOMAIN,
+            "Filled-portion color of the progress bar (how far it has travelled). The \
+             UNTRAVELLED part -- the trough -- is the control's BackgroundColor; left at its \
+             default either one follows the active theme.",
+        ),
         "Orientation" => ("`Horizontal` | `Vertical`", "Layout axis."),
         "Style" => (
             "`Continuous` | `Blocks`",
