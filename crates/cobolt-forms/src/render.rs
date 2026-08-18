@@ -3866,15 +3866,14 @@ fn render_interactive(
             }
         }
         CT::ListBox => {
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(30, 40, 80),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-                paint::SurfaceRole::Input,
-            );
+            // The face is the DEVELOPER'S — `BackgroundColor`, the background
+            // gradient, the border and the corner radius — drawn by the same
+            // call the designer canvas uses, so what is designed is what runs.
+            //
+            // It used to paint a hardcoded navy surface over the design: a list
+            // given a grey-to-black gradient in the RAD came out blue the
+            // moment the form ran (operator, 2026-08-18).
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let mut picked: Option<(usize, String)> = None;
@@ -6113,15 +6112,9 @@ fn render_interactive(
             }
         }
         CT::TreeView => {
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(28, 36, 64),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-                paint::SurfaceRole::Input,
-            );
+            // Same rule as the ListBox above: the designed face, not a
+            // hardcoded one.
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let fg = paint::theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text)
                 .unwrap_or(Color32::from_rgb(220, 226, 250));
             let selected = sv(ctrl, "SelectedNode");
@@ -8458,14 +8451,33 @@ mod tests {
     /// [`drive`], but it also hands back what the LAST frame painted and where
     /// the controls landed — for the questions that are about what the operator
     /// can see, not about what the form was told.
-    fn drive_painted(
-        controls: &[Control],
-        frames: Vec<(f64, Vec<Event>)>,
-    ) -> (
-        Map<String, Map<String, String>>,
-        Vec<PaintedText>,
-        Map<String, Rect>,
-    ) {
+    /// Everything the last frame put on the screen, for the questions that are
+    /// about what the operator can SEE.
+    struct Painted {
+        overrides: Map<String, Map<String, String>>,
+        texts: Vec<PaintedText>,
+        /// Every filled rectangle, with the colour it was filled with.
+        fills: Vec<(Rect, Color32)>,
+        /// The bounds of every mesh — a gradient is one.
+        meshes: Vec<Rect>,
+        placed: Map<String, Rect>,
+    }
+
+    fn drive_painted(controls: &[Control], frames: Vec<(f64, Vec<Event>)>) -> Painted {
+        fn collect_faces(
+            shape: &egui::Shape,
+            fills: &mut Vec<(Rect, Color32)>,
+            meshes: &mut Vec<Rect>,
+        ) {
+            match shape {
+                egui::Shape::Rect(r) if r.fill.a() > 0 => fills.push((r.rect, r.fill)),
+                egui::Shape::Mesh(m) => meshes.push(m.calc_bounds()),
+                egui::Shape::Vec(v) => {
+                    v.iter().for_each(|s| collect_faces(s, fills, meshes))
+                }
+                _ => {}
+            }
+        }
         fn collect(shape: &egui::Shape, clip: Rect, out: &mut Vec<PaintedText>) {
             match shape {
                 egui::Shape::Text(t) => {
@@ -8497,6 +8509,8 @@ mod tests {
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
         let mut painted: Vec<PaintedText> = Vec::new();
+        let mut fills: Vec<(Rect, Color32)> = Vec::new();
+        let mut meshes: Vec<Rect> = Vec::new();
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
@@ -8534,8 +8548,11 @@ mod tests {
                     });
             });
             painted.clear();
+            fills.clear();
+            meshes.clear();
             for cs in &full.shapes {
                 collect(&cs.shape, cs.clip_rect, &mut painted);
+                collect_faces(&cs.shape, &mut fills, &mut meshes);
             }
             full.textures_delta.clear();
             for (id, key, value) in updates.into_inner() {
@@ -8546,7 +8563,96 @@ mod tests {
                     .insert(key, value);
             }
         }
-        (overrides.into_inner(), painted, placed.into_inner())
+        Painted {
+            overrides: overrides.into_inner(),
+            texts: painted,
+            fills,
+            meshes,
+            placed: placed.into_inner(),
+        }
+    }
+
+    /// A ListBox wears the background the RAD gave it — a colour or a gradient
+    /// (operator, 2026-08-18).
+    ///
+    /// The running list painted a hardcoded navy surface over its own face, so
+    /// a list designed with a grey-to-black gradient came out blue the moment
+    /// the form ran, and nothing in the properties pane could change it. Its
+    /// face is now drawn by the same call the designer canvas uses.
+    #[test]
+    fn a_listbox_wears_the_background_designed_in_the_rad() {
+        const HARDCODED_NAVY: Color32 = Color32::from_rgb(30, 40, 80);
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 140);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()),
+        );
+
+        // A designed COLOUR: a deep red, which no default in the engine is.
+        let mut solid = lb.clone();
+        solid.set_prop("BackgroundColor", crate::PropValue::String("#B00000FF".into()));
+        let painted = drive_painted(&[solid], vec![(0.0, vec![]), (0.05, vec![])]);
+        let frame = *painted.placed.get("ListBox-1").expect("placed");
+        let covers = |r: &Rect| r.intersect(frame).area() >= frame.area() * 0.7;
+        let face: Vec<Color32> = painted
+            .fills
+            .iter()
+            .filter(|(r, _)| covers(r))
+            .map(|(_, c)| *c)
+            .collect();
+        assert!(
+            !face.is_empty(),
+            "the list must paint a face over its own rect: {:?}",
+            painted.fills
+        );
+        assert!(
+            face.iter().any(|c| c.r() > c.g() + 30 && c.r() > c.b() + 30),
+            "the designed red must reach the face (glass may tint it, not repaint it): {face:?}"
+        );
+        assert!(
+            !face.contains(&HARDCODED_NAVY),
+            "the hardcoded navy must be gone: {face:?}"
+        );
+
+        // A designed GRADIENT — the operator's own case, grey to black going
+        // south. A gradient is a mesh; the hardcoded surface never made one.
+        let mut grad = lb.clone();
+        grad.set_prop("BackgroundGradientEnabled", crate::PropValue::Bool(true));
+        grad.set_prop(
+            "BackgroundGradientStartColor",
+            crate::PropValue::String("#4E4E4EFF".into()),
+        );
+        grad.set_prop(
+            "BackgroundGradientEndColor",
+            crate::PropValue::String("#000000FF".into()),
+        );
+        grad.set_prop(
+            "BackgroundGradientDirection",
+            crate::PropValue::String("South".into()),
+        );
+        let painted = drive_painted(&[grad], vec![(0.0, vec![]), (0.05, vec![])]);
+        let frame = *painted.placed.get("ListBox-1").expect("placed");
+        assert!(
+            painted
+                .meshes
+                .iter()
+                .any(|m| m.intersect(frame).area() >= frame.area() * 0.7),
+            "the designed gradient must be painted across the list: meshes {:?} vs {frame:?}",
+            painted.meshes
+        );
+        assert!(
+            !painted
+                .fills
+                .iter()
+                .any(|(r, c)| *c == HARDCODED_NAVY && r.intersect(frame).is_positive()),
+            "…and nothing paints over it"
+        );
+
+        println!(
+            "\n  ListBox background — a designed #B00000 reaches the face, a designed \
+             grey-to-black South gradient is painted as a mesh across the control, and the \
+             hardcoded navy that used to cover both is gone\n"
+        );
     }
 
     /// Whatever moves the active row — a drag or an arrow — the row it lands on
@@ -8575,7 +8681,12 @@ mod tests {
         // settle. Two settle frames: `scroll_to_rect` asks THIS frame and the
         // scroll area answers on the next.
         let far_below = pos2(120.0, 900.0);
-        let (overrides, painted, placed) = drive_painted(
+        let Painted {
+            overrides,
+            texts: painted,
+            placed,
+            ..
+        } = drive_painted(
             &[lb.clone()],
             vec![
                 (0.00, vec![Event::PointerMoved(row_at(0))]),
@@ -8625,7 +8736,12 @@ mod tests {
         }
         frames.push((0.70, vec![]));
         frames.push((0.75, vec![]));
-        let (overrides, painted, placed) = drive_painted(&[lb.clone()], frames);
+        let Painted {
+            overrides,
+            texts: painted,
+            placed,
+            ..
+        } = drive_painted(&[lb.clone()], frames);
         let value = overrides
             .get("ListBox-1")
             .and_then(|p| p.get("Value"))
