@@ -2743,7 +2743,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Multiline" => (BOOL_DOMAIN, "Multi-line editing."),
         "PasswordCharacter" => ("single character or empty", "Masks input with this character when set."),
         "ReadOnly" => (BOOL_DOMAIN, "Blocks user editing (value still settable from COBOL)."),
-        "ScrollBars" => ("one of: `None` | `Horizontal` | `Vertical` | `Both`", "Which scrollbars a multiline box shows."),
+        "ScrollBars" => ("one of: `None` | `Horizontal` | `Vertical` | `Both`", "Which scrollbars a multiline box shows. None still scrolls, it just draws no bars. Horizontal and Both stop the text wrapping."),
         "WordWrap" => (BOOL_DOMAIN, "Wraps long lines."),
         "TextAlignment" => (
             "`Left` | `Center` | `Right` | `Justified` on Label/TextBox (Button also accepts anchored forms like `MiddleCenter`)",

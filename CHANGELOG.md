@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.96] — 2026-08-18
+
+### Fixed — a TextBox honours ReadOnly, PasswordCharacter, MaximumLength and ScrollBars
+
+All four were seeded on every TextBox, shown in the inspector and documented in
+the knowledge base, and read by **nothing**. A field marked read-only accepted
+edits; a password field painted the password in clear; a length limit let any
+length through; the scrollbars setting did nothing.
+
+| Property | What it now does |
+|---|---|
+| `ReadOnly` | The field shows its value and can be selected and copied, but takes no edit — and reports no `onChange`, because nothing changed. It is **read-only, not disabled**: a disabled field cannot even be selected. |
+| `PasswordCharacter` | The value is painted as that character, one per character of the value. The **value itself is untouched** — `Text` still holds what was typed, so the form reads the password normally. |
+| `MaximumLength` | Typing stops at that many characters. `0`, the default, means no limit. |
+| `ScrollBars` | `None` / `Vertical` / `Horizontal` / `Both` on a multiline box. |
+
+> **Note.** `PasswordCharacter` masks with *the character you chose*. The
+> underlying toolkit's own password mode can only draw a fixed bullet, so the
+> text is laid out as the mask instead — which also keeps the caret and the
+> selection landing exactly where you put them, since the mask has the same
+> number of characters as the value.
+
+> **Note.** `ScrollBars = None` still **scrolls** — it draws no bars. Text the
+> box cannot show must never become unreachable, which is why the editor sits in
+> a scrolling pane at all. Choose `Horizontal` or `Both` and the text stops
+> wrapping, so there is something to scroll sideways to.
+
+
 ## [PowerRustCOBOL 1.61.94] — 2026-08-18
 
 ### Fixed — a Shape wears the background gradient it was designed with

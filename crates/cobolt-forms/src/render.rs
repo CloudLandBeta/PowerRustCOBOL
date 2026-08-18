@@ -3316,6 +3316,23 @@ fn render_interactive(
                 .get_prop("Multiline")
                 .map(|v| v.as_bool())
                 .unwrap_or(false);
+            // ── The four input properties ─────────────────────────────────
+            //
+            // All four were seeded, shown in the inspector and documented, and
+            // read by nothing at all: a field marked read-only took edits, a
+            // password field showed the password, a length limit let anything
+            // through and the scrollbars setting did nothing (operator,
+            // 2026-08-18, from the dead-property audit).
+            let read_only = ctrl
+                .get_prop("ReadOnly")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            // 0 = no limit, which is the seeded default.
+            let char_limit = sv(ctrl, "MaximumLength").parse::<usize>().unwrap_or(0);
+            // The FIRST character of the property masks the text. egui's own
+            // `password` mode cannot be used: it masks with a fixed bullet,
+            // and this property names the character to mask WITH.
+            let mask_char = sv(ctrl, "PasswordCharacter").chars().next();
             // Multiline text starts at the top and can reach the corners, so it
             // keeps the corner-safe inset on every side; a single line is centred
             // and only needs the small vertical padding.
@@ -3368,33 +3385,91 @@ fn render_interactive(
             } else {
                 edit_rect
             };
+            // ReadOnly is egui's IMMUTABLE buffer: a `&str` renders and can be
+            // selected and copied, but takes no edits. `interactive(false)`
+            // would have made the field unselectable too, which is a DISABLED
+            // control, not a read-only one.
+            let read_copy = buf.clone();
+            let mut read_view: &str = read_copy.as_str();
+            // Masking lays the text out AS the mask character rather than
+            // altering the buffer: the value stays real, and the mask has the
+            // same character count, so the caret and the selection still land
+            // where the operator put them.
+            let mut mask_layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
+                let masked: String =
+                    std::iter::repeat_n(mask_char.unwrap_or('*'), text.as_str().chars().count())
+                        .collect();
+                let mut job = egui::text::LayoutJob::simple(
+                    masked,
+                    edit_font.clone(),
+                    txt_col,
+                    if multiline { wrap } else { f32::INFINITY },
+                );
+                job.halign = halign;
+                ui.fonts_mut(|f| f.layout_job(job))
+            };
+            // Which bars an overflowing multiline box shows. `None` still
+            // SCROLLS -- it just draws no bars. Content the box cannot show
+            // must never become unreachable, which is the whole reason the
+            // editor sits in a scrolling pane at all.
+            let (scroll_dirs, bar_vis) = match sv(ctrl, "ScrollBars").as_str() {
+                "Horizontal" => (
+                    [true, false],
+                    egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                ),
+                "Both" => (
+                    [true, true],
+                    egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                ),
+                "Vertical" => (
+                    [false, true],
+                    egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                ),
+                _ => (
+                    [false, true],
+                    egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                ),
+            };
             let resp = if multiline {
                 // egui's multiline editor auto-grows to its content, so it would
                 // spill past the TextBox's fixed height (and its rounded bottom).
                 // Host it in a scroll area clipped to the field so extra rows scroll
-                // instead of overflowing â the box keeps its designed height.
+                // instead of overflowing: the box keeps its designed height.
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(edit_rect);
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::new(scroll_dirs)
+                        .scroll_bar_visibility(bar_vis)
                         .auto_shrink([false, false])
                         .max_height(edit_rect.height())
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut buf)
-                                    .id(ctrl_id)
-                                    .frame(egui::Frame::NONE)
-                                    .interactive(enabled)
-                                    .desired_rows(1)
-                                    .desired_width(edit_rect.width())
-                                    .horizontal_align(halign)
-                                    .font(edit_font.clone())
-                                    .hint_text(
-                                        egui::RichText::new(hint_text.as_str())
-                                            .color(hint_col),
-                                    )
-                                    .text_color(txt_col),
-                            )
+                            let text: &mut dyn egui::TextBuffer =
+                                if read_only { &mut read_view } else { &mut buf };
+                            let mut edit = egui::TextEdit::multiline(text)
+                                .id(ctrl_id)
+                                .frame(egui::Frame::NONE)
+                                .interactive(enabled)
+                                .desired_rows(1)
+                                // Text that scrolls sideways must not also wrap,
+                                // or there is nothing to scroll to.
+                                .desired_width(if scroll_dirs[0] {
+                                    f32::INFINITY
+                                } else {
+                                    edit_rect.width()
+                                })
+                                .horizontal_align(halign)
+                                .font(edit_font.clone())
+                                .hint_text(
+                                    egui::RichText::new(hint_text.as_str()).color(hint_col),
+                                )
+                                .text_color(txt_col);
+                            if char_limit > 0 {
+                                edit = edit.char_limit(char_limit);
+                            }
+                            if mask_char.is_some() {
+                                edit = edit.layouter(&mut mask_layouter);
+                            }
+                            ui.add(edit)
                         })
                         .inner
                 })
@@ -3405,24 +3480,31 @@ fn render_interactive(
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(screen.intersect(ui.clip_rect()));
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
-                    ui.put(
-                        single_rect,
-                        egui::TextEdit::singleline(&mut buf)
-                            .id(ctrl_id)
-                            .frame(egui::Frame::NONE)
-                            .interactive(enabled)
-                            .horizontal_align(halign)
-                            .vertical_align(valign)
-                            .font(edit_font.clone())
-                            .hint_text(
-                                egui::RichText::new(hint_text.as_str()).color(hint_col),
-                            )
-                            .text_color(txt_col),
-                    )
+                    let text: &mut dyn egui::TextBuffer =
+                        if read_only { &mut read_view } else { &mut buf };
+                    let mut edit = egui::TextEdit::singleline(text)
+                        .id(ctrl_id)
+                        .frame(egui::Frame::NONE)
+                        .interactive(enabled)
+                        .horizontal_align(halign)
+                        .vertical_align(valign)
+                        .font(edit_font.clone())
+                        .hint_text(egui::RichText::new(hint_text.as_str()).color(hint_col))
+                        .text_color(txt_col);
+                    if char_limit > 0 {
+                        edit = edit.char_limit(char_limit);
+                    }
+                    if mask_char.is_some() {
+                        edit = edit.layouter(&mut mask_layouter);
+                    }
+                    ui.put(single_rect, edit)
                 })
                 .inner
             };
-            if resp.changed() {
+            // A read-only field reports no change: egui already refused the
+            // edit, and announcing one would fire onChange for a value that
+            // never moved.
+            if resp.changed() && !read_only {
                 out.prop_updates
                     .push((id.to_owned(), "Text".to_owned(), buf.clone()));
                 out.events.push(UiEvent::change(id, &buf));
@@ -11608,6 +11690,139 @@ mod tests {
             "\n  ComboBox canvas -- unsorted shows 6 on both surfaces, Sorted shows 1 on \
              both, and a Value of 11 shows 11 on both; the canvas used to letter the first \
              TYPED item and ignore Value\n"
+        );
+    }
+
+    /// The four TextBox input properties are honoured. All were seeded, shown in
+    /// the inspector and documented, and read by NOTHING (operator, 2026-08-18,
+    /// from the dead-property audit): a field marked read-only took edits, a
+    /// password field showed the password, a length limit let anything through,
+    /// and the scrollbars setting did nothing.
+    #[test]
+    fn a_textbox_honours_readonly_password_length_and_scrollbars() {
+        let field = |props: &[(&str, &str)]| -> Vec<Control> {
+            let mut base: Vec<(&str, &str)> = vec![("Text", "Secret")];
+            base.extend_from_slice(props);
+            vec![ctrlp("Tb", ControlType::TextBox, 20, 20, 240, 30, &base)]
+        };
+        let click = pos2(100.0, 35.0);
+        let typed = |s: &str| Event::Text(s.to_owned());
+        let run = |controls: &[Control]| -> (Map<String, Map<String, String>>, Vec<PaintedText>) {
+            let painted = drive_painted(
+                controls,
+                vec![
+                    (0.00, vec![Event::PointerMoved(click)]),
+                    (0.05, vec![press(click)]),
+                    (0.10, vec![release(click)]),
+                    (0.15, vec![typed("XYZ")]),
+                    (0.20, vec![]),
+                ],
+            );
+            (painted.overrides, painted.texts)
+        };
+        let text_of = |o: &Map<String, Map<String, String>>| {
+            o.get("Tb").and_then(|p| p.get("Text")).cloned()
+        };
+
+        // ── Baseline: an ordinary field takes the typing ──────────────────
+        let (o, _) = run(&field(&[]));
+        assert_eq!(
+            text_of(&o).as_deref(),
+            Some("SecretXYZ"),
+            "an ordinary field must still accept typing"
+        );
+
+        // ── ReadOnly: no edit reaches the value ───────────────────────────
+        let (o, painted) = run(&field(&[("ReadOnly", "true")]));
+        assert_eq!(
+            text_of(&o),
+            None,
+            "a read-only field must take no edits at all"
+        );
+        assert!(
+            painted.iter().any(|t| t.text == "Secret"),
+            "...while still SHOWING its value (read-only, not disabled): {:?}",
+            painted.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+        );
+
+        // ── MaximumLength: the limit is enforced ──────────────────────────
+        let (o, _) = run(&field(&[("MaximumLength", "8")]));
+        assert_eq!(
+            text_of(&o).as_deref(),
+            Some("SecretXY"),
+            "typing must stop at MaximumLength characters"
+        );
+
+        // ── PasswordCharacter: the value is masked WITH THAT CHARACTER ────
+        let (o, painted) = run(&field(&[("PasswordCharacter", "*")]));
+        assert_eq!(
+            text_of(&o).as_deref(),
+            Some("SecretXYZ"),
+            "masking must not alter the value: the field still holds what was typed"
+        );
+        assert!(
+            !painted.iter().any(|t| t.text.contains("Secret")),
+            "the password must not be painted in clear: {:?}",
+            painted.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+        );
+        assert!(
+            painted.iter().any(|t| t.text.chars().all(|c| c == '*') && t.text.len() == 9),
+            "...it must be painted as nine asterisks, the character chosen: {:?}",
+            painted.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+        );
+
+        // A different character is honoured too -- egui's own password mode
+        // could only ever draw its fixed bullet.
+        let (_, painted) = run(&field(&[("PasswordCharacter", "#")]));
+        assert!(
+            painted.iter().any(|t| t.text.chars().all(|c| c == '#') && t.text.len() == 9),
+            "the chosen '#' must be the mask: {:?}",
+            painted.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+        );
+        // -- ScrollBars: which bars an overflowing multiline box shows -------
+        //
+        // `None` still SCROLLS, it just draws no bars: content the box cannot
+        // show must never become unreachable.
+        let tall = |bars: &str| -> Vec<Control> {
+            vec![ctrlp(
+                "Tb",
+                ControlType::TextBox,
+                20,
+                20,
+                240,
+                60,
+                &[
+                    ("Text", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight"),
+                    ("Multiline", "true"),
+                    ("ScrollBars", bars),
+                ],
+            )]
+        };
+        let bar_count = |bars: &str| -> usize {
+            let painted = drive_painted(&tall(bars), vec![(0.0, vec![]), (0.05, vec![])]);
+            let frame = *painted.placed.get("Tb").expect("placed");
+            painted
+                .bands
+                .iter()
+                .filter(|(r, _, _)| r.height() > r.width() * 2.0 && r.height() > 8.0)
+                .filter(|(r, _, _)| frame.expand(2.0).contains_rect(*r))
+                .count()
+        };
+        assert_eq!(
+            bar_count("None"),
+            0,
+            "ScrollBars None must draw no bar at all"
+        );
+        assert!(
+            bar_count("Vertical") > 0,
+            "ScrollBars Vertical must draw one"
+        );
+
+
+        println!(
+            "\n  TextBox inputs -- ordinary field takes SecretXYZ; ReadOnly keeps Secret and \
+             still shows it; MaximumLength 8 stops at SecretXY; PasswordCharacter paints \
+             ********* and ######### while the value stays SecretXYZ\n"
         );
     }
     /// of its silhouettes (operator, 2026-08-18: "Shape background's color
