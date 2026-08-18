@@ -4167,13 +4167,12 @@ fn render_interactive(
             // three surfaces whose ambient palettes need not agree.
             let (active_fill, selected_fill) =
                 paint::list_selection_fills(ctrl, ui.visuals().selection.bg_fill);
-            let corner = paint::corner_radius(ctrl) as u8;
+            let corner = paint::corner_radius(ctrl);
             // How far the highlight keeps off the border: the border's own width
             // plus a hairline, so the rim reads as a continuous line rather than
             // something the selection has eaten into.
-            const HIGHLIGHT_INSET: f32 = 2.0;
             let border_w = sv(ctrl, "BorderWidth").parse::<f32>().unwrap_or(1.0).max(0.0);
-            let inner = screen.shrink(border_w + HIGHLIGHT_INSET);
+            let inner = screen.shrink(border_w + paint::HIGHLIGHT_INSET);
             let highlight_x = inner.x_range();
 
             // A drag through the list is ONE gesture with an ANCHOR — the row
@@ -4416,7 +4415,7 @@ fn render_interactive(
                             // a hairline of background between it and the
                             // highlight. Reaching the frame instead painted the
                             // rim away at the first and last row.
-                            let mut band =
+                            let band =
                                 Rect::from_x_y_ranges(highlight_x, row.y_range()).intersect(inner);
                             let is_active = &active_item == item;
                             let is_selected = selected.iter().any(|s| s == item);
@@ -4425,20 +4424,12 @@ fn render_interactive(
                                 // it is rounded too, by what is left of the
                                 // radius once the inset is taken off: egui clips
                                 // to an axis-aligned rect, so a square band would
-                                // still cut across the arc.
-                                let inset_corner = (corner as f32 - HIGHLIGHT_INSET).max(0.0) as u8;
-                                let mut cr = egui::CornerRadius::ZERO;
-                                if band.top() <= inner.top() + 0.5 {
-                                    cr.nw = inset_corner;
-                                    cr.ne = inset_corner;
-                                }
-                                if band.bottom() >= inner.bottom() - 0.5 {
-                                    cr.sw = inset_corner;
-                                    cr.se = inset_corner;
-                                }
+                                // still cut across the arc. The ComboBox's
+                                // dropdown draws its bands through the same
+                                // helper, so the two cannot drift.
                                 row_painter.rect_filled(
                                     band,
-                                    cr,
+                                    paint::highlight_band_rounding(band, inner, corner),
                                     if is_active { active_fill } else { selected_fill },
                                 );
                             }
@@ -8705,6 +8696,9 @@ mod tests {
         texts: Vec<PaintedText>,
         /// Every filled rectangle, with the colour it was filled with.
         fills: Vec<(Rect, Color32)>,
+        /// Every filled rectangle with its corner radii too — what the corner
+        /// guards need, since a band's silhouette is its rect AND its arc.
+        bands: Vec<(Rect, egui::CornerRadius, Color32)>,
         /// The bounds of every mesh — a gradient is one.
         meshes: Vec<Rect>,
         placed: Map<String, Rect>,
@@ -8714,13 +8708,17 @@ mod tests {
         fn collect_faces(
             shape: &egui::Shape,
             fills: &mut Vec<(Rect, Color32)>,
+            bands: &mut Vec<(Rect, egui::CornerRadius, Color32)>,
             meshes: &mut Vec<Rect>,
         ) {
             match shape {
-                egui::Shape::Rect(r) if r.fill.a() > 0 => fills.push((r.rect, r.fill)),
+                egui::Shape::Rect(r) if r.fill.a() > 0 => {
+                    fills.push((r.rect, r.fill));
+                    bands.push((r.rect, r.corner_radius, r.fill));
+                }
                 egui::Shape::Mesh(m) => meshes.push(m.calc_bounds()),
                 egui::Shape::Vec(v) => {
-                    v.iter().for_each(|s| collect_faces(s, fills, meshes))
+                    v.iter().for_each(|s| collect_faces(s, fills, bands, meshes))
                 }
                 _ => {}
             }
@@ -8757,6 +8755,7 @@ mod tests {
         let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
         let mut painted: Vec<PaintedText> = Vec::new();
         let mut fills: Vec<(Rect, Color32)> = Vec::new();
+        let mut bands: Vec<(Rect, egui::CornerRadius, Color32)> = Vec::new();
         let mut meshes: Vec<Rect> = Vec::new();
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
@@ -8796,10 +8795,11 @@ mod tests {
             });
             painted.clear();
             fills.clear();
+            bands.clear();
             meshes.clear();
             for cs in &full.shapes {
                 collect(&cs.shape, cs.clip_rect, &mut painted);
-                collect_faces(&cs.shape, &mut fills, &mut meshes);
+                collect_faces(&cs.shape, &mut fills, &mut bands, &mut meshes);
             }
             full.textures_delta.clear();
             for (id, key, value) in updates.into_inner() {
@@ -8814,6 +8814,7 @@ mod tests {
             overrides: overrides.into_inner(),
             texts: painted,
             fills,
+            bands,
             meshes,
             placed: placed.into_inner(),
         }
@@ -11271,6 +11272,180 @@ mod tests {
     /// Unnamed, both fall back to the constants the popup always painted, NOT
     /// to the palette: these two were never theme-derived, so that is what
     /// "unchanged" means for a ComboBox already designed.
+
+    /// Whether a painted rect covers `p`, honouring its **effective** corner
+    /// radius — egui clamps each corner to half the shorter side, so the stored
+    /// radius lies about what was actually drawn (corner-bleed playbook §1.1).
+    fn band_covers(rect: Rect, cr: egui::CornerRadius, p: egui::Pos2) -> bool {
+        if !rect.contains(p) {
+            return false;
+        }
+        let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+        let eff = |v: u8| (v as f32).min(cap);
+        let (r, cx, cy) = if p.x < rect.center().x && p.y < rect.center().y {
+            (eff(cr.nw), rect.left(), rect.top())
+        } else if p.x >= rect.center().x && p.y < rect.center().y {
+            (eff(cr.ne), rect.right(), rect.top())
+        } else if p.x < rect.center().x {
+            (eff(cr.sw), rect.left(), rect.bottom())
+        } else {
+            (eff(cr.se), rect.right(), rect.bottom())
+        };
+        if r <= 0.0 {
+            return true;
+        }
+        // The arc's centre, pulled `r` in from that corner on both axes.
+        let ax = if cx == rect.left() { cx + r } else { cx - r };
+        let ay = if cy == rect.top() { cy + r } else { cy - r };
+        // Outside the corner square ⇒ the straight part of the edge covers it.
+        if (p.x - ax) * (cx - ax) <= 0.0 || (p.y - ay) * (cy - ay) <= 0.0 {
+            return true;
+        }
+        (p.x - ax).powi(2) + (p.y - ay).powi(2) <= r * r
+    }
+
+    /// An open dropdown's selection band is cut by the panel's own arc, exactly
+    /// as a ListBox row is (operator, 2026-08-18, with screenshots).
+    ///
+    /// The band was a flat 4 px round clipped to the panel rather than to the
+    /// inside of its rim, so on a panel rounded any further than that it leaked
+    /// out of BOTH ends: square shoulders poking past the arc at the top item
+    /// and at the bottom one, and the highlight painted over the border instead
+    /// of leaving the hairline a list leaves.
+    ///
+    /// Built from the operator's own ComboBox-1 (PowerDemo3/inner-form2.cfrm):
+    /// 160×24 at CornerRadius 15 — clamped to 12 by the control's own height —
+    /// eleven items, DropDownHeight 200, so the panel overflows and the selected
+    /// item sits against the BOTTOM arc while another sits against the top.
+    #[test]
+    fn a_dropdowns_selection_band_is_cut_by_the_panels_corner() {
+        let mut cmb = ctrl("ComboBox-1", ControlType::ComboBox, 336, 104, 160, 24);
+        for (k, v) in [
+            ("Items", "6\n1\n2\n3\n4\n5\n11\n7\n8\n9\n10"),
+            ("Value", "10"),
+            ("FontSize", "14"),
+            ("DropDownHeight", "200"),
+            ("CornerRadius", "15"),
+            ("BackgroundColor", "#36383EFF"),
+        ] {
+            cmb.set_prop(k, crate::PropValue::String(v.to_owned()));
+        }
+        let radius = crate::paint::corner_radius(&cmb);
+        assert!(
+            (radius - 12.0).abs() < 0.01,
+            "the fixture must reproduce the operator's clamped radius, got {radius}"
+        );
+
+        let hc = pos2(336.0 + 80.0, 104.0 + 12.0);
+        let painted = drive_painted(
+            &[cmb.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                (3.0, vec![]),
+                (4.0, vec![]),
+            ],
+        );
+        let header = *painted.placed.get("ComboBox-1").expect("placed");
+        let item_h = combo_item_h(&cmb);
+        let panel = Rect::from_min_size(
+            pos2(header.left(), header.bottom() + 1.0),
+            Vec2::new(header.width(), (11.0 * item_h).min(200.0)),
+        );
+
+        // The highlights: the two fills the dropdown draws behind an item.
+        let highlights: Vec<(Rect, egui::CornerRadius, Color32)> = painted
+            .bands
+            .iter()
+            .filter(|(_, _, c)| {
+                *c == crate::paint::COMBO_SELECTED_FILL || *c == crate::paint::COMBO_HOVER_FILL
+            })
+            .filter(|(r, _, _)| r.intersect(panel).is_positive())
+            .copied()
+            .collect();
+        assert!(
+            !highlights.is_empty(),
+            "the selected item must be highlighted inside the open panel: {:?}",
+            painted.bands.iter().map(|(r, _, c)| (*r, *c)).collect::<Vec<_>>()
+        );
+
+        // ── No band may paint OUTSIDE the panel's arc ─────────────────────
+        //
+        // Walk each of the four corner arcs by angle and probe just beyond it,
+        // still inside the panel's bounding box: that is the notch the border
+        // curves across, and nothing may reach into it.
+        let mut leaks: Vec<(egui::Pos2, Rect, egui::CornerRadius)> = Vec::new();
+        for (cx, cy, sx, sy) in [
+            (panel.left(), panel.top(), -1.0_f32, -1.0_f32),
+            (panel.right(), panel.top(), 1.0, -1.0),
+            (panel.left(), panel.bottom(), -1.0, 1.0),
+            (panel.right(), panel.bottom(), 1.0, 1.0),
+        ] {
+            let ax = cx + sx * -radius;
+            let ay = cy + sy * -radius;
+            for step in 0..=24 {
+                let t = std::f32::consts::FRAC_PI_2 * (step as f32 / 24.0);
+                for beyond in [0.6_f32, 1.5, 3.0] {
+                    let d = radius + beyond;
+                    let p = pos2(ax + sx * d * t.cos(), ay + sy * d * t.sin());
+                    if !panel.contains(p) {
+                        continue;
+                    }
+                    for (r, cr, _) in &highlights {
+                        if band_covers(*r, *cr, p) {
+                            leaks.push((p, *r, *cr));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            leaks.is_empty(),
+            "a selection band leaked past the panel's arc at {} point(s); first: {:?}",
+            leaks.len(),
+            leaks.first()
+        );
+
+        // ── …and it is not squared off or shrunk away either ──────────────
+        //
+        // The band against an arc carries a real radius, and stops short of the
+        // rim on every side so the border stays an unbroken line with a hairline
+        // of panel showing — which is what a ListBox does and what this did not.
+        let inset = 1.0 + crate::paint::HIGHLIGHT_INSET; // BorderWidth 1 + hairline
+        let at_arc: Vec<&(Rect, egui::CornerRadius, Color32)> = highlights
+            .iter()
+            .filter(|(r, _, _)| {
+                r.top() <= panel.top() + inset + 0.5 || r.bottom() >= panel.bottom() - inset - 0.5
+            })
+            .collect();
+        assert!(
+            !at_arc.is_empty(),
+            "the fixture must put a highlight against an arc: {highlights:?}"
+        );
+        for (r, cr, _) in &at_arc {
+            assert!(
+                cr.nw > 0 || cr.ne > 0 || cr.sw > 0 || cr.se > 0,
+                "a band against the arc must be rounded, not squared off: {r:?} {cr:?}"
+            );
+            assert!(
+                r.left() > panel.left() + 0.5 && r.right() < panel.right() - 0.5,
+                "the band must leave the rim its hairline: {r:?} in {panel:?}"
+            );
+            assert!(
+                r.top() > panel.top() + 0.5 && r.bottom() < panel.bottom() - 0.5,
+                "…at the top and bottom too: {r:?} in {panel:?}"
+            );
+        }
+
+        println!(
+            "\n  ComboBox corners — the operator's 11-item combo at radius {radius}: {} \
+             highlight band(s), {} against an arc, none reaching past it, each inside the \
+             rim by {inset}px\n",
+            highlights.len(),
+            at_arc.len()
+        );
+    }
     /// One item of an open dropdown: a line of the control's own text plus the
     /// same air a ListBox row gets. The popup used to hardcode 22 px.
     fn combo_item_h(ctrl: &Control) -> f32 {
@@ -11312,14 +11487,16 @@ mod tests {
                 ],
             );
             let header = *painted.placed.get("Cmb").expect("placed");
-            // The band stops short of the panel's rim on both sides, so the
-            // border stays an unbroken line — hence a width just under the
-            // header's rather than exactly it.
+            // The band stops short of the panel's rim on every side, so the
+            // border stays an unbroken line: its width is the panel's less the
+            // inset twice, and the bands against the top and bottom arcs are
+            // clipped by that inset too — so a band is at most one item tall.
+            let inset = 1.0 + crate::paint::HIGHLIGHT_INSET;
             let mut rows: Vec<(Rect, Color32)> = painted
                 .fills
                 .iter()
-                .filter(|(r, _)| (r.width() - header.width()).abs() <= 6.0)
-                .filter(|(r, _)| (r.height() - item_h).abs() <= 0.5)
+                .filter(|(r, _)| (r.width() - (header.width() - inset * 2.0)).abs() <= 0.5)
+                .filter(|(r, _)| r.height() <= item_h + 0.5 && r.height() >= item_h - inset - 0.5)
                 .filter(|(r, _)| r.top() >= header.bottom())
                 .map(|(r, c)| (*r, *c))
                 .collect();

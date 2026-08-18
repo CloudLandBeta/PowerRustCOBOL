@@ -5429,6 +5429,55 @@ pub fn list_selection_fills(ctrl: &Control, theme_fill: Color32) -> (Color32, Co
     (active, selected)
 }
 
+/// How far a selection band keeps off the border of the list it sits in.
+///
+/// The border's own width plus this, so the rim reads as one unbroken line with
+/// a hairline of background between it and the highlight — rather than
+/// something the selection has eaten into.
+pub const HIGHLIGHT_INSET: f32 = 2.0;
+
+/// The corner radii a selection band wears inside a rounded list.
+///
+/// Square, **except** where the band meets the container's own arc: there it is
+/// cut by what is left of the radius once the band's inset is taken off, so the
+/// highlight follows the border instead of poking straight through it. egui
+/// clips to an axis-aligned rect, so a band left to itself paints past the arc
+/// and out over the rim — which a short list shows most, because every row of
+/// one IS a corner row.
+///
+/// `band` must already be clipped to `inner` (the container shrunk by its
+/// border plus [`HIGHLIGHT_INSET`]), and `corner` is the container's own radius.
+///
+/// The radius asked for is never more than the band can hold. egui clamps a
+/// fill's corner to half its shorter side, and a clamped arc is *smaller* than
+/// the container's, so it pokes out past it — the corner-bleed rule that costs
+/// this project the most time. Asking only for what fits keeps the stored
+/// radius and the drawn one the same thing.
+///
+/// Shared by the ListBox and the ComboBox's dropdown so the two cannot drift:
+/// the dropdown used to paint a flat 4 px round on every band, which leaked out
+/// of both ends of a panel rounded any further than that (operator, 2026-08-18).
+pub fn highlight_band_rounding(
+    band: egui::Rect,
+    inner: egui::Rect,
+    corner: f32,
+) -> egui::CornerRadius {
+    let r = (corner - HIGHLIGHT_INSET)
+        .max(0.0)
+        .min(band.width() * 0.5)
+        .min(band.height() * 0.5) as u8;
+    let mut cr = egui::CornerRadius::ZERO;
+    if band.top() <= inner.top() + 0.5 {
+        cr.nw = r;
+        cr.ne = r;
+    }
+    if band.bottom() >= inner.bottom() - 0.5 {
+        cr.sw = r;
+        cr.se = r;
+    }
+    cr
+}
+
 /// The fill an open ComboBox draws behind its SELECTED item when the developer
 /// has not named one. Translucent, so the popup's own surface reads through it.
 pub const COMBO_SELECTED_FILL: Color32 = Color32::from_rgba_premultiplied(60, 100, 200, 120);
@@ -6204,9 +6253,10 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
     // ── The items, in a pane that scrolls ───────────────────────────────────
     let (selected_fill, hover_fill) = p.fills;
     let border_w = p.face.border.map(|(_, w)| w).unwrap_or(1.0);
-    // How far a highlight band keeps off the rim, so the border reads as one
-    // unbroken line with a hairline of panel between it and the band.
-    let inner = popup_rect.shrink(border_w + 1.0);
+    // The band keeps off the rim by the border plus a hairline, and is cut by
+    // the panel's own arc where it meets one — a list's rule exactly, through
+    // the list's own helper, so the two cannot drift apart.
+    let inner = popup_rect.shrink(border_w + HIGHLIGHT_INSET);
     let mut first_row_top: Option<f32> = None;
     if n > 0 {
         ui.scope_builder(egui::UiBuilder::new().max_rect(popup_rect), |ui| {
@@ -6252,7 +6302,7 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                             );
                         }
                         let band = egui::Rect::from_x_y_ranges(inner.x_range(), row.y_range())
-                            .intersect(popup_rect);
+                            .intersect(inner);
                         let fill = if item == p.selected {
                             Some(selected_fill)
                         } else if i == highlight {
@@ -6261,10 +6311,14 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                             None
                         };
                         if let Some(fill) = fill.filter(|_| band.is_positive()) {
-                            ip.rect_filled(band, 4.0, fill);
+                            ip.rect_filled(band, highlight_band_rounding(band, inner, corner), fill);
                         }
+                        // Centred on the ROW, not on the band: the band is
+                        // clipped by the rim at the first and last item, and
+                        // hanging the text off that would nudge those two lines
+                        // out of step with the rest.
                         ip.text(
-                            Pos2::new(band.left() + 10.0, band.center().y),
+                            Pos2::new(inner.left() + 10.0, row.center().y),
                             Align2::LEFT_CENTER,
                             item,
                             p.font.clone(),
