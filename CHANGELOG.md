@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.86] — 2026-08-17
+
+### Fixed — the item editor's border is whole at any scroll offset
+
+Bounding the editor at five lines (1.61.84) left its **border** inside the part
+that scrolls: a `TextEdit` draws its own frame, so as soon as the list was longer
+than the box the top and bottom edges scrolled out of the viewport and the rim
+read as cut open — visible in the focused-yellow state, where the box appeared to
+have no lid.
+
+The border is now drawn by the **box**, not by the text: same fill, stroke and
+corner radius a `TextEdit` would have chosen (including the focus stroke, so
+nothing looks different from any other field in the inspector), painted around a
+frame that never moves. The text — frameless, and with the box's margin instead
+of its own — scrolls inside it, and the scrollbar rides just within the rim.
+
 ## [PowerRustCOBOL 1.61.85] — 2026-08-17
 
 ### Fixed — a ListBox you can drag through, walk with the arrows, and see

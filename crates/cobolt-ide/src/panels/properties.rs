@@ -9749,20 +9749,26 @@ fn image_browse_row(
 /// list, not a panel that grows a line every time one is typed.
 const ITEM_EDITOR_ROWS: usize = 5;
 
-/// The editor's own vertical margin (`Margin::symmetric(4, 2)` — 2 above, 2
-/// below), so the box is exactly as tall as the rows it promises.
+/// The air between the border and the text — the margin a `TextEdit` keeps for
+/// itself (`Margin::symmetric(4, 2)`): 2 above and 2 below, 4 either side.
 const ITEM_EDITOR_MARGIN_Y: f32 = 4.0;
+const ITEM_EDITOR_MARGIN_X: f32 = 8.0;
 
-/// The list-item editor's height: rows × line height, and nothing else.
+/// The scrolling part: rows × line height, and nothing else.
 ///
 /// It comes from the row COUNT and the font, never from how many items the
 /// developer has typed — there is no path by which the content can size the
 /// box it lives in.
-fn item_editor_height(ui: &Ui, rows: usize) -> f32 {
-    ui.text_style_height(&egui::TextStyle::Body) * rows as f32 + ITEM_EDITOR_MARGIN_Y
+fn item_editor_text_height(ui: &Ui, rows: usize) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Body) * rows as f32
 }
 
-/// What the bounded editor drew, for the caller and for the test that proves
+/// The whole box: the text area plus the air around it.
+fn item_editor_height(ui: &Ui, rows: usize) -> f32 {
+    item_editor_text_height(ui, rows) + ITEM_EDITOR_MARGIN_Y
+}
+
+/// What the bounded editor drew, for the caller and for the tests that prove
 /// the box stays put however long the list gets.
 struct BoundedEditor {
     response: egui::Response,
@@ -9770,6 +9776,9 @@ struct BoundedEditor {
     viewport_h: f32,
     #[cfg(test)]
     content_h: f32,
+    /// The border's rect — the thing that must not move or be cut.
+    #[cfg(test)]
+    frame_rect: egui::Rect,
 }
 
 /// The list-item editor: [`ITEM_EDITOR_ROWS`] lines of text and no more, with
@@ -9779,40 +9788,89 @@ struct BoundedEditor {
 /// what the inspector used to do — ten items made a ten-line box and pushed
 /// everything under it off the pane. The box is now sized from the row count
 /// alone; the text inside it scrolls.
+///
+/// The BORDER is drawn here, around the box, and not by the `TextEdit`: a text
+/// edit's own frame is part of the thing that scrolls, so as soon as the list
+/// was longer than the box its top and bottom edges scrolled out of the
+/// viewport and the border read as cut open (operator, 2026-08-17). Drawn by
+/// the container it is a fixed window on the list, whole at any scroll offset.
 fn bounded_items_editor(ui: &mut Ui, wid: egui::Id, buf: &mut String) -> BoundedEditor {
-    let box_h = item_editor_height(ui, ITEM_EDITOR_ROWS);
+    let text_h = item_editor_text_height(ui, ITEM_EDITOR_ROWS);
+    let box_h = text_h + ITEM_EDITOR_MARGIN_Y;
     let box_w = ui.available_width();
     ui.allocate_ui(egui::vec2(box_w, box_h), |ui| {
         ui.set_min_size(egui::vec2(box_w, box_h));
         ui.set_max_size(egui::vec2(box_w, box_h));
+        let bounds = ui.max_rect();
+
+        // The same fill, stroke and radius a `TextEdit` would have chosen for
+        // itself, so nothing about the box looks different from every other
+        // field in the inspector — only where it is painted from has changed.
+        let focused = ui.memory(|m| m.has_focus(wid));
+        let hovered = ui.rect_contains_pointer(bounds);
+        let (fill, stroke, corner) = {
+            let visuals = ui.visuals();
+            let w = if focused {
+                &visuals.widgets.active
+            } else if hovered {
+                &visuals.widgets.hovered
+            } else {
+                &visuals.widgets.inactive
+            };
+            let stroke = if focused {
+                visuals.selection.stroke
+            } else {
+                w.bg_stroke
+            };
+            (visuals.text_edit_bg_color(), stroke, w.corner_radius)
+        };
+        ui.painter()
+            .rect(bounds, corner, fill, stroke, egui::StrokeKind::Inside);
+
         // Bounding the LAYOUT is not bounding the PAINT: a ScrollArea floors
         // its own clip at LAST frame's measured content, so the first frame a
         // sixth line exists can paint past the box before that bookkeeping
         // catches up. This clip is computed fresh from `box_h`, so it has no
         // previous frame to lag behind.
-        ui.shrink_clip_rect(ui.max_rect());
-        let scroll = egui::ScrollArea::vertical()
-            .id_salt(wid.with("items-scroll"))
-            .auto_shrink([false, false])
-            .min_scrolled_height(box_h)
-            .max_height(box_h)
-            .show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(buf)
-                        .id(wid)
-                        // The MINIMUM is the whole box, so an empty list shows
-                        // five lines rather than one.
-                        .desired_rows(ITEM_EDITOR_ROWS)
-                        .desired_width(f32::INFINITY)
-                        .margin(egui::Margin::symmetric(4, 2)),
-                )
-            });
+        ui.shrink_clip_rect(bounds);
+
+        // The text scrolls INSIDE the border's margin, so it never paints over
+        // the border and the scrollbar rides just within it.
+        let inner = bounds.shrink2(egui::vec2(
+            ITEM_EDITOR_MARGIN_X * 0.5,
+            ITEM_EDITOR_MARGIN_Y * 0.5,
+        ));
+        let scroll = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt(wid.with("items-scroll"))
+                    .auto_shrink([false, false])
+                    .min_scrolled_height(inner.height())
+                    .max_height(inner.height())
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                // The MINIMUM is the whole box, so an empty
+                                // list shows five lines rather than one.
+                                .desired_rows(ITEM_EDITOR_ROWS)
+                                .desired_width(f32::INFINITY)
+                                // No frame and no margin of its own: the box
+                                // around it is both.
+                                .margin(egui::Margin::ZERO)
+                                .frame(egui::Frame::NONE),
+                        )
+                    })
+            })
+            .inner;
         BoundedEditor {
             response: scroll.inner,
             #[cfg(test)]
             viewport_h: scroll.inner_rect.height(),
             #[cfg(test)]
             content_h: scroll.content_size.y,
+            #[cfg(test)]
+            frame_rect: bounds,
         }
     })
     .inner
@@ -9908,15 +9966,37 @@ mod tests {
     /// the fifty must be reachable by scrolling.
     #[test]
     fn the_items_editor_shows_five_lines_and_then_scrolls() {
-        let measure = |text: &str| -> (f32, f32, f32) {
+        struct Measured {
+            viewport_h: f32,
+            content_h: f32,
+            frame_rect: egui::Rect,
+            five_rows: f32,
+            /// Every bordered rectangle painted, with the clip it was painted
+            /// under — what the operator can actually see of the box's edges.
+            borders: Vec<(egui::Rect, egui::Rect)>,
+        }
+        let measure = |text: &str, scroll: f32| -> Measured {
             let ctx = egui::Context::default();
+            // The IDE's themes all give an input a visible rim; bare egui's
+            // `inactive` widget has none, and a border that is not drawn cannot
+            // be measured.
+            ctx.all_styles_mut(|s| {
+                s.visuals.widgets.inactive.bg_stroke =
+                    egui::Stroke::new(1.0, egui::Color32::from_gray(120));
+            });
             let mut buf = text.to_owned();
-            let (mut viewport, mut content, mut five_rows) = (0.0, 0.0, 0.0);
+            let mut out = Measured {
+                viewport_h: 0.0,
+                content_h: 0.0,
+                frame_rect: egui::Rect::NOTHING,
+                five_rows: 0.0,
+                borders: Vec::new(),
+            };
             // Several frames: a ScrollArea's own clip floors at last frame's
             // content, so a one-frame measurement would miss exactly the case
             // this guards.
-            for frame in 0..4 {
-                let input = egui::RawInput {
+            for frame in 0..5 {
+                let mut input = egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
                         egui::vec2(320.0, 600.0),
@@ -9924,50 +10004,108 @@ mod tests {
                     time: Some(frame as f64 / 60.0),
                     ..Default::default()
                 };
-                ctx.run_ui(input, |ui| {
-                    five_rows = item_editor_height(ui, ITEM_EDITOR_ROWS);
-                    let out = bounded_items_editor(
+                // A wheel over the box on the third frame, so the last frames
+                // are measured with the text scrolled.
+                if frame == 2 && scroll != 0.0 {
+                    input.events.push(egui::Event::PointerMoved(egui::pos2(80.0, 40.0)));
+                    input.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -scroll),
+                        modifiers: egui::Modifiers::default(),
+                        phase: egui::TouchPhase::Move,
+                    });
+                }
+                let full = ctx.run_ui(input, |ui| {
+                    out.five_rows = item_editor_text_height(ui, ITEM_EDITOR_ROWS);
+                    let drawn = bounded_items_editor(
                         ui,
                         ui.make_persistent_id("items_editor_height_test"),
                         &mut buf,
                     );
-                    viewport = out.viewport_h;
-                    content = out.content_h;
-                })
-                .textures_delta
-                .clear();
+                    out.viewport_h = drawn.viewport_h;
+                    out.content_h = drawn.content_h;
+                    out.frame_rect = drawn.frame_rect;
+                });
+                fn collect(
+                    shape: &egui::Shape,
+                    clip: egui::Rect,
+                    out: &mut Vec<(egui::Rect, egui::Rect)>,
+                ) {
+                    match shape {
+                        egui::Shape::Rect(r) if r.stroke.width > 0.0 => {
+                            out.push((r.rect, clip))
+                        }
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, clip, out)),
+                        _ => {}
+                    }
+                }
+                out.borders.clear();
+                for cs in &full.shapes {
+                    collect(&cs.shape, cs.clip_rect, &mut out.borders);
+                }
+                let mut full = full;
+                full.textures_delta.clear();
             }
-            (viewport, content, five_rows)
+            out
         };
 
         let items = |n: usize| (1..=n).map(|i| i.to_string()).collect::<Vec<_>>().join("\n");
 
         // Empty, five, and fifty: one box, five lines tall, every time.
-        let (empty, _, five_rows) = measure("");
-        let (exact, exact_content, _) = measure(&items(5));
-        let (long, long_content, _) = measure(&items(50));
-        for (label, h) in [("empty", empty), ("five items", exact), ("fifty items", long)] {
+        let empty = measure("", 0.0);
+        let exact = measure(&items(5), 0.0);
+        let long = measure(&items(50), 0.0);
+        let five_rows = empty.five_rows;
+        for (label, m) in [("empty", &empty), ("five items", &exact), ("fifty items", &long)] {
             assert!(
-                (h - five_rows).abs() < 1.0,
-                "{label} gave a {h}px box; five lines is {five_rows}px"
+                (m.viewport_h - five_rows).abs() < 1.0,
+                "{label} gave a {}px text area; five lines is {five_rows}px",
+                m.viewport_h
             );
         }
 
         // …and the fifty are reachable rather than lost.
         assert!(
-            long_content > long + 1.0,
-            "a fifty-item list must scroll inside the box: {long_content}px of content in \
-             {long}px of box"
+            long.content_h > long.viewport_h + 1.0,
+            "a fifty-item list must scroll inside the box: {}px of content in {}px",
+            long.content_h,
+            long.viewport_h
         );
         assert!(
-            exact_content <= exact + 1.0,
-            "five items must fit without scrolling: {exact_content}px in {exact}px"
+            exact.content_h <= exact.viewport_h + 1.0,
+            "five items must fit without scrolling: {}px in {}px",
+            exact.content_h,
+            exact.viewport_h
         );
 
+        // The BORDER is whole at any scroll offset (operator, 2026-08-17). It
+        // used to be the TextEdit's own frame, which scrolls with the text, so
+        // the top and bottom edges were clipped away the moment the list was
+        // longer than the box.
+        let scrolled = measure(&items(50), 120.0);
+        for (label, m) in [("at rest", &long), ("scrolled", &scrolled)] {
+            let whole = m.borders.iter().any(|(rect, clip)| {
+                (rect.height() - m.frame_rect.height()).abs() < 0.5
+                    && (rect.top() - m.frame_rect.top()).abs() < 0.5
+                    // …and nothing cuts it: the clip it is painted under holds
+                    // the whole border, top edge and bottom edge alike.
+                    && clip.contains_rect(*rect)
+            });
+            assert!(
+                whole,
+                "{label}: no unclipped border the height of the box ({:?}); painted {:?}",
+                m.frame_rect, m.borders
+            );
+        }
+
         println!(
-            "\n  Items editor — empty, 5 items and 50 items all give a {five_rows:.0}px box \
-             ({ITEM_EDITOR_ROWS} lines); 50 items scroll inside it ({long_content:.0}px of \
-             content), 5 fit exactly ({exact_content:.0}px)\n"
+            "\n  Items editor — empty, 5 items and 50 items all give a {five_rows:.0}px text \
+             area ({ITEM_EDITOR_ROWS} lines); 50 items scroll inside it ({:.0}px of content), \
+             5 fit exactly ({:.0}px); and the {:.0}px border is painted whole and unclipped \
+             both at rest and scrolled\n",
+            long.content_h,
+            exact.content_h,
+            long.frame_rect.height()
         );
     }
 
