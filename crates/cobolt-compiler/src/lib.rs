@@ -2853,13 +2853,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "HoverItemColor" => (
             "color, or empty for the popup's built-in hover highlight",
-            "ComboBox only. Highlight behind the dropdown item the pointer is over. Kept fainter \
-             than ActiveItemColor by default so hovering an item never looks like selecting it.",
+            "ComboBox only. Highlight behind the dropdown item the pointer, the drag or the arrow \
+             keys are on. Kept fainter than ActiveItemColor by default so hovering an item \
+             never looks like selecting it.",
         ),
         "Sorted" => (BOOL_DOMAIN, "Keeps items alphabetically sorted."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
-        "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list."),
-        "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo."),
+        "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list. The list is as tall as its items need up to this, and scrolls past it."),
+        "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo. It does not change what the arrow keys do: those always walk the list."),
 
         // ── TreeView ──
         "AllowEdit" => (BOOL_DOMAIN, "In-place node label editing."),
@@ -3211,7 +3212,7 @@ fn control_purpose(name: &str) -> &'static str {
         "CheckBox" => "Boolean on/off box with caption.",
         "RadioButton" => "Mutually-exclusive choice within a GroupName.",
         "ListBox" => "Scrollable list of selectable items. A click makes a row active and starts a one-row selection; a press-and-drag anchors on the row pressed and extends to the row under the pointer, in EITHER direction — reversing shrinks the range back — and holds at the first or last row when the pointer runs past an end; Up/Down arrows move the active row one line once the list has been clicked or Tabbed to, and stop at the ends. Whatever moves the active row, the list scrolls to keep it in view, on the first or last visible line. Dragging selects rather than scrolls; the wheel and the scrollbar scroll.",
-        "ComboBox" => "Drop-down list, optionally editable.",
+        "ComboBox" => "Drop-down list, optionally editable. A click on the header opens the list without picking anything; a press-and-drag from the header follows the pointer item by item — in EITHER direction, reversing walks the highlight back — and holds at the first or last item when the pointer runs past an end, with the release committing that item. With the list SHUT the Up/Down arrows change the value outright; with it OPEN they move the highlight, Enter commits it and Escape closes leaving the value unchanged. The list opens scrolled to the value it holds and scrolls to keep the highlighted item in view; it is as tall as its items need up to DropDownHeight and scrolls past that, so every item is reachable. Header and dropdown both wear the control's designed background, gradient, border and corner radius, and the items are lettered in its own FontName/FontSize/ForegroundColor.",
         "GroupBox" => "Captioned container; can become a repeating card template (control array).",
         "Panel" => "Plain container for grouping child controls.",
         "TabControl" => "Multi-page container with a tab strip.",

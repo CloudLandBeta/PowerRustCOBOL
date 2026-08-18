@@ -1587,14 +1587,62 @@ Both accept a runtime write, so a highlight can answer the data:
 > five lines and scrolls past that, so a fifty-item list no longer pushes the
 > rest of the inspector off the pane.
 
-#### ComboBox — the colours of an open dropdown
+#### ComboBox — the gestures, the face, and the colours of an open dropdown
 
-An open dropdown highlights two things, and both are yours:
+**How the operator moves through a dropdown.** The same three gestures a
+ListBox answers, and all of them stop at the ends rather than wrapping or
+running off:
+
+| Gesture | What it does |
+|---|---|
+| **Click the header** | Opens the list. It does *not* also pick whatever is under the pointer. |
+| **Press and drag** | Press the header, drag into the list, release on an item to pick it — the classic combo gesture. The highlight follows the pointer *up or down*; reversing direction walks it back. Dragging above the first item holds at the first; below the last, at the last, so a drag that leaves the control stops on an item rather than choosing nothing. |
+| **↑ / ↓** | Walk the items, once the combo has been clicked (or Tabbed to). |
+
+What the arrows *mean* depends on whether the list is open:
+
+| The list is | ↑ / ↓ | Enter | Escape |
+|---|---|---|---|
+| **shut** | change the value outright, reporting `onChange` and `onSelectedIndexChanged` exactly as a click does | — | — |
+| **open** | move the highlight, committing nothing | commits the highlighted item | closes, leaving the value where it was |
+
+> **Note.** `Editable` makes no difference to the arrows. They belong to the
+> list, and the caret — if a combo ever grows one — to ← and →.
+
+The list **scrolls to keep the highlighted item in view**, landing it on the
+first or last visible line, and opening the list scrolls straight to the value
+it already holds — so a combo of two hundred countries opens showing the one you
+chose, not the letter A. The wheel and the scrollbar still scroll the list on
+their own; a drag is a selection, not a swipe.
+
+**How tall the list is.** As tall as its items need, up to `DropDownHeight`
+(the **DropDownHeight** row in the inspector, 200 px by default), and it scrolls past
+that. Every item is reachable however many there are.
+
+**The face is yours.** A ComboBox wears the background you designed —
+**Background color**, or **Background gradient** with its start, end and
+direction — along with its border and corner radius, on the closed header *and*
+on the open list, on every surface: the designer canvas, the preview, Run Form
+and the compiled binary.
+
+> ⚠️ **A combo you never designed is now square-cornered.** The header used to
+> be rounded at a fixed 6 px whatever `CornerRadius` said, while the designer
+> canvas drew it square. The header now follows the property — which is seeded
+> **0** — so the canvas and the running form agree. Set **Corner radius** to 6
+> to have the old rounding back, on all four surfaces this time.
+
+**And so is the type.** The items are lettered in the control's own `FontName`,
+`FontSize` and `ForegroundColor`, and each one is a line of that text plus air —
+where all of it used to be hardcoded, so a 20 pt combo drew a 20 pt value over a
+list of 12 pt items.
+
+**So are the highlights.** An open dropdown highlights two things, and both are
+yours:
 
 | Property | Inspector row | The highlight behind |
 |----------|---------------|----------------------|
 | `ActiveItemColor` | **Selected item** | The item `Value` / `SelectedIndex` reports. |
-| `HoverItemColor` | **Hovered item** | The item the pointer is over. |
+| `HoverItemColor` | **Hovered item** | The item the pointer, the drag or the arrow keys are on. |
 
 `ActiveItemColor` is deliberately the **same property a ListBox carries**: on
 both controls it colours the item `Value` / `SelectedIndex` reports, so what you

@@ -1567,18 +1567,60 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             header,
             current: cur,
             fills,
+            face,
+            item_h,
+            font,
+            text,
+            max_h,
+            reveal,
         } = combo;
-        match crate::paint::glass_combo_popup(ui, &cid, header, &items, &cur, fills) {
-            Some(crate::paint::GlassComboAction::Select(val)) => {
+        let gesture = ui
+            .data(|d| d.get_temp(combo_gesture_id(&cid)))
+            .unwrap_or_default();
+        let highlight = ui
+            .data(|d| d.get_temp(combo_highlight_id(&cid)))
+            .unwrap_or(0);
+        let outcome = crate::paint::glass_combo_popup(
+            ui,
+            crate::paint::ComboPopup {
+                ctrl_id: &cid,
+                header,
+                items: &items,
+                selected: &cur,
+                highlight,
+                gesture,
+                fills,
+                face,
+                item_h,
+                font,
+                text,
+                max_h,
+                enabled: true,
+                reveal,
+            },
+        );
+        let open_id = rt_id(&cid).with("combo_open");
+        ui.data_mut(|d| {
+            d.insert_temp(combo_highlight_id(&cid), outcome.highlight);
+            d.insert_temp(combo_gesture_id(&cid), outcome.gesture);
+            // Picking from the list keeps the combo on the keyboard, so the
+            // arrows carry on working straight after — the header pass dropped
+            // it a moment ago, because the press was not on the header.
+            if outcome.pressed_in_list {
+                d.insert_temp(combo_keyboard_id(&cid), true);
+            }
+        });
+        match outcome.action {
+            Some(crate::paint::GlassComboAction::Select(idx, val)) => {
                 out.prop_updates
                     .push((cid.clone(), "Value".to_owned(), val.clone()));
+                out.prop_updates
+                    .push((cid.clone(), "SelectedIndex".to_owned(), idx.to_string()));
                 out.events.push(UiEvent::change(&cid, &val));
                 out.events.push(UiEvent::ev(&cid, "onSelectedIndexChanged"));
-                let open_id = egui::Id::new(("rt_ctrl", cid.as_str())).with("combo_open");
                 ui.data_mut(|d| d.insert_temp(open_id, false));
             }
             Some(crate::paint::GlassComboAction::Close) => {
-                let open_id = egui::Id::new(("rt_ctrl", cid.as_str())).with("combo_open");
                 ui.data_mut(|d| d.insert_temp(open_id, false));
             }
             None => {}
@@ -1590,8 +1632,9 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 /// One ComboBox whose dropdown is open, held over for the second pass.
 ///
 /// It carries everything the popup draws with, because by the time the pass
-/// runs the `Control` it came from is out of scope — including the two
-/// highlight colours, resolved from the control while it was still in hand.
+/// runs the `Control` it came from is out of scope — the two highlight colours,
+/// the panel's own face, the item metrics and the typography, all resolved from
+/// the control while it was still in hand.
 struct OpenCombo {
     id: String,
     items: Vec<String>,
@@ -1600,6 +1643,31 @@ struct OpenCombo {
     current: String,
     /// `(selected item, hovered item)`, from `paint::combo_popup_fills`.
     fills: (Color32, Color32),
+    /// The panel's surface and rim, from `paint::combo_popup_face`.
+    face: crate::paint::ComboFace,
+    /// One item's height — a line of the control's own text, plus air.
+    item_h: f32,
+    font: egui::FontId,
+    text: Color32,
+    /// `DropDownHeight`: the tallest the panel may be before it scrolls.
+    max_h: f32,
+    /// Scroll this item into view — set on the frame the dropdown opens.
+    reveal: Option<usize>,
+}
+
+/// Where a ComboBox keeps the item it is highlighting between frames.
+fn combo_highlight_id(id: &str) -> egui::Id {
+    rt_id(id).with("combo-highlight")
+}
+
+/// Where a ComboBox keeps the pointer gesture in progress.
+fn combo_gesture_id(id: &str) -> egui::Id {
+    rt_id(id).with("combo-gesture")
+}
+
+/// Where a ComboBox keeps whether the arrow keys are talking to it.
+fn combo_keyboard_id(id: &str) -> egui::Id {
+    rt_id(id).with("combo-keyboard")
 }
 
 #[derive(Clone)]
@@ -3836,20 +3904,75 @@ fn render_interactive(
             }
         }
         CT::ComboBox => {
-            // Glass header now; the popup is drawn in the engine's second pass so
-            // it floats above every control. Open state lives in egui memory.
+            // The face is the DEVELOPER'S — `BackgroundColor`, the background
+            // gradient, the border and the corner radius — drawn by the same
+            // call the designer canvas uses, so what is designed is what runs.
+            //
+            // The header used to lay a hardcoded navy surface and a blue rim
+            // over the design, exactly as the ListBox did before 1.61.87
+            // (operator, 2026-08-18). `draw_control_face` rather than
+            // `draw_control` because the canvas's stand-in caption — the first
+            // item and a `▾` — would otherwise be painted underneath the real
+            // value the header draws.
+            paint::draw_control_face(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let sel = if cur.is_empty() {
-                sv(ctrl, "Items").lines().next().unwrap_or("").to_owned()
+                items.first().cloned().unwrap_or_default()
             } else {
-                cur
+                cur.clone()
             };
             let open_id = ctrl_id.with("combo_open");
-            let is_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
-            // onDropDownClosed (spec 021 T12): the popup pass flips the open
-            // flag when an item is picked or the click lands outside; compare
-            // against last frame's state here.
             let was_open_id = ctrl_id.with("combo_was_open");
+            let highlight_id = combo_highlight_id(id);
+            let gesture_id = combo_gesture_id(id);
+            let mut is_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+            let at = |value: &str| items.iter().position(|it| it == value);
+            let mut highlight: usize = ui
+                .data(|d| d.get_temp::<usize>(highlight_id))
+                .unwrap_or_else(|| at(&sel).unwrap_or(0));
+            // Scroll the current value into view on the frame the list opens,
+            // so a dropdown never opens showing the top of a long list while
+            // the value it holds is forty items further down.
+            let mut reveal: Option<usize> = None;
+
+            let (pointer_pressed, pointer_released, pointer_pos) = ui.input(|i| {
+                (
+                    i.pointer.primary_pressed(),
+                    i.pointer.primary_released(),
+                    i.pointer.interact_pos(),
+                )
+            });
+            let on_control = pointer_pos.is_some_and(|p| screen.contains(p));
+            let pressed_here = enabled && pointer_pressed && on_control;
+
+            // A dropdown opens on the PRESS, not on the release: the classic
+            // combo gesture is press on the header, drag into the list, release
+            // on an item, and none of that can happen while the list only
+            // appears once the button is already back up.
+            if pressed_here {
+                is_open = !is_open;
+                ui.data_mut(|d| {
+                    d.insert_temp(open_id, is_open);
+                    d.insert_temp(
+                        gesture_id,
+                        if is_open {
+                            paint::ComboGesture::Header
+                        } else {
+                            paint::ComboGesture::None
+                        },
+                    );
+                });
+                if is_open {
+                    highlight = at(&sel).unwrap_or(0);
+                    reveal = Some(highlight);
+                    out.events.push(UiEvent::ev(id, "onDropDown"));
+                }
+            }
+
+            // onDropDownClosed (spec 021 T12): the popup pass flips the open
+            // flag when an item is picked or the gesture is dismissed; compare
+            // against last frame's state here.
             let was_open = ui.data(|d| d.get_temp::<bool>(was_open_id)).unwrap_or(false);
             if was_open && !is_open {
                 out.events.push(UiEvent::ev(id, "onDropDownClosed"));
@@ -3857,42 +3980,127 @@ fn render_interactive(
             if was_open != is_open {
                 ui.data_mut(|d| d.insert_temp(was_open_id, is_open));
             }
-            let combo_text = {
+
+            let item_color = {
                 let fg = sv(ctrl, "ForegroundColor");
-                let colour = paint::caret_color(
+                paint::caret_color(
                     paint::control_surface_tone(ui.ctx(), ctrl, form_bg),
                     if fg.is_empty() {
                         Color32::from_rgb(220, 228, 255)
                     } else {
                         paint::parse_color(&fg)
                     },
-                );
-                let font = crate::fonts::font_id(
-                    ui.ctx(),
-                    &sv(ctrl, "FontName"),
-                    paint::ctrl_font_size(ctrl),
-                );
-                Some((font, colour))
+                )
             };
-            if paint::glass_combo_header(
-                &painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha, combo_text,
-            ) {
-                let now = !is_open;
-                ui.data_mut(|d| d.insert_temp(open_id, now));
-                if now {
-                    out.events.push(UiEvent::ev(id, "onDropDown"));
+            let item_font = crate::fonts::font_id(
+                ui.ctx(),
+                &sv(ctrl, "FontName"),
+                paint::ctrl_font_size(ctrl),
+            );
+            // The header's own click (a release without a drag) is already
+            // answered by the press above; the response is taken so the header
+            // still swallows the pointer and reports hover.
+            let _ = paint::glass_combo_header(
+                &painter,
+                ui,
+                screen,
+                ctrl_id,
+                &sel,
+                is_open,
+                enabled,
+                Some((item_font.clone(), item_color)),
+            );
+
+            // A press inside hands the combo the keyboard — on press AND on
+            // release, because egui settles a click on the way UP and the
+            // release would otherwise take the focus straight back off it.
+            if enabled && (pointer_pressed || pointer_released) && on_control {
+                ui.memory_mut(|m| m.request_focus(ctrl_id));
+            }
+
+            // ── Arrow keys with the list CLOSED ─────────────────────────────
+            //
+            // They change the value outright, as a Windows combo does. The
+            // combo has to own them in its own state: egui answers a plain
+            // arrow itself by walking focus to the widget lying in that
+            // direction, so reading `has_focus` alone buys exactly one press
+            // before the control goes deaf.
+            //
+            // `Editable` makes no difference here, and deliberately. No
+            // ComboBox on any surface accepts typed text today — the property
+            // is declared but the header is a click target, not a field — so
+            // there is no caret for an arrow to move; and even where a combo
+            // does type, the arrows belong to the list and the caret to
+            // ← / →. If typing ever lands, the arrows stay with the list.
+            let kb_id = combo_keyboard_id(id);
+            let mut has_keyboard: bool = ui.data(|d| d.get_temp(kb_id)).unwrap_or(false);
+            if pointer_pressed {
+                // Dropped on any press elsewhere — including one inside the
+                // open list, which the popup pass then hands straight back.
+                has_keyboard = on_control;
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+                has_keyboard = false;
+            }
+            let listening = has_keyboard || ui.memory(|m| m.has_focus(ctrl_id));
+            if enabled && !is_open && !items.is_empty() && listening {
+                let (up, down) = ui.input_mut(|i| {
+                    (
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                    )
+                });
+                if up || down {
+                    has_keyboard = true;
+                    let from = at(&cur);
+                    // With nothing chosen yet the first arrow lands on the
+                    // first item rather than jumping to the end of the list.
+                    let to = match from {
+                        None => 0,
+                        Some(i) if up => i.saturating_sub(1),
+                        Some(i) => (i + 1).min(items.len() - 1),
+                    };
+                    if Some(to) != from {
+                        highlight = to;
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "Value".to_owned(),
+                            items[to].clone(),
+                        ));
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "SelectedIndex".to_owned(),
+                            to.to_string(),
+                        ));
+                        out.events.push(UiEvent::change(id, &items[to]));
+                        out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
+                    }
                 }
             }
-            if ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
-                let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
+            ui.data_mut(|d| {
+                d.insert_temp(kb_id, has_keyboard);
+                d.insert_temp(highlight_id, highlight);
+            });
+
+            if is_open && enabled {
                 open_combos.push(OpenCombo {
                     id: id.to_owned(),
                     items,
                     header: screen,
-                    current: sv(ctrl, "Value"),
-                    // Resolved HERE, while the control is still in hand: the
-                    // popup pass has only the id.
+                    current: cur,
+                    // Everything below is resolved HERE, while the control is
+                    // still in hand: the popup pass has only the id.
                     fills: paint::combo_popup_fills(ctrl),
+                    face: paint::combo_popup_face(ctrl),
+                    item_h: crate::model::text_line_height(ctrl)
+                        + crate::model::LIST_ROW_PAD * 2.0,
+                    font: item_font,
+                    text: item_color,
+                    max_h: sv(ctrl, "DropDownHeight")
+                        .parse::<f32>()
+                        .unwrap_or(200.0)
+                        .clamp(1.0, 4000.0),
+                    reveal,
                 });
             }
         }
@@ -11063,6 +11271,20 @@ mod tests {
     /// Unnamed, both fall back to the constants the popup always painted, NOT
     /// to the palette: these two were never theme-derived, so that is what
     /// "unchanged" means for a ComboBox already designed.
+    /// One item of an open dropdown: a line of the control's own text plus the
+    /// same air a ListBox row gets. The popup used to hardcode 22 px.
+    fn combo_item_h(ctrl: &Control) -> f32 {
+        crate::model::text_line_height(ctrl) + crate::model::LIST_ROW_PAD * 2.0
+    }
+
+    /// The centre of item `n` of an open dropdown whose header is `header`.
+    fn combo_item_at(header: Rect, item_h: f32, n: usize) -> egui::Pos2 {
+        pos2(
+            header.center().x,
+            header.bottom() + 1.0 + item_h * (n as f32 + 0.5),
+        )
+    }
+
     #[test]
     fn an_open_combobox_draws_the_item_colours_it_was_given() {
         // Apple is the SELECTED item (row 0); the pointer rests on Cherry
@@ -11073,11 +11295,12 @@ mod tests {
             props.extend_from_slice(extra);
             vec![ctrlp("Cmb", ControlType::ComboBox, 0, 0, 160, 26, &props)]
         };
-        // Rows are `item_h` tall and start one pixel below the header, which is
-        // what tells an item band apart from the popup's own face.
-        const ITEM_H: f32 = 22.0;
+        // An item is one line of the control's OWN text plus air — the same
+        // measure a ListBox row uses — and the items start one pixel below the
+        // header, which is what tells an item band apart from the panel's face.
+        let item_h = combo_item_h(&combo(&[])[0]);
         let hc = pos2(80.0, 13.0);
-        let cherry = pos2(80.0, 26.0 + 1.0 + ITEM_H * 2.0 + ITEM_H * 0.5);
+        let cherry = pos2(80.0, 26.0 + 1.0 + item_h * 2.0 + item_h * 0.5);
         let two_bands = |controls: &[Control]| -> (Color32, Color32) {
             let painted = drive_painted(
                 controls,
@@ -11089,11 +11312,14 @@ mod tests {
                 ],
             );
             let header = *painted.placed.get("Cmb").expect("placed");
+            // The band stops short of the panel's rim on both sides, so the
+            // border stays an unbroken line — hence a width just under the
+            // header's rather than exactly it.
             let mut rows: Vec<(Rect, Color32)> = painted
                 .fills
                 .iter()
-                .filter(|(r, _)| (r.width() - header.width()).abs() <= 0.5)
-                .filter(|(r, _)| (r.height() - ITEM_H).abs() <= 0.5)
+                .filter(|(r, _)| (r.width() - header.width()).abs() <= 6.0)
+                .filter(|(r, _)| (r.height() - item_h).abs() <= 0.5)
                 .filter(|(r, _)| r.top() >= header.bottom())
                 .map(|(r, c)| (*r, *c))
                 .collect();
@@ -11149,6 +11375,543 @@ mod tests {
             "\n  ComboBox item colours — unnamed: selected {selected:?} and hovered {hovered:?}, \
              the popup's own constants; named: #FF8800 and #116622 both reach their band; \
              naming only the selected colour leaves the hover at {hovered_o:?}\n"
+        );
+    }
+
+    /// A running ComboBox wears the background the RAD gave it — a colour or a
+    /// gradient — on its header AND on its open dropdown (operator, 2026-08-18).
+    ///
+    /// The header painted a hardcoded navy surface and a blue rim over its own
+    /// face, the same defect the ListBox carried until 1.61.87: the designer
+    /// canvas showed the design, the preview, Run Form and the compiled binary
+    /// showed the navy. The panel hardcoded two more fills and a third rim.
+    #[test]
+    fn a_combobox_wears_the_background_designed_in_the_rad() {
+        const HARDCODED_NAVY: Color32 = Color32::from_rgb(25, 38, 80);
+        let base = |extra: &[(&str, &str)]| -> Vec<Control> {
+            let mut props: Vec<(&str, &str)> =
+                vec![("Items", "Apple\nBanana\nCherry"), ("Value", "Apple")];
+            props.extend_from_slice(extra);
+            vec![ctrlp("Cmb", ControlType::ComboBox, 20, 20, 220, 26, &props)]
+        };
+        let hc = pos2(130.0, 33.0);
+        // Open it, so the header and the panel are both on screen at once.
+        let open = |controls: &[Control]| -> Painted {
+            drive_painted(
+                controls,
+                vec![
+                    (0.0, vec![]),
+                    (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                    (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                    (3.0, vec![]),
+                ],
+            )
+        };
+
+        // ── A designed COLOUR: a deep red no default in the engine is ──────
+        let painted = open(&base(&[("BackgroundColor", "#B00000FF")]));
+        let header = *painted.placed.get("Cmb").expect("placed");
+        let panel = Rect::from_min_max(
+            pos2(header.left(), header.bottom() + 1.0),
+            pos2(header.right(), header.bottom() + 200.0),
+        );
+        let red = |c: &Color32| c.r() > c.g() + 30 && c.r() > c.b() + 30;
+        let covers = |r: &Rect, of: &Rect| r.intersect(*of).area() >= of.area() * 0.7;
+        assert!(
+            painted
+                .fills
+                .iter()
+                .any(|(r, c)| covers(r, &header) && red(c)),
+            "the designed red must reach the HEADER: {:?}",
+            painted.fills
+        );
+        assert!(
+            painted
+                .fills
+                .iter()
+                .any(|(r, c)| r.intersect(panel).area() >= r.area() * 0.9
+                    && r.width() >= header.width() - 1.0
+                    && red(c)),
+            "…and the open panel: {:?}",
+            painted.fills
+        );
+        assert!(
+            !painted.fills.iter().any(|(_, c)| *c == HARDCODED_NAVY),
+            "the header's hardcoded navy must be gone: {:?}",
+            painted.fills
+        );
+
+        // ── A designed GRADIENT — the operator's own case, grey to black ───
+        let painted = open(&base(&[
+            ("BackgroundGradientEnabled", "true"),
+            ("BackgroundGradientStartColor", "#4E4E4EFF"),
+            ("BackgroundGradientEndColor", "#000000FF"),
+            ("BackgroundGradientDirection", "South"),
+        ]));
+        let header = *painted.placed.get("Cmb").expect("placed");
+        let panel_top = header.bottom() + 1.0;
+        assert!(
+            painted
+                .meshes
+                .iter()
+                .any(|m| m.intersect(header).area() >= header.area() * 0.7),
+            "the designed gradient must be painted across the header: {:?}",
+            painted.meshes
+        );
+        assert!(
+            painted
+                .meshes
+                .iter()
+                .any(|m| m.top() >= panel_top - 1.0 && m.width() >= header.width() - 1.0),
+            "…and across the open panel: {:?}",
+            painted.meshes
+        );
+
+        println!(
+            "\n  ComboBox background — a designed #B00000 reaches the header AND the open \
+             panel, a designed grey-to-black South gradient is painted as a mesh across \
+             both, and the hardcoded navy that used to cover the header is gone\n"
+        );
+    }
+
+    /// Every item of a long dropdown is reachable (operator, 2026-08-18).
+    ///
+    /// The panel stopped at 180 px and the item loop `break`ed as soon as an
+    /// item would fall past the bottom, so anything past about the eighth was
+    /// not clipped and not scrollable — it was never drawn at all. The panel
+    /// now stands as tall as `DropDownHeight` allows and scrolls past that.
+    #[test]
+    fn a_long_dropdown_scrolls_instead_of_dropping_its_tail() {
+        let items: Vec<String> = (1..=30).map(|n| format!("Item-{n:02}")).collect();
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        cmb.set_prop("Items", crate::PropValue::String(items.join("\n")));
+        cmb.set_prop("Value", crate::PropValue::String("Item-01".to_owned()));
+        let item_h = combo_item_h(&cmb);
+        let hc = pos2(130.0, 33.0);
+
+        // Open, then walk to the very last item with the keyboard.
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let mut frames = vec![
+            (0.00, vec![Event::PointerMoved(hc), press(hc)]),
+            (0.05, vec![Event::PointerMoved(hc), release(hc)]),
+        ];
+        for i in 0..29 {
+            frames.push((0.10 + i as f64 * 0.05, vec![key(egui::Key::ArrowDown)]));
+        }
+        frames.push((1.60, vec![key(egui::Key::Enter)]));
+        frames.push((1.65, vec![]));
+        let painted = drive_painted(&[cmb.clone()], frames);
+        assert_eq!(
+            painted
+                .overrides
+                .get("Cmb")
+                .and_then(|p| p.get("Value"))
+                .map(String::as_str),
+            Some("Item-30"),
+            "twenty-nine ArrowDowns and Enter must reach the LAST item — it used \
+             to be undrawn and unreachable"
+        );
+
+        // …and while walking there, the item the keyboard is on is ON SCREEN.
+        let mut frames = vec![
+            (0.00, vec![Event::PointerMoved(hc), press(hc)]),
+            (0.05, vec![Event::PointerMoved(hc), release(hc)]),
+        ];
+        for i in 0..20 {
+            frames.push((0.10 + i as f64 * 0.05, vec![key(egui::Key::ArrowDown)]));
+        }
+        frames.push((1.20, vec![]));
+        frames.push((1.25, vec![]));
+        let painted = drive_painted(&[cmb.clone()], frames);
+        let header = *painted.placed.get("Cmb").expect("placed");
+        let panel = Rect::from_min_max(
+            pos2(header.left(), header.bottom()),
+            pos2(header.right(), header.bottom() + 1.0 + 200.0),
+        );
+        assert!(
+            painted
+                .texts
+                .iter()
+                .any(|t| t.text == "Item-21" && panel.expand(1.0).contains_rect(t.ink)),
+            "the item twenty arrows down must be visible inside the panel: painted {:?}",
+            painted.texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+        );
+
+        // Opening the list shows the CURRENT value, wherever it sits: a
+        // dropdown that opens at the top of a long list, with the value it
+        // holds forty items further down, is one the operator has to hunt in.
+        let mut deep = cmb.clone();
+        deep.set_prop("Value", crate::PropValue::String("Item-25".to_owned()));
+        let painted = drive_painted(
+            &[deep],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc), press(hc)]),
+                (0.05, vec![Event::PointerMoved(hc), release(hc)]),
+                (0.10, vec![]),
+                (0.15, vec![]),
+            ],
+        );
+        assert!(
+            painted
+                .texts
+                .iter()
+                .any(|t| t.text == "Item-25" && panel.expand(1.0).contains_rect(t.ink)),
+            "opening the list must scroll to the value it holds: painted {:?}",
+            painted.texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+        );
+
+        println!(
+            "\n  ComboBox scrolling — a 30-item list in a {}px panel of {item_h:.1}px items: \
+             ArrowDown reaches Item-30 and Enter commits it, Item-21 is on screen twenty \
+             arrows down, and a list holding Item-25 opens showing it\n",
+            200
+        );
+    }
+
+    /// The classic combo gesture: press on the header, drag into the list,
+    /// release on an item to pick it. A drag is ONE gesture with an anchor —
+    /// the header — and what it highlights is the item under the pointer NOW,
+    /// so reversing direction walks the highlight back instead of freezing it.
+    /// Dragging past either end holds at that end rather than choosing nothing.
+    #[test]
+    fn a_drag_from_the_header_picks_the_item_it_is_released_on() {
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        cmb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta\nEpsilon".to_owned()),
+        );
+        cmb.set_prop("Value", crate::PropValue::String("Alpha".to_owned()));
+        let item_h = combo_item_h(&cmb);
+        let header = Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(220.0, 26.0));
+        let item = |n: usize| combo_item_at(header, item_h, n);
+        let hc = header.center();
+        let value = |o: &Map<String, Map<String, String>>| {
+            o.get("Cmb").and_then(|p| p.get("Value")).cloned()
+        };
+
+        // Down to item 3, back up to item 1, release there.
+        let (events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![Event::PointerMoved(item(2))]),
+                (0.15, vec![Event::PointerMoved(item(3))]),
+                (0.20, vec![Event::PointerMoved(item(2))]),
+                (0.25, vec![Event::PointerMoved(item(1))]),
+                (0.30, vec![release(item(1))]),
+                (0.35, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides).as_deref(),
+            Some("Beta"),
+            "the release lands on the item under the pointer, not on the deepest \
+             one the drag ever reached"
+        );
+        assert_eq!(
+            overrides
+                .get("Cmb")
+                .and_then(|p| p.get("SelectedIndex"))
+                .map(String::as_str),
+            Some("1")
+        );
+        assert!(
+            names(&events).contains(&"onSelectedIndexChanged"),
+            "a drag reports itself like a click does: {:?}",
+            names(&events)
+        );
+
+        // Dragging far BELOW the list holds at the last item.
+        let (_events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![Event::PointerMoved(item(1))]),
+                (0.15, vec![Event::PointerMoved(pos2(130.0, 900.0))]),
+                (0.20, vec![release(pos2(130.0, 900.0))]),
+                (0.25, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides).as_deref(),
+            Some("Epsilon"),
+            "a drag past the bottom stops on the LAST item rather than choosing nothing"
+        );
+
+        // …and far ABOVE it holds at the first.
+        let (_events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![Event::PointerMoved(item(3))]),
+                (0.15, vec![Event::PointerMoved(pos2(130.0, -400.0))]),
+                (0.20, vec![release(pos2(130.0, -400.0))]),
+                (0.25, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides).as_deref(),
+            Some("Alpha"),
+            "and a drag above the list stops on the FIRST item"
+        );
+
+        // A plain click on the header opens the list WITHOUT choosing anything.
+        let (events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides),
+            None,
+            "the click that opens the list must not also pick the item under it"
+        );
+        assert!(
+            names(&events).contains(&"onDropDown"),
+            "…but it does open it: {:?}",
+            names(&events)
+        );
+
+        println!(
+            "\n  ComboBox drag — press the header, down to Delta and back to Beta, release \
+             ⇒ Beta (the reversal is answered, not frozen); past the bottom ⇒ Epsilon, \
+             past the top ⇒ Alpha; a plain click opens without choosing\n"
+        );
+    }
+
+    /// Up and down walk the list and stop at both ends, and what they mean
+    /// depends on whether the dropdown is open — as a Windows combo does.
+    ///
+    ///   * closed: they change the value outright, reporting `onChange` and
+    ///     `onSelectedIndexChanged` exactly as a click does;
+    ///   * open: they move the highlight, Enter picks it, Escape closes without
+    ///     changing anything.
+    #[test]
+    fn the_arrow_keys_walk_a_combobox_open_or_closed() {
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        cmb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+        cmb.set_prop("Value", crate::PropValue::String("Beta".to_owned()));
+        let hc = pos2(130.0, 33.0);
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let value = |o: &Map<String, Map<String, String>>| {
+            o.get("Cmb").and_then(|p| p.get("Value")).cloned()
+        };
+        // Click the header twice — open, then closed — so the combo holds the
+        // keyboard with its list shut.
+        let focus_closed = || {
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![press(hc)]),
+                (0.20, vec![release(hc)]),
+            ]
+        };
+
+        // ── Closed: the arrows change the value ───────────────────────────
+        let mut frames = focus_closed();
+        frames.push((0.25, vec![key(egui::Key::ArrowDown)]));
+        frames.push((0.30, vec![]));
+        let (events, overrides) = drive(&[cmb.clone()], frames);
+        assert_eq!(
+            value(&overrides).as_deref(),
+            Some("Gamma"),
+            "one ArrowDown from Beta with the list shut moves the value on"
+        );
+        assert!(
+            names(&events).contains(&"onSelectedIndexChanged"),
+            "a keyboard move reports itself like a click does: {:?}",
+            names(&events)
+        );
+
+        // …and stops at the ends rather than wrapping.
+        let mut frames = focus_closed();
+        for i in 0..4 {
+            frames.push((0.25 + i as f64 * 0.05, vec![key(egui::Key::ArrowUp)]));
+        }
+        frames.push((0.50, vec![]));
+        let (_events, overrides) = drive(&[cmb.clone()], frames);
+        assert_eq!(value(&overrides).as_deref(), Some("Alpha"), "up stops at the first");
+
+        let mut frames = focus_closed();
+        for i in 0..5 {
+            frames.push((0.25 + i as f64 * 0.05, vec![key(egui::Key::ArrowDown)]));
+        }
+        frames.push((0.55, vec![]));
+        let (_events, overrides) = drive(&[cmb.clone()], frames);
+        assert_eq!(value(&overrides).as_deref(), Some("Delta"), "down stops at the last");
+
+        // ── Open: the arrows move the HIGHLIGHT and Enter picks it ────────
+        let (events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![key(egui::Key::ArrowDown)]),
+                (0.20, vec![key(egui::Key::ArrowDown)]),
+                (0.25, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides),
+            None,
+            "walking an OPEN list moves the highlight without committing anything"
+        );
+        assert!(
+            !names(&events).contains(&"onSelectedIndexChanged"),
+            "…and reports nothing until it is committed: {:?}",
+            names(&events)
+        );
+
+        let (_events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![key(egui::Key::ArrowDown)]),
+                (0.20, vec![key(egui::Key::ArrowDown)]),
+                (0.25, vec![key(egui::Key::Enter)]),
+                (0.30, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides).as_deref(),
+            Some("Delta"),
+            "Enter commits the item the arrows reached"
+        );
+
+        // ── Escape closes without changing the value ──────────────────────
+        let (_events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![key(egui::Key::ArrowDown)]),
+                (0.20, vec![key(egui::Key::Escape)]),
+                (0.25, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides),
+            None,
+            "Escape leaves the value exactly where it was"
+        );
+
+        // ── Picking from the list leaves the arrows working ───────────────
+        //
+        // The header drops the keyboard on any press outside itself, and a
+        // press on an item IS outside it — so without the popup handing it
+        // back, choosing from the list left the combo unable to answer an
+        // arrow until its header had been clicked again.
+        let item_h = combo_item_h(&cmb);
+        let header = Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(220.0, 26.0));
+        let gamma = combo_item_at(header, item_h, 2);
+        let (_events, overrides) = drive(
+            &[cmb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![Event::PointerMoved(gamma), press(gamma)]),
+                (0.20, vec![Event::PointerMoved(gamma), release(gamma)]),
+                (0.25, vec![key(egui::Key::ArrowDown)]),
+                (0.30, vec![]),
+            ],
+        );
+        assert_eq!(
+            value(&overrides).as_deref(),
+            Some("Delta"),
+            "clicking Gamma in the list and then pressing ↓ must reach Delta — the \
+             combo keeps the keyboard through the pick"
+        );
+
+        println!(
+            "\n  ComboBox keys — shut: ↓ from Beta ⇒ Gamma (onSelectedIndexChanged fired), \
+             ↑↑↑↑ stops at Alpha, ↓↓↓↓↓ stops at Delta; open: ↓↓ moves the highlight and \
+             commits nothing, Enter ⇒ Delta, Escape ⇒ unchanged; picking Gamma from the \
+             list then ↓ ⇒ Delta\n"
+        );
+    }
+
+    /// An open dropdown letters its items in the control's OWN font and colour,
+    /// and gives each one a line of that font's height. All three were
+    /// hardcoded — 22 px, 12 pt and a fixed near-white — so a combo set to
+    /// 20 pt drew a 20 pt value over a list of 12 pt items.
+    #[test]
+    fn a_dropdowns_items_are_lettered_in_the_controls_own_type() {
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 260, 40);
+        cmb.set_prop("Items", crate::PropValue::String("Alpha\nBeta".to_owned()));
+        cmb.set_prop("Value", crate::PropValue::String("Alpha".to_owned()));
+        cmb.set_prop("FontSize", crate::PropValue::Int(20));
+        cmb.set_prop("ForegroundColor", crate::PropValue::String("#FFD400".into()));
+        let hc = pos2(150.0, 40.0);
+        let painted = drive_painted(
+            &[cmb.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                (3.0, vec![]),
+            ],
+        );
+        let header = *painted.placed.get("Cmb").expect("placed");
+        let beta = painted
+            .texts
+            .iter()
+            .find(|t| t.text == "Beta")
+            .unwrap_or_else(|| {
+                panic!(
+                    "the second item must be painted: {:?}",
+                    painted.texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>()
+                )
+            });
+        assert!(
+            (beta.font - 20.0).abs() <= 0.5,
+            "the item takes the control's FontSize, not a hardcoded 12: {}",
+            beta.font
+        );
+        // The items are a line of that type apart, so a 20 pt list is not
+        // crammed into 22 px rows.
+        let alpha = painted
+            .texts
+            .iter()
+            .find(|t| t.text == "Alpha" && t.pos.y > header.bottom())
+            .expect("the first item is painted below the header");
+        let pitch = beta.pos.y - alpha.pos.y;
+        assert!(
+            (pitch - combo_item_h(&cmb)).abs() <= 0.5,
+            "one item is one line of the control's own text plus air: {pitch}"
+        );
+
+        println!(
+            "\n  ComboBox typography — a 20 pt combo letters its items at {}pt on a \
+             {pitch:.1}px pitch, where both were hardcoded at 12 pt on 22 px\n",
+            beta.font
         );
     }
 
