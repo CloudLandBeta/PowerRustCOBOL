@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.85] — 2026-08-17
+
+### Fixed — a ListBox you can drag through, walk with the arrows, and see
+
+Three reports about the same control, all of them about moving through it.
+
+**A reversed drag froze the list.** The sweep accumulated every row a press had
+touched and never let go of any, so dragging back up crossed only rows already
+in the set and the list stopped answering the drag in either direction until the
+button came up. A drag is now one gesture with an **anchor** — the row the press
+landed on — and what it selects is the range from that anchor to the row under
+the pointer *now*, worked out afresh every frame. Reversing shrinks the range.
+
+**Dragging past an end holds at that end.** A pointer above the first row
+resolves to the first row and one below the last to the last, so a drag that
+leaves the control stops on an element instead of selecting nothing.
+
+**Up and down arrows walk the list.** Once it has been clicked (or Tabbed to),
+`↑`/`↓` move the active row one line and stop at the ends, reporting themselves
+with `onChange` and `onSelectedIndexChanged` exactly as a click does. The list
+holds its own arrows: egui answers a plain arrow key by moving focus to the
+widget lying in that direction — and every row is one — so the first ArrowDown
+used to hand the keyboard to a row and the list went deaf after a single line.
+
+**The active row is always visible.** Whatever moves it, a drag or an arrow, the
+list scrolls it into view on the first or last visible line, immediately rather
+than on an eased animation that a fast drag outruns. Dragging is a selection,
+not a swipe: egui's own drag-to-scroll is off for the list (which is the desktop
+default and now holds for touch screens too), so the content cannot slide out
+from under the pointer while the selection follows it. The wheel and the
+scrollbar scroll as before.
+
+Tick-box lists are unchanged: a sweep ticks each row it crosses once, and
+crossing it again on the way back does not un-tick it.
+
+## [PowerRustCOBOL 1.61.84] — 2026-08-17
+
+### Fixed — the inspector's item list is five lines, not as many as you type
+
+The **Items (one per line)** editor was a bare multiline text box, which grows a
+line every time one is typed: ten items made a ten-line box, and everything
+below it — Multi-select, the tick boxes, the border rows — was pushed off the
+pane.
+
+It now shows **five lines and scrolls**, in a box whose height comes from the row
+count and the font alone. Bounding its layout is not enough on its own: a
+ScrollArea floors its own clip at last frame's measured content, so the first
+frame a sixth line exists could paint past the box before that bookkeeping
+caught up — the editor clips to its own bounds, computed fresh each frame.
+
+The ComboBox's item editor is the same widget and gets the same box.
+
 ## [PowerRustCOBOL 1.61.83] — 2026-08-17
 
 ### Added — a SideMenu sizes its icons per rail state

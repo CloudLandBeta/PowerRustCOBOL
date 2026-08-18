@@ -1527,8 +1527,27 @@ the order the user ticked in, gaps and all; it is not a contiguous range.
            MOVE LIST-1::Value        TO WS-ACTIVE
 ```
 
+**How the operator moves through a list.** Three gestures, and all of them stop
+at the ends rather than wrapping or running off:
+
+| Gesture | What it does |
+|---|---|
+| **Click** | Makes the row active and starts a one-row selection. |
+| **Press and drag** | Anchors on the row pressed and extends to the row under the pointer — *up or down*. Reversing direction **shrinks** the range back. Dragging above the first row holds at the first; below the last, at the last. |
+| **↑ / ↓** | Moves the active row one line, once the list has been clicked (or Tabbed to). |
+
+Whatever moves the active row, the list **scrolls to keep it in view**, landing
+it on the first or last visible line — so a drag that runs past the bottom of
+the frame carries the view with it, and the operator never selects a row they
+cannot see. The wheel and the scrollbar still scroll the list on their own; a
+drag is a selection, not a swipe.
+
 > **Note.** A ListBox cannot be drawn shorter than one line of its own text —
 > the designer's resize stops there, and the floor rises with `FontSize`.
+
+> **Designing the items.** The inspector's **Items (one per line)** box shows
+> five lines and scrolls past that, so a fifty-item list no longer pushes the
+> rest of the inspector off the pane.
 
 #### ToolBar
 
