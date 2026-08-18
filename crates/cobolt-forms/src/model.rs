@@ -3923,6 +3923,13 @@ impl Control {
                         "BreadcrumbBackgroundColor".into(),
                         PropValue::String(String::new()),
                     );
+                    // Where the chain sits in that frame. The height owes
+                    // nothing to the font, so a frame taller than its text has
+                    // room the developer chooses how to use.
+                    props.insert(
+                        "BreadcrumbTextAlign".into(),
+                        PropValue::String("Middle".into()),
+                    );
                     // The header logo. Empty = no logo drawn; the header is
                     // the developer's, not a placeholder's.
                     props.insert("HeaderImage".into(), PropValue::String(String::new()));

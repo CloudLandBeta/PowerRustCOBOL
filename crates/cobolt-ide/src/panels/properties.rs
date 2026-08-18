@@ -6868,6 +6868,17 @@ impl PropertiesPanel {
                         ctrl,
                         action,
                     );
+                    // The height owes nothing to the font, so a frame taller
+                    // than its text has room — this says where the chain goes
+                    // in it.
+                    combo_row_inline(
+                        ui,
+                        id,
+                        "BreadcrumbTextAlign",
+                        ctrl,
+                        action,
+                        &["Top", "Middle", "Bottom"],
+                    );
                     // The sidebar's four menu colours live in Basic instead of
                     // a section of their own: they are the rail's ICON
                     // colours, and four rows did not earn a separate header.
