@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.100] — 2026-08-18
+
+### Fixed — the breadcrumb names a loaded form by its Title
+
+The navigation chain named the main form by its **Title** and every form loaded
+into the ContentPane by its **form object name**, so one strip showed two
+vocabularies:
+
+| Was | Now |
+|---|---|
+| `Main Menu › inner-form1` | `Main Menu › Customer Data` |
+
+The segment now carries the loaded form's designed Title, exactly as the main
+form's own segment always has. A form with no Title still shows its object
+name — that is all there is to show.
+
+Nothing else changes: the chain, the click-to-truncate behaviour and the
+`onDeactivate`/`onDestroy` lifecycle are untouched. Set the Title in the form's
+own properties and the breadcrumb follows.
+
+Tested by `a_loaded_forms_segment_is_its_title_not_its_object_name`
+(`crates/cobolt-form-host/src/shell.rs`): a titled form shows its title, an
+untitled one falls back to its name.
+
 ## [PowerRustCOBOL 1.61.99] — 2026-08-18
 
 ### Fixed — the sidebar's two image rows say what size they take

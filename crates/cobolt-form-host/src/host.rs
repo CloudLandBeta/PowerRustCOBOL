@@ -1375,6 +1375,12 @@ pub(crate) struct ChildWindow {
 pub(crate) struct Occupant {
     pub(crate) handle: String,
     pub(crate) body: FormBody,
+    /// What the operator should be told this form IS — its designed Title,
+    /// falling back to its form object name when it has none. The breadcrumb
+    /// segment reads from here: the chain named loaded forms by their OBJECT
+    /// name (`inner-form1`) while the main form used its title, so one strip
+    /// showed two vocabularies.
+    pub(crate) label: String,
 }
 
 pub struct FormHost {
@@ -1698,7 +1704,7 @@ impl FormHost {
         let handle = self
             .supervisor
             .open_embedded(cobolt_runtime::form_host::ROOT_HANDLE, &key);
-        let (body, _form) = match self.build_form_instance(&handle, form_id) {
+        let (body, form) = match self.build_form_instance(&handle, form_id) {
             Ok(built) => built,
             Err(e) => {
                 // The handle must not linger for an instance that never
@@ -1713,8 +1719,28 @@ impl FormHost {
             }
         };
         let ev_tx = body.ev_tx.clone();
-        self.occupants.insert(key, Occupant { handle, body });
+        let label = if form.title.trim().is_empty() {
+            form.name.clone()
+        } else {
+            form.title.trim().to_owned()
+        };
+        self.occupants.insert(
+            key,
+            Occupant {
+                handle,
+                body,
+                label,
+            },
+        );
         Ok(ev_tx)
+    }
+
+    /// What the breadcrumb should call a pane occupant: its designed **Title**,
+    /// or its form object name when it has none. `None` = no such occupant.
+    pub fn occupant_label(&self, form_object: &str) -> Option<String> {
+        self.occupants
+            .get(&form_object.trim().to_ascii_uppercase())
+            .map(|o| o.label.clone())
     }
 
     /// 051 R10/R11 — put `form_object` (UPPERCASE; `None` = the root form)
