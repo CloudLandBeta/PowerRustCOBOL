@@ -1,5 +1,76 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.92] — 2026-08-18
+
+### Fixed — `Sorted` sorts
+
+`Sorted` is seeded on every list-shaped control, shown in the inspector, and
+documented in the knowledge base as "keeps items alphabetically sorted". Nothing
+anywhere read it. A list or a dropdown with the box ticked showed its items in
+the order they were typed, exactly as one with the box clear (operator,
+2026-08-18: *"sort is not working"*).
+
+It now sorts, on the **ListBox** and the **ComboBox** dropdown:
+
+- **Alphabetically, by text, case-insensitively** — which is what the phrase
+  means on every RAD a COBOL developer is likely to have used, and what the
+  property has always claimed. Items are text and nothing declares them
+  otherwise, so numbers sort as the strings they are: `1`, `10`, `11`, `2`, …,
+  `9`. If you want numeric order, pad to a fixed width (`01`, `02`, … `11`).
+- **Display order only.** The stored `Items` is never rewritten — what you typed
+  is yours, so clearing the box gives your own order straight back.
+- **Stable**, so two items differing only in case keep the order you wrote them
+  in rather than swapping about between runs.
+
+`SelectedIndex` is the index of the item **as shown**, so it lines up with what
+the operator picked. `Value` is the item's text either way and is unaffected.
+
+> **Not yet on the TreeView.** It carries `Sorted` too, and still ignores it.
+> Sorting a tree means ordering siblings within each parent while keeping every
+> child with its own — a different operation from ordering a flat list, and one
+> nobody has asked for yet. The knowledge base now says so rather than promising
+> it.
+
+
+## [PowerRustCOBOL 1.61.91] — 2026-08-18
+
+### Fixed — a dropdown's selection band no longer leaks past the panel's corners
+
+Reported with screenshots: a ListBox and a ComboBox side by side, the list's
+highlight cut cleanly by its rounded border with a hairline of background
+between the two, the dropdown's leaking square shoulders out of both ends of its
+panel and painting over the rim.
+
+The band was a flat **4 px** round, clipped to the panel rather than to the
+inside of its rim. Two faults in one line: on a panel rounded any further than
+4 px — the operator's was **12** — a 4 px corner sits inside the arc and pokes
+out past it, at the top item and at the bottom one; and reaching the panel edge
+left no room for the border to read as a continuous line.
+
+Both controls now draw their bands through one helper,
+`paint::highlight_band_rounding`, so a list and a dropdown cannot drift apart
+again. It is the rule the ListBox already followed: square, except where the
+band meets the container's arc, where it is cut by what is left of the radius
+once the inset is taken off — and the band is inset by the border's width plus a
+hairline on every side.
+
+The radius asked for is now also capped at what the band can actually hold. egui
+clamps a fill's corner to half its shorter side, so a band shorter than twice
+the radius silently renders a *smaller* arc — which pokes out past the
+container's. That is the corner-bleed rule this project has paid for repeatedly;
+capping it keeps the stored radius and the drawn one the same thing, for the
+ListBox as well as the dropdown.
+
+An item's text is now centred on its **row** rather than on its band. The band is
+clipped by the rim at the first and last item, and hanging the text off that
+nudged those two lines out of step with the rest.
+
+Guarded by `a_dropdowns_selection_band_is_cut_by_the_panels_corner`, built from
+the operator's own control (160×24, `CornerRadius` 15 clamped to 12, eleven
+items, `DropDownHeight` 200) and verified to fail on the previous code — it
+found 14 leak points across the two bottom corners.
+
+
 ## [PowerRustCOBOL 1.61.90] — 2026-08-18
 
 ### Fixed — a ComboBox you can drag through, that shows all of its items, and wears the face you designed

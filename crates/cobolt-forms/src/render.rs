@@ -6,8 +6,8 @@
 
 //! Unified form rendering engine (spec 017).
 //!
-//! One renderer for **every** surface — the Form Designer canvas, the live
-//! preview, the running (interpreted) form, and the compiled binary — so the same
+//! One renderer for **every** surface â the Form Designer canvas, the live
+//! preview, the running (interpreted) form, and the compiled binary â so the same
 //! form + state always produces the same pixels. The Form Designer's per-control
 //! rendering (`paint::draw_control`) is the source of truth; this engine wraps it
 //! with the shared form-level concerns (background, render order, container
@@ -19,7 +19,7 @@
 //! run = `CtrlState`, compiled = compiled state) without changing the engine.
 //!
 //! This module is the **Static** foundation (faces + form chrome). Interactive
-//! widgets (editable text, combo popups, slider drag, …) layer on top in
+//! widgets (editable text, combo popups, slider drag, â¦) layer on top in
 //! `RenderMode::Interactive` and are added incrementally; in `Static` mode every
 //! control is drawn as its designer face.
 
@@ -109,7 +109,7 @@ pub enum RenderMode {
 pub struct Backdrop {
     /// Form background colour as `#RRGGBB[AA]` (or empty/unset).
     pub color_hex: String,
-    /// Form transparency 0–100 (0 = opaque).
+    /// Form transparency 0â100 (0 = opaque).
     pub transparency: u8,
     pub gradient_enabled: bool,
     pub gradient_start_hex: String,
@@ -121,13 +121,13 @@ pub struct Backdrop {
     pub image_mode: BgImageMode,
     /// The form's `UseThemeBackground` opt-in (007 R8). When set and the active
     /// theme pack provides a background, the pack's art replaces the form's own
-    /// background image — exactly as on the designer canvas.
+    /// background image â exactly as on the designer canvas.
     pub use_theme_background: bool,
     /// The host window's client size, when the backdrop belongs to a real
     /// window the user can maximize or drag bigger. The backdrop then covers
     /// `max(form_size, window_size)` on each axis: the gradient or background
     /// image stretches across the WHOLE window when it is enlarged, while the
-    /// controls stay at their designed size — and a window dragged SMALLER
+    /// controls stay at their designed size â and a window dragged SMALLER
     /// than the form keeps a form-sized backdrop rather than shrinking with
     /// the window. `None` (designer canvas, previews) pins the backdrop to
     /// the form, so the designed extent stays visible while editing.
@@ -195,7 +195,7 @@ pub struct UiEvent {
 /// What the engine produces for the caller to act on.
 #[derive(Default)]
 pub struct RenderOutput {
-    /// UI events from interactive controls (clicks, changes, focus, keys, …).
+    /// UI events from interactive controls (clicks, changes, focus, keys, â¦).
     pub events: Vec<UiEvent>,
     /// Live property updates to apply back to the caller's state: (id, key, value).
     pub prop_updates: Vec<(String, String, String)>,
@@ -204,36 +204,36 @@ pub struct RenderOutput {
     pub control_rects: HashMap<String, Rect>,
     /// Control ids whose `FileDropZone` was clicked (not dragged) this frame
     /// (spec 039 T4). `cobolt-forms` has no native-dialog dependency by
-    /// design — the host (`cobolt-ide`) is expected to open a picker for
+    /// design â the host (`cobolt-ide`) is expected to open a picker for
     /// each id here and feed the chosen paths back as an ordinary
     /// `DroppedFiles` prop write, the same channel the OS drag-drop path
     /// already uses.
     pub file_picker_requests: Vec<String>,
     /// Toolbar buttons pressed this frame whose action the PLATFORM must carry
-    /// out — printing, sharing, a screenshot, the clipboard, another process.
+    /// out â printing, sharing, a screenshot, the clipboard, another process.
     /// `(toolbar control id, button id, action string)`.
     ///
     /// Same division of labour as `file_picker_requests`: `cobolt-forms` knows
     /// which button was pressed and what it asked for, and takes no dependency
     /// on a print panel, a share sheet or a process launcher to find out. The
     /// host does the deed. A button whose action is the form's own business
-    /// (`event`, `procedure:`, `open-modal:`) never appears here — it goes out as
+    /// (`event`, `procedure:`, `open-modal:`) never appears here â it goes out as
     /// an ordinary `UiEvent` instead.
     pub toolbar_actions: Vec<(String, String, String)>,
 }
 
 /// The size the backdrop covers: the form's own size, stretched to the host
 /// window on each axis where the window is BIGGER (maximized, or the border
-/// dragged out — the gradient or background image then fills the whole
+/// dragged out â the gradient or background image then fills the whole
 /// window while the controls keep their designed size), and never smaller
 /// than the form (a window dragged in keeps a form-sized backdrop, which the
-/// form scrolls inside). `None` — the designer canvas and previews — pins the
+/// form scrolls inside). `None` â the designer canvas and previews â pins the
 /// backdrop to the form so its designed extent stays visible while editing.
 pub fn backdrop_size(form_size: Vec2, window_size: Option<Vec2>) -> Vec2 {
     window_size.map_or(form_size, |w| form_size.max(w))
 }
 
-/// What the backdrop pass painted, so the caller can reuse it — the
+/// What the backdrop pass painted, so the caller can reuse it â the
 /// corner-notch mask repaints the very same background behind a rounded
 /// container's children (spec 017).
 pub struct BackdropPaint {
@@ -252,7 +252,7 @@ pub struct BackdropPaint {
 /// Paint a form's background into `rect`: solid colour, then the gradient,
 /// then the theme pack's art or the form's own image.
 ///
-/// ONE implementation, so every surface shows the same backdrop — the
+/// ONE implementation, so every surface shows the same backdrop â the
 /// designer, the preview, the running form, a compiled binary AND the static
 /// face a window effect animates. The effect face used to paint the solid
 /// colour only, so a form with a gradient or a background image was revealed
@@ -340,7 +340,7 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
 
 /// Has the developer actually chosen a form background?
 ///
-/// Empty, or six hex digits that are all zero — the same "unset" that
+/// Empty, or six hex digits that are all zero â the same "unset" that
 /// [`backdrop_color`] maps to its default navy.
 fn form_background_unset(color_hex: &str) -> bool {
     let s = color_hex.trim();
@@ -358,8 +358,8 @@ fn form_background_unset(color_hex: &str) -> bool {
 /// The form's backdrop, letting the active THEME supply the default when the
 /// developer chose no colour (050).
 ///
-/// [`backdrop_color`] is ctx-free — every surface and several tests call it
-/// without one — so it cannot ask a theme anything. This is the paint-time
+/// [`backdrop_color`] is ctx-free â every surface and several tests call it
+/// without one â so it cannot ask a theme anything. This is the paint-time
 /// wrapper that can. A developer's own colour always wins (R9), and a theme that
 /// offers nothing leaves the historical navy exactly where it was (R21).
 fn themed_backdrop_color(ctx: &egui::Context, color_hex: &str, transparency: u8) -> Color32 {
@@ -391,7 +391,7 @@ fn backdrop_gradient_color(color_hex: &str, transparency: u8) -> Color32 {
     )
 }
 
-/// Whether a control's drawn content (image, film, glass card, chart, …) should be
+/// Whether a control's drawn content (image, film, glass card, chart, â¦) should be
 /// clipped to a rounded GroupBox/Panel parent's border so it never bleeds past the
 /// container's rounded corner (spec 017). True for every visual control; the
 /// non-visual config objects (Timer/Agent/Sql/Rest) draw nothing that can bleed.
@@ -408,7 +408,7 @@ fn clips_to_container_border(ct: &ControlType) -> bool {
 /// Border path of a control's immediate rounded GroupBox/Panel parent, in screen
 /// pixels: the parent's **visual** rect (its actual border, not the inset content
 /// area) and its corner radius. A child is clipped to this shape, so any part that
-/// exceeds the parent's border is cut by the parent — not by the child's own bounds
+/// exceeds the parent's border is cut by the parent â not by the child's own bounds
 /// (spec 017, the container-clip rule). `None` when the parent isn't rounded.
 fn picturebox_container_border(
     controls: &[Control],
@@ -472,13 +472,13 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
 /// backdrop colour and `image` the optional backdrop texture + its screen rect.
 /// Per-corner rounding for [`crate::paint::draw_container_notch_mask`].
 ///
-/// ── CORNER GUARDIAN RULE (do not regress) ─────────────────────────────────────
+/// ââ CORNER GUARDIAN RULE (do not regress) âââââââââââââââââââââââââââââââââââââ
 /// The notch mask exists ONLY to cut child content that bled past a rounded
 /// corner. It must therefore touch a corner **only when a descendant actually
-/// overlaps that corner's notch square** — never "all four corners because the
+/// overlaps that corner's notch square** â never "all four corners because the
 /// container happens to have children". Painting the backdrop over a corner no
 /// child reaches destroys the container's OWN rounded corner (fill / rim / shadow),
-/// which shows up as a transparent or discoloured crescent — the exact bug this
+/// which shows up as a transparent or discoloured crescent â the exact bug this
 /// function was added to prevent. See `corner_notch_guardian_*` regression tests.
 ///
 /// So: keep a corner's radius only when some descendant of `container_idx` overlaps
@@ -486,7 +486,7 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
 /// corner is clean the returned rounding is `ZERO` and the mask early-returns.
 ///
 /// Both notch-mask call sites (runtime `mask_container_notches` and the designer's
-/// notch loop) MUST route through this — do not call `draw_container_notch_mask`
+/// notch loop) MUST route through this â do not call `draw_container_notch_mask`
 /// with a blanket `CornerRadius::same(rad)`.
 pub fn corner_notch_rounding(
     container: Rect,
@@ -545,13 +545,13 @@ fn mask_container_notches(
     gradient: Option<(Rect, Color32, Color32, &str)>,
 ) {
     // `controls` is the EFFECTIVE (post-`expand_repeating_groups`) list the render
-    // loop drew from — NOT `input.controls`. The notch-mask guardian
+    // loop drew from â NOT `input.controls`. The notch-mask guardian
     // (`corner_notch_rounding`) decides which corners to mask by looking each
     // descendant's rect up in `out.control_rects`, which is keyed by the drawn
     // (instance) ids. Walking the original template here would leave a databound
     // container's expanded card instances invisible to the guardian, so it would
     // mask nothing and the card content bleeds past the container arc (spec 015/024
-    // repeating groups × the spec 017 notch mask).
+    // repeating groups Ã the spec 017 notch mask).
     for (idx, base) in controls.iter().enumerate() {
         if !matches!(
             base.control_type,
@@ -589,7 +589,7 @@ fn mask_container_notches(
         );
         // The notch mask repaints the backdrop over the corner arcs it touched,
         // erasing the container's own border/rim there. Restore the rim on exactly
-        // those corners (`rounding`) — restoring an unmasked corner would
+        // those corners (`rounding`) â restoring an unmasked corner would
         // double-stroke the face's own rim and leave a light spur.
         crate::paint::restore_container_outline(
             painter,
@@ -682,9 +682,9 @@ fn is_repeating_instance_group(c: &Control) -> bool {
 /// How many runtime instances a repeating group renders.
 ///
 /// A **databound** group (its `DataSource` is set) treats `ItemCount` as
-/// authoritative — including **0**, which renders NO card at all (an empty data
+/// authoritative â including **0**, which renders NO card at all (an empty data
 /// source shows nothing; task 3). An **unbound** template group falls back to
-/// `PreviewItemCount` (clamped ≥1) so the designer always has one card to edit.
+/// `PreviewItemCount` (clamped â¥1) so the designer always has one card to edit.
 fn repeating_instance_count(c: &Control) -> usize {
     let bound = c
         .get_prop("DataSource")
@@ -704,7 +704,7 @@ fn repeating_instance_count(c: &Control) -> usize {
 }
 
 /// Id of the `inst`-th (**1-based**) clone of repeating group `group_id`:
-/// `"<group>.<group>-<inst>"`. Every instance — including the first — is prefixed,
+/// `"<group>.<group>-<inst>"`. Every instance â including the first â is prefixed,
 /// so a member's runtime id can never collide with the designed base id or with a
 /// same-named member of a different group (task 1).
 pub fn group_instance_id(group_id: &str, inst: usize) -> String {
@@ -880,7 +880,7 @@ fn card_final_screen_rect(base: &Control, final_screen: Rect) -> Rect {
 /// `from` is the vector from the card's FINAL screen position back to the first
 /// card (used by Deal). `clipped` = the card's final spot is outside the visible
 /// viewport, so effects skip their animation. Card `inst` animates during
-/// `[(inst-1)·DUR, inst·DUR]`.
+/// `[(inst-1)Â·DUR, instÂ·DUR]`.
 pub fn card_appear_transform(
     effect: PlacementEffect,
     inst: usize,
@@ -899,7 +899,7 @@ pub fn card_appear_transform(
     match effect {
         PlacementEffect::None => (RenderTransform::IDENTITY, false),
         PlacementEffect::FadeIn => {
-            // Invisible until its turn, then fade 0→1 in place.
+            // Invisible until its turn, then fade 0â1 in place.
             let alpha = if elapsed < start { 0.0 } else { local };
             (
                 RenderTransform {
@@ -973,7 +973,7 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
     if groups.is_empty() {
         return None;
     }
-    // Indices belonging to ANY repeating group (the group + its descendants) —
+    // Indices belonging to ANY repeating group (the group + its descendants) â
     // these originals are dropped and re-emitted as numbered instances.
     let mut in_group: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for &gi in &groups {
@@ -1017,7 +1017,7 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
             .unwrap_or(1)
             .max(1) as usize;
         // Placement step per instance: the group's own size plus the item spacing
-        // (task 2) — full HEIGHT+padding down for Vertical, full WIDTH+padding
+        // (task 2) â full HEIGHT+padding down for Vertical, full WIDTH+padding
         // across for Horizontal, and a Grid wraps every `ItemsPerRow`.
         let gw = g.rect.w as f32;
         let gh = g.rect.h as f32;
@@ -1235,10 +1235,10 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let origin = ui.min_rect().min;
     let painter = ui.painter().clone();
 
-    // ── Backdrop: solid colour, gradient, theme art or image. ─────────────────
+    // ââ Backdrop: solid colour, gradient, theme art or image. âââââââââââââââââ
     let form_rect = Rect::from_min_size(origin, input.form_size);
     // The backdrop covers the form, and stretches to the host window when the
-    // user maximizes it or drags it bigger — the controls keep their designed
+    // user maximizes it or drags it bigger â the controls keep their designed
     // size, only the background follows the window. A window dragged SMALLER
     // than the form keeps the form-sized backdrop (the form scrolls inside
     // it) rather than cropping the background to the window.
@@ -1260,7 +1260,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // would leave rectangular child bleed visible. Use the effective one-pass
     // colour over the panel fill instead.
     let notch_bg = crate::paint::composite_premultiplied_over(bg, ui.visuals().panel_fill);
-    // ── Controls: designer order, clipped + faded by container ancestry. ──────
+    // ââ Controls: designer order, clipped + faded by container ancestry. ââââââ
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
     // Use live state so that runtime-updated ItemCount / IsRepeatingGroup (e.g. from
@@ -1299,8 +1299,8 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             // debug removed
         }
         // Visible/Enabled change events (spec 021 T9): tracked for EVERY
-        // control each frame — a control hidden THIS frame must still fire
-        // its onVisibleChanged — so this runs before the visibility skips.
+        // control each frame â a control hidden THIS frame must still fire
+        // its onVisibleChanged â so this runs before the visibility skips.
         if interactive {
             visible_enabled_events(ui, input, controls, idx, &mut out);
         }
@@ -1324,14 +1324,14 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // surfaces (preview now, designer later) supply entrance effects this way;
         // the default is identity (run / compiled / static designer).
         let tf = input.state.transform(base);
-        // The card's FINAL (un-animated) screen rect — used to decide whether a
+        // The card's FINAL (un-animated) screen rect â used to decide whether a
         // Deal card is off-screen (no phantom fly-in) before adding the effect.
         let final_screen = Rect::from_min_size(
             origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),
         );
         // Clip to ancestor container content areas (rounded clipping is cosmetic;
-        // egui clips to the axis-aligned rect — spec 012/016). Start from the whole
+        // egui clips to the axis-aligned rect â spec 012/016). Start from the whole
         // form so a top-level control is never clipped to its own bounds.
         // Use scroll-aware placement so that clips contributed by non-scroller
         // containers (the instanced cards) move with -scroll while scroller
@@ -1491,7 +1491,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 
         if interactive {
             // Live, editable widget: faces via `draw_control`, plus the interaction
-            // (text edit, slider drag, combo popup, …) ported from the run path.
+            // (text edit, slider drag, combo popup, â¦) ported from the run path.
             render_interactive(
                 ui,
                 &face,
@@ -1507,7 +1507,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         } else {
             // Static: the one true face renderer (charts, images, glass, rounding).
             // PictureBox needs its texture pre-loaded so `draw_control` paints the
-            // image (not a placeholder) — same as the designer canvas.
+            // image (not a placeholder) â same as the designer canvas.
             let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
                 crate::paint::picturebox_texture(ui.ctx(), sv(&face, "ImagePath").trim())
                     .map(|t| t.id())
@@ -1534,7 +1534,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         out.events.push(UiEvent::click(&button_id));
     }
 
-    // ── Corner-notch masks: cut any child content that bled past a rounded
+    // ââ Corner-notch masks: cut any child content that bled past a rounded
     // container's arc by repainting the backdrop in its corner notches (spec 017).
     mask_container_notches(
         &painter,
@@ -1559,7 +1559,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 
     clear_radio_group_siblings(input, controls, &mut out);
 
-    // ── Second pass: open ComboBox dropdowns float above everything. ──────────
+    // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
     for combo in open_combos {
         let OpenCombo {
             id: cid,
@@ -1604,7 +1604,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             d.insert_temp(combo_highlight_id(&cid), outcome.highlight);
             d.insert_temp(combo_gesture_id(&cid), outcome.gesture);
             // Picking from the list keeps the combo on the keyboard, so the
-            // arrows carry on working straight after — the header pass dropped
+            // arrows carry on working straight after â the header pass dropped
             // it a moment ago, because the press was not on the header.
             if outcome.pressed_in_list {
                 d.insert_temp(combo_keyboard_id(&cid), true);
@@ -1632,7 +1632,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 /// One ComboBox whose dropdown is open, held over for the second pass.
 ///
 /// It carries everything the popup draws with, because by the time the pass
-/// runs the `Control` it came from is out of scope — the two highlight colours,
+/// runs the `Control` it came from is out of scope â the two highlight colours,
 /// the panel's own face, the item metrics and the typography, all resolved from
 /// the control while it was still in hand.
 struct OpenCombo {
@@ -1645,13 +1645,13 @@ struct OpenCombo {
     fills: (Color32, Color32),
     /// The panel's surface and rim, from `paint::combo_popup_face`.
     face: crate::paint::ComboFace,
-    /// One item's height — a line of the control's own text, plus air.
+    /// One item's height â a line of the control's own text, plus air.
     item_h: f32,
     font: egui::FontId,
     text: Color32,
     /// `DropDownHeight`: the tallest the panel may be before it scrolls.
     max_h: f32,
-    /// Scroll this item into view — set on the frame the dropdown opens.
+    /// Scroll this item into view â set on the frame the dropdown opens.
     reveal: Option<usize>,
 }
 
@@ -1894,7 +1894,7 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> Option<
 /// Faces are produced by the same `draw_control` path as every other surface, so
 /// the canvas matches the preview / running form / compiled binary. Clipping uses
 /// the painter's current clip as the baseline (top-level controls draw to the
-/// canvas, not clipped to the form bounds — the designer's long-standing
+/// canvas, not clipped to the form bounds â the designer's long-standing
 /// behaviour, so e.g. a rotated Line past its box still shows on the canvas).
 pub fn render_faces(
     painter: &egui::Painter,
@@ -1925,7 +1925,7 @@ pub fn render_faces(
         out.control_rects.insert(live.id.clone(), screen);
 
         // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
-        // BORDER path (spec 017) — see `render_form`.
+        // BORDER path (spec 017) â see `render_form`.
         let pic_border = if clips_to_container_border(&base.control_type) {
             picturebox_container_border(input.controls, input.state, idx, origin, egui::Vec2::ZERO)
         } else {
@@ -1983,7 +1983,7 @@ pub fn render_faces(
         // Rounded-container child clip (spec 017): the face + shadow are now on the
         // framebuffer and the depth-first walk is about to draw this container's
         // children next, so let the host snapshot the backdrop behind its rounded
-        // corners here — captured after the shadow, so re-blitting the notch later
+        // corners here â captured after the shadow, so re-blitting the notch later
         // restores backdrop + shadow instead of erasing it (the flat notch mask's bug).
         if let Some(hook) = clip_hook {
             if matches!(
@@ -2032,7 +2032,7 @@ fn image_dest(area: Rect, tsize: Vec2, mode: BgImageMode) -> Rect {
                 ),
             tsize,
         ),
-        _ => area, // Stretch / Tile → fill the area
+        _ => area, // Stretch / Tile â fill the area
     }
 }
 
@@ -2149,7 +2149,7 @@ pub fn read_user_control_property(
 }
 
 impl UiEvent {
-    /// A valueless event (`onClick`, `onGotFocus`, `onTick`, …).
+    /// A valueless event (`onClick`, `onGotFocus`, `onTick`, â¦).
     fn ev(id: &str, event: &str) -> Self {
         UiEvent {
             ctrl_id: id.to_owned(),
@@ -2169,7 +2169,7 @@ impl UiEvent {
             value: Some(value.to_owned()),
         }
     }
-    /// Any event carrying a payload (node text, tab index, cell coordinates…).
+    /// Any event carrying a payload (node text, tab index, cell coordinatesâ¦).
     fn with_value(id: &str, event: &str, value: &str) -> Self {
         UiEvent {
             ctrl_id: id.to_owned(),
@@ -2210,10 +2210,10 @@ fn datagrid_filter_property(advanced: &DataGridAdvanced) -> String {
 /// Which edge of a frozen-pane shadow rectangle is dark (fading to transparent
 /// across the rest).
 enum FrozenShadowEdge {
-    /// Dark on the left edge → for the vertical shadow cast rightward by frozen
+    /// Dark on the left edge â for the vertical shadow cast rightward by frozen
     /// columns.
     Left,
-    /// Dark on the top edge → for the horizontal shadow cast downward by the
+    /// Dark on the top edge â for the horizontal shadow cast downward by the
     /// frozen header/rows.
     Top,
 }
@@ -2248,7 +2248,7 @@ fn frozen_shadow_shape(rect: Rect, dark_edge: FrozenShadowEdge, max_alpha: u8) -
 /// Evenly distributed tile-center coordinates across `[start, end]` for a
 /// nominal spacing. Instead of a fixed start offset with a ragged trailing gap,
 /// this picks the tile count that best matches `nominal`, then spreads the tiles
-/// so the leading and trailing margins are equal (half a cell) — an even
+/// so the leading and trailing margins are equal (half a cell) â an even
 /// automatic-tile layout that adapts to the available extent.
 fn even_tile_centers(start: f32, end: f32, nominal: f32) -> Vec<f32> {
     let len = end - start;
@@ -2278,7 +2278,7 @@ fn rounded_edge_inset(rect: Rect, radius: f32, y: f32) -> f32 {
     r - (r * r - k * k).max(0.0).sqrt()
 }
 
-/// Vertical inset of a rounded-rect silhouette at horizontal position `x` — the
+/// Vertical inset of a rounded-rect silhouette at horizontal position `x` â the
 /// transpose of [`rounded_edge_inset`]. How far in from the top/bottom edge the
 /// arc has cut at that `x`. Used to shorten a DataGrid's vertical grid-line
 /// separators so they follow the rounded corner instead of poking into the notch.
@@ -2299,8 +2299,8 @@ fn rounded_edge_inset_v(rect: Rect, radius: f32, x: f32) -> f32 {
 /// rounded silhouette. A vertical separator near a side edge, or a horizontal
 /// separator near the top/bottom, otherwise runs its full extent and pokes past
 /// the arc into the corner notch (the "datagrid lines bleed past the corner"
-/// case). The DataGrid is a leaf drawn directly, and — when nested inside a
-/// translucent panel — the backdrop notch-mask can't be used, so preventing the
+/// case). The DataGrid is a leaf drawn directly, and â when nested inside a
+/// translucent panel â the backdrop notch-mask can't be used, so preventing the
 /// bleed at the line is the only artifact-free fix. Returns the endpoints unchanged
 /// for a non-axis-aligned line or when the radius is negligible.
 fn clip_datagrid_line_to_corners(rect: Rect, radius: f32, pts: [egui::Pos2; 2]) -> [egui::Pos2; 2] {
@@ -2444,7 +2444,7 @@ fn draw_datagrid_pattern(
 /// Universal pointer/gesture events for one control, derived purely from pointer
 /// geometry (no extra interactable, so it never steals the control's own
 /// interaction). Emits only the events the control declares in `supported_events`
-/// — the data-driven loop ignores any without a bound handler. Mirrors the IDE's
+/// â the data-driven loop ignores any without a bound handler. Mirrors the IDE's
 /// `control_pointer_events`, but emits neutral [`UiEvent`]s.
 #[allow(clippy::too_many_arguments)]
 fn control_pointer_events(
@@ -2647,7 +2647,7 @@ fn visible_enabled_events(
 
 /// Geometry change events (spec 021 T10): `onResize` on each frame the size
 /// differs from the last, `onResized` once when it settles; likewise
-/// `onMove`/`onMoved` for position. Fires regardless of Enabled — geometry is
+/// `onMove`/`onMoved` for position. Fires regardless of Enabled â geometry is
 /// state, not interaction.
 fn control_geometry_events(
     ui: &egui::Ui,
@@ -2710,11 +2710,11 @@ fn control_geometry_events(
 /// A handler that only cares about switching on binds `onCheck` and is not woken
 /// for the other half; one that mirrors the state either way binds
 /// `onCheckedChanged` and reads the value. Shared by the CheckBox, the
-/// RadioButton and the Switch, so all three raise the same set — an event a
+/// RadioButton and the Switch, so all three raise the same set â an event a
 /// control advertises but never fires is worse than one it does not offer.
 /// Which group a RadioButton belongs to.
 ///
-/// Its `GroupName` when it has one — radios sharing a name are mutually
+/// Its `GroupName` when it has one â radios sharing a name are mutually
 /// exclusive, whatever they sit in. With no name they group by what CONTAINS
 /// them, so three radios dropped straight onto a form behave as one group
 /// without the developer having to name it, and three inside a GroupBox make
@@ -2743,7 +2743,7 @@ fn radio_is_on(ctrl: &Control) -> bool {
 }
 
 /// One radio at a time. A radio turns itself ON when clicked, but nothing ever
-/// turned the others OFF — so a group could show two, three, every button
+/// turned the others OFF â so a group could show two, three, every button
 /// selected at once, and the form had no way to say which the operator meant.
 ///
 /// Runs after the control loop, where the whole form is in scope: the arm that
@@ -2782,7 +2782,7 @@ fn clear_radio_group_siblings(
         {
             out.prop_updates
                 .push((other.id.clone(), "Value".to_owned(), "0".to_owned()));
-            // Only the one that was actually lit reports going out — a form
+            // Only the one that was actually lit reports going out â a form
             // that watches onUncheck should hear about a change, not about
             // every other button in the group on every click.
             if radio_is_on(&input.state.live(other)) {
@@ -2914,10 +2914,10 @@ fn decorate_hover_response(resp: egui::Response, ctrl: &Control) -> egui::Respon
 
 /// DataGrid component-frame diagnostic (private to the DataGrid, distinct from the
 /// global frame-diagnostics overlay). When [`paint::datagrid_diagnostics_enabled`]
-/// is on, outline every structural sub-component of the grid — the whole viewport,
+/// is on, outline every structural sub-component of the grid â the whole viewport,
 /// the header band, the body band, each column (frozen + scrollable), each visible
 /// row, each visible cell, the frozen-column band, and the vertical scrollbar
-/// track — each in a distinct colour with a small label, so a mis-sized or
+/// track â each in a distinct colour with a small label, so a mis-sized or
 /// mis-placed part is obvious. Purely additive: it paints on a foreground layer
 /// after the grid and changes no grid geometry.
 ///
@@ -2961,13 +2961,13 @@ fn draw_datagrid_component_frames(
             );
         }
     };
-    const C_GRID: Color32 = Color32::from_rgb(255, 64, 64); // red    – whole grid
-    const C_HEADER: Color32 = Color32::from_rgb(64, 220, 96); // green  – header
-    const C_BODY: Color32 = Color32::from_rgb(80, 160, 255); // blue   – body
-    const C_COL: Color32 = Color32::from_rgb(255, 200, 32); // amber  – columns
-    const C_ROW: Color32 = Color32::from_rgb(210, 96, 255); // magenta – rows
-    const C_CELL: Color32 = Color32::from_rgb(0, 220, 220); // cyan   – cells
-    const C_FROZEN: Color32 = Color32::from_rgb(255, 140, 0); // orange – frozen band
+    const C_GRID: Color32 = Color32::from_rgb(255, 64, 64); // red    â whole grid
+    const C_HEADER: Color32 = Color32::from_rgb(64, 220, 96); // green  â header
+    const C_BODY: Color32 = Color32::from_rgb(80, 160, 255); // blue   â body
+    const C_COL: Color32 = Color32::from_rgb(255, 200, 32); // amber  â columns
+    const C_ROW: Color32 = Color32::from_rgb(210, 96, 255); // magenta â rows
+    const C_CELL: Color32 = Color32::from_rgb(0, 220, 220); // cyan   â cells
+    const C_FROZEN: Color32 = Color32::from_rgb(255, 140, 0); // orange â frozen band
 
     let v = layout.viewport;
     frame(g2s(v.x, v.y, v.w, v.h), C_GRID, "GRID");
@@ -2997,7 +2997,7 @@ fn draw_datagrid_component_frames(
 
     // Visible rows and their cells (virtualised range only). Clamp every rect to
     // the body band so a partially-scrolled first/last row draws only its visible
-    // slice — otherwise the overlay (an unclipped foreground layer, unlike the
+    // slice â otherwise the overlay (an unclipped foreground layer, unlike the
     // grid's own clipped content) bleeds past the grid's rounded bottom corner.
     for row in layout.first_row..layout.last_row_exclusive {
         let row_y = br.y + row_h * row as f32 - layout.scroll_y;
@@ -3022,12 +3022,12 @@ fn draw_datagrid_component_frames(
 /// behind the grid's rounded BOTTOM corners. Pure geometry, so the invariants can
 /// be unit-tested (see `datagrid_fill_rects_*` tests):
 ///
-/// 1. **Gapless** — the returned rects tile `r`'s vertical span exactly. Any gap,
+/// 1. **Gapless** â the returned rects tile `r`'s vertical span exactly. Any gap,
 ///    even a sub-pixel one, lets the grid's own background show through as a thin
 ///    seam. (That was a real bug: a `> min.y + eps` guard skipped the strip above
 ///    the arc zone when it was thinner than `eps`, revealing the yellow underlay
 ///    as a 1px line that flashed on and off with the fractional scroll offset.)
-/// 2. **Inside the arc** — no rect crosses the corner arc, so nothing bleeds into
+/// 2. **Inside the arc** â no rect crosses the corner arc, so nothing bleeds into
 ///    the notch. Rows in the arc zone are emitted as 1px bands inset by the arc,
 ///    because a rounded rect cannot hold a radius larger than half its height.
 ///
@@ -3060,14 +3060,14 @@ fn datagrid_confined_fill_rects(screen: Rect, radius: f32, r: Rect) -> Vec<Rect>
             (r_arc - (r_arc * r_arc - (r_arc - dy) * (r_arc - dy)).max(0.0).sqrt() + 0.5).max(0.0)
         }
     };
-    // Part ABOVE the arc zone: one plain full-width rect. No `eps` threshold here —
+    // Part ABOVE the arc zone: one plain full-width rect. No `eps` threshold here â
     // any positive height must be painted or it becomes a visible seam (see 1.).
     let zone_top = (screen.max.y - r_arc).max(r.min.y);
     if zone_top > r.min.y {
         out.push(Rect::from_min_max(r.min, pos2(r.max.x, zone_top)));
     }
     // Corner zone: 1px bands, each inset by the arc at the band BOTTOM (its widest
-    // point → never crosses the arc; over-insets by <1px, which is invisible).
+    // point â never crosses the arc; over-insets by <1px, which is invisible).
     let mut y = zone_top.max(r.min.y);
     while y < r.max.y {
         let yb = (y + 1.0).min(r.max.y);
@@ -3120,7 +3120,7 @@ fn draw_datagrid_line(
 /// Render one control as a live, interactive egui widget (Interactive mode),
 /// accumulating events + property updates. Faces reuse `draw_control` /
 /// `draw_animator` / `draw_picturebox` so the running widget matches the designer
-/// pixel-for-pixel; only the interaction (text edit, drag, popup, …) is added.
+/// pixel-for-pixel; only the interaction (text edit, drag, popup, â¦) is added.
 ///
 /// Ported from the IDE's `render_run_control` + the inline run arms (spec 017
 /// unification). `ctrl` is the **screen-normalised** face: its rect is rebased to
@@ -3135,7 +3135,7 @@ fn render_interactive(
     glass: bool,
     alpha: f32,
     enabled: bool,
-    // The form's effective (opaque) backdrop colour — what a translucent glass
+    // The form's effective (opaque) backdrop colour â what a translucent glass
     // control shows through, so colours that must stay legible on the face can
     // be measured against what the eye actually sees.
     form_bg: Color32,
@@ -3159,7 +3159,7 @@ fn render_interactive(
     let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
     if !non_visual {
         // The onHoverEnter threshold is the control's HoverDelayMs property
-        // (default 200 ms) — not a hardcoded constant.
+        // (default 200 ms) â not a hardcoded constant.
         let hover_delay_s = (sv(ctrl, "HoverDelayMs").parse::<f64>().unwrap_or(200.0)
             / 1000.0)
             .clamp(0.0, 10.0);
@@ -3279,7 +3279,7 @@ fn render_interactive(
                 &sv(ctrl, "FontName"),
                 paint::ctrl_font_size(ctrl),
             );
-            // Placeholder shown while the box is empty — same font as the
+            // Placeholder shown while the box is empty â same font as the
             // text, foreground colour faded so it reads as a hint on both
             // light and dark faces (egui's default hint gray vanishes on
             // glass themes).
@@ -3293,7 +3293,7 @@ fn render_interactive(
                 txt_col,
             );
             // TextAlignment / VerticalAlignment, matching the designer face.
-            // Justified lays out left in the editor — egui's TextEdit cannot
+            // Justified lays out left in the editor â egui's TextEdit cannot
             // justify editable text; the static designer face previews it.
             let halign = paint::text_halign(&sv(ctrl, "TextAlignment"));
             let valign = paint::text_valign(&sv(ctrl, "VerticalAlignment"));
@@ -3333,7 +3333,7 @@ fn render_interactive(
             // wider than the field (its scroll offset only follows the caret
             // while focused), so an unfocused overflowing single-line box is
             // hosted in a rect widened to the full text and anchored per the
-            // alignment — the box's clip rect then reveals the correct window.
+            // alignment â the box's clip rect then reveals the correct window.
             // While focused the normal rect is used so egui keeps the caret in
             // view as the user types. Interaction cannot leak outside the box:
             // egui clips a widget's interact rect to the active clip rect.
@@ -3372,7 +3372,7 @@ fn render_interactive(
                 // egui's multiline editor auto-grows to its content, so it would
                 // spill past the TextBox's fixed height (and its rounded bottom).
                 // Host it in a scroll area clipped to the field so extra rows scroll
-                // instead of overflowing — the box keeps its designed height.
+                // instead of overflowing â the box keeps its designed height.
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(edit_rect);
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
@@ -3502,7 +3502,7 @@ fn render_interactive(
             // release missed because the control wasn't interacted that frame would
             // otherwise leave a STALE grab that corrupts the next real drag (the
             // knob jumps to an extreme and looks stuck). Clear it whenever the
-            // button is up — robust regardless of whether `drag_released` fired.
+            // button is up â robust regardless of whether `drag_released` fired.
             let primary_down = ui.input(|i| i.pointer.primary_down());
             if !primary_down {
                 ui.data_mut(|d| d.remove::<(f32, f32)>(ctrl_id));
@@ -3570,11 +3570,11 @@ fn render_interactive(
                 ui.data_mut(|d| d.insert_temp(slider_dirty_id, false));
             }
         }
-        // ── Knob / Gauge / Switch / FileDropZone (spec 039) ─────────────────
+        // ââ Knob / Gauge / Switch / FileDropZone (spec 039) âââââââââââââââââ
         //
         // Unlike Slider/NumericUpDown, these are REAL egui-elegance widgets:
         // `Widget::ui` draws AND handles interaction in one call, so there is
-        // no need to hand-roll drag math here — `ui.put(screen, widget)`
+        // no need to hand-roll drag math here â `ui.put(screen, widget)`
         // (the same idiom already used for `egui::DragValue` under
         // `CT::NumericUpDown` below) places it at the control's exact rect
         // and returns a standard `Response` whose `.changed()` reports
@@ -3583,7 +3583,7 @@ fn render_interactive(
         CT::Knob => {
             // Painted by the SHARED painter, like the check box and the switch
             // beside it, so the canvas, the preview, the running form and the
-            // compiled binary draw one knob — at the size it was drawn, in the
+            // compiled binary draw one knob â at the size it was drawn, in the
             // control's own font. The widget this replaced picked one of three
             // fixed pixel sizes and laid its value out with egui, which is why
             // the canvas and the preview disagreed on both.
@@ -3602,7 +3602,7 @@ fn render_interactive(
             if enabled && resp.dragged() {
                 let d = resp.drag_delta();
                 // A full sweep takes about twice the knob's own height of
-                // travel — far enough to place a value precisely, close enough
+                // travel â far enough to place a value precisely, close enough
                 // to reach either end in one gesture.
                 let travel = screen.height().max(60.0) * 2.0;
                 let span = max_v - min_v;
@@ -3630,7 +3630,7 @@ fn render_interactive(
             // palette crate's gauges size themselves from a `size()` hint rather
             // than the rect they are put in, take their colours from the crate's
             // own palette (so `ForegroundColor`/`BackgroundColor` reached
-            // nothing), and lay their reading out with egui — which is how the
+            // nothing), and lay their reading out with egui â which is how the
             // canvas and the preview came to disagree about one control, and how
             // the reading ended up sitting on the band it reports.
             //
@@ -3639,7 +3639,7 @@ fn render_interactive(
         }
         CT::Switch => {
             // Drawn through the SHARED painter, like the CheckBox and the
-            // RadioButton beside it — not through the palette crate's widget.
+            // RadioButton beside it â not through the palette crate's widget.
             //
             // That widget hard-codes a 32x18 track and allocates it with
             // `allocate_exact_size`, so it ignored the rect it was given: a
@@ -3698,11 +3698,11 @@ fn render_interactive(
             focus_keyboard_events(ui, &fdz.response, id, out, &bound);
             if !fdz.dropped_files.is_empty() && enabled {
                 // The OS drag-drop path needs no native dialog (egui's own
-                // input already carries the dropped paths) — populate
+                // input already carries the dropped paths) â populate
                 // DroppedFiles and fire onFilesDropped right here. The
                 // click-to-browse path (rfd, a native dialog) is cross-crate
                 // plumbing `cobolt-forms` cannot own on its own (no `rfd`
-                // dependency here by design — see spec 039 T4) and is wired
+                // dependency here by design â see spec 039 T4) and is wired
                 // at the `cobolt-ide` host level instead.
                 // egui 0.36 made DroppedFile a trait: `path()` is a method and
                 // always present (on the web it is just the file name).
@@ -3714,7 +3714,7 @@ fn render_interactive(
                 // What the zone accepts, and where it puts it: the same intake
                 // the click-to-browse path runs, so a file is judged by the same
                 // rules however it arrived. `apply_drop` also decides whether
-                // this drop COPIES now or only stages for the form to confirm —
+                // this drop COPIES now or only stages for the form to confirm â
                 // one answer, shared with that path.
                 let writes = crate::dropzone::apply_drop(
                     id,
@@ -3736,15 +3736,15 @@ fn render_interactive(
                     out.events.push(UiEvent::ev(id, "onFilesRejected"));
                 }
             } else if fdz.response.clicked() && enabled {
-                // Click, not a drop — the host owns opening a native picker
+                // Click, not a drop â the host owns opening a native picker
                 // (T4). Not gated on `dropped_files` being non-empty above,
                 // since a click and a drop are mutually exclusive per frame.
                 out.file_picker_requests.push(id.to_owned());
             }
         }
-        // ── Maps (spec 039 T9) ───────────────────────────────────────────────
+        // ââ Maps (spec 039 T9) âââââââââââââââââââââââââââââââââââââââââââââââ
         //
-        // No off-the-shelf widget (T1's finding) — pan/zoom are computed
+        // No off-the-shelf widget (T1's finding) â pan/zoom are computed
         // here from raw pointer/scroll input, exactly the way Slider
         // computes its own drag math above, and the shared
         // `map_tiles::paint_map` (also used by the designer canvas's static
@@ -3847,7 +3847,7 @@ fn render_interactive(
                 // Marker identity is exposed via a property, the same way
                 // repeating-group instance data reaches COBOL through
                 // CONTROL-ARRAY-INDEX rather than the event's own target id
-                // — markers are not full Controls with their own event
+                // â markers are not full Controls with their own event
                 // routing.
                 if let Some(m) = records.get(idx) {
                     out.prop_updates.push((
@@ -3862,12 +3862,12 @@ fn render_interactive(
             }
         }
         CT::NumericUpDown => {
-            // Face from the SHARED painter, dragging added here — so the canvas,
+            // Face from the SHARED painter, dragging added here â so the canvas,
             // the preview, the running form and the compiled binary show one
             // field. It used to be an egui `DragValue` dropped onto a hand-drawn
             // surface: the widget brought its own background, its own hover and
-            // the ambient font, none of which the canvas could draw — and the
-            // canvas answered by lettering "▲▼" into the caption, a control that
+            // the ambient font, none of which the canvas could draw â and the
+            // canvas answered by lettering "â²â¼" into the caption, a control that
             // existed on no other surface.
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
 
@@ -3904,18 +3904,22 @@ fn render_interactive(
             }
         }
         CT::ComboBox => {
-            // The face is the DEVELOPER'S — `BackgroundColor`, the background
-            // gradient, the border and the corner radius — drawn by the same
+            // The face is the DEVELOPER'S â `BackgroundColor`, the background
+            // gradient, the border and the corner radius â drawn by the same
             // call the designer canvas uses, so what is designed is what runs.
             //
             // The header used to lay a hardcoded navy surface and a blue rim
             // over the design, exactly as the ListBox did before 1.61.87
             // (operator, 2026-08-18). `draw_control_face` rather than
-            // `draw_control` because the canvas's stand-in caption — the first
-            // item and a `▾` — would otherwise be painted underneath the real
+            // `draw_control` because the canvas's stand-in caption â the first
+            // item and a `â¾` â would otherwise be painted underneath the real
             // value the header draws.
             paint::draw_control_face(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
+            let mut items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
+            // `Sorted` — the display order only; what the developer typed stays
+            // exactly as they typed it.
+            paint::list_display_items(ctrl, &mut items);
+            let items = items;
             let cur = sv(ctrl, "Value");
             let sel = if cur.is_empty() {
                 items.first().cloned().unwrap_or_default()
@@ -4011,14 +4015,14 @@ fn render_interactive(
                 Some((item_font.clone(), item_color)),
             );
 
-            // A press inside hands the combo the keyboard — on press AND on
+            // A press inside hands the combo the keyboard â on press AND on
             // release, because egui settles a click on the way UP and the
             // release would otherwise take the focus straight back off it.
             if enabled && (pointer_pressed || pointer_released) && on_control {
                 ui.memory_mut(|m| m.request_focus(ctrl_id));
             }
 
-            // ── Arrow keys with the list CLOSED ─────────────────────────────
+            // ââ Arrow keys with the list CLOSED âââââââââââââââââââââââââââââ
             //
             // They change the value outright, as a Windows combo does. The
             // combo has to own them in its own state: egui answers a plain
@@ -4027,15 +4031,15 @@ fn render_interactive(
             // before the control goes deaf.
             //
             // `Editable` makes no difference here, and deliberately. No
-            // ComboBox on any surface accepts typed text today — the property
-            // is declared but the header is a click target, not a field — so
+            // ComboBox on any surface accepts typed text today â the property
+            // is declared but the header is a click target, not a field â so
             // there is no caret for an arrow to move; and even where a combo
             // does type, the arrows belong to the list and the caret to
-            // ← / →. If typing ever lands, the arrows stay with the list.
+            // â / â. If typing ever lands, the arrows stay with the list.
             let kb_id = combo_keyboard_id(id);
             let mut has_keyboard: bool = ui.data(|d| d.get_temp(kb_id)).unwrap_or(false);
             if pointer_pressed {
-                // Dropped on any press elsewhere — including one inside the
+                // Dropped on any press elsewhere â including one inside the
                 // open list, which the popup pass then hands straight back.
                 has_keyboard = on_control;
             }
@@ -4105,20 +4109,24 @@ fn render_interactive(
             }
         }
         CT::ListBox => {
-            // The face is the DEVELOPER'S — `BackgroundColor`, the background
-            // gradient, the border and the corner radius — drawn by the same
+            // The face is the DEVELOPER'S â `BackgroundColor`, the background
+            // gradient, the border and the corner radius â drawn by the same
             // call the designer canvas uses, so what is designed is what runs.
             //
             // It used to paint a hardcoded navy surface over the design: a list
             // given a grey-to-black gradient in the RAD came out blue the
             // moment the form ran (operator, 2026-08-18).
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
+            let mut items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
+            // `Sorted` — the display order only; what the developer typed stays
+            // exactly as they typed it.
+            paint::list_display_items(ctrl, &mut items);
+            let items = items;
             let cur = sv(ctrl, "Value");
             let mut picked: Option<(usize, String)> = None;
             let mut double_picked: Option<String> = None;
             // The items are egui widgets, so their text came from the AMBIENT
-            // visuals — the one colour in this control the developer's
+            // visuals â the one colour in this control the developer's
             // ForegroundColor never reached, and the reason a list read as dark
             // grey on a dark theme's well. Painted like the TextBox's text: the
             // control's own colour while it clears WCAG AA on the surface the
@@ -4135,8 +4143,8 @@ fn render_interactive(
             // Rows painted here rather than assembled from egui widgets: a list
             // row is a full-width band with its own highlight, its own tick box
             // and its own clipping, none of which a `selectable_label` can be
-            // talked into. It also took the HOST's chrome metrics — the IDE's
-            // 30 px touch height and 8 px gaps — and spaced a list of one-word
+            // talked into. It also took the HOST's chrome metrics â the IDE's
+            // 30 px touch height and 8 px gaps â and spaced a list of one-word
             // items like a menu.
             let multi = matches!(sv(ctrl, "MultiSelect").as_str(), "1" | "true");
             let show_checks = matches!(sv(ctrl, "ShowCheckBoxes").as_str(), "1" | "true");
@@ -4155,7 +4163,7 @@ fn render_interactive(
             let row_h = crate::model::text_line_height(ctrl) + crate::model::LIST_ROW_PAD * 2.0;
             let content = screen.shrink(crate::model::LIST_FRAME_PAD);
             // The highlight for the ACTIVE row, and the dimmed one every other
-            // selected row wears — the same colour, half lit, so a list says
+            // selected row wears â the same colour, half lit, so a list says
             // which row the cursor is on and which are merely in the selection.
             //
             // Both are the developer's to name (`ActiveItemColor`,
@@ -4163,21 +4171,20 @@ fn render_interactive(
             // selection colour and that colour half lit, which is what a list
             // drew before the properties existed. The theme colour is only the
             // FALLBACK, so a form that names them looks the same in the
-            // designer's preview, under Run Form and in the compiled binary —
+            // designer's preview, under Run Form and in the compiled binary â
             // three surfaces whose ambient palettes need not agree.
             let (active_fill, selected_fill) =
                 paint::list_selection_fills(ctrl, ui.visuals().selection.bg_fill);
-            let corner = paint::corner_radius(ctrl) as u8;
+            let corner = paint::corner_radius(ctrl);
             // How far the highlight keeps off the border: the border's own width
             // plus a hairline, so the rim reads as a continuous line rather than
             // something the selection has eaten into.
-            const HIGHLIGHT_INSET: f32 = 2.0;
             let border_w = sv(ctrl, "BorderWidth").parse::<f32>().unwrap_or(1.0).max(0.0);
-            let inner = screen.shrink(border_w + HIGHLIGHT_INSET);
+            let inner = screen.shrink(border_w + paint::HIGHLIGHT_INSET);
             let highlight_x = inner.x_range();
 
-            // A drag through the list is ONE gesture with an ANCHOR — the row
-            // the press landed on — and what it selects is the range from that
+            // A drag through the list is ONE gesture with an ANCHOR â the row
+            // the press landed on â and what it selects is the range from that
             // anchor to the row under the pointer NOW, worked out afresh every
             // frame. Reversing direction therefore SHRINKS the range.
             //
@@ -4186,14 +4193,14 @@ fn render_interactive(
             // already in the set, so the list stopped answering the drag in
             // either direction (operator, 2026-08-17).
             //
-            // Tick boxes keep the crossing model — a sweep ticks each row it
+            // Tick boxes keep the crossing model â a sweep ticks each row it
             // crosses once, and crossing it again on the way back must not
-            // untick it — so they keep the touched set.
+            // untick it â so they keep the touched set.
             let sweep_id = ctrl_id.with("listbox-sweep");
             let drag_id = ctrl_id.with("listbox-drag");
             // Where the first row starts on screen, remembered from the frame
             // that drew it. The rows live inside a ScrollArea, so this is what
-            // lets a pointer — including one BEYOND either end of the list — be
+            // lets a pointer â including one BEYOND either end of the list â be
             // mapped onto a row before the rows are laid out again.
             let geom_id = ctrl_id.with("listbox-first-row");
             let (pointer_down, pointer_pressed, pointer_released, pointer_pos) = ui.input(|i| {
@@ -4229,8 +4236,8 @@ fn render_interactive(
             // Where a row that has just been chosen must be scrolled into view.
             let mut reveal: Option<usize> = None;
 
-            // Keyboard navigation. Registered on the control's own id — the one
-            // Tab traversal aims at — so egui keeps the focus alive, and
+            // Keyboard navigation. Registered on the control's own id â the one
+            // Tab traversal aims at â so egui keeps the focus alive, and
             // registered BEFORE the rows so the rows still own the pointer and
             // a row's double-click still reaches the row.
             let _list_focus = ui.interact(screen, ctrl_id, Sense::click());
@@ -4249,7 +4256,7 @@ fn render_interactive(
             // the list's OWN state rather than read from egui's focus.
             //
             // egui answers a plain arrow key itself, by moving focus to the
-            // widget lying in that direction — every row of this list is one, so
+            // widget lying in that direction â every row of this list is one, so
             // the first ArrowDown handed the keyboard to a row and the list
             // walked exactly one line and then went deaf. A list owns its
             // arrows; it takes them on a press inside itself (or a Tab onto it)
@@ -4398,7 +4405,7 @@ fn render_interactive(
                             // keep up with the hand: with egui's default eased
                             // scroll the view is still catching up several
                             // frames later, so a fast drag ends with the chosen
-                            // row well below the frame — which is exactly the
+                            // row well below the frame â which is exactly the
                             // "I cannot see what is selected" this fixes.
                             if reveal == Some(idx) {
                                 ui.scroll_to_rect_animation(
@@ -4407,16 +4414,16 @@ fn render_interactive(
                                     egui::style::ScrollAnimation::none(),
                                 );
                             }
-                            // The band spans the whole control — a highlight
-                            // stops at no inner margin — and is square-cornered
+                            // The band spans the whole control â a highlight
+                            // stops at no inner margin â and is square-cornered
                             // except where it meets the frame's own radius,
                             // which cuts it exactly as the border does.
                             // The band stops just SHORT of the border on every
-                            // side — the border stays visible and unbroken, with
+                            // side â the border stays visible and unbroken, with
                             // a hairline of background between it and the
                             // highlight. Reaching the frame instead painted the
                             // rim away at the first and last row.
-                            let mut band =
+                            let band =
                                 Rect::from_x_y_ranges(highlight_x, row.y_range()).intersect(inner);
                             let is_active = &active_item == item;
                             let is_selected = selected.iter().any(|s| s == item);
@@ -4425,20 +4432,12 @@ fn render_interactive(
                                 // it is rounded too, by what is left of the
                                 // radius once the inset is taken off: egui clips
                                 // to an axis-aligned rect, so a square band would
-                                // still cut across the arc.
-                                let inset_corner = (corner as f32 - HIGHLIGHT_INSET).max(0.0) as u8;
-                                let mut cr = egui::CornerRadius::ZERO;
-                                if band.top() <= inner.top() + 0.5 {
-                                    cr.nw = inset_corner;
-                                    cr.ne = inset_corner;
-                                }
-                                if band.bottom() >= inner.bottom() - 0.5 {
-                                    cr.sw = inset_corner;
-                                    cr.se = inset_corner;
-                                }
+                                // still cut across the arc. The ComboBox's
+                                // dropdown draws its bands through the same
+                                // helper, so the two cannot drift.
                                 row_painter.rect_filled(
                                     band,
-                                    cr,
+                                    paint::highlight_band_rounding(band, inner, corner),
                                     if is_active { active_fill } else { selected_fill },
                                 );
                             }
@@ -4496,8 +4495,8 @@ fn render_interactive(
                             );
 
                             // Tick boxes: a row is ticked while the button is
-                            // DOWN over it, not on release — that is what makes
-                            // a press-and-sweep tick a run of rows — and each
+                            // DOWN over it, not on release â that is what makes
+                            // a press-and-sweep tick a run of rows â and each
                             // row only once per gesture, so resting on one, or
                             // crossing it again on the way back, does not
                             // un-tick what the sweep just ticked.
@@ -4615,14 +4614,14 @@ fn render_interactive(
                         );
                         let prev = ui.put(
                             Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
-                            egui::Button::new("◀").frame(false),
+                            egui::Button::new("â").frame(false),
                         );
                         let next = ui.put(
                             Rect::from_min_size(
                                 area_pos + vec2(paint::CAL_W - paint::CAL_CELL, 0.0),
                                 vec2(paint::CAL_CELL, paint::CAL_NAV_H),
                             ),
-                            egui::Button::new("▶").frame(false),
+                            egui::Button::new("â¶").frame(false),
                         );
                         ui.painter().text(
                             area_pos + vec2(paint::CAL_W / 2.0, paint::CAL_NAV_H / 2.0),
@@ -4794,7 +4793,7 @@ fn render_interactive(
                 .collect();
             let column_widths: Vec<f32> =
                 column_measures.iter().map(|column| column.width).collect();
-            // 047 — under Elegance the *defaults* come from the palette, so a
+            // 047 â under Elegance the *defaults* come from the palette, so a
             // themed grid reads as one surface instead of a themed frame around
             // built-in blues. An explicitly set property still wins (R8).
             use crate::surface_theme::ColorToken as Tok;
@@ -4994,7 +4993,7 @@ fn render_interactive(
             // wheel: read AND *consume* the wheel so it never bleeds into the
             // containing ScrollArea (GroupBox / form). We remove the MouseWheel
             // events (for any event-based consumer) and zero this frame's scroll
-            // deltas — the ancestor ScrollArea reads `smooth_scroll_delta` in its
+            // deltas â the ancestor ScrollArea reads `smooth_scroll_delta` in its
             // `end()`, which runs after this content, so zeroing it here stops it.
             // Consumption is unconditional over the grid (even when the grid has
             // no overflow) so scrolling never leaks to the container; the clamps
@@ -5007,7 +5006,7 @@ fn render_interactive(
                         egui::Event::MouseWheel { delta, .. } => {
                             dx += delta.x;
                             dy += delta.y;
-                            false // consumed by the DataGrid — do not bubble up
+                            false // consumed by the DataGrid â do not bubble up
                         }
                         _ => true,
                     });
@@ -5500,7 +5499,7 @@ fn render_interactive(
                         painter.with_clip_rect(left_rect).text(
                             left_rect.center(),
                             Align2::CENTER_CENTER,
-                            "‹",
+                            "â¹",
                             FontId::proportional(12.0),
                             header_fg,
                         );
@@ -5526,7 +5525,7 @@ fn render_interactive(
                         painter.with_clip_rect(right_rect).text(
                             right_rect.center(),
                             Align2::CENTER_CENTER,
-                            "›",
+                            "âº",
                             FontId::proportional(12.0),
                             header_fg,
                         );
@@ -5595,13 +5594,13 @@ fn render_interactive(
             // BOTTOM corners (the header owns the rounded top corners). A fill that
             // reaches the grid's bottom-left / bottom-right corner is CLAMPED to the
             // grid rect and rounded to the grid radius, so nothing square pokes past
-            // the rounded background — this is what makes a DataGrid render rounded
+            // the rounded background â this is what makes a DataGrid render rounded
             // even when nested inside another container (where the backdrop
             // notch-mask can't be used).
             //
             // Clamping is essential: the last row's rect usually extends *past*
             // `screen.max.y` and is cut square by the body clip. CornerRadius that
-            // off-clip rect is invisible — so we intersect with the grid rect first,
+            // off-clip rect is invisible â so we intersect with the grid rect first,
             // then round the now-on-edge bottom corners.
             let grid_cr = paint::corner_radius(ctrl);
             // Fill `r` with `color`, staying behind the grid's rounded bottom
@@ -5721,17 +5720,17 @@ fn render_interactive(
                     let column_meta = advanced_grid.columns.get(col.index);
                     let value_rule =
                         column_meta.and_then(|column| column.value_style_rule_for(raw));
-                    // Cell background fallback chain: value-rule colour → column
-                    // colour → the grid's own appearance BackgroundColor (its flat
+                    // Cell background fallback chain: value-rule colour â column
+                    // colour â the grid's own appearance BackgroundColor (its flat
                     // underlay). The last step matters for cells whose visible
-                    // content doesn't cover the whole cell — a framed "pill" column
+                    // content doesn't cover the whole cell â a framed "pill" column
                     // (the inner-shape is inset), or plain text. Without it those
                     // gaps fall through to the frosted glass sheen and read grey
                     // instead of the solid appearance colour the user configured.
                     // When the grid is on the default (translucent) background,
                     // `grid_bg_underlay` is `None` and the gap stays glass.
                     // A fully-transparent colour (the column default `#00000000`)
-                    // is "unset", not "paint nothing" — filter it out at each step
+                    // is "unset", not "paint nothing" â filter it out at each step
                     // so the chain falls through to the grid's appearance
                     // background instead of short-circuiting on a 0-alpha colour.
                     let cell_bg = value_rule
@@ -5791,7 +5790,7 @@ fn render_interactive(
                                 // background image is, scaled by the control's own
                                 // Opacity. A fully-transparent cell colour (the
                                 // default) means "no explicit opacity", so the
-                                // image shows at the control opacity alone — a
+                                // image shows at the control opacity alone â a
                                 // column that only sets an image still renders.
                                 let col_alpha = paint::parse_hex(&column.background_color)
                                     .map(|c| c.a())
@@ -5902,7 +5901,7 @@ fn render_interactive(
                                     img_painter.image(tex.id(), dest, uv, Color32::WHITE);
                                 }
                             } else {
-                                // Missing/undecodable image → show the path so the
+                                // Missing/undecodable image â show the path so the
                                 // cell isn't silently blank.
                                 body_painter.with_clip_rect(cell_rect).text(
                                     pos2(cell_rect.min.x + 4.0, rrect.center().y),
@@ -6034,7 +6033,7 @@ fn render_interactive(
                         body_painter.text(
                             pos2(dropdown_rect.max.x - 9.0, dropdown_rect.center().y),
                             Align2::CENTER_CENTER,
-                            "▼",
+                            "â¼",
                             FontId::proportional(10.0),
                             cell_fg,
                         );
@@ -6251,7 +6250,7 @@ fn render_interactive(
                     // rounds the top corners to the same radius). egui can't dash a
                     // rounded corner, so a rounded grid uses a solid outline. Inset
                     // by half the stroke width so the line sits INSIDE the grid rect
-                    // — a centred stroke spills half a pixel past the edge, which
+                    // â a centred stroke spills half a pixel past the edge, which
                     // shows as a light rim bleeding outside the rounded corner.
                     painter.rect_stroke(
                         screen,
@@ -6414,7 +6413,7 @@ fn render_interactive(
                 painter.text(
                     pos2(screen.min.x + 8.0 + depth as f32 * 16.0, y),
                     Align2::LEFT_CENTER,
-                    format!("• {text}"),
+                    format!("â¢ {text}"),
                     FontId::proportional(12.0),
                     fg,
                 );
@@ -6444,7 +6443,7 @@ fn render_interactive(
             }
         }
         CT::MenuBar => {
-            // A menu's `Cursor` belongs to the things you point at — the titles
+            // A menu's `Cursor` belongs to the things you point at â the titles
             // on the bar and the items under them, not the bar's own backdrop.
             let menu_cursor = ctrl
                 .get_prop("Cursor")
@@ -6454,7 +6453,7 @@ fn render_interactive(
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::TRANSPARENT);
             // Historically the bar surface was drawn only when the developer
-            // set a colour — with none, the bar is bare and the form shows
+            // set a colour â with none, the bar is bare and the form shows
             // through. A flat theme has no frost to fall back on, so a theme
             // that supplies its own faces always lays its bar down; Liquid
             // Glass supplies none and keeps the original opt-in behaviour
@@ -6615,7 +6614,7 @@ fn render_interactive(
                                                 // Sub-menu indicator
                                                 if !item.items.is_empty() {
                                                     ui.label(
-                                                        egui::RichText::new("▸").color(item_fg),
+                                                        egui::RichText::new("â¸").color(item_fg),
                                                     );
                                                 }
                                             });
@@ -6721,7 +6720,7 @@ fn render_interactive(
                 painter.text(
                     screen.center(),
                     egui::Align2::CENTER_CENTER,
-                    "☰ MenuBar (empty)",
+                    "â° MenuBar (empty)",
                     FontId::proportional(12.0),
                     fg,
                 );
@@ -6730,8 +6729,8 @@ fn render_interactive(
         CT::ToolBar => {
             // The bar's own frame, from its own properties. It used to be a
             // hard-wired card the developer could not touch; the defaults now
-            // reproduce nothing at all — radius 10, no border, fully transparent
-            // — so a toolbar reads as buttons on the form until asked otherwise.
+            // reproduce nothing at all â radius 10, no border, fully transparent
+            // â so a toolbar reads as buttons on the form until asked otherwise.
             let radius = paint::corner_radius(ctrl);
             let transparency = sv(ctrl, "Transparency")
                 .parse::<i64>()
@@ -6776,7 +6775,7 @@ fn render_interactive(
                 );
             }
             // Groups of buttons, drawn by the ONE toolbar renderer, then made
-            // pressable. A button's `enabled` is its own — separate from the
+            // pressable. A button's `enabled` is its own â separate from the
             // toolbar control's, which gates the lot.
             let def = crate::toolbar::ToolbarDef::from_control(ctrl);
             let pointer = ui.ctx().pointer_latest_pos();
@@ -6799,7 +6798,7 @@ fn render_interactive(
             let live = under.as_deref().filter(|id| {
                 enabled && def.button(id).is_some_and(|b| b.enabled)
             });
-            // Redraw with the pointer state now that it is known — cheap, and it
+            // Redraw with the pointer state now that it is known â cheap, and it
             // keeps hover/press feedback in the shared renderer rather than
             // duplicating the face logic here.
             if live.is_some() {
@@ -6831,7 +6830,7 @@ fn render_interactive(
                         ));
                     }
                     // The form always hears about the press, whatever else
-                    // happens — a handler may want to log it, or refuse it.
+                    // happens â a handler may want to log it, or refuse it.
                     //
                     // WHICH button it was arrives as `LastButton` on the toolbar,
                     // written before the event so a handler reading
@@ -6845,9 +6844,9 @@ fn render_interactive(
                     ));
                     out.events
                         .push(UiEvent::with_value(id, "onClick", &button_id));
-                    // …and the BUTTON's own `onClick`, under the id it answers
+                    // â¦and the BUTTON's own `onClick`, under the id it answers
                     // to outside this toolbar. A button is not a `Control`, so
-                    // nothing in `form.controls` names it — this derived id is
+                    // nothing in `form.controls` names it â this derived id is
                     // what the generated event loop dispatches on, and the only
                     // reason `procedure:` and `open-modal:` can reach anything.
                     // It is fired for EVERY press: the loop simply has no `WHEN`
@@ -6886,8 +6885,8 @@ fn render_interactive(
             }
         }
         CT::PictureBox => {
-            // Render through `draw_control` with a pre-loaded texture — the SAME
-            // path the designer canvas uses — so the image is tinted/framed
+            // Render through `draw_control` with a pre-loaded texture â the SAME
+            // path the designer canvas uses â so the image is tinted/framed
             // identically and is never dimmed or washed-out relative to the canvas
             // (spec 017 parity). `draw_picturebox` used a different tint + frame.
             let source = sv(ctrl, "ImagePath").trim().to_owned();
@@ -6965,7 +6964,7 @@ fn render_interactive(
             // A Timer's on/off is its own `Enabled` *property* (default true), NOT
             // the generic control-enabled chrome flag: a non-visual control can
             // carry `enabled="false"` in the .cfrm yet still be an active timer
-            // (codegen agrees — it seeds WS-<timer>-ENABLED from this property).
+            // (codegen agrees â it seeds WS-<timer>-ENABLED from this property).
             let timer_on = prop_bool(ctrl, "Enabled", true);
             if timer_on {
                 let interval_s = sv(ctrl, "Interval")
@@ -6979,7 +6978,7 @@ fn render_interactive(
                 // A frame that lands a WHISKER before the deadline has still met
                 // it. Repaint scheduling is a hint with millisecond granularity,
                 // and the clock arithmetic is binary floating point, so "early by
-                // a microsecond" is routine — and without this it cost a whole
+                // a microsecond" is routine â and without this it cost a whole
                 // interval. The allowance never affects the RATE, because the
                 // schedule below advances by exactly one interval either way; it
                 // only decides which frame carries the tick.
@@ -6996,8 +6995,8 @@ fn render_interactive(
                         //
                         // Storing `now` re-bases the whole cadence on whenever the
                         // frame happened to land, so a frame arriving a hair early
-                        // — which is what floating-point time and a repaint hint
-                        // guarantee will happen — cost a WHOLE interval. Measured:
+                        // â which is what floating-point time and a repaint hint
+                        // guarantee will happen â cost a WHOLE interval. Measured:
                         // a 100 ms Timer fired 182 times in 300 intervals, and the
                         // losses read exactly like a timer quietly giving up.
                         //
@@ -7016,7 +7015,7 @@ fn render_interactive(
                     }
                     Some(last) => last,
                 };
-                // Wake exactly when the NEXT tick is due — not every interval/4.
+                // Wake exactly when the NEXT tick is due â not every interval/4.
                 // Between ticks the form sleeps, so a heavy form no longer
                 // re-renders at ~14 fps merely to poll a 250 ms timer (that pegged
                 // the CPU). A small floor avoids a zero-delay spin.
@@ -7034,7 +7033,7 @@ fn render_interactive(
         | CT::AreaChart
         | CT::ScatterChart
         | CT::DonutChart => {
-            // Charts render through the SAME path as the designer (draw_control →
+            // Charts render through the SAME path as the designer (draw_control â
             // chart painter) so the running chart matches the canvas (spec 017).
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             // spec 021: onDataChanged when the chart's data-bearing properties
@@ -7060,7 +7059,7 @@ fn render_interactive(
             }
         }
         CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
-            // Non-visual — nothing to draw.
+            // Non-visual â nothing to draw.
         }
         CT::ProgressBar => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
@@ -7083,9 +7082,9 @@ fn render_interactive(
                 ui.ctx().memory_mut(|m| m.data.insert_temp(mem, value));
             }
         }
-        // Faces whose designer rendering IS the real face (Label, Panel, Shape, …).
-        // 049 — the sidebar is LIVE in interactive surfaces (preview, run):
-        // the ☰ toggles the rail and items click. The `Collapsed` live state
+        // Faces whose designer rendering IS the real face (Label, Panel, Shape, â¦).
+        // 049 â the sidebar is LIVE in interactive surfaces (preview, run):
+        // the â° toggles the rail and items click. The `Collapsed` live state
         // drives what the shared painter draws, so preview and Run Form show
         // the same rail the shell shows.
         CT::SideMenu => {
@@ -7146,7 +7145,7 @@ fn render_interactive(
             // One interaction per laid-out row, using that row's own rect.
             let mut toggle = false;
             let mut flip: Option<String> = None;
-            // A menu's `Cursor` is about its ROWS — the control itself is a
+            // A menu's `Cursor` is about its ROWS â the control itself is a
             // pane you never point at. It reached nothing before, because only
             // the controls that own a single response ever applied it.
             let row_cursor = ctrl
@@ -7164,7 +7163,7 @@ fn render_interactive(
                 }
                 match &row.kind {
                     // The header IS the toggle, so an empty menu still
-                    // collapses — the operator's standing requirement.
+                    // collapses â the operator's standing requirement.
                     crate::sidebar::RowKind::Header => toggle = true,
                     crate::sidebar::RowKind::Item { id: item_id, path, .. } => {
                         let Some(item) = crate::sidebar::item_at(items, path) else {
@@ -7223,10 +7222,10 @@ mod tests {
         c
     }
 
-    // ── CORNER GUARDIAN regression tests ─────────────────────────────────────
+    // ââ CORNER GUARDIAN regression tests âââââââââââââââââââââââââââââââââââââ
     // These pin the rule that the notch mask must only touch corners a child
     // actually reaches; if they fail, a clean container corner is being masked
-    // (painted over) again — the bug corner_notch_rounding was added to stop.
+    // (painted over) again â the bug corner_notch_rounding was added to stop.
 
     #[test]
     fn corner_notch_guardian_leaves_clean_corners_untouched() {
@@ -7238,7 +7237,7 @@ mod tests {
         let cont = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
         let mut rects = HashMap::new();
         rects.insert("PANEL".to_string(), cont);
-        // Child parked in the middle — reaches no corner.
+        // Child parked in the middle â reaches no corner.
         rects.insert(
             "CHILD".to_string(),
             Rect::from_min_size(pos2(80.0, 60.0), Vec2::new(40.0, 20.0)),
@@ -7247,7 +7246,7 @@ mod tests {
         assert_eq!(
             r,
             egui::CornerRadius::ZERO,
-            "no child at any corner ⇒ NOTHING masked (panel keeps its own corners)"
+            "no child at any corner â NOTHING masked (panel keeps its own corners)"
         );
     }
 
@@ -7267,13 +7266,13 @@ mod tests {
             Rect::from_min_size(pos2(0.0, 140.0), Vec2::new(30.0, 20.0)),
         );
         let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
-        assert_eq!(r.sw, 20, "child in bottom-left ⇒ SW masked");
-        assert_eq!(r.nw, 0, "NW is clean ⇒ untouched");
-        assert_eq!(r.ne, 0, "NE is clean ⇒ untouched");
-        assert_eq!(r.se, 0, "SE is clean ⇒ untouched");
+        assert_eq!(r.sw, 20, "child in bottom-left â SW masked");
+        assert_eq!(r.nw, 0, "NW is clean â untouched");
+        assert_eq!(r.ne, 0, "NE is clean â untouched");
+        assert_eq!(r.se, 0, "SE is clean â untouched");
     }
 
-    /// Which of the four corner squares of a 200×150 / r=20 panel a restore stroke
+    /// Which of the four corner squares of a 200Ã150 / r=20 panel a restore stroke
     /// landed in, derived from each stroke shape's clip rect. Restore clips each
     /// corner's rim to that corner's square, so the clip rect names the corner.
     fn restored_corners(rect: Rect, r: f32, masked: egui::CornerRadius) -> std::collections::BTreeSet<&'static str> {
@@ -7325,13 +7324,13 @@ mod tests {
     fn restore_outline_only_touches_masked_corners() {
         // Regression: `restore_container_outline` used to redraw the rim on ALL four
         // corners unconditionally, double-stroking the face's own rim on corners the
-        // (now per-corner) notch mask left clean — a light spur at the corner
+        // (now per-corner) notch mask left clean â a light spur at the corner
         // (visible on databound DataGrids / dropshadowed cards after egui 0.35).
         let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
         let r = 20.0;
         let cr = crate::paint::cr8(r);
 
-        // Only the SW corner masked ⇒ only SW restored.
+        // Only the SW corner masked â only SW restored.
         let sw_only = egui::CornerRadius { nw: 0, ne: 0, se: 0, sw: cr };
         let hit = restored_corners(rect, r, sw_only);
         assert_eq!(
@@ -7340,11 +7339,11 @@ mod tests {
             "restore must touch ONLY the masked (SW) corner, never the clean ones",
         );
 
-        // Nothing masked ⇒ nothing restored (no spur on a container with a clean rim).
+        // Nothing masked â nothing restored (no spur on a container with a clean rim).
         let hit = restored_corners(rect, r, egui::CornerRadius::ZERO);
         assert!(
             hit.is_empty(),
-            "no corner masked ⇒ restore must be a no-op, saw {hit:?}",
+            "no corner masked â restore must be a no-op, saw {hit:?}",
         );
     }
 
@@ -7360,7 +7359,7 @@ mod tests {
             v[0].y > 0.5 && v[1].y < 99.5,
             "near-edge vertical line must clip away from the corners, got {v:?}"
         );
-        // A separator in the middle clears the corners → untouched.
+        // A separator in the middle clears the corners â untouched.
         let mid = clip_datagrid_line_to_corners(rect, r, [pos2(100.0, 0.0), pos2(100.0, 100.0)]);
         assert_eq!(mid, [pos2(100.0, 0.0), pos2(100.0, 100.0)]);
         // A horizontal line hugging the bottom is pulled in at both ends.
@@ -7387,9 +7386,9 @@ mod tests {
     #[test]
     fn repeating_group_expands_into_runtime_instances() {
         let expanded = expand_repeating_groups(&bound_repeating_group(3)).expect("should expand");
-        // 3 instances × 2 controls.
+        // 3 instances Ã 2 controls.
         assert_eq!(expanded.len(), 6);
-        // Every instance — including the first — uses the group-prefixed scheme
+        // Every instance â including the first â uses the group-prefixed scheme
         // (task 1): no clone keeps the bare designed id.
         assert!(expanded.iter().all(|c| c.id != "CARD" && c.id != "NAME"));
         // Instance 1 at the origin; group id "CARD.CARD-1", member "CARD.CARD-1.NAME".
@@ -7480,7 +7479,7 @@ mod tests {
             d,
         );
         assert!(de.dy == 0.0 && !done, "card 2 dealt to its final spot");
-        // Deal off-screen: no phantom fly-in — placed at final immediately.
+        // Deal off-screen: no phantom fly-in â placed at final immediately.
         let (dc, anim) = card_appear_transform(PlacementEffect::Deal, 5, d, (0.0, -280.0), true, d);
         assert!(
             dc.dy == 0.0 && !anim,
@@ -7555,7 +7554,7 @@ mod tests {
     #[test]
     fn unbound_repeating_group_shows_one_template() {
         use crate::model::PropValue;
-        // No DataSource → ItemCount is ignored; PreviewItemCount governs (default 1).
+        // No DataSource â ItemCount is ignored; PreviewItemCount governs (default 1).
         let mut group = ctrl("CARD", ControlType::GroupBox, 0, 0, 200, 60);
         group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
         group.set_prop("ItemCount", PropValue::Int(0));
@@ -7569,7 +7568,7 @@ mod tests {
 
     #[test]
     fn even_tile_centers_balances_margins() {
-        // 100px wide, nominal 12 → round(8.33)=8 cells, spacing 12.5.
+        // 100px wide, nominal 12 â round(8.33)=8 cells, spacing 12.5.
         let centers = even_tile_centers(0.0, 100.0, 12.0);
         assert_eq!(centers.len(), 8);
         // Leading and trailing margins are equal (half a cell), not a fixed offset.
@@ -7593,7 +7592,7 @@ mod tests {
 
     #[test]
     fn backdrop_color_black_becomes_navy() {
-        // Unset / pure black ⇒ default dark navy (matches preview + run).
+        // Unset / pure black â default dark navy (matches preview + run).
         assert_eq!(
             backdrop_color("#00000000", 0),
             Color32::from_rgba_premultiplied(20, 22, 45, 255)
@@ -7645,7 +7644,7 @@ mod tests {
                 egui::Vec2::ZERO,
             )
         };
-        let (border, rad) = mk(&controls).expect("rounded parent → border clip");
+        let (border, rad) = mk(&controls).expect("rounded parent â border clip");
         assert_eq!(
             border,
             Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0))
@@ -7708,7 +7707,7 @@ mod tests {
                 && (clip.min.y - expected.min.y).abs() < 0.01
                 && (clip.max.x - expected.max.x).abs() < 0.01
                 && (clip.max.y - expected.max.y).abs() < 0.01,
-            "clip must match fixed_panel ∩ (card_content - scroll)"
+            "clip must match fixed_panel â© (card_content - scroll)"
         );
 
         // Prove the shift was applied to the card part: an unshifted card clip
@@ -7890,7 +7889,7 @@ mod tests {
     }
 
     /// Operator rule (2026-07-30): the form keeps the size its author gave
-    /// it, but its gradient / background image follows the WINDOW — over the
+    /// it, but its gradient / background image follows the WINDOW â over the
     /// whole thing when the user maximizes or drags it bigger, and never
     /// cropped below the form when the window is dragged smaller. Editing
     /// surfaces (no window) keep the backdrop pinned to the form.
@@ -7903,7 +7902,7 @@ mod tests {
         let big = Vec2::new(1920.0, 1080.0);
         assert_eq!(backdrop_size(form, Some(big)), big);
         // Dragged smaller: clamped at the form, so the background is not
-        // cropped to the window — the form scrolls inside it.
+        // cropped to the window â the form scrolls inside it.
         assert_eq!(backdrop_size(form, Some(Vec2::new(400.0, 300.0))), form);
         // Mixed axes are handled independently.
         assert_eq!(
@@ -7911,7 +7910,7 @@ mod tests {
             Vec2::new(1600.0, 600.0)
         );
         println!(
-            "backdrop: form {form:?}, maximized ⇒ {:?}, shrunk ⇒ {:?}, mixed ⇒ {:?}",
+            "backdrop: form {form:?}, maximized â {:?}, shrunk â {:?}, mixed â {:?}",
             backdrop_size(form, Some(big)),
             backdrop_size(form, Some(Vec2::new(400.0, 300.0))),
             backdrop_size(form, Some(Vec2::new(1600.0, 300.0)))
@@ -7935,7 +7934,7 @@ mod tests {
         }
     }
 
-    /// Every text run painted for `controls`, with its colour — used to answer
+    /// Every text run painted for `controls`, with its colour â used to answer
     /// "did the new caption reach the screen, and can it be read there?".
     fn painted_text(controls: &[Control], backdrop_hex: &str) -> Vec<(String, Color32)> {
         use collect_text as collect;
@@ -7976,8 +7975,8 @@ mod tests {
         out
     }
 
-    /// Like [`painted_text`], but Interactive — the mode where the widget-backed
-    /// controls (a ListBox's items, …) paint anything at all.
+    /// Like [`painted_text`], but Interactive â the mode where the widget-backed
+    /// controls (a ListBox's items, â¦) paint anything at all.
     fn painted_text_interactive(controls: &[Control]) -> Vec<(String, Color32)> {
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
@@ -8115,7 +8114,7 @@ mod tests {
     /// A control you drop on the canvas must be big enough for the caption it
     /// arrives with, at the font it arrives with. The caption branches shrink
     /// the font to fit rather than spill over the border, so a frame a couple of
-    /// pixels too short quietly renders its default caption at 12 or 10 pt — the
+    /// pixels too short quietly renders its default caption at 12 or 10 pt â the
     /// developer sees a control whose text is smaller than the `FontSize` the
     /// properties pane reports.
     #[test]
@@ -8127,7 +8126,7 @@ mod tests {
         // The controls that arrive carrying text. The ones whose content is
         // empty by default (a TextBox, a ComboBox, a GroupBox) are given some,
         // since the question is whether the FRAME fits a line of the default
-        // font — not whether the control happens to start out blank.
+        // font â not whether the control happens to start out blank.
         for (t, seed) in [
             (ControlType::Button, None),
             (ControlType::Label, None),
@@ -8172,7 +8171,7 @@ mod tests {
                     caption.font
                 ));
             }
-            // …and having kept its size, it must also fit inside the frame
+            // â¦and having kept its size, it must also fit inside the frame
             // rather than run under the border and get clipped. A GroupBox is
             // the one exception by design: its caption sits ON the top border,
             // in the notch, which is what makes it read as a group.
@@ -8201,13 +8200,13 @@ mod tests {
     }
 
     /// Narrow a DateTimePicker past what its `DD/MM/YYYY` mask needs and the
-    /// mask is cut from the RIGHT: you keep the start of the value. Centred — as
-    /// every over-long caption used to be — it was cut at BOTH ends and showed
+    /// mask is cut from the RIGHT: you keep the start of the value. Centred â as
+    /// every over-long caption used to be â it was cut at BOTH ends and showed
     /// the middle, which reads as a different date rather than a truncated one.
     #[test]
     fn a_narrowed_datetimepicker_loses_its_mask_from_the_right() {
         // Narrow, and holding a value long enough that it cannot fit even at the
-        // 6 pt floor the caption branch shrinks to — the case where the clip is
+        // 6 pt floor the caption branch shrinks to â the case where the clip is
         // what the developer actually sees.
         let mut dtp = ctrl("DateTimePicker-1", ControlType::DateTimePicker, 20, 20, 48, 22);
         dtp.set_prop(
@@ -8223,7 +8222,7 @@ mod tests {
 
         assert!(
             mask.ink.left() >= field.left() - 1.0,
-            "the value must never hang off the LEFT of its frame — what a narrow \
+            "the value must never hang off the LEFT of its frame â what a narrow \
              field loses is the TAIL: ink {:?}, field {}..{}",
             mask.ink,
             field.left(),
@@ -8231,7 +8230,7 @@ mod tests {
         );
 
         println!(
-            "\n  DateTimePicker — {:?} needs {:.0}px in a {:.0}px field: it starts at \
+            "\n  DateTimePicker â {:?} needs {:.0}px in a {:.0}px field: it starts at \
              x={:.0} (field starts at {:.0}), so the clip takes the tail\n",
             mask.text,
             mask.ink.width(),
@@ -8241,7 +8240,7 @@ mod tests {
         );
     }
 
-    /// Every filled rectangle painted for `controls`, with its corner radius —
+    /// Every filled rectangle painted for `controls`, with its corner radius â
     /// for questions about a highlight's shape.
     fn painted_bands(controls: &[Control]) -> Vec<(Rect, egui::CornerRadius, Color32)> {
         fn collect(shape: &egui::Shape, out: &mut Vec<(Rect, egui::CornerRadius, Color32)>) {
@@ -8285,7 +8284,7 @@ mod tests {
         out
     }
 
-    /// The highlight spans the list's whole width and is square — except where
+    /// The highlight spans the list's whole width and is square â except where
     /// it meets the frame's own rounded corner, which must cut it exactly as the
     /// border is cut. egui clips to an axis-aligned rect, so a highlight left to
     /// itself paints straight through the arc and out past the border, which is
@@ -8297,7 +8296,7 @@ mod tests {
             "Items",
             crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
         );
-        // Alpha is the ACTIVE row — the first one, against the top corners.
+        // Alpha is the ACTIVE row â the first one, against the top corners.
         lb.set_prop("Value", crate::PropValue::String("Alpha".to_owned()));
         lb.set_prop("CornerRadius", crate::PropValue::Int(8));
 
@@ -8306,7 +8305,7 @@ mod tests {
         let frame = *placed.get("ListBox-1").expect("placed");
 
         // The highlight: a band as wide as the control, in the top half.
-        // Wide — but stopping short of the border, which stays visible.
+        // Wide â but stopping short of the border, which stays visible.
         let inset = 1.0 + 2.0; // BorderWidth 1 + the hairline
         let band = bands
             .iter()
@@ -8323,7 +8322,7 @@ mod tests {
         );
         assert!(
             rect.top() > frame.top() + 0.5,
-            "…including at the top row: {rect:?} in {frame:?}"
+            "â¦including at the top row: {rect:?} in {frame:?}"
         );
         assert!(
             corner.nw > 0 && corner.ne > 0,
@@ -8332,11 +8331,11 @@ mod tests {
         assert_eq!(
             (corner.sw, corner.se),
             (0, 0),
-            "…and the inner edge stays square, got {corner:?}"
+            "â¦and the inner edge stays square, got {corner:?}"
         );
 
         println!(
-            "\n  ListBox highlight — {}px wide inside a {}px control, starting {}px below the \
+            "\n  ListBox highlight â {}px wide inside a {}px control, starting {}px below the \
              top border; corners nw/ne={}/{} follow the arc, sw/se square\n",
             rect.width(),
             frame.width(),
@@ -8348,7 +8347,7 @@ mod tests {
 
     /// A list with `MultiSelect` builds a set with Ctrl (Cmd on a Mac): each
     /// held click adds a row or takes it out again, and a plain click starts
-    /// over with one. The active row — the one the cursor is on — stays a
+    /// over with one. The active row â the one the cursor is on â stays a
     /// separate thing from the set, which is why they are separate properties.
     #[test]
     fn ctrl_click_builds_a_listbox_selection() {
@@ -8364,7 +8363,7 @@ mod tests {
         let top = 28.0 + crate::model::LIST_FRAME_PAD;
         let row_at = |n: usize| pos2(120.0, top + pitch * (n as f32 + 0.5));
 
-        // A held Ctrl is a modifier state that spans frames — released in the
+        // A held Ctrl is a modifier state that spans frames â released in the
         // SAME batch, egui reports the end-of-batch state and the click reads
         // as unmodified, exactly as it would if the user let go too early.
         let held = Modifiers {
@@ -8388,11 +8387,11 @@ mod tests {
         let (_, overrides) = drive(
             &[lb],
             vec![
-                // Plain click on Alpha…
+                // Plain click on Alphaâ¦
                 (0.0, vec![Event::PointerMoved(row_at(0))]),
                 (0.05, vec![press(row_at(0))]),
                 (0.10, vec![release(row_at(0))]),
-                // …then Ctrl goes down and stays down for three clicks.
+                // â¦then Ctrl goes down and stays down for three clicks.
                 (0.15, vec![Event::ModifiersChanged(held)]),
                 (0.20, vec![Event::PointerMoved(row_at(2)), press_at(row_at(2))]),
                 (0.25, vec![release_at(row_at(2))]),
@@ -8413,13 +8412,13 @@ mod tests {
         assert_eq!(
             props.get("Value").map(String::as_str),
             Some("Gamma"),
-            "the ACTIVE row is the last one clicked — the cursor lands on a row \
+            "the ACTIVE row is the last one clicked â the cursor lands on a row \
              whether the Ctrl-click added it or took it out"
         );
 
         println!(
-            "\n  ListBox multi-select — click Alpha, Ctrl-click Gamma, Delta, then Gamma \
-             again ⇒ SelectedItems \"Alpha, Delta\"; the cursor is on Gamma, which is the \
+            "\n  ListBox multi-select â click Alpha, Ctrl-click Gamma, Delta, then Gamma \
+             again â SelectedItems \"Alpha, Delta\"; the cursor is on Gamma, which is the \
              row it last touched\n"
         );
     }
@@ -8469,7 +8468,7 @@ mod tests {
         assert_eq!(
             props.get("SelectedItems").map(String::as_str),
             None,
-            "…but the Ctrl-click selection is untouched: with tick boxes on, the \
+            "â¦but the Ctrl-click selection is untouched: with tick boxes on, the \
              ticks are the set"
         );
         assert!(
@@ -8478,14 +8477,14 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox tick boxes — a plain click on Delta then Beta ⇒ CheckedItems \
+            "\n  ListBox tick boxes â a plain click on Delta then Beta â CheckedItems \
              \"Delta, Beta\", with no modifier held\n"
         );
     }
 
     /// One radio at a time. A radio turned itself on when clicked and nothing
     /// ever turned the others off, so a group could show two, three, every
-    /// button selected at once — and the form had no way to say which the
+    /// button selected at once â and the form had no way to say which the
     /// operator meant.
     #[test]
     fn only_the_last_clicked_radio_in_a_group_stays_on() {
@@ -8514,7 +8513,7 @@ mod tests {
                 (0.05, vec![press(at(50))]),
                 (0.10, vec![release(at(50))]),
                 (0.15, vec![]),
-                // …then a third, so the one just lit goes out too.
+                // â¦then a third, so the one just lit goes out too.
                 (0.20, vec![Event::PointerMoved(at(80))]),
                 (0.25, vec![press(at(80))]),
                 (0.30, vec![release(at(80))]),
@@ -8546,7 +8545,7 @@ mod tests {
         assert_eq!(unchecks, vec!["CASH", "CARD"], "got {unchecks:?}");
 
         println!(
-            "\n  radio groups — clicking CARD then WIRE leaves WIRE on, CASH and CARD off, \
+            "\n  radio groups â clicking CARD then WIRE leaves WIRE on, CASH and CARD off, \
              and the ENVIO group untouched; onUncheck fired once per button that was lit\n"
         );
     }
@@ -8614,12 +8613,12 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox sweep — pressing on row 1 and dragging to row 4 selects all four; \
+            "\n  ListBox sweep â pressing on row 1 and dragging to row 4 selects all four; \
              with tick boxes, the same sweep ticks them\n"
         );
     }
 
-    /// Reversing a drag SHRINKS the selection — it does not freeze the list
+    /// Reversing a drag SHRINKS the selection â it does not freeze the list
     /// (operator, 2026-08-17).
     ///
     /// The sweep used to accumulate every row a press had touched and never let
@@ -8689,14 +8688,14 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox drag — press on row 0, down to row 3 and back to row 1 leaves \
+            "\n  ListBox drag â press on row 0, down to row 3 and back to row 1 leaves \
              Alpha+Beta selected with Beta active (the reversal is answered, not frozen); \
              dragging far above the control holds at the first element\n"
         );
     }
 
     /// [`drive`], but it also hands back what the LAST frame painted and where
-    /// the controls landed — for the questions that are about what the operator
+    /// the controls landed â for the questions that are about what the operator
     /// can see, not about what the form was told.
     /// Everything the last frame put on the screen, for the questions that are
     /// about what the operator can SEE.
@@ -8705,7 +8704,10 @@ mod tests {
         texts: Vec<PaintedText>,
         /// Every filled rectangle, with the colour it was filled with.
         fills: Vec<(Rect, Color32)>,
-        /// The bounds of every mesh — a gradient is one.
+        /// Every filled rectangle with its corner radii too â what the corner
+        /// guards need, since a band's silhouette is its rect AND its arc.
+        bands: Vec<(Rect, egui::CornerRadius, Color32)>,
+        /// The bounds of every mesh â a gradient is one.
         meshes: Vec<Rect>,
         placed: Map<String, Rect>,
     }
@@ -8714,13 +8716,17 @@ mod tests {
         fn collect_faces(
             shape: &egui::Shape,
             fills: &mut Vec<(Rect, Color32)>,
+            bands: &mut Vec<(Rect, egui::CornerRadius, Color32)>,
             meshes: &mut Vec<Rect>,
         ) {
             match shape {
-                egui::Shape::Rect(r) if r.fill.a() > 0 => fills.push((r.rect, r.fill)),
+                egui::Shape::Rect(r) if r.fill.a() > 0 => {
+                    fills.push((r.rect, r.fill));
+                    bands.push((r.rect, r.corner_radius, r.fill));
+                }
                 egui::Shape::Mesh(m) => meshes.push(m.calc_bounds()),
                 egui::Shape::Vec(v) => {
-                    v.iter().for_each(|s| collect_faces(s, fills, meshes))
+                    v.iter().for_each(|s| collect_faces(s, fills, bands, meshes))
                 }
                 _ => {}
             }
@@ -8757,6 +8763,7 @@ mod tests {
         let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
         let mut painted: Vec<PaintedText> = Vec::new();
         let mut fills: Vec<(Rect, Color32)> = Vec::new();
+        let mut bands: Vec<(Rect, egui::CornerRadius, Color32)> = Vec::new();
         let mut meshes: Vec<Rect> = Vec::new();
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
@@ -8796,10 +8803,11 @@ mod tests {
             });
             painted.clear();
             fills.clear();
+            bands.clear();
             meshes.clear();
             for cs in &full.shapes {
                 collect(&cs.shape, cs.clip_rect, &mut painted);
-                collect_faces(&cs.shape, &mut fills, &mut meshes);
+                collect_faces(&cs.shape, &mut fills, &mut bands, &mut meshes);
             }
             full.textures_delta.clear();
             for (id, key, value) in updates.into_inner() {
@@ -8814,12 +8822,13 @@ mod tests {
             overrides: overrides.into_inner(),
             texts: painted,
             fills,
+            bands,
             meshes,
             placed: placed.into_inner(),
         }
     }
 
-    /// A ListBox wears the background the RAD gave it — a colour or a gradient
+    /// A ListBox wears the background the RAD gave it â a colour or a gradient
     /// (operator, 2026-08-18).
     ///
     /// The running list painted a hardcoded navy surface over its own face, so
@@ -8861,7 +8870,7 @@ mod tests {
             "the hardcoded navy must be gone: {face:?}"
         );
 
-        // A designed GRADIENT — the operator's own case, grey to black going
+        // A designed GRADIENT â the operator's own case, grey to black going
         // south. A gradient is a mesh; the hardcoded surface never made one.
         let mut grad = lb.clone();
         grad.set_prop("BackgroundGradientEnabled", crate::PropValue::Bool(true));
@@ -8892,11 +8901,11 @@ mod tests {
                 .fills
                 .iter()
                 .any(|(r, c)| *c == HARDCODED_NAVY && r.intersect(frame).is_positive()),
-            "…and nothing paints over it"
+            "â¦and nothing paints over it"
         );
 
         println!(
-            "\n  ListBox background — a designed #B00000 reaches the face, a designed \
+            "\n  ListBox background â a designed #B00000 reaches the face, a designed \
              grey-to-black South gradient is painted as a mesh across the control, and the \
              hardcoded navy that used to cover both is gone\n"
         );
@@ -8904,13 +8913,13 @@ mod tests {
 
     /// The two highlights a list draws are the developer's to name: the ACTIVE
     /// row's (`ActiveItemColor`) and the one the rest of a multi-select set
-    /// wears (`SelectedItemsColor`) — operator, 2026-08-18.
+    /// wears (`SelectedItemsColor`) â operator, 2026-08-18.
     ///
     /// Left unnamed they are what they always were, so an old form is
     /// untouched: the palette's own selection colour, and that colour half lit.
-    /// The palette is only the FALLBACK because it is not the same everywhere —
+    /// The palette is only the FALLBACK because it is not the same everywhere â
     /// the IDE's preview carries the IDE theme's selection colour and a
-    /// compiled binary carries egui's — so a list that names its highlight is
+    /// compiled binary carries egui's â so a list that names its highlight is
     /// the one thing that looks identical on all three surfaces.
     #[test]
     fn a_listbox_draws_the_selection_colours_it_was_given() {
@@ -8956,7 +8965,7 @@ mod tests {
             (rows[1].1, rows[0].1) // (active = Beta, selected = Alpha)
         };
 
-        // ── Named neither: the palette's colour, and that colour half lit ──
+        // ââ Named neither: the palette's colour, and that colour half lit ââ
         let (active, selected) = two_bands(&lb);
         assert_eq!(
             selected,
@@ -8964,7 +8973,7 @@ mod tests {
             "unnamed, the selection keeps the historical relationship to the active row"
         );
 
-        // ── Named both ────────────────────────────────────────────────────
+        // ââ Named both ââââââââââââââââââââââââââââââââââââââââââââââââââââ
         let mut named = lb.clone();
         named.set_prop(
             "ActiveItemColor",
@@ -8983,10 +8992,10 @@ mod tests {
         assert_eq!(
             selected_n,
             Color32::from_rgb(0x11, 0x66, 0x22),
-            "…and the named selection colour the rest of the set"
+            "â¦and the named selection colour the rest of the set"
         );
 
-        // ── Named the active one only: the dim follows it ─────────────────
+        // ââ Named the active one only: the dim follows it âââââââââââââââââ
         let mut active_only = lb.clone();
         active_only.set_prop(
             "ActiveItemColor",
@@ -9005,14 +9014,14 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox selection colours — unnamed: active {active:?} with the set at \
+            "\n  ListBox selection colours â unnamed: active {active:?} with the set at \
              {selected:?} ({}% lit); named: active #FF8800 and set #116622 both reach the \
              band; active-only: the set follows it to {selected_o:?}\n",
             (crate::paint::LIST_SELECTED_DIM * 100.0) as i32
         );
     }
 
-    /// Whatever moves the active row — a drag or an arrow — the row it lands on
+    /// Whatever moves the active row â a drag or an arrow â the row it lands on
     /// must be ON SCREEN when it gets there (operator, 2026-08-17).
     ///
     /// A list taller than its frame used to leave the operator selecting rows
@@ -9115,7 +9124,7 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox visibility — a {}-row list in a frame that holds {visible_rows}: a \
+            "\n  ListBox visibility â a {}-row list in a frame that holds {visible_rows}: a \
              drag past the bottom stops on Item-30 with Item-30 on screen, and ten ArrowDowns \
              land on Item-11 with Item-11 on screen\n",
             items.len()
@@ -9211,8 +9220,8 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox keys — click Alpha then ↓↓ ⇒ Gamma (SelectedIndex 2, \
-             onSelectedIndexChanged fired); ↑↑↑ from Beta stops at Alpha; ↓↓ from Delta \
+            "\n  ListBox keys â click Alpha then ââ â Gamma (SelectedIndex 2, \
+             onSelectedIndexChanged fired); âââ from Beta stops at Alpha; ââ from Delta \
              stays on Delta\n"
         );
     }
@@ -9243,14 +9252,14 @@ mod tests {
             );
         }
         println!(
-            "\n  ListBox clipping — at 26px, 40px and 60px tall, every painted item stays \
+            "\n  ListBox clipping â at 26px, 40px and 60px tall, every painted item stays \
              inside the control\n"
         );
     }
 
     /// A ListBox's lines are list lines: text plus a little air. Each item is an
-    /// egui widget, so left alone it took the HOST's chrome metrics — in the IDE
-    /// a 30 px minimum touch height and an 8 px gap — and a list of one-word
+    /// egui widget, so left alone it took the HOST's chrome metrics â in the IDE
+    /// a 30 px minimum touch height and an 8 px gap â and a list of one-word
     /// items was spaced out like a menu.
     #[test]
     fn listbox_lines_keep_a_natural_pitch_under_roomy_host_chrome() {
@@ -9286,7 +9295,7 @@ mod tests {
             );
         }
 
-        // A line is the text's own height plus a couple of pixels — nothing like
+        // A line is the text's own height plus a couple of pixels â nothing like
         // the host's 30 px + 8 px, which would put the pitch at 38.
         let line = texts
             .iter()
@@ -9301,13 +9310,13 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox lines — under 30px/8px host chrome the pitch is {pitch}px \
+            "\n  ListBox lines â under 30px/8px host chrome the pitch is {pitch}px \
              (a ~14px line plus air), not the host's 38px\n"
         );
     }
 
     /// Every rectangle painted for `controls` in Interactive mode, plus each
-    /// control's own screen rect — enough to answer "where did that scrollbar
+    /// control's own screen rect â enough to answer "where did that scrollbar
     /// end up, relative to the control it belongs to?".
     fn painted_rects_interactive(controls: &[Control]) -> (Vec<Rect>, Map<String, Rect>) {
         let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
@@ -9355,7 +9364,7 @@ mod tests {
 
     /// Clicking a toggle's CAPTION is a click on the toggle. The caption is the
     /// bigger target of the two and the one a developer's user aims at, so it
-    /// must set the state exactly as hitting the box or the circle does — in
+    /// must set the state exactly as hitting the box or the circle does â in
     /// every surface the engine drives.
     #[test]
     fn a_click_on_a_toggles_caption_is_a_click_on_the_toggle() {
@@ -9388,7 +9397,7 @@ mod tests {
         }
 
         println!(
-            "\n  toggle captions — a click at x=170 (well past the indicator) sets both \
+            "\n  toggle captions â a click at x=170 (well past the indicator) sets both \
              the CheckBox and the RadioButton\n"
         );
     }
@@ -9444,7 +9453,7 @@ mod tests {
 
     /// A Knob is the size it was DRAWN, and its value is centred under the dial.
     /// The widget this replaced picked one of three fixed pixel sizes whatever
-    /// the designed rect said, and laid its value out with egui — so the canvas
+    /// the designed rect said, and laid its value out with egui â so the canvas
     /// and the preview disagreed about both, and the reading sat off-centre.
     #[test]
     fn a_knob_fills_its_rect_and_centres_its_value() {
@@ -9476,7 +9485,7 @@ mod tests {
             );
             assert!(
                 rect.expand(1.0).contains_rect(val.ink),
-                "…and stay inside it: ink {:?}, control {:?}",
+                "â¦and stay inside it: ink {:?}, control {:?}",
                 val.ink,
                 rect
             );
@@ -9487,13 +9496,13 @@ mod tests {
             "a knob drawn bigger must BE bigger: {radii:?}"
         );
         println!(
-            "\n  Knob — 80x96 draws a dial of r={:.0}, 200x220 one of r={:.0}; \
+            "\n  Knob â 80x96 draws a dial of r={:.0}, 200x220 one of r={:.0}; \
              the value is centred on the control in both\n",
             radii[0].2, radii[1].2
         );
     }
 
-    /// …and it turns. The preview drives the same painter, so the knob has to
+    /// â¦and it turns. The preview drives the same painter, so the knob has to
     /// carry its own dragging: press on it and pull, and the value follows.
     #[test]
     fn a_knob_turns_when_dragged() {
@@ -9519,13 +9528,13 @@ mod tests {
             events.len()
         );
         println!(
-            "\n  Knob — a 40px upward drag on a 120px knob moved 50 → {}\n",
+            "\n  Knob â a 40px upward drag on a 120px knob moved 50 â {}\n",
             value.unwrap()
         );
     }
 
-    /// A Gauge paints with the colours the developer set — `ForegroundColor`
-    /// for the meter, `BackgroundColor` for its track — and keeps its reading
+    /// A Gauge paints with the colours the developer set â `ForegroundColor`
+    /// for the meter, `BackgroundColor` for its track â and keeps its reading
     /// clear of the band it reports. The palette widget it replaced took both
     /// colours from its own theme and dropped the reading at the control's
     /// centre, which on a Radial is the middle of the sweep.
@@ -9549,7 +9558,7 @@ mod tests {
             .find(|p| p.text.trim() == "60")
             .expect("the reading must be painted");
 
-        // Centred on the control, and in its upper half — inside the dial,
+        // Centred on the control, and in its upper half â inside the dial,
         // not down on the sweep's own centre line.
         assert!(
             (reading.ink.center().x - rect.center().x).abs() <= 2.0,
@@ -9578,7 +9587,7 @@ mod tests {
         );
 
         println!(
-            "\n  Gauge — meter #FFD400 and track #402060 both reach the painter; \
+            "\n  Gauge â meter #FFD400 and track #402060 both reach the painter; \
              the reading is centred at x={:.0} and clear of the band\n",
             reading.ink.center().x
         );
@@ -9638,7 +9647,7 @@ mod tests {
 
     /// A RadioButton's frame follows its own `BorderStyle`, seeded `None`. That
     /// property only ever governed the explicit border stroke, so the themed
-    /// card underneath still drew a rim around every radio — under every theme,
+    /// card underneath still drew a rim around every radio â under every theme,
     /// with nothing in the properties pane able to turn it off.
     #[test]
     fn a_radiobutton_paints_no_frame_of_its_own() {
@@ -9661,7 +9670,7 @@ mod tests {
             "a bare radio must paint no card or border of its own, got {framed:?}"
         );
 
-        // …and a developer who asks for a border with the property gets one.
+        // â¦and a developer who asks for a border with the property gets one.
         let mut bordered = bare;
         bordered.set_prop(
             "BorderStyle",
@@ -9675,7 +9684,7 @@ mod tests {
         );
 
         println!(
-            "\n  RadioButton — a {}x{} control with the seeded BorderStyle None paints no \
+            "\n  RadioButton â a {}x{} control with the seeded BorderStyle None paints no \
              frame; BorderStyle Single brings it back\n",
             r.width(),
             r.height()
@@ -9684,7 +9693,7 @@ mod tests {
 
     /// A ListBox's scrollbar belongs against its RIGHT border. The scroll area
     /// was left to shrink to its content, so the bar came to rest just past the
-    /// widest item — a white column through the middle of the list.
+    /// widest item â a white column through the middle of the list.
     #[test]
     fn a_listbox_scrollbar_sits_against_its_right_border() {
         let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 320, 120);
@@ -9703,7 +9712,7 @@ mod tests {
             .filter(|r| {
                 r.height() > r.width() * 3.0
                     && r.height() > 20.0
-                    // Inside the control's band — which rules out the scrolled
+                    // Inside the control's band â which rules out the scrolled
                     // CONTENT, taller than the list by definition (that is why
                     // there is a bar at all).
                     && r.height() <= list.height() + 1.0
@@ -9728,7 +9737,7 @@ mod tests {
         }
 
         println!(
-            "\n  ListBox scrollbar — control spans x {}..{}: bar centred at {}, \
+            "\n  ListBox scrollbar â control spans x {}..{}: bar centred at {}, \
              i.e. {:.0}px from the right border\n",
             list.left(),
             list.right(),
@@ -9740,7 +9749,7 @@ mod tests {
     /// A ListBox's items are egui widgets, so their text came from the AMBIENT
     /// visuals: the developer's `ForegroundColor` never reached them, which is
     /// how a list ended up drawn in a dim grey on a dark theme's well. They are
-    /// now painted like every other text this engine draws — the control's own
+    /// now painted like every other text this engine draws â the control's own
     /// colour, rescued to the pole that reads when it would not clear AA.
     #[test]
     fn listbox_items_are_painted_in_the_controls_own_colour() {
@@ -9779,7 +9788,7 @@ mod tests {
         );
 
         println!(
-            "\n  ListBox items — default paints {:?}; a chosen #FFD400 reaches the \
+            "\n  ListBox items â default paints {:?}; a chosen #FFD400 reaches the \
              item text instead of egui's ambient colour\n",
             default_colour
         );
@@ -9800,7 +9809,7 @@ mod tests {
         c
     }
 
-    /// A caption a handler just wrote IS painted — the write reaches the screen.
+    /// A caption a handler just wrote IS painted â the write reaches the screen.
     ///
     /// Pairs with cobolt-runtime's
     /// `setting_a_control_property_from_an_object_reference_emits_a_state_update`,
@@ -9816,13 +9825,13 @@ mod tests {
         );
     }
 
-    /// …and on that form it is painted WHITE onto a fully transparent
+    /// â¦and on that form it is painted WHITE onto a fully transparent
     /// backdrop, which is why it cannot be read.
     ///
     /// A Label's own face is transparent (it never paints its
     /// `BackgroundColor`), so its text sits on whatever the FORM shows. A form
     /// created with the default transparent background and a label created
-    /// with the default white foreground are invisible together — the COBOL is
+    /// with the default white foreground are invisible together â the COBOL is
     /// correct, the update arrives, the glyphs are drawn in white over nothing.
     #[test]
     fn white_text_on_a_transparent_backdrop_is_the_invisible_pairing() {
@@ -9834,10 +9843,10 @@ mod tests {
         assert_eq!(
             (colour.r(), colour.g(), colour.b()),
             (255, 255, 255),
-            "painted white — unreadable over a transparent form"
+            "painted white â unreadable over a transparent form"
         );
 
-        // A dark ForegroundColor — the fix — reaches the painter.
+        // A dark ForegroundColor â the fix â reaches the painter.
         let dark = painted_text(&[operator_label("1", "#202020")], "#00000000");
         let (_, dark_colour) = dark
             .iter()
@@ -9851,7 +9860,7 @@ mod tests {
 
     #[test]
     fn render_form_static_smoke() {
-        // Headless: a form with a Panel ⊃ Button renders without panic and reports
+        // Headless: a form with a Panel â Button renders without panic and reports
         // both control rects through the engine (parity foundation).
         let controls = vec![
             {
@@ -9898,7 +9907,7 @@ mod tests {
         // Parity invariant (spec 017 T8): the designer canvas entry `render_faces`
         // and the `render_form(Static)` entry used by every other surface must
         // agree on every control's on-screen geometry for a reference form
-        // (Panel ⊃ {AreaChart, PictureBox, TextBox} + a top-level Label). This is
+        // (Panel â {AreaChart, PictureBox, TextBox} + a top-level Label). This is
         // the guarantee that designer == preview == run == binary.
         let controls = vec![
             {
@@ -9970,7 +9979,7 @@ mod tests {
         }
     }
 
-    // ── Interaction simulation (Interactive mode) ─────────────────────────────
+    // ââ Interaction simulation (Interactive mode) âââââââââââââââââââââââââââââ
     // Drive the engine headlessly with simulated pointer/text/time input and
     // assert the neutral events + property updates it produces (T3 verification).
     use egui::{pos2, Event, Key, Modifiers, PointerButton, Pos2};
@@ -10044,7 +10053,7 @@ mod tests {
         ]
     }
 
-    /// A `FormState` over a per-control live-override map (id → key → value),
+    /// A `FormState` over a per-control live-override map (id â key â value),
     /// exactly how the run/compiled callers will drive the engine.
     struct MapState<'a>(&'a RefCell<Map<String, Map<String, String>>>);
     impl FormState for MapState<'_> {
@@ -10060,7 +10069,7 @@ mod tests {
     /// Run `frames` (each: simulated time + input events) through the engine in
     /// Interactive mode, applying prop updates between frames. Returns the events
     /// produced and the final override map.
-    /// Like [`drive`] but wraps the engine in `ScrollArea::both()` — the way the
+    /// Like [`drive`] but wraps the engine in `ScrollArea::both()` â the way the
     /// running form and compiled binary host it. Diagnoses whether the scroll
     /// area swallows a widget drag (slider).
     fn drive_scroll(
@@ -10093,7 +10102,7 @@ mod tests {
                         egui::ScrollArea::both()
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                // Content larger than the 1000×800 viewport → the scroll area
+                                // Content larger than the 1000Ã800 viewport â the scroll area
                                 // has scroll room, reproducing the binary where the form is
                                 // bigger than the window (drag-to-scroll can steal a drag).
                                 ui.set_min_size(Vec2::new(2000.0, 2000.0));
@@ -10202,7 +10211,7 @@ mod tests {
                             egui::ScrollArea::both()
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    // Content larger than the viewport → the outer area
+                                    // Content larger than the viewport â the outer area
                                     // has room to (wrongly) scroll if the grid bleeds.
                                     ui.set_min_size(Vec2::new(2000.0, 2000.0));
                                     let inp = RenderInput {
@@ -10255,7 +10264,7 @@ mod tests {
         );
 
         // Sanity: the same wheel with the pointer OUTSIDE the grid DOES scroll
-        // the outer area — proving the harness allows outer scrolling, so the
+        // the outer area â proving the harness allows outer scrolling, so the
         // assertion above is not vacuous.
         let (outer_y_off, _grid_y_off) = drive_datagrid_wheel(&[grid], pos2(600.0, 400.0));
         assert!(
@@ -10281,7 +10290,7 @@ mod tests {
                 Vec2::new(1000.0, 800.0),
             ));
             input.focused = true;
-            // Advance by small steps so a press→release across two frames still
+            // Advance by small steps so a pressârelease across two frames still
             // counts as a click (egui's max click duration), while clearing the
             // Timer's 10 ms interval.
             input.time = Some(i as f64 * 0.05);
@@ -10352,7 +10361,7 @@ mod tests {
         );
 
         // Click the SECOND button, from the model's own geometry rather than a
-        // hand-computed offset — the layout is what the painter used.
+        // hand-computed offset â the layout is what the painter used.
         let layout = def.layout(bar_w as i64, bar_h as i64);
         let (id, box2) = &layout[0].buttons[1];
         assert_eq!(id, "button-2");
@@ -10396,7 +10405,7 @@ mod tests {
             "the bar hears the press, then the button's own id does"
         );
 
-        // A press that lands on nothing raises nothing — the padding between the
+        // A press that lands on nothing raises nothing â the padding between the
         // frame and the first button is not a button.
         let gap = pos2(20.0 + 1.0, 20.0 + bar_h as f32 / 2.0);
         let (none, _) = drive(
@@ -10414,7 +10423,7 @@ mod tests {
         );
 
         println!(
-            "\n  Toolbar press — clicking button-2 of a 2-button group raises onClick on \
+            "\n  Toolbar press â clicking button-2 of a 2-button group raises onClick on \
              TOOLBAR-1 (value \"button-2\") AND on the derived id {derived}, and writes \
              LastButton; a press on the group's padding raises nothing\n"
         );
@@ -10424,7 +10433,7 @@ mod tests {
     /// event for the state it moved into.
     ///
     /// It used to be drawn by the palette crate's widget, which hard-codes a
-    /// 32x18 track and allocates exactly that — so a switch designed 200pt wide
+    /// 32x18 track and allocates exactly that â so a switch designed 200pt wide
     /// ran at 32pt, and only a click inside those 32pt registered. The designer
     /// and the running form disagreed about the same control.
     #[test]
@@ -10456,11 +10465,11 @@ mod tests {
         );
         assert!(
             n.contains(&"onCheckedChanged"),
-            "…and onCheckedChanged for the move itself; got {n:?}"
+            "â¦and onCheckedChanged for the move itself; got {n:?}"
         );
         assert!(
             !n.contains(&"onUncheck"),
-            "…but not the other direction; got {n:?}"
+            "â¦but not the other direction; got {n:?}"
         );
         assert_eq!(
             overrides.get("Sw").and_then(|m| m.get("Checked")).map(String::as_str),
@@ -10468,8 +10477,8 @@ mod tests {
             "the click must actually flip Checked"
         );
         println!(
-            "  Switch — clicked at x=160 of a 200pt control (outside the old \
-             32pt box): Checked ⇒ true, events {n:?}"
+            "  Switch â clicked at x=160 of a 200pt control (outside the old \
+             32pt box): Checked â true, events {n:?}"
         );
     }
 
@@ -10602,7 +10611,7 @@ mod tests {
         );
     }
 
-    // ── Spec 039 T3: Knob/Gauge/Switch/FileDropZone interactive render ─────
+    // ââ Spec 039 T3: Knob/Gauge/Switch/FileDropZone interactive render âââââ
 
     #[test]
     fn engine_switch_click_toggles_checked() {
@@ -10653,7 +10662,7 @@ mod tests {
             ],
         )];
         // The dial is egui-elegance's own fixed-size allocation inside the
-        // rect `ui.put` gave it — press near the control's top-left, where
+        // rect `ui.put` gave it â press near the control's top-left, where
         // the dial (no label row, since Label is unset) starts, then drag
         // up-and-right, which the widget's own documented interaction
         // (knob.rs) increases the value for, regardless of exact press
@@ -10765,7 +10774,7 @@ mod tests {
             .expect("CenterLng should have been updated");
         // Dragging the map to the right+down pans the VIEW right+down,
         // which means the centre coordinate itself moves the opposite way
-        // (west and north) — same convention every drag-to-pan map uses.
+        // (west and north) â same convention every drag-to-pan map uses.
         assert!(new_lng < -74.0, "dragging right must decrease longitude (west), got {new_lng}");
         assert!(new_lat > 40.0, "dragging down must increase latitude (north), got {new_lat}");
     }
@@ -10878,7 +10887,7 @@ mod tests {
         let active = ActiveTabs::new();
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let st = MapState(&overrides);
-        let p = pos2(110.0, 50.0); // centre of the 220×100 control
+        let p = pos2(110.0, 50.0); // centre of the 220Ã100 control
         let requests: RefCell<Vec<String>> = RefCell::new(Vec::new());
 
         for (i, evs) in [vec![], vec![Event::PointerMoved(p), press(p)], vec![
@@ -11257,20 +11266,297 @@ mod tests {
         );
     }
 
-    /// An open ComboBox draws two highlights — behind the SELECTED item and
-    /// behind the one the pointer is over — and both are the developer's to
+    /// An open ComboBox draws two highlights â behind the SELECTED item and
+    /// behind the one the pointer is over â and both are the developer's to
     /// name, exactly as a ListBox's are (operator, 2026-08-18).
     ///
     /// `ActiveItemColor` is deliberately the property a ListBox already
     /// carries: on both controls it colours the item `Value`/`SelectedIndex`
-    /// reports. The second one is NOT the list's `SelectedItemsColor` — a
-    /// ComboBox selects one item or none, so that has nothing to colour here —
+    /// reports. The second one is NOT the list's `SelectedItemsColor` â a
+    /// ComboBox selects one item or none, so that has nothing to colour here â
     /// but the hover was hardcoded in the same way, and leaving it so would
     /// mean an orange selection still flashing blue under the pointer.
     ///
     /// Unnamed, both fall back to the constants the popup always painted, NOT
     /// to the palette: these two were never theme-derived, so that is what
     /// "unchanged" means for a ComboBox already designed.
+
+    /// Whether a painted rect covers `p`, honouring its **effective** corner
+    /// radius â egui clamps each corner to half the shorter side, so the stored
+    /// radius lies about what was actually drawn (corner-bleed playbook Â§1.1).
+    fn band_covers(rect: Rect, cr: egui::CornerRadius, p: egui::Pos2) -> bool {
+        if !rect.contains(p) {
+            return false;
+        }
+        let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+        let eff = |v: u8| (v as f32).min(cap);
+        let (r, cx, cy) = if p.x < rect.center().x && p.y < rect.center().y {
+            (eff(cr.nw), rect.left(), rect.top())
+        } else if p.x >= rect.center().x && p.y < rect.center().y {
+            (eff(cr.ne), rect.right(), rect.top())
+        } else if p.x < rect.center().x {
+            (eff(cr.sw), rect.left(), rect.bottom())
+        } else {
+            (eff(cr.se), rect.right(), rect.bottom())
+        };
+        if r <= 0.0 {
+            return true;
+        }
+        // The arc's centre, pulled `r` in from that corner on both axes.
+        let ax = if cx == rect.left() { cx + r } else { cx - r };
+        let ay = if cy == rect.top() { cy + r } else { cy - r };
+        // Outside the corner square â the straight part of the edge covers it.
+        if (p.x - ax) * (cx - ax) <= 0.0 || (p.y - ay) * (cy - ay) <= 0.0 {
+            return true;
+        }
+        (p.x - ax).powi(2) + (p.y - ay).powi(2) <= r * r
+    }
+
+    /// `Sorted` sorts. It is seeded on every list-shaped control and shown in
+    /// the inspector, and until now nothing anywhere read it (operator,
+    /// 2026-08-18: "sort is not working").
+    ///
+    /// Alphabetical, by text, case-insensitively — so the operator's numeric
+    /// items sort as the strings they are. And the DISPLAY order only: the
+    /// stored `Items` is what the developer typed, untouched, so turning the
+    /// property off gives their list straight back.
+    #[test]
+    fn sorted_orders_what_a_list_shows_without_rewriting_what_was_typed() {
+        // The operator's own items, from PowerDemo3/inner-form2.cfrm.
+        const TYPED: &str = "6\n1\n2\n3\n4\n5\n11\n7\n8\n9\n10";
+        let sorted_texts = |ctrl: &Control, open: bool| -> Vec<String> {
+            let frames = if open {
+                let hc = pos2(
+                    ctrl.rect.x as f32 + ctrl.rect.w as f32 * 0.5,
+                    ctrl.rect.y as f32 + ctrl.rect.h as f32 * 0.5,
+                );
+                vec![
+                    (0.0, vec![]),
+                    (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                    (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                    (3.0, vec![]),
+                ]
+            } else {
+                vec![(0.0, vec![]), (0.05, vec![])]
+            };
+            let painted = drive_painted(std::slice::from_ref(ctrl), frames);
+            let mut seen: Vec<(f32, String)> = painted
+                .texts
+                .iter()
+                .filter(|t| TYPED.lines().any(|l| l == t.text))
+                .map(|t| (t.pos.y, t.text.clone()))
+                .collect();
+            seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+            seen.dedup_by(|a, b| a.1 == b.1);
+            seen.into_iter().map(|(_, t)| t).collect()
+        };
+
+        // ── ListBox: tall enough to show all eleven at once ───────────────
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 300);
+        lb.set_prop("Items", crate::PropValue::String(TYPED.to_owned()));
+        lb.set_prop("Sorted", crate::PropValue::Bool(false));
+        assert_eq!(
+            sorted_texts(&lb, false),
+            TYPED.lines().collect::<Vec<_>>(),
+            "Sorted off must leave the developer's own order alone"
+        );
+
+        lb.set_prop("Sorted", crate::PropValue::Bool(true));
+        assert_eq!(
+            sorted_texts(&lb, false),
+            vec!["1", "10", "11", "2", "3", "4", "5", "6", "7", "8", "9"],
+            "Sorted on orders the list alphabetically — items are TEXT, so 10 \
+             sorts before 9"
+        );
+        assert_eq!(
+            lb.get_prop("Items").map(|v| v.as_str().to_owned()),
+            Some(TYPED.to_owned()),
+            "…and the stored Items is never rewritten"
+        );
+
+        // ── ComboBox: the same, in the open dropdown ──────────────────────
+        let mut cmb = ctrl("ComboBox-1", ControlType::ComboBox, 20, 20, 220, 24);
+        cmb.set_prop("Items", crate::PropValue::String(TYPED.to_owned()));
+        cmb.set_prop("DropDownHeight", crate::PropValue::Int(600));
+        cmb.set_prop("Sorted", crate::PropValue::Bool(true));
+        assert_eq!(
+            sorted_texts(&cmb, true),
+            vec!["1", "10", "11", "2", "3", "4", "5", "6", "7", "8", "9"],
+            "a dropdown sorts on the same rule as a list"
+        );
+
+        // Case is ignored, and a tie keeps the typed order.
+        let mut mixed = ctrl("ListBox-2", ControlType::ListBox, 20, 20, 220, 300);
+        mixed.set_prop(
+            "Items",
+            crate::PropValue::String("delta\nAlpha\nbravo\nCharlie".to_owned()),
+        );
+        mixed.set_prop("Sorted", crate::PropValue::Bool(true));
+        let painted = drive_painted(&[mixed], vec![(0.0, vec![]), (0.05, vec![])]);
+        let mut seen: Vec<(f32, String)> = painted
+            .texts
+            .iter()
+            .filter(|t| ["delta", "Alpha", "bravo", "Charlie"].contains(&t.text.as_str()))
+            .map(|t| (t.pos.y, t.text.clone()))
+            .collect();
+        seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+        seen.dedup_by(|a, b| a.1 == b.1);
+        assert_eq!(
+            seen.into_iter().map(|(_, t)| t).collect::<Vec<_>>(),
+            vec!["Alpha", "bravo", "Charlie", "delta"],
+            "case is ignored, so a capital does not sort ahead of every lower-case word"
+        );
+
+        println!(
+            "\n  Sorted — the operator's 6/1/2/3/4/5/11/7/8/9/10 shows as \
+             1,10,11,2,…,9 in both a ListBox and an open dropdown (text order, so 10 \
+             before 9), Items itself untouched; delta/Alpha/bravo/Charlie ⇒ \
+             Alpha,bravo,Charlie,delta\n"
+        );
+    }
+
+    /// An open dropdown's selection band is cut by the panel's own arc, exactly
+    /// as a ListBox row is (operator, 2026-08-18, with screenshots).
+    ///
+    /// The band was a flat 4 px round clipped to the panel rather than to the
+    /// inside of its rim, so on a panel rounded any further than that it leaked
+    /// out of BOTH ends: square shoulders poking past the arc at the top item
+    /// and at the bottom one, and the highlight painted over the border instead
+    /// of leaving the hairline a list leaves.
+    ///
+    /// Built from the operator's own ComboBox-1 (PowerDemo3/inner-form2.cfrm):
+    /// 160Ã24 at CornerRadius 15 â clamped to 12 by the control's own height â
+    /// eleven items, DropDownHeight 200, so the panel overflows and the selected
+    /// item sits against the BOTTOM arc while another sits against the top.
+    #[test]
+    fn a_dropdowns_selection_band_is_cut_by_the_panels_corner() {
+        let mut cmb = ctrl("ComboBox-1", ControlType::ComboBox, 336, 104, 160, 24);
+        for (k, v) in [
+            ("Items", "6\n1\n2\n3\n4\n5\n11\n7\n8\n9\n10"),
+            ("Value", "10"),
+            ("FontSize", "14"),
+            ("DropDownHeight", "200"),
+            ("CornerRadius", "15"),
+            ("BackgroundColor", "#36383EFF"),
+        ] {
+            cmb.set_prop(k, crate::PropValue::String(v.to_owned()));
+        }
+        let radius = crate::paint::corner_radius(&cmb);
+        assert!(
+            (radius - 12.0).abs() < 0.01,
+            "the fixture must reproduce the operator's clamped radius, got {radius}"
+        );
+
+        let hc = pos2(336.0 + 80.0, 104.0 + 12.0);
+        let painted = drive_painted(
+            &[cmb.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                (3.0, vec![]),
+                (4.0, vec![]),
+            ],
+        );
+        let header = *painted.placed.get("ComboBox-1").expect("placed");
+        let item_h = combo_item_h(&cmb);
+        let panel = Rect::from_min_size(
+            pos2(header.left(), header.bottom() + 1.0),
+            Vec2::new(header.width(), (11.0 * item_h).min(200.0)),
+        );
+
+        // The highlights: the two fills the dropdown draws behind an item.
+        let highlights: Vec<(Rect, egui::CornerRadius, Color32)> = painted
+            .bands
+            .iter()
+            .filter(|(_, _, c)| {
+                *c == crate::paint::COMBO_SELECTED_FILL || *c == crate::paint::COMBO_HOVER_FILL
+            })
+            .filter(|(r, _, _)| r.intersect(panel).is_positive())
+            .copied()
+            .collect();
+        assert!(
+            !highlights.is_empty(),
+            "the selected item must be highlighted inside the open panel: {:?}",
+            painted.bands.iter().map(|(r, _, c)| (*r, *c)).collect::<Vec<_>>()
+        );
+
+        // ââ No band may paint OUTSIDE the panel's arc âââââââââââââââââââââ
+        //
+        // Walk each of the four corner arcs by angle and probe just beyond it,
+        // still inside the panel's bounding box: that is the notch the border
+        // curves across, and nothing may reach into it.
+        let mut leaks: Vec<(egui::Pos2, Rect, egui::CornerRadius)> = Vec::new();
+        for (cx, cy, sx, sy) in [
+            (panel.left(), panel.top(), -1.0_f32, -1.0_f32),
+            (panel.right(), panel.top(), 1.0, -1.0),
+            (panel.left(), panel.bottom(), -1.0, 1.0),
+            (panel.right(), panel.bottom(), 1.0, 1.0),
+        ] {
+            let ax = cx + sx * -radius;
+            let ay = cy + sy * -radius;
+            for step in 0..=24 {
+                let t = std::f32::consts::FRAC_PI_2 * (step as f32 / 24.0);
+                for beyond in [0.6_f32, 1.5, 3.0] {
+                    let d = radius + beyond;
+                    let p = pos2(ax + sx * d * t.cos(), ay + sy * d * t.sin());
+                    if !panel.contains(p) {
+                        continue;
+                    }
+                    for (r, cr, _) in &highlights {
+                        if band_covers(*r, *cr, p) {
+                            leaks.push((p, *r, *cr));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            leaks.is_empty(),
+            "a selection band leaked past the panel's arc at {} point(s); first: {:?}",
+            leaks.len(),
+            leaks.first()
+        );
+
+        // ââ â¦and it is not squared off or shrunk away either ââââââââââââââ
+        //
+        // The band against an arc carries a real radius, and stops short of the
+        // rim on every side so the border stays an unbroken line with a hairline
+        // of panel showing â which is what a ListBox does and what this did not.
+        let inset = 1.0 + crate::paint::HIGHLIGHT_INSET; // BorderWidth 1 + hairline
+        let at_arc: Vec<&(Rect, egui::CornerRadius, Color32)> = highlights
+            .iter()
+            .filter(|(r, _, _)| {
+                r.top() <= panel.top() + inset + 0.5 || r.bottom() >= panel.bottom() - inset - 0.5
+            })
+            .collect();
+        assert!(
+            !at_arc.is_empty(),
+            "the fixture must put a highlight against an arc: {highlights:?}"
+        );
+        for (r, cr, _) in &at_arc {
+            assert!(
+                cr.nw > 0 || cr.ne > 0 || cr.sw > 0 || cr.se > 0,
+                "a band against the arc must be rounded, not squared off: {r:?} {cr:?}"
+            );
+            assert!(
+                r.left() > panel.left() + 0.5 && r.right() < panel.right() - 0.5,
+                "the band must leave the rim its hairline: {r:?} in {panel:?}"
+            );
+            assert!(
+                r.top() > panel.top() + 0.5 && r.bottom() < panel.bottom() - 0.5,
+                "â¦at the top and bottom too: {r:?} in {panel:?}"
+            );
+        }
+
+        println!(
+            "\n  ComboBox corners â the operator's 11-item combo at radius {radius}: {} \
+             highlight band(s), {} against an arc, none reaching past it, each inside the \
+             rim by {inset}px\n",
+            highlights.len(),
+            at_arc.len()
+        );
+    }
     /// One item of an open dropdown: a line of the control's own text plus the
     /// same air a ListBox row gets. The popup used to hardcode 22 px.
     fn combo_item_h(ctrl: &Control) -> f32 {
@@ -11295,8 +11581,8 @@ mod tests {
             props.extend_from_slice(extra);
             vec![ctrlp("Cmb", ControlType::ComboBox, 0, 0, 160, 26, &props)]
         };
-        // An item is one line of the control's OWN text plus air — the same
-        // measure a ListBox row uses — and the items start one pixel below the
+        // An item is one line of the control's OWN text plus air â the same
+        // measure a ListBox row uses â and the items start one pixel below the
         // header, which is what tells an item band apart from the panel's face.
         let item_h = combo_item_h(&combo(&[])[0]);
         let hc = pos2(80.0, 13.0);
@@ -11312,14 +11598,16 @@ mod tests {
                 ],
             );
             let header = *painted.placed.get("Cmb").expect("placed");
-            // The band stops short of the panel's rim on both sides, so the
-            // border stays an unbroken line — hence a width just under the
-            // header's rather than exactly it.
+            // The band stops short of the panel's rim on every side, so the
+            // border stays an unbroken line: its width is the panel's less the
+            // inset twice, and the bands against the top and bottom arcs are
+            // clipped by that inset too â so a band is at most one item tall.
+            let inset = 1.0 + crate::paint::HIGHLIGHT_INSET;
             let mut rows: Vec<(Rect, Color32)> = painted
                 .fills
                 .iter()
-                .filter(|(r, _)| (r.width() - header.width()).abs() <= 6.0)
-                .filter(|(r, _)| (r.height() - item_h).abs() <= 0.5)
+                .filter(|(r, _)| (r.width() - (header.width() - inset * 2.0)).abs() <= 0.5)
+                .filter(|(r, _)| r.height() <= item_h + 0.5 && r.height() >= item_h - inset - 0.5)
                 .filter(|(r, _)| r.top() >= header.bottom())
                 .map(|(r, c)| (*r, *c))
                 .collect();
@@ -11332,7 +11620,7 @@ mod tests {
             (rows[0].1, rows[1].1) // (selected = Apple, hovered = Cherry)
         };
 
-        // ── Named neither: the constants the popup always painted ─────────
+        // ââ Named neither: the constants the popup always painted âââââââââ
         let (selected, hovered) = two_bands(&combo(&[]));
         assert_eq!(
             selected,
@@ -11342,10 +11630,10 @@ mod tests {
         assert_eq!(
             hovered,
             crate::paint::COMBO_HOVER_FILL,
-            "…and the hovered item keeps its own, fainter one"
+            "â¦and the hovered item keeps its own, fainter one"
         );
 
-        // ── Named both ────────────────────────────────────────────────────
+        // ââ Named both ââââââââââââââââââââââââââââââââââââââââââââââââââââ
         let (selected_n, hovered_n) = two_bands(&combo(&[
             ("ActiveItemColor", "#FF8800"),
             ("HoverItemColor", "#116622"),
@@ -11358,28 +11646,28 @@ mod tests {
         assert_eq!(
             hovered_n,
             Color32::from_rgb(0x11, 0x66, 0x22),
-            "…and the named hover colour the item under the pointer"
+            "â¦and the named hover colour the item under the pointer"
         );
 
-        // ── Named one only: the other is untouched ────────────────────────
+        // ââ Named one only: the other is untouched ââââââââââââââââââââââââ
         let (selected_o, hovered_o) = two_bands(&combo(&[("ActiveItemColor", "#FF8800")]));
         assert_eq!(selected_o, Color32::from_rgb(0xFF, 0x88, 0x00));
         assert_eq!(
             hovered_o,
             crate::paint::COMBO_HOVER_FILL,
-            "a ComboBox's two highlights are independent — unlike a list's, where \
+            "a ComboBox's two highlights are independent â unlike a list's, where \
              the dimmed one follows the active colour"
         );
 
         println!(
-            "\n  ComboBox item colours — unnamed: selected {selected:?} and hovered {hovered:?}, \
+            "\n  ComboBox item colours â unnamed: selected {selected:?} and hovered {hovered:?}, \
              the popup's own constants; named: #FF8800 and #116622 both reach their band; \
              naming only the selected colour leaves the hover at {hovered_o:?}\n"
         );
     }
 
-    /// A running ComboBox wears the background the RAD gave it — a colour or a
-    /// gradient — on its header AND on its open dropdown (operator, 2026-08-18).
+    /// A running ComboBox wears the background the RAD gave it â a colour or a
+    /// gradient â on its header AND on its open dropdown (operator, 2026-08-18).
     ///
     /// The header painted a hardcoded navy surface and a blue rim over its own
     /// face, the same defect the ListBox carried until 1.61.87: the designer
@@ -11408,7 +11696,7 @@ mod tests {
             )
         };
 
-        // ── A designed COLOUR: a deep red no default in the engine is ──────
+        // ââ A designed COLOUR: a deep red no default in the engine is ââââââ
         let painted = open(&base(&[("BackgroundColor", "#B00000FF")]));
         let header = *painted.placed.get("Cmb").expect("placed");
         let panel = Rect::from_min_max(
@@ -11432,7 +11720,7 @@ mod tests {
                 .any(|(r, c)| r.intersect(panel).area() >= r.area() * 0.9
                     && r.width() >= header.width() - 1.0
                     && red(c)),
-            "…and the open panel: {:?}",
+            "â¦and the open panel: {:?}",
             painted.fills
         );
         assert!(
@@ -11441,7 +11729,7 @@ mod tests {
             painted.fills
         );
 
-        // ── A designed GRADIENT — the operator's own case, grey to black ───
+        // ââ A designed GRADIENT â the operator's own case, grey to black âââ
         let painted = open(&base(&[
             ("BackgroundGradientEnabled", "true"),
             ("BackgroundGradientStartColor", "#4E4E4EFF"),
@@ -11463,12 +11751,12 @@ mod tests {
                 .meshes
                 .iter()
                 .any(|m| m.top() >= panel_top - 1.0 && m.width() >= header.width() - 1.0),
-            "…and across the open panel: {:?}",
+            "â¦and across the open panel: {:?}",
             painted.meshes
         );
 
         println!(
-            "\n  ComboBox background — a designed #B00000 reaches the header AND the open \
+            "\n  ComboBox background â a designed #B00000 reaches the header AND the open \
              panel, a designed grey-to-black South gradient is painted as a mesh across \
              both, and the hardcoded navy that used to cover the header is gone\n"
         );
@@ -11478,7 +11766,7 @@ mod tests {
     ///
     /// The panel stopped at 180 px and the item loop `break`ed as soon as an
     /// item would fall past the bottom, so anything past about the eighth was
-    /// not clipped and not scrollable — it was never drawn at all. The panel
+    /// not clipped and not scrollable â it was never drawn at all. The panel
     /// now stands as tall as `DropDownHeight` allows and scrolls past that.
     #[test]
     fn a_long_dropdown_scrolls_instead_of_dropping_its_tail() {
@@ -11514,11 +11802,11 @@ mod tests {
                 .and_then(|p| p.get("Value"))
                 .map(String::as_str),
             Some("Item-30"),
-            "twenty-nine ArrowDowns and Enter must reach the LAST item — it used \
+            "twenty-nine ArrowDowns and Enter must reach the LAST item â it used \
              to be undrawn and unreachable"
         );
 
-        // …and while walking there, the item the keyboard is on is ON SCREEN.
+        // â¦and while walking there, the item the keyboard is on is ON SCREEN.
         let mut frames = vec![
             (0.00, vec![Event::PointerMoved(hc), press(hc)]),
             (0.05, vec![Event::PointerMoved(hc), release(hc)]),
@@ -11567,7 +11855,7 @@ mod tests {
         );
 
         println!(
-            "\n  ComboBox scrolling — a 30-item list in a {}px panel of {item_h:.1}px items: \
+            "\n  ComboBox scrolling â a 30-item list in a {}px panel of {item_h:.1}px items: \
              ArrowDown reaches Item-30 and Enter commits it, Item-21 is on screen twenty \
              arrows down, and a list holding Item-25 opens showing it\n",
             200
@@ -11575,8 +11863,8 @@ mod tests {
     }
 
     /// The classic combo gesture: press on the header, drag into the list,
-    /// release on an item to pick it. A drag is ONE gesture with an anchor —
-    /// the header — and what it highlights is the item under the pointer NOW,
+    /// release on an item to pick it. A drag is ONE gesture with an anchor â
+    /// the header â and what it highlights is the item under the pointer NOW,
     /// so reversing direction walks the highlight back instead of freezing it.
     /// Dragging past either end holds at that end rather than choosing nothing.
     #[test]
@@ -11646,7 +11934,7 @@ mod tests {
             "a drag past the bottom stops on the LAST item rather than choosing nothing"
         );
 
-        // …and far ABOVE it holds at the first.
+        // â¦and far ABOVE it holds at the first.
         let (_events, overrides) = drive(
             &[cmb.clone()],
             vec![
@@ -11681,19 +11969,19 @@ mod tests {
         );
         assert!(
             names(&events).contains(&"onDropDown"),
-            "…but it does open it: {:?}",
+            "â¦but it does open it: {:?}",
             names(&events)
         );
 
         println!(
-            "\n  ComboBox drag — press the header, down to Delta and back to Beta, release \
-             ⇒ Beta (the reversal is answered, not frozen); past the bottom ⇒ Epsilon, \
-             past the top ⇒ Alpha; a plain click opens without choosing\n"
+            "\n  ComboBox drag â press the header, down to Delta and back to Beta, release \
+             â Beta (the reversal is answered, not frozen); past the bottom â Epsilon, \
+             past the top â Alpha; a plain click opens without choosing\n"
         );
     }
 
     /// Up and down walk the list and stop at both ends, and what they mean
-    /// depends on whether the dropdown is open — as a Windows combo does.
+    /// depends on whether the dropdown is open â as a Windows combo does.
     ///
     ///   * closed: they change the value outright, reporting `onChange` and
     ///     `onSelectedIndexChanged` exactly as a click does;
@@ -11718,7 +12006,7 @@ mod tests {
         let value = |o: &Map<String, Map<String, String>>| {
             o.get("Cmb").and_then(|p| p.get("Value")).cloned()
         };
-        // Click the header twice — open, then closed — so the combo holds the
+        // Click the header twice â open, then closed â so the combo holds the
         // keyboard with its list shut.
         let focus_closed = || {
             vec![
@@ -11730,7 +12018,7 @@ mod tests {
             ]
         };
 
-        // ── Closed: the arrows change the value ───────────────────────────
+        // ââ Closed: the arrows change the value âââââââââââââââââââââââââââ
         let mut frames = focus_closed();
         frames.push((0.25, vec![key(egui::Key::ArrowDown)]));
         frames.push((0.30, vec![]));
@@ -11746,7 +12034,7 @@ mod tests {
             names(&events)
         );
 
-        // …and stops at the ends rather than wrapping.
+        // â¦and stops at the ends rather than wrapping.
         let mut frames = focus_closed();
         for i in 0..4 {
             frames.push((0.25 + i as f64 * 0.05, vec![key(egui::Key::ArrowUp)]));
@@ -11763,7 +12051,7 @@ mod tests {
         let (_events, overrides) = drive(&[cmb.clone()], frames);
         assert_eq!(value(&overrides).as_deref(), Some("Delta"), "down stops at the last");
 
-        // ── Open: the arrows move the HIGHLIGHT and Enter picks it ────────
+        // ââ Open: the arrows move the HIGHLIGHT and Enter picks it ââââââââ
         let (events, overrides) = drive(
             &[cmb.clone()],
             vec![
@@ -11782,7 +12070,7 @@ mod tests {
         );
         assert!(
             !names(&events).contains(&"onSelectedIndexChanged"),
-            "…and reports nothing until it is committed: {:?}",
+            "â¦and reports nothing until it is committed: {:?}",
             names(&events)
         );
 
@@ -11804,7 +12092,7 @@ mod tests {
             "Enter commits the item the arrows reached"
         );
 
-        // ── Escape closes without changing the value ──────────────────────
+        // ââ Escape closes without changing the value ââââââââââââââââââââââ
         let (_events, overrides) = drive(
             &[cmb.clone()],
             vec![
@@ -11822,10 +12110,10 @@ mod tests {
             "Escape leaves the value exactly where it was"
         );
 
-        // ── Picking from the list leaves the arrows working ───────────────
+        // ââ Picking from the list leaves the arrows working âââââââââââââââ
         //
         // The header drops the keyboard on any press outside itself, and a
-        // press on an item IS outside it — so without the popup handing it
+        // press on an item IS outside it â so without the popup handing it
         // back, choosing from the list left the combo unable to answer an
         // arrow until its header had been clicked again.
         let item_h = combo_item_h(&cmb);
@@ -11846,21 +12134,21 @@ mod tests {
         assert_eq!(
             value(&overrides).as_deref(),
             Some("Delta"),
-            "clicking Gamma in the list and then pressing ↓ must reach Delta — the \
+            "clicking Gamma in the list and then pressing â must reach Delta â the \
              combo keeps the keyboard through the pick"
         );
 
         println!(
-            "\n  ComboBox keys — shut: ↓ from Beta ⇒ Gamma (onSelectedIndexChanged fired), \
-             ↑↑↑↑ stops at Alpha, ↓↓↓↓↓ stops at Delta; open: ↓↓ moves the highlight and \
-             commits nothing, Enter ⇒ Delta, Escape ⇒ unchanged; picking Gamma from the \
-             list then ↓ ⇒ Delta\n"
+            "\n  ComboBox keys â shut: â from Beta â Gamma (onSelectedIndexChanged fired), \
+             ââââ stops at Alpha, âââââ stops at Delta; open: ââ moves the highlight and \
+             commits nothing, Enter â Delta, Escape â unchanged; picking Gamma from the \
+             list then â â Delta\n"
         );
     }
 
     /// An open dropdown letters its items in the control's OWN font and colour,
     /// and gives each one a line of that font's height. All three were
-    /// hardcoded — 22 px, 12 pt and a fixed near-white — so a combo set to
+    /// hardcoded â 22 px, 12 pt and a fixed near-white â so a combo set to
     /// 20 pt drew a 20 pt value over a list of 12 pt items.
     #[test]
     fn a_dropdowns_items_are_lettered_in_the_controls_own_type() {
@@ -11909,7 +12197,7 @@ mod tests {
         );
 
         println!(
-            "\n  ComboBox typography — a 20 pt combo letters its items at {}pt on a \
+            "\n  ComboBox typography â a 20 pt combo letters its items at {}pt on a \
              {pitch:.1}px pitch, where both were hardcoded at 12 pt on 22 px\n",
             beta.font
         );
@@ -11930,7 +12218,7 @@ mod tests {
             &c,
             vec![
                 (0.0, vec![]), // arm
-                (1.0, vec![]), // 1s later → tick (interval 10ms)
+                (1.0, vec![]), // 1s later â tick (interval 10ms)
             ],
         );
         assert!(
@@ -11940,7 +12228,7 @@ mod tests {
         );
     }
 
-    /// A FormState with a fixed chrome-`enabled` answer — mirrors the real run
+    /// A FormState with a fixed chrome-`enabled` answer â mirrors the real run
     /// surface reporting `enabled="false"` on a (non-visual) control.
     struct ChromeState {
         chrome_enabled: bool,
@@ -11961,7 +12249,7 @@ mod tests {
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
             input.focused = true;
-            input.time = Some(i as f64); // 1s/frame → clears any interval
+            input.time = Some(i as f64); // 1s/frame â clears any interval
             let events = RefCell::new(Vec::<UiEvent>::new());
             ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
@@ -12062,7 +12350,7 @@ mod tests {
         );
 
         println!(
-            "\n  Timer endurance — a 100 ms Timer driven over {frames} intervals fired \
+            "\n  Timer endurance â a 100 ms Timer driven over {frames} intervals fired \
              {ticks} times, one per interval with no gap; the clock is egui time and the \
              wake-up is rescheduled from the tick that just fired, so it cannot drift into \
              silence\n"
@@ -12072,7 +12360,7 @@ mod tests {
     #[test]
     fn engine_timer_ticks_governed_by_enabled_property_not_chrome_flag() {
         // Real .cfrm shape: a non-visual Timer with chrome `enabled="false"` but
-        // its own `Enabled` property = true. It MUST still tick — the property
+        // its own `Enabled` property = true. It MUST still tick â the property
         // is the timer's on/off, not the chrome flag.
         let on = [ctrlp(
             "Tmr",
@@ -12183,7 +12471,7 @@ fn char_to_key(c: char) -> egui::Key {
         _ => egui::Key::A,
     }
 }
-// Shape-dump differ (spec 027 corner-bleed hunt) — egui 0.35 branch flavor.
+// Shape-dump differ (spec 027 corner-bleed hunt) â egui 0.35 branch flavor.
 // Appended to cobolt-forms/src/render.rs tests; renders one neumorphic-panel
 // frame and dumps every non-text paint shape, normalized, to a file given in
 // COBOLT_SHAPE_DUMP.
@@ -12211,7 +12499,7 @@ mod shape_dump {
                     dump_shape(out, clip, s);
                 }
             }
-            S::Text(_) => {} // font engines differ across versions — geometry only
+            S::Text(_) => {} // font engines differ across versions â geometry only
             S::Rect(rs) => out.push(format!(
                 "RECT bbox={} fill=#{:02x}{:02x}{:02x}{:02x} stroke={}@#{:02x}{:02x}{:02x}{:02x} r=[{} {} {} {}] clip={}",
                 fr(rs.rect),
@@ -12319,7 +12607,7 @@ mod shape_dump {
         println!("dumped {} shapes", out.len());
     }
 
-    /// Scene B — Classic glass + backdrop image + corner-reaching child:
+    /// Scene B â Classic glass + backdrop image + corner-reaching child:
     /// exercises the notch mask / restore-outline path. Dump-only (set
     /// COBOLT_SHAPE_DUMP_B=<file>).
     #[test]
@@ -12388,7 +12676,7 @@ mod shape_dump {
         println!("scene B dumped {} shapes", out.len());
     }
 
-    /// Scene C — captioned GroupBox + nested Panel + corner children, Classic
+    /// Scene C â captioned GroupBox + nested Panel + corner children, Classic
     /// glass, image backdrop (COBOLT_SHAPE_DUMP_C=<file>).
     #[test]
     fn dump_groupbox_nested_shapes() {
@@ -12461,7 +12749,7 @@ mod shape_dump {
         println!("scene C dumped {} shapes", out.len());
     }
 
-    /// Scene D — TRANSPARENT Panel + DataGrid child on image backdrop, Classic
+    /// Scene D â TRANSPARENT Panel + DataGrid child on image backdrop, Classic
     /// glass (COBOLT_SHAPE_DUMP_D=<file>). Mirrors the operator's failing form.
     #[test]
     fn dump_transparent_panel_datagrid_shapes() {
@@ -12534,10 +12822,10 @@ mod shape_dump {
         println!("scene D dumped {} shapes", out.len());
     }
 
-    // ── DataGrid confined-fill geometry (pure, no egui context needed) ───────
+    // ââ DataGrid confined-fill geometry (pure, no egui context needed) âââââââ
 
     /// A fill's rects must tile its vertical span with NO gap. A sub-pixel gap is
-    /// not harmless: the grid's own background (a solid BackgroundColor — yellow
+    /// not harmless: the grid's own background (a solid BackgroundColor â yellow
     /// in the operator's form) shows through it as a thin line, and because the
     /// gap depends on the fractional scroll offset it FLASHES on and off while
     /// scrolling. The original bug: the strip above the arc zone was skipped when
@@ -12552,7 +12840,7 @@ mod shape_dump {
         // Sweep BOTH edges through the arc-zone boundary in 1/64px steps. The seam
         // bug needs a fill whose TOP sits a hair above `zone_top` (that strip was
         // skipped when thinner than `eps`), which is why the flashing line always
-        // appeared at the same y — it is pinned to the zone top, and a row boundary
+        // appeared at the same y â it is pinned to the zone top, and a row boundary
         // crosses that sub-pixel window as you scroll.
         let mut cases: Vec<Rect> = Vec::new();
         for step in -192i32..192 {
@@ -12583,7 +12871,7 @@ mod shape_dump {
             spans.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             if (spans[0].0 - r.min.y).abs() > 1e-3 {
                 failures.push(format!(
-                    "fill top={:.4}: coverage starts at {:.4} — {:.4}px SEAM at the top",
+                    "fill top={:.4}: coverage starts at {:.4} â {:.4}px SEAM at the top",
                     r.min.y,
                     spans[0].0,
                     spans[0].0 - r.min.y
@@ -12593,7 +12881,7 @@ mod shape_dump {
             for (a, b) in spans.iter().skip(1) {
                 if *a - cursor > 1e-3 {
                     failures.push(format!(
-                        "fill top={:.4}: GAP {:.4}..{:.4} ({:.4}px) — grid background bleeds through",
+                        "fill top={:.4}: GAP {:.4}..{:.4} ({:.4}px) â grid background bleeds through",
                         r.min.y,
                         cursor,
                         a,
@@ -12623,7 +12911,7 @@ mod shape_dump {
         );
     }
 
-    /// No emitted rect may cross the bottom-corner arcs — that is the bleed.
+    /// No emitted rect may cross the bottom-corner arcs â that is the bleed.
     #[test]
     fn datagrid_fill_rects_stay_inside_the_corner_arcs() {
         let screen = Rect::from_min_max(pos2(40.0, 40.0), pos2(1264.0, 424.0));
@@ -12658,7 +12946,7 @@ mod shape_dump {
         );
     }
 
-    // ── DataGrid rounded-corner silhouette guards ────────────────────────────
+    // ââ DataGrid rounded-corner silhouette guards ââââââââââââââââââââââââââââ
     // Geometry of the operator's failing grid (PowerDemo2 main-form, DataGrid-1).
     const DG_X: f32 = 40.0;
     const DG_Y: f32 = 40.0;
@@ -12671,7 +12959,7 @@ mod shape_dump {
     /// Render the operator's DataGrid scene with `row_count` rows over an image
     /// backdrop and return the paint shapes. Params verbatim from the failing
     /// form: yellow BackgroundColor, navy AlternatingRowColor (the colour seen
-    /// bleeding), CornerRadius 15, RowHeight 43, and column filters ON — the tall
+    /// bleeding), CornerRadius 15, RowHeight 43, and column filters ON â the tall
     /// filter header is what squeezes the last row into a few-pixel sliver.
     fn datagrid_corner_scene(row_count: usize) -> Vec<egui::epaint::ClippedShape> {
         let ctx = egui::Context::default();
@@ -12751,9 +13039,9 @@ mod shape_dump {
     }
 
     /// Does this rect shape actually paint `p`? Accounts for the shape's OWN
-    /// effective corner radius — egui clamps each corner to half the shorter side,
+    /// effective corner radius â egui clamps each corner to half the shorter side,
     /// so a short fill's stored radius is NOT what it renders (see the
-    /// CORNER-BLEED-PLAYBOOK, §1.1).
+    /// CORNER-BLEED-PLAYBOOK, Â§1.1).
     fn dg_rect_paints(rs: &egui::epaint::RectShape, p: egui::Pos2) -> bool {
         let r = rs.rect;
         if !r.contains(p) {
@@ -12776,7 +13064,7 @@ mod shape_dump {
             match s {
                 egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, p, out)),
                 egui::Shape::Rect(rs) => {
-                    // The form backdrop legitimately covers everything — identify it
+                    // The form backdrop legitimately covers everything â identify it
                     // by spanning the whole form, not by area heuristics (the grid
                     // itself is large).
                     let is_backdrop = rs.rect.min.x <= 0.5
@@ -12821,35 +13109,35 @@ mod shape_dump {
         let mut gaps = Vec::new();
         for deg in [120.0_f32, 125.0, 130.0, 135.0, 140.0, 145.0, 150.0] {
             let (sin, cos) = deg.to_radians().sin_cos();
-            let dir = Vec2::new(cos, sin); // +y is down ⇒ this sweeps the SW arc
-            // Just OUTSIDE the arc but still inside the bbox → must be unpainted.
+            let dir = Vec2::new(cos, sin); // +y is down â this sweeps the SW arc
+            // Just OUTSIDE the arc but still inside the bbox â must be unpainted.
             let po = c + dir * (DG_R + 1.2);
             if po.x >= bbox_x0 + 0.2 && po.y <= bbox_y1 - 0.2 {
                 let hits = dg_painters_at(shapes, po);
                 if !hits.is_empty() {
                     bleeds.push(format!(
-                        "  θ={deg:.0}° ({:.1},{:.1}) ← {}",
+                        "  Î¸={deg:.0}Â° ({:.1},{:.1}) â {}",
                         po.x,
                         po.y,
                         hits.join(" | ")
                     ));
                 }
             }
-            // Just INSIDE the arc → must be painted.
+            // Just INSIDE the arc â must be painted.
             let pi = c + dir * (DG_R - 3.0);
             if dg_painters_at(shapes, pi).is_empty() {
-                gaps.push(format!("  θ={deg:.0}° ({:.1},{:.1})", pi.x, pi.y));
+                gaps.push(format!("  Î¸={deg:.0}Â° ({:.1},{:.1})", pi.x, pi.y));
             }
         }
         assert!(
             bleeds.is_empty(),
             "{label}: opaque fill(s) BLEED outside the grid's bottom-left arc \
-             (radius {DG_R}) — they must be clipped to the arc:\n{}",
+             (radius {DG_R}) â they must be clipped to the arc:\n{}",
             bleeds.join("\n")
         );
         assert!(
             gaps.is_empty(),
-            "{label}: the bottom-left arc INTERIOR is not filled — the corner fill \
+            "{label}: the bottom-left arc INTERIOR is not filled â the corner fill \
              over-inset and left a square gap instead of tracking the arc:\n{}",
             gaps.join("\n")
         );
@@ -12857,7 +13145,7 @@ mod shape_dump {
 
     /// Bleed guard, case 1 (operator report 2026-07-25): MORE rows than fit, so the
     /// last visible row is a few-pixel sliver clipped at the grid bottom. Its
-    /// requested corner radius gets clamped to `height/2` — a tiny arc that pokes
+    /// requested corner radius gets clamped to `height/2` â a tiny arc that pokes
     /// past the grid silhouette unless the fill follows the arc with bands.
     #[test]
     fn datagrid_bottom_left_corner_has_no_opaque_bleed() {
@@ -12872,8 +13160,8 @@ mod shape_dump {
     /// "touches the bottom" misses exactly this case.
     #[test]
     fn datagrid_bottom_left_corner_clean_when_rows_end_inside_arc() {
-        // 7 rows × 43px under the tall filter header end ~3px above the grid
-        // bottom — i.e. inside the 15px arc zone.
+        // 7 rows Ã 43px under the tall filter header end ~3px above the grid
+        // bottom â i.e. inside the 15px arc zone.
         let shapes = datagrid_corner_scene(7);
         dg_assert_corner_silhouette(&shapes, "rows ending inside the arc zone");
     }
@@ -12881,7 +13169,7 @@ mod shape_dump {
     /// Corner-bleed guard (egui 0.35 regression): every stroked rect that is
     /// concentric with the panel face must keep its corner radius STRICTLY
     /// inside the face radius. u8 radii can't express `face - 0.5`, and
-    /// rounding UP pushed the dark border arc outside the face — the visible
+    /// rounding UP pushed the dark border arc outside the face â the visible
     /// black corner arcs. Flooring keeps it inside; this test pins that.
     #[test]
     fn concentric_border_arcs_stay_inside_the_face() {
@@ -12954,7 +13242,7 @@ mod shape_dump {
                             let tighter_ok = rs.corner_radius.nw < fr;
                             assert!(
                                 inside_ok || tighter_ok,
-                                "border arc (r={}, {:?}) may spill outside the face arc (r={fr}) — corner bleed regression",
+                                "border arc (r={}, {:?}) may spill outside the face arc (r={fr}) â corner bleed regression",
                                 rs.corner_radius.nw,
                                 rs.stroke_kind,
                             );
@@ -12989,7 +13277,7 @@ mod shape_dump {
     }
 }
 
-// ── Spec 047 — Elegance on the live (interactive) surface ────────────────────
+// ââ Spec 047 â Elegance on the live (interactive) surface ââââââââââââââââââââ
 
 #[cfg(test)]
 mod elegance_live_tests {
@@ -13009,7 +13297,7 @@ mod elegance_live_tests {
     }
 
     /// The controls that hand-paint themselves on the live surface instead of
-    /// going through `paint::draw_control` — each has a second, independent
+    /// going through `paint::draw_control` â each has a second, independent
     /// implementation there, which is exactly why they need their own check
     /// (spec 047 plan R-1).
     fn doubled_painters() -> Vec<(&'static str, CT)> {
@@ -13066,7 +13354,7 @@ mod elegance_live_tests {
         out
     }
 
-    /// T10–T12 — the live-only painters actually take the theme.
+    /// T10âT12 â the live-only painters actually take the theme.
     ///
     /// Each of these eight controls paints its own background on the running
     /// form, separately from the designer face. If one is ever added back with
@@ -13098,10 +13386,10 @@ mod elegance_live_tests {
             covered.len() + missing.len()
         );
         for n in &covered {
-            println!("    ✓ {n}");
+            println!("    â {n}");
         }
         for n in &missing {
-            println!("    ✗ {n}");
+            println!("    â {n}");
         }
         println!();
 

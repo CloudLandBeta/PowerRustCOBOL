@@ -2857,7 +2857,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
              keys are on. Kept fainter than ActiveItemColor by default so hovering an item \
              never looks like selecting it.",
         ),
-        "Sorted" => (BOOL_DOMAIN, "Keeps items alphabetically sorted."),
+        "Sorted" => (BOOL_DOMAIN, "Shows the items in alphabetical order, by TEXT and ignoring case, so 10 sorts before 9. Display order only - the stored Items keeps the order it was written in. ListBox and ComboBox; TreeView carries the property but does not act on it yet."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
         "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list. The list is as tall as its items need up to this, and scrolls past it."),
         "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo. It does not change what the arrow keys do: those always walk the list."),
