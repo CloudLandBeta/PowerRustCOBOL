@@ -145,6 +145,9 @@ pub struct BreadcrumbState<'a> {
     pub font: FontId,
     /// Where the chain sits inside the frame — the rail's `BreadcrumbTextAlign`.
     pub align: TextAlign,
+    /// The toggle's size when the developer set one (`BreadcrumbIconSize`).
+    /// `None` keeps the historical square-of-the-frame-height rule.
+    pub toggle_size: Option<f32>,
 }
 
 /// Where the strip's parts landed. Painting and hit-testing both walk this, so
@@ -233,7 +236,15 @@ pub fn state_for_control<'a>(
         ),
         collapsed: ctrl.side_menu_collapsed(),
         toggle_hovered: false,
-        font: crate::fonts::font_id(ctx, &font_name, crate::paint::ctrl_font_size(ctrl)),
+        // The chain's own size when the developer set one; otherwise the
+        // rail's FontSize, which is what it always followed.
+        font: crate::fonts::font_id(
+            ctx,
+            &font_name,
+            ctrl.breadcrumb_font_size()
+                .unwrap_or_else(|| crate::paint::ctrl_font_size(ctrl)),
+        ),
+        toggle_size: ctrl.breadcrumb_icon_size(),
         align: TextAlign::parse(
             &ctrl
                 .get_prop("BreadcrumbTextAlign")
@@ -258,6 +269,7 @@ pub fn state_plain<'a>(segments: &'a [String], bg: Color32) -> BreadcrumbState<'
         toggle_hovered: false,
         font: FontId::proportional(13.0),
         align: TextAlign::default(),
+        toggle_size: None,
     }
 }
 
@@ -271,7 +283,13 @@ pub fn layout(
     rect: Rect,
     state: &BreadcrumbState<'_>,
 ) -> BreadcrumbLayout {
-    let side = rect.height().min(TOGGLE_MAX);
+    // The toggle's own size when the developer set one, otherwise the
+    // historical square of the frame's height. Either way it never exceeds the
+    // frame: an arrow taller than the band it sits in would paint outside it.
+    let side = match state.toggle_size {
+        Some(size) => size.min(rect.height()),
+        None => rect.height().min(TOGGLE_MAX),
+    };
     let toggle = Rect::from_center_size(
         Pos2::new(rect.min.x + side * 0.5, rect.center().y),
         Vec2::splat(side),
@@ -1006,6 +1024,83 @@ mod tests {
         for raw in ["", "Middle", "centre", "sideways", "42"] {
             assert_eq!(TextAlign::parse(raw), TextAlign::Middle, "{raw:?}");
         }
+    }
+
+    /// The chain's text size is its own, not the rail's menu font.
+    #[test]
+    fn the_chain_has_a_font_size_independent_of_the_menu() {
+        let ctx = ctx();
+        let segs = vec!["Main Menu".to_string()];
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.set_prop("FontSize", 11);
+
+        // Unset (0) keeps the historical behaviour: the chain follows the rail.
+        let inherited = state_for_control(&ctx, &side, &segs, CHROME).font.size;
+        assert_eq!(inherited, 11.0, "0 must still follow the rail's FontSize");
+
+        // Set, and the two part company — the rail's FontSize is untouched.
+        side.set_prop("BreadcrumbFontSize", 28);
+        assert_eq!(state_for_control(&ctx, &side, &segs, CHROME).font.size, 28.0);
+        assert_eq!(
+            crate::paint::ctrl_font_size(&side),
+            11.0,
+            "the menu labels must not move when the chain's size does"
+        );
+    }
+
+    /// The toggle no longer grows just because the frame did.
+    #[test]
+    fn the_toggle_has_a_size_independent_of_the_frame_height() {
+        let ctx = ctx();
+        let segs = vec!["Main Menu".to_string()];
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        let tall = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 120.0));
+
+        // Unset: the historical square of the frame height, capped.
+        let st = state_for_control(&ctx, &side, &segs, CHROME);
+        let l = with_painter(&ctx, |p| layout(p, tall, &st));
+        assert_eq!(l.toggle.width(), TOGGLE_MAX, "0 keeps the old rule");
+
+        // Set: a tall frame no longer drags the arrow up with it.
+        side.set_prop("BreadcrumbIconSize", 20);
+        let st = state_for_control(&ctx, &side, &segs, CHROME);
+        let l = with_painter(&ctx, |p| layout(p, tall, &st));
+        assert_eq!(l.toggle.width(), 20.0, "the toggle is the developer's size");
+        assert_eq!(l.toggle.height(), 20.0, "…and still square");
+
+        // …and the chain starts right after it, so a smaller arrow gives the
+        // text back the space the old rule was taking.
+        assert!(l.segments[0].min.x < tall.min.x + TOGGLE_MAX + PAD_X);
+
+        // It can never outgrow the band it lives in.
+        side.set_prop("BreadcrumbIconSize", 200);
+        let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 28.0));
+        let st = state_for_control(&ctx, &side, &segs, CHROME);
+        let l = with_painter(&ctx, |p| layout(p, short, &st));
+        assert_eq!(l.toggle.height(), 28.0, "clamped to the frame");
+    }
+
+    /// Changing one of the three never moves the other two.
+    #[test]
+    fn height_font_and_icon_are_three_separate_dials() {
+        let ctx = ctx();
+        let segs = vec!["Main Menu".to_string()];
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.set_prop("FontSize", 11);
+        side.set_prop("BreadcrumbHeight", 40);
+        side.set_prop("BreadcrumbFontSize", 18);
+        side.set_prop("BreadcrumbIconSize", 24);
+
+        let before = state_for_control(&ctx, &side, &segs, CHROME);
+        let (font_before, icon_before) = (before.font.size, before.toggle_size);
+        assert_eq!(side.breadcrumb_height(), 40.0);
+
+        // Raising the frame moves the frame, and nothing else.
+        side.set_prop("BreadcrumbHeight", 120);
+        let after = state_for_control(&ctx, &side, &segs, CHROME);
+        assert_eq!(side.breadcrumb_height(), 120.0);
+        assert_eq!(after.font.size, font_before, "the height must not touch the font");
+        assert_eq!(after.toggle_size, icon_before, "…nor the toggle");
     }
 
     /// The strip paints headlessly, with and without a chain.

@@ -3930,6 +3930,13 @@ impl Control {
                         "BreadcrumbTextAlign".into(),
                         PropValue::String("Middle".into()),
                     );
+                    // The chain's own text size and toggle size. 0 means
+                    // "as before": the text follows the rail's FontSize and
+                    // the toggle is a square of the frame's height. Anything
+                    // else is the developer taking one of them over, without
+                    // disturbing the other two.
+                    props.insert("BreadcrumbFontSize".into(), PropValue::Int(0));
+                    props.insert("BreadcrumbIconSize".into(), PropValue::Int(0));
                     // The header logo. Empty = no logo drawn; the header is
                     // the developer's, not a placeholder's.
                     props.insert("HeaderImage".into(), PropValue::String(String::new()));
@@ -4626,6 +4633,49 @@ impl Control {
             .map(|v| v.as_i64() as f32)
             .filter(|h| *h >= MIN_BREADCRUMB_HEIGHT)
             .unwrap_or(DEFAULT_BREADCRUMB_HEIGHT)
+    }
+
+    /// What a freshly created control of `kind` carries for `key`.
+    ///
+    /// An inspector row for a form saved before a property existed has nothing
+    /// to show, and showing 0 is a lie: it reads as "off" while the renderer is
+    /// happily using the real default. Reading the answer back from
+    /// [`Control::new`] keeps ONE list of defaults rather than a second one
+    /// that drifts.
+    pub fn default_prop(kind: ControlType, key: &str) -> Option<PropValue> {
+        Control::new("", kind, 0, 0).get_prop(key).cloned()
+    }
+
+    /// The breadcrumb text's OWN size, when the developer set one.
+    ///
+    /// `None` means the chain keeps following the rail's `FontSize`, which is
+    /// what it always did — but that made the two impossible to set apart: the
+    /// menu labels and the navigation chain are different text at different
+    /// sizes, and one property could only ever move both.
+    pub fn breadcrumb_font_size(&self) -> Option<f32> {
+        if self.control_type != ControlType::SideMenu {
+            return None;
+        }
+        self.get_prop("BreadcrumbFontSize")
+            .map(|v| v.as_i64() as f32)
+            .filter(|s| *s > 0.0)
+            .map(|s| s.clamp(4.0, 200.0))
+    }
+
+    /// The breadcrumb toggle's OWN size, when the developer set one.
+    ///
+    /// `None` keeps the historical rule — the toggle is a square of the frame's
+    /// height — which quietly tied the arrow to a property that is about the
+    /// band, not about the control in it: raising the frame to make room for
+    /// your own controls grew the arrow along with it.
+    pub fn breadcrumb_icon_size(&self) -> Option<f32> {
+        if self.control_type != ControlType::SideMenu {
+            return None;
+        }
+        self.get_prop("BreadcrumbIconSize")
+            .map(|v| v.as_i64() as f32)
+            .filter(|s| *s > 0.0)
+            .map(|s| s.clamp(8.0, 200.0))
     }
 
     /// The breadcrumb frame's own background colour, when the developer chose

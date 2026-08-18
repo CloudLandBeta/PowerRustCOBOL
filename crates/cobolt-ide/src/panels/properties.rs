@@ -6871,13 +6871,37 @@ impl PropertiesPanel {
                     // The height owes nothing to the font, so a frame taller
                     // than its text has room — this says where the chain goes
                     // in it.
-                    combo_row_inline(
+                    combo_row_labeled(
                         ui,
                         id,
                         "BreadcrumbTextAlign",
+                        tr.prop_crumb_align,
                         ctrl,
                         action,
                         &["Top", "Middle", "Bottom"],
+                    );
+                    // The chain's own text and toggle sizes. Both default to 0
+                    // = "as before", because the frame's height and the rail's
+                    // FontSize used to decide these and a saved form must not
+                    // change appearance. Non-zero is the developer taking one
+                    // over without disturbing the other.
+                    int_row_inline(
+                        ui,
+                        id,
+                        "BreadcrumbFontSize",
+                        tr.prop_crumb_font_size,
+                        ctrl,
+                        action,
+                        0..=200,
+                    );
+                    int_row_inline(
+                        ui,
+                        id,
+                        "BreadcrumbIconSize",
+                        tr.prop_crumb_icon_size,
+                        ctrl,
+                        action,
+                        0..=200,
                     );
                     // The sidebar's four menu colours live in Basic instead of
                     // a section of their own: they are the rail's ICON
@@ -9599,7 +9623,14 @@ fn int_row_inline(
     action: &mut InspectorAction,
     range: std::ops::RangeInclusive<i64>,
 ) {
-    let mut v = ctrl.get_prop(key).map(|p| p.as_i64()).unwrap_or(0);
+    // A form saved before this property existed carries no value. Showing 0
+    // would read as "off" while the renderer is using the type's real default,
+    // so fall back to that default instead.
+    let mut v = ctrl
+        .get_prop(key)
+        .map(|p| p.as_i64())
+        .or_else(|| Control::default_prop(ctrl.control_type.clone(), key).map(|p| p.as_i64()))
+        .unwrap_or(0);
     property_row(ui, label, |ui| {
         if ui
             .add(DragValue::new(&mut v).speed(1).range(range))

@@ -4624,19 +4624,35 @@ owns the three things that are yours to choose:
 |---|---|---|
 | `BreadcrumbHeight` | **Breadcrumb height** | How tall the frame is drawn, 16 to 200 points. Default 28. |
 | `BreadcrumbBackgroundColor` | **Breadcrumb background** | The frame's own colour. Leave it **empty** and the frame keeps following the content pane's background, which is what it has always done. |
-| `BreadcrumbTextAlign` | **BreadcrumbTextAlign** | Where the chain sits inside the frame: `Top`, `Middle` (the default) or `Bottom`. |
+| `BreadcrumbTextAlign` | **Breadcrumb text align** | Where the chain sits inside the frame: `Top`, `Middle` (the default) or `Bottom`. |
+| `BreadcrumbFontSize` | **Breadcrumb font size** | The chain's own text size. `0` — the default — keeps it following the sidebar's `FontSize`, as it always did. |
+| `BreadcrumbIconSize` | **Breadcrumb icon size** | The Open/Collapsed toggle's own size. `0` — the default — keeps it a square of the frame's height, as it always did. It is never drawn taller than the frame. |
 
 A colour you choose may carry alpha, in which case the pane shows through it —
 but the frame is always painted **opaque** in the end, because it is chrome: a
 hole in it would show the desktop.
 
-**The height is yours, not the font's.** Changing the breadcrumb's `FontSize`
-never grows or shrinks the frame: the frame is exactly as tall as you said, and
-text too big for it is cut off *by* it rather than spilling outside. That is
-what makes the third property worth having — set a 64-point frame and the chain
-has room to move, so you decide whether it sits against the top, in the middle,
-or against the bottom. Coming from PowerCOBOL, this is the difference between a
-band whose size is a side effect of its font and one you actually control.
+**Height, text size and icon size are three separate dials.** This is worth
+stating plainly, because it used to be one dial pretending to be three:
+
+- Changing **`BreadcrumbHeight`** moves the frame and nothing else. Text too big
+  for it is cut off *by* the frame rather than spilling outside, so the height
+  you set is the height you get.
+- Changing **`BreadcrumbFontSize`** moves the chain's text and nothing else. The
+  chain used to share the sidebar's `FontSize` with the menu labels, so sizing
+  one always sized the other; now the menu labels stay put.
+- Changing **`BreadcrumbIconSize`** moves the toggle and nothing else. The toggle
+  used to be a square of the frame's height, so making the band taller to hold
+  your own controls grew the arrow along with it.
+
+Leave the last two at `0` and everything behaves exactly as before — no form you
+have already drawn changes appearance. Coming from PowerCOBOL, this is the
+difference between a band whose parts size each other by side effect and one
+where each part is a property you set.
+
+That independence is what makes the alignment worth having: set a 64-point frame
+and the chain has room to move, so you decide whether it sits against the top, in
+the middle, or against the bottom.
 
 **You may place controls over the frame.** Give it some height and it becomes a
 band you can design in: a title, a search box, a status label, a toolbar of your
