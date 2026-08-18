@@ -1206,7 +1206,14 @@ impl ShellApp {
                     };
                     let entry = NavEntry {
                         form_object: target_upper.clone(),
-                        label: target.clone(),
+                        // R21 — the form's designed TITLE names it, exactly as
+                        // the main form's own segment does. The chain used to
+                        // carry the form OBJECT name here, so a shell whose
+                        // root read "Main Menu" pointed at "inner-form1".
+                        label: self
+                            .host
+                            .occupant_label(&target_upper)
+                            .unwrap_or_else(|| target.clone()),
                         // Its own fate is decided by whichever click later
                         // navigates away from it (049 R24).
                         preserve_on_replace: false,
@@ -2724,6 +2731,127 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             "051 occupant swap — CRM opened (chain MAIN›CRM), HR swap parked CRM \
              (3 resident), return revived the SAME instance ({crm_handle_1}), \
              breadcrumb-back destroyed it and re-activated the root"
+        );
+    }
+
+    /// R21 — a loaded form's segment carries its designed **Title**, the same
+    /// thing the main form's segment carries. The chain used to store the form
+    /// OBJECT name for anything loaded through the `open-form:` door, so a
+    /// shell whose root read "Main Menu" pointed at "inner-form1" — two
+    /// vocabularies in one strip. A form with no title still falls back to its
+    /// object name, which is all there is to show.
+    #[test]
+    fn a_loaded_forms_segment_is_its_title_not_its_object_name() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main Menu", 800, 600);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        // INNER-FORM1 is titled; PLAIN-FORM deliberately is not.
+        let source: FormSource = Box::new(|id: &str| match id.trim().to_ascii_uppercase().as_str() {
+            "INNER-FORM1" => Ok((
+                cobolt_forms::Form::new("INNER-FORM1", "Customer Data", 400, 300),
+                program(),
+            )),
+            "PLAIN-FORM" => Ok((
+                cobolt_forms::Form::new("PLAIN-FORM", "", 400, 300),
+                program(),
+            )),
+            other => Err(format!("no form named '{other}'")),
+        });
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: "MAIN-FORM".into(),
+            label: "Main Menu".into(),
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: "MAIN-FORM".into(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain,
+            host,
+            side_menu_ctrl: None,
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx,
+        };
+        let click = |action: &str| MenuClick {
+            slot: MenuSlot::Root,
+            item_id: action.to_string(),
+            action: Some(action.to_string()),
+            preserve_previous_form: false,
+        };
+
+        app.shell.pending_clicks = vec![click("open-form:INNER-FORM1")];
+        app.process_menu_clicks();
+        let labels: Vec<String> = app.chain.segments().into_iter().map(|(_, l)| l).collect();
+        assert_eq!(
+            labels,
+            vec!["Main Menu".to_string(), "Customer Data".to_string()],
+            "the title names the loaded form, not INNER-FORM1"
+        );
+
+        // A form with no title has only its object name to show.
+        app.shell.pending_clicks = vec![click("open-form:PLAIN-FORM")];
+        app.process_menu_clicks();
+        let labels: Vec<String> = app.chain.segments().into_iter().map(|(_, l)| l).collect();
+        assert_eq!(
+            labels,
+            vec!["Main Menu".to_string(), "PLAIN-FORM".to_string()],
+            "no title ⇒ the object name is the honest label"
+        );
+
+        println!(
+            "049 R21 breadcrumb labels — INNER-FORM1 (Title \"Customer Data\") \
+             shows as \"Customer Data\"; PLAIN-FORM (no Title) shows as \
+             \"PLAIN-FORM\"; 2/2 segments named by title-then-name"
         );
     }
 
