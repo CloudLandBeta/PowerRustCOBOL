@@ -8709,6 +8709,10 @@ mod tests {
         bands: Vec<(Rect, egui::CornerRadius, Color32)>,
         /// The bounds of every mesh â a gradient is one.
         meshes: Vec<Rect>,
+        /// Every mesh with the colours its vertices carry. A glass lens is a
+        /// mesh too, so "is the DESIGNED gradient painted" is about the colours
+        /// in one, not about a mesh being there at all.
+        mesh_colors: Vec<(Rect, Vec<Color32>)>,
         placed: Map<String, Rect>,
     }
 
@@ -8718,15 +8722,28 @@ mod tests {
             fills: &mut Vec<(Rect, Color32)>,
             bands: &mut Vec<(Rect, egui::CornerRadius, Color32)>,
             meshes: &mut Vec<Rect>,
+            mesh_colors: &mut Vec<(Rect, Vec<Color32>)>,
         ) {
             match shape {
-                egui::Shape::Rect(r) if r.fill.a() > 0 => {
-                    fills.push((r.rect, r.fill));
+                // `fills` is what was actually INKED; `bands` is every rect the
+                // frame emitted, transparent ones included — egui fades an idle
+                // scrollbar to nothing, and "where does the bar sit" is a
+                // question about geometry, not about ink.
+                egui::Shape::Rect(r) => {
                     bands.push((r.rect, r.corner_radius, r.fill));
+                    if r.fill.a() > 0 {
+                        fills.push((r.rect, r.fill));
+                    }
                 }
-                egui::Shape::Mesh(m) => meshes.push(m.calc_bounds()),
+                egui::Shape::Mesh(m) => {
+                    meshes.push(m.calc_bounds());
+                    mesh_colors.push((
+                        m.calc_bounds(),
+                        m.vertices.iter().map(|v| v.color).collect(),
+                    ));
+                }
                 egui::Shape::Vec(v) => {
-                    v.iter().for_each(|s| collect_faces(s, fills, bands, meshes))
+                    v.iter().for_each(|s| collect_faces(s, fills, bands, meshes, mesh_colors))
                 }
                 _ => {}
             }
@@ -8765,6 +8782,7 @@ mod tests {
         let mut fills: Vec<(Rect, Color32)> = Vec::new();
         let mut bands: Vec<(Rect, egui::CornerRadius, Color32)> = Vec::new();
         let mut meshes: Vec<Rect> = Vec::new();
+        let mut mesh_colors: Vec<(Rect, Vec<Color32>)> = Vec::new();
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
@@ -8805,9 +8823,10 @@ mod tests {
             fills.clear();
             bands.clear();
             meshes.clear();
+            mesh_colors.clear();
             for cs in &full.shapes {
                 collect(&cs.shape, cs.clip_rect, &mut painted);
-                collect_faces(&cs.shape, &mut fills, &mut bands, &mut meshes);
+                collect_faces(&cs.shape, &mut fills, &mut bands, &mut meshes, &mut mesh_colors);
             }
             full.textures_delta.clear();
             for (id, key, value) in updates.into_inner() {
@@ -8824,6 +8843,7 @@ mod tests {
             fills,
             bands,
             meshes,
+            mesh_colors,
             placed: placed.into_inner(),
         }
     }
@@ -11412,6 +11432,212 @@ mod tests {
              1,10,11,2,…,9 in both a ListBox and an open dropdown (text order, so 10 \
              before 9), Items itself untouched; delta/Alpha/bravo/Charlie ⇒ \
              Alpha,bravo,Charlie,delta\n"
+        );
+    }
+
+    /// A dropdown's scrollbar belongs INSIDE its border, as a ListBox's does.
+    /// It used to ride on the rim and out past the rounded corner, because the
+    /// scrolling pane was handed the whole panel instead of the inside of it
+    /// (operator, 2026-08-18).
+    ///
+    /// And a list short enough to fit must not scroll for want of that margin:
+    /// the panel stands tall enough for its items AND the margin.
+    #[test]
+    fn a_dropdowns_scrollbar_sits_inside_the_border() {
+        let items: Vec<String> = (1..=30).map(|n| format!("Item-{n:02}")).collect();
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 320, 26);
+        cmb.set_prop("Items", crate::PropValue::String(items.join("\n")));
+        cmb.set_prop("Value", crate::PropValue::String("Item-01".to_owned()));
+        let hc = pos2(180.0, 33.0);
+        let painted = drive_painted(
+            &[cmb.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                (3.0, vec![]),
+            ],
+        );
+        let header = *painted.placed.get("Cmb").expect("placed");
+        let pad = crate::model::LIST_FRAME_PAD;
+        let panel = Rect::from_min_size(
+            pos2(header.left(), header.bottom() + 1.0),
+            Vec2::new(header.width(), 200.0),
+        );
+
+        // The scrollbar is a tall, narrow rect inside the panel. Its width and
+        // its ink depend on the ambient scroll style, and egui fades an idle bar
+        // to nothing, so only its POSITION is asserted -- exactly as the
+        // ListBox's own scrollbar guard does.
+        let bars: Vec<Rect> = painted
+            .bands
+            .iter()
+            .map(|(r, _, _)| *r)
+            .filter(|r| r.height() > r.width() * 3.0 && r.height() > 20.0)
+            .filter(|r| r.height() <= panel.height() + 1.0)
+            .filter(|r| r.top() >= panel.top() - 1.0 && r.bottom() <= panel.bottom() + 1.0)
+            .filter(|r| r.left() >= panel.left() - 1.0 && r.right() <= panel.right() + 1.0)
+            .collect();
+        assert!(
+            !bars.is_empty(),
+            "a 30-item list in a {}px panel must have a scrollbar to place",
+            panel.height()
+        );
+        for bar in &bars {
+            assert!(
+                bar.right() <= panel.right() - pad + 0.5,
+                "the scrollbar must sit inside the border, not on it: bar {bar:?} in {panel:?}"
+            );
+            assert!(
+                bar.center().x >= panel.right() - 14.0,
+                "...while still hugging the right border: bar {bar:?} in {panel:?}"
+            );
+        }
+
+        // A list that FITS must not scroll: three items, in a panel tall enough
+        // for them plus the margin, all three painted where they were laid out.
+        let mut short = ctrl("Short", ControlType::ComboBox, 20, 200, 320, 26);
+        short.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()),
+        );
+        let sc = pos2(180.0, 213.0);
+        let painted = drive_painted(
+            &[short.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(sc), press(sc)]),
+                (2.0, vec![Event::PointerMoved(sc), release(sc)]),
+                (3.0, vec![]),
+            ],
+        );
+        let head = *painted.placed.get("Short").expect("placed");
+        let ih = combo_item_h(&short);
+        let box_ = Rect::from_min_size(
+            pos2(head.left(), head.bottom() + 1.0),
+            Vec2::new(head.width(), 3.0 * ih + pad * 2.0),
+        );
+        for want in ["Alpha", "Beta", "Gamma"] {
+            assert!(
+                painted
+                    .texts
+                    .iter()
+                    .any(|t| t.text == want && box_.expand(1.0).contains_rect(t.ink)),
+                "a three-item list must show all three without scrolling; {want} is not \
+                 inside {box_:?}: painted {:?}",
+                painted
+                    .texts
+                    .iter()
+                    .map(|t| (t.text.as_str(), t.ink))
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        println!(
+            "\n  ComboBox scrollbar -- a 30-item list: {} bar rect(s), rightmost edge {:.1} \
+             inside a panel ending at {:.1} ({pad}px margin, as a ListBox keeps); a \
+             three-item list shows all three without scrolling\n",
+            bars.len(),
+            bars.iter().map(|b| b.right()).fold(f32::MIN, f32::max),
+            panel.right()
+        );
+    }
+
+    /// A Shape wears the background GRADIENT it was designed with, on every one
+    /// of its silhouettes (operator, 2026-08-18: "Shape background's color
+    /// works, but background gradient does not").
+    ///
+    /// A Shape paints its own face and returns long before the generic frame
+    /// code, which is the only place the gradient was ever read -- so Background
+    /// colour worked while Background gradient did nothing whatever.
+    #[test]
+    fn a_shape_wears_the_background_gradient_it_was_designed_with() {
+        let shape = |kind: &str, gradient: bool| -> Vec<Control> {
+            let mut c = ctrl("Shape-1", ControlType::Shape, 20, 20, 160, 160);
+            c.set_prop("ShapeType", crate::PropValue::String(kind.to_owned()));
+            c.set_prop("FillColor", crate::PropValue::String("#C0C0C0FF".into()));
+            // The operator's own pair: a blue start and a red end, going south.
+            c.set_prop(
+                "BackgroundGradientEnabled",
+                crate::PropValue::Bool(gradient),
+            );
+            c.set_prop(
+                "BackgroundGradientStartColor",
+                crate::PropValue::String("#1367C4FF".into()),
+            );
+            c.set_prop(
+                "BackgroundGradientEndColor",
+                crate::PropValue::String("#EF0000FF".into()),
+            );
+            c.set_prop(
+                "BackgroundGradientDirection",
+                crate::PropValue::String("South".into()),
+            );
+            vec![c]
+        };
+
+        // The designed pair. A mesh "carries" a colour when some vertex is
+        // within a small distance of it: the fan interpolates, so the exact
+        // start and end land only at the extreme vertices.
+        let start = Color32::from_rgb(0x13, 0x67, 0xC4);
+        let end = Color32::from_rgb(0xEF, 0x00, 0x00);
+        let near = |a: Color32, b: Color32| {
+            (a.r() as i32 - b.r() as i32).abs()
+                + (a.g() as i32 - b.g() as i32).abs()
+                + (a.b() as i32 - b.b() as i32).abs()
+                <= 24
+        };
+
+        for kind in ["Rectangle", "Circle", "Triangle"] {
+            // Off: no mesh anywhere carries the designed pair. (A circle's glass
+            // lens is a mesh too, so the question is the COLOURS, not the mesh.)
+            let painted = drive_painted(&shape(kind, false), vec![(0.0, vec![]), (0.05, vec![])]);
+            assert!(
+                !painted.mesh_colors.iter().any(|(_, cs)| {
+                    cs.iter().any(|c| near(*c, start)) && cs.iter().any(|c| near(*c, end))
+                }),
+                "{kind}: with the gradient off, nothing should paint the designed pair"
+            );
+
+            // On: one mesh carries both ends, across the shape.
+            let painted = drive_painted(&shape(kind, true), vec![(0.0, vec![]), (0.05, vec![])]);
+            let frame = *painted.placed.get("Shape-1").expect("placed");
+            let found = painted.mesh_colors.iter().find(|(_, cs)| {
+                cs.iter().any(|c| near(*c, start)) && cs.iter().any(|c| near(*c, end))
+            });
+            let (bounds, _) = found.unwrap_or_else(|| {
+                panic!(
+                    "{kind}: the designed #1367C4 to #EF0000 gradient must be painted; \
+                     meshes carried {:?}",
+                    painted
+                        .mesh_colors
+                        .iter()
+                        .map(|(r, cs)| (*r, cs.len()))
+                        .collect::<Vec<_>>()
+                )
+            });
+            // A circle and a triangle cover less of their bounding box than a
+            // rectangle, so the bar is what each silhouette can reach.
+            let want = match kind {
+                "Rectangle" => 0.9,
+                "Circle" => 0.7,
+                _ => 0.4,
+            };
+            assert!(
+                bounds.intersect(frame).area() >= frame.area() * want,
+                "{kind}: the gradient must cover the shape, not a corner of it: \
+                 {bounds:?} vs {frame:?}"
+            );
+            assert!(
+                bounds.top() >= frame.top() - 1.0 && bounds.bottom() <= frame.bottom() + 1.0,
+                "{kind}: and must stay within it: {bounds:?} vs {frame:?}"
+            );
+        }
+
+        println!(
+            "\n  Shape gradient -- a designed #1367C4 to #EF0000 South gradient is painted \
+             across a Rectangle, a Circle and a Triangle; with the property off no mesh \
+             carries that pair at all\n"
         );
     }
 

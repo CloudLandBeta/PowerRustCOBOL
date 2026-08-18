@@ -1146,6 +1146,14 @@ non-visual ones are services.
 
 **Graphics / media**
 : Line, Shape, Animator, **Maps**.
+  A **Shape** draws a Rectangle, a Circle or a Triangle. It has its own
+  **FillColor**, **FillStyle**, **LineColor**, **LineStyle** and
+  **LineThickness** in *Basic properties*, and it also honours the **Background
+  gradient** in *Appearance*: tick it and the gradient leads over the fill, on
+  all three silhouettes. A circle and a triangle are shaded along the shape
+  itself, not through a box drawn around them, so a Radial gradient reads
+  correctly on each. Leave it unticked and the shape wears **FillColor** (or the
+  Appearance **Background color** when you have not set a FillColor).
 
 **Charts**
 : BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.
@@ -1633,9 +1641,12 @@ alphabetical order. Three things worth knowing:
 > own parent is a different operation. Its nodes show in the order you wrote
 > them.
 
-**How tall the list is.** As tall as its items need, up to `DropDownHeight`
-(the **DropDownHeight** row in the inspector, 200 px by default), and it scrolls past
-that. Every item is reachable however many there are.
+**How tall the list is.** As tall as its items need — plus the small margin it
+keeps off its own border — up to `DropDownHeight` (the **DropDownHeight** row in
+the inspector, 200 px by default), and it scrolls past that. Every item is
+reachable however many there are, and a list short enough to fit does not
+scroll. The scrollbar rides against the inside of the border, as a ListBox's
+does.
 
 **The face is yours.** A ComboBox wears the background you designed â
 **Background color**, or **Background gradient** with its start, end and
