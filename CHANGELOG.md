@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.88] — 2026-08-18
+
+### Added — a ListBox names the colours it highlights with
+
+A list drew both of its highlights from the ambient palette, so the one thing a
+developer could not design about a ListBox was the colour that says *this row*.
+Two properties now hold them:
+
+| Property | The highlight behind |
+|----------|----------------------|
+| `ActiveItemColor` | the **active** row — the one `Value` / `SelectedIndex` reports |
+| `SelectedItemsColor` | the **other rows of a `MultiSelect` selection**, the ones `SelectedItems` reports |
+
+Both sit in the inspector's ListBox section and both accept a runtime write, so
+a list can recolour its own selection as an application runs.
+
+Either left **empty** means "not chosen" and falls back exactly as a list drew
+before: the active row takes the palette's selection colour, and the selection
+takes that colour at 45 %. An existing form is therefore unchanged. Because the
+fallback follows whatever the active colour ends up being, naming
+`ActiveItemColor` alone restyles the whole list; naming a colour also pins it
+across the three surfaces whose palettes need not agree — the designer's
+preview, Run Form and the compiled binary. A named colour can be handed back to
+the palette with the row's ↺.
+
 ## [PowerRustCOBOL 1.61.87] — 2026-08-18
 
 ### Fixed — a running ListBox wears the background it was designed with

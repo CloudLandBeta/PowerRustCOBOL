@@ -5696,6 +5696,31 @@ impl PropertiesPanel {
                 bool_row_inline(ui, id, "MultiSelect", "Multi-select", ctrl, action);
                 bool_row_inline(ui, id, "ShowCheckBoxes", "Tick boxes", ctrl, action);
                 bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
+                // The two highlights, opening on the colours the list is
+                // drawing rather than on a stored value it may not have: both
+                // properties start empty, meaning "the theme's". Resolved
+                // through the painter's own rule so the swatch here and the
+                // painted row cannot disagree.
+                let (eff_active, eff_selected) =
+                    cobolt_forms::paint::list_selection_fills(ctrl, ui.visuals().selection.bg_fill);
+                color_row_effective(
+                    ui,
+                    id,
+                    "ActiveItemColor",
+                    "Active row",
+                    ctrl,
+                    action,
+                    eff_active,
+                );
+                color_row_effective(
+                    ui,
+                    id,
+                    "SelectedItemsColor",
+                    "Selected rows",
+                    ctrl,
+                    action,
+                    eff_selected,
+                );
                 // The three things a list reports, and which is which. Runtime
                 // values, like DroppedFiles — shown so the developer knows what
                 // to read, not to be typed in.
@@ -9142,6 +9167,66 @@ fn color_row_labeled(
             RichText::new(color32_to_hex(color))
                 .color(Color32::GRAY)
                 .small(),
+        );
+    });
+}
+
+/// A colour row for a property that may be EMPTY, meaning "the developer has
+/// not chosen one".
+///
+/// The swatch opens on `effective` — the colour the control is drawing right
+/// now — so an unnamed colour shows what the form shows instead of a
+/// placeholder it never draws. Picking one writes hex and PINS it; a pinned row
+/// grows a reset, because a property whose default is "whatever the palette
+/// says" is otherwise a door that only shuts.
+fn color_row_effective(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    effective: Color32,
+) {
+    let stored = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_default();
+    let named = !stored.is_empty();
+    let mut color = if named {
+        hex_to_color32(&stored)
+    } else {
+        effective
+    };
+    property_row(ui, label, |ui| {
+        if color_edit_button_closing(ui, &mut color).changed() {
+            action.set_props.push((
+                ctrl_id.to_owned(),
+                key.to_owned(),
+                PropValue::String(color32_to_hex(color)),
+            ));
+        }
+        if named
+            && ui
+                .small_button("↺")
+                .on_hover_text("Back to the theme's colour")
+                .clicked()
+        {
+            action.set_props.push((
+                ctrl_id.to_owned(),
+                key.to_owned(),
+                PropValue::String(String::new()),
+            ));
+        }
+        ui.label(
+            RichText::new(if named {
+                color32_to_hex(color)
+            } else {
+                "theme".to_owned()
+            })
+            .monospace()
+            .small()
+            .color(Color32::GRAY),
         );
     });
 }

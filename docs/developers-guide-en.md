@@ -1547,6 +1547,39 @@ designed — **Background color**, or **Background gradient** with its start, en
 and direction — along with its border and corner radius, on every surface: the
 designer canvas, the preview, Run Form and the compiled binary.
 
+**So are the highlights.** The colour behind a highlighted row is a property
+like any other, and there are two of them because a list highlights two
+different things:
+
+| Property | Inspector row | The highlight behind |
+|----------|---------------|----------------------|
+| `ActiveItemColor` | **Active row** | The active row — the one `Value` / `SelectedIndex` reports. |
+| `SelectedItemsColor` | **Selected rows** | The *other* rows of a `MultiSelect` selection — the ones `SelectedItems` reports. |
+
+Leave either **empty** and it means *you have not chosen*: the active row takes
+the theme's own selection colour, and the selection takes that colour dimmed to
+45 % — which is what a list drew before these properties existed, so nothing you
+have already designed changes. The dimmed colour follows whatever the active
+colour turns out to be, so setting **Active row** on its own restyles the whole
+list and keeps the two related. Once you set a colour it is pinned; the row's
+**↺** hands it back to the theme.
+
+Pinning matters more than it looks. The theme colour is not one colour: the
+preview inside the IDE carries the IDE theme's, and a compiled binary carries
+its own. A list that names its highlight is the one that looks the same in the
+designer, under Run Form and in the application you ship.
+
+Both accept a runtime write, so a highlight can answer the data:
+
+```cobol
+      *>   an overdrawn account highlights in red while it is being reviewed
+           IF WS-BALANCE < 0
+              MOVE "#B00020" TO ACCOUNTS-LIST::ActiveItemColor
+           ELSE
+              MOVE "#1B7F3B" TO ACCOUNTS-LIST::ActiveItemColor
+           END-IF
+```
+
 > **Note.** A ListBox cannot be drawn shorter than one line of its own text —
 > the designer's resize stops there, and the floor rises with `FontSize`.
 

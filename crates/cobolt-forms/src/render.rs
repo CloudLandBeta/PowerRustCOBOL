@@ -3918,8 +3918,16 @@ fn render_interactive(
             // The highlight for the ACTIVE row, and the dimmed one every other
             // selected row wears — the same colour, half lit, so a list says
             // which row the cursor is on and which are merely in the selection.
-            let active_fill = ui.visuals().selection.bg_fill;
-            let selected_fill = active_fill.gamma_multiply(0.45);
+            //
+            // Both are the developer's to name (`ActiveItemColor`,
+            // `SelectedItemsColor`); left unnamed they are the theme's
+            // selection colour and that colour half lit, which is what a list
+            // drew before the properties existed. The theme colour is only the
+            // FALLBACK, so a form that names them looks the same in the
+            // designer's preview, under Run Form and in the compiled binary —
+            // three surfaces whose ambient palettes need not agree.
+            let (active_fill, selected_fill) =
+                paint::list_selection_fills(ctrl, ui.visuals().selection.bg_fill);
             let corner = paint::corner_radius(ctrl) as u8;
             // How far the highlight keeps off the border: the border's own width
             // plus a hairline, so the rim reads as a continuous line rather than
@@ -8652,6 +8660,116 @@ mod tests {
             "\n  ListBox background — a designed #B00000 reaches the face, a designed \
              grey-to-black South gradient is painted as a mesh across the control, and the \
              hardcoded navy that used to cover both is gone\n"
+        );
+    }
+
+    /// The two highlights a list draws are the developer's to name: the ACTIVE
+    /// row's (`ActiveItemColor`) and the one the rest of a multi-select set
+    /// wears (`SelectedItemsColor`) — operator, 2026-08-18.
+    ///
+    /// Left unnamed they are what they always were, so an old form is
+    /// untouched: the palette's own selection colour, and that colour half lit.
+    /// The palette is only the FALLBACK because it is not the same everywhere —
+    /// the IDE's preview carries the IDE theme's selection colour and a
+    /// compiled binary carries egui's — so a list that names its highlight is
+    /// the one thing that looks identical on all three surfaces.
+    #[test]
+    fn a_listbox_draws_the_selection_colours_it_was_given() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 140);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()),
+        );
+        lb.set_prop("MultiSelect", crate::PropValue::Bool(true));
+        // Beta is the ACTIVE row; Alpha is in the selection with it, so both
+        // kinds of band are on screen at once and can be told apart by which
+        // row they sit on.
+        lb.set_prop("Value", crate::PropValue::String("Beta".to_owned()));
+        lb.set_prop(
+            "SelectedItems",
+            crate::PropValue::String("Alpha\nBeta".to_owned()),
+        );
+
+        // The two full-width bands, top-down: row 0 (Alpha, dimmed) then row 1
+        // (Beta, active). Width is what separates a highlight from the face,
+        // the border and the tick boxes, exactly as the geometry test does it.
+        let two_bands = |c: &Control| -> (Color32, Color32) {
+            let bands = painted_bands(std::slice::from_ref(c));
+            let (_, placed) = painted_captions(std::slice::from_ref(c));
+            let frame = *placed.get("ListBox-1").expect("placed");
+            let inset = 1.0 + 2.0; // BorderWidth 1 + the hairline
+            let mut rows: Vec<(Rect, Color32)> = bands
+                .iter()
+                .filter(|(r, _, _)| (r.width() - (frame.width() - inset * 2.0)).abs() <= 0.5)
+                .filter(|(r, _, _)| r.height() < frame.height() * 0.5)
+                // A highlight is something the operator can SEE. The scroll
+                // area lays a fully transparent rect of the same width over
+                // the whole list, which is not one.
+                .filter(|(_, _, c)| c.a() > 0)
+                .map(|(r, _, c)| (*r, *c))
+                .collect();
+            rows.sort_by(|a, b| a.0.top().total_cmp(&b.0.top()));
+            assert_eq!(
+                rows.len(),
+                2,
+                "a selected row and an active row must both be highlighted, got {rows:?}"
+            );
+            (rows[1].1, rows[0].1) // (active = Beta, selected = Alpha)
+        };
+
+        // ── Named neither: the palette's colour, and that colour half lit ──
+        let (active, selected) = two_bands(&lb);
+        assert_eq!(
+            selected,
+            active.gamma_multiply(crate::paint::LIST_SELECTED_DIM),
+            "unnamed, the selection keeps the historical relationship to the active row"
+        );
+
+        // ── Named both ────────────────────────────────────────────────────
+        let mut named = lb.clone();
+        named.set_prop(
+            "ActiveItemColor",
+            crate::PropValue::String("#FF8800".into()),
+        );
+        named.set_prop(
+            "SelectedItemsColor",
+            crate::PropValue::String("#116622".into()),
+        );
+        let (active_n, selected_n) = two_bands(&named);
+        assert_eq!(
+            active_n,
+            Color32::from_rgb(0xFF, 0x88, 0x00),
+            "the named active colour must reach the active row"
+        );
+        assert_eq!(
+            selected_n,
+            Color32::from_rgb(0x11, 0x66, 0x22),
+            "…and the named selection colour the rest of the set"
+        );
+
+        // ── Named the active one only: the dim follows it ─────────────────
+        let mut active_only = lb.clone();
+        active_only.set_prop(
+            "ActiveItemColor",
+            crate::PropValue::String("#FF8800".into()),
+        );
+        let (active_o, selected_o) = two_bands(&active_only);
+        assert_eq!(active_o, Color32::from_rgb(0xFF, 0x88, 0x00));
+        assert_eq!(
+            selected_o,
+            active_o.gamma_multiply(crate::paint::LIST_SELECTED_DIM),
+            "naming only the active colour must restyle the whole list, not half of it"
+        );
+        assert_ne!(
+            selected_o, selected,
+            "the dimmed band must follow the NAMED active colour, not the palette's"
+        );
+
+        println!(
+            "\n  ListBox selection colours — unnamed: active {active:?} with the set at \
+             {selected:?} ({}% lit); named: active #FF8800 and set #116622 both reach the \
+             band; active-only: the set follows it to {selected_o:?}\n",
+            (crate::paint::LIST_SELECTED_DIM * 100.0) as i32
         );
     }
 

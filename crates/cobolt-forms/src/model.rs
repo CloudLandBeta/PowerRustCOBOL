@@ -3658,6 +3658,18 @@ impl Control {
                 props.insert("ShowCheckBoxes".into(), PropValue::Bool(false));
                 props.insert("CheckedItems".into(), PropValue::String("".into()));
                 props.insert("Sorted".into(), PropValue::Bool(false));
+                // The colours those two selections are drawn in. EMPTY means
+                // "the developer has not chosen": the active row takes the
+                // theme's own selection colour, and the rest of the set takes
+                // that colour half lit — exactly what a list drew before these
+                // properties existed, so an old form is unchanged.
+                //
+                // Empty rather than a seeded hex sentinel (the `BarColor` rule)
+                // because a highlight IS a blue: any hex chosen as the sentinel
+                // is one a developer might legitimately pick, and picking it
+                // would silently mean "unset".
+                props.insert("ActiveItemColor".into(), PropValue::String("".into()));
+                props.insert("SelectedItemsColor".into(), PropValue::String("".into()));
                 props.insert("BorderStyle".into(), PropValue::String("Single".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
             }
