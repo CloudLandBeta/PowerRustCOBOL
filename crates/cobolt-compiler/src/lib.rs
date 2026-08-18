@@ -3193,7 +3193,7 @@ fn control_purpose(name: &str) -> &'static str {
         "Label" => "Static text display.",
         "CheckBox" => "Boolean on/off box with caption.",
         "RadioButton" => "Mutually-exclusive choice within a GroupName.",
-        "ListBox" => "Scrollable list of selectable items.",
+        "ListBox" => "Scrollable list of selectable items. A click makes a row active and starts a one-row selection; a press-and-drag anchors on the row pressed and extends to the row under the pointer, in EITHER direction — reversing shrinks the range back — and holds at the first or last row when the pointer runs past an end; Up/Down arrows move the active row one line once the list has been clicked or Tabbed to, and stop at the ends. Whatever moves the active row, the list scrolls to keep it in view, on the first or last visible line. Dragging selects rather than scrolls; the wheel and the scrollbar scroll.",
         "ComboBox" => "Drop-down list, optionally editable.",
         "GroupBox" => "Captioned container; can become a repeating card template (control array).",
         "Panel" => "Plain container for grouping child controls.",

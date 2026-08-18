@@ -9744,6 +9744,80 @@ fn image_browse_row(
     });
 }
 
+/// How many lines the list-item editor shows before it scrolls (operator,
+/// 2026-08-17). Five, and never a sixth: the box is a fixed window on the
+/// list, not a panel that grows a line every time one is typed.
+const ITEM_EDITOR_ROWS: usize = 5;
+
+/// The editor's own vertical margin (`Margin::symmetric(4, 2)` — 2 above, 2
+/// below), so the box is exactly as tall as the rows it promises.
+const ITEM_EDITOR_MARGIN_Y: f32 = 4.0;
+
+/// The list-item editor's height: rows × line height, and nothing else.
+///
+/// It comes from the row COUNT and the font, never from how many items the
+/// developer has typed — there is no path by which the content can size the
+/// box it lives in.
+fn item_editor_height(ui: &Ui, rows: usize) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Body) * rows as f32 + ITEM_EDITOR_MARGIN_Y
+}
+
+/// What the bounded editor drew, for the caller and for the test that proves
+/// the box stays put however long the list gets.
+struct BoundedEditor {
+    response: egui::Response,
+    #[cfg(test)]
+    viewport_h: f32,
+    #[cfg(test)]
+    content_h: f32,
+}
+
+/// The list-item editor: [`ITEM_EDITOR_ROWS`] lines of text and no more, with
+/// the rest reachable by scrolling.
+///
+/// A bare `TextEdit::multiline` grows a line every time one is typed, which is
+/// what the inspector used to do — ten items made a ten-line box and pushed
+/// everything under it off the pane. The box is now sized from the row count
+/// alone; the text inside it scrolls.
+fn bounded_items_editor(ui: &mut Ui, wid: egui::Id, buf: &mut String) -> BoundedEditor {
+    let box_h = item_editor_height(ui, ITEM_EDITOR_ROWS);
+    let box_w = ui.available_width();
+    ui.allocate_ui(egui::vec2(box_w, box_h), |ui| {
+        ui.set_min_size(egui::vec2(box_w, box_h));
+        ui.set_max_size(egui::vec2(box_w, box_h));
+        // Bounding the LAYOUT is not bounding the PAINT: a ScrollArea floors
+        // its own clip at LAST frame's measured content, so the first frame a
+        // sixth line exists can paint past the box before that bookkeeping
+        // catches up. This clip is computed fresh from `box_h`, so it has no
+        // previous frame to lag behind.
+        ui.shrink_clip_rect(ui.max_rect());
+        let scroll = egui::ScrollArea::vertical()
+            .id_salt(wid.with("items-scroll"))
+            .auto_shrink([false, false])
+            .min_scrolled_height(box_h)
+            .max_height(box_h)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(buf)
+                        .id(wid)
+                        // The MINIMUM is the whole box, so an empty list shows
+                        // five lines rather than one.
+                        .desired_rows(ITEM_EDITOR_ROWS)
+                        .desired_width(f32::INFINITY)
+                        .margin(egui::Margin::symmetric(4, 2)),
+                )
+            });
+        BoundedEditor {
+            response: scroll.inner,
+            #[cfg(test)]
+            viewport_h: scroll.inner_rect.height(),
+            #[cfg(test)]
+            content_h: scroll.content_size.y,
+        }
+    })
+    .inner
+}
+
 /// Multiline text field for list items.
 fn items_multiline(
     ui: &mut Ui,
@@ -9763,12 +9837,7 @@ fn items_multiline(
         *buf = cur;
     }
     ui.label("Items (one per line):");
-    let resp = ui.add(
-        egui::TextEdit::multiline(buf)
-            .id(wid)
-            .desired_rows(4)
-            .desired_width(f32::INFINITY),
-    );
+    let resp = bounded_items_editor(ui, wid, buf).response;
     if resp.lost_focus() {
         action.set_props.push((
             ctrl_id.to_owned(),
@@ -9829,6 +9898,78 @@ pub fn color32_to_hex(c: Color32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The list-item editor is a FIXED five-line window on the list (operator,
+    /// 2026-08-17).
+    ///
+    /// It used to be a bare `TextEdit::multiline`, which grows a line every
+    /// time one is typed: ten items made a ten-line box and pushed everything
+    /// under it off the pane. Five items and fifty must give the same box, and
+    /// the fifty must be reachable by scrolling.
+    #[test]
+    fn the_items_editor_shows_five_lines_and_then_scrolls() {
+        let measure = |text: &str| -> (f32, f32, f32) {
+            let ctx = egui::Context::default();
+            let mut buf = text.to_owned();
+            let (mut viewport, mut content, mut five_rows) = (0.0, 0.0, 0.0);
+            // Several frames: a ScrollArea's own clip floors at last frame's
+            // content, so a one-frame measurement would miss exactly the case
+            // this guards.
+            for frame in 0..4 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(320.0, 600.0),
+                    )),
+                    time: Some(frame as f64 / 60.0),
+                    ..Default::default()
+                };
+                ctx.run_ui(input, |ui| {
+                    five_rows = item_editor_height(ui, ITEM_EDITOR_ROWS);
+                    let out = bounded_items_editor(
+                        ui,
+                        ui.make_persistent_id("items_editor_height_test"),
+                        &mut buf,
+                    );
+                    viewport = out.viewport_h;
+                    content = out.content_h;
+                })
+                .textures_delta
+                .clear();
+            }
+            (viewport, content, five_rows)
+        };
+
+        let items = |n: usize| (1..=n).map(|i| i.to_string()).collect::<Vec<_>>().join("\n");
+
+        // Empty, five, and fifty: one box, five lines tall, every time.
+        let (empty, _, five_rows) = measure("");
+        let (exact, exact_content, _) = measure(&items(5));
+        let (long, long_content, _) = measure(&items(50));
+        for (label, h) in [("empty", empty), ("five items", exact), ("fifty items", long)] {
+            assert!(
+                (h - five_rows).abs() < 1.0,
+                "{label} gave a {h}px box; five lines is {five_rows}px"
+            );
+        }
+
+        // …and the fifty are reachable rather than lost.
+        assert!(
+            long_content > long + 1.0,
+            "a fifty-item list must scroll inside the box: {long_content}px of content in \
+             {long}px of box"
+        );
+        assert!(
+            exact_content <= exact + 1.0,
+            "five items must fit without scrolling: {exact_content}px in {exact}px"
+        );
+
+        println!(
+            "\n  Items editor — empty, 5 items and 50 items all give a {five_rows:.0}px box \
+             ({ITEM_EDITOR_ROWS} lines); 50 items scroll inside it ({long_content:.0}px of \
+             content), 5 fit exactly ({exact_content:.0}px)\n"
+        );
+    }
 
     /// No picker marker may leave the rect its own widget allocated — that is
     /// what put the saturation/value disc on top of the hue bar below it.

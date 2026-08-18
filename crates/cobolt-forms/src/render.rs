@@ -3930,16 +3930,181 @@ fn render_interactive(
             let inner = screen.shrink(border_w + HIGHLIGHT_INSET);
             let highlight_x = inner.x_range();
 
-            // The sweep: which rows this press has already taken. Cleared when
-            // the button comes up, so the next press starts a new gesture.
+            // A drag through the list is ONE gesture with an ANCHOR — the row
+            // the press landed on — and what it selects is the range from that
+            // anchor to the row under the pointer NOW, worked out afresh every
+            // frame. Reversing direction therefore SHRINKS the range.
+            //
+            // It used to accumulate "every row this press has touched", and
+            // never let go of any of them: dragging back up crossed only rows
+            // already in the set, so the list stopped answering the drag in
+            // either direction (operator, 2026-08-17).
+            //
+            // Tick boxes keep the crossing model — a sweep ticks each row it
+            // crosses once, and crossing it again on the way back must not
+            // untick it — so they keep the touched set.
             let sweep_id = ctrl_id.with("listbox-sweep");
-            let pointer_down = ui.input(|i| i.pointer.primary_down());
-            let pointer_pos = ui.input(|i| i.pointer.interact_pos());
+            let drag_id = ctrl_id.with("listbox-drag");
+            // Where the first row starts on screen, remembered from the frame
+            // that drew it. The rows live inside a ScrollArea, so this is what
+            // lets a pointer — including one BEYOND either end of the list — be
+            // mapped onto a row before the rows are laid out again.
+            let geom_id = ctrl_id.with("listbox-first-row");
+            let (pointer_down, pointer_pressed, pointer_released, pointer_pos) = ui.input(|i| {
+                (
+                    i.pointer.primary_down(),
+                    i.pointer.primary_pressed(),
+                    i.pointer.primary_released(),
+                    i.pointer.interact_pos(),
+                )
+            });
+            let first_top: Option<f32> = ui.data(|d| d.get_temp(geom_id));
             let mut touched: Vec<usize> = if pointer_down {
                 ui.data(|d| d.get_temp(sweep_id)).unwrap_or_default()
             } else {
                 Vec::new()
             };
+            // The row under a pointer, CLAMPED to the list: dragging above the
+            // first row holds at the first, and below the last at the last, so
+            // a drag that leaves the control stops at an end instead of
+            // selecting nothing.
+            let row_under_pointer = |p: egui::Pos2| -> Option<usize> {
+                let top = first_top?;
+                if items.is_empty() || row_h <= 0.0 {
+                    return None;
+                }
+                let n = ((p.y - top) / row_h).floor().max(0.0) as usize;
+                Some(n.min(items.len() - 1))
+            };
+            // The row the highlight follows THIS frame. It starts as the
+            // committed `Value` and moves with the gesture, so a drag or an
+            // arrow key shows immediately rather than a frame late.
+            let mut active_item = cur.clone();
+            // Where a row that has just been chosen must be scrolled into view.
+            let mut reveal: Option<usize> = None;
+
+            // Keyboard navigation. Registered on the control's own id — the one
+            // Tab traversal aims at — so egui keeps the focus alive, and
+            // registered BEFORE the rows so the rows still own the pointer and
+            // a row's double-click still reaches the row.
+            let _list_focus = ui.interact(screen, ctrl_id, Sense::click());
+            // Whether the press that starts a gesture should also hand the list
+            // the keyboard. Acted on AFTER the rows are drawn: a row is a
+            // click-sensing widget of its own, so clicking one focuses THAT
+            // row, and a request made here would be overwritten by it in the
+            // same frame.
+            // Press AND release, because egui decides a click on RELEASE: the
+            // row focused on the way up would otherwise take the keyboard back
+            // from the list one frame after the press handed it over.
+            let take_focus = enabled
+                && (pointer_pressed || pointer_released)
+                && pointer_pos.is_some_and(|p| screen.contains(p));
+            // Whether the list is the thing the keyboard is talking to, kept as
+            // the list's OWN state rather than read from egui's focus.
+            //
+            // egui answers a plain arrow key itself, by moving focus to the
+            // widget lying in that direction — every row of this list is one, so
+            // the first ArrowDown handed the keyboard to a row and the list
+            // walked exactly one line and then went deaf. A list owns its
+            // arrows; it takes them on a press inside itself (or a Tab onto it)
+            // and gives them up on a press elsewhere, or on the Tab that moves
+            // to the next control.
+            let kb_id = ctrl_id.with("listbox-keyboard");
+            let mut has_keyboard: bool = ui.data(|d| d.get_temp(kb_id)).unwrap_or(false);
+            if pointer_pressed {
+                has_keyboard = pointer_pos.is_some_and(|p| screen.contains(p));
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+                has_keyboard = false;
+            }
+            let listening = has_keyboard || ui.memory(|m| m.has_focus(ctrl_id));
+            if enabled && !items.is_empty() && listening {
+                let (up, down) = ui.input(|i| {
+                    (
+                        i.key_pressed(egui::Key::ArrowUp),
+                        i.key_pressed(egui::Key::ArrowDown),
+                    )
+                });
+                if up || down {
+                    // Tabbed onto: the first arrow is what takes the keyboard,
+                    // and it stays taken however egui reassigns focus after it.
+                    has_keyboard = true;
+                    let at = items.iter().position(|it| it == &active_item);
+                    // With nothing chosen yet, the first arrow lands on the
+                    // first row rather than jumping to the end of the list.
+                    let to = match at {
+                        None => 0,
+                        Some(i) if up => i.saturating_sub(1),
+                        Some(i) => (i + 1).min(items.len() - 1),
+                    };
+                    if Some(to) != at {
+                        active_item = items[to].clone();
+                        selected = vec![items[to].clone()];
+                        selection_changed = true;
+                        picked = Some((to, items[to].clone()));
+                        reveal = Some(to);
+                    }
+                }
+            }
+
+            // The pointer gesture, for a list without tick boxes: press sets
+            // the anchor, dragging moves the far end.
+            let mut drag: Option<(usize, usize)> = if pointer_down {
+                ui.data(|d| d.get_temp(drag_id)).unwrap_or(None)
+            } else {
+                None
+            };
+            if enabled && !show_checks && !items.is_empty() {
+                if pointer_pressed {
+                    drag = pointer_pos
+                        .filter(|p| screen.contains(*p))
+                        .and_then(row_under_pointer)
+                        // `usize::MAX` = nothing reported yet, so the press
+                        // itself still counts as a move onto the anchor row.
+                        .map(|anchor| (anchor, usize::MAX));
+                }
+                if let (Some((anchor, last)), Some(p)) = (drag, pointer_pos) {
+                    // Once the press has landed the gesture belongs to the
+                    // list: it follows the pointer even when it wanders off the
+                    // side, exactly as it follows one dragged past an end.
+                    if let Some(idx) = row_under_pointer(p).filter(|idx| *idx != last) {
+                        let additive =
+                            multi && ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
+                        if additive && idx == anchor && last == usize::MAX {
+                            // Ctrl (Cmd on a Mac) click: this row joins or
+                            // leaves the selection, and the rest stands.
+                            match selected.iter().position(|s| s == &items[idx]) {
+                                Some(at) => {
+                                    selected.remove(at);
+                                }
+                                None => selected.push(items[idx].clone()),
+                            }
+                        } else if multi {
+                            let (lo, hi) = (anchor.min(idx), anchor.max(idx));
+                            let range = items[lo..=hi].to_vec();
+                            if additive {
+                                for it in range {
+                                    if !selected.contains(&it) {
+                                        selected.push(it);
+                                    }
+                                }
+                            } else {
+                                selected = range;
+                            }
+                        } else {
+                            selected = vec![items[idx].clone()];
+                        }
+                        active_item = items[idx].clone();
+                        selection_changed = true;
+                        picked = Some((idx, items[idx].clone()));
+                        reveal = Some(idx);
+                        drag = Some((anchor, idx));
+                    }
+                }
+            }
+            // Where the first row landed this frame, for the next one's
+            // pointer arithmetic.
+            let mut first_row_top: Option<f32> = None;
 
             ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
                 if !enabled {
@@ -3952,6 +4117,18 @@ fn render_interactive(
                     // the scrollbar rests against the right border rather than
                     // just past the widest item.
                     .auto_shrink([false, false])
+                    // A drag belongs to the SELECTION, not to the viewport: the
+                    // list follows the pointer row by row and scrolls only to
+                    // keep the row it has reached in view. Were egui's own
+                    // drag-to-scroll on as well, the content would slide under
+                    // the pointer at the same time and the row under the hand
+                    // would run away from it. Off for a mouse by default; this
+                    // says so for a touch screen too. The wheel and the
+                    // scrollbar still scroll.
+                    .scroll_source(egui::containers::scroll_area::ScrollSource {
+                        drag: egui::containers::scroll_area::DragScroll::Never,
+                        ..Default::default()
+                    })
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let row_painter = ui.painter().with_clip_rect(screen);
@@ -3960,6 +4137,30 @@ fn render_interactive(
                                 vec2(ui.available_width(), row_h),
                                 Sense::click(),
                             );
+                            if idx == 0 {
+                                first_row_top = Some(row.top());
+                            }
+                            // A row chosen by a drag or an arrow key is brought
+                            // into view, landing on the first or last visible
+                            // line: the align is `None`, which moves by the
+                            // least it can and does nothing at all for a row
+                            // already on screen, so this neither fights the
+                            // operator's own scrolling nor runs past either end
+                            // of the list.
+                            //
+                            // WITHOUT the animation. A list being walked has to
+                            // keep up with the hand: with egui's default eased
+                            // scroll the view is still catching up several
+                            // frames later, so a fast drag ends with the chosen
+                            // row well below the frame — which is exactly the
+                            // "I cannot see what is selected" this fixes.
+                            if reveal == Some(idx) {
+                                ui.scroll_to_rect_animation(
+                                    row,
+                                    None,
+                                    egui::style::ScrollAnimation::none(),
+                                );
+                            }
                             // The band spans the whole control — a highlight
                             // stops at no inner margin — and is square-cornered
                             // except where it meets the frame's own radius,
@@ -3971,7 +4172,7 @@ fn render_interactive(
                             // rim away at the first and last row.
                             let mut band =
                                 Rect::from_x_y_ranges(highlight_x, row.y_range()).intersect(inner);
-                            let is_active = &cur == item;
+                            let is_active = &active_item == item;
                             let is_selected = selected.iter().any(|s| s == item);
                             if is_active || is_selected && band.is_positive() {
                                 // Where the band runs alongside a rounded corner
@@ -4048,13 +4249,18 @@ fn render_interactive(
                                 text_colour,
                             );
 
-                            // A row is taken while the button is DOWN over it, not
-                            // on release: that is what makes a press-and-sweep
-                            // work. The list scrolls under the pointer as the
-                            // drag goes (the scroll area owns the drag), so every
-                            // row that passes beneath is taken in turn — and each
-                            // only once, however long the pointer rests on it.
-                            let over = pointer_down
+                            // Tick boxes: a row is ticked while the button is
+                            // DOWN over it, not on release — that is what makes
+                            // a press-and-sweep tick a run of rows — and each
+                            // row only once per gesture, so resting on one, or
+                            // crossing it again on the way back, does not
+                            // un-tick what the sweep just ticked.
+                            //
+                            // Plain selection is not decided here: it follows an
+                            // anchor worked out for the whole list above, which
+                            // is what lets a drag reverse.
+                            let over = show_checks
+                                && pointer_down
                                 && pointer_pos.is_some_and(|p| {
                                     Rect::from_x_y_ranges(screen.x_range(), row.y_range())
                                         .contains(p)
@@ -4062,45 +4268,17 @@ fn render_interactive(
                             let _ = &check_hit;
                             if enabled && over && !touched.contains(&idx) {
                                 touched.push(idx);
-                                if show_checks {
-                                    // With tick boxes there is nothing to hold
-                                    // down: the boxes ARE the multiple selection,
-                                    // so a plain click anywhere on the row ticks
-                                    // it, and ticking it again clears it.
-                                    match checked.iter().position(|c| c == item) {
-                                        Some(at) => {
-                                            checked.remove(at);
-                                        }
-                                        None => checked.push(item.clone()),
+                                // The boxes ARE the multiple selection, so a
+                                // plain click anywhere on the row ticks it, and
+                                // ticking it again clears it.
+                                match checked.iter().position(|c| c == item) {
+                                    Some(at) => {
+                                        checked.remove(at);
                                     }
-                                    checks_changed = true;
-                                    picked = Some((idx, item.clone()));
-                                } else {
-                                    // Ctrl (Cmd on a Mac) adds to or removes from
-                                    // the selection; a plain click replaces it —
-                                    // except mid-sweep, where every row the
-                                    // pointer crosses joins the one being built.
-                                    let sweeping = touched.len() > 1;
-                                    let additive = multi
-                                        && (sweeping
-                                            || ui.input(|i| {
-                                                i.modifiers.command || i.modifiers.ctrl
-                                            }));
-                                    if additive {
-                                        match selected.iter().position(|s| s == item) {
-                                            Some(at) => {
-                                                if !sweeping {
-                                                    selected.remove(at);
-                                                }
-                                            }
-                                            None => selected.push(item.clone()),
-                                        }
-                                    } else {
-                                        selected = vec![item.clone()];
-                                    }
-                                    selection_changed = true;
-                                    picked = Some((idx, item.clone()));
+                                    None => checked.push(item.clone()),
                                 }
+                                checks_changed = true;
+                                picked = Some((idx, item.clone()));
                             }
                             if resp.double_clicked() && enabled {
                                 double_picked = Some(item.clone());
@@ -4109,7 +4287,17 @@ fn render_interactive(
                     });
             });
 
-            ui.data_mut(|d| d.insert_temp(sweep_id, touched));
+            if take_focus {
+                ui.memory_mut(|m| m.request_focus(ctrl_id));
+            }
+            ui.data_mut(|d| {
+                d.insert_temp(sweep_id, touched);
+                d.insert_temp(drag_id, drag);
+                d.insert_temp(kb_id, has_keyboard);
+                if let Some(top) = first_row_top {
+                    d.insert_temp(geom_id, top);
+                }
+            });
             if let Some((idx, item)) = picked {
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), item.clone()));
@@ -8188,6 +8376,371 @@ mod tests {
         println!(
             "\n  ListBox sweep — pressing on row 1 and dragging to row 4 selects all four; \
              with tick boxes, the same sweep ticks them\n"
+        );
+    }
+
+    /// Reversing a drag SHRINKS the selection — it does not freeze the list
+    /// (operator, 2026-08-17).
+    ///
+    /// The sweep used to accumulate every row a press had touched and never let
+    /// go of any: dragging back up crossed only rows already in the set, so the
+    /// list answered nothing in either direction until the button came up.
+    #[test]
+    fn reversing_a_drag_shrinks_the_selection_instead_of_freezing_it() {
+        let pitch = |lb: &Control| crate::model::text_line_height(lb) + crate::model::LIST_ROW_PAD * 2.0;
+        let row_at = |lb: &Control, n: usize| {
+            pos2(120.0, 28.0 + crate::model::LIST_FRAME_PAD + pitch(lb) * (n as f32 + 0.5))
+        };
+
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 240);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta\nEpsilon".to_owned()),
+        );
+        lb.set_prop("MultiSelect", crate::PropValue::Bool(true));
+
+        // Down to row 3, then back up to row 1, all in one press.
+        let (_events, overrides) = drive(
+            &[lb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(&lb, 0))]),
+                (0.05, vec![press(row_at(&lb, 0))]),
+                (0.10, vec![Event::PointerMoved(row_at(&lb, 2))]),
+                (0.15, vec![Event::PointerMoved(row_at(&lb, 3))]),
+                (0.20, vec![Event::PointerMoved(row_at(&lb, 2))]),
+                (0.25, vec![Event::PointerMoved(row_at(&lb, 1))]),
+                (0.30, vec![release(row_at(&lb, 1))]),
+                (0.35, vec![]),
+            ],
+        );
+        let prop = |k: &str| {
+            overrides
+                .get("ListBox-1")
+                .and_then(|p| p.get(k))
+                .map(String::as_str)
+        };
+        assert_eq!(
+            prop("SelectedItems"),
+            Some("Alpha\nBeta"),
+            "the range follows the pointer back up: anchor row 0 to row 1"
+        );
+        assert_eq!(prop("Value"), Some("Beta"), "the active row is the one under the pointer");
+        assert_eq!(prop("SelectedIndex"), Some("1"));
+
+        // Dragging past the ENDS holds at the ends rather than selecting
+        // nothing: far above the control, then far below it.
+        let (_events, overrides) = drive(
+            &[lb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(&lb, 2))]),
+                (0.05, vec![press(row_at(&lb, 2))]),
+                (0.10, vec![Event::PointerMoved(pos2(120.0, -400.0))]),
+                (0.15, vec![release(pos2(120.0, -400.0))]),
+                (0.20, vec![]),
+            ],
+        );
+        assert_eq!(
+            overrides
+                .get("ListBox-1")
+                .and_then(|p| p.get("Value"))
+                .map(String::as_str),
+            Some("Alpha"),
+            "dragging above the list stops at the FIRST element"
+        );
+
+        println!(
+            "\n  ListBox drag — press on row 0, down to row 3 and back to row 1 leaves \
+             Alpha+Beta selected with Beta active (the reversal is answered, not frozen); \
+             dragging far above the control holds at the first element\n"
+        );
+    }
+
+    /// [`drive`], but it also hands back what the LAST frame painted and where
+    /// the controls landed — for the questions that are about what the operator
+    /// can see, not about what the form was told.
+    fn drive_painted(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+    ) -> (
+        Map<String, Map<String, String>>,
+        Vec<PaintedText>,
+        Map<String, Rect>,
+    ) {
+        fn collect(shape: &egui::Shape, clip: Rect, out: &mut Vec<PaintedText>) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    let ink = t.visual_bounding_rect().intersect(clip);
+                    if ink.is_positive() {
+                        out.push(PaintedText {
+                            text: t.galley.text().to_owned(),
+                            font: t
+                                .galley
+                                .job
+                                .sections
+                                .first()
+                                .map(|s| s.format.font_id.size)
+                                .unwrap_or(0.0),
+                            pos: t.pos,
+                            size: t.galley.size(),
+                            ink,
+                        });
+                    }
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, clip, out)),
+                _ => {}
+            }
+        }
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let placed: RefCell<Map<String, Rect>> = RefCell::new(Map::new());
+        let mut painted: Vec<PaintedText> = Vec::new();
+
+        for (i, (_time, evs)) in frames.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                Vec2::new(1000.0, 800.0),
+            ));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            input.events = evs;
+            let updates = RefCell::new(Vec::<(String, String, String)>::new());
+            let events = RefCell::new(Vec::<UiEvent>::new());
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let inp = RenderInput {
+                            controls,
+                            state: &st,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        let out = render_form(ui, &inp);
+                        *placed.borrow_mut() = out.control_rects.clone();
+                        updates.borrow_mut().extend(out.prop_updates);
+                        events.borrow_mut().extend(out.events);
+                        let _ = ctx;
+                    });
+            });
+            painted.clear();
+            for cs in &full.shapes {
+                collect(&cs.shape, cs.clip_rect, &mut painted);
+            }
+            full.textures_delta.clear();
+            for (id, key, value) in updates.into_inner() {
+                overrides
+                    .borrow_mut()
+                    .entry(id)
+                    .or_default()
+                    .insert(key, value);
+            }
+        }
+        (overrides.into_inner(), painted, placed.into_inner())
+    }
+
+    /// Whatever moves the active row — a drag or an arrow — the row it lands on
+    /// must be ON SCREEN when it gets there (operator, 2026-08-17).
+    ///
+    /// A list taller than its frame used to leave the operator selecting rows
+    /// they could not see: the selection walked past the bottom of the control
+    /// and the view stayed where it was.
+    #[test]
+    fn the_row_a_drag_or_an_arrow_reaches_is_scrolled_into_view() {
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 120);
+        let items: Vec<String> = (1..=30).map(|n| format!("Item-{n:02}")).collect();
+        lb.set_prop("Items", crate::PropValue::String(items.join("\n")));
+        let pitch = crate::model::text_line_height(&lb) + crate::model::LIST_ROW_PAD * 2.0;
+        let row_at = |n: usize| {
+            pos2(120.0, 28.0 + crate::model::LIST_FRAME_PAD + pitch * (n as f32 + 0.5))
+        };
+        let visible_rows = (120.0 / pitch).floor() as usize;
+        assert!(
+            visible_rows < items.len(),
+            "the fixture must overflow its frame: {visible_rows} of {} rows fit",
+            items.len()
+        );
+
+        // Drag from the first row to far below the control, then let the view
+        // settle. Two settle frames: `scroll_to_rect` asks THIS frame and the
+        // scroll area answers on the next.
+        let far_below = pos2(120.0, 900.0);
+        let (overrides, painted, placed) = drive_painted(
+            &[lb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(0))]),
+                (0.05, vec![press(row_at(0))]),
+                (0.10, vec![Event::PointerMoved(far_below)]),
+                (0.15, vec![Event::PointerMoved(far_below)]),
+                (0.20, vec![Event::PointerMoved(far_below)]),
+                (0.25, vec![release(far_below)]),
+                (0.30, vec![]),
+                (0.35, vec![]),
+            ],
+        );
+        let value = overrides
+            .get("ListBox-1")
+            .and_then(|p| p.get("Value"))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(value, "Item-30", "a drag past the end stops at the LAST element");
+        let frame = *placed.get("ListBox-1").expect("placed");
+        let on_screen = |text: &str| {
+            painted
+                .iter()
+                .any(|p| p.text == text && frame.expand(1.0).contains_rect(p.ink))
+        };
+        assert!(
+            on_screen(&value),
+            "the row the drag reached must be visible inside {frame:?}: painted {:?}",
+            painted.iter().map(|p| p.text.as_str()).collect::<Vec<_>>()
+        );
+
+        // The same for the keyboard: ten rows down from the first is well past
+        // the bottom of a five-row frame.
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let mut frames = vec![
+            (0.00, vec![Event::PointerMoved(row_at(0))]),
+            (0.05, vec![press(row_at(0))]),
+            (0.10, vec![release(row_at(0))]),
+        ];
+        for i in 0..10 {
+            frames.push((0.15 + i as f64 * 0.05, vec![key(egui::Key::ArrowDown)]));
+        }
+        frames.push((0.70, vec![]));
+        frames.push((0.75, vec![]));
+        let (overrides, painted, placed) = drive_painted(&[lb.clone()], frames);
+        let value = overrides
+            .get("ListBox-1")
+            .and_then(|p| p.get("Value"))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(value, "Item-11", "ten rows down from the first");
+        let frame = *placed.get("ListBox-1").expect("placed");
+        assert!(
+            painted
+                .iter()
+                .any(|p| p.text == value && frame.expand(1.0).contains_rect(p.ink)),
+            "the row the arrows reached must be visible inside {frame:?}: painted {:?}",
+            painted.iter().map(|p| p.text.as_str()).collect::<Vec<_>>()
+        );
+
+        println!(
+            "\n  ListBox visibility — a {}-row list in a frame that holds {visible_rows}: a \
+             drag past the bottom stops on Item-30 with Item-30 on screen, and ten ArrowDowns \
+             land on Item-11 with Item-11 on screen\n",
+            items.len()
+        );
+    }
+
+    /// Up and down arrows move the active row, and stop at the ends (operator,
+    /// 2026-08-17). A list you can click but not walk is half a control.
+    #[test]
+    fn the_arrow_keys_walk_the_list_and_stop_at_both_ends() {
+        let pitch = |lb: &Control| crate::model::text_line_height(lb) + crate::model::LIST_ROW_PAD * 2.0;
+        let row_at = |lb: &Control, n: usize| {
+            pos2(120.0, 28.0 + crate::model::LIST_FRAME_PAD + pitch(lb) * (n as f32 + 0.5))
+        };
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+
+        let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 240);
+        lb.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
+        );
+
+        // Click row 0 to focus the list, then walk down twice, up once, and
+        // press up twice more at the top.
+        let (events, overrides) = drive(
+            &[lb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(&lb, 0))]),
+                (0.05, vec![press(row_at(&lb, 0))]),
+                (0.10, vec![release(row_at(&lb, 0))]),
+                (0.15, vec![key(egui::Key::ArrowDown)]),
+                (0.20, vec![key(egui::Key::ArrowDown)]),
+                (0.25, vec![]),
+            ],
+        );
+        let prop = |o: &Map<String, Map<String, String>>, k: &str| {
+            o.get("ListBox-1").and_then(|p| p.get(k)).cloned()
+        };
+        assert_eq!(prop(&overrides, "Value").as_deref(), Some("Gamma"), "two rows down");
+        assert_eq!(prop(&overrides, "SelectedIndex").as_deref(), Some("2"));
+        assert_eq!(
+            prop(&overrides, "SelectedItems").as_deref(),
+            Some("Gamma"),
+            "walking the list carries the selection with it"
+        );
+        assert!(
+            events.iter().any(|e| e.event == "onSelectedIndexChanged"),
+            "a keyboard move reports itself like a click does: {:?}",
+            names(&events)
+        );
+
+        // Up from the top holds at the first row rather than wrapping.
+        let (_events, overrides) = drive(
+            &[lb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(&lb, 1))]),
+                (0.05, vec![press(row_at(&lb, 1))]),
+                (0.10, vec![release(row_at(&lb, 1))]),
+                (0.15, vec![key(egui::Key::ArrowUp)]),
+                (0.20, vec![key(egui::Key::ArrowUp)]),
+                (0.25, vec![key(egui::Key::ArrowUp)]),
+                (0.30, vec![]),
+            ],
+        );
+        assert_eq!(
+            prop(&overrides, "Value").as_deref(),
+            Some("Alpha"),
+            "three ups from row 1 stop at the first element"
+        );
+
+        // Down from the last row holds there too.
+        let (_events, overrides) = drive(
+            &[lb.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(&lb, 3))]),
+                (0.05, vec![press(row_at(&lb, 3))]),
+                (0.10, vec![release(row_at(&lb, 3))]),
+                (0.15, vec![key(egui::Key::ArrowDown)]),
+                (0.20, vec![key(egui::Key::ArrowDown)]),
+                (0.25, vec![]),
+            ],
+        );
+        assert_eq!(
+            prop(&overrides, "Value").as_deref(),
+            Some("Delta"),
+            "and down from the last element stays on it"
+        );
+
+        println!(
+            "\n  ListBox keys — click Alpha then ↓↓ ⇒ Gamma (SelectedIndex 2, \
+             onSelectedIndexChanged fired); ↑↑↑ from Beta stops at Alpha; ↓↓ from Delta \
+             stays on Delta\n"
         );
     }
 
