@@ -4522,6 +4522,28 @@ you have selected, so what you design is what starts.
 Everything the sidebar draws is anchored to its **top** and grows downward â the
 â° first, then the menu items. A sidebar is a rail, not a centred caption.
 
+
+**The header logo.** **HeaderImage** is the picture at the top of an **open**
+sidebar. Its box is **270 x 80 points**, and that box is a **limit** rather than
+a shape to fill:
+
+- A logo that fits inside 270 x 80 is drawn at **its own size**, centred.
+- A logo bigger than that is **scaled down to fit**, keeping its **aspect
+  ratio** -- so a 540 x 80 banner is drawn 270 x 40, a tall 270 x 240 mark is
+  drawn 90 x 80, and a square one stays square.
+
+Design at 270 x 80 and it lands exactly; design larger and it is fitted, never
+squeezed out of shape. The SideMenu's default **HeaderHeight** of 120 holds the
+full box, so you need not change anything to use all of it -- but a header
+shorter than about 88 points, or a collapsed rail, shrinks the box (keeping its
+10:3.4 shape) and the logo with it.
+
+Leave **HeaderImage** empty and the box is **outlined** instead, so you can see
+where the logo goes and how big it will be before you have one.
+
+A **collapsed** rail does not show the logo at all: it shows **HeaderIcon**, a
+purpose-made 45 x 45 mark, because an image drawn for a 270-point header cannot
+be read at rail width.
 **Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
 renders beside its label on every surface â the designer canvas, the preview,
 the Run Form pane and the running shell's MenuPane. The SideMenu's

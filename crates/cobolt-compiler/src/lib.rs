@@ -2772,6 +2772,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
 
         // ── Images / animation ──
         "ImagePath" => ("project-relative or absolute image path", "Image file to display."),
+        "HeaderImage" => ("image path or empty", "SideMenu only. The logo at the top of an OPEN sidebar. Its box is 270x80 points and that box is a LIMIT, not a shape to fill: a smaller logo is drawn at its own size, centred, and a bigger one is scaled down to fit keeping its aspect ratio (540x80 draws 270x40; 270x240 draws 90x80). Empty outlines the box instead. A collapsed rail shows HeaderIcon, not this."),
         "SizeMode" => (
             "PictureBox: `Normal` | `Stretch` | `Zoom` | `CenterImage` | `AutoSize`; Animator: `Fit` | `Fill` | `Stretch` | `Center`",
             "How the image is scaled inside the control.",

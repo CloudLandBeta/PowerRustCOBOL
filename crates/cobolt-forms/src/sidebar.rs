@@ -84,12 +84,19 @@ const NEST_INDENT: f32 = 16.0;
 const ICON: f32 = 22.0;
 const RADIUS: f32 = 10.0;
 
-/// The header logo's box, in points. A `HeaderImage` is STRETCHED to fill
-/// exactly this, and a header with none outlines it — so the developer designs
-/// their logo against a size they can see, instead of discovering it when the
-/// application runs.
-pub const HEADER_IMAGE_W: f32 = 200.0;
-pub const HEADER_IMAGE_H: f32 = 60.0;
+/// The header logo's box, in points — the **largest** a logo is drawn at when
+/// the rail is open (operator, 2026-08-18).
+///
+/// A `HeaderImage` is drawn at its OWN size up to this, and scaled down to fit
+/// inside it — keeping its aspect ratio — when it is bigger. A header with no
+/// image outlines the box, so the developer designs their logo against a size
+/// they can see instead of discovering it when the application runs.
+///
+/// It used to be 200×60 and the image was *stretched* to fill it exactly, so a
+/// logo of any other shape arrived distorted and one drawn larger was squeezed
+/// rather than fitted.
+pub const HEADER_IMAGE_W: f32 = 270.0;
+pub const HEADER_IMAGE_H: f32 = 80.0;
 
 /// The COLLAPSED rail's header mark, drawn at this size (`HeaderIcon`).
 ///
@@ -914,9 +921,20 @@ fn paint_header(painter: &egui::Painter, rect: Rect, state: &SidebarState<'_>) {
     let logo = header_image_rect(rect, state.collapsed);
     match state.header_image {
         Some(tex) => {
+            // The box is a LIMIT, not a shape to fill: the logo is drawn at its
+            // own size while it fits, and scaled down keeping its aspect ratio
+            // when it does not. Stretching it to the box, as this used to,
+            // distorted every logo that was not exactly 10:3.
+            let native = painter
+                .ctx()
+                .tex_manager()
+                .read()
+                .meta(tex)
+                .map(|m| Vec2::new(m.size[0] as f32, m.size[1] as f32))
+                .unwrap_or_else(|| logo.size());
             painter.image(
                 tex,
-                logo,
+                crate::paint::media_dest_rect(logo, native, "Center"),
                 Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                 Color32::WHITE,
             );
@@ -2014,16 +2032,18 @@ mod tests {
         );
     }
 
-    /// The logo box is a fixed 200×60 the image is stretched into, so what the
-    /// developer designs against is what ships. It shrinks — keeping its
-    /// shape — only when the rail or the header cannot hold it.
+    /// The logo box is the LARGEST a logo is drawn at when the rail is open --
+    /// 270x80 (operator, 2026-08-18). It shrinks, keeping its shape, only when
+    /// the rail or the header cannot hold it; and the image inside it is drawn
+    /// at its own size up to the box, scaled down to fit when it is bigger,
+    /// rather than stretched to fill it.
     #[test]
-    fn the_header_logo_box_is_a_fixed_200x60_that_shrinks_in_shape() {
-        // A rail wide and tall enough: the box is exactly the contract.
-        let header = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 72.0));
+    fn the_header_logo_box_is_a_270x80_limit_the_image_fits_inside() {
+        // A rail wide and tall enough: the box is exactly the limit.
+        let header = Rect::from_min_size(Pos2::ZERO, Vec2::new(320.0, 100.0));
         let r = header_image_rect(header, false);
         assert_eq!((r.width(), r.height()), (HEADER_IMAGE_W, HEADER_IMAGE_H));
-        assert_eq!((r.width(), r.height()), (200.0, 60.0), "the stated size");
+        assert_eq!((r.width(), r.height()), (270.0, 80.0), "the stated limit");
         // Centred in the pane, both axes and in BOTH rail states. It used to be
         // pinned to the left padding when open, which left the logo off-centre
         // against the pane it is the whole content of (operator, 1.61.38).
@@ -2039,9 +2059,19 @@ mod tests {
         );
         assert!(header.contains_rect(r), "and inside the header pane");
 
+        // The SideMenu's own default header height must hold the box, or the
+        // limit is one a developer can never actually reach.
+        let default_header = Rect::from_min_size(Pos2::ZERO, Vec2::new(320.0, 120.0));
+        let r_def = header_image_rect(default_header, false);
+        assert_eq!(
+            (r_def.width(), r_def.height()),
+            (HEADER_IMAGE_W, HEADER_IMAGE_H),
+            "the seeded 120pt header must hold the full 270x80 box"
+        );
+
         let aspect = HEADER_IMAGE_W / HEADER_IMAGE_H;
-        // The collapsed rail is a third of the box's width: it shrinks, centred,
-        // and keeps its shape rather than squashing the logo.
+        // The collapsed rail is a fraction of the box's width: it shrinks,
+        // centred, and keeps its shape rather than squashing the logo.
         let rail = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, 64.0));
         let r = header_image_rect(rail, true);
         assert!(r.width() < HEADER_IMAGE_W, "shrunk to the rail");
@@ -2052,24 +2082,83 @@ mod tests {
         );
         assert!(rail.contains_rect(r));
 
-        // A header SHORTER than the box shrinks it too — height binds first.
-        let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 40.0));
+        // A header SHORTER than the box shrinks it too -- height binds first.
+        let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(320.0, 40.0));
         let r = header_image_rect(short, false);
         assert!(r.height() <= short.height() - 8.0, "fits the short header");
         assert!((r.width() / r.height() - aspect).abs() < 0.01, "shape kept");
         assert!(short.contains_rect(r));
 
+        // -- The image inside the box: a limit, not a shape to fill ---------
+        //
+        // This is the rule the operator asked for: up to 270x80 the logo is
+        // drawn as it is; beyond it, scaled down to fit. `paint_header` routes
+        // the image through the same helper, with the box as the bound.
+        let box_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(270.0, 80.0));
+        let fit = |w: f32, h: f32| {
+            crate::paint::media_dest_rect(box_rect, Vec2::new(w, h), "Center")
+        };
+
+        // Smaller than the limit: its own size, untouched and centred.
+        let small = fit(120.0, 40.0);
+        assert_eq!(
+            (small.width(), small.height()),
+            (120.0, 40.0),
+            "a logo inside the limit keeps its own size, not stretched to fill"
+        );
+        assert!(
+            (small.center() - box_rect.center()).length() < 0.01,
+            "and is centred in the box"
+        );
+
+        // Exactly the limit: unchanged.
+        assert_eq!((fit(270.0, 80.0).width(), fit(270.0, 80.0).height()), (270.0, 80.0));
+
+        // Wider than the limit: width binds, aspect held.
+        let wide = fit(540.0, 80.0);
+        assert!(wide.width() <= 270.0 + 0.01, "scaled down to the width limit");
+        assert!(
+            (wide.width() / wide.height() - 540.0 / 80.0).abs() < 0.01,
+            "aspect ratio held: {}x{}",
+            wide.width(),
+            wide.height()
+        );
+
+        // Taller than the limit: height binds, aspect held.
+        let tall = fit(270.0, 240.0);
+        assert!(tall.height() <= 80.0 + 0.01, "scaled down to the height limit");
+        assert!(
+            (tall.width() / tall.height() - 270.0 / 240.0).abs() < 0.01,
+            "aspect ratio held: {}x{}",
+            tall.width(),
+            tall.height()
+        );
+
+        // A big square: fits inside on both axes, still square.
+        let square = fit(1000.0, 1000.0);
+        assert!(square.width() <= 270.0 + 0.01 && square.height() <= 80.0 + 0.01);
+        assert!(
+            (square.width() - square.height()).abs() < 0.01,
+            "a square logo stays square: {}x{}",
+            square.width(),
+            square.height()
+        );
+
         eprintln!(
-            "049 sidebar header logo — 240x72 rail → {:.0}x{:.0} (the 200x60 \
-             contract); {:.0}px collapsed rail → {:.0}x{:.0}; 40px header → \
-             {:.0}x{:.0}; aspect held at {aspect:.2} throughout",
+            "sidebar header logo -- box is a {:.0}x{:.0} LIMIT: 320x100 rail and the \
+             seeded 120pt header both give the full box; {:.0}px collapsed rail shrinks \
+             it keeping aspect {aspect:.2}; a 40pt header shrinks it too. Image inside: \
+             120x40 stays 120x40, 540x80 -> {:.0}x{:.0}, 270x240 -> {:.0}x{:.0}, \
+             1000x1000 -> {:.0}x{:.0} (square kept)",
             HEADER_IMAGE_W,
             HEADER_IMAGE_H,
             COLLAPSED_WIDTH,
-            header_image_rect(rail, true).width(),
-            header_image_rect(rail, true).height(),
-            header_image_rect(short, false).width(),
-            header_image_rect(short, false).height(),
+            wide.width(),
+            wide.height(),
+            tall.width(),
+            tall.height(),
+            square.width(),
+            square.height()
         );
     }
 

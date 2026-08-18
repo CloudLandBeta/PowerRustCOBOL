@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.98] — 2026-08-18
+
+### Fixed — an open sidebar's logo is a 270×80 limit, not a shape to fill
+
+An open SideMenu drew its `HeaderImage` **stretched** into a fixed 200×60 box, so
+a logo of any other proportion arrived distorted and one drawn larger was
+squeezed rather than fitted.
+
+The box is now **270×80** — and it is a **limit**. A logo is drawn at its own
+size while it fits inside it, and scaled down to fit — **keeping its aspect
+ratio** — when it is bigger:
+
+| Logo | Drawn at |
+|---|---|
+| 120×40 | 120×40, centred — its own size |
+| 270×80 | 270×80 — exactly the limit |
+| 540×80 | 270×40 — width binds, shape held |
+| 270×240 | 90×80 — height binds, shape held |
+| 1000×1000 | 80×80 — still square |
+
+The box itself still shrinks, keeping its shape, when the rail or the header
+cannot hold it — a collapsed rail or a header shorter than 88pt. The SideMenu's
+seeded 120pt header height holds the full box, so the new limit is one a
+developer can actually reach without changing anything.
+
+A header with no image still outlines the box, so its size is visible while
+designing.
+
+
 ## [PowerRustCOBOL 1.61.97] — 2026-08-18
 
 ### Fixed — a chart honours its axis captions, its slice labels and its legend
