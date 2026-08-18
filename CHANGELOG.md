@@ -1,5 +1,78 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.90] — 2026-08-18
+
+### Fixed — a ComboBox you can drag through, that shows all of its items, and wears the face you designed
+
+Five things the ListBox was fixed for between 1.61.84 and 1.61.87, done for the
+control that is a closed field plus a dropdown.
+
+**The face is the developer's.** The header painted a hardcoded navy surface and
+a blue rim over its own face, exactly as the list did before 1.61.87: a ComboBox
+given a **Background color** — or a **Background gradient** — in the RAD came
+out blue the moment the form ran, and nothing in the properties pane could
+change it. Both the header and the open dropdown now take their surface, their
+border and their corner radius from the control, so what is designed is what
+runs on all four surfaces: canvas, preview, Run Form and the compiled binary.
+The arrow glyph follows the value's colour instead of being a fixed pale blue
+that only read against the navy that is gone.
+
+The dropdown's fallbacks are the constants it always painted, *not* the theme —
+the same discipline 1.61.89 used for its two highlights — so a ComboBox designed
+earlier is untouched.
+
+> **One visible change for combos nobody has designed.** The header's corner
+> radius is now the control's `CornerRadius`, which is seeded **0**. A header
+> that was always rounded at a hardcoded 6 px is therefore square until you set
+> one — which is what the **designer canvas has always drawn**, so the four
+> surfaces now agree instead of two of them disagreeing.
+
+**Every item is reachable.** The panel stopped at 180 px and the item loop broke
+out as soon as an item would fall past the bottom, so anything past about the
+eighth item was not clipped and not scrollable — it was never drawn at all. The
+panel now stands as tall as the control's `DropDownHeight` allows (a property
+that was declared, documented and ignored) and **scrolls** past that.
+
+**A drag through the dropdown.** The classic combo gesture — press the header,
+drag into the list, release on an item — was absent; a ComboBox could only be
+clicked. It is built on the ListBox's anchor model: the drag is one gesture and
+what it highlights is the item under the pointer *now*, so reversing direction
+walks the highlight back instead of freezing it. Dragging above the first item
+holds at the first and below the last at the last, so a drag that leaves the
+control stops on an item rather than choosing nothing. A plain click still just
+opens the list.
+
+**The arrow keys.** Up and down walk the items and stop at both ends:
+
+| The list is | ↑ / ↓ | Enter | Escape |
+|---|---|---|---|
+| **shut** | change the value outright, reporting `onChange` and `onSelectedIndexChanged` exactly as a click does | — | — |
+| **open** | move the highlight, committing nothing | commits the highlighted item | closes, value unchanged |
+
+`Editable` makes no difference: no ComboBox on any surface accepts typed text
+today, so there is no caret for an arrow to move — and where a combo does type,
+the arrows belong to the list and the caret to ← / →.
+
+**The current item is always visible.** Opening the list scrolls to the value it
+holds, and arrowing or dragging keeps the highlighted item in view, landing it
+on the first or last visible line. The scroll is immediate rather than eased: a
+fast drag outruns an animated one, which is how the operator ended up selecting
+an item they could not see. A drag is a selection, not a swipe — the wheel and
+the scrollbar still scroll the list.
+
+**The items are lettered in the control's own type.** Item height, font size and
+the two item colours were hardcoded at 22 px, 12 pt and a fixed near-white, so a
+combo set to 20 pt drew a 20 pt value over a list of 12 pt items. An item is now
+one line of the control's own text plus air — the same measure a ListBox row
+uses — in its own `FontName`, `FontSize` and `ForegroundColor`.
+
+Internally: `draw_control_face` is `draw_control` without the canvas's
+placeholder caption, for a live widget that draws its own content and wants only
+the designed face. `glass_combo_popup` takes a `ComboPopup` carrying everything
+it paints with, because it runs in a second pass when the `Control` is out of
+reach.
+
+
 ## [PowerRustCOBOL 1.61.89] — 2026-08-18
 
 ### Added — a ComboBox names the colours its dropdown highlights with

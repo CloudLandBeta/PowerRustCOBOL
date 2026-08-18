@@ -1664,7 +1664,55 @@ pub fn opacity_of(ctrl: &Control) -> f32 {
     crate::model::alpha_multiplier(ctrl)
 }
 
+/// Paint a control exactly as the designer canvas does — its face, its border
+/// and the placeholder text the canvas stands in with for content the running
+/// control supplies itself.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_control(
+    painter: &egui::Painter,
+    origin: Pos2,
+    ctrl: &Control,
+    selected: bool,
+    glass: bool,
+    alpha_mul: f32,
+    scale: f32,
+    pic_tex: Option<egui::TextureId>,
+) {
+    draw_control_body(
+        painter, origin, ctrl, selected, glass, alpha_mul, scale, pic_tex, true,
+    );
+}
+
+/// [`draw_control`] **without** the canvas placeholder text.
+///
+/// A handful of controls stand in for their content on the canvas — a ComboBox
+/// letters its first item and a `▾` — because the canvas has no running value
+/// to show. The interactive renderer *does*: it draws the real one, in the
+/// control's own font and colour, with its own arrow. Calling `draw_control`
+/// there would paint the stand-in underneath the real thing, so a combo showing
+/// `Banana` would carry a ghost `Apple ▾` behind it.
+///
+/// This is the entry point for a live widget that wants the designed **face** —
+/// `BackgroundColor`, the background gradient, the border, the corner radius —
+/// and nothing else.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_control_face(
+    painter: &egui::Painter,
+    origin: Pos2,
+    ctrl: &Control,
+    selected: bool,
+    glass: bool,
+    alpha_mul: f32,
+    scale: f32,
+    pic_tex: Option<egui::TextureId>,
+) {
+    draw_control_body(
+        painter, origin, ctrl, selected, glass, alpha_mul, scale, pic_tex, false,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_control_body(
     painter: &egui::Painter,
     origin: Pos2,
     ctrl: &Control,
@@ -1673,6 +1721,8 @@ pub fn draw_control(
     alpha_mul: f32,
     scale: f32,                       // animation scale factor (1.0 = normal)
     pic_tex: Option<egui::TextureId>, // pre-loaded texture for PictureBox
+    // Whether the canvas placeholder caption is drawn — see `draw_control_face`.
+    with_label: bool,
 ) {
     use crate::ControlType as CT;
 
@@ -4081,6 +4131,10 @@ pub fn draw_control(
     } else {
         label
     };
+    // A caller drawing the control's own live content wants the face and not
+    // the canvas's stand-in for it (`draw_control_face`). Dropped here, after
+    // both branches, so the hint and the caption are silenced by one rule.
+    let label = if with_label { label } else { String::new() };
 
     // ── CheckBox: a real drawn box + checkmark, not "[ ]"/"[✓]" bracket text.
     // Runs OUTSIDE the `!label.is_empty()` gate below because the box must
@@ -5406,6 +5460,78 @@ pub fn combo_popup_fills(ctrl: &Control) -> (Color32, Color32) {
     )
 }
 
+/// The opaque base an undesigned dropdown lays down, so the list is readable
+/// whatever is behind the form.
+pub const COMBO_PANEL_BASE: Color32 = Color32::from_rgb(22, 30, 58);
+/// The translucent card an undesigned dropdown frosts over [`COMBO_PANEL_BASE`].
+pub const COMBO_PANEL_TINT: Color32 = Color32::from_rgb(30, 42, 80);
+/// The rim an undesigned dropdown draws around itself.
+pub const COMBO_PANEL_BORDER: Color32 = Color32::from_rgba_premultiplied(90, 130, 220, 180);
+
+/// The panel an open dropdown paints for itself.
+///
+/// Resolved from the `Control` in the pass that still has one — the popup is
+/// drawn later, when it is out of reach — on the same rule as
+/// [`combo_popup_fills`]: what the developer designed leads, and *undesigned*
+/// means **exactly what the dropdown drew before**, not the theme. A ComboBox
+/// designed earlier must not restyle itself.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComboFace {
+    /// The developer's `BackgroundColor`, when they named one.
+    pub bg: Option<Color32>,
+    /// The designed background gradient: `(start, end, direction)`.
+    pub gradient: Option<(Color32, Color32, String)>,
+    /// The designed border, `(colour, width)`. `None` = the dropdown's own rim;
+    /// a width of `0` = the developer turned the border off.
+    pub border: Option<(Color32, f32)>,
+    /// The control's own corner radius — the panel hangs off the header and is
+    /// cut to the same shape, so the two read as one control.
+    pub corner: f32,
+}
+
+/// Resolve the panel an open dropdown paints, from the control it belongs to.
+pub fn combo_popup_face(ctrl: &Control) -> ComboFace {
+    let gradient = ctrl
+        .get_prop("BackgroundGradientEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(false)
+        .then(|| {
+            let colour = |key: &str, fallback: Color32| {
+                ctrl.get_prop(key)
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(fallback)
+            };
+            (
+                colour("BackgroundGradientStartColor", COMBO_PANEL_BASE),
+                colour("BackgroundGradientEndColor", COMBO_PANEL_BASE),
+                ctrl.get_prop("BackgroundGradientDirection")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_else(|| "South".into()),
+            )
+        });
+    // A ComboBox seeds no border properties at all, so "absent" is the honest
+    // reading of "the developer never said" — and that is the case that has to
+    // keep the rim it always had.
+    let border = match ctrl.get_prop("BorderStyle").map(|v| v.as_str().to_owned()) {
+        Some(style) if style.eq_ignore_ascii_case("None") => Some((Color32::TRANSPARENT, 0.0)),
+        _ => ctrl.get_prop("BorderColor").map(|v| {
+            (
+                parse_color(v.as_str()),
+                ctrl.get_prop("BorderWidth")
+                    .map(|w| w.as_i64() as f32)
+                    .unwrap_or(1.0)
+                    .clamp(0.0, 20.0),
+            )
+        }),
+    };
+    ComboFace {
+        bg: user_background_color(ctrl),
+        gradient,
+        border,
+        corner: corner_radius(ctrl),
+    }
+}
+
 /// Short month names for DataGrid date cells and the DateTimePicker field.
 pub const MONTH_ABBR: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -5771,15 +5897,100 @@ pub fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
 // stores open/closed state keyed by control id (spec 017 consolidation).
 
 /// Result of a `glass_combo_popup` interaction.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GlassComboAction {
-    /// User selected this item.
-    Select(String),
-    /// User clicked outside the popup — close without changing value.
+    /// The operator committed this item — `(index, text)`. The popup closes.
+    Select(usize, String),
+    /// Dismissed without changing the value: a click outside, or Escape.
     Close,
 }
 
-/// Draw the ComboBox header bar (always visible). Returns `true` if clicked.
+/// A pointer gesture on a ComboBox, carried between the header pass and the
+/// popup pass and between frames.
+///
+/// A drag through a dropdown is **one gesture with an anchor** — the header the
+/// press landed on — and what it highlights is the item under the pointer *now*,
+/// worked out afresh every frame, so reversing direction walks the highlight
+/// back. There is no set of "every item this press has touched": a ComboBox
+/// chooses one item, and the accumulating model is what made the ListBox go
+/// deaf to a reversed drag (operator, 2026-08-17).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ComboGesture {
+    /// No button is down on this control.
+    #[default]
+    None,
+    /// The press landed on the header and has not left it. This is still the
+    /// click that opens the dropdown, not a selection — releasing here leaves
+    /// the list open rather than picking whatever is under the pointer.
+    Header,
+    /// The pointer has left the header downward. The highlight follows it from
+    /// here on, clamped to the first and last item, and the release commits.
+    List,
+}
+
+/// Everything an open dropdown needs to draw and answer with.
+///
+/// It is a struct rather than an argument list because **the popup is drawn in
+/// a second pass**, when the `Control` it belongs to is out of reach: every
+/// colour, font and measurement has to be resolved while the control is still
+/// in hand and travel here.
+pub struct ComboPopup<'a> {
+    /// The control's id, for the popup's own widget ids.
+    pub ctrl_id: &'a str,
+    /// The header bar the panel hangs below.
+    pub header: egui::Rect,
+    pub items: &'a [String],
+    /// The committed value — the item `Value` / `SelectedIndex` reports.
+    pub selected: &'a str,
+    /// The item the operator is on: the pointer's, the drag's, or the arrow
+    /// keys'. Carried between frames by the caller.
+    pub highlight: usize,
+    /// The gesture in progress, carried from the header press.
+    pub gesture: ComboGesture,
+    /// `(selected fill, hovered fill)`, from [`combo_popup_fills`].
+    pub fills: (Color32, Color32),
+    /// The panel's own face, from [`combo_popup_face`].
+    pub face: ComboFace,
+    /// One item's height, and the font and colour its text is drawn in — the
+    /// control's own, not the hardcoded 22 px and 12 pt this used to letter
+    /// every dropdown in whatever `FontSize` said.
+    pub item_h: f32,
+    pub font: egui::FontId,
+    pub text: Color32,
+    /// The tallest the panel may be: the control's `DropDownHeight`. Items past
+    /// it are reached by scrolling — they used to be dropped outright.
+    pub max_h: f32,
+    pub enabled: bool,
+    /// Scroll this item into view this frame — set by the caller on the frame
+    /// the dropdown opens, so it opens showing the current value.
+    pub reveal: Option<usize>,
+}
+
+/// What an open dropdown did this frame, and the state to hand back to it next.
+#[derive(Debug, Clone)]
+pub struct GlassComboOutcome {
+    pub action: Option<GlassComboAction>,
+    /// The item the popup is highlighting now.
+    pub highlight: usize,
+    /// The gesture still in progress.
+    pub gesture: ComboGesture,
+    /// A press this frame landed **inside the panel**.
+    ///
+    /// The header pass cannot know this — the panel's rect is worked out here —
+    /// and it matters: the header drops the keyboard on any press outside
+    /// itself, so without this, clicking an item would leave the combo unable
+    /// to answer the arrow keys until its header was clicked again.
+    pub pressed_in_list: bool,
+}
+
+/// Draw the ComboBox header bar's **contents** — the value and the open/close
+/// arrow. Returns `true` if it was clicked.
+///
+/// The **face is not drawn here**. It is the developer's, so the caller paints
+/// it with [`draw_control_face`] first, exactly as a ListBox does: the header
+/// used to lay a hardcoded navy surface and a blue rim over whatever the RAD
+/// had designed, so a combo given a colour or a gradient came out blue the
+/// moment the form ran (operator, 2026-08-18).
 pub fn glass_combo_header(
     painter: &egui::Painter,
     ui: &mut egui::Ui,
@@ -5788,27 +5999,11 @@ pub fn glass_combo_header(
     selected: &str,
     is_open: bool,
     enabled: bool,
-    alpha: f32,
     // The control's own typography and colour. `None` keeps the header's
     // built-in look, for callers that have no Control to hand.
     text: Option<(egui::FontId, Color32)>,
 ) -> bool {
     use egui::{Align2, FontId, Pos2};
-    draw_surface_auto(
-        painter,
-        rect,
-        Color32::from_rgb(25, 38, 80),
-        6.0,
-        false,
-        alpha,
-        SurfaceRole::Input,
-    );
-    painter.rect_stroke(
-        rect,
-        6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)),
-        egui::StrokeKind::Middle,
-    );
     // The control's own font and colour when the caller has them: a ComboBox
     // used to paint its value at a hardcoded 12 pt in a fixed near-white,
     // whatever `FontSize` and `ForegroundColor` said — the one control on the
@@ -5826,12 +6021,16 @@ pub fn glass_combo_header(
         font,
         text_color,
     );
+    // The arrow follows the value's colour, dimmed. It was a fixed pale blue,
+    // which read only because the face behind it was always the hardcoded navy;
+    // now that the face is the developer's, a fixed pale blue is a glyph that
+    // vanishes on the first light background anyone designs.
     painter.text(
         Pos2::new(rect.max.x - 13.0, rect.center().y),
         egui::Align2::CENTER_CENTER,
         if is_open { "▲" } else { "▼" },
         FontId::proportional(9.0),
-        Color32::from_rgba_premultiplied(160, 190, 255, 200),
+        text_color.gamma_multiply(0.75),
     );
     enabled
         && ui
@@ -5839,92 +6038,273 @@ pub fn glass_combo_header(
             .clicked()
 }
 
-/// Draw the ComboBox dropdown popup (call after all controls). Returns the user
-/// action, if any.
-pub fn glass_combo_popup(
-    ui: &mut egui::Ui,
-    ctrl_id_str: &str,
-    header_rect: egui::Rect,
-    items: &[String],
-    selected_val: &str,
-    // The control's own two highlights, from `combo_popup_fills`. Passed in
-    // rather than read here because the popup is drawn in a later pass, when
-    // the Control it belongs to is no longer in hand — the same reason the
-    // header takes its typography as an argument.
-    fills: (Color32, Color32),
-) -> Option<GlassComboAction> {
-    use egui::{Align2, FontId, Pos2, Vec2};
+/// Draw the ComboBox dropdown popup (call after all controls) and answer the
+/// gesture on it: the drag that started on the header, the arrow keys, Enter
+/// and Escape.
+///
+/// The panel is as tall as its items need up to the control's `DropDownHeight`,
+/// and **scrolls** past that. It used to stop at 180 px and `break` out of the
+/// item loop, so anything past about the eighth item was not clipped or
+/// scrollable — it was simply never drawn, and unreachable.
+pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutcome {
+    use egui::{Align2, Pos2, Sense, Vec2};
 
-    let item_h = 22.0_f32;
-    let popup_h = (items.len() as f32 * item_h).min(180.0);
+    let n = p.items.len();
+    let mut highlight = p.highlight.min(n.saturating_sub(1));
+    let mut gesture = p.gesture;
+    let mut action: Option<GlassComboAction> = None;
+    let mut reveal = p.reveal;
+    let mut pressed_in_list = false;
+
+    let item_h = p.item_h.max(1.0);
+    let content_h = n as f32 * item_h;
+    let popup_h = content_h.min(p.max_h.max(item_h));
     let popup_rect = egui::Rect::from_min_size(
-        Pos2::new(header_rect.min.x, header_rect.max.y + 1.0),
-        Vec2::new(header_rect.width(), popup_h),
+        Pos2::new(p.header.min.x, p.header.max.y + 1.0),
+        Vec2::new(p.header.width(), popup_h),
     );
 
-    let pointer_pos = ui.input(|i| i.pointer.hover_pos());
-    let any_click = ui.input(|i| i.pointer.any_click());
-    if any_click {
-        let inside = header_rect.contains(pointer_pos.unwrap_or(Pos2::ZERO))
-            || popup_rect.contains(pointer_pos.unwrap_or(Pos2::ZERO));
-        if !inside {
-            return Some(GlassComboAction::Close);
-        }
-    }
+    let (pressed, held, released, pointer) = ui.input(|i| {
+        (
+            i.pointer.primary_pressed(),
+            i.pointer.primary_down(),
+            i.pointer.primary_released(),
+            i.pointer.interact_pos(),
+        )
+    });
 
-    let pp = ui.painter_at(popup_rect);
-    pp.rect_filled(popup_rect, 6.0, Color32::from_rgb(22, 30, 58));
-    draw_surface_auto(
-        &pp,
-        popup_rect,
-        Color32::from_rgb(30, 42, 80),
-        6.0,
-        false,
-        0.35,
-        SurfaceRole::Card,
-    );
-    pp.rect_stroke(
-        popup_rect,
-        6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)),
-        egui::StrokeKind::Middle,
-    );
+    // Where the FIRST item landed on the frame that drew it. The items live in
+    // a scrolling pane, so this is what lets a pointer — including one past
+    // either end of the list — be mapped onto an item before they are laid out
+    // again. Absent (the frame the dropdown opens) the pane is still at the top.
+    let geom_id = egui::Id::new(("glass_combo_top", p.ctrl_id));
+    let first_top: f32 = ui
+        .data(|d| d.get_temp(geom_id))
+        .unwrap_or_else(|| popup_rect.top());
+    // The item under a pointer, CLAMPED to the list: above the first it holds
+    // at the first and below the last at the last, so a drag that leaves the
+    // control stops on an item instead of choosing nothing.
+    let item_at = |pt: Pos2| -> usize {
+        (((pt.y - first_top) / item_h).floor().max(0.0) as usize).min(n.saturating_sub(1))
+    };
 
-    let mut action = None;
-    for (i, item) in items.iter().enumerate() {
-        let item_y = popup_rect.min.y + i as f32 * item_h;
-        if item_y + item_h > popup_rect.max.y {
-            break;
+    if n > 0 && p.enabled {
+        // A press outside both the header and the panel dismisses the dropdown.
+        // A press on the header belongs to the header pass, which has already
+        // toggled it; a press inside the panel starts a selection gesture.
+        if pressed {
+            match pointer {
+                Some(pt) if popup_rect.contains(pt) => {
+                    gesture = ComboGesture::List;
+                    pressed_in_list = true;
+                }
+                Some(pt) if p.header.contains(pt) => {}
+                _ => action = Some(GlassComboAction::Close),
+            }
         }
-        let item_rect = egui::Rect::from_min_size(
-            Pos2::new(popup_rect.min.x, item_y),
-            Vec2::new(popup_rect.width(), item_h),
-        );
-        let iid = egui::Id::new(("glass_combo_item", ctrl_id_str, i));
-        let is_sel = item == selected_val;
-        let hovered = pointer_pos.map(|p| item_rect.contains(p)).unwrap_or(false);
-        let (selected_fill, hover_fill) = fills;
-        if is_sel {
-            pp.rect_filled(item_rect, 4.0, selected_fill);
-        } else if hovered {
-            pp.rect_filled(item_rect, 4.0, hover_fill);
+
+        // Plain hover moves the highlight, the way it always has — and now the
+        // arrow keys carry on from wherever the pointer left it.
+        if gesture == ComboGesture::None {
+            if let Some(pt) = pointer.filter(|pt| popup_rect.contains(*pt)) {
+                highlight = item_at(pt);
+            }
         }
-        pp.text(
-            Pos2::new(item_rect.min.x + 10.0, item_rect.center().y),
-            Align2::LEFT_CENTER,
-            item,
-            FontId::proportional(12.0),
-            if is_sel {
-                Color32::from_rgb(200, 220, 255)
+
+        // The drag. Once the pointer has left the header downward the gesture
+        // belongs to the list, and from then on the highlight follows it —
+        // clamped — however far outside the control it wanders.
+        if held && gesture != ComboGesture::None {
+            if let Some(pt) = pointer {
+                if gesture == ComboGesture::Header && pt.y > p.header.bottom() {
+                    gesture = ComboGesture::List;
+                }
+                if gesture == ComboGesture::List {
+                    let idx = item_at(pt);
+                    if idx != highlight {
+                        highlight = idx;
+                        reveal = Some(idx);
+                    }
+                }
+            }
+        }
+        if released {
+            if gesture == ComboGesture::List {
+                action = Some(GlassComboAction::Select(highlight, p.items[highlight].clone()));
+            }
+            gesture = ComboGesture::None;
+        }
+
+        // An OPEN dropdown owns the keyboard — it is the thing in front of the
+        // operator — so no focus bookkeeping is needed here, unlike the closed
+        // combo the header pass has to arbitrate for. The keys are CONSUMED so
+        // egui does not also walk focus to whatever lies in that direction, and
+        // so Enter never reaches the form's default button behind the list.
+        let (up, down, enter, escape) = ui.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+            )
+        });
+        if up || down {
+            let to = if up {
+                highlight.saturating_sub(1)
             } else {
-                Color32::from_rgb(210, 218, 245)
-            },
-        );
-        if ui.interact(item_rect, iid, egui::Sense::click()).clicked() {
-            action = Some(GlassComboAction::Select(item.clone()));
+                (highlight + 1).min(n - 1)
+            };
+            if to != highlight {
+                highlight = to;
+                reveal = Some(to);
+            }
+        }
+        if enter {
+            action = Some(GlassComboAction::Select(highlight, p.items[highlight].clone()));
+        } else if escape {
+            action = Some(GlassComboAction::Close);
         }
     }
-    action
+
+    // ── The panel's face: the developer's, or exactly what it drew before ────
+    let corner = p.face.corner;
+    let pp = ui.painter_at(popup_rect);
+    match (&p.face.gradient, p.face.bg) {
+        (Some((start, end, dir)), _) => {
+            pp.rect_filled(popup_rect, corner, COMBO_PANEL_BASE);
+            pp.add(egui::Shape::mesh(background_gradient_mesh(
+                popup_rect,
+                *start,
+                *end,
+                dir,
+                egui::CornerRadius::same(corner.round() as u8),
+            )));
+        }
+        // Opaque base under the chosen colour: a dropdown lies over the form's
+        // own controls, so a translucent BackgroundColor must not let them show
+        // through the list.
+        (None, Some(bg)) => {
+            pp.rect_filled(popup_rect, corner, COMBO_PANEL_BASE);
+            pp.rect_filled(popup_rect, corner, bg);
+        }
+        (None, None) => {
+            pp.rect_filled(popup_rect, corner, COMBO_PANEL_BASE);
+            draw_surface_auto(
+                &pp,
+                popup_rect,
+                COMBO_PANEL_TINT,
+                corner,
+                false,
+                0.35,
+                SurfaceRole::Card,
+            );
+        }
+    }
+
+    // ── The items, in a pane that scrolls ───────────────────────────────────
+    let (selected_fill, hover_fill) = p.fills;
+    let border_w = p.face.border.map(|(_, w)| w).unwrap_or(1.0);
+    // How far a highlight band keeps off the rim, so the border reads as one
+    // unbroken line with a hairline of panel between it and the band.
+    let inner = popup_rect.shrink(border_w + 1.0);
+    let mut first_row_top: Option<f32> = None;
+    if n > 0 {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(popup_rect), |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt(("glass_combo_scroll", p.ctrl_id))
+                .max_height(popup_rect.height())
+                .auto_shrink([false, false])
+                // A drag through a dropdown is a SELECTION, not a swipe. Were
+                // egui's drag-to-scroll on as well, the list would slide under
+                // the pointer while the highlight followed it, and the item
+                // under the hand would run away from it. The wheel and the
+                // scrollbar still scroll.
+                .scroll_source(egui::containers::scroll_area::ScrollSource {
+                    drag: egui::containers::scroll_area::DragScroll::Never,
+                    ..Default::default()
+                })
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    // Clipped to bounds computed fresh from THIS frame's
+                    // numbers: a ScrollArea floors its own clip at last frame's
+                    // measured content, so the first frame the list grows it
+                    // can paint past the panel.
+                    let ip = ui.painter().with_clip_rect(popup_rect);
+                    for (i, item) in p.items.iter().enumerate() {
+                        let (row, _resp) = ui.allocate_exact_size(
+                            Vec2::new(ui.available_width(), item_h),
+                            Sense::click(),
+                        );
+                        if i == 0 {
+                            first_row_top = Some(row.top());
+                        }
+                        // WITHOUT the animation: a list being dragged has to
+                        // keep up with the hand, and egui's default eased
+                        // scroll is still catching up several frames later —
+                        // which is exactly the "I cannot see what is selected"
+                        // this answers. `None` moves by the least it can, so
+                        // an item already on screen is left where it is.
+                        if reveal == Some(i) {
+                            ui.scroll_to_rect_animation(
+                                row,
+                                None,
+                                egui::style::ScrollAnimation::none(),
+                            );
+                        }
+                        let band = egui::Rect::from_x_y_ranges(inner.x_range(), row.y_range())
+                            .intersect(popup_rect);
+                        let fill = if item == p.selected {
+                            Some(selected_fill)
+                        } else if i == highlight {
+                            Some(hover_fill)
+                        } else {
+                            None
+                        };
+                        if let Some(fill) = fill.filter(|_| band.is_positive()) {
+                            ip.rect_filled(band, 4.0, fill);
+                        }
+                        ip.text(
+                            Pos2::new(band.left() + 10.0, band.center().y),
+                            Align2::LEFT_CENTER,
+                            item,
+                            p.font.clone(),
+                            match fill {
+                                Some(fill) => caret_color(fill, p.text),
+                                None => p.text,
+                            },
+                        );
+                    }
+                });
+        });
+    }
+
+    // The rim LAST, and from the panel's own painter rather than from inside
+    // the scrolling pane: a border drawn with the items is cut open the moment
+    // the list is longer than the panel and scrolls away with them.
+    match p.face.border {
+        Some((_, w)) if w <= 0.0 => {}
+        Some((colour, w)) => {
+            pp.rect_stroke(popup_rect, corner, Stroke::new(w, colour), egui::StrokeKind::Middle);
+        }
+        None => {
+            pp.rect_stroke(
+                popup_rect,
+                corner,
+                Stroke::new(1.0, COMBO_PANEL_BORDER),
+                egui::StrokeKind::Middle,
+            );
+        }
+    }
+
+    if let Some(top) = first_row_top {
+        ui.data_mut(|d| d.insert_temp(geom_id, top));
+    }
+    GlassComboOutcome {
+        action,
+        highlight,
+        gesture,
+        pressed_in_list,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
