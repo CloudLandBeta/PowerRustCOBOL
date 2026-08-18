@@ -470,6 +470,9 @@ pub struct CoboltApp {
     /// local, not project data, so they are loaded once at startup.
     debug: crate::debug_settings::DebugSettings,
     debug_modal: crate::debug_settings::DebugSettingsModal,
+    /// F12 documentation capture — an authoring tool for this checkout, behind
+    /// the `doc_screenshots` debug switch.
+    doc_shots: crate::doc_shots::DocShots,
     /// Non-empty while the "Form saved" alert should be displayed.
     /// A fatal form-runtime / codegen error to surface in a modal dialog. The
     /// IDE stays open; execution has already stopped on the interpreter thread.
@@ -1204,6 +1207,7 @@ impl CoboltApp {
             doc_viewer: Default::default(),
             debug: crate::debug_settings::DebugSettings::load(),
             debug_modal: Default::default(),
+            doc_shots: Default::default(),
             form_error: None,
             pending_proc_delete: None,
             alert_error: None,
@@ -1970,6 +1974,7 @@ impl CoboltApp {
             self.debugger_vp_sized = true;
         }
         ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
+            self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
             let close = vp_ctx.input(|i| i.viewport().close_requested());
             let action = self.debugger.show_viewport_body(vp_ctx, tr);
             if close {
@@ -10640,6 +10645,11 @@ impl eframe::App for CoboltApp {
         // process and picks its flags up via env on its next launch.
         self.debug.apply_in_process();
 
+        // F12 documentation capture. Polled per viewport (here for the main
+        // window, and at each `show_viewport_immediate` site) because the key
+        // and the capture reply both belong to whichever window has focus.
+        self.doc_shots.poll(ctx, self.debug.doc_screenshots);
+
         // Update window title to reflect the current project's build mode.
         {
             let mode_suffix = self
@@ -11016,6 +11026,11 @@ impl eframe::App for CoboltApp {
         if self.debug_modal.show(ctx, &mut self.debug, &tr) {
             self.debug.apply_in_process();
         }
+        // Placement popup for a captured shot. Main window only: it must never
+        // be part of the frame the operator is photographing. The theme's panel
+        // colour is what the transparent capture gets flattened onto.
+        self.doc_shots
+            .ui(ctx, self.current_theme().bg_panel.to_opaque());
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
@@ -11504,6 +11519,7 @@ impl eframe::App for CoboltApp {
                     .with_title(&title)
                     .with_inner_size([1200.0, 800.0]),
                 |vp_ctx, _class| {
+                    self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
                     if activate {
                         vp_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         vp_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -11589,6 +11605,7 @@ impl eframe::App for CoboltApp {
                     .with_resizable(true)
                     .with_transparent(true),
                 |vp_ctx, _class| {
+                    self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
                     if vp_ctx.input(|i| i.viewport().close_requested()) {
                         self.designers[idx].1.show_preview = false;
                     }
@@ -12433,6 +12450,7 @@ impl CoboltApp {
             self.inspector_sized = true;
         }
         ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
+            self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
             if vp_ctx.input(|i| i.viewport().close_requested()) {
                 self.show_inspector = false;
             }
@@ -12734,6 +12752,7 @@ impl CoboltApp {
                     .with_title(&title)
                     .with_inner_size([1000.0, 600.0]),
                 |vp_ctx, _class| {
+                    self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
                     if vp_ctx.input(|i| i.viewport().close_requested()) {
                         self.indexed_grids[gi].1.close_requested = true;
                     }

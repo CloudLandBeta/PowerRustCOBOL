@@ -58,6 +58,10 @@ pub struct DebugSettings {
     /// project or form. Accessibility / weak-GPU escape hatch, NOT a
     /// diagnostic: it does not count toward `any_enabled`.
     pub no_window_fx: bool,
+    /// F12 captures the focused window into a `📷 Screenshot needed` slot of the
+    /// English guide (see [`crate::doc_shots`]). An authoring tool for this
+    /// checkout, NOT a diagnostic: it does not count toward `any_enabled`.
+    pub doc_screenshots: bool,
     // ── Indexed files ─────────────────────────────────────────────────────
     /// INDEXED transaction log level: `off` | `basic` | `full` (redb engine).
     pub indexed_log: String,
@@ -78,6 +82,7 @@ impl Default for DebugSettings {
             databind_trace: false,
             ai_pane_debug: false,
             no_window_fx: false,
+            doc_screenshots: false,
             indexed_log: "off".into(),
             indexed_log_format: "text".into(),
             log_filter: String::new(),
@@ -235,6 +240,17 @@ static SECTIONS: &[Section] = &[
                        works for a bare `rcrun run-form`.",
                 env: "PRC_NO_WINDOW_FX",
                 get: |s| &mut s.no_window_fx,
+            },
+            Switch::Flag {
+                label: "Doc screenshot capture (F12)",
+                hint: "Authoring tool for this checkout, not a product feature: F12 captures \
+                       the focused window (Shift+F12 waits 3 s, for states that must be held \
+                       with the mouse), then a popup places the shot into a \
+                       `📷 Screenshot needed` slot of the English guide — saving the PNG under \
+                       assets/images/screenshots/ and writing the markdown. English documents \
+                       only; the translated guides reference the same images.",
+                env: "PRC_DOC_SCREENSHOTS",
+                get: |s| &mut s.doc_screenshots,
             },
         ],
     },
