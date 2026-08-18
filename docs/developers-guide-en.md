@@ -1542,6 +1542,11 @@ the frame carries the view with it, and the operator never selects a row they
 cannot see. The wheel and the scrollbar still scroll the list on their own; a
 drag is a selection, not a swipe.
 
+**The face is yours.** A ListBox (and a TreeView) wears the background you
+designed — **Background color**, or **Background gradient** with its start, end
+and direction — along with its border and corner radius, on every surface: the
+designer canvas, the preview, Run Form and the compiled binary.
+
 > **Note.** A ListBox cannot be drawn shorter than one line of its own text —
 > the designer's resize stops there, and the floor rises with `FontSize`.
 

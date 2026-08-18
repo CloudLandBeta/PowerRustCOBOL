@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.87] — 2026-08-18
+
+### Fixed — a running ListBox wears the background it was designed with
+
+A ListBox painted a **hardcoded navy surface** over its own face, so a list given
+a colour — or, as reported, a grey-to-black gradient — in the RAD came out blue
+the moment the form ran, and nothing in the properties pane could change it. The
+designer canvas showed the design; the preview, Run Form and the compiled binary
+showed the navy.
+
+Its face is now drawn by the same call the canvas uses, so `BackgroundColor`, the
+background gradient, the border and the corner radius all reach every surface.
+The **TreeView** carried the identical hardcoded surface and is fixed with it.
+
+The bars keep their own chrome colours for now — a MenuBar already honours a
+designed background, but a **ToolBar**, **StatusBar** and **Splitter** still
+paint theirs from a constant.
+
 ## [PowerRustCOBOL 1.61.86] — 2026-08-17
 
 ### Fixed — the item editor's border is whole at any scroll offset
