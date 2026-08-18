@@ -3338,6 +3338,17 @@ pub const DEFAULT_FORM_BACKGROUND_COLOR: &str = "#2E3138FF";
 /// pinned somewhere the rail does not paint.
 pub const DEFAULT_SIDE_MENU_FOOTER_H: i32 = 72;
 
+/// The breadcrumb frame's default height, in points — what a rail with no
+/// `BreadcrumbHeight` is drawn at. Re-exported as `breadcrumb::HEIGHT`, which
+/// is the name the renderer and its callers use; it lives here because the
+/// model is not behind the `render` feature and the property default is.
+pub const DEFAULT_BREADCRUMB_HEIGHT: f32 = 28.0;
+
+/// The shortest a breadcrumb frame may be drawn, in points. Below this the
+/// strip has no room for its own text and the sidebar's Open/Collapsed control
+/// stops being a target anyone can hit; a height under it is read as "not set".
+pub const MIN_BREADCRUMB_HEIGHT: f32 = 16.0;
+
 /// Marks the Panel a SideMenu owns in its footer pane. A property rather than
 /// an id convention, so the Panel survives being renamed.
 pub const SIDE_MENU_FOOTER_PROP: &str = "IsSideMenuFooter";
@@ -3899,6 +3910,19 @@ impl Control {
                     // breathe without them having to discover the property.
                     props.insert("HeaderHeight".into(), PropValue::Int(120));
                     props.insert("FooterHeight".into(), PropValue::Int(72));
+                    // The breadcrumb frame the rail owns: how tall it is, and
+                    // what colour it is. An empty colour keeps the historical
+                    // behaviour — the strip follows the content pane's own
+                    // backdrop. A taller frame is room for the controls the
+                    // developer drops over it (it is chrome, not a container).
+                    props.insert(
+                        "BreadcrumbHeight".into(),
+                        PropValue::Int(DEFAULT_BREADCRUMB_HEIGHT as i64),
+                    );
+                    props.insert(
+                        "BreadcrumbBackgroundColor".into(),
+                        PropValue::String(String::new()),
+                    );
                     // The header logo. Empty = no logo drawn; the header is
                     // the developer's, not a placeholder's.
                     props.insert("HeaderImage".into(), PropValue::String(String::new()));
@@ -4579,6 +4603,35 @@ impl Control {
     pub fn side_menu_collapsed(&self) -> bool {
         self.control_type == ControlType::SideMenu
             && self.get_prop("Collapsed").map(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// The height of the breadcrumb frame this SideMenu owns, in points.
+    ///
+    /// The strip is the SideMenu's chrome — it exists because the rail does,
+    /// and it is styled from the rail's own palette — so its height is the
+    /// rail's property too. Absent (a form written before the property
+    /// existed) means [`DEFAULT_BREADCRUMB_HEIGHT`].
+    pub fn breadcrumb_height(&self) -> f32 {
+        if self.control_type != ControlType::SideMenu {
+            return DEFAULT_BREADCRUMB_HEIGHT;
+        }
+        self.get_prop("BreadcrumbHeight")
+            .map(|v| v.as_i64() as f32)
+            .filter(|h| *h >= MIN_BREADCRUMB_HEIGHT)
+            .unwrap_or(DEFAULT_BREADCRUMB_HEIGHT)
+    }
+
+    /// The breadcrumb frame's own background colour, when the developer chose
+    /// one. `None` — the default — means the strip keeps following the content
+    /// pane's backdrop, so it reads as the top of the content area rather than
+    /// as a band bolted above it.
+    pub fn breadcrumb_background(&self) -> Option<String> {
+        if self.control_type != ControlType::SideMenu {
+            return None;
+        }
+        self.get_prop("BreadcrumbBackgroundColor")
+            .map(|v| v.as_str().trim().to_owned())
+            .filter(|s| !s.is_empty())
     }
 
     /// 049 — the height of a SideMenu's footer pane, in points.

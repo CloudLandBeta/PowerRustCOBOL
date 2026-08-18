@@ -75,6 +75,11 @@ pub fn build_object_seed(
             ("FormFormat".into(), form.form_format.as_str().to_string()),
             ("BackgroundColor".into(), form.background_color.clone()),
             ("Transparency".into(), form.transparency.to_string()),
+            // The breadcrumb RESET guard: while it is on, a click on this
+            // form's own breadcrumb segment refuses to start the form over and
+            // fires `onResetRejected` instead. Off by default — a form that
+            // holds nothing worth losing needs no guard.
+            ("PreventReset".into(), "0".to_string()),
         ],
     );
     std::iter::once(form_entry)

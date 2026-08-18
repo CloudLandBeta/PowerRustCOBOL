@@ -33,8 +33,18 @@
 use crate::model::Control;
 use egui::{Color32, FontId, Pos2, Rect, Vec2};
 
-/// Height of the breadcrumb strip, in points.
-pub const HEIGHT: f32 = 28.0;
+/// The breadcrumb strip's DEFAULT height, in points. The frame's actual height
+/// is the SideMenu's `BreadcrumbHeight` property — see [`height_of`].
+pub const HEIGHT: f32 = crate::model::DEFAULT_BREADCRUMB_HEIGHT;
+
+/// The height the frame is drawn at for the rail that owns it.
+///
+/// The strip is the sidebar's chrome, so its height is the sidebar's property.
+/// A rail with no `BreadcrumbHeight` (every form drawn before the property
+/// existed) keeps the historical [`HEIGHT`].
+pub fn height_of(side: &Control) -> f32 {
+    side.breadcrumb_height()
+}
 
 /// The strip's default chrome fill. Opaque by construction: in a transparent
 /// shell window an unpainted strip is a hole to the desktop (R43). The form
@@ -54,6 +64,13 @@ pub fn toggle_icon(collapsed: bool) -> &'static str {
     }
 }
 
+/// The largest the sidebar's Open/Collapsed cell is drawn, in points. The cell
+/// is a square of the frame's height — but a frame made tall to hold the
+/// developer's own controls is not a request for a 200-point arrow, so past
+/// this the cell stops growing and sits centred at the frame's left edge. At
+/// the default height the cap never applies.
+const TOGGLE_MAX: f32 = 48.0;
+
 /// Horizontal padding around the segment text.
 const PAD_X: f32 = 10.0;
 /// Gap either side of a `›` separator.
@@ -63,6 +80,15 @@ const SEP_GAP: f32 = 6.0;
 pub struct BreadcrumbState<'a> {
     /// The chain, root first. One entry on the design surfaces.
     pub segments: &'a [String],
+    /// A DETAIL level the running form appended after its own name
+    /// (`me::"SetBreadcrumbDetail"`) — the customer being edited, the order
+    /// being priced. It is not a chain entry: nothing is resident under it,
+    /// and it is the application's text, not the shell's.
+    ///
+    /// With one present the form's own segment becomes an inner link, and
+    /// clicking it asks the shell to RESET the form (see
+    /// [`BreadcrumbLayout::reset_segment`]).
+    pub detail: Option<String>,
     /// The strip's own background — what the contrast rule measures against.
     pub bg: Color32,
     /// Segment text.
@@ -87,6 +113,9 @@ pub struct BreadcrumbLayout {
     pub toggle: Rect,
     /// One rect per segment, chain order.
     pub segments: Vec<Rect>,
+    /// The detail level's rect, when the form appended one. It is where you
+    /// ARE, so it is not a link and nothing happens when it is clicked.
+    pub detail: Option<Rect>,
 }
 
 impl Default for BreadcrumbLayout {
@@ -94,7 +123,20 @@ impl Default for BreadcrumbLayout {
         Self {
             toggle: Rect::NOTHING,
             segments: Vec::new(),
+            detail: None,
         }
+    }
+}
+
+impl BreadcrumbLayout {
+    /// The segment whose click is a RESET rather than a navigation: the
+    /// displayed form's own name, once a detail level sits after it.
+    ///
+    /// Without a detail level the last segment is simply where you are, and
+    /// clicking it does nothing — there is nothing to go back to and nothing
+    /// to reset to.
+    pub fn reset_segment(&self) -> Option<usize> {
+        self.detail.is_some().then(|| self.segments.len().checked_sub(1))?
     }
 }
 
@@ -137,6 +179,7 @@ pub fn state_for_control<'a>(
         .unwrap_or_default();
     BreadcrumbState {
         segments,
+        detail: None,
         bg,
         fg,
         dim: Color32::from_rgba_unmultiplied(fg.r(), fg.g(), fg.b(), 150),
@@ -158,6 +201,7 @@ pub fn state_plain<'a>(segments: &'a [String], bg: Color32) -> BreadcrumbState<'
     let fg = readable_on(Color32::from_rgb(225, 230, 250), bg);
     BreadcrumbState {
         segments,
+        detail: None,
         bg,
         fg,
         dim: Color32::from_rgba_unmultiplied(fg.r(), fg.g(), fg.b(), 150),
@@ -178,25 +222,39 @@ pub fn layout(
     rect: Rect,
     state: &BreadcrumbState<'_>,
 ) -> BreadcrumbLayout {
-    let side = rect.height();
-    let toggle = Rect::from_min_size(rect.min, Vec2::splat(side));
+    let side = rect.height().min(TOGGLE_MAX);
+    let toggle = Rect::from_center_size(
+        Pos2::new(rect.min.x + side * 0.5, rect.center().y),
+        Vec2::splat(side),
+    );
 
     let mut segments = Vec::with_capacity(state.segments.len());
     let mut x = toggle.max.x + PAD_X;
-    for (i, label) in state.segments.iter().enumerate() {
-        if i > 0 {
+    let mut place = |x: &mut f32, label: &str, first: bool| {
+        if !first {
             let sep = painter.layout_no_wrap("›".to_owned(), state.font.clone(), state.dim);
-            x += SEP_GAP + sep.size().x + SEP_GAP;
+            *x += SEP_GAP + sep.size().x + SEP_GAP;
         }
-        let galley = painter.layout_no_wrap(label.clone(), state.font.clone(), state.fg);
+        let galley = painter.layout_no_wrap(label.to_owned(), state.font.clone(), state.fg);
         let w = galley.size().x;
-        segments.push(Rect::from_min_size(
-            Pos2::new(x, rect.min.y),
-            Vec2::new(w, rect.height()),
-        ));
-        x += w;
+        let r = Rect::from_min_size(Pos2::new(*x, rect.min.y), Vec2::new(w, rect.height()));
+        *x += w;
+        r
+    };
+    for (i, label) in state.segments.iter().enumerate() {
+        segments.push(place(&mut x, label, i == 0));
     }
-    BreadcrumbLayout { toggle, segments }
+    // The detail level trails the chain, behind its own separator — it reads
+    // as one more step even though nothing is resident under it.
+    let detail = state
+        .detail
+        .as_deref()
+        .map(|d| place(&mut x, d, segments.is_empty()));
+    BreadcrumbLayout {
+        toggle,
+        segments,
+        detail,
+    }
 }
 
 /// Paint the strip. `l` must come from [`layout`] for the same rect and state.
@@ -225,25 +283,42 @@ pub fn paint(
     );
 
     let p = painter.with_clip_rect(rect);
+    let sep_at = |x: f32| {
+        p.text(
+            Pos2::new(x - SEP_GAP, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            "›",
+            state.font.clone(),
+            state.dim,
+        );
+    };
     for (i, seg) in l.segments.iter().enumerate() {
         if i > 0 {
-            p.text(
-                Pos2::new(seg.min.x - SEP_GAP, rect.center().y),
-                egui::Align2::RIGHT_CENTER,
-                "›",
-                state.font.clone(),
-                state.dim,
-            );
+            sep_at(seg.min.x);
         }
         // The last segment is where you ARE: full strength. The ones behind it
-        // are links back, and read as quieter.
-        let last = i + 1 == l.segments.len();
+        // are links back, and read as quieter — and so does the form's own
+        // name once a detail level has been appended after it, because from
+        // then on it IS a link (it resets the form).
+        let last = i + 1 == l.segments.len() && l.detail.is_none();
         p.text(
             Pos2::new(seg.min.x, rect.center().y),
             egui::Align2::LEFT_CENTER,
             &state.segments[i],
             state.font.clone(),
             if last { state.fg } else { state.dim },
+        );
+    }
+    if let (Some(seg), Some(text)) = (l.detail, state.detail.as_deref()) {
+        if !l.segments.is_empty() {
+            sep_at(seg.min.x);
+        }
+        p.text(
+            Pos2::new(seg.min.x, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            text,
+            state.font.clone(),
+            state.fg,
         );
     }
 }
@@ -297,7 +372,7 @@ pub fn strip_rect(side: &Control, rail_width: f32, form_width: f32, origin: Pos2
     }
     Some(Rect::from_min_max(
         Pos2::new(left, origin.y),
-        Pos2::new(right, origin.y + HEIGHT),
+        Pos2::new(right, origin.y + height_of(side)),
     ))
 }
 
@@ -308,6 +383,29 @@ pub fn strip_rect(side: &Control, rail_width: f32, form_width: f32, origin: Pos2
 pub fn strip_background(form_background_hex: &str, transparency: u8) -> Color32 {
     let backdrop = crate::render::backdrop_color(form_background_hex, transparency);
     crate::paint::composite_premultiplied_over(backdrop, CHROME)
+}
+
+/// The strip's background for a given rail: the developer's own
+/// `BreadcrumbBackgroundColor` when they set one, otherwise
+/// [`strip_background`]'s content-pane rule.
+///
+/// A chosen colour may carry alpha — it composites over the content pane's
+/// backdrop, so a half-transparent frame shows the form through it — but the
+/// result is always opaque (R43): the strip is chrome, and a hole in chrome
+/// shows the desktop.
+pub fn strip_background_for(
+    side: &Control,
+    form_background_hex: &str,
+    transparency: u8,
+) -> Color32 {
+    let under = strip_background(form_background_hex, transparency);
+    match side.breadcrumb_background() {
+        Some(hex) => {
+            let own = crate::paint::parse_color(&hex);
+            crate::paint::composite_premultiplied_over(own, under)
+        }
+        None => under,
+    }
 }
 
 /// How a design surface is showing the rail, and how it drew the toggle.
@@ -390,7 +488,11 @@ pub fn draw_design_strip(
         form.width as f32,
         origin,
     )?;
-    let bg = strip_background(&form.background_color, form.transparency.min(100) as u8);
+    let bg = strip_background_for(
+        side,
+        &form.background_color,
+        form.transparency.min(100) as u8,
+    );
     Some(draw_static_strip(
         painter,
         ctx,
@@ -628,6 +730,142 @@ mod tests {
             "049 breadcrumb background — form 00000000/0 → strip {bg:?} \
              (= content pane), was {CHROME:?}; form 102040/70 → {faded:?}, \
              still opaque"
+        );
+    }
+
+    /// The frame's HEIGHT and BACKGROUND are the rail's properties. Width is
+    /// not one: the frame always runs from the rail's right edge to the
+    /// window's, which is why only these two are offered.
+    #[test]
+    fn the_frame_takes_its_height_and_background_from_the_rail() {
+        let mut form = crate::model::Form::new("SHELL", "Main Menu", 960, 744);
+        form.background_color = "102040".into();
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = crate::model::Rect::new(0, 0, 200, 744);
+        side.set_prop("FullHeight", true);
+        form.controls.push(side);
+        let origin = Pos2::new(0.0, 0.0);
+
+        // Default: the historical 28pt, and the content pane's own backdrop.
+        let r = design_strip_rect(&form, origin, false).expect("a shell has a frame");
+        assert_eq!(r.height(), HEIGHT, "no property ⇒ the historical height");
+        let plain = strip_background_for(&form.controls[0], &form.background_color, 0);
+        assert_eq!(
+            plain,
+            strip_background(&form.background_color, 0),
+            "no colour set ⇒ the frame still follows the content pane"
+        );
+
+        // A taller frame — room for the controls the developer puts over it.
+        form.controls[0].set_prop("BreadcrumbHeight", 64);
+        let r = design_strip_rect(&form, origin, false).expect("still a shell");
+        assert_eq!(r.height(), 64.0, "the rail's BreadcrumbHeight is the height");
+        assert_eq!(r.min.x, 200.0, "…and the frame still starts at the rail's edge");
+        assert_eq!(r.max.x, 960.0, "…and still runs to the form's right edge");
+
+        // The toggle cell is a square of the frame's height — until the frame
+        // is made tall for the developer's own controls, where it stops
+        // growing rather than becoming a giant arrow.
+        {
+            let ctx = ctx();
+            let segs = vec!["Main Menu".to_string()];
+            let st = state_plain(&segs, CHROME);
+            let tall = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 120.0));
+            let l = with_painter(&ctx, |p| layout(p, tall, &st));
+            assert_eq!(l.toggle.width(), TOGGLE_MAX, "the cell stops at the cap");
+            assert_eq!(l.toggle.width(), l.toggle.height(), "…and stays square");
+            assert_eq!(l.toggle.min.x, tall.min.x, "…at the frame's left edge");
+            assert_eq!(l.toggle.center().y, tall.center().y, "…centred in the band");
+            let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, HEIGHT));
+            let l = with_painter(&ctx, |p| layout(p, short, &st));
+            assert_eq!(
+                l.toggle.height(),
+                HEIGHT,
+                "at the default height the cap never applies"
+            );
+        }
+
+        // A height below the readable floor is not a height — it is unset.
+        form.controls[0].set_prop("BreadcrumbHeight", 4);
+        assert_eq!(
+            design_strip_rect(&form, origin, false).unwrap().height(),
+            HEIGHT,
+            "a frame too short to read is refused, not drawn"
+        );
+
+        // A chosen colour wins, and stays opaque (R43) whatever it carries.
+        form.controls[0].set_prop("BreadcrumbBackgroundColor", "#8B0000");
+        let own = strip_background_for(&form.controls[0], &form.background_color, 0);
+        assert_eq!(
+            (own.r(), own.g(), own.b()),
+            (0x8B, 0x00, 0x00),
+            "the designed colour is the frame's colour"
+        );
+        assert_eq!(own.a(), 255, "R43: the frame is opaque chrome");
+        form.controls[0].set_prop("BreadcrumbBackgroundColor", "#FFFFFF40");
+        let blended = strip_background_for(&form.controls[0], &form.background_color, 0);
+        assert_eq!(blended.a(), 255, "…even when the developer chose alpha");
+        assert_ne!(blended, own, "…which still shows the pane through it");
+
+        eprintln!(
+            "breadcrumb frame — height: unset → {HEIGHT:.0}, set 64 → 64, set 4 → \
+             {HEIGHT:.0} (below the {:.0}pt floor); background: unset → pane \
+             {plain:?}, #8B0000 → {own:?}, #FFFFFF40 → {blended:?} (all opaque)",
+            crate::model::MIN_BREADCRUMB_HEIGHT
+        );
+    }
+
+    /// A DETAIL level trails the chain: the form's own name becomes a link
+    /// (it resets the form), and the detail is where you are.
+    #[test]
+    fn a_detail_level_trails_the_chain_and_makes_the_form_name_a_reset() {
+        let ctx = ctx();
+        let segs: Vec<String> = ["Main Menu", "Customer Data"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let rect = strip();
+
+        // Without one, the last segment is simply where you are — clicking it
+        // resets nothing, because nothing has been opened under it.
+        let st = state_plain(&segs, CHROME);
+        let bare = with_painter(&ctx, |p| layout(p, rect, &st));
+        assert!(bare.detail.is_none());
+        assert_eq!(bare.reset_segment(), None, "no detail ⇒ no reset target");
+
+        let mut st = state_plain(&segs, CHROME);
+        st.detail = Some("John Smith".to_string());
+        let l = with_painter(&ctx, |p| {
+            let l = layout(p, rect, &st);
+            paint(p, rect, &st, &l);
+            l
+        });
+        let detail = l.detail.expect("the detail level was laid out");
+        assert_eq!(l.segments.len(), 2, "the chain is unchanged — 2 forms");
+        assert!(
+            detail.min.x > l.segments[1].max.x,
+            "the detail trails the form's own name"
+        );
+        assert!(rect.contains_rect(detail), "…inside the frame");
+        assert_eq!(
+            l.reset_segment(),
+            Some(1),
+            "the form's own segment is now the RESET target"
+        );
+        assert_eq!(segment_at(&l, l.segments[1].center()), Some(1));
+        assert_eq!(
+            segment_at(&l, detail.center()),
+            None,
+            "the detail is where you ARE — it is not a link"
+        );
+
+        eprintln!(
+            "breadcrumb detail — chain [Main Menu › Customer Data] + detail \
+             \"John Smith\": 2 chain rects, detail at x {:.0}..{:.0}, reset \
+             target = segment {:?} (was None without a detail)",
+            detail.min.x,
+            detail.max.x,
+            l.reset_segment()
         );
     }
 

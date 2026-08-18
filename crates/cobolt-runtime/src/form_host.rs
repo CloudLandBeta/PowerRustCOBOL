@@ -108,6 +108,14 @@ pub enum HostAction {
     /// (`super::<menu-id>::Collapse()`/`Open()`). PANE-WIDE by decision
     /// (spec Q10). The shell applies it and persists it (R9).
     SetMenuPaneCollapsed { collapsed: bool },
+    /// The form under `handle` set (or cleared, `text: None`) the breadcrumb
+    /// DETAIL level after its own name — `me::"SetBreadcrumbDetail"("John
+    /// Smith")`. The shell shows it while that form is the displayed one; a
+    /// classic window host has no breadcrumb and takes it nowhere.
+    SetBreadcrumbDetail {
+        handle: String,
+        text: Option<String>,
+    },
     /// Every window is gone — the process may exit (R27).
     Exit,
 }
@@ -182,6 +190,16 @@ impl FormSupervisor {
     /// 049 R44 — the COBOL-driven MenuPane state.
     pub fn menu_pane_collapsed(&self) -> bool {
         self.menu_pane_collapsed
+    }
+
+    /// Read a form's published property (the surface `super::X` and
+    /// `handle::"GetProperty"` read). The shell asks for `PreventReset` before
+    /// it starts a form over — a guard the form's own COBOL sets.
+    pub fn published_prop(&self, handle: &str, key: &str) -> Option<String> {
+        self.handles
+            .get(handle)
+            .and_then(|i| i.props.get(&key.trim().to_ascii_uppercase()))
+            .cloned()
     }
 
     /// 051 — register a ContentPane occupant (the shell's `open-form:`
@@ -464,6 +482,23 @@ impl FormSupervisor {
                 let _ = reply.send(Ok(value));
                 return Vec::new();
             }
+            // The breadcrumb's detail level: one step shown AFTER this form's
+            // own name, so the operator reads what they are working on and not
+            // only which screen they are on. Setting an empty text clears it,
+            // which is what `ClearBreadcrumbDetail` is.
+            "SETBREADCRUMBDETAIL" | "CLEARBREADCRUMBDETAIL" => {
+                let text = if m == "CLEARBREADCRUMBDETAIL" {
+                    None
+                } else {
+                    args.first()
+                        .map(|t| t.trim().to_owned())
+                        .filter(|t| !t.is_empty())
+                };
+                vec![HostAction::SetBreadcrumbDetail {
+                    handle: handle.to_string(),
+                    text,
+                }]
+            }
             // 049 R44 — the menu Open/Collapse methods, pane-wide (Q10).
             "SETMENUPANECOLLAPSED" => {
                 let on = truthy(args.first().map(String::as_str).unwrap_or("true"));
@@ -709,6 +744,65 @@ mod tests {
             "singleton focuses the running instance"
         );
         println!("handles: {h1}, {h2}; main-form reopen → {hm:?} + Focus (no spawn)");
+    }
+
+    /// The breadcrumb's detail level: `me::"SetBreadcrumbDetail"` reaches the
+    /// shell as an action, and works on an EMBEDDED handle — a pane occupant
+    /// has no window of its own and still owns the crumb after its own name.
+    #[test]
+    fn breadcrumb_detail_is_set_and_cleared_through_the_handle_surface() {
+        let mut sup = FormSupervisor::new("MAIN-FORM", "MAIN-FORM");
+        let emb = sup.open_embedded(ROOT_HANDLE, "CUST");
+
+        let call = |sup: &mut FormSupervisor, handle: &str, method: &str, args: Vec<String>| {
+            let (tx, rx) = channel();
+            let acts = sup.handle_request(FormRequest::HandleMethod {
+                handle: handle.to_string(),
+                method: method.into(),
+                args,
+                reply: tx,
+            });
+            (acts, rx.try_recv().unwrap())
+        };
+
+        let (acts, reply) = call(
+            &mut sup,
+            &emb,
+            "SetBreadcrumbDetail",
+            vec!["John Smith".into()],
+        );
+        assert!(reply.is_ok(), "an embedded form may name what it is editing");
+        assert_eq!(
+            acts,
+            vec![HostAction::SetBreadcrumbDetail {
+                handle: emb.clone(),
+                text: Some("John Smith".into()),
+            }]
+        );
+
+        // Clearing, both ways round: the dedicated method and an empty text.
+        let (cleared, _) = call(&mut sup, &emb, "ClearBreadcrumbDetail", vec![]);
+        let (blank, _) = call(&mut sup, &emb, "SetBreadcrumbDetail", vec!["   ".into()]);
+        for acts in [&cleared, &blank] {
+            assert_eq!(
+                *acts,
+                vec![HostAction::SetBreadcrumbDetail {
+                    handle: emb.clone(),
+                    text: None,
+                }]
+            );
+        }
+
+        // The window-only methods still refuse an embedded form — the crumb is
+        // deliberately NOT one of them.
+        let (_, refused) = call(&mut sup, &emb, "SetFullScreen", vec!["true".into()]);
+        assert!(refused.is_err(), "a pane occupant has no window to full-screen");
+
+        println!(
+            "breadcrumb detail — embedded {emb}: SetBreadcrumbDetail(\"John Smith\") \
+             → 1 action with text, ClearBreadcrumbDetail and a blank text → \
+             text=None; SetFullScreen still refused on the same handle"
+        );
     }
 
     /// R24 — closing a form broadcasts NotifyClosed for handle-NULLing.

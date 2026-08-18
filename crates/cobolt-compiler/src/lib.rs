@@ -3221,7 +3221,7 @@ fn control_purpose(name: &str) -> &'static str {
         "PictureBox" => "Displays a still image.",
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
         "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property). Menu items may carry an icon from the built-in catalogue: 660+ pure-vector icons in 26 categories (documents, editing, navigation, commerce, payroll, receivables, payments, stock control, transportation, logistics, financial, company departments, transaction kinds, civilian vehicles, military equipment, and more). Icons are resolution-independent line work tinted by the item's colour; the engine can also apply a second accent colour, a drop shadow, or a neumorphic emboss.",
-        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons, and they are sized per rail state: `IconSize` (default 22) while the rail is OPEN and `IconSizeCollapsed` (default 22) while it is COLLAPSED, since an icon beside a label and an icon that IS the row are two different pictures; a form with no `IconSizeCollapsed` uses `IconSize` for both. EXPANDED, a group's items are indented under it one level at a time, the whole row moving together so an item's icon stays beside its own label at every level. COLLAPSED, the rail carries an item when, and only when, it has an icon, has an action and is not a group — a group is dropped and its qualifying children come up in its place, flattened from wherever they sit, so the rail is the shortcuts rather than the structure; section dividers survive only between two icons. On that rail an item whose action is `home` is followed by a whole row's worth of extra space, so the distance from it to the icon below is twice the distance between any other two; it is the ACTION that earns the space, never the label, and nothing is added where a divider already falls beneath it. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. `Home (main content pane)` takes NO target and opens nothing: it puts the shell form's OWN ContentPane content back on screen, so a 'main screen' needs no form of its own. Home PARKS rather than destroys — the outgoing occupant gets onDeactivate but no onDestroy, keeps its WORKING-STORAGE, and a later load of it revives that same instance; every other live form, child windows included, is untouched. The breadcrumb collapses to the shell form and the contextual menu section empties; Home while already home does nothing. Home is offered on a SideMenu only, since a MenuBar form has no ContentPane to restore. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
+        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The sidebar also owns the BREADCRUMB FRAME, which always runs from its right edge to the window's right edge (no width or position property exists): `BreadcrumbHeight` (16..200, default 28) and `BreadcrumbBackgroundColor` (empty = follow the ContentPane's backdrop; alpha allowed, the frame is still painted opaque). While `FullHeight` is on the frame OVERLAYS the top band of the form's own coordinate space, exactly as the designer canvas draws it, so CONTROLS MAY BE PLACED OVER IT — the frame is chrome, NOT a container: such a control is nobody's child, is not clipped by or scrolled with the frame, keeps every property and event, paints on top and takes the click. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons, and they are sized per rail state: `IconSize` (default 22) while the rail is OPEN and `IconSizeCollapsed` (default 22) while it is COLLAPSED, since an icon beside a label and an icon that IS the row are two different pictures; a form with no `IconSizeCollapsed` uses `IconSize` for both. EXPANDED, a group's items are indented under it one level at a time, the whole row moving together so an item's icon stays beside its own label at every level. COLLAPSED, the rail carries an item when, and only when, it has an icon, has an action and is not a group — a group is dropped and its qualifying children come up in its place, flattened from wherever they sit, so the rail is the shortcuts rather than the structure; section dividers survive only between two icons. On that rail an item whose action is `home` is followed by a whole row's worth of extra space, so the distance from it to the icon below is twice the distance between any other two; it is the ACTION that earns the space, never the label, and nothing is added where a divider already falls beneath it. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. `Home (main content pane)` takes NO target and opens nothing: it puts the shell form's OWN ContentPane content back on screen, so a 'main screen' needs no form of its own. Home PARKS rather than destroys — the outgoing occupant gets onDeactivate but no onDestroy, keeps its WORKING-STORAGE, and a later load of it revives that same instance; every other live form, child windows included, is untouched. The breadcrumb collapses to the shell form and the contextual menu section empties; Home while already home does nothing. Home is offered on a SideMenu only, since a MenuBar form has no ContentPane to restore. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
         "ToolBar" => "Groups of buttons in a horizontal strip. Each group is a frame with its own border and corner radius, separated from the next by an invisible gap; each button carries an icon, its own colours and an action. Built in the designer's Toolbar Editor (`ToolbarLayout`), not from a property list.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
@@ -3723,7 +3723,11 @@ fn controls_reference_doc() -> String {
          except when the MAIN form closes, which closes every form and exits the application. \
          A modal Sync child blocks the caller's input AND its COBOL flow until the child \
          closes (the RETURNING handle is then already NULL). `me` window methods: \
-         `SetWindowState`, `SetFullScreen`, `SetTitleVisible`, `Focus`, `Close`.\n\n",
+         `SetWindowState`, `SetFullScreen`, `SetTitleVisible`, `Focus`, `Close`. `me` also \
+         carries `SetBreadcrumbDetail(text)` / `ClearBreadcrumbDetail()`, which name the \
+         record the form is holding in the shell's breadcrumb — not window methods: an \
+         embedded form has no window of its own and still owns the crumb after its own \
+         name.\n\n",
     );
 
     // ── 049 — application shell & the super receiver ─────────────────────────
@@ -3745,12 +3749,44 @@ fn controls_reference_doc() -> String {
          the pane itself in BOTH states and whether or not any menu item exists; its own \
          background from the \
          main form's MenuPaneBackground group, never repainted by a loaded form), a breadcrumb \
-         strip (shell chrome — one segment per navigation-chain entry; clicking a segment \
-         destroys everything below it, deepest first), and a ContentPane hosting the loaded \
+         FRAME (shell chrome — one segment per navigation-chain entry, each naming its form by \
+         its designed Title; clicking a segment destroys everything below it, deepest first), \
+         and a ContentPane hosting the loaded \
          form top-left at its designed size. The loaded form's background paints the WHOLE \
          pane (image/gradient modes evaluate against the PANE rect) and stays fixed while the \
          form scrolls; a fully transparent form shows the desktop through the pane region \
          only. Embedded forms play no window entrance/exit effects.\n\n",
+    );
+    doc.push_str(
+        "The BREADCRUMB FRAME always runs from the sidebar's right edge to the window's right \
+         edge — there is no width or position property — and the SideMenu owns its two: \
+         `BreadcrumbHeight` (16..200, default 28) and `BreadcrumbBackgroundColor` (empty = \
+         follow the ContentPane's backdrop; a chosen colour may carry alpha but the frame is \
+         always painted opaque, being chrome). While the sidebar's `FullHeight` is on (the \
+         default) the frame is the top BAND of the content area — it OVERLAYS the form's own \
+         coordinate space exactly as the designer canvas draws it, so the window opens at the \
+         form's designed height and CONTROLS MAY BE PLACED OVER THE FRAME: such a control is \
+         an ordinary form control that merely overlaps (NOT a child — it is not clipped by \
+         the frame, does not scroll with it, keeps all its properties and events) and it \
+         paints on top of the frame and takes the click. With FullHeight off the frame is a \
+         strip above the WHOLE window (above the sidebar too), the window pays its height, \
+         and nothing can be placed over it.\n\n",
+    );
+    doc.push_str(
+        "BREADCRUMB DETAIL LEVEL: the displayed form names the record it is holding with \
+         `INVOKE me \"SetBreadcrumbDetail\" USING <text>` (empty text or \
+         `INVOKE me \"ClearBreadcrumbDetail\"` removes it), shown as one more step after that \
+         form's own name (`Main Menu > Customer Data > John Smith`). It is one level, not a \
+         stack — setting it again replaces it. Only the DISPLAYED form may set one (a call \
+         from an off-pane form is ignored), and any navigation (another screen, a breadcrumb \
+         click, Home) drops it. With a detail showing, the form's OWN segment becomes a RESET \
+         link: clicking it starts that form over. The form has the last word through the \
+         universal property `PreventReset` (default 0): set it while holding unsaved data and \
+         the reset is refused and `onResetRejected` fires instead. Allowed, a pane occupant is \
+         REBUILT — onDestroy on the old instance, then a brand-new instance with blank \
+         WORKING-STORAGE in the same chain position (a reset is NOT a navigation) — while the \
+         shell's own main form, which has no second instance to swap in, receives `onReset`. \
+         Either way the detail level is cleared.\n\n",
     );
     doc.push_str(
         "Navigation lifecycle: forms in the chain stay RESIDENT (storage alive, menu handlers \
@@ -3769,12 +3805,13 @@ fn controls_reference_doc() -> String {
          Bare properties on `me`/`super` are checked at build time against the universal \
          form surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen, \
          TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat, BackgroundColor, \
-         Transparency) at any depth; form-specific procedures use parentheses and dispatch \
+         Transparency, PreventReset) at any depth; form-specific procedures use parentheses and dispatch \
          at run time. In the MAIN form — or after an async opener closed — `super` is NULL \
          and referencing it raises the standard error. \
          `super::<menu-id>::Collapse()` / `Open()` drive the MenuPane (pane-wide; the state \
          persists per application). `me::<property>` works the same way on the form's OWN \
-         surface.\n\n",
+         surface — including `me::PreventReset`, the guard that refuses a breadcrumb reset \
+         while the form is holding unsaved data.\n\n",
     );
 
     // ── 051 — the multi-form host ────────────────────────────────────────────

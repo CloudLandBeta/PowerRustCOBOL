@@ -1,5 +1,71 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.101] — 2026-08-18
+
+### Added — the breadcrumb is a frame you can design in
+
+The breadcrumb was a fixed 28-point strip of shell chrome. It is now a **frame**
+with properties, a place for your own controls, and a level you can add from
+COBOL.
+
+**Two properties, on the SideMenu that owns it.** Its width was never yours to
+set — the frame always runs from the sidebar's right edge to the window's right
+edge — so these are the two that exist:
+
+| Property | Inspector row | Default |
+|---|---|---|
+| `BreadcrumbHeight` | **Breadcrumb height** | 28 (16–200) |
+| `BreadcrumbBackgroundColor` | **Breadcrumb background** | empty = follow the content pane, as before |
+
+A chosen colour may carry alpha (the pane shows through), but the frame is
+always painted opaque: it is chrome, and a hole in it would show the desktop.
+
+**Controls may sit over the frame.** Give it height and it becomes a band you
+can design in — a title, a search box, a toolbar of your own. The running shell
+now draws the frame where the designer canvas always drew it: over the top band
+of the form's own coordinate space, on the background and under the controls.
+The frame is **not a container** — a control over it is nobody's child, is not
+clipped or scrolled by it, keeps every property and event, paints on top, and
+takes the click.
+
+**A detail level, from COBOL.** A segment names a screen; now the screen can
+name the record it is holding:
+
+```cobol
+      *> Main Menu > Customer Data > John Smith
+           INVOKE me "SetBreadcrumbDetail" USING WS-CUSTOMER-NAME.
+           INVOKE me "ClearBreadcrumbDetail".
+```
+
+Only the displayed form may set one, and any navigation drops it.
+
+**Clicking your own name resets the form.** With a detail showing, the form's
+own segment becomes a link:
+
+- `me::PreventReset` set (the guard your COBOL raises while holding unsaved
+  data) — nothing is reset and **`onResetRejected`** fires instead.
+- Otherwise a pane occupant is **rebuilt**: `onDestroy` on the old instance,
+  then a brand-new one with blank WORKING-STORAGE, in the same position in the
+  chain (a reset is not a navigation). The shell's own main form, which has no
+  second instance to swap in, receives **`onReset`**.
+
+`PreventReset` joins the universal form surface, so it is build-checked and
+readable through `super::` like `Title` or `FormState`.
+
+⚠️ A shell window now opens at the form's **designed height** (the frame no
+longer adds 28 points outside it), so an existing shell application's content
+moves up into the band. With the sidebar's `FullHeight` off the frame is still
+a strip above the whole window and nothing can be placed over it.
+
+Tested by `the_frame_takes_its_height_and_background_from_the_rail`,
+`a_detail_level_trails_the_chain_and_makes_the_form_name_a_reset`
+(`crates/cobolt-forms/src/breadcrumb.rs`),
+`a_detail_level_makes_the_form_name_a_reset_that_the_form_can_refuse`
+(`crates/cobolt-form-host/src/shell.rs`) and
+`a_control_over_the_breadcrumb_frame_paints_on_top_of_it`
+(`crates/cobolt-forms/tests/breadcrumb_chrome_order.rs`, which reads the
+engine's actual paint order: frame at shape #2, the control over it at #5).
+
 ## [PowerRustCOBOL 1.61.100] — 2026-08-18
 
 ### Fixed — the breadcrumb names a loaded form by its Title

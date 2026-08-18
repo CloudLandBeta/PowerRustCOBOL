@@ -169,6 +169,16 @@ pub struct RenderInput<'a> {
     pub backdrop: Backdrop,
 }
 
+/// Chrome the HOST paints between the form's backdrop and its controls, given
+/// the painter and the form's rect.
+///
+/// The shell's breadcrumb frame is the one user: it is chrome, so it must sit
+/// ON the form's background rather than under it, and it is NOT a container,
+/// so a control the developer placed over that band has to paint on top of it.
+/// That is exactly one slot in the paint order, and only the host knows what
+/// goes in it.
+pub type ChromeUnderControls<'a> = &'a dyn Fn(&egui::Painter, Rect);
+
 /// Backend-agnostic hook the face-render walk calls so the host can clip a rounded
 /// container's children to its rounded arc. egui only axis-aligns clip rects, so a
 /// child's corner otherwise bleeds past the container's rounded corner (spec 017).
@@ -1231,6 +1241,18 @@ fn panel_content_size(
 /// Render a whole form into `ui` at its content origin. The caller sets up the
 /// `CentralPanel` / `ScrollArea` and `ui.set_min_size(form_size)` first.
 pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
+    render_form_with_chrome(ui, input, None)
+}
+
+/// [`render_form`], with one slot of host chrome painted between the backdrop
+/// and the controls — see [`ChromeUnderControls`]. The shell renders through
+/// this so its breadcrumb frame sits on the form's background while the
+/// controls placed over that band still paint on top of it.
+pub fn render_form_with_chrome(
+    ui: &mut egui::Ui,
+    input: &RenderInput<'_>,
+    chrome: Option<ChromeUnderControls<'_>>,
+) -> RenderOutput {
     let mut out = RenderOutput::default();
     let origin = ui.min_rect().min;
     let painter = ui.painter().clone();
@@ -1252,6 +1274,12 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // cannot be resolved without knowing what is behind them (the SideMenu's
     // rail, spec 049).
     crate::paint::set_form_backdrop(ui.ctx(), bg);
+    // The host's chrome band (the shell's breadcrumb frame): on the background,
+    // under every control — a control drawn over it wins, because the frame is
+    // chrome and not a container.
+    if let Some(chrome) = chrome {
+        chrome(&painter, form_rect);
+    }
     let backdrop_gradient = painted.gradient;
     let backdrop_img_alpha = painted.image_alpha;
     let backdrop_img = painted.image;

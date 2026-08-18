@@ -6847,6 +6847,27 @@ impl PropertiesPanel {
                         action,
                         8..=64,
                     );
+                    // The breadcrumb frame the rail owns. Its width is not a
+                    // property: it always runs from the rail's right edge to
+                    // the window's. An empty background follows the content
+                    // pane, which is what it always did.
+                    int_row_inline(
+                        ui,
+                        id,
+                        "BreadcrumbHeight",
+                        tr.prop_crumb_height,
+                        ctrl,
+                        action,
+                        16..=200,
+                    );
+                    color_row_labeled(
+                        ui,
+                        id,
+                        "BreadcrumbBackgroundColor",
+                        tr.prop_crumb_bg,
+                        ctrl,
+                        action,
+                    );
                     // The sidebar's four menu colours live in Basic instead of
                     // a section of their own: they are the rail's ICON
                     // colours, and four rows did not earn a separate header.

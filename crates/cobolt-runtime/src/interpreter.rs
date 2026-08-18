@@ -1337,8 +1337,17 @@ impl Interpreter {
                 self.open_form_via_supervisor(caller, sync, method, &strings)
                     .map(Some)
             }
-            // Window methods on the form's own window.
-            "SETFULLSCREEN" | "SETTITLEVISIBLE" | "SETWINDOWSTATE" | "FOCUS" | "SETFOCUS" => {
+            // Window methods on the form's own window, plus the breadcrumb's
+            // detail level — which is NOT a window method: an embedded form
+            // has no window of its own and still owns the crumb after its own
+            // name (`INVOKE me "SetBreadcrumbDetail" USING WS-CUSTOMER-NAME`).
+            "SETFULLSCREEN"
+            | "SETTITLEVISIBLE"
+            | "SETWINDOWSTATE"
+            | "FOCUS"
+            | "SETFOCUS"
+            | "SETBREADCRUMBDETAIL"
+            | "CLEARBREADCRUMBDETAIL" => {
                 let Some(tx) = self.form_host_tx.clone() else {
                     // Single-form runtime: harmless no-op so generated code
                     // stays runnable under Check.
