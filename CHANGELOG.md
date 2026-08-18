@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.92] — 2026-08-18
+
+### Fixed — `Sorted` sorts
+
+`Sorted` is seeded on every list-shaped control, shown in the inspector, and
+documented in the knowledge base as "keeps items alphabetically sorted". Nothing
+anywhere read it. A list or a dropdown with the box ticked showed its items in
+the order they were typed, exactly as one with the box clear (operator,
+2026-08-18: *"sort is not working"*).
+
+It now sorts, on the **ListBox** and the **ComboBox** dropdown:
+
+- **Alphabetically, by text, case-insensitively** — which is what the phrase
+  means on every RAD a COBOL developer is likely to have used, and what the
+  property has always claimed. Items are text and nothing declares them
+  otherwise, so numbers sort as the strings they are: `1`, `10`, `11`, `2`, …,
+  `9`. If you want numeric order, pad to a fixed width (`01`, `02`, … `11`).
+- **Display order only.** The stored `Items` is never rewritten — what you typed
+  is yours, so clearing the box gives your own order straight back.
+- **Stable**, so two items differing only in case keep the order you wrote them
+  in rather than swapping about between runs.
+
+`SelectedIndex` is the index of the item **as shown**, so it lines up with what
+the operator picked. `Value` is the item's text either way and is unaffected.
+
+> **Not yet on the TreeView.** It carries `Sorted` too, and still ignores it.
+> Sorting a tree means ordering siblings within each parent while keeping every
+> child with its own — a different operation from ordering a flat list, and one
+> nobody has asked for yet. The knowledge base now says so rather than promising
+> it.
+
+
 ## [PowerRustCOBOL 1.61.91] — 2026-08-18
 
 ### Fixed — a dropdown's selection band no longer leaks past the panel's corners

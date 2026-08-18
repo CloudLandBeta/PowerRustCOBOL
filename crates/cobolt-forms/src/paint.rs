@@ -5429,6 +5429,37 @@ pub fn list_selection_fills(ctrl: &Control, theme_fill: Color32) -> (Color32, Co
     (active, selected)
 }
 
+/// The items a list shows, in the order it shows them.
+///
+/// The developer's own order, or **alphabetical** when the control's `Sorted`
+/// is on — a property every list-shaped control has carried, and shown in the
+/// inspector, since before it did anything at all (operator, 2026-08-18).
+///
+/// Sorting is by TEXT, case-insensitively, which is what "alphabetically
+/// sorted" means on every RAD a COBOL developer is likely to have used. Numbers
+/// therefore sort as the strings they are — `10` before `9` — because a list's
+/// items are text and nothing declares them otherwise.
+///
+/// Ties keep the order the developer typed them in: the sort is stable, so two
+/// items differing only in case stay as authored rather than swapping about
+/// between runs.
+///
+/// The stored `Items` is **never** rewritten. What the developer typed is
+/// theirs; only the display order changes, so turning `Sorted` off again gives
+/// back exactly the list they wrote.
+pub fn list_display_items(ctrl: &Control, items: &mut [String]) {
+    let sorted = ctrl
+        .get_prop("Sorted")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    if sorted {
+        items.sort_by(|a, b| {
+            let (a, b) = (a.to_lowercase(), b.to_lowercase());
+            a.cmp(&b)
+        });
+    }
+}
+
 /// How far a selection band keeps off the border of the list it sits in.
 ///
 /// The border's own width plus this, so the rim reads as one unbroken line with

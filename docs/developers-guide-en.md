@@ -1615,6 +1615,24 @@ it already holds â so a combo of two hundred countries opens showing the on
 chose, not the letter A. The wheel and the scrollbar still scroll the list on
 their own; a drag is a selection, not a swipe.
 
+
+**Sorting the items.** Tick **Sorted** and the list shows its items in
+alphabetical order. Three things worth knowing:
+
+- It sorts **by text, ignoring case** — which is what every RAD means by
+  "sorted", and what a list's items are. Numbers therefore sort as the strings
+  they are: `1`, `10`, `11`, `2`, … `9`. For numeric order, pad to a fixed
+  width — `01`, `02`, … `11` — and they sort as you expect.
+- It changes only what is **shown**. The `Items` you typed are kept exactly as
+  you typed them, so clearing the box gives your own order straight back.
+- `SelectedIndex` is the index of the item **as displayed**, so it matches what
+  the operator picked. `Value` is the item's text and is the same either way.
+
+> ⚠️ A **TreeView** carries `Sorted` as well and does not yet act on it: its
+> items are a hierarchy, and ordering siblings while keeping each child with its
+> own parent is a different operation. Its nodes show in the order you wrote
+> them.
+
 **How tall the list is.** As tall as its items need, up to `DropDownHeight`
 (the **DropDownHeight** row in the inspector, 200 px by default), and it scrolls past
 that. Every item is reachable however many there are.
