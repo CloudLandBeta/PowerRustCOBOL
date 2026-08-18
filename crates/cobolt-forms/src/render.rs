@@ -8709,6 +8709,10 @@ mod tests {
         bands: Vec<(Rect, egui::CornerRadius, Color32)>,
         /// The bounds of every mesh â a gradient is one.
         meshes: Vec<Rect>,
+        /// Every mesh with the colours its vertices carry. A glass lens is a
+        /// mesh too, so "is the DESIGNED gradient painted" is about the colours
+        /// in one, not about a mesh being there at all.
+        mesh_colors: Vec<(Rect, Vec<Color32>)>,
         placed: Map<String, Rect>,
     }
 
@@ -8718,6 +8722,7 @@ mod tests {
             fills: &mut Vec<(Rect, Color32)>,
             bands: &mut Vec<(Rect, egui::CornerRadius, Color32)>,
             meshes: &mut Vec<Rect>,
+            mesh_colors: &mut Vec<(Rect, Vec<Color32>)>,
         ) {
             match shape {
                 // `fills` is what was actually INKED; `bands` is every rect the
@@ -8730,9 +8735,15 @@ mod tests {
                         fills.push((r.rect, r.fill));
                     }
                 }
-                egui::Shape::Mesh(m) => meshes.push(m.calc_bounds()),
+                egui::Shape::Mesh(m) => {
+                    meshes.push(m.calc_bounds());
+                    mesh_colors.push((
+                        m.calc_bounds(),
+                        m.vertices.iter().map(|v| v.color).collect(),
+                    ));
+                }
                 egui::Shape::Vec(v) => {
-                    v.iter().for_each(|s| collect_faces(s, fills, bands, meshes))
+                    v.iter().for_each(|s| collect_faces(s, fills, bands, meshes, mesh_colors))
                 }
                 _ => {}
             }
@@ -8771,6 +8782,7 @@ mod tests {
         let mut fills: Vec<(Rect, Color32)> = Vec::new();
         let mut bands: Vec<(Rect, egui::CornerRadius, Color32)> = Vec::new();
         let mut meshes: Vec<Rect> = Vec::new();
+        let mut mesh_colors: Vec<(Rect, Vec<Color32>)> = Vec::new();
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
@@ -8811,9 +8823,10 @@ mod tests {
             fills.clear();
             bands.clear();
             meshes.clear();
+            mesh_colors.clear();
             for cs in &full.shapes {
                 collect(&cs.shape, cs.clip_rect, &mut painted);
-                collect_faces(&cs.shape, &mut fills, &mut bands, &mut meshes);
+                collect_faces(&cs.shape, &mut fills, &mut bands, &mut meshes, &mut mesh_colors);
             }
             full.textures_delta.clear();
             for (id, key, value) in updates.into_inner() {
@@ -8830,6 +8843,7 @@ mod tests {
             fills,
             bands,
             meshes,
+            mesh_colors,
             placed: placed.into_inner(),
         }
     }
@@ -11526,6 +11540,104 @@ mod tests {
             bars.len(),
             bars.iter().map(|b| b.right()).fold(f32::MIN, f32::max),
             panel.right()
+        );
+    }
+
+    /// A Shape wears the background GRADIENT it was designed with, on every one
+    /// of its silhouettes (operator, 2026-08-18: "Shape background's color
+    /// works, but background gradient does not").
+    ///
+    /// A Shape paints its own face and returns long before the generic frame
+    /// code, which is the only place the gradient was ever read -- so Background
+    /// colour worked while Background gradient did nothing whatever.
+    #[test]
+    fn a_shape_wears_the_background_gradient_it_was_designed_with() {
+        let shape = |kind: &str, gradient: bool| -> Vec<Control> {
+            let mut c = ctrl("Shape-1", ControlType::Shape, 20, 20, 160, 160);
+            c.set_prop("ShapeType", crate::PropValue::String(kind.to_owned()));
+            c.set_prop("FillColor", crate::PropValue::String("#C0C0C0FF".into()));
+            // The operator's own pair: a blue start and a red end, going south.
+            c.set_prop(
+                "BackgroundGradientEnabled",
+                crate::PropValue::Bool(gradient),
+            );
+            c.set_prop(
+                "BackgroundGradientStartColor",
+                crate::PropValue::String("#1367C4FF".into()),
+            );
+            c.set_prop(
+                "BackgroundGradientEndColor",
+                crate::PropValue::String("#EF0000FF".into()),
+            );
+            c.set_prop(
+                "BackgroundGradientDirection",
+                crate::PropValue::String("South".into()),
+            );
+            vec![c]
+        };
+
+        // The designed pair. A mesh "carries" a colour when some vertex is
+        // within a small distance of it: the fan interpolates, so the exact
+        // start and end land only at the extreme vertices.
+        let start = Color32::from_rgb(0x13, 0x67, 0xC4);
+        let end = Color32::from_rgb(0xEF, 0x00, 0x00);
+        let near = |a: Color32, b: Color32| {
+            (a.r() as i32 - b.r() as i32).abs()
+                + (a.g() as i32 - b.g() as i32).abs()
+                + (a.b() as i32 - b.b() as i32).abs()
+                <= 24
+        };
+
+        for kind in ["Rectangle", "Circle", "Triangle"] {
+            // Off: no mesh anywhere carries the designed pair. (A circle's glass
+            // lens is a mesh too, so the question is the COLOURS, not the mesh.)
+            let painted = drive_painted(&shape(kind, false), vec![(0.0, vec![]), (0.05, vec![])]);
+            assert!(
+                !painted.mesh_colors.iter().any(|(_, cs)| {
+                    cs.iter().any(|c| near(*c, start)) && cs.iter().any(|c| near(*c, end))
+                }),
+                "{kind}: with the gradient off, nothing should paint the designed pair"
+            );
+
+            // On: one mesh carries both ends, across the shape.
+            let painted = drive_painted(&shape(kind, true), vec![(0.0, vec![]), (0.05, vec![])]);
+            let frame = *painted.placed.get("Shape-1").expect("placed");
+            let found = painted.mesh_colors.iter().find(|(_, cs)| {
+                cs.iter().any(|c| near(*c, start)) && cs.iter().any(|c| near(*c, end))
+            });
+            let (bounds, _) = found.unwrap_or_else(|| {
+                panic!(
+                    "{kind}: the designed #1367C4 to #EF0000 gradient must be painted; \
+                     meshes carried {:?}",
+                    painted
+                        .mesh_colors
+                        .iter()
+                        .map(|(r, cs)| (*r, cs.len()))
+                        .collect::<Vec<_>>()
+                )
+            });
+            // A circle and a triangle cover less of their bounding box than a
+            // rectangle, so the bar is what each silhouette can reach.
+            let want = match kind {
+                "Rectangle" => 0.9,
+                "Circle" => 0.7,
+                _ => 0.4,
+            };
+            assert!(
+                bounds.intersect(frame).area() >= frame.area() * want,
+                "{kind}: the gradient must cover the shape, not a corner of it: \
+                 {bounds:?} vs {frame:?}"
+            );
+            assert!(
+                bounds.top() >= frame.top() - 1.0 && bounds.bottom() <= frame.bottom() + 1.0,
+                "{kind}: and must stay within it: {bounds:?} vs {frame:?}"
+            );
+        }
+
+        println!(
+            "\n  Shape gradient -- a designed #1367C4 to #EF0000 South gradient is painted \
+             across a Rectangle, a Circle and a Triangle; with the property off no mesh \
+             carries that pair at all\n"
         );
     }
 

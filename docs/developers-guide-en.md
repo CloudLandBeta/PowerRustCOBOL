@@ -1146,6 +1146,14 @@ non-visual ones are services.
 
 **Graphics / media**
 : Line, Shape, Animator, **Maps**.
+  A **Shape** draws a Rectangle, a Circle or a Triangle. It has its own
+  **FillColor**, **FillStyle**, **LineColor**, **LineStyle** and
+  **LineThickness** in *Basic properties*, and it also honours the **Background
+  gradient** in *Appearance*: tick it and the gradient leads over the fill, on
+  all three silhouettes. A circle and a triangle are shaded along the shape
+  itself, not through a box drawn around them, so a Radial gradient reads
+  correctly on each. Leave it unticked and the shape wears **FillColor** (or the
+  Appearance **Background color** when you have not set a FillColor).
 
 **Charts**
 : BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.

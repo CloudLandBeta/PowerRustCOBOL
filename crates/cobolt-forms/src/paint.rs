@@ -2022,7 +2022,66 @@ fn draw_control_body(
         // ── Face ──────────────────────────────────────────────────────────────
         if fill_style != "None" {
             let flat_fill = alpha_color(fill_color);
-            if glass && is_neumorphic && (is_round || is_tri) {
+            // The designed background GRADIENT, which leads over every flat and
+            // frosted face exactly as it does on any other control.
+            //
+            // A Shape paints its own face and returns long before the generic
+            // frame code, which is the only place the gradient was ever read —
+            // so a Shape's Background colour worked while its Background
+            // gradient did nothing at all (operator, 2026-08-18).
+            let gradient = ctrl
+                .get_prop("BackgroundGradientEnabled")
+                .map(|v| v.as_bool())
+                .unwrap_or(false)
+                .then(|| {
+                    let colour = |key: &str| {
+                        alpha_color(
+                            ctrl.get_prop(key)
+                                .map(|v| parse_color(v.as_str()))
+                                .unwrap_or(fill_color),
+                        )
+                    };
+                    (
+                        colour("BackgroundGradientStartColor"),
+                        colour("BackgroundGradientEndColor"),
+                        ctrl.get_prop("BackgroundGradientDirection")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_else(|| "South".into()),
+                    )
+                });
+            if let Some((start, end, dir)) = gradient {
+                // Every silhouette, not just the rectangle: a circle and a
+                // triangle are filled as a fan from their centre, each vertex
+                // taking the gradient's colour at its own position, so the
+                // shading follows the shape instead of a box around it.
+                if is_round {
+                    painter.add(egui::Shape::mesh(gradient_fan(
+                        rect,
+                        cc,
+                        &circle_perimeter(cc, circ_r),
+                        start,
+                        end,
+                        &dir,
+                    )));
+                } else if is_tri {
+                    painter.add(egui::Shape::mesh(gradient_fan(
+                        rect,
+                        rect.center(),
+                        &polygon_perimeter(&[tri_top, tri_br, tri_bl]),
+                        start,
+                        end,
+                        &dir,
+                    )));
+                } else {
+                    painter.add(egui::Shape::mesh(background_gradient_mesh(
+                        rect,
+                        start,
+                        end,
+                        &dir,
+                        egui::CornerRadius::same(rr.round().clamp(0.0, 255.0) as u8),
+                    )));
+                }
+            } else if glass && is_neumorphic && (is_round || is_tri) {
                 // Neumorphic: flat matte surface — the relief comes from the
                 // dual silhouette shadows drawn above.
                 if is_round {
@@ -6762,6 +6821,76 @@ fn gradient_direction(dir: &str) -> egui::Vec2 {
         "NorthWest" => egui::vec2(-1.0, -1.0).normalized(),
         _ => egui::vec2(0.0, 1.0),
     }
+}
+
+/// Points around a circle, for [`gradient_fan`]. Enough of them that the rim
+/// reads as a curve rather than a polygon at the sizes a Shape is drawn at.
+fn circle_perimeter(centre: Pos2, radius: f32) -> Vec<Pos2> {
+    const SEGMENTS: usize = 64;
+    (0..SEGMENTS)
+        .map(|i| {
+            let t = std::f32::consts::TAU * (i as f32 / SEGMENTS as f32);
+            Pos2::new(centre.x + radius * t.cos(), centre.y + radius * t.sin())
+        })
+        .collect()
+}
+
+/// The outline of a polygon, subdivided along each edge.
+///
+/// A triangle's three corners alone would carry a *linear* gradient exactly,
+/// but not a radial one — the colour inside a triangle is interpolated between
+/// its vertices, and a radial gradient is not linear. Subdividing makes both
+/// right.
+fn polygon_perimeter(corners: &[Pos2]) -> Vec<Pos2> {
+    const PER_EDGE: usize = 16;
+    let mut out = Vec::with_capacity(corners.len() * PER_EDGE);
+    for i in 0..corners.len() {
+        let (a, b) = (corners[i], corners[(i + 1) % corners.len()]);
+        for step in 0..PER_EDGE {
+            let t = step as f32 / PER_EDGE as f32;
+            out.push(Pos2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+        }
+    }
+    out
+}
+
+/// Fill an arbitrary silhouette with a gradient, as a fan of triangles from
+/// `centre` out to `perimeter`.
+///
+/// Each vertex takes the gradient's colour at its own position, so the shading
+/// follows the shape. `rect` is the silhouette's bounding box — what the
+/// gradient's direction and extent are measured against, so a circle and the
+/// square around it shade identically.
+fn gradient_fan(
+    rect: egui::Rect,
+    centre: Pos2,
+    perimeter: &[Pos2],
+    start: Color32,
+    end: Color32,
+    dir: &str,
+) -> egui::epaint::Mesh {
+    let mut mesh = egui::epaint::Mesh::default();
+    if perimeter.len() < 3 {
+        return mesh;
+    }
+    let uv = egui::epaint::WHITE_UV;
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: centre,
+        uv,
+        color: gradient_color_at(rect, start, end, dir, centre),
+    });
+    for p in perimeter {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: *p,
+            uv,
+            color: gradient_color_at(rect, start, end, dir, *p),
+        });
+    }
+    let n = perimeter.len() as u32;
+    for i in 0..n {
+        mesh.add_triangle(0, i + 1, (i + 1) % n + 1);
+    }
+    mesh
 }
 
 pub(crate) fn gradient_color_at(

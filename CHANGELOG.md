@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.94] — 2026-08-18
+
+### Fixed — a Shape wears the background gradient it was designed with
+
+**Background color** worked on a Shape and **Background gradient** did nothing at
+all: the tick, the start colour, the end colour and the direction were all
+editable and all ignored (operator, 2026-08-18).
+
+A Shape paints its own face — it has its own `FillColor`, `FillStyle`,
+`LineColor` and silhouette — and returns long before the generic frame code,
+which is the only place the background gradient was ever read. `BackgroundColor`
+survived because the Shape's own face code reads it deliberately, as the
+fallback behind `FillColor`. The gradient had no such reader.
+
+The gradient now leads over the flat and frosted faces, exactly as it does on
+every other control, and on **all three silhouettes** rather than only the
+rectangle: a circle and a triangle are filled as a fan from their centre, each
+vertex taking the gradient's colour at its own position, so the shading follows
+the shape instead of a box drawn around it. Radial gradients work on all three
+for the same reason.
+
+Guarded by `a_shape_wears_the_background_gradient_it_was_designed_with`, which
+uses the operator's own blue-to-red pair and asserts the painted mesh really
+carries both ends, over each silhouette — and that with the tick clear no mesh
+carries them. Verified to fail on the previous code.
+
+
 ## [PowerRustCOBOL 1.61.93] — 2026-08-18
 
 ### Fixed — a dropdown's scrollbar sits inside its border
