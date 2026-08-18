@@ -114,6 +114,26 @@ impl TextAlign {
             Self::Bottom => (rect.max.y - PAD_Y, egui::Align::BOTTOM),
         }
     }
+
+    /// Where the centre of a `side`-tall toggle cell goes inside `rect`.
+    ///
+    /// The toggle rides the SAME alignment as the chain: they are the two
+    /// things in the band, and pinning the arrow to the middle while the text
+    /// moved to an edge left them looking like two unrelated controls. Its
+    /// SIZE stays its own (`BreadcrumbIconSize`) — only the placement is
+    /// shared. Clamped, so the cell can never hang out of the frame.
+    fn cell_center_y(self, rect: Rect, side: f32) -> f32 {
+        let half = side * 0.5;
+        let (top, bottom) = (rect.min.y + half, rect.max.y - half);
+        if top >= bottom {
+            return rect.center().y;
+        }
+        match self {
+            Self::Top => (rect.min.y + PAD_Y + half).clamp(top, bottom),
+            Self::Middle => rect.center().y,
+            Self::Bottom => (rect.max.y - PAD_Y - half).clamp(top, bottom),
+        }
+    }
 }
 
 /// Everything the strip needs that is not geometry.
@@ -291,7 +311,10 @@ pub fn layout(
         None => rect.height().min(TOGGLE_MAX),
     };
     let toggle = Rect::from_center_size(
-        Pos2::new(rect.min.x + side * 0.5, rect.center().y),
+        Pos2::new(
+            rect.min.x + side * 0.5,
+            state.align.cell_center_y(rect, side),
+        ),
         Vec2::splat(side),
     );
 
@@ -1101,6 +1124,49 @@ mod tests {
         assert_eq!(side.breadcrumb_height(), 120.0);
         assert_eq!(after.font.size, font_before, "the height must not touch the font");
         assert_eq!(after.toggle_size, icon_before, "…nor the toggle");
+    }
+
+    /// The toggle rides the chain's alignment, so the two stay on one line.
+    #[test]
+    fn the_toggle_moves_with_the_chain_not_apart_from_it() {
+        let ctx = ctx();
+        let segs = vec!["Main Menu".to_string()];
+        let tall = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 120.0));
+
+        let placed = |align: TextAlign| {
+            let mut st = state_plain(&segs, CHROME);
+            st.align = align;
+            st.toggle_size = Some(24.0);
+            let l = with_painter(&ctx, |p| layout(p, tall, &st));
+            (l.toggle.center().y, align.anchor(tall).0)
+        };
+
+        let (top_icon, top_text) = placed(TextAlign::Top);
+        let (mid_icon, mid_text) = placed(TextAlign::Middle);
+        let (bot_icon, bot_text) = placed(TextAlign::Bottom);
+
+        // Both ends move, and in the same direction as the text.
+        assert!(top_icon < mid_icon && mid_icon < bot_icon, "the toggle must follow");
+        assert_eq!(mid_icon, tall.center().y, "Middle is where it always was");
+
+        // The arrow sits on the text's side of the band, not pinned to the
+        // middle while the chain went to an edge.
+        assert!(top_icon < tall.center().y && top_text < tall.center().y);
+        assert!(bot_icon > tall.center().y && bot_text > tall.center().y);
+
+        // …and it never hangs out of the frame, however tall the cell.
+        for align in [TextAlign::Top, TextAlign::Middle, TextAlign::Bottom] {
+            let mut st = state_plain(&segs, CHROME);
+            st.align = align;
+            st.toggle_size = Some(200.0);
+            let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 28.0));
+            let l = with_painter(&ctx, |p| layout(p, short, &st));
+            assert!(
+                l.toggle.min.y >= short.min.y - 0.01 && l.toggle.max.y <= short.max.y + 0.01,
+                "{align:?}: the cell must stay inside the frame, got {:?}",
+                l.toggle
+            );
+        }
     }
 
     /// The strip paints headlessly, with and without a chain.

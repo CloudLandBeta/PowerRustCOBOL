@@ -4625,7 +4625,7 @@ owns the three things that are yours to choose:
 |---|---|---|
 | `BreadcrumbHeight` | **Breadcrumb height** | How tall the frame is drawn, 16 to 200 points. Default 28. |
 | `BreadcrumbBackgroundColor` | **Breadcrumb background** | The frame's own colour. Leave it **empty** and the frame keeps following the content pane's background, which is what it has always done. |
-| `BreadcrumbTextAlign` | **Breadcrumb text align** | Where the chain sits inside the frame: `Top`, `Middle` (the default) or `Bottom`. |
+| `BreadcrumbTextAlign` | **Breadcrumb vertical align** | Where the chain **and the Open/Collapsed toggle** sit inside the frame: `Top`, `Middle` (the default) or `Bottom`. They move together — they are the two things in the band, and one at an edge with the other pinned to the middle reads as two unrelated controls. |
 | `BreadcrumbFontSize` | **Breadcrumb font size** | The chain's own text size. `0` — the default — keeps it following the sidebar's `FontSize`, as it always did. |
 | `BreadcrumbIconSize` | **Breadcrumb icon size** | The Open/Collapsed toggle's own size. `0` — the default — keeps it a square of the frame's height, as it always did. It is never drawn taller than the frame. |
 
