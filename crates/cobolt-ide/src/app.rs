@@ -12248,7 +12248,6 @@ impl CoboltApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.set_min_size(egui::vec2(form_w, form_h));
-                        let origin = ui.min_rect().min;
                         let input = cobolt_forms::render::RenderInput {
                             controls: &controls,
                             state: &st,
