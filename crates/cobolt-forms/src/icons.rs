@@ -1515,18 +1515,23 @@ fn base_shapes(name: &str) -> Option<Vec<IconShape>> {
         // current state, so the control is never a mystery. Only the arrow
         // turns — the frame and its rail stay put, so the two read as one
         // control in two positions rather than as two different icons.
-        // The arrow is centred on the WIDE pane (x 3 → 15, so centre 9), not
+        // The rail is drawn on the LEFT (divider at x 9), because that is where
+        // the sidebar it stands for actually sits. Mirrored, the icon claimed
+        // a right-hand sidebar the shell has never had.
+        // The arrow is centred on the WIDE pane (x 9 → 21, so centre 15), not
         // merely placed inside it: sitting flush against the divider it read as
-        // crowding the rail rather than pointing away from it.
+        // crowding the rail rather than pointing away from it. It points the
+        // way the rail will MOVE — right to open a left sidebar, left to close
+        // it — which is the same rule as before, read off the correct side.
         "sidebar-expand" => vec![
             rr(3.0, 3.0, 18.0, 18.0, 3.0),
-            p(&[(15.0, 3.2), (15.0, 20.8)]),
-            pc(&[(6.75, 7.5), (11.25, 12.0), (6.75, 16.5)]),
+            p(&[(9.0, 3.2), (9.0, 20.8)]),
+            pc(&[(12.75, 7.5), (17.25, 12.0), (12.75, 16.5)]),
         ],
         "sidebar-collapse" => vec![
             rr(3.0, 3.0, 18.0, 18.0, 3.0),
-            p(&[(15.0, 3.2), (15.0, 20.8)]),
-            pc(&[(11.25, 7.5), (6.75, 12.0), (11.25, 16.5)]),
+            p(&[(9.0, 3.2), (9.0, 20.8)]),
+            pc(&[(17.25, 7.5), (12.75, 12.0), (17.25, 16.5)]),
         ],
         "chevron-left" => vec![p(&[(15.0, 5.0), (8.0, 12.0), (15.0, 19.0)])],
         "chevron-right" => vec![p(&[(9.0, 5.0), (16.0, 12.0), (9.0, 19.0)])],
@@ -7587,6 +7592,77 @@ fn icon_svg_body(name: &str, color: &str, accent: Option<&str>) -> Option<String
         }
     }
     Some(body)
+}
+
+#[cfg(test)]
+mod sidebar_toggle_tests {
+    use super::*;
+
+    /// The icon grid is 24 wide, so this is its centre line.
+    const CENTRE: f32 = 12.0;
+
+    /// The x coordinates of a polyline shape's points.
+    fn xs(shape: &IconShape) -> Vec<f32> {
+        let ops = match shape {
+            IconShape::Stroke(ops) | IconShape::StrokeClosed(ops) | IconShape::FillPath(ops) => ops,
+            _ => return Vec::new(),
+        };
+        ops.iter()
+            .filter_map(|op| match op {
+                L(x, _) => Some(*x),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_rail_is_drawn_on_the_left_where_the_sidebar_actually_is() {
+        // Mirrored, this icon claimed a right-hand sidebar the shell has never
+        // had — and it was wrong in BOTH pane states, so nothing gave it away.
+        for name in ["sidebar-expand", "sidebar-collapse"] {
+            let shapes = base_shapes(name).unwrap_or_else(|| panic!("{name} has no drawing"));
+            let divider = xs(&shapes[1]);
+            assert_eq!(divider.len(), 2, "{name}: the divider is one straight line");
+            assert!(
+                divider.iter().all(|x| *x < CENTRE),
+                "{name}: the rail must sit left of centre, got {divider:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_arrow_points_the_way_its_rail_will_move() {
+        // The arrow shows the NEXT action: a collapsed left rail opens to the
+        // right, an open one closes to the left.
+        let expand = xs(&base_shapes("sidebar-expand").expect("expand")[2]);
+        let tip = expand.iter().copied().fold(f32::MIN, f32::max);
+        assert_eq!(
+            expand.iter().filter(|x| **x == tip).count(),
+            1,
+            "expand must point right (one rightmost tip), got {expand:?}"
+        );
+
+        let collapse = xs(&base_shapes("sidebar-collapse").expect("collapse")[2]);
+        let tip = collapse.iter().copied().fold(f32::MAX, f32::min);
+        assert_eq!(
+            collapse.iter().filter(|x| **x == tip).count(),
+            1,
+            "collapse must point left (one leftmost tip), got {collapse:?}"
+        );
+    }
+
+    #[test]
+    fn the_arrow_sits_in_the_wide_pane_never_on_the_rail() {
+        for name in ["sidebar-expand", "sidebar-collapse"] {
+            let shapes = base_shapes(name).unwrap_or_else(|| panic!("{name} has no drawing"));
+            let divider = xs(&shapes[1])[0];
+            let arrow = xs(&shapes[2]);
+            assert!(
+                arrow.iter().all(|x| *x > divider),
+                "{name}: the arrow belongs to the content pane, got {arrow:?} against rail {divider}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
