@@ -12184,12 +12184,59 @@ impl CoboltApp {
         // 049 — the label the shell's breadcrumb opens on, and the content
         // pane's backdrop, which is the strip's background.
         let crumb_label = cobolt_forms::breadcrumb::design_label(&self.designers[idx].1.form);
+        // The preview runs the rail LIVE, so the strip follows the state the
+        // preview is actually in — the live `Collapsed`, not the designed one —
+        // or the strip's arrow and its left edge both lie.
+        let crumb_side = cobolt_forms::breadcrumb::shell_side_menu_in(&controls).cloned();
+        let crumb_collapsed = crumb_side.as_ref().is_some_and(|side| {
+            matches!(
+                self.designers[idx].1.preview_state.get(&side.id).map(String::as_str),
+                Some("1") | Some("true")
+            ) || (!self.designers[idx].1.preview_state.contains_key(&side.id)
+                && side.side_menu_collapsed())
+        });
         let crumb_bg = {
             let f = &self.designers[idx].1.form;
-            cobolt_forms::breadcrumb::strip_background(
-                &f.background_color,
-                f.transparency.min(100) as u8,
-            )
+            match &crumb_side {
+                Some(side) => cobolt_forms::breadcrumb::strip_background_for(
+                    side,
+                    &f.background_color,
+                    f.transparency.min(100) as u8,
+                ),
+                None => cobolt_forms::breadcrumb::strip_background(
+                    &f.background_color,
+                    f.transparency.min(100) as u8,
+                ),
+            }
+        };
+        // The strip is chrome painted ON the form's background and UNDER its
+        // controls: a control the developer put over the band paints on top of
+        // it, exactly as it does on the designer canvas. The frame is not a
+        // container — the control is nobody's child, it merely overlaps.
+        let crumb_ctx = panel_ui.ctx().clone();
+        let paint_crumb = |painter: &egui::Painter, form_rect: egui::Rect| {
+            let Some(side) = &crumb_side else { return };
+            let rail_w = cobolt_forms::sidebar::shown_width(side, crumb_collapsed);
+            let Some(rect) = cobolt_forms::breadcrumb::strip_rect(
+                side,
+                rail_w,
+                form_rect.width(),
+                form_rect.min,
+            ) else {
+                return;
+            };
+            cobolt_forms::breadcrumb::draw_static_strip(
+                painter,
+                &crumb_ctx,
+                side,
+                &crumb_label,
+                rect,
+                crumb_bg,
+                cobolt_forms::breadcrumb::DesignView {
+                    collapsed: crumb_collapsed,
+                    toggle_hovered: false,
+                },
+            );
         };
 
         let mut updates: Vec<(String, String, String)> = Vec::new();
@@ -12211,51 +12258,19 @@ impl CoboltApp {
                             active_tabs: &active_tabs,
                             backdrop,
                         };
-                        let out = cobolt_forms::render::render_form(ui, &input);
+                        // 049 — the shell's breadcrumb, static (one segment, the
+                        // form itself), painted in `render_form`'s own chrome
+                        // slot: on the backdrop, under the controls.
+                        let out = cobolt_forms::render::render_form_with_chrome(
+                            ui,
+                            &input,
+                            Some(&paint_crumb),
+                        );
                         updates = out.prop_updates;
                         // Preview has no COBOL event loop; UI events are
                         // discarded — but a toolbar button's PLATFORM action
                         // needs no interpreter, so those are carried out below.
                         toolbar_presses = out.toolbar_actions;
-
-                        // 049 — the shell's breadcrumb, static (one segment, the
-                        // form itself). Drawn AFTER `render_form`, which is a
-                        // closed unit that paints its own backdrop: the canvas
-                        // can slip the strip in between background and controls,
-                        // the preview cannot, so here it sits on top.
-                        if let Some(side) = cobolt_forms::breadcrumb::shell_side_menu_in(&controls)
-                        {
-                            // The preview runs the rail LIVE, so the strip must
-                            // follow the state the preview is actually in — the
-                            // live `Collapsed`, not the designed one — or the
-                            // strip's arrow and its left edge both lie.
-                            let collapsed = matches!(
-                                self.designers[idx]
-                                    .1
-                                    .preview_state
-                                    .get(&side.id)
-                                    .map(String::as_str),
-                                Some("1") | Some("true")
-                            ) || (!self.designers[idx].1.preview_state.contains_key(&side.id)
-                                && side.side_menu_collapsed());
-                            let rail_w = cobolt_forms::sidebar::shown_width(side, collapsed);
-                            if let Some(rect) =
-                                cobolt_forms::breadcrumb::strip_rect(side, rail_w, form_w, origin)
-                            {
-                                cobolt_forms::breadcrumb::draw_static_strip(
-                                    ui.painter(),
-                                    ui.ctx(),
-                                    side,
-                                    &crumb_label,
-                                    rect,
-                                    crumb_bg,
-                                    cobolt_forms::breadcrumb::DesignView {
-                                        collapsed,
-                                        toggle_hovered: false,
-                                    },
-                                );
-                            }
-                        }
                     });
             });
 

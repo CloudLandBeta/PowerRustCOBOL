@@ -45,6 +45,9 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     "FormFormat",
     "BackgroundColor",
     "Transparency",
+    // The breadcrumb reset guard: on, a click on this form's own breadcrumb
+    // segment fires `onResetRejected` instead of starting the form over.
+    "PreventReset",
 ];
 
 // ── Entry point ───────────────────────────────────────────────────────────────

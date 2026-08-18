@@ -4613,6 +4613,111 @@ The shell window has three fixed regions:
 | **Breadcrumb** | One segment per step of the navigation chain (`Main âº CRM âº Customers`). Clicking a segment goes back there. Painted by the shell â a loaded form's colours never affect it. |
 | **ContentPane** | The loaded form, top-left, at its designed size. |
 
+### The breadcrumb frame
+
+The breadcrumb is a **frame**, not just a line of text. It always runs from the
+sidebar's right edge to the right edge of the window — there is no width or
+position to set, because there is only one place it can be — and the sidebar
+owns the two things that are yours to choose:
+
+| Property (on the SideMenu) | Inspector row | What it does |
+|---|---|---|
+| `BreadcrumbHeight` | **Breadcrumb height** | How tall the frame is drawn, 16 to 200 points. Default 28. |
+| `BreadcrumbBackgroundColor` | **Breadcrumb background** | The frame's own colour. Leave it **empty** and the frame keeps following the content pane's background, which is what it has always done. |
+
+A colour you choose may carry alpha, in which case the pane shows through it —
+but the frame is always painted **opaque** in the end, because it is chrome: a
+hole in it would show the desktop.
+
+**You may place controls over the frame.** Give it some height and it becomes a
+band you can design in: a title, a search box, a status label, a toolbar of your
+own. Draw the control over the frame in the designer and it is drawn over the
+frame when the application runs — the same picture on the canvas, in Preview and
+in the shell.
+
+> **Note.** The frame is **not a container**. A control over it is an ordinary
+> form control that happens to overlap: it is nobody's child, it is not clipped
+> by the frame, it does not move or scroll with it, and it keeps every property
+> and event it would have anywhere else on the form. It simply paints on top,
+> and it takes the click — the frame never steals one from your control.
+
+📷 Screenshot needed — `breadcrumb-frame.png`. In the Form Designer, select the
+SideMenu on a shell form, set **Breadcrumb height** to 64 and **Breadcrumb
+background** to a colour that contrasts with the form, then drop a Label and a
+TextBox over the frame. Capture the canvas so both the taller coloured frame and
+the two controls sitting on it are visible.
+
+### Naming what you are working on — the detail level
+
+A breadcrumb segment names a *screen*. Often the operator needs to know *which
+record* that screen is holding. Add a **detail level** after the current form's
+own name, from the form itself:
+
+```cobol
+      *> Main Menu > Customer Data > John Smith
+           INVOKE me "SetBreadcrumbDetail" USING WS-CUSTOMER-NAME.
+      *> ...and back to just Main Menu > Customer Data
+           INVOKE me "ClearBreadcrumbDetail".
+```
+
+Rules worth knowing:
+
+- The detail belongs to the form that set it and to the moment it is displayed.
+  Navigate anywhere — another screen, a breadcrumb segment, **Home** — and it is
+  dropped; the incoming form starts with a clean crumb and sets its own.
+- Only the **displayed** form can set one. A form running off the pane has no
+  name up there to hang a detail from, so its call is ignored rather than
+  hijacking somebody else's segment.
+- Setting an empty text is the same as clearing it.
+- It is one level, not a stack: setting it again replaces it.
+
+### Clicking your own name — the reset
+
+Once a detail level is showing, the form's own segment stops being "where you
+are" and becomes a link. Clicking it **starts that form over**:
+
+```mermaid
+flowchart TD
+    A["Operator clicks the form's own segment<br/>(Main Menu &gt; Customer Data &gt; John Smith)"] --> B{"me::PreventReset<br/>set by the form?"}
+    B -- "on" --> C["Nothing is reset<br>onResetRejected fires<br>the crumb stays"]
+    B -- "off, pane occupant" --> D["onDestroy on the old instance<br>a fresh instance replaces it<br>onShow / onActivate, blank storage<br>the crumb is cleared"]
+    B -- "off, the shell's own form" --> E["onReset fires<br>the crumb is cleared"]
+```
+
+**The form has the last word.** Set the guard whenever you are holding something
+worth losing, and clear it when you are not:
+
+```cobol
+       CUSTOMER-CHANGED SECTION.        *> any field's onChange
+           MOVE 1 TO me::PreventReset.
+
+       SAVE-CUSTOMER SECTION.           *> after a successful write
+           MOVE 0 TO me::PreventReset.
+
+       RESET-REFUSED SECTION.           *> onResetRejected
+           MOVE "Save or cancel first" TO Label-Status::Caption.
+```
+
+`PreventReset` is part of the universal form surface, like `Title` or
+`FormState`, so it is checked at build time and readable through `super::` from
+another form.
+
+**What "start over" means** depends on which form is displayed:
+
+- A form **loaded into the ContentPane** is rebuilt: its `onDestroy` runs (close
+  files, COMMIT), its instance and WORKING-STORAGE are released, and a brand-new
+  instance takes its place — same screen, blank as the day it first opened, in
+  the same position in the chain. A reset is **not** a navigation: the chain
+  does not move.
+- The shell's **own main form** has no second instance to swap in — restarting it
+  would restart the application — so it receives **`onReset`** and does its own
+  housekeeping (`INITIALIZE`, re-read defaults, clear the screen).
+
+> ⚠️ **Caveat.** The frame is the top band of the **content area**, so controls
+> can sit over it only while the sidebar's **FullHeight** is on (the default).
+> With FullHeight off the breadcrumb is a strip above the whole window — above
+> the sidebar too — and there is no form underneath it to place a control on.
+
 ### FormFormat â how a form may be loaded
 
 Every form declares it in the property inspector:

@@ -271,6 +271,15 @@ impl NavChain {
         false
     }
 
+    /// Push the entry that REPLACES the one a reset just destroyed.
+    ///
+    /// Unlike [`Self::push`] the parent is not deactivated: it never stopped
+    /// being an ancestor, and firing `onDeactivate` at it a second time would
+    /// report a transition that never happened.
+    pub fn push_restarted(&mut self, entry: NavEntry) {
+        self.entries.push(entry);
+    }
+
     /// R22 — truncate to `index` (a breadcrumb click): every entry BELOW it
     /// is destroyed deepest-first; the target becomes the displayed form.
     /// Returns the destroyed form objects, in destruction order.
@@ -452,6 +461,16 @@ pub struct Shell {
     /// R21 — the chain the strip renders, root first. The owner refreshes it
     /// from its [`NavChain`] each frame; the shell paints it.
     pub breadcrumb: Vec<String>,
+    /// The DETAIL level the displayed form appended after its own name
+    /// (`me::"SetBreadcrumbDetail"`). The owner refreshes it — and drops it on
+    /// every navigation — so a crumb can never outlive the form that set it
+    /// and end up hanging off somebody else's name.
+    pub detail: Option<String>,
+    /// The breadcrumb frame's height, from the rail's `BreadcrumbHeight`.
+    pub breadcrumb_height: f32,
+    /// The frame's own background, from the rail's `BreadcrumbBackgroundColor`.
+    /// `None` = follow the ContentPane's backdrop, as it always has.
+    pub breadcrumb_bg: Option<egui::Color32>,
     /// Parent item ids whose children are expanded in place.
     pub expanded: Vec<String>,
     /// How far the MenuPane's rows are scrolled (see `draw_mounted_menus`).
@@ -459,6 +478,10 @@ pub struct Shell {
     /// A breadcrumb segment clicked this frame, drained with
     /// [`Self::take_breadcrumb_click`].
     pending_crumb: Option<usize>,
+    /// The displayed form's OWN segment was clicked while a detail level sat
+    /// after it — a request to start that form over. Drained with
+    /// [`Self::take_reset_request`].
+    pending_reset: bool,
     /// What the strip laid out last frame (tests click the segment they mean
     /// instead of a coordinate that moves whenever the chrome changes).
     last_crumb_layout: Option<cobolt_forms::breadcrumb::BreadcrumbLayout>,
@@ -488,9 +511,13 @@ impl Default for Shell {
             side_ctrl: None,
             form_backdrop: None,
             breadcrumb: Vec::new(),
+            detail: None,
+            breadcrumb_height: BREADCRUMB_HEIGHT,
+            breadcrumb_bg: None,
             expanded: Vec::new(),
             menu_scroll: 0.0,
             pending_crumb: None,
+            pending_reset: false,
             last_crumb_layout: None,
             last_menu_fill: None,
             last_toggle_rect: None,
@@ -599,10 +626,129 @@ impl Shell {
     /// developer designs against and the strip their operator gets are one
     /// drawing. The strip also carries the sidebar's Open/Collapsed control at
     /// its head — a full-height icon cell, in the rail's own colours.
+    /// The strip's background: the developer's own `BreadcrumbBackgroundColor`
+    /// when they set one, otherwise the ContentPane's backdrop. Opaque either
+    /// way (R43) — the strip is chrome, and a hole in chrome shows the desktop.
+    fn crumb_bg(&self) -> egui::Color32 {
+        let pane = over(
+            self.form_backdrop.unwrap_or(egui::Color32::TRANSPARENT),
+            CHROME_FILL,
+        );
+        match self.breadcrumb_bg {
+            Some(c) => over(c, pane),
+            None => pane,
+        }
+    }
+
+    /// Paint the strip and hit-test what it drew, on `rect`. Shared by the
+    /// panel path ([`Self::show_breadcrumb`]) and the OVERLAY path the shell
+    /// host uses, so both surfaces are one drawing.
+    fn paint_crumb(&mut self, ctx: &egui::Context, painter: &egui::Painter, rect: Rect) {
+        use cobolt_forms::breadcrumb as bc;
+        let bg = self.crumb_bg();
+        let segments = self.breadcrumb.clone();
+        let mut state = match &self.side_ctrl {
+            Some(c) => bc::state_for_control(ctx, c, &segments, bg),
+            None => bc::state_plain(&segments, bg),
+        };
+        state.detail = self.detail.clone();
+        // The rail's LIVE state, not the designed one: the arrow has to show
+        // what the next click does.
+        state.collapsed = self.collapsed;
+        let layout = bc::layout(painter, rect, &state);
+        state.toggle_hovered = ctx
+            .pointer_interact_pos()
+            .is_some_and(|p| bc::toggle_hit(&layout, p));
+        bc::paint(painter, rect, &state, &layout);
+        self.last_crumb_layout = Some(layout);
+    }
+
+    /// Register the strip's clicks against what it laid out LAST frame.
+    ///
+    /// Registered BEFORE the form renders, so a control the developer placed
+    /// over the frame wins the pointer: the band is chrome, and chrome never
+    /// steals a click from the developer's own control.
+    fn crumb_interact(&mut self, ui: &mut Ui) {
+        let Some(layout) = self.last_crumb_layout.clone() else {
+            return;
+        };
+        if ui
+            .interact(
+                layout.toggle,
+                ui.id().with("crumb-toggle"),
+                egui::Sense::click(),
+            )
+            .clicked()
+        {
+            self.toggle_requested = true;
+        }
+        let reset_at = layout.reset_segment();
+        for (i, seg) in layout.segments.iter().enumerate() {
+            if ui
+                .interact(*seg, ui.id().with(("crumb-seg", i)), egui::Sense::click())
+                .clicked()
+            {
+                // The displayed form's own name, with a detail level after it,
+                // is a RESET — everything above it is a navigation.
+                if reset_at == Some(i) {
+                    self.pending_reset = true;
+                } else {
+                    self.pending_crumb = Some(i);
+                }
+            }
+        }
+    }
+
+    /// Lay the strip out now and hand back a painter for it, to be run between
+    /// the ContentPane's backdrop and the form's controls.
+    ///
+    /// The layout is computed HERE, with the pane's own painter, and travels
+    /// into the closure: the strip is hit-tested against the very rects it
+    /// paints, and the shell keeps a copy so the next frame's clicks land on
+    /// what the operator is actually looking at.
+    fn crumb_chrome(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+    ) -> Box<dyn Fn(&egui::Painter, egui::Rect)> {
+        use cobolt_forms::breadcrumb as bc;
+        let ctx = ui.ctx().clone();
+        let bg = self.crumb_bg();
+        let segments = self.breadcrumb.clone();
+        let detail = self.detail.clone();
+        let side = self.side_ctrl.clone();
+        let collapsed = self.collapsed;
+        let (layout, hovered) = {
+            let mut state = match &side {
+                Some(c) => bc::state_for_control(&ctx, c, &segments, bg),
+                None => bc::state_plain(&segments, bg),
+            };
+            state.detail = detail.clone();
+            state.collapsed = collapsed;
+            let layout = bc::layout(ui.painter(), rect, &state);
+            let hovered = ctx
+                .pointer_interact_pos()
+                .is_some_and(|p| bc::toggle_hit(&layout, p));
+            (layout, hovered)
+        };
+        self.last_crumb_layout = Some(layout.clone());
+        Box::new(move |painter: &egui::Painter, _pane_rect: egui::Rect| {
+            let mut state = match &side {
+                Some(c) => bc::state_for_control(&ctx, c, &segments, bg),
+                None => bc::state_plain(&segments, bg),
+            };
+            state.detail = detail.clone();
+            state.collapsed = collapsed;
+            state.toggle_hovered = hovered;
+            bc::paint(painter, rect, &state, &layout);
+        })
+    }
+
     fn show_breadcrumb(&mut self, root_ui: &mut Ui) -> Rect {
+        let height = self.breadcrumb_height;
         let panel = egui::Panel::top("shell-breadcrumb")
             .resizable(false)
-            .exact_size(BREADCRUMB_HEIGHT)
+            .exact_size(height)
             // R43 — the chrome supplies its OWN frame. egui's default panel
             // frame paints `visuals.panel_fill` — which follows the OS
             // light/dark theme — and then insets the closure's `max_rect` by
@@ -614,49 +760,12 @@ impl Shell {
             // No separator line either — see the MenuPane.
             .show_separator_line(false)
             .show(root_ui, |ui| {
-                use cobolt_forms::breadcrumb as bc;
                 let rect = ui.max_rect();
-                // The strip carries the CONTENT pane's own backdrop, so it
-                // reads as the top of the content area instead of a grey band
-                // bolted above it. Opaque either way (R43).
-                let bg = over(
-                    self.form_backdrop.unwrap_or(egui::Color32::TRANSPARENT),
-                    CHROME_FILL,
-                );
-                let mut state = match &self.side_ctrl {
-                    Some(c) => bc::state_for_control(ui.ctx(), c, &self.breadcrumb, bg),
-                    None => bc::state_plain(&self.breadcrumb, bg),
-                };
-                // The rail's LIVE state, not the designed one: the arrow has to
-                // show what the next click does.
-                state.collapsed = self.collapsed;
-                let layout = bc::layout(ui.painter(), rect, &state);
-                state.toggle_hovered = ui
-                    .ctx()
-                    .pointer_interact_pos()
-                    .is_some_and(|p| bc::toggle_hit(&layout, p));
-                bc::paint(ui.painter(), rect, &state, &layout);
-
+                let ctx = ui.ctx().clone();
+                let painter = ui.painter().clone();
+                self.paint_crumb(&ctx, &painter, rect);
                 // One interaction per laid-out rect — never a re-derived one.
-                if ui
-                    .interact(
-                        layout.toggle,
-                        ui.id().with("crumb-toggle"),
-                        egui::Sense::click(),
-                    )
-                    .clicked()
-                {
-                    self.toggle_requested = true;
-                }
-                for (i, seg) in layout.segments.iter().enumerate() {
-                    if ui
-                        .interact(*seg, ui.id().with(("crumb-seg", i)), egui::Sense::click())
-                        .clicked()
-                    {
-                        self.pending_crumb = Some(i);
-                    }
-                }
-                self.last_crumb_layout = Some(layout);
+                self.crumb_interact(ui);
             });
         panel.response.rect
     }
@@ -664,6 +773,12 @@ impl Shell {
     /// Drain a breadcrumb segment click (R22).
     pub fn take_breadcrumb_click(&mut self) -> Option<usize> {
         self.pending_crumb.take()
+    }
+
+    /// Drain a RESET request — the displayed form's own segment clicked while
+    /// a detail level sat after it.
+    pub fn take_reset_request(&mut self) -> bool {
+        std::mem::take(&mut self.pending_reset)
     }
 
     /// What the strip laid out last frame.
@@ -974,13 +1089,27 @@ impl Shell {
             });
         let menu_rect = panel.response.rect;
 
-        if !crumb_done {
-            breadcrumb_rect = self.show_breadcrumb(root_ui);
-        }
-
         // The remaining space IS the ContentPane; the host's own
         // CentralPanel + ScrollArea consume it.
         let content_rect = root_ui.available_rect_before_wrap();
+        if !crumb_done {
+            // FullHeight ON — the frame is the top BAND of the content area,
+            // drawn as an OVERLAY rather than as a panel above it: the form's
+            // own coordinate space starts at the top of the band, exactly as
+            // the designer canvas draws it, so a control the developer placed
+            // over the frame paints on top of it. The frame is chrome, not a
+            // container: that control is nobody's child and is clipped by
+            // nothing.
+            breadcrumb_rect = Rect::from_min_size(
+                content_rect.min,
+                Vec2::new(content_rect.width(), self.breadcrumb_height),
+            );
+            // Registered BEFORE the form renders, so the developer's own
+            // control over the band wins the pointer.
+            self.crumb_interact(root_ui);
+            let chrome = self.crumb_chrome(root_ui, breadcrumb_rect);
+            host.set_pane_chrome(Some(chrome));
+        }
         host.pane_frame(root_ui);
 
         ShellLayout {
@@ -1042,6 +1171,15 @@ pub fn run_shell(
     // The designed control travels with the shell so the MenuPane paints in
     // the application's own colours, title and profile card.
     shell.side_ctrl = side_menu.cloned();
+    // The breadcrumb frame is the rail's chrome, so the rail sizes and colours
+    // it: `BreadcrumbHeight` (default 28) and `BreadcrumbBackgroundColor`
+    // (empty = follow the ContentPane's backdrop, as it always has).
+    if let Some(side) = side_menu {
+        shell.breadcrumb_height = cobolt_forms::breadcrumb::height_of(side);
+        shell.breadcrumb_bg = side
+            .breadcrumb_background()
+            .map(|hex| cobolt_forms::paint::parse_color(&hex));
+    }
     // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
     // shell used a fixed 220 regardless, so the ContentPane started 20px past
     // where the form was laid out for and every control in it sat that much
@@ -1095,6 +1233,13 @@ pub fn run_shell(
         form.height as f32,
         shell.menu_open_width,
         shell.menu_pane_width(),
+        // A FullHeight rail's frame OVERLAYS the form's top band, so it costs
+        // the window nothing; a panel above the window still needs its own.
+        if shell.full_height {
+            0.0
+        } else {
+            shell.breadcrumb_height
+        },
     );
     let viewport = egui::ViewportBuilder::default()
         .with_title(&title)
@@ -1160,6 +1305,9 @@ impl ShellApp {
                 // not deactivate and reactivate the main form.
                 Some("home") => {
                     if self.chain.len() > 1 {
+                        // The detail level named the data on the form that is
+                        // leaving the pane; it goes with it.
+                        self.shell.detail = None;
                         self.chain.park_to_root();
                         // The contextual slot belongs to whatever occupies
                         // the pane; at the root there is nothing to show —
@@ -1222,6 +1370,10 @@ impl ShellApp {
                             ev_tx: occ_ev_tx,
                         }),
                     };
+                    // The detail level belonged to the form leaving the pane;
+                    // the incoming one starts with a clean crumb and sets its
+                    // own if it wants one.
+                    self.shell.detail = None;
                     // The FIRST load stacks on the main form; after that a
                     // menu click is a SIBLING load (049 R25) — the displayed
                     // form is replaced, parked when THIS click asked to
@@ -1339,19 +1491,25 @@ pub const MIN_SHELL_WIDTH: f32 = 480.0;
 ///
 /// The form's designed width already spans the rail's column AND the content
 /// beside it, so it IS the open-rail window width; a rail that opens collapsed
-/// gives the difference back. The height adds the breadcrumb, which the shell
-/// puts outside the form — without it the bottom of the form would be under
-/// the window edge on the very first frame.
+/// gives the difference back.
+///
+/// `crumb_extra` is the height the breadcrumb frame takes OUT of the form: 0
+/// when it overlays the form's own top band (a FullHeight rail — the designer
+/// canvas draws it that way, and controls may sit over it), and the frame's
+/// height when it is a panel above the whole window (FullHeight off), where
+/// without it the bottom of the form would be under the window edge on the
+/// very first frame.
 pub fn shell_window_size(
     form_w: f32,
     form_h: f32,
     open_w: f32,
     current_pane_w: f32,
+    crumb_extra: f32,
 ) -> egui::Vec2 {
     let content_w = (form_w - open_w).max(1.0);
     egui::Vec2::new(
         (current_pane_w + content_w).max(MIN_SHELL_WIDTH),
-        (form_h + BREADCRUMB_HEIGHT).max(1.0),
+        (form_h + crumb_extra).max(1.0),
     )
 }
 
@@ -1378,6 +1536,93 @@ impl ShellApp {
             return;
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, size.y)));
+    }
+
+    /// The form object currently on the pane — the chain's last entry.
+    fn displayed_form(&self) -> Option<String> {
+        self.chain.current().map(|e| e.form_object.clone())
+    }
+
+    /// A COBOL-set breadcrumb detail level (`me::"SetBreadcrumbDetail"`).
+    /// Accepted only from the DISPLAYED form: a crumb is one step under a
+    /// name, and a form that is not on the pane has no name up there to hang
+    /// it from.
+    fn apply_crumb_detail(&mut self, form_object: &str, text: Option<String>) {
+        if self.displayed_form().as_deref() != Some(form_object) {
+            return;
+        }
+        self.shell.detail = text;
+    }
+
+    /// A click on the displayed form's OWN segment, with a detail level after
+    /// it: start that form over.
+    ///
+    /// The form gets the last word. While its `PreventReset` is on — the
+    /// guard its COBOL sets whenever it is holding something worth losing —
+    /// nothing is reset and `onResetRejected` fires instead, so the
+    /// application can say why.
+    ///
+    /// Allowed, the reset is a REBUILD: the displayed occupant is destroyed
+    /// (its `onDestroy` runs, files close, storage is released) and a fresh
+    /// instance takes its place, blank as on the day it was first opened. The
+    /// shell's OWN main form has no separate instance to rebuild — restarting
+    /// it would restart the application — so it is sent `onReset` and does its
+    /// own housekeeping.
+    fn reset_displayed_form(&mut self) {
+        let Some(form) = self.displayed_form() else {
+            return;
+        };
+        let guarded = self
+            .host
+            .published_form_prop(Some(&form), "PreventReset")
+            .map(|v| {
+                let v = v.trim();
+                !(v.is_empty() || v == "0" || v.eq_ignore_ascii_case("false"))
+            })
+            .unwrap_or(false);
+        if guarded {
+            self.host.notify_form(Some(&form), "onResetRejected");
+            return;
+        }
+        // The detail level described the data that is going away.
+        self.shell.detail = None;
+        if self.chain.len() <= 1 {
+            // The shell's own form: no second instance to swap in.
+            self.host.notify_form(Some(&form), "onReset");
+            return;
+        }
+        // Destroy the occupant (onDestroy through its Resident), retire its
+        // interpreter and handle, then build it again from scratch. Its
+        // PARENT is untouched throughout — it never stopped being an ancestor.
+        let destroyed = self.chain.pop_to(self.chain.len() - 2);
+        self.host.retire_occupants(&destroyed);
+        match self.host.ensure_occupant(&form) {
+            Ok(ev_tx) => {
+                let label = self
+                    .host
+                    .occupant_label(&form)
+                    .unwrap_or_else(|| form.clone());
+                self.chain.push_restarted(NavEntry {
+                    form_object: form.clone(),
+                    label,
+                    preserve_on_replace: false,
+                    resident: Box::new(ChannelResident {
+                        form_object: form.clone(),
+                        ev_tx,
+                    }),
+                });
+                self.host.show_occupant(Some(&form));
+            }
+            Err(e) => {
+                // R15 — visible, never silent. The pane falls back to the
+                // form the reset left displayed (its parent).
+                println!("Runtime error: cannot restart form '{form}': {e}");
+                eprintln!("shell: reset of '{form}' failed: {e}");
+                if let Some(parent) = self.displayed_form() {
+                    self.host.show_occupant(Some(&parent));
+                }
+            }
+        }
     }
 }
 
@@ -1409,6 +1654,7 @@ impl eframe::App for ShellApp {
             .collect();
         shell.show_with_host(root_ui, |_ui| {}, host);
         let crumb_click = shell.take_breadcrumb_click();
+        let reset_click = shell.take_reset_request();
         // A rail toggle moves the WINDOW, not the ContentPane's width — from
         // either affordance, and from COBOL. The window grows by the rail on
         // open and returns to its old size on collapse, so the content the
@@ -1428,6 +1674,10 @@ impl eframe::App for ShellApp {
                 self.persist_collapsed();
             }
         }
+        // A COBOL-set breadcrumb detail level (`me::"SetBreadcrumbDetail"`).
+        if let Some((form_object, text)) = self.host.take_breadcrumb_detail() {
+            self.apply_crumb_detail(&form_object, text);
+        }
         // Menu activations — each action performed by its own arm.
         self.process_menu_clicks();
         // 051 R12/R22 — a breadcrumb click truncates the chain: everything
@@ -1435,6 +1685,8 @@ impl eframe::App for ShellApp {
         // segment's own form returns to the pane.
         if let Some(ix) = crumb_click {
             if ix + 1 < self.chain.len() {
+                // The detail level hung off the form being left behind.
+                self.shell.detail = None;
                 let destroyed = self.chain.pop_to(ix);
                 self.host.retire_occupants(&destroyed);
                 if ix == 0 {
@@ -1445,6 +1697,11 @@ impl eframe::App for ShellApp {
                     self.host.show_occupant(Some(&target));
                 }
             }
+        }
+        // The displayed form's own segment, clicked with a detail level after
+        // it: start that form over — unless it says it would lose data.
+        if reset_click {
+            self.reset_displayed_form();
         }
     }
 }
@@ -2855,6 +3112,164 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         );
     }
 
+    /// The breadcrumb's DETAIL level and the RESET it turns the form's own
+    /// segment into.
+    ///
+    /// A form on the pane names what it is working on
+    /// (`me::"SetBreadcrumbDetail"`); clicking its own name then asks the
+    /// shell to start it over. The form has the last word: while its
+    /// `PreventReset` guard is on, nothing is reset.
+    #[test]
+    fn a_detail_level_makes_the_form_name_a_reset_that_the_form_can_refuse() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main Menu", 800, 600);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            match up.as_str() {
+                "CUST" => Ok((
+                    cobolt_forms::Form::new("CUST", "Customer Data", 400, 300),
+                    program(),
+                )),
+                other => Err(format!("no form named '{other}'")),
+            }
+        });
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: "MAIN-FORM".into(),
+            label: "Main Menu".into(),
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: "MAIN-FORM".into(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain,
+            host,
+            side_menu_ctrl: None,
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx,
+        };
+        app.shell.pending_clicks = vec![MenuClick {
+            slot: MenuSlot::Root,
+            item_id: "cust".into(),
+            action: Some("open-form:CUST".into()),
+            preserve_previous_form: false,
+        }];
+        app.process_menu_clicks();
+        let first = app.host.occupant_handle("CUST").expect("CUST is on the pane");
+
+        // The DISPLAYED form names what it is working on.
+        app.apply_crumb_detail("CUST", Some("John Smith".into()));
+        assert_eq!(app.shell.detail.as_deref(), Some("John Smith"));
+        // A form that is NOT displayed has no name up there to hang it from.
+        app.apply_crumb_detail("MAIN-FORM", Some("Nope".into()));
+        assert_eq!(
+            app.shell.detail.as_deref(),
+            Some("John Smith"),
+            "only the displayed form owns the crumb after its own name"
+        );
+
+        // Guarded: the click changes nothing at all.
+        app.host.publish_prop_for_test("CUST", "PreventReset", "1");
+        app.reset_displayed_form();
+        assert_eq!(
+            app.host.occupant_handle("CUST").as_deref(),
+            Some(first.as_str()),
+            "PreventReset: the very same instance is still on the pane"
+        );
+        assert_eq!(
+            app.shell.detail.as_deref(),
+            Some("John Smith"),
+            "…and the crumb it set is still there"
+        );
+
+        // Guard lifted: the form starts over — a NEW instance, blank storage,
+        // in the same place in the chain, with the crumb gone.
+        app.host.publish_prop_for_test("CUST", "PreventReset", "0");
+        app.reset_displayed_form();
+        let second = app.host.occupant_handle("CUST").expect("CUST is back");
+        assert_ne!(second, first, "a fresh instance replaced the old one");
+        assert_eq!(app.shell.detail, None, "the crumb described data now gone");
+        assert_eq!(
+            app.chain
+                .segments()
+                .into_iter()
+                .map(|(f, _)| f)
+                .collect::<Vec<_>>(),
+            vec!["MAIN-FORM".to_string(), "CUST".to_string()],
+            "the chain is where it was — a reset is not a navigation"
+        );
+        assert_eq!(app.host.active_occupant_form(), Some("CUST"));
+        assert_eq!(app.host.occupant_forms(), vec!["CUST".to_string()], "no leak");
+        // Navigating away drops the crumb with the form that set it.
+        app.apply_crumb_detail("CUST", Some("Jane Roe".into()));
+        app.shell.pending_clicks = vec![MenuClick {
+            slot: MenuSlot::Root,
+            item_id: "home".into(),
+            action: Some("home".into()),
+            preserve_previous_form: false,
+        }];
+        app.process_menu_clicks();
+        assert_eq!(app.shell.detail, None, "Home leaves no crumb behind");
+
+        println!(
+            "breadcrumb detail + reset — CUST set \"John Smith\" (a crumb from an \
+             off-pane form was refused); PreventReset=1 → same instance {first} \
+             and the crumb kept; PreventReset=0 → rebuilt as {second}, crumb \
+             cleared, chain still MAIN-FORM›CUST; Home cleared the crumb"
+        );
+    }
+
     /// AC3 (mount half) — entering a subsystem replaces the contextual slot
     /// WHOLESALE while the root slot never changes; clicks carry the item's
     /// action and PreservePreviousForm flag.
@@ -3078,13 +3493,16 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             "R39: the MenuPane fill must be identical across loads: {fills:?}"
         );
 
-        // R14 — the pane backdrop can never reach the breadcrumb strip.
+        // R14 — the breadcrumb is still the SHELL's paint, and a loaded form
+        // can never repaint it. What changed is where it sits: the frame is
+        // the top BAND of the content area (so the developer's own controls
+        // can be placed over it), painted ON the pane backdrop rather than in
+        // a panel above it — so the two now overlap by construction.
         let layout = layout.unwrap();
         let rect = backdrop_rect.expect("pane backdrop painted");
         assert!(
-            rect.intersect(layout.breadcrumb_rect).height() <= 0.0
-                || rect.intersect(layout.breadcrumb_rect).width() <= 0.0,
-            "the form backdrop must not overlap the breadcrumb: {rect:?} vs {:?}",
+            rect.contains_rect(layout.breadcrumb_rect),
+            "the breadcrumb frame is the content area's top band: {:?} vs pane {rect:?}",
             layout.breadcrumb_rect
         );
         assert!(
@@ -3097,7 +3515,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         println!(
             "049 AC22/AC6 — menu fill {:?} constant across 3 form loads \
              (red/green/same-as-menu); form backdrop rect disjoint from the \
-             breadcrumb strip and the MenuPane",
+             MenuPane, and carrying the breadcrumb frame as its top band",
             fills[0]
         );
     }
@@ -3303,19 +3721,26 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
 
         // Rail open: the form's own width IS the window width, because the
         // designed width already spans the rail and the content beside it.
-        let open = shell_window_size(form_w, form_h, rail, rail);
+        let open = shell_window_size(form_w, form_h, rail, rail, 0.0);
         assert_eq!(open.x, form_w, "the designed width, exactly");
         assert_eq!(
-            open.y,
-            form_h + BREADCRUMB_HEIGHT,
-            "…plus the breadcrumb, which the shell adds outside the form"
+            open.y, form_h,
+            "the designed height, exactly: a FullHeight rail's breadcrumb \
+             OVERLAYS the form's own top band and costs the window nothing"
+        );
+        // FullHeight off puts the strip in a panel of its own above the whole
+        // window, and that band is not the form's — so the window pays for it.
+        assert_eq!(
+            shell_window_size(form_w, form_h, rail, rail, BREADCRUMB_HEIGHT).y,
+            form_h + BREADCRUMB_HEIGHT
         );
         // The ContentPane is then exactly the content the developer drew.
         assert_eq!(open.x - rail, form_w - rail);
 
         // Opening collapsed gives the difference back, so the content pane is
         // the same width in both states — the rule the toggle already follows.
-        let collapsed = shell_window_size(form_w, form_h, rail, MENU_PANE_COLLAPSED_WIDTH);
+        let collapsed =
+            shell_window_size(form_w, form_h, rail, MENU_PANE_COLLAPSED_WIDTH, 0.0);
         assert_eq!(collapsed.x, form_w - rail + MENU_PANE_COLLAPSED_WIDTH);
         assert_eq!(
             collapsed.x - MENU_PANE_COLLAPSED_WIDTH,
@@ -3324,7 +3749,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         );
 
         // A tiny form still gets a usable window.
-        assert_eq!(shell_window_size(100.0, 80.0, 60.0, 60.0).x, MIN_SHELL_WIDTH);
+        assert_eq!(shell_window_size(100.0, 80.0, 60.0, 60.0, 0.0).x, MIN_SHELL_WIDTH);
 
         println!(
             "049 — a {form_w:.0}x{form_h:.0} form with a {rail:.0}px rail opens \

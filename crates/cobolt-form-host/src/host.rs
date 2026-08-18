@@ -525,6 +525,8 @@ impl FormHost {
             last_pane_backdrop_fill: None,
             last_content_scroll: egui::Vec2::ZERO,
             pending_menu_pane: None,
+            pending_crumb_detail: None,
+            pane_chrome: None,
         };
         (host, form)
     }
@@ -1131,7 +1133,15 @@ impl FormBody {
     /// pane, no supervisor (the parent host owns those); everything a live
     /// form needs, through the same shared render engine. `blocked` disables
     /// input while the child's own modal child lives (R28).
-    pub(crate) fn child_frame(&mut self, panel_ui: &mut egui::Ui, blocked: bool) {
+    pub(crate) fn child_frame(
+        &mut self,
+        panel_ui: &mut egui::Ui,
+        blocked: bool,
+        // Chrome painted between this form's backdrop and its controls — the
+        // shell's breadcrumb frame when this body is the ContentPane occupant.
+        // `None` for a child window, which has no shell chrome over it.
+        chrome: Option<cobolt_forms::render::ChromeUnderControls<'_>>,
+    ) {
         // Panels are Ui-hosted since egui 0.35; everything else here wants a
         // Context.
         let ctx = panel_ui.ctx().clone();
@@ -1213,7 +1223,9 @@ impl FormBody {
                                 active_tabs: &active_tabs,
                                 backdrop,
                             };
-                            out = cobolt_forms::render::render_form(ui, &input);
+                            out = cobolt_forms::render::render_form_with_chrome(
+                                ui, &input, chrome,
+                            );
                         });
                 });
             out
@@ -1477,6 +1489,16 @@ pub struct FormHost {
     last_content_scroll: egui::Vec2,
     /// 049 R44 — a COBOL-driven MenuPane state change awaiting the shell.
     pending_menu_pane: Option<bool>,
+    /// A COBOL-driven breadcrumb DETAIL level awaiting the shell:
+    /// `(form object, text)`, `None` text = cleared.
+    pending_crumb_detail: Option<(String, Option<String>)>,
+    /// Chrome the SHELL paints over the pane's backdrop and UNDER the form's
+    /// controls — its breadcrumb frame. Handed in fresh each frame (the strip
+    /// follows the chain, the rail state and the pointer), and painted where
+    /// the pane backdrop is: outside the scroll area, so it stays put while
+    /// the form scrolls, and before the controls, so a control the developer
+    /// placed over the band paints on top of it.
+    pane_chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>,
 }
 
 impl FormHost {
@@ -1650,6 +1672,24 @@ impl FormHost {
                     HostAction::SetMenuPaneCollapsed { collapsed } => {
                         self.pending_menu_pane = Some(collapsed);
                     }
+                    // The breadcrumb's detail level, for the SHELL host. It is
+                    // recorded against the form that set it, so a crumb set by
+                    // a form the operator has since navigated away from cannot
+                    // reappear over someone else's name.
+                    HostAction::SetBreadcrumbDetail { handle, text } => {
+                        let form_object = if handle == ROOT_HANDLE {
+                            self.root.form_object.clone()
+                        } else {
+                            self.occupants
+                                .iter()
+                                .find(|(_, o)| o.handle == handle)
+                                .map(|(k, _)| k.clone())
+                                .unwrap_or_default()
+                        };
+                        if !form_object.is_empty() {
+                            self.pending_crumb_detail = Some((form_object, text));
+                        }
+                    }
                     HostAction::NotifyClosed { handle } => {
                         self.closed.send(&handle);
                     }
@@ -1808,6 +1848,19 @@ impl FormHost {
     #[cfg(test)]
     pub(crate) fn root_lifecycle_sent_for_test(&mut self) {
         self.root.lifecycle_sent = true;
+    }
+
+    /// Test-only: publish a form property without running an interpreter —
+    /// the state `MOVE 1 TO me::PreventReset` reaches through the supervisor.
+    #[cfg(test)]
+    pub(crate) fn publish_prop_for_test(&mut self, form_object: &str, key: &str, value: &str) {
+        let up = form_object.trim().to_ascii_uppercase();
+        let handle = match self.occupants.get(&up) {
+            Some(occ) => occ.handle.clone(),
+            None => cobolt_runtime::form_host::ROOT_HANDLE.to_string(),
+        };
+        self.supervisor
+            .note_form_props(&handle, vec![(key.to_string(), value.to_string())]);
     }
 
     /// Test-only observability: the registered occupants' form objects.
@@ -2101,7 +2154,7 @@ impl FormHost {
                     vp_ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     close_requested = true;
                 }
-                child.body.child_frame(vp_ui, blocked);
+                child.body.child_frame(vp_ui, blocked, None);
             });
             if close_requested {
                 close_requests.push(handle);
@@ -2245,6 +2298,57 @@ impl FormHost {
     /// applies it to `Shell::collapsed` and persists it, R9).
     pub fn take_menu_pane_request(&mut self) -> Option<bool> {
         self.pending_menu_pane.take()
+    }
+
+    /// Drain a COBOL-driven breadcrumb detail level: `(form object, text)`,
+    /// with `None` text meaning the form cleared it.
+    pub fn take_breadcrumb_detail(&mut self) -> Option<(String, Option<String>)> {
+        self.pending_crumb_detail.take()
+    }
+
+    /// The chrome the shell paints between the pane's backdrop and the form's
+    /// controls. Set fresh each frame; `None` clears it.
+    pub fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>) {
+        self.pane_chrome = chrome;
+    }
+
+    /// Read a published form property (what `super::X` reads) off a pane
+    /// occupant, or off the ROOT form when `form_object` names it or is
+    /// `None`. The shell asks for `PreventReset` before starting a form over.
+    pub fn published_form_prop(&self, form_object: Option<&str>, key: &str) -> Option<String> {
+        let handle = match form_object {
+            None => cobolt_runtime::form_host::ROOT_HANDLE.to_string(),
+            Some(f) => {
+                let up = f.trim().to_ascii_uppercase();
+                match self.occupants.get(&up) {
+                    Some(occ) => occ.handle.clone(),
+                    None if up == self.root.form_object => {
+                        cobolt_runtime::form_host::ROOT_HANDLE.to_string()
+                    }
+                    None => return None,
+                }
+            }
+        };
+        self.supervisor.published_prop(&handle, key)
+    }
+
+    /// Fire a form-level event at a pane occupant, or at the ROOT form when
+    /// `form_object` is `None` or names it. `false` = no such form.
+    pub fn notify_form(&mut self, form_object: Option<&str>, event: &str) -> bool {
+        let key = form_object.map(|f| f.trim().to_ascii_uppercase());
+        let body = match &key {
+            None => Some(&mut self.root),
+            Some(k) if *k == self.root.form_object => Some(&mut self.root),
+            Some(k) => self.occupants.get_mut(k).map(|o| &mut o.body),
+        };
+        match body {
+            Some(b) => {
+                let name = b.form_object.clone();
+                b.send_event(FormEvent::new(name, event));
+                true
+            }
+            None => false,
+        }
     }
 
     /// 049 R18 (parity observability) — true once no entrance is playing;
@@ -2614,8 +2718,9 @@ impl FormHost {
         // 051 R10 — an active occupant owns the pane; the root form above
         // stayed fully live (its drains ran), just unrendered — parked.
         if let Some(key) = self.active_occupant.clone() {
+            let chrome = self.pane_chrome.take();
             if let Some(occ) = self.occupants.get_mut(&key) {
-                occ.body.child_frame(root_ui, root_blocked);
+                occ.body.child_frame(root_ui, root_blocked, chrome.as_deref());
                 ctx.request_repaint_after(std::time::Duration::from_millis(200));
                 return;
             }
@@ -2631,6 +2736,7 @@ impl FormHost {
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = self.root.backdrop(ctx);
+            let pane_chrome = self.pane_chrome.take();
             let mut out = cobolt_forms::render::RenderOutput::default();
             // On a see-through window the panel must NOT fill: the engine
             // paints the same backdrop across the whole window a moment
@@ -2661,6 +2767,14 @@ impl FormHost {
                             cobolt_forms::render::paint_backdrop(ui.painter(), rect, &backdrop);
                         pane_backdrop_fill = Some(painted.bg);
                         pane_backdrop_rect = Some(rect);
+                        // The shell's breadcrumb frame: on the pane backdrop,
+                        // outside the scroll area (chrome does not scroll) and
+                        // before the controls, so a control the developer put
+                        // over the band paints on top of it. The frame is not
+                        // a container — that control is nobody's child.
+                        if let Some(chrome) = &pane_chrome {
+                            chrome(ui.painter(), rect);
+                        }
                         cobolt_forms::render::Backdrop {
                             // `transparency: 100` is what actually makes this
                             // inert. A colour alone cannot: `backdrop_color`
