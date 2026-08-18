@@ -4618,16 +4618,25 @@ The shell window has three fixed regions:
 The breadcrumb is a **frame**, not just a line of text. It always runs from the
 sidebar's right edge to the right edge of the window — there is no width or
 position to set, because there is only one place it can be — and the sidebar
-owns the two things that are yours to choose:
+owns the three things that are yours to choose:
 
 | Property (on the SideMenu) | Inspector row | What it does |
 |---|---|---|
 | `BreadcrumbHeight` | **Breadcrumb height** | How tall the frame is drawn, 16 to 200 points. Default 28. |
 | `BreadcrumbBackgroundColor` | **Breadcrumb background** | The frame's own colour. Leave it **empty** and the frame keeps following the content pane's background, which is what it has always done. |
+| `BreadcrumbTextAlign` | **BreadcrumbTextAlign** | Where the chain sits inside the frame: `Top`, `Middle` (the default) or `Bottom`. |
 
 A colour you choose may carry alpha, in which case the pane shows through it —
 but the frame is always painted **opaque** in the end, because it is chrome: a
 hole in it would show the desktop.
+
+**The height is yours, not the font's.** Changing the breadcrumb's `FontSize`
+never grows or shrinks the frame: the frame is exactly as tall as you said, and
+text too big for it is cut off *by* it rather than spilling outside. That is
+what makes the third property worth having — set a 64-point frame and the chain
+has room to move, so you decide whether it sits against the top, in the middle,
+or against the bottom. Coming from PowerCOBOL, this is the difference between a
+band whose size is a side effect of its font and one you actually control.
 
 **You may place controls over the frame.** Give it some height and it becomes a
 band you can design in: a title, a search box, a status label, a toolbar of your
@@ -4640,6 +4649,12 @@ in the shell.
 > by the frame, it does not move or scroll with it, and it keeps every property
 > and event it would have anywhere else on the form. It simply paints on top,
 > and it takes the click — the frame never steals one from your control.
+
+> ⚠️ **This applies to the shell form's own controls, and only those.** A form
+> **loaded into the content pane** is a different form with a coordinate space
+> of its own, and it starts **below** the frame. Its first row of controls can
+> never land on the navigation chain, however tall you make the band — you do
+> not have to leave a margin at the top of every embedded form to avoid it.
 
 📷 Screenshot needed — `breadcrumb-frame.png`. In the Form Designer, select the
 SideMenu on a shell form, set **Breadcrumb height** to 64 and **Breadcrumb

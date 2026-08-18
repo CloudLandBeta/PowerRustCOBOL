@@ -527,6 +527,7 @@ impl FormHost {
             pending_menu_pane: None,
             pending_crumb_detail: None,
             pane_chrome: None,
+            pane_band: 0.0,
         };
         (host, form)
     }
@@ -1499,6 +1500,11 @@ pub struct FormHost {
     /// the form scrolls, and before the controls, so a control the developer
     /// placed over the band paints on top of it.
     pane_chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>,
+    /// How tall that chrome band is. The shell form may design controls OVER
+    /// the band — it is the shell's own coordinate space. A form LOADED into
+    /// the pane may not: it is a different form, and its origin starts below
+    /// the band. Only the occupant path reads this.
+    pane_band: f32,
 }
 
 impl FormHost {
@@ -2308,8 +2314,14 @@ impl FormHost {
 
     /// The chrome the shell paints between the pane's backdrop and the form's
     /// controls. Set fresh each frame; `None` clears it.
-    pub fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>) {
+    /// `band` is the chrome's own height, which a pane OCCUPANT starts below.
+    pub fn set_pane_chrome(
+        &mut self,
+        chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>,
+        band: f32,
+    ) {
         self.pane_chrome = chrome;
+        self.pane_band = band;
     }
 
     /// Read a published form property (what `super::X` reads) off a pane
@@ -2719,8 +2731,25 @@ impl FormHost {
         // stayed fully live (its drains ran), just unrendered — parked.
         if let Some(key) = self.active_occupant.clone() {
             let chrome = self.pane_chrome.take();
+            let band = self.pane_band;
             if let Some(occ) = self.occupants.get_mut(&key) {
-                occ.body.child_frame(root_ui, root_blocked, chrome.as_deref());
+                // 049 — an embedded form is NOT the shell form. The shell may
+                // design its own controls over the breadcrumb band, because
+                // that band is the shell's own coordinate space; a form LOADED
+                // into the pane has its own, and it starts BELOW the band —
+                // otherwise its first row of controls lands on the navigation
+                // chain, which is what the operator saw.
+                //
+                // The band is also painted HERE rather than inside the
+                // occupant's scroll area, so the chrome does not scroll away
+                // with the form's content (the same rule the root path keeps).
+                if let Some(chrome) = chrome.as_deref() {
+                    chrome(root_ui.painter(), root_ui.max_rect());
+                }
+                let mut rect = root_ui.max_rect();
+                rect.min.y += band;
+                let mut pane = root_ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                occ.body.child_frame(&mut pane, root_blocked, None);
                 ctx.request_repaint_after(std::time::Duration::from_millis(200));
                 return;
             }

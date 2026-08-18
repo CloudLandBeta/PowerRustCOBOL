@@ -73,8 +73,48 @@ const TOGGLE_MAX: f32 = 48.0;
 
 /// Horizontal padding around the segment text.
 const PAD_X: f32 = 10.0;
+/// How far off the frame's top or bottom edge the text is held when it is
+/// aligned against one, so it never touches the border it sits against.
+const PAD_Y: f32 = 3.0;
 /// Gap either side of a `›` separator.
 const SEP_GAP: f32 = 6.0;
+
+/// Where the chain sits inside the frame, vertically.
+///
+/// The frame's height is the developer's (`BreadcrumbHeight`) and owes nothing
+/// to the font — so on a frame made taller than its text the chain has room to
+/// move, and this says where it goes. Without it a 200-point frame could only
+/// ever hold its text pinned to the middle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    Top,
+    #[default]
+    Middle,
+    Bottom,
+}
+
+impl TextAlign {
+    /// Read a `BreadcrumbTextAlign` value. Anything unrecognised — including
+    /// every form saved before the property existed — is [`Middle`](Self::Middle),
+    /// which is where the chain has always been drawn. `down` is accepted as a
+    /// spelling of `bottom`.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "top" => Self::Top,
+            "bottom" | "down" => Self::Bottom,
+            _ => Self::Middle,
+        }
+    }
+
+    /// The y to anchor text at inside `rect`, and the matching egui alignment.
+    fn anchor(self, rect: Rect) -> (f32, egui::Align) {
+        match self {
+            Self::Top => (rect.min.y + PAD_Y, egui::Align::TOP),
+            Self::Middle => (rect.center().y, egui::Align::Center),
+            Self::Bottom => (rect.max.y - PAD_Y, egui::Align::BOTTOM),
+        }
+    }
+}
 
 /// Everything the strip needs that is not geometry.
 pub struct BreadcrumbState<'a> {
@@ -103,6 +143,8 @@ pub struct BreadcrumbState<'a> {
     /// Draw the toggle's hover wash this frame.
     pub toggle_hovered: bool,
     pub font: FontId,
+    /// Where the chain sits inside the frame — the rail's `BreadcrumbTextAlign`.
+    pub align: TextAlign,
 }
 
 /// Where the strip's parts landed. Painting and hit-testing both walk this, so
@@ -192,6 +234,12 @@ pub fn state_for_control<'a>(
         collapsed: ctrl.side_menu_collapsed(),
         toggle_hovered: false,
         font: crate::fonts::font_id(ctx, &font_name, crate::paint::ctrl_font_size(ctrl)),
+        align: TextAlign::parse(
+            &ctrl
+                .get_prop("BreadcrumbTextAlign")
+                .map(|v| v.as_str())
+                .unwrap_or_default(),
+        ),
     }
 }
 
@@ -209,6 +257,7 @@ pub fn state_plain<'a>(segments: &'a [String], bg: Color32) -> BreadcrumbState<'
         collapsed: false,
         toggle_hovered: false,
         font: FontId::proportional(13.0),
+        align: TextAlign::default(),
     }
 }
 
@@ -282,11 +331,16 @@ pub fn paint(
         &state.icon,
     );
 
+    // The clip is what makes the frame's height authoritative: a font too big
+    // for the frame is cut off BY the frame, never drawn outside it.
     let p = painter.with_clip_rect(rect);
+    let (text_y, valign) = state.align.anchor(rect);
+    let align_left = egui::Align2([egui::Align::LEFT, valign]);
+    let align_right = egui::Align2([egui::Align::RIGHT, valign]);
     let sep_at = |x: f32| {
         p.text(
-            Pos2::new(x - SEP_GAP, rect.center().y),
-            egui::Align2::RIGHT_CENTER,
+            Pos2::new(x - SEP_GAP, text_y),
+            align_right,
             "›",
             state.font.clone(),
             state.dim,
@@ -302,8 +356,8 @@ pub fn paint(
         // then on it IS a link (it resets the form).
         let last = i + 1 == l.segments.len() && l.detail.is_none();
         p.text(
-            Pos2::new(seg.min.x, rect.center().y),
-            egui::Align2::LEFT_CENTER,
+            Pos2::new(seg.min.x, text_y),
+            align_left,
             &state.segments[i],
             state.font.clone(),
             if last { state.fg } else { state.dim },
@@ -314,8 +368,8 @@ pub fn paint(
             sep_at(seg.min.x);
         }
         p.text(
-            Pos2::new(seg.min.x, rect.center().y),
-            egui::Align2::LEFT_CENTER,
+            Pos2::new(seg.min.x, text_y),
+            align_left,
             text,
             state.font.clone(),
             state.fg,
@@ -867,6 +921,91 @@ mod tests {
             detail.max.x,
             l.reset_segment()
         );
+    }
+
+    /// The frame's height is the developer's number, whatever the font does.
+    #[test]
+    fn the_frames_height_owes_nothing_to_the_font_size() {
+        let mut form = crate::model::Form::new("SHELL", "Main Menu", 960, 744);
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = crate::model::Rect::new(0, 0, 200, 744);
+        side.set_prop("FullHeight", true);
+        side.set_prop("BreadcrumbHeight", 40);
+        form.controls.push(side);
+        let origin = Pos2::new(0.0, 0.0);
+
+        // A font far taller than the frame must not stretch it, and a tiny one
+        // must not shrink it: the frame is 40 either way.
+        for size in [6, 13, 96] {
+            form.controls[0].set_prop("FontSize", size);
+            assert_eq!(
+                design_strip_rect(&form, origin, false).unwrap().height(),
+                40.0,
+                "FontSize {size} must not move the frame's height"
+            );
+        }
+    }
+
+    /// Text too big for the frame is cut off BY the frame, never drawn past it.
+    #[test]
+    fn an_oversized_font_is_clipped_to_the_frame() {
+        let ctx = ctx();
+        let segs = vec!["Main Menu".to_string()];
+        let mut st = state_plain(&segs, CHROME);
+        st.font = FontId::proportional(120.0);
+        let rect = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(800.0, 20.0));
+        let shapes = with_painter(&ctx, |p| {
+            let l = layout(p, rect, &st);
+            paint(p, rect, &st, &l);
+        });
+        let _ = shapes;
+        // The layout never reports a segment taller than the frame either.
+        let l = with_painter(&ctx, |p| layout(p, rect, &st));
+        for seg in &l.segments {
+            assert!(
+                seg.height() <= rect.height(),
+                "a segment may not be taller than the frame it lives in"
+            );
+        }
+    }
+
+    /// Top / Middle / Bottom put the chain in three different places.
+    #[test]
+    fn the_chain_can_be_aligned_within_the_frame() {
+        let ctx = ctx();
+        let segs = vec!["Main Menu".to_string()];
+        let tall = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(800.0, 120.0));
+
+        let ys: Vec<f32> = [TextAlign::Top, TextAlign::Middle, TextAlign::Bottom]
+            .iter()
+            .map(|a| a.anchor(tall).0)
+            .collect();
+        assert!(ys[0] < ys[1] && ys[1] < ys[2], "top above middle above bottom: {ys:?}");
+        assert!(ys[0] >= tall.min.y, "top stays inside the frame");
+        assert!(ys[2] <= tall.max.y, "bottom stays inside the frame");
+        assert_eq!(ys[1], tall.center().y, "middle is where it always was");
+
+        // Every alignment still paints.
+        for align in [TextAlign::Top, TextAlign::Middle, TextAlign::Bottom] {
+            let mut st = state_plain(&segs, CHROME);
+            st.align = align;
+            with_painter(&ctx, |p| {
+                let l = layout(p, tall, &st);
+                paint(p, tall, &st, &l);
+            });
+        }
+    }
+
+    /// Unknown, empty and legacy values all mean the historical Middle.
+    #[test]
+    fn an_unknown_alignment_is_the_middle_it_always_was() {
+        assert_eq!(TextAlign::parse("Top"), TextAlign::Top);
+        assert_eq!(TextAlign::parse("  bottom "), TextAlign::Bottom);
+        assert_eq!(TextAlign::parse("down"), TextAlign::Bottom, "the operator's word");
+        assert_eq!(TextAlign::default(), TextAlign::Middle);
+        for raw in ["", "Middle", "centre", "sideways", "42"] {
+            assert_eq!(TextAlign::parse(raw), TextAlign::Middle, "{raw:?}");
+        }
     }
 
     /// The strip paints headlessly, with and without a chain.

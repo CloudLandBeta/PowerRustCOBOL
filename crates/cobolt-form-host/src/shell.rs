@@ -1108,7 +1108,7 @@ impl Shell {
             // control over the band wins the pointer.
             self.crumb_interact(root_ui);
             let chrome = self.crumb_chrome(root_ui, breadcrumb_rect);
-            host.set_pane_chrome(Some(chrome));
+            host.set_pane_chrome(Some(chrome), self.breadcrumb_height);
         }
         host.pane_frame(root_ui);
 
