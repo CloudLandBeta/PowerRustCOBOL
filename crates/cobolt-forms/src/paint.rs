@@ -7201,6 +7201,16 @@ fn grad_slice_mesh(
 
 /// Draw a rich glass chart preview on the canvas for all chart control types.
 #[allow(clippy::too_many_arguments)]
+
+/// A chart value as a label: whole numbers plain, fractions to one decimal.
+/// Chart labels are read at a glance, so `12` beats `12.000000`.
+fn format_chart_number(v: f32) -> String {
+    if (v - v.round()).abs() < 0.05 {
+        format!("{}", v.round() as i64)
+    } else {
+        format!("{v:.1}")
+    }
+}
 pub fn draw_chart_preview(
     painter: &egui::Painter,
     ctrl: &Control,
@@ -7364,15 +7374,73 @@ pub fn draw_chart_preview(
     };
     let mono_border = border_variant(mono_base, true);
 
+    // -- The chart's own visual properties --------------------------------
+    //
+    // Seeded on every chart, shown in the inspector and documented in the
+    // knowledge base, and read by NOTHING (operator, 2026-08-18, from the
+    // dead-property audit). Each is honoured here at the value it was seeded
+    // with, so a chart looks like what its properties have always claimed.
+    let chart_str = |key: &str| -> String {
+        ctrl.get_prop(key)
+            .map(|v| v.as_str().trim().to_owned())
+            .unwrap_or_default()
+    };
+    let is_pie = matches!(ctrl.control_type, CT::PieChart | CT::DonutChart);
+    let x_caption = chart_str("XAxisLabel");
+    let y_caption = chart_str("YAxisLabel");
+    let show_legend = ctrl
+        .get_prop("ShowLegend")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    let show_labels = ctrl
+        .get_prop("ShowLabels")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    let label_format = {
+        let s = chart_str("LabelFormat").to_ascii_lowercase();
+        if s.is_empty() { "percent".to_owned() } else { s }
+    };
+    // Marker radius, and the opacity an area fill is laid down at.
+    let point_r = ctrl
+        .get_prop("PointRadius")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(4.0)
+        .clamp(0.5, 40.0);
+    let fill_alpha = (ctrl
+        .get_prop("FillAlpha")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(40.0)
+        .clamp(0.0, 100.0)
+        / 100.0
+        * 255.0) as u8;
+    let cap_font = egui::FontId::proportional(9.0);
+    let legend_font = egui::FontId::proportional(9.0);
+    // Room reserved for whatever the properties asked to be drawn. Reserved
+    // rather than overlaid: a caption written across the plot is worse than no
+    // caption at all.
+    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 };
+    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 };
+    // A pie's legend lists its slices, so it stands beside the chart; a
+    // category chart's lists its series, so it sits under it.
+    let legend_w = if show_legend && is_pie {
+        (rect.width() * 0.26).min(120.0)
+    } else {
+        0.0
+    };
+    let legend_h = if show_legend && !is_pie { 13.0 } else { 0.0 };
+
     // Inner plot area (leave margin for axes / labels)
-    let margin_l = rect.width() * 0.10;
-    let margin_b = rect.height() * 0.12;
+    let margin_l = rect.width() * 0.10 + cap_w;
+    let margin_b = rect.height() * 0.12 + cap_h + legend_h;
     let margin_t = rect.height() * 0.12;
-    let margin_r = rect.width() * 0.04;
+    let margin_r = rect.width() * 0.04 + legend_w;
     let plot = egui::Rect::from_min_max(
         Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
         Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
     );
+    // Captions and the legend live in the MARGINS, outside the plot's own clip,
+    // so they need a painter bounded by the whole control instead.
+    let chrome = painter.with_clip_rect(rect.shrink(1.0));
     let content_clip = plot.expand(8.0).intersect(rect.shrink(1.0));
     let painter = &painter.with_clip_rect(content_clip);
 
@@ -7594,7 +7662,7 @@ pub fn draw_chart_preview(
                 }
                 if show_points {
                     for &p in &raw {
-                        painter.circle_filled(p, 3.0, line_c);
+                        painter.circle_filled(p, point_r, line_c);
                     }
                 }
             }
@@ -7617,13 +7685,13 @@ pub fn draw_chart_preview(
                 let (top_c, bot_c, line_c) = if gradient {
                     let t = shade(mono_base, 0.12);
                     (
-                        Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 150),
+                        Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), fill_alpha),
                         Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 0),
                         shade(mono_base, 0.10),
                     )
                 } else {
                     let c = pal[si % pal.len()];
-                    let f = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 80);
+                    let f = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), fill_alpha);
                     (f, f, c)
                 };
                 painter.add(egui::Shape::mesh(grad_area_mesh(
@@ -7666,12 +7734,12 @@ pub fn draw_chart_preview(
                         // Each bubble: its own radial gradient (light centre → dark edge).
                         painter.add(egui::Shape::mesh(radial_disc_mesh(
                             p,
-                            5.0,
+                            point_r + 1.0,
                             shade(mono_base, 0.20),
                             shade(mono_base, -0.20),
                         )));
                     } else {
-                        painter.circle_stroke(p, 4.5, Stroke::new(1.5, c));
+                        painter.circle_stroke(p, point_r + 0.5, Stroke::new(1.5, c));
                     }
                 }
             }
@@ -7773,10 +7841,152 @@ pub fn draw_chart_preview(
                         Stroke::new(sep_w, slice_stroke),
                     ));
                 }
+                // `ShowLabels` writes on each slice what `LabelFormat` asks
+                // for: its share, its value, or its name. Both were seeded and
+                // neither was ever read, so a pie has never carried a label.
+                if show_labels && frac > 0.0 {
+                    let text = match label_format.as_str() {
+                        "value" => live
+                            .get(i)
+                            .map(|(_, v)| format_chart_number(*v))
+                            .unwrap_or_default(),
+                        "label" => live.get(i).map(|(l, _)| l.clone()).unwrap_or_default(),
+                        _ => format!("{:.0}%", frac * 100.0),
+                    };
+                    if !text.is_empty() {
+                        // Mid-way along the slice, and mid-way out from the
+                        // hole so a donut's label sits on the ring rather than
+                        // in the empty middle.
+                        let mid = start + sweep * 0.5;
+                        let r = inner_r + (outer_r - inner_r) * 0.62;
+                        let at = Pos2::new(center.x + mid.cos() * r, center.y + mid.sin() * r);
+                        let on = pal[i % pal.len()];
+                        painter.text(
+                            at,
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            egui::FontId::proportional(9.0),
+                            caret_color(on, Color32::WHITE),
+                        );
+                    }
+                }
                 start = end;
             }
         }
         _ => {}
+    }
+
+    // -- Axis captions and the legend, in the margins reserved for them ------
+    let chrome_c = Color32::from_rgba_premultiplied(
+        (170.0 * a as f32 / 255.0) as u8,
+        (190.0 * a as f32 / 255.0) as u8,
+        (225.0 * a as f32 / 255.0) as u8,
+        a,
+    );
+    if !x_caption.is_empty() {
+        chrome.text(
+            Pos2::new(plot.center().x, rect.max.y - cap_h * 0.5 - legend_h),
+            egui::Align2::CENTER_CENTER,
+            &x_caption,
+            cap_font.clone(),
+            chrome_c,
+        );
+    }
+    if !y_caption.is_empty() {
+        // Turned a quarter to read up the axis, the way an axis caption does.
+        let galley = chrome.layout_no_wrap(y_caption.clone(), cap_font.clone(), chrome_c);
+        let at = Pos2::new(
+            rect.min.x + cap_w * 0.5 + galley.size().y * 0.5,
+            plot.center().y + galley.size().x * 0.5,
+        );
+        let mut shape = egui::epaint::TextShape::new(at, galley, chrome_c);
+        shape.angle = -std::f32::consts::FRAC_PI_2;
+        chrome.add(egui::Shape::Text(shape));
+    }
+    if show_legend {
+        // A pie's legend names its SLICES, a category chart's its SERIES --
+        // which is what there is to tell apart in each.
+        let entries: Vec<(String, Color32)> = if is_pie {
+            let names: Vec<String> = if live.is_empty() {
+                (1..=4).map(|i| format!("Item {i}")).collect()
+            } else {
+                live.iter().map(|(l, _)| l.clone()).collect()
+            };
+            names
+                .into_iter()
+                .enumerate()
+                .map(|(i, l)| (l, pal[i % pal.len()]))
+                .collect()
+        } else {
+            let count = if live.is_empty() { 2 } else { 1 };
+            (0..count)
+                .map(|i| (format!("Series {}", i + 1), pal[i % pal.len()]))
+                .collect()
+        };
+        let swatch = 7.0_f32;
+        if is_pie {
+            // Beside the chart, one entry per line.
+            let x = rect.max.x - legend_w + 4.0;
+            let line_h = 12.0_f32;
+            let total = entries.len() as f32 * line_h;
+            let mut y = (plot.center().y - total * 0.5).max(rect.min.y + 4.0);
+            for (name, colour) in &entries {
+                if y + line_h > rect.max.y - 2.0 {
+                    break;
+                }
+                chrome.rect_filled(
+                    egui::Rect::from_min_size(
+                        Pos2::new(x, y + (line_h - swatch) * 0.5),
+                        Vec2::new(swatch, swatch),
+                    ),
+                    1.0,
+                    *colour,
+                );
+                chrome.text(
+                    Pos2::new(x + swatch + 4.0, y + line_h * 0.5),
+                    egui::Align2::LEFT_CENTER,
+                    name,
+                    legend_font.clone(),
+                    chrome_c,
+                );
+                y += line_h;
+            }
+        } else {
+            // Under the chart, entries laid out left to right and centred.
+            let gap = 10.0_f32;
+            let widths: Vec<f32> = entries
+                .iter()
+                .map(|(n, _)| {
+                    swatch
+                        + 4.0
+                        + chrome
+                            .layout_no_wrap(n.clone(), legend_font.clone(), chrome_c)
+                            .size()
+                            .x
+                })
+                .collect();
+            let total: f32 = widths.iter().sum::<f32>() + gap * (entries.len() as f32 - 1.0).max(0.0);
+            let mut x = plot.center().x - total * 0.5;
+            let y = rect.max.y - legend_h * 0.5;
+            for ((name, colour), w) in entries.iter().zip(widths) {
+                chrome.rect_filled(
+                    egui::Rect::from_min_size(
+                        Pos2::new(x, y - swatch * 0.5),
+                        Vec2::new(swatch, swatch),
+                    ),
+                    1.0,
+                    *colour,
+                );
+                chrome.text(
+                    Pos2::new(x + swatch + 4.0, y),
+                    egui::Align2::LEFT_CENTER,
+                    name,
+                    legend_font.clone(),
+                    chrome_c,
+                );
+                x += w + gap;
+            }
+        }
     }
 
     // data source hint
@@ -13602,15 +13812,29 @@ mod elegance_baseline_tests {
         // `CT::ToolBar` label arm and the toolbar draw block in this file, plus
         // that control's seeded properties in the model. No other control type is
         // reachable from those changes.
+        //
+        // Re-blessed in 1.61.97: the charts. Seven of their own properties now
+        // reach the paint (dead-property audit), and two are seeded ON --
+        // `ShowLegend` on every chart and `ShowLabels` on pie/donut -- so each
+        // chart in the fixture draws more than it did.
+        //
+        // Every row moved by exactly +40, and that number is fully accounted
+        // for by the six chart controls and nothing else:
+        //   Bar, Line, Area, Scatter -- a legend of the 2 sample series,
+        //     one swatch and one name each                     4 x 4 = +16
+        //   Pie, Donut -- a legend of the 4 sample slices (8) plus a label
+        //     on each slice (4)                                2 x 12 = +24
+        // Identical in every style and both themes, which is what says the
+        // charts moved rather than the seam: no pack here skins a chart.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1312),
-            ("asset-pack", GS::Classic, 1134),
-            ("liquid-glass", GS::Enhanced, 1412),
-            ("asset-pack", GS::Enhanced, 1208),
-            ("liquid-glass", GS::Neumorphic, 507),
-            ("asset-pack", GS::Neumorphic, 523),
-            ("liquid-glass", GS::NeumorphicDark, 507),
-            ("asset-pack", GS::NeumorphicDark, 523),
+            ("liquid-glass", GS::Classic, 1352),
+            ("asset-pack", GS::Classic, 1174),
+            ("liquid-glass", GS::Enhanced, 1452),
+            ("asset-pack", GS::Enhanced, 1248),
+            ("liquid-glass", GS::Neumorphic, 547),
+            ("asset-pack", GS::Neumorphic, 563),
+            ("liquid-glass", GS::NeumorphicDark, 547),
+            ("asset-pack", GS::NeumorphicDark, 563),
         ];
         for (theme, gs, want) in expected {
             let got = rows

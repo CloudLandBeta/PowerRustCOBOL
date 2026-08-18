@@ -1181,6 +1181,27 @@ non-visual ones are services.
   is bright at the line and fades toward the baseline. The base-colour selector
   includes a column of greys. Line and area charts honour the **Smooth** property
   (Catmull-Rom curve).
+  A chart also honours its own **captions, labels and legend**:
+
+  | Property | What it does |
+  |---|---|
+  | `XAxisLabel` / `YAxisLabel` | Free-text axis captions. Room is reserved for them in the margins, so a caption never runs across the data. Empty means no caption and no space taken. |
+  | `ShowLegend` | Slice names beside a pie or donut; series names under a bar, line, area or scatter chart. **Ticked by default.** |
+  | `ShowLabels` | A label on every pie/donut slice. **Ticked by default.** |
+  | `LabelFormat` | What that label says: `percent` (the slice's share), `value` (the number), or `label` (its name). |
+  | `PointRadius` | Line and scatter marker radius, in pixels. |
+  | `FillAlpha` | The opacity an area chart fills at, 0–100 %. |
+
+  > ⚠️ `ShowLegend` and `ShowLabels` have been ticked since charts existed and
+  > did nothing until 1.61.97, so charts you built before then gain a legend and
+  > slice labels. Untick them for the old look.
+
+  > **Not yet honoured.** `ValueFields`, `SeriesLabels`, `Stacked`, `LabelField`,
+  > `BubbleField` and `BubbleScale` all describe **several** data series drawn
+  > from a bound table's sub-fields; a chart today receives one series, pushed
+  > from COBOL as `label<TAB>value` lines, so there is nothing yet for them to
+  > act on. `ShowTooltips` and `AnimateOnLoad` need a pointer and a clock, which
+  > the chart painter does not have.
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase, **WebSearch**
