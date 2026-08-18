@@ -1135,6 +1135,15 @@ non-visual ones are services.
 : Label, Button, TextBox, CheckBox, RadioButton, ComboBox, ListBox,
   NumericUpDown, DateTimePicker, Slider, ProgressBar, PictureBox, **Switch**,
   **Knob**, **Gauge**, **FileDropZone**.
+  A **TextBox** honours four input properties a PowerCOBOL developer will reach
+  for straight away:
+
+  | Property | What it does |
+  |---|---|
+  | `ReadOnly` | Shows its value, and lets you select and copy it, but takes no edit — and fires no `onChange`, because nothing changed. This is *read-only*, not *disabled*: a disabled field cannot even be selected, and your COBOL can still write to `Text`. |
+  | `PasswordCharacter` | Paints the value as **the character you chose**, one per character of the value. The value itself is untouched: `Text` still holds what was typed, so your program reads the password normally. |
+  | `MaximumLength` | Typing stops at that many characters. `0` — the default — means no limit. |
+  | `ScrollBars` | `None` / `Vertical` / `Horizontal` / `Both`, on a **Multiline** box. `None` still scrolls; it simply draws no bars, so text the box cannot show never becomes unreachable. `Horizontal` and `Both` stop the text wrapping, so there is something to scroll sideways to. |
 
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
