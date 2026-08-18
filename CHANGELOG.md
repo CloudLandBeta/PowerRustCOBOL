@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.89] — 2026-08-18
+
+### Added — a ComboBox names the colours its dropdown highlights with
+
+The same treatment 1.61.88 gave the ListBox, for the open dropdown's two
+highlights — both of which were hardcoded:
+
+| Property | The highlight behind |
+|----------|----------------------|
+| `ActiveItemColor` | the **selected** item — the one `Value` / `SelectedIndex` reports |
+| `HoverItemColor` | the item the pointer is **over** |
+
+`ActiveItemColor` is deliberately the property the ListBox already carries: on
+both controls it colours the item `Value` / `SelectedIndex` reports. There is no
+`SelectedItemsColor` here — a ComboBox selects one item or none, so the list's
+second selection has nothing to colour; what a ComboBox has instead is the
+hover, which gets its own property rather than being bent into the list's name.
+
+Two differences from the list, both deliberate. Empty falls back to the
+constants the dropdown has always painted rather than to the theme — these two
+were never theme-derived, so *empty* has to mean *what it drew before*. And the
+two are independent: setting the selected colour leaves the hover where it was,
+where a list's dimmed colour follows its active one.
+
+Both accept a runtime write, and a named colour goes back with the row's ↺. That
+reset's label now reads **default** rather than **theme**, since what it restores
+depends on the control.
+
 ## [PowerRustCOBOL 1.61.88] — 2026-08-18
 
 ### Added — a ListBox names the colours it highlights with

@@ -5375,6 +5375,37 @@ pub fn list_selection_fills(ctrl: &Control, theme_fill: Color32) -> (Color32, Co
     (active, selected)
 }
 
+/// The fill an open ComboBox draws behind its SELECTED item when the developer
+/// has not named one. Translucent, so the popup's own surface reads through it.
+pub const COMBO_SELECTED_FILL: Color32 = Color32::from_rgba_premultiplied(60, 100, 200, 120);
+
+/// The fill an open ComboBox draws behind the item the pointer is OVER when the
+/// developer has not named one. Fainter than [`COMBO_SELECTED_FILL`], so
+/// hovering a row never looks like selecting it.
+pub const COMBO_HOVER_FILL: Color32 = Color32::from_rgba_premultiplied(50, 70, 150, 80);
+
+/// The two highlights an open ComboBox draws: behind the **selected** item, and
+/// behind the item the pointer is **over**.
+///
+/// `ActiveItemColor` and `HoverItemColor` are the developer's, on the same rule
+/// as [`list_selection_fills`]: empty means "not chosen". The fallbacks are the
+/// popup's own constants rather than the palette, because — unlike a list's
+/// highlights — these two were never theme-derived, so that is what "unchanged"
+/// means for a ComboBox already designed.
+///
+/// `ActiveItemColor` is deliberately the same property name a ListBox carries:
+/// on both controls it is the highlight behind the item `Value` /
+/// `SelectedIndex` reports. There is no `SelectedItemsColor` here — a ComboBox
+/// selects one item or none, so the list's second selection has nothing to
+/// colour.
+pub fn combo_popup_fills(ctrl: &Control) -> (Color32, Color32) {
+    let named = |key: &str| ctrl.get_prop(key).and_then(|v| parse_hex(v.as_str()));
+    (
+        named("ActiveItemColor").unwrap_or(COMBO_SELECTED_FILL),
+        named("HoverItemColor").unwrap_or(COMBO_HOVER_FILL),
+    )
+}
+
 /// Short month names for DataGrid date cells and the DateTimePicker field.
 pub const MONTH_ABBR: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -5816,6 +5847,11 @@ pub fn glass_combo_popup(
     header_rect: egui::Rect,
     items: &[String],
     selected_val: &str,
+    // The control's own two highlights, from `combo_popup_fills`. Passed in
+    // rather than read here because the popup is drawn in a later pass, when
+    // the Control it belongs to is no longer in hand — the same reason the
+    // header takes its typography as an argument.
+    fills: (Color32, Color32),
 ) -> Option<GlassComboAction> {
     use egui::{Align2, FontId, Pos2, Vec2};
 
@@ -5867,18 +5903,11 @@ pub fn glass_combo_popup(
         let iid = egui::Id::new(("glass_combo_item", ctrl_id_str, i));
         let is_sel = item == selected_val;
         let hovered = pointer_pos.map(|p| item_rect.contains(p)).unwrap_or(false);
+        let (selected_fill, hover_fill) = fills;
         if is_sel {
-            pp.rect_filled(
-                item_rect,
-                4.0,
-                Color32::from_rgba_premultiplied(60, 100, 200, 120),
-            );
+            pp.rect_filled(item_rect, 4.0, selected_fill);
         } else if hovered {
-            pp.rect_filled(
-                item_rect,
-                4.0,
-                Color32::from_rgba_premultiplied(50, 70, 150, 80),
-            );
+            pp.rect_filled(item_rect, 4.0, hover_fill);
         }
         pp.text(
             Pos2::new(item_rect.min.x + 10.0, item_rect.center().y),

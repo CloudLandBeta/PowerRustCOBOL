@@ -3677,6 +3677,22 @@ impl Control {
                 props.insert("Items".into(), PropValue::String("".into()));
                 props.insert("SelectedIndex".into(), PropValue::Int(-1));
                 props.insert("Sorted".into(), PropValue::Bool(false));
+                // The two highlights the OPEN dropdown draws, on the same
+                // empty-means-unchosen rule as the ListBox's: the selected item
+                // (`ActiveItemColor`, the same property name it carries there,
+                // for the same thing) and the item the pointer is over.
+                //
+                // A ComboBox has no `SelectedItems` — one item is selected, or
+                // none — so the list's second selection colour has no meaning
+                // here and is not offered. Its second HIGHLIGHT is the hover,
+                // which was equally hardcoded.
+                //
+                // Left empty each falls back to the constant the popup always
+                // painted, not to the theme: unlike a list's, these two were
+                // never theme-derived, and "unset" has to mean "what it drew
+                // before".
+                props.insert("ActiveItemColor".into(), PropValue::String("".into()));
+                props.insert("HoverItemColor".into(), PropValue::String("".into()));
                 props.insert("DropDownStyle".into(), PropValue::String("DropDown".into()));
                 props.insert("DropDownHeight".into(), PropValue::Int(200));
                 props.insert("Editable".into(), PropValue::Bool(true));

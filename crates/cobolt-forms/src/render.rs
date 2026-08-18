@@ -1273,8 +1273,9 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let order = containers::render_order(controls);
     let interactive = input.mode == RenderMode::Interactive;
     // ComboBox dropdowns are drawn in a second pass so they float above every
-    // other control: (id, items, header rect, current value).
-    let mut open_combos: Vec<(String, Vec<String>, Rect, String)> = Vec::new();
+    // other control. The Control itself is out of reach by then, so everything
+    // the popup needs travels with it.
+    let mut open_combos: Vec<OpenCombo> = Vec::new();
     let tab_focus_request = if interactive {
         apply_pending_tab_focus(ui);
         let mut tab_targets = collect_tab_targets(input, controls, &order);
@@ -1559,8 +1560,15 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     clear_radio_group_siblings(input, controls, &mut out);
 
     // ── Second pass: open ComboBox dropdowns float above everything. ──────────
-    for (cid, items, header, cur) in open_combos {
-        match crate::paint::glass_combo_popup(ui, &cid, header, &items, &cur) {
+    for combo in open_combos {
+        let OpenCombo {
+            id: cid,
+            items,
+            header,
+            current: cur,
+            fills,
+        } = combo;
+        match crate::paint::glass_combo_popup(ui, &cid, header, &items, &cur, fills) {
             Some(crate::paint::GlassComboAction::Select(val)) => {
                 out.prop_updates
                     .push((cid.clone(), "Value".to_owned(), val.clone()));
@@ -1577,6 +1585,21 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         }
     }
     out
+}
+
+/// One ComboBox whose dropdown is open, held over for the second pass.
+///
+/// It carries everything the popup draws with, because by the time the pass
+/// runs the `Control` it came from is out of scope — including the two
+/// highlight colours, resolved from the control while it was still in hand.
+struct OpenCombo {
+    id: String,
+    items: Vec<String>,
+    /// The header bar the popup hangs below.
+    header: Rect,
+    current: String,
+    /// `(selected item, hovered item)`, from `paint::combo_popup_fills`.
+    fills: (Color32, Color32),
 }
 
 #[derive(Clone)]
@@ -3049,7 +3072,7 @@ fn render_interactive(
     // be measured against what the eye actually sees.
     form_bg: Color32,
     out: &mut RenderOutput,
-    open_combos: &mut Vec<(String, Vec<String>, Rect, String)>,
+    open_combos: &mut Vec<OpenCombo>,
 ) {
     use crate::paint;
     use crate::ControlType as CT;
@@ -3862,7 +3885,15 @@ fn render_interactive(
             }
             if ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
                 let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
-                open_combos.push((id.to_owned(), items, screen, sv(ctrl, "Value")));
+                open_combos.push(OpenCombo {
+                    id: id.to_owned(),
+                    items,
+                    header: screen,
+                    current: sv(ctrl, "Value"),
+                    // Resolved HERE, while the control is still in hand: the
+                    // popup pass has only the id.
+                    fills: paint::combo_popup_fills(ctrl),
+                });
             }
         }
         CT::ListBox => {
@@ -11015,6 +11046,109 @@ mod tests {
                 .and_then(|m| m.get("Value"))
                 .map(String::as_str),
             Some("Banana")
+        );
+    }
+
+    /// An open ComboBox draws two highlights — behind the SELECTED item and
+    /// behind the one the pointer is over — and both are the developer's to
+    /// name, exactly as a ListBox's are (operator, 2026-08-18).
+    ///
+    /// `ActiveItemColor` is deliberately the property a ListBox already
+    /// carries: on both controls it colours the item `Value`/`SelectedIndex`
+    /// reports. The second one is NOT the list's `SelectedItemsColor` — a
+    /// ComboBox selects one item or none, so that has nothing to colour here —
+    /// but the hover was hardcoded in the same way, and leaving it so would
+    /// mean an orange selection still flashing blue under the pointer.
+    ///
+    /// Unnamed, both fall back to the constants the popup always painted, NOT
+    /// to the palette: these two were never theme-derived, so that is what
+    /// "unchanged" means for a ComboBox already designed.
+    #[test]
+    fn an_open_combobox_draws_the_item_colours_it_was_given() {
+        // Apple is the SELECTED item (row 0); the pointer rests on Cherry
+        // (row 2), so one frame carries both highlights at once.
+        let combo = |extra: &[(&str, &str)]| -> Vec<Control> {
+            let mut props: Vec<(&str, &str)> =
+                vec![("Items", "Apple\nBanana\nCherry"), ("Value", "Apple")];
+            props.extend_from_slice(extra);
+            vec![ctrlp("Cmb", ControlType::ComboBox, 0, 0, 160, 26, &props)]
+        };
+        // Rows are `item_h` tall and start one pixel below the header, which is
+        // what tells an item band apart from the popup's own face.
+        const ITEM_H: f32 = 22.0;
+        let hc = pos2(80.0, 13.0);
+        let cherry = pos2(80.0, 26.0 + 1.0 + ITEM_H * 2.0 + ITEM_H * 0.5);
+        let two_bands = |controls: &[Control]| -> (Color32, Color32) {
+            let painted = drive_painted(
+                controls,
+                vec![
+                    (0.0, vec![]),
+                    (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                    (2.0, vec![Event::PointerMoved(hc), release(hc)]), // open
+                    (3.0, vec![Event::PointerMoved(cherry)]),          // hover Cherry
+                ],
+            );
+            let header = *painted.placed.get("Cmb").expect("placed");
+            let mut rows: Vec<(Rect, Color32)> = painted
+                .fills
+                .iter()
+                .filter(|(r, _)| (r.width() - header.width()).abs() <= 0.5)
+                .filter(|(r, _)| (r.height() - ITEM_H).abs() <= 0.5)
+                .filter(|(r, _)| r.top() >= header.bottom())
+                .map(|(r, c)| (*r, *c))
+                .collect();
+            rows.sort_by(|a, b| a.0.top().total_cmp(&b.0.top()));
+            assert_eq!(
+                rows.len(),
+                2,
+                "the selected item and the hovered one must both be highlighted, got {rows:?}"
+            );
+            (rows[0].1, rows[1].1) // (selected = Apple, hovered = Cherry)
+        };
+
+        // ── Named neither: the constants the popup always painted ─────────
+        let (selected, hovered) = two_bands(&combo(&[]));
+        assert_eq!(
+            selected,
+            crate::paint::COMBO_SELECTED_FILL,
+            "unnamed, the selected item keeps the popup's own highlight"
+        );
+        assert_eq!(
+            hovered,
+            crate::paint::COMBO_HOVER_FILL,
+            "…and the hovered item keeps its own, fainter one"
+        );
+
+        // ── Named both ────────────────────────────────────────────────────
+        let (selected_n, hovered_n) = two_bands(&combo(&[
+            ("ActiveItemColor", "#FF8800"),
+            ("HoverItemColor", "#116622"),
+        ]));
+        assert_eq!(
+            selected_n,
+            Color32::from_rgb(0xFF, 0x88, 0x00),
+            "the named colour must reach the selected item"
+        );
+        assert_eq!(
+            hovered_n,
+            Color32::from_rgb(0x11, 0x66, 0x22),
+            "…and the named hover colour the item under the pointer"
+        );
+
+        // ── Named one only: the other is untouched ────────────────────────
+        let (selected_o, hovered_o) = two_bands(&combo(&[("ActiveItemColor", "#FF8800")]));
+        assert_eq!(selected_o, Color32::from_rgb(0xFF, 0x88, 0x00));
+        assert_eq!(
+            hovered_o,
+            crate::paint::COMBO_HOVER_FILL,
+            "a ComboBox's two highlights are independent — unlike a list's, where \
+             the dimmed one follows the active colour"
+        );
+
+        println!(
+            "\n  ComboBox item colours — unnamed: selected {selected:?} and hovered {hovered:?}, \
+             the popup's own constants; named: #FF8800 and #116622 both reach their band; \
+             naming only the selected colour leaves the hover at {hovered_o:?}\n"
         );
     }
 

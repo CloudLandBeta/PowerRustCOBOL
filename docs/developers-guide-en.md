@@ -1587,6 +1587,38 @@ Both accept a runtime write, so a highlight can answer the data:
 > five lines and scrolls past that, so a fifty-item list no longer pushes the
 > rest of the inspector off the pane.
 
+#### ComboBox — the colours of an open dropdown
+
+An open dropdown highlights two things, and both are yours:
+
+| Property | Inspector row | The highlight behind |
+|----------|---------------|----------------------|
+| `ActiveItemColor` | **Selected item** | The item `Value` / `SelectedIndex` reports. |
+| `HoverItemColor` | **Hovered item** | The item the pointer is over. |
+
+`ActiveItemColor` is deliberately the **same property a ListBox carries**: on
+both controls it colours the item `Value` / `SelectedIndex` reports, so what you
+learn on one you already know on the other.
+
+Two differences from the list are worth knowing:
+
+- **There is no `SelectedItemsColor`.** A ComboBox selects one item or none, so
+  the list's second *selection* has nothing to colour here. What a ComboBox has
+  instead is the *hover*, which is a different thing and has its own property.
+- **The two are independent.** On a ListBox the dimmed colour follows the active
+  one; here, setting **Selected item** leaves **Hovered item** exactly where it
+  was. Set both when you restyle, or the pointer will still flash the old blue
+  across your new colour.
+
+Left empty each falls back to the highlight the dropdown has always painted —
+not to the theme, which is what a ListBox falls back to. These two were never
+drawn from the palette, so *empty* means *what it drew before*, and a ComboBox
+you designed earlier is untouched. The hover default is deliberately the fainter
+of the two, so hovering an item never looks like selecting it; if you set your
+own, keep that difference or the dropdown becomes hard to read.
+
+Both accept a runtime write, the same as the list's.
+
 #### ToolBar
 
 A **ToolBar** is **groups of buttons**. Each group is a frame with its own

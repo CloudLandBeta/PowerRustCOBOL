@@ -2840,13 +2840,21 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "The ticked rows, in the order the user ticked them and with any gaps. Ticking never moves the active row.",
         ),
         "ActiveItemColor" => (
-            "color, or empty for the theme's own selection color",
-            "Highlight behind the ACTIVE ListBox row — the one Value/SelectedIndex reports.",
+            "color, or empty for the control's default highlight",
+            "Highlight behind the item Value/SelectedIndex reports: the ACTIVE row of a ListBox, \
+             or the selected item in an open ComboBox dropdown. Left empty a ListBox takes the \
+             theme's own selection color and a ComboBox its popup's built-in one.",
         ),
         "SelectedItemsColor" => (
             "color, or empty for ActiveItemColor dimmed to 45%",
-            "Highlight behind the other rows of a MultiSelect selection, the ones SelectedItems reports. \
-             Left empty it follows ActiveItemColor, so naming that one alone restyles the whole list.",
+            "ListBox only. Highlight behind the other rows of a MultiSelect selection, the ones \
+             SelectedItems reports. Left empty it follows ActiveItemColor, so naming that one \
+             alone restyles the whole list.",
+        ),
+        "HoverItemColor" => (
+            "color, or empty for the popup's built-in hover highlight",
+            "ComboBox only. Highlight behind the dropdown item the pointer is over. Kept fainter \
+             than ActiveItemColor by default so hovering an item never looks like selecting it.",
         ),
         "Sorted" => (BOOL_DOMAIN, "Keeps items alphabetically sorted."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
