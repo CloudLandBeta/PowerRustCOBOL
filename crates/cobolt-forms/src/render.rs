@@ -11825,6 +11825,107 @@ mod tests {
              ********* and ######### while the value stays SecretXYZ\n"
         );
     }
+
+    /// A chart honours its own visual properties. All were seeded, shown in the
+    /// inspector and documented, and read by NOTHING (operator, 2026-08-18,
+    /// from the dead-property audit).
+    #[test]
+    fn a_chart_honours_its_axis_captions_labels_and_legend() {
+        let chart = |kind: ControlType, props: &[(&str, &str)]| -> Vec<Control> {
+            let mut base: Vec<(&str, &str)> =
+                vec![("__ChartData", "Alpha\t30\nBeta\t20\nGamma\t50")];
+            base.extend_from_slice(props);
+            vec![ctrlp("Ch", kind, 20, 20, 320, 240, &base)]
+        };
+        let texts = |c: &[Control]| -> Vec<String> {
+            painted_text_interactive(c)
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect()
+        };
+
+        // -- XAxisLabel / YAxisLabel: free-text captions --------------------
+        let painted = texts(&chart(
+            ControlType::BarChart,
+            &[("XAxisLabel", "Quarter"), ("YAxisLabel", "Revenue")],
+        ));
+        assert!(
+            painted.iter().any(|t| t == "Quarter"),
+            "the X axis caption must be drawn: {painted:?}"
+        );
+        assert!(
+            painted.iter().any(|t| t == "Revenue"),
+            "the Y axis caption must be drawn: {painted:?}"
+        );
+        // Empty means no caption, and no space taken for one.
+        let bare = texts(&chart(ControlType::BarChart, &[("ShowLegend", "false")]));
+        assert!(
+            !bare.iter().any(|t| t == "Quarter" || t == "Revenue"),
+            "an unset caption must draw nothing: {bare:?}"
+        );
+
+        // -- ShowLegend ------------------------------------------------------
+        let with = texts(&chart(ControlType::BarChart, &[("ShowLegend", "true")]));
+        assert!(
+            with.iter().any(|t| t.starts_with("Series")),
+            "a category chart's legend names its series: {with:?}"
+        );
+        assert!(
+            !bare.iter().any(|t| t.starts_with("Series")),
+            "...and unticking it draws none: {bare:?}"
+        );
+        // A pie's legend names its SLICES.
+        let pie = texts(&chart(
+            ControlType::PieChart,
+            &[("ShowLegend", "true"), ("ShowLabels", "false")],
+        ));
+        for want in ["Alpha", "Beta", "Gamma"] {
+            assert!(
+                pie.iter().any(|t| t == want),
+                "a pie's legend must name slice {want}: {pie:?}"
+            );
+        }
+
+        // -- ShowLabels + LabelFormat: percent | value | label --------------
+        let pct = texts(&chart(
+            ControlType::PieChart,
+            &[("ShowLabels", "true"), ("LabelFormat", "percent"), ("ShowLegend", "false")],
+        ));
+        assert!(
+            pct.iter().any(|t| t == "30%") && pct.iter().any(|t| t == "50%"),
+            "percent labels must show each slice's share: {pct:?}"
+        );
+        let val = texts(&chart(
+            ControlType::PieChart,
+            &[("ShowLabels", "true"), ("LabelFormat", "value"), ("ShowLegend", "false")],
+        ));
+        assert!(
+            val.iter().any(|t| t == "30") && val.iter().any(|t| t == "50"),
+            "value labels must show the value itself: {val:?}"
+        );
+        let lbl = texts(&chart(
+            ControlType::DonutChart,
+            &[("ShowLabels", "true"), ("LabelFormat", "label"), ("ShowLegend", "false")],
+        ));
+        assert!(
+            lbl.iter().any(|t| t == "Alpha") && lbl.iter().any(|t| t == "Gamma"),
+            "label labels must show the slice name, on a donut too: {lbl:?}"
+        );
+        let off = texts(&chart(
+            ControlType::PieChart,
+            &[("ShowLabels", "false"), ("ShowLegend", "false")],
+        ));
+        assert!(
+            !off.iter().any(|t| t == "30%" || t == "30"),
+            "unticked, a slice carries no label: {off:?}"
+        );
+
+        println!(
+            "\n  Chart properties -- XAxisLabel/YAxisLabel draw their captions; ShowLegend \
+             names Series on a bar chart and Alpha/Beta/Gamma on a pie; LabelFormat draws \
+             30%/50%, then 30/50, then Alpha/Gamma; each off draws nothing\n"
+        );
+    }
     /// of its silhouettes (operator, 2026-08-18: "Shape background's color
     /// works, but background gradient does not").
     ///

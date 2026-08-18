@@ -1,5 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.97] — 2026-08-18
+
+### Fixed — a chart honours its axis captions, its slice labels and its legend
+
+Seven chart properties were seeded, shown in the inspector and documented in the
+knowledge base, and read by **nothing**:
+
+| Property | What it now does |
+|---|---|
+| `XAxisLabel` / `YAxisLabel` | Free-text captions, drawn under the X axis and turned a quarter up the Y. Empty means none, and no space is reserved for one. |
+| `ShowLegend` | A legend: slice names beside a **pie/donut**, series names under a **bar / line / area / scatter** chart. |
+| `ShowLabels` | Writes a label on each pie/donut slice. |
+| `LabelFormat` | What that label says — `percent` (the slice's share), `value` (the number), or `label` (its name). |
+| `PointRadius` | The radius of a line or scatter marker, in pixels. |
+| `FillAlpha` | The opacity an area chart lays its fill down at, 0–100 %. |
+
+Captions and the legend are given **reserved room** in the chart's margins rather
+than drawn over the plot: a caption written across the data is worse than no
+caption.
+
+> ⚠️ **Existing charts will look different**, because two of these are seeded
+> **on**: `ShowLegend` on every chart and `ShowLabels` on pie and donut. Both
+> have been ticked in the inspector all along — they simply did nothing. Untick
+> them to get the old look back. `PointRadius` (4) and `FillAlpha` (40 %) also
+> now apply, where the painter used its own 3 px / 4.5 px markers and a fixed
+> fill opacity.
+
+### Still not honoured — and why
+
+Eight chart properties remain inert, in two groups, because neither can be
+answered by the painter alone:
+
+- **`ValueFields`, `SeriesLabels`, `Stacked`, `LabelField`, `BubbleField`,
+  `BubbleScale`** need more than one data series. A chart today receives a
+  single `label<TAB>value` list pushed from COBOL; these properties describe
+  *several* Y series drawn from the sub-fields of a bound table, the names to
+  put on them, whether to stack them, and a third field controlling bubble size.
+  They need the binding pipeline to deliver multi-series data before the painter
+  can do anything with them.
+- **`ShowTooltips`, `AnimateOnLoad`** need a pointer and a clock. The chart is
+  drawn by a painter with neither — it has no hover to respond to and no frame
+  time to animate against.
+
+Both are recorded rather than quietly skipped, so the list of what a chart
+promises and what it delivers stays honest.
+
+
 ## [PowerRustCOBOL 1.61.96] — 2026-08-18
 
 ### Fixed — a TextBox honours ReadOnly, PasswordCharacter, MaximumLength and ScrollBars
