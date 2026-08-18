@@ -2839,6 +2839,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "newline-separated item text (runtime)",
             "The ticked rows, in the order the user ticked them and with any gaps. Ticking never moves the active row.",
         ),
+        "ActiveItemColor" => (
+            "color, or empty for the theme's own selection color",
+            "Highlight behind the ACTIVE ListBox row — the one Value/SelectedIndex reports.",
+        ),
+        "SelectedItemsColor" => (
+            "color, or empty for ActiveItemColor dimmed to 45%",
+            "Highlight behind the other rows of a MultiSelect selection, the ones SelectedItems reports. \
+             Left empty it follows ActiveItemColor, so naming that one alone restyles the whole list.",
+        ),
         "Sorted" => (BOOL_DOMAIN, "Keeps items alphabetically sorted."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
         "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list."),

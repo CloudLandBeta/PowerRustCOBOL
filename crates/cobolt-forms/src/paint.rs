@@ -5347,6 +5347,34 @@ pub fn parse_hex(s: &str) -> Option<Color32> {
     }
 }
 
+/// How far the dimmed highlight is lit relative to the active one, when the
+/// developer has not named a colour of their own. Half-ish: enough that a
+/// selected row is plainly selected, little enough that the ACTIVE row still
+/// reads as the one the cursor is on.
+pub const LIST_SELECTED_DIM: f32 = 0.45;
+
+/// The two highlights a ListBox draws: the **active** row's, and the one every
+/// other row of a multi-select set wears.
+///
+/// `ActiveItemColor` and `SelectedItemsColor` are the developer's; either left
+/// empty falls back, so a list that names neither looks exactly as it did
+/// before the properties existed:
+///
+/// * no `ActiveItemColor` → `theme_fill`, the palette's own selection colour;
+/// * no `SelectedItemsColor` → the active colour at [`LIST_SELECTED_DIM`].
+///
+/// The dim follows whatever the active colour ended up being, so naming only
+/// `ActiveItemColor` restyles the whole list and keeps the two related.
+/// Resolved here rather than at each call site so the inspector's swatch and
+/// the painted row can never disagree about what a list is showing.
+pub fn list_selection_fills(ctrl: &Control, theme_fill: Color32) -> (Color32, Color32) {
+    let named = |key: &str| ctrl.get_prop(key).and_then(|v| parse_hex(v.as_str()));
+    let active = named("ActiveItemColor").unwrap_or(theme_fill);
+    let selected =
+        named("SelectedItemsColor").unwrap_or_else(|| active.gamma_multiply(LIST_SELECTED_DIM));
+    (active, selected)
+}
+
 /// Short month names for DataGrid date cells and the DateTimePicker field.
 pub const MONTH_ABBR: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
