@@ -24,6 +24,7 @@ mod app;
 pub mod contrast;
 pub mod data_binding_guardian;
 pub mod debug_settings;
+pub mod doc_shots;
 pub mod flags;
 pub mod docs_embed;
 pub mod error_log;
