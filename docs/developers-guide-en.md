@@ -1633,9 +1633,12 @@ alphabetical order. Three things worth knowing:
 > own parent is a different operation. Its nodes show in the order you wrote
 > them.
 
-**How tall the list is.** As tall as its items need, up to `DropDownHeight`
-(the **DropDownHeight** row in the inspector, 200 px by default), and it scrolls past
-that. Every item is reachable however many there are.
+**How tall the list is.** As tall as its items need — plus the small margin it
+keeps off its own border — up to `DropDownHeight` (the **DropDownHeight** row in
+the inspector, 200 px by default), and it scrolls past that. Every item is
+reachable however many there are, and a list short enough to fit does not
+scroll. The scrollbar rides against the inside of the border, as a ListBox's
+does.
 
 **The face is yours.** A ComboBox wears the background you designed â
 **Background color**, or **Background gradient** with its start, end and

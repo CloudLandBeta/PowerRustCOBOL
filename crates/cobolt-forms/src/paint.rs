@@ -6137,8 +6137,12 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
     let mut pressed_in_list = false;
 
     let item_h = p.item_h.max(1.0);
-    let content_h = n as f32 * item_h;
-    let popup_h = content_h.min(p.max_h.max(item_h));
+    // The panel holds its items AND the margin its scrolling pane keeps off the
+    // border, so a list short enough to fit does not scroll for want of the six
+    // pixels the margin costs it.
+    let pad = crate::model::LIST_FRAME_PAD * 2.0;
+    let content_h = n as f32 * item_h + pad;
+    let popup_h = content_h.min(p.max_h.max(item_h + pad));
     let popup_rect = egui::Rect::from_min_size(
         Pos2::new(p.header.min.x, p.header.max.y + 1.0),
         Vec2::new(p.header.width(), popup_h),
@@ -6290,10 +6294,14 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
     let inner = popup_rect.shrink(border_w + HIGHLIGHT_INSET);
     let mut first_row_top: Option<f32> = None;
     if n > 0 {
-        ui.scope_builder(egui::UiBuilder::new().max_rect(popup_rect), |ui| {
+        // The pane the items scroll in sits INSIDE the panel's border, by the
+        // same margin a ListBox keeps — so the scrollbar rests against the rim
+        // from within instead of riding on top of it and out past the corner.
+        let content = popup_rect.shrink(crate::model::LIST_FRAME_PAD);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
             egui::ScrollArea::vertical()
                 .id_salt(("glass_combo_scroll", p.ctrl_id))
-                .max_height(popup_rect.height())
+                .max_height(content.height())
                 .auto_shrink([false, false])
                 // A drag through a dropdown is a SELECTION, not a swipe. Were
                 // egui's drag-to-scroll on as well, the list would slide under

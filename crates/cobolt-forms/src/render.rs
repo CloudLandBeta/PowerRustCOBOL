@@ -8720,9 +8720,15 @@ mod tests {
             meshes: &mut Vec<Rect>,
         ) {
             match shape {
-                egui::Shape::Rect(r) if r.fill.a() > 0 => {
-                    fills.push((r.rect, r.fill));
+                // `fills` is what was actually INKED; `bands` is every rect the
+                // frame emitted, transparent ones included — egui fades an idle
+                // scrollbar to nothing, and "where does the bar sit" is a
+                // question about geometry, not about ink.
+                egui::Shape::Rect(r) => {
                     bands.push((r.rect, r.corner_radius, r.fill));
+                    if r.fill.a() > 0 {
+                        fills.push((r.rect, r.fill));
+                    }
                 }
                 egui::Shape::Mesh(m) => meshes.push(m.calc_bounds()),
                 egui::Shape::Vec(v) => {
@@ -11412,6 +11418,114 @@ mod tests {
              1,10,11,2,…,9 in both a ListBox and an open dropdown (text order, so 10 \
              before 9), Items itself untouched; delta/Alpha/bravo/Charlie ⇒ \
              Alpha,bravo,Charlie,delta\n"
+        );
+    }
+
+    /// A dropdown's scrollbar belongs INSIDE its border, as a ListBox's does.
+    /// It used to ride on the rim and out past the rounded corner, because the
+    /// scrolling pane was handed the whole panel instead of the inside of it
+    /// (operator, 2026-08-18).
+    ///
+    /// And a list short enough to fit must not scroll for want of that margin:
+    /// the panel stands tall enough for its items AND the margin.
+    #[test]
+    fn a_dropdowns_scrollbar_sits_inside_the_border() {
+        let items: Vec<String> = (1..=30).map(|n| format!("Item-{n:02}")).collect();
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 320, 26);
+        cmb.set_prop("Items", crate::PropValue::String(items.join("\n")));
+        cmb.set_prop("Value", crate::PropValue::String("Item-01".to_owned()));
+        let hc = pos2(180.0, 33.0);
+        let painted = drive_painted(
+            &[cmb.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                (2.0, vec![Event::PointerMoved(hc), release(hc)]),
+                (3.0, vec![]),
+            ],
+        );
+        let header = *painted.placed.get("Cmb").expect("placed");
+        let pad = crate::model::LIST_FRAME_PAD;
+        let panel = Rect::from_min_size(
+            pos2(header.left(), header.bottom() + 1.0),
+            Vec2::new(header.width(), 200.0),
+        );
+
+        // The scrollbar is a tall, narrow rect inside the panel. Its width and
+        // its ink depend on the ambient scroll style, and egui fades an idle bar
+        // to nothing, so only its POSITION is asserted -- exactly as the
+        // ListBox's own scrollbar guard does.
+        let bars: Vec<Rect> = painted
+            .bands
+            .iter()
+            .map(|(r, _, _)| *r)
+            .filter(|r| r.height() > r.width() * 3.0 && r.height() > 20.0)
+            .filter(|r| r.height() <= panel.height() + 1.0)
+            .filter(|r| r.top() >= panel.top() - 1.0 && r.bottom() <= panel.bottom() + 1.0)
+            .filter(|r| r.left() >= panel.left() - 1.0 && r.right() <= panel.right() + 1.0)
+            .collect();
+        assert!(
+            !bars.is_empty(),
+            "a 30-item list in a {}px panel must have a scrollbar to place",
+            panel.height()
+        );
+        for bar in &bars {
+            assert!(
+                bar.right() <= panel.right() - pad + 0.5,
+                "the scrollbar must sit inside the border, not on it: bar {bar:?} in {panel:?}"
+            );
+            assert!(
+                bar.center().x >= panel.right() - 14.0,
+                "...while still hugging the right border: bar {bar:?} in {panel:?}"
+            );
+        }
+
+        // A list that FITS must not scroll: three items, in a panel tall enough
+        // for them plus the margin, all three painted where they were laid out.
+        let mut short = ctrl("Short", ControlType::ComboBox, 20, 200, 320, 26);
+        short.set_prop(
+            "Items",
+            crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()),
+        );
+        let sc = pos2(180.0, 213.0);
+        let painted = drive_painted(
+            &[short.clone()],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(sc), press(sc)]),
+                (2.0, vec![Event::PointerMoved(sc), release(sc)]),
+                (3.0, vec![]),
+            ],
+        );
+        let head = *painted.placed.get("Short").expect("placed");
+        let ih = combo_item_h(&short);
+        let box_ = Rect::from_min_size(
+            pos2(head.left(), head.bottom() + 1.0),
+            Vec2::new(head.width(), 3.0 * ih + pad * 2.0),
+        );
+        for want in ["Alpha", "Beta", "Gamma"] {
+            assert!(
+                painted
+                    .texts
+                    .iter()
+                    .any(|t| t.text == want && box_.expand(1.0).contains_rect(t.ink)),
+                "a three-item list must show all three without scrolling; {want} is not \
+                 inside {box_:?}: painted {:?}",
+                painted
+                    .texts
+                    .iter()
+                    .map(|t| (t.text.as_str(), t.ink))
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        println!(
+            "\n  ComboBox scrollbar -- a 30-item list: {} bar rect(s), rightmost edge {:.1} \
+             inside a panel ending at {:.1} ({pad}px margin, as a ListBox keeps); a \
+             three-item list shows all three without scrolling\n",
+            bars.len(),
+            bars.iter().map(|b| b.right()).fold(f32::MIN, f32::max),
+            panel.right()
         );
     }
 

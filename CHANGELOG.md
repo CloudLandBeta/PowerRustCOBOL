@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.93] — 2026-08-18
+
+### Fixed — a dropdown's scrollbar sits inside its border
+
+The scrolling pane was handed the **whole** panel, so its scrollbar came to rest
+on the border and out past the rounded corner. A ListBox keeps its pane inside
+the frame by a small margin and its bar rides against the rim from within; the
+dropdown now keeps the same margin, through the same constant.
+
+Making room for it revealed a second fault: the panel's height counted only its
+items, so once the pane was inset a list that fitted exactly began to scroll for
+want of the six pixels the margin costs. The panel now stands tall enough for
+its items **and** that margin, so a three-item list shows three items and no
+scrollbar. `DropDownHeight` caps the panel including the margin, which is what
+"maximum height of the opened list" reads as.
+
+Guarded by `a_dropdowns_scrollbar_sits_inside_the_border`, which asserts the
+bar's position (not its ink — egui fades an idle bar to nothing, so the test
+harness now keeps every emitted rect, transparent ones included) and that a
+short list does not scroll.
+
+
 ## [PowerRustCOBOL 1.61.92] — 2026-08-18
 
 ### Fixed — `Sorted` sorts
