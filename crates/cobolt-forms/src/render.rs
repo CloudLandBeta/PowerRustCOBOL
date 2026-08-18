@@ -11544,6 +11544,72 @@ mod tests {
     }
 
     /// A Shape wears the background GRADIENT it was designed with, on every one
+
+    /// The designer canvas shows a ComboBox the way the running one shows it:
+    /// the chosen Value, or the first item in the order the list DISPLAYS them.
+    ///
+    /// The canvas lettered the first item as TYPED, so a combo with Sorted on
+    /// read one thing while designing and another the moment the form ran --
+    /// which is how a working sort looked broken (operator, 2026-08-18).
+    #[test]
+    fn the_canvas_shows_a_combobox_the_way_the_running_one_does() {
+        let combo = |sorted: bool, value: &str| -> Control {
+            let mut c = ctrl("Cmb", ControlType::ComboBox, 20, 20, 200, 26);
+            c.set_prop("Items", crate::PropValue::String("6\n1\n2\n11\n10".into()));
+            c.set_prop("Sorted", crate::PropValue::Bool(sorted));
+            if !value.is_empty() {
+                c.set_prop("Value", crate::PropValue::String(value.to_owned()));
+            }
+            c
+        };
+        let canvas_says = |c: &Control| -> String {
+            painted_text(std::slice::from_ref(c), "#101010")
+                .into_iter()
+                .map(|(t, _)| t)
+                .find(|t| t.contains('\u{25BE}'))
+                .unwrap_or_default()
+        };
+        let running_says = |c: &Control| -> String {
+            let painted = drive_painted(std::slice::from_ref(c), vec![(0.0, vec![]), (0.05, vec![])]);
+            let frame = *painted.placed.get("Cmb").expect("placed");
+            painted
+                .texts
+                .iter()
+                .filter(|t| frame.expand(1.0).contains_rect(t.ink))
+                .map(|t| t.text.clone())
+                .find(|t| !t.is_empty() && t != "\u{25BC}" && t != "\u{25B2}")
+                .unwrap_or_default()
+        };
+
+        // Unsorted, nothing chosen: both show the first item as typed.
+        let c = combo(false, "");
+        assert_eq!(canvas_says(&c), "6 \u{25BE}");
+        assert_eq!(running_says(&c), "6");
+
+        // Sorted, nothing chosen: both show the first item as DISPLAYED.
+        let c = combo(true, "");
+        assert_eq!(
+            canvas_says(&c),
+            "1 \u{25BE}",
+            "the canvas must letter the first SORTED item, as the running header does"
+        );
+        assert_eq!(running_says(&c), "1");
+
+        // A chosen value wins on both.
+        let c = combo(true, "11");
+        assert_eq!(
+            canvas_says(&c),
+            "11 \u{25BE}",
+            "the canvas must show the chosen Value, which it ignored entirely"
+        );
+        assert_eq!(running_says(&c), "11");
+
+        println!(
+            "\n  ComboBox canvas -- unsorted shows 6 on both surfaces, Sorted shows 1 on \
+             both, and a Value of 11 shows 11 on both; the canvas used to letter the first \
+             TYPED item and ignore Value\n"
+        );
+    }
     /// of its silhouettes (operator, 2026-08-18: "Shape background's color
     /// works, but background gradient does not").
     ///

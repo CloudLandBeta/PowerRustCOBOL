@@ -3983,11 +3983,31 @@ fn draw_control_body(
             }
         }
         CT::ComboBox => {
-            let items = ctrl
-                .get_prop("Items")
+            // What the RUNNING header shows: the chosen `Value`, or the first
+            // item in the order the list actually displays them.
+            //
+            // It used to be the first item as TYPED, so a combo with `Sorted`
+            // on read one thing on the canvas and another the moment the form
+            // ran — which is how a working sort looked broken (operator,
+            // 2026-08-18).
+            let value = ctrl
+                .get_prop("Value")
                 .map(|v| v.as_str().to_owned())
                 .unwrap_or_default();
-            format!("{} ▾", items.lines().next().unwrap_or(""))
+            let shown = if value.is_empty() {
+                let mut items: Vec<String> = ctrl
+                    .get_prop("Items")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default()
+                    .lines()
+                    .map(|l| l.to_owned())
+                    .collect();
+                list_display_items(ctrl, &mut items);
+                items.first().cloned().unwrap_or_default()
+            } else {
+                value
+            };
+            format!("{shown} ▾")
         }
         CT::DateTimePicker => {
             let val = ctrl
