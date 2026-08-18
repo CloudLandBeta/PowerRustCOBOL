@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.99] — 2026-08-18
+
+### Fixed — the sidebar's two image rows say what size they take
+
+The inspector asked for a **Header image** and a **Header icon** without saying
+how big either is drawn, so the size had to be discovered by trying one. Both
+rows now carry it:
+
+| Was | Now |
+|---|---|
+| *Header image:* | **Header image (270x80 - WxH):** |
+| *Header icon (collapsed):* | **Header icon (45x45 - WxH):** |
+
+The numbers are read off the implementation — `HEADER_IMAGE_W`/`H` and
+`HEADER_ICON` — so the label cannot claim a size the painter does not draw.
+Updated in all six languages, each with its own width/height abbreviation
+(WxH · AnxAl · LxA · 幅x高さ · 宽x高 · LxH).
+
+
 ## [PowerRustCOBOL 1.61.98] — 2026-08-18
 
 ### Fixed — an open sidebar's logo is a 270×80 limit, not a shape to fill
