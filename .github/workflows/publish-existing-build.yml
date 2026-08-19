@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# Publish the packages from a build that has already finished.
+#   Actions -> "Publish an existing build as a Release" -> Run workflow
+#
+# "Build PowerRustCOBOL (all platforms)" decides whether to publish at the
+# moment it is dispatched, and a run started with that box clear cannot change
+# its mind afterwards: the release job's condition reads the inputs frozen into
+# the run, so re-running it only skips it again. This workflow is the way out.
+# It takes a run that already produced the four packages and attaches them to a
+# release, which costs a minute instead of a second full build.
+#
+# It is also how a release candidate is cut. Tag and title are separate on
+# purpose. A tag is a git refname and cannot hold a space, so the words belong
+# in the title ("Release Candidate 2") and the tag stays a refname
+# ("v1.61.107-rc2").
+
+name: Publish an existing build as a Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run to publish: the number at the end of a finished build run's URL."
+        type: string
+        required: true
+      tag:
+        description: "Release tag. A git refname, so no spaces: v1.61.107-rc2"
+        type: string
+        required: true
+      title:
+        description: "Release title. Spaces are fine here. Default: PowerRustCOBOL + the version."
+        type: string
+        default: ""
+      prerelease:
+        description: A candidate, not the real thing — keeps releases/latest on the last stable release
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    name: Publish the downloads
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      actions: read # read the other run's artifacts
+    steps:
+      # There is deliberately no checkout. Both the version and the commit come
+      # from the run being published, so what main happens to look like today
+      # cannot rename a package or mistag a binary.
+      - name: Collect the assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            *[[:space:]]*)
+              echo "::error::a git tag cannot contain spaces. Tag it v1.61.107-rc2 and put the words in the title."
+              exit 1
+              ;;
+          esac
+
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/incoming"
+
+          # Staged in the runner's temp directory, never inside a checkout, so
+          # the glob handed to gh can only ever name the archives.
+          packages="$RUNNER_TEMP/packages"
+          mkdir -p "$packages"
+          find "$RUNNER_TEMP/incoming" -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec mv -t "$packages/" {} +
+          ( cd "$packages" && sha256sum *.tar.gz *.zip ) > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" "$packages/"
+          echo "PACKAGES=$packages" >> "$GITHUB_ENV"
+
+          # The version these packages call themselves, not the one on main.
+          version=$(cd "$packages" && ls PowerRustCOBOL-*-linux-x86_64.tar.gz \
+            | sed -n 's/^PowerRustCOBOL-\(.*\)-linux-x86_64\.tar\.gz$/\1/p')
+          test -n "$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+          # A tag has to name the commit that produced the binaries it labels.
+          build_sha=$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)
+          test -n "$build_sha"
+          echo "BUILD_SHA=$build_sha" >> "$GITHUB_ENV"
+
+          ls -lh "$packages"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          TITLE_INPUT: ${{ inputs.title }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          RUN_ID: ${{ inputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="${TITLE_INPUT:-}"
+          title="${title:-PowerRustCOBOL $VERSION}"
+          printf '%s\n' \
+            "PowerRustCOBOL $VERSION — the RAD IDE, and rcrun, the RustCOBOL command-line runtime." \
+            "" \
+            "Download the archive for your machine, unpack it anywhere and run it. Each one carries what its platform needs, so there is nothing to install first." \
+            "" \
+            "| Download | For |" \
+            "| --- | --- |" \
+            "| PowerRustCOBOL-$VERSION-macos-aarch64.tar.gz | Macs with Apple Silicon |" \
+            "| PowerRustCOBOL-$VERSION-macos-x86_64.tar.gz | Intel Macs |" \
+            "| PowerRustCOBOL-$VERSION-windows-x86_64.zip | Windows 10 and 11, 64-bit |" \
+            "| PowerRustCOBOL-$VERSION-linux-x86_64.tar.gz | Linux 64-bit, any desktop |" \
+            "" \
+            "SHA256SUMS lists the checksum of every archive." \
+            "" \
+            "First run on macOS: the app is not notarised, so macOS quarantines what you downloaded. Right-click PowerRustCOBOL.app and choose Open, or clear it with: xattr -dr com.apple.quarantine PowerRustCOBOL.app" \
+            "" \
+            "First run on Windows: the executable is unsigned, so SmartScreen warns once. Choose More info, then Run anyway." \
+            "" \
+            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland libraries your desktop already provides." \
+            "" \
+            "Built by run $RUN_ID, from commit $BUILD_SHA." \
+            > notes.md
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$PACKAGES"/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            set --
+            if [ "$PRERELEASE" = "true" ]; then set -- --prerelease; fi
+            gh release create "$TAG" "$PACKAGES"/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$BUILD_SHA" \
+              --title "$title" \
+              --notes-file notes.md \
+              "$@"
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
