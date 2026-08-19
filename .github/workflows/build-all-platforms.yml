@@ -89,6 +89,11 @@ jobs:
       # package from the host's OpenSSL version. The CA bundle is still found at
       # runtime: native-tls asks openssl-probe for the host's certificate store,
       # so HTTPS keeps working on distros that place it elsewhere.
+      #
+      # The two directories are not optional. On its own OPENSSL_STATIC is
+      # ignored, because openssl-sys resolves OpenSSL through pkg-config and
+      # pkg-config emits dynamic link flags; naming both directories sends it
+      # down the path where the static request is honoured.
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -97,6 +102,8 @@ jobs:
             pkg-config libssl-dev libxkbcommon-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
           echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -208,7 +215,7 @@ jobs:
           case "$RUNNER_OS" in
             Linux)
               ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun"
-              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" | grep -qE 'libssl|libcrypto'; then
+              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" | grep -E 'libssl|libcrypto' >/dev/null; then
                 echo "::error::OpenSSL is still linked dynamically — the package is not self-contained"
                 exit 1
               fi
@@ -216,7 +223,7 @@ jobs:
             macOS)
               app="dist/$PKG/PowerRustCOBOL.app/Contents/MacOS"
               otool -L "$app/PowerRustCOBOL" "$app/rcrun"
-              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" | grep -qE '/usr/local/|/opt/homebrew/'; then
+              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" | grep -E '/usr/local/|/opt/homebrew/' >/dev/null; then
                 echo "::error::a Homebrew library leaked into the binary — it will not run on a clean Mac"
                 exit 1
               fi
