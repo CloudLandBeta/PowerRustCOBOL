@@ -325,6 +325,16 @@ jobs:
           tag="${tag:-v$VERSION}"
           title="${TITLE_INPUT:-}"
           title="${title:-PowerRustCOBOL $VERSION}"
+
+          # Releases in this repository are IMMUTABLE: publishing freezes the
+          # assets and burns the tag for good, so an existing one is never
+          # amended. Say so and stop, rather than fail obscurely inside gh.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::a release already exists on tag $tag, and releases here are \
+          immutable — publish under a different tag"
+            exit 1
+          fi
+
           printf '%s\n' \
             "PowerRustCOBOL $VERSION — the RAD IDE, and rcrun, the RustCOBOL command-line runtime." \
             "" \
@@ -344,14 +354,18 @@ jobs:
             "First run on Windows: the executable is unsigned, so SmartScreen warns once. Choose More info, then Run anyway." \
             "" \
             "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland libraries your desktop already provides." \
-            > notes.md
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "$PACKAGES"/* --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$tag" "$PACKAGES"/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "$title" \
-              --notes-file notes.md
-          fi
+            > "$RUNNER_TEMP/notes.md"
+
+          # Draft first, files second, publish last. An immutable release takes
+          # no assets once it is public, so everything has to be attached while
+          # it is still a draft — and a run that dies midway then leaves a
+          # draft nobody can download, rather than a public half-release whose
+          # tag is already spent.
+          gh release create "$tag" "$PACKAGES"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$title" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --draft
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url --jq .url

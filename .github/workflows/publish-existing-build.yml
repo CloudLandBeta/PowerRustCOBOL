@@ -126,16 +126,26 @@ jobs:
             "" \
             "Built by run $RUN_ID, from commit $BUILD_SHA." \
             > notes.md
+          # Releases in this repository are IMMUTABLE: publishing freezes the
+          # assets and spends the tag for good. An existing one therefore
+          # cannot be topped up — say so, and let the operator pick a tag.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$PACKAGES"/* --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            set --
-            if [ "$PRERELEASE" = "true" ]; then set -- --prerelease; fi
-            gh release create "$TAG" "$PACKAGES"/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$BUILD_SHA" \
-              --title "$title" \
-              --notes-file notes.md \
-              "$@"
+            echo "::error::a release already exists on tag $TAG, and releases here are \
+          immutable — publish under a different tag"
+            exit 1
           fi
+          set --
+          if [ "$PRERELEASE" = "true" ]; then set -- --prerelease; fi
+          # Draft first, files second, publish last. An immutable release takes
+          # no assets once it is public, so every file is attached while it is
+          # still a draft — and a run that dies midway leaves a draft nobody
+          # can download, rather than a public half-release on a spent tag.
+          gh release create "$TAG" "$PACKAGES"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$BUILD_SHA" \
+            --title "$title" \
+            --notes-file notes.md \
+            --draft \
+            "$@"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
