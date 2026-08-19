@@ -42,6 +42,14 @@ on:
         description: Publish the packages as a GitHub Release
         type: boolean
         default: false
+      tag:
+        description: "Release tag. Default: v + the version in version.rs. An existing tag has its release updated in place."
+        type: string
+        default: ""
+      title:
+        description: "Release title. Default: PowerRustCOBOL + the version."
+        type: string
+        default: ""
 
 concurrency:
   group: build-all-platforms-${{ github.ref }}
@@ -283,9 +291,12 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          path: incoming
+          path: ${{ runner.temp }}/incoming
           merge-multiple: true
 
+      # Staged outside the checkout on purpose. The repository has its own
+      # assets/ directory, and staging under that name once handed the release
+      # 100 MB of theme images instead of the packages.
       - name: Collect the assets
         shell: bash
         run: |
@@ -293,18 +304,27 @@ jobs:
           version=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";/\1/p' crates/cobolt-ide/src/version.rs)
           test -n "$version"
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          mkdir -p assets
-          find incoming -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec mv -t assets/ {} +
-          ( cd assets && sha256sum *.tar.gz *.zip ) > SHA256SUMS
-          mv SHA256SUMS assets/
-          ls -lh assets
+          packages="$RUNNER_TEMP/packages"
+          mkdir -p "$packages"
+          find "$RUNNER_TEMP/incoming" -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec mv -t "$packages/" {} +
+          ( cd "$packages" && sha256sum *.tar.gz *.zip ) > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" "$packages/"
+          echo "PACKAGES=$packages" >> "$GITHUB_ENV"
+          ls -lh "$packages"
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG_INPUT: ${{ inputs.tag }}
+          TITLE_INPUT: ${{ inputs.title }}
         shell: bash
         run: |
           set -euo pipefail
+          tag="${TAG_INPUT:-}"
+          tag="${tag:-v$VERSION}"
+          title="${TITLE_INPUT:-}"
+          title="${title:-PowerRustCOBOL $VERSION}"
           printf '%s\n' \
             "PowerRustCOBOL $VERSION — the RAD IDE, and rcrun, the RustCOBOL command-line runtime." \
             "" \
@@ -325,13 +345,13 @@ jobs:
             "" \
             "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland libraries your desktop already provides." \
             > notes.md
-          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "v$VERSION" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$PACKAGES"/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "v$VERSION" assets/* \
+            gh release create "$tag" "$PACKAGES"/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "PowerRustCOBOL $VERSION" \
+              --title "$title" \
               --notes-file notes.md
           fi
-          gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json url --jq .url
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url --jq .url
