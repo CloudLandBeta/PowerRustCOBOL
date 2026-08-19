@@ -8,6 +8,10 @@
 # runtime) for every supported desktop platform.
 #   Actions -> "Build PowerRustCOBOL (all platforms)" -> Run workflow
 #
+# Tick "Publish the packages as a GitHub Release" to put the four downloads on
+# the releases page, where anyone can fetch them without a GitHub account.
+# Leave it clear for a build you only want to inspect.
+#
 # Each package is self-contained: unpack it anywhere and run it, with nothing
 # to install first.
 #
@@ -33,6 +37,11 @@ name: Build PowerRustCOBOL (all platforms)
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the packages as a GitHub Release
+        type: boolean
+        default: false
 
 concurrency:
   group: build-all-platforms-${{ github.ref }}
@@ -243,8 +252,86 @@ jobs:
           COPYFILE_DISABLE=1 tar -C dist -czf "dist/${PKG}.tar.gz" "$PKG"
           rm -rf "dist/${PKG:?}"
 
+      # Windows gets a plain zip, so every platform leaves exactly one archive
+      # in dist/ for the release job to attach.
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/$env:PKG" -DestinationPath "dist/$env:PKG.zip"
+          Remove-Item -Recurse -Force "dist/$env:PKG"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PKG }}
           path: dist/
           if-no-files-found: error
+
+  # The public download page. Actions artifacts need a GitHub account and
+  # expire; a release is permanent, anonymous and linkable, which is what a
+  # download has to be. `needs: build` means one broken platform publishes
+  # nothing — a release either offers every machine a download or it waits.
+  release:
+    name: Publish the downloads
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: incoming
+          merge-multiple: true
+
+      - name: Collect the assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";/\1/p' crates/cobolt-ide/src/version.rs)
+          test -n "$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          mkdir -p assets
+          find incoming -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec mv -t assets/ {} +
+          ( cd assets && sha256sum *.tar.gz *.zip ) > SHA256SUMS
+          mv SHA256SUMS assets/
+          ls -lh assets
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            "PowerRustCOBOL $VERSION — the RAD IDE, and rcrun, the RustCOBOL command-line runtime." \
+            "" \
+            "Download the archive for your machine, unpack it anywhere and run it. Each one carries what its platform needs, so there is nothing to install first." \
+            "" \
+            "| Download | For |" \
+            "| --- | --- |" \
+            "| PowerRustCOBOL-$VERSION-macos-aarch64.tar.gz | Macs with Apple Silicon |" \
+            "| PowerRustCOBOL-$VERSION-macos-x86_64.tar.gz | Intel Macs |" \
+            "| PowerRustCOBOL-$VERSION-windows-x86_64.zip | Windows 10 and 11, 64-bit |" \
+            "| PowerRustCOBOL-$VERSION-linux-x86_64.tar.gz | Linux 64-bit, any desktop |" \
+            "" \
+            "SHA256SUMS lists the checksum of every archive." \
+            "" \
+            "First run on macOS: the app is not notarised, so macOS quarantines what you downloaded. Right-click PowerRustCOBOL.app and choose Open, or clear it with: xattr -dr com.apple.quarantine PowerRustCOBOL.app" \
+            "" \
+            "First run on Windows: the executable is unsigned, so SmartScreen warns once. Choose More info, then Run anyway." \
+            "" \
+            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland libraries your desktop already provides." \
+            > notes.md
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "v$VERSION" assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "PowerRustCOBOL $VERSION" \
+              --notes-file notes.md
+          fi
+          gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json url --jq .url
