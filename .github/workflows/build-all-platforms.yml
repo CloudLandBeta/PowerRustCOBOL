@@ -1,0 +1,243 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# Manual, on-demand build of PowerRustCOBOL (the IDE) and rcrun (the CLI
+# runtime) for every supported desktop platform.
+#   Actions -> "Build PowerRustCOBOL (all platforms)" -> Run workflow
+#
+# Each package is self-contained: unpack it anywhere and run it, with nothing
+# to install first.
+#
+#   Windows   the Visual C++ runtime DLLs travel with the executables
+#             (.cargo/config.toml links the dynamic CRT deliberately, so those
+#             DLLs are the one prerequisite a clean Windows 10 lacks). The UCRT
+#             is part of Windows 10 and later, so it is not shipped.
+#   macOS     a real PowerRustCOBOL.app bundle, ad-hoc signed, with the icon
+#             and theme packs inside it. Only system frameworks are linked.
+#   Linux     OpenSSL is linked statically, so no libssl.so.3 has to be present
+#             or match. What is left is glibc plus the graphics stack, which
+#             must come from the host: OpenGL, X11 and Wayland are the driver's
+#             own libraries and bundling them would break the machine's GPU.
+#
+# A note on Linux: the desktop shell is not a build target. One x86_64 Linux
+# binary serves GNOME, KDE, Xfce and the rest — they differ in the window
+# manager, not the ABI. What does matter is the glibc the binary links against,
+# so Linux is built on Ubuntu 22.04 (glibc 2.35): the result runs on Ubuntu
+# 22.04 and everything newer, plus Debian 12+ and Fedora 36+. Building on
+# ubuntu-latest (24.04, glibc 2.39) would silently drop every older distro.
+
+name: Build PowerRustCOBOL (all platforms)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-all-platforms-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  # Deliberately no RUSTFLAGS here: a RUSTFLAGS environment variable REPLACES
+  # the per-target rustflags in .cargo/config.toml, which is where the MSVC
+  # dynamic-CRT link arguments live. Setting it would break the Windows link.
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          # MSVC targets Windows 10 (1607) and later, which covers Windows 10.x
+          # and 11.
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: .exe
+          - name: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          # Intel macOS. The old macos-13 image was retired in December 2025;
+          # macos-15-intel is its replacement (macos-26-intel is the newer one).
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            ext: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # openssl-sys links the system OpenSSL (native-tls), and eframe needs the
+      # xcb/xkbcommon headers. Everything else the tree touches — winit's X11
+      # and Wayland bindings, the file dialog's XDG portal client — is loaded at
+      # runtime, so no GTK development package is required.
+      #
+      # OPENSSL_STATIC makes openssl-sys link libssl.a/libcrypto.a from
+      # libssl-dev instead of the shared objects, which is what frees the
+      # package from the host's OpenSSL version. The CA bundle is still found at
+      # runtime: native-tls asks openssl-probe for the host's certificate store,
+      # so HTTPS keeps working on distros that place it elsewhere.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build PowerRustCOBOL and rcrun
+        run: >
+          cargo build --release --locked
+          --target ${{ matrix.target }}
+          -p cobolt-ide -p cobolt-cli
+
+      - name: Name the package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";/\1/p' crates/cobolt-ide/src/version.rs)
+          test -n "$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "PKG=PowerRustCOBOL-${version}-${{ matrix.name }}" >> "$GITHUB_ENV"
+
+      # Linux and Windows: one flat directory. The IDE spawns `rcrun` from its
+      # own directory (Run Form) and reads `assets/themes` from beside its
+      # executable, so the binaries and the theme packs have to stay together.
+      - name: Stage the package
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="dist/$PKG"
+          mkdir -p "$out/assets"
+          cp "target/${{ matrix.target }}/release/cobolt-ide${{ matrix.ext }}" "$out/PowerRustCOBOL${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/rcrun${{ matrix.ext }}" "$out/rcrun${{ matrix.ext }}"
+          cp -R assets/themes "$out/assets/themes"
+          cp assets/images/powerrustcobol-icon.png "$out/assets/"
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$out/"
+
+      # The Visual C++ runtime, deployed app-local (the form Microsoft supports
+      # for applications that ship their own copy). Without these a clean
+      # Windows 10 refuses to start the executables.
+      - name: Bundle the Visual C++ runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          crt=$(ls -d "/c/Program Files/Microsoft Visual Studio/"*/*"/VC/Redist/MSVC/"*"/x64/Microsoft.VC"*".CRT" | tail -1)
+          test -d "$crt"
+          cp "$crt"/*.dll "dist/$PKG/"
+          test -f "dist/$PKG/vcruntime140.dll"
+          test -f "dist/$PKG/msvcp140.dll"
+
+      # macOS: a real application bundle. `rcrun` lives beside the main
+      # executable because that is where the IDE looks for it, and the theme
+      # packs sit in Resources with a symlink from MacOS/, which satisfies the
+      # exe-relative lookup without putting data files in MacOS/.
+      - name: Stage the application bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="dist/$PKG"
+          app="$out/PowerRustCOBOL.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/assets"
+          cp "target/${{ matrix.target }}/release/cobolt-ide" "$app/Contents/MacOS/PowerRustCOBOL"
+          cp "target/${{ matrix.target }}/release/rcrun" "$app/Contents/MacOS/rcrun"
+          cp -R assets/themes "$app/Contents/Resources/assets/themes"
+          ln -s "../Resources/assets" "$app/Contents/MacOS/assets"
+          ln -s "PowerRustCOBOL.app/Contents/MacOS/rcrun" "$out/rcrun"
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$out/"
+
+          iconset=$(mktemp -d)/PowerRustCOBOL.iconset
+          mkdir -p "$iconset"
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" assets/images/powerrustcobol-icon.png \
+              --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z "$((size * 2))" "$((size * 2))" assets/images/powerrustcobol-icon.png \
+              --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o "$app/Contents/Resources/PowerRustCOBOL.icns"
+
+          plist="$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Save" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleName string PowerRustCOBOL" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string PowerRustCOBOL" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.cloudlandbeta.powerrustcobol" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string PowerRustCOBOL" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string PowerRustCOBOL" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string APPL" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $VERSION" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$plist"
+
+          # Ad-hoc signature. Apple Silicon refuses to run an unsigned binary,
+          # and assembling the bundle invalidates the one the linker applied.
+          codesign --force --sign - "$app/Contents/MacOS/rcrun"
+          codesign --force --sign - "$app"
+          codesign --verify --strict "$app"
+
+      # Prove the claim rather than assert it: anything the package still needs
+      # from the host has to be a system library, or the job fails here.
+      - name: Verify the package carries its dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux)
+              ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun"
+              if ldd "dist/$PKG/PowerRustCOBOL" "dist/$PKG/rcrun" | grep -qE 'libssl|libcrypto'; then
+                echo "::error::OpenSSL is still linked dynamically — the package is not self-contained"
+                exit 1
+              fi
+              ;;
+            macOS)
+              app="dist/$PKG/PowerRustCOBOL.app/Contents/MacOS"
+              otool -L "$app/PowerRustCOBOL" "$app/rcrun"
+              if otool -L "$app/PowerRustCOBOL" "$app/rcrun" | grep -qE '/usr/local/|/opt/homebrew/'; then
+                echo "::error::a Homebrew library leaked into the binary — it will not run on a clean Mac"
+                exit 1
+              fi
+              ;;
+            Windows)
+              ls -l "dist/$PKG"/*.dll
+              ;;
+          esac
+
+      # Artifact zips drop the Unix executable bit and flatten symlinks; a
+      # tarball keeps both, so the app bundle survives the download intact.
+      - name: Archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          COPYFILE_DISABLE=1 tar -C dist -czf "dist/${PKG}.tar.gz" "$PKG"
+          rm -rf "dist/${PKG:?}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG }}
+          path: dist/
+          if-no-files-found: error
