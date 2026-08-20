@@ -1,14 +1,19 @@
 ---
 name: doc-localize
-description: Produce localization work orders for PowerRustCOBOL docs so an EXTERNAL/cheaper agent does the translating (never Claude credits). Emits, under specs/localization/, what changed in the English canonical and the target languages. Use when the user runs /doc-localize or when /docsync marks translations stale.
+description: "Produce localization work orders so an EXTERNAL agent does bulk translating. SUPERSEDED as the default path by GOLDEN RULE #8 (2026-08-20) — Claude now writes translations directly in /docsync. Use ONLY when the operator explicitly asks to route bulk translation outside; never as the automatic follow-up to a doc change."
 ---
 
-# /doc-localize — drive external localization (no Claude credits)
+# /doc-localize — route bulk translation outside (opt-in only)
 
-Helper of the `/docsync` documentation phase (see `specs/steering/docs.md` →
-Localization policy). **Claude never translates the documents** — translating the
-growing guide is expensive and Claude credits are reserved for building
-PowerRustCOBOL. This skill prepares precise instructions for an external agent.
+> **Superseded as the default (2026-08-20).** GOLDEN RULE #8 requires every doc
+> change to ship in all six languages in the same change, written by Claude —
+> see `/docsync` step 6 and `specs/steering/docs.md` → Localization policy. Only
+> use this skill when the operator explicitly asks for bulk work to be routed to
+> an external agent.
+
+Helper of the `/docsync` documentation phase. When invoked, this skill produces
+a work order and does not translate itself — it prepares precise instructions
+for an external agent to follow.
 
 ## Steps
 
@@ -31,9 +36,13 @@ PowerRustCOBOL. This skill prepares precise instructions for an external agent.
 
 ## Rules
 
-- **Never edit the translation files** `developers-guide-{es,pt,jp,cn,fr}.md`
-  (GOLDEN RULE #3) and **never translate with Claude** — only produce/route the
-  work order.
+- **Superseded as the default path (2026-08-20).** GOLDEN RULE #8 requires every
+  documentation change to ship in every language in the same change, and Claude
+  now writes those translations directly (see `/docsync` step 6). Use this skill
+  **only** when the operator explicitly asks for bulk translation work to be
+  routed outside — not as the automatic follow-up to a doc change.
+- When it *is* invoked, it produces/routes the work order only; it does not
+  translate.
 - Keep work orders small and section-scoped so translation cost tracks the actual
   change, not the whole document.
 - Don't commit/push unless asked.

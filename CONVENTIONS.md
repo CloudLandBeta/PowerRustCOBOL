@@ -64,8 +64,21 @@ layout live in `AGENTS.md`; this file is the do/don't list.)
 
 ## Documentation
 
-- **GOLDEN RULE #3 — never edit the translated guides** `docs/developers-guide-*.md`.
-  The user maintains translations. Edit **only** the English guide `docs/developers-guide-en.md`.
+- **GOLDEN RULE #3 — keep the Developer's Guide current.** After any new
+  feature or any observable fix, update the guide in the same change.
+- **GOLDEN RULE #8 — keep ALL documentation in ALL languages up to date.** The
+  same change must carry the update into **every** supported language: **en, es,
+  pt, fr, jp, cn**. Write the **English canonical first**, then carry the same
+  delta into each translation (never translate from a translation). Files are
+  named `<doc>-<lang>.md` beside the English one.
+  - Keep in English inside every language: COBOL keywords, data-item and
+    paragraph names, everything inside a `cobol` block, CLI commands/flags,
+    paths, identifiers, property names, menu labels, and the product names
+    RustCOBOL / PowerRustCOBOL / rcrun.
+  - Never copy English into a translation file to make it "exist" — a file that
+    claims to be a translation but is English is worse than a missing one.
+  - **This reverses the former "never edit the translated guides" rule**
+    (superseded 2026-08-20). Claude now writes the translations directly.
 
 ## Forum publishing — cobolforo.es (vBulletin 3.8.7)
 

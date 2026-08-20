@@ -262,16 +262,7 @@ Exporting a variable still works for a standalone `rcrun` run from a shell.
 
 ---
 
-## Roadmap
-
-Planned additions, to keep this document the single observability reference:
-
-- **SQL runtime** — per-connection/statement timing and row counts for the
-  SQLite/PostgreSQL/MySQL engines (see [`database-runtime.md`](database-runtime.md)).
-- **HTTP client** — request/latency/status logging for the REST built-ins.
-- **Aggregate run summary** — an optional end-of-run report across all files.
-
-## 3. Run-Form inspector (IDE)
+## 4. Run-Form inspector (IDE)
 
 When **Run Form** is active, the IDE can open a **Run-Form Inspector** (separate
 viewport) that samples the isolated child process:
@@ -303,3 +294,14 @@ sequenceDiagram
     Child-->>IDE: Done
     Note over IDE: inspector shows CPU/RSS tree + anomalies
 ```
+
+---
+
+## Roadmap
+
+Planned additions, to keep this document the single observability reference:
+
+- **SQL runtime** — per-connection/statement timing and row counts for the
+  SQLite/PostgreSQL/MySQL engines (see [`database-runtime.md`](database-runtime.md)).
+- **HTTP client** — request/latency/status logging for the REST built-ins.
+- **Aggregate run summary** — an optional end-of-run report across all files.
