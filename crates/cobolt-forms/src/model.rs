@@ -4100,6 +4100,12 @@ impl Control {
                 props.insert("Value".into(), PropValue::Int(0));
                 props.insert("Step".into(), PropValue::Int(1));
                 props.insert("Accent".into(), PropValue::String("Blue".into()));
+                // The dial's own parts, the way the Gauge names its Color and
+                // NeedleColor: empty means the developer chose nothing, so the
+                // theme paints what it has always painted.
+                props.insert("FaceColor".into(), PropValue::String("".into()));
+                props.insert("RimColor".into(), PropValue::String("".into()));
+                props.insert("TrackColor".into(), PropValue::String("".into()));
                 props.insert("Bipolar".into(), PropValue::Bool(false));
                 props.insert("ShowValue".into(), PropValue::Bool(true));
                 props.insert("DefaultValue".into(), PropValue::Int(0));

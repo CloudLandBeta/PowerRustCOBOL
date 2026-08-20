@@ -5928,6 +5928,11 @@ impl PropertiesPanel {
                     0,
                 );
                 accent_row(ui, id, ctrl, action);
+                // Accent paints the arc and the indicator; these three are the
+                // dial itself, which used to be the theme's alone.
+                color_row_labeled(ui, id, "FaceColor", "Dial face", ctrl, action);
+                color_row_labeled(ui, id, "RimColor", "Rim and inner ring", ctrl, action);
+                color_row_labeled(ui, id, "TrackColor", "Track (remaining)", ctrl, action);
                 bool_row_inline(ui, id, "Bipolar", "Bipolar (fill from centre)", ctrl, action);
                 bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
                 {

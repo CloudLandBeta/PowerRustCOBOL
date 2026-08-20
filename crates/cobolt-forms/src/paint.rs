@@ -2267,6 +2267,16 @@ fn draw_control_body(
 
     // ── Slider ────────────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::Slider) {
+        // The designed background gradient, under the track and the thumb — a
+        // custom painter returns before the generic frame code that would
+        // otherwise have drawn it.
+        paint_background_gradient(
+            painter,
+            rect,
+            themed_corner_radius(painter.ctx(), ctrl).into(),
+            ctrl,
+            alpha_mul,
+        );
         let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
         let max_v = ctrl
             .get_prop("Maximum")
@@ -2775,6 +2785,16 @@ fn draw_control_body(
         ctrl.control_type,
         CT::Knob | CT::Gauge | CT::Switch | CT::FileDropZone
     ) {
+        // The designed background gradient, under the dial, the gauge, the
+        // switch or the drop zone — these four paint their own artwork and
+        // return before the generic frame code that reads the property.
+        paint_background_gradient(
+            painter,
+            rect,
+            themed_corner_radius(painter.ctx(), ctrl).into(),
+            ctrl,
+            alpha_mul,
+        );
         // Under Elegance these read from the REAL palette — it turns out to be
         // public and constructible without a `Ui`/`Context`, so the designer
         // canvas can match the live widget exactly instead of approximating it
@@ -3205,6 +3225,15 @@ fn draw_control_body(
     // stand in for a live *widget*; a basemap has no such off-the-shelf
     // widget to substitute for in the first place).
     if matches!(ctrl.control_type, CT::Maps) {
+        // The designed background gradient, under the tiles — it is what shows
+        // while they load, and on the surfaces that draw no tiles at all.
+        paint_background_gradient(
+            painter,
+            rect,
+            themed_corner_radius(painter.ctx(), ctrl).into(),
+            ctrl,
+            alpha_mul,
+        );
         let center_lat: f64 = ctrl
             .get_prop("CenterLat")
             .map(|v| v.as_str().to_owned())
@@ -3321,7 +3350,13 @@ fn draw_control_body(
                     .map(|c| theme_alpha(c, alpha_mul))
             })
             .unwrap_or(bg_c);
-        painter.rect_filled(rect, corner, bg_c);
+        // The trough is this control's background face, so a designed gradient
+        // paints it exactly as a designed Back colour does. Without this the
+        // gradient rows sat in the inspector doing nothing, because the bar
+        // returns long before the generic frame code that reads them.
+        if !paint_background_gradient(painter, rect, corner.into(), ctrl, alpha_mul) {
+            painter.rect_filled(rect, corner, bg_c);
+        }
         // A vertical bar fills bottom → top, the way a column of liquid rises;
         // a horizontal one fills left → right.
         let filled = if vertical {
@@ -6950,6 +6985,59 @@ pub(crate) fn gradient_color_at(
     lerp_color(start, end, 0.5 + projected / (2.0 * half_extent.max(1.0)))
 }
 
+/// Paint the developer's background GRADIENT as this control's face, for the
+/// controls that draw their own artwork and return before the generic frame
+/// code ever runs. Returns whether it painted, so the caller can skip the solid
+/// fill it would otherwise have drawn.
+///
+/// `BackgroundGradientEnabled` and its three companions are seeded on EVERY
+/// control, but the only code that ever read them lived in the generic frame —
+/// which a custom painter never reaches. So the property sat in the inspector
+/// of a ProgressBar, a Slider, a Knob, a Gauge, a Switch, a FileDropZone and a
+/// Maps, and moved nothing at all. A Shape hit exactly this wall and was fixed
+/// on its own on 2026-08-18; this is that fix generalised, so a custom painter
+/// inherits the behaviour instead of each one rediscovering the bug.
+///
+/// A control with no gradient enabled is untouched: the caller's own face is
+/// drawn exactly as before.
+pub fn paint_background_gradient(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: egui::CornerRadius,
+    ctrl: &Control,
+    alpha_mul: f32,
+) -> bool {
+    if !ctrl
+        .get_prop("BackgroundGradientEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let shade = |key: &str, fallback: Color32| -> Color32 {
+        let c = ctrl
+            .get_prop(key)
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(fallback);
+        Color32::from_rgba_premultiplied(
+            c.r(),
+            c.g(),
+            c.b(),
+            (c.a() as f32 * alpha_mul).round().clamp(0.0, 255.0) as u8,
+        )
+    };
+    let start = shade("BackgroundGradientStartColor", Color32::WHITE);
+    let end = shade("BackgroundGradientEndColor", Color32::WHITE);
+    let dir = ctrl
+        .get_prop("BackgroundGradientDirection")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "South".into());
+    painter.add(egui::Shape::mesh(background_gradient_mesh(
+        rect, start, end, &dir, rounding,
+    )));
+    true
+}
+
 /// Rounded background-gradient mesh. Its perimeter follows each corner radius,
 /// while vertex colors remain an affine eight-direction gradient.
 pub fn background_gradient_mesh(
@@ -8882,7 +8970,21 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
     ));
     let border = theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140));
     let card = theme_token(painter.ctx(), Tok::Card).unwrap_or(Color32::from_gray(40));
-    let track = alpha_color(border);
+
+    // The dial's own parts. Empty — the default — means the developer chose
+    // nothing, so the theme keeps painting precisely what it painted before
+    // these properties existed. Accent still owns the arc and the indicator.
+    let chosen = |prop: &str| -> Option<Color32> {
+        let raw = ctrl.get_prop(prop).map(|v| v.as_str().to_owned())?;
+        if raw.trim().is_empty() {
+            return None;
+        }
+        let c = parse_color(&raw);
+        (c.a() > 0).then_some(c)
+    };
+    let face = chosen("FaceColor").unwrap_or(card);
+    let rim = alpha_color(chosen("RimColor").unwrap_or(border));
+    let track = alpha_color(chosen("TrackColor").unwrap_or(border));
 
     let show_value = ctrl
         .get_prop("ShowValue")
@@ -8904,11 +9006,11 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
     // Sweep: 270°, opening at the bottom — 135° round to 405°.
     stroke_arc(painter, center, radius, arc_stroke, 135.0, 270.0, frac, accent, track);
 
-    let rim_fill = alpha_color(lighten(card, 0.12));
-    painter.circle(center, rim_r, rim_fill, Stroke::new(1.0, alpha_color(border)));
-    painter.circle_filled(center, face_r, alpha_color(card));
+    let rim_fill = alpha_color(lighten(face, 0.12));
+    painter.circle(center, rim_r, rim_fill, Stroke::new(1.0, rim));
+    painter.circle_filled(center, face_r, alpha_color(face));
     if inner_r > 2.0 {
-        painter.circle_stroke(center, inner_r, Stroke::new(1.0, alpha_color(border)));
+        painter.circle_stroke(center, inner_r, Stroke::new(1.0, rim));
     }
 
     // The indicator points at the value: 0 is bottom-left, 1 bottom-right.
@@ -11398,6 +11500,77 @@ mod theme_render_tests {
         full.shapes.iter().map(|cs| leaves(&cs.shape)).sum()
     }
 
+    /// Every control that paints its own artwork must still honour the
+    /// UNIVERSAL background gradient.
+    ///
+    /// The property is seeded on all of them, but only the generic frame code
+    /// ever read it — and a custom painter returns long before that. So the
+    /// gradient rows sat in the inspector of a ProgressBar, a Slider, a Knob, a
+    /// Gauge, a Switch, a FileDropZone and a Maps and moved nothing. This walks
+    /// the painted output and demands the gradient mesh actually appear: a
+    /// vertex carrying the start colour and one carrying the end colour, which
+    /// a solid fill can never produce.
+    #[test]
+    fn a_background_gradient_reaches_every_self_painting_control() {
+        use crate::model::{Control, ControlType as CT, PropValue};
+
+        // Two colours nothing else in any style paints, so finding them proves
+        // the developer's own gradient landed.
+        const START: &str = "#FF00FF";
+        const END: &str = "#00FF7F";
+
+        for ct in [
+            CT::ProgressBar,
+            CT::Slider,
+            CT::Knob,
+            CT::Gauge,
+            CT::Switch,
+            CT::FileDropZone,
+            CT::Maps,
+            CT::Shape,
+        ] {
+            let ctx = egui::Context::default();
+            let mut c = Control::new("C", ct.clone(), 0, 0);
+            c.rect.w = 200;
+            c.rect.h = 60;
+            c.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+            c.set_prop("BackgroundGradientStartColor", PropValue::from(START));
+            c.set_prop("BackgroundGradientEndColor", PropValue::from(END));
+            c.set_prop("BackgroundGradientDirection", PropValue::from("South"));
+
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+
+            fn vertex_colors(s: &egui::Shape, out: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| vertex_colors(s, out)),
+                    egui::Shape::Mesh(m) => out.extend(m.vertices.iter().map(|v| v.color)),
+                    _ => {}
+                }
+            }
+            let mut colors = Vec::new();
+            for cs in &full.shapes {
+                vertex_colors(&cs.shape, &mut colors);
+            }
+            let want_start = parse_color(START);
+            let want_end = parse_color(END);
+            assert!(
+                colors.contains(&want_start) && colors.contains(&want_end),
+                "{ct:?}: the designed background gradient never reached the screen \
+                 (looked for {want_start:?} and {want_end:?} among {} mesh vertices)",
+                colors.len()
+            );
+        }
+    }
+
     #[test]
     fn shape_shadow_properties_add_geometry_in_every_style() {
         use crate::model::GlassStyle as GS;
@@ -12756,6 +12929,98 @@ slice = [4, 4, 4, 4]
         assert_eq!(knob_accent("#FF0"), knob_accent("nonsense"));
 
         println!("\n  Accent — #FF00FF paints magenta; Red/Sky keep their preset; junk falls back to Blue\n");
+    }
+
+    /// The dial's own parts answer to the developer, and an untouched Knob
+    /// still leaves every one of them to the theme.
+    ///
+    /// `Accent` keeps the arc and the indicator; the face, the rim with its
+    /// inner ring, and the part of the arc still to travel used to be the
+    /// theme's alone — a developer could pick a colour for none of them.
+    #[test]
+    fn a_knob_paints_its_face_rim_and_track_in_the_developers_colours() {
+        use crate::model::PropValue;
+
+        /// `(circle fills, circle strokes, arc colours)`.
+        fn ink(ct: &Control) -> (Vec<Color32>, Vec<Color32>, Vec<Color32>) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(
+                s: &egui::Shape,
+                faces: &mut Vec<Color32>,
+                rims: &mut Vec<Color32>,
+                arcs: &mut Vec<Color32>,
+            ) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, faces, rims, arcs)),
+                    egui::Shape::Circle(c) => {
+                        faces.push(c.fill);
+                        rims.push(c.stroke.color);
+                    }
+                    egui::Shape::Path(p) => {
+                        if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                            arcs.push(c);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let (mut faces, mut rims, mut arcs) = (Vec::new(), Vec::new(), Vec::new());
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut faces, &mut rims, &mut arcs);
+            }
+            (faces, rims, arcs)
+        }
+
+        let face = Color32::from_rgb(0x20, 0x30, 0x40);
+        let rim = Color32::from_rgb(0xC0, 0x50, 0x10);
+        let track = Color32::from_rgb(0x00, 0x88, 0x44);
+
+        let mut k = Control::new("K", CT::Knob, 0, 0);
+        k.rect = crate::model::Rect::new(0, 0, 80, 96);
+        k.set_prop("Value", PropValue::Int(50));
+
+        // Untouched: the theme paints, so none of the three can be on the dial.
+        let (faces, rims, arcs) = ink(&k);
+        for (seen, colour, part) in [
+            (&faces, face, "face"),
+            (&rims, rim, "rim"),
+            (&arcs, track, "track"),
+        ] {
+            assert!(
+                !seen.contains(&colour),
+                "an untouched Knob must leave the {part} to the theme; painted {seen:?}"
+            );
+        }
+
+        // Each property reaches the paint.
+        k.set_prop("FaceColor", PropValue::String("#203040".into()));
+        k.set_prop("RimColor", PropValue::String("#C05010".into()));
+        k.set_prop("TrackColor", PropValue::String("#008844".into()));
+        let (faces, rims, arcs) = ink(&k);
+        assert!(
+            faces.contains(&face),
+            "FaceColor must fill the dial; painted {faces:?}"
+        );
+        assert!(
+            rims.contains(&rim),
+            "RimColor must stroke the rim and the inner ring; painted {rims:?}"
+        );
+        assert!(
+            arcs.contains(&track),
+            "TrackColor must paint the part still to travel; painted {arcs:?}"
+        );
+
+        println!(
+            "\n  Knob — FaceColor #203040, RimColor #c05010 and TrackColor #008844 \
+             all reach the paint; an untouched dial shows none of them\n"
+        );
     }
 
     /// Zones own the Gauge's fill once BOTH thresholds are set, and are off
