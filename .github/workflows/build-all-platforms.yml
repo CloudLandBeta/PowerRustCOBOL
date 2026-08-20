@@ -20,7 +20,7 @@
 #             DLLs are the one prerequisite a clean Windows 10 lacks). The UCRT
 #             is part of Windows 10 and later, so it is not shipped.
 #   macOS     a real PowerRustCOBOL.app bundle, ad-hoc signed, with the icon
-#             and theme packs inside it. Only system frameworks are linked.
+#             and the assets tree inside it. Only system frameworks are linked.
 #   Linux     OpenSSL is linked statically, so no libssl.so.3 has to be present
 #             or match. What is left is glibc plus the graphics stack, which
 #             must come from the host: OpenGL, X11 and Wayland are the driver's
@@ -146,19 +146,23 @@ jobs:
           echo "PKG=PowerRustCOBOL-${version}-${{ matrix.name }}" >> "$GITHUB_ENV"
 
       # Linux and Windows: one flat directory. The IDE spawns `rcrun` from its
-      # own directory (Run Form) and reads `assets/themes` from beside its
-      # executable, so the binaries and the theme packs have to stay together.
+      # own directory (Run Form) and reads `assets/` from beside its executable
+      # — theme packs, the welcome backgrounds, the licence texts — so the
+      # binaries and the whole assets tree have to travel together. Shipping a
+      # subset is what left an installed IDE with no themes and no background:
+      # anything the binary opens at RUN time has to be in the package, and only
+      # what it embeds at COMPILE time (the docs, the knowledge store, the icons
+      # and every agent prompt) may be left behind.
       - name: Stage the package
         if: runner.os != 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           out="dist/$PKG"
-          mkdir -p "$out/assets"
+          mkdir -p "$out"
           cp "target/${{ matrix.target }}/release/cobolt-ide${{ matrix.ext }}" "$out/PowerRustCOBOL${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/rcrun${{ matrix.ext }}" "$out/rcrun${{ matrix.ext }}"
-          cp -R assets/themes "$out/assets/themes"
-          cp assets/images/powerrustcobol-icon.png "$out/assets/"
+          cp -R assets "$out/assets"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$out/"
 
       # The Visual C++ runtime, deployed app-local (the form Microsoft supports
@@ -186,10 +190,10 @@ jobs:
           set -euo pipefail
           out="dist/$PKG"
           app="$out/PowerRustCOBOL.app"
-          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/assets"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp "target/${{ matrix.target }}/release/cobolt-ide" "$app/Contents/MacOS/PowerRustCOBOL"
           cp "target/${{ matrix.target }}/release/rcrun" "$app/Contents/MacOS/rcrun"
-          cp -R assets/themes "$app/Contents/Resources/assets/themes"
+          cp -R assets "$app/Contents/Resources/assets"
           ln -s "../Resources/assets" "$app/Contents/MacOS/assets"
           ln -s "PowerRustCOBOL.app/Contents/MacOS/rcrun" "$out/rcrun"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$out/"

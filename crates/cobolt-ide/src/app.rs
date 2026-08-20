@@ -14401,16 +14401,39 @@ fn day_of_month() -> u32 {
     (doy - (153 * mp + 2) / 5 + 1) as u32
 }
 
+/// Locate the bundled `assets/images` directory — beside the executable first,
+/// then the working directory for `cargo run` from the repository root.
+///
+/// It used to be the build machine's own `CARGO_MANIFEST_DIR`, baked into the
+/// binary at compile time. That path exists on the machine that COMPILED the
+/// IDE and nowhere else, so every installed copy looked for its pictures in a
+/// directory belonging to a different computer, found nothing, and silently
+/// dropped the welcome background. A shipped binary can only ever find its
+/// files relative to itself.
+fn images_dir() -> PathBuf {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
+        let c = exe_dir.join("assets/images");
+        if c.is_dir() {
+            return c;
+        }
+    }
+    PathBuf::from("assets/images")
+}
+
 /// The welcome-pane background for today, cached in egui memory. Loads
 /// `assets/images/bg<day>.jpg`, falling back to `bg1.jpg`.
 fn welcome_bg_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
-    const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/images");
+    let dir = images_dir();
+    let dir = dir.display();
     let day = day_of_month();
-    let primary = format!("{DIR}/bg{day}.jpg");
+    let primary = format!("{dir}/bg{day}.jpg");
     let path = if std::path::Path::new(&primary).exists() {
         primary
     } else {
-        format!("{DIR}/bg1.jpg")
+        format!("{dir}/bg1.jpg")
     };
     let id = egui::Id::new(("welcome-bg", &path));
     if let Some(t) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
@@ -15420,6 +15443,40 @@ mod build_button_full_tests {
         // What the build-result handler stamps on success.
         p.project.built_with_version = "1.60.36".to_owned();
         assert!(!build_needs_full(Some(&p), "1.60.36"));
+    }
+}
+
+#[cfg(test)]
+mod bundled_asset_path_tests {
+    use super::*;
+
+    /// Everything the IDE opens at run time must be reachable from the
+    /// executable, never from the machine that compiled it.
+    ///
+    /// `images_dir` used to be the build machine's `CARGO_MANIFEST_DIR`, so a
+    /// packaged IDE looked for its welcome background in a directory that only
+    /// existed on a GitHub runner. This asserts the two directories the binary
+    /// reads from disk resolve the same way — beside the executable, or under
+    /// the working directory — and that neither ever names a build path.
+    #[test]
+    fn bundled_directories_resolve_beside_the_executable() {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .expect("a test binary has a directory");
+
+        for dir in [images_dir(), CoboltApp::themes_dir()] {
+            let s = dir.to_string_lossy().into_owned();
+            assert!(
+                !s.contains(env!("CARGO_MANIFEST_DIR")),
+                "a bundled directory must not carry the build machine's path: {s}"
+            );
+            assert!(
+                dir.starts_with(&exe_dir) || dir.is_relative(),
+                "a bundled directory must sit beside the executable or under the \
+                 working directory, got {s}"
+            );
+        }
     }
 }
 
