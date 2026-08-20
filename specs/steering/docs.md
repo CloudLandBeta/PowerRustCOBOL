@@ -15,7 +15,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |----------|--------|----------|
 | `README.md` | current | repo landing page |
 | `docs/developers-guide-en.md` | **canonical English** | developers using the IDE |
-| `docs/developers-guide-{es,pt,jp,cn}.md` | translations — **user/external-maintained** | localized readers |
+| `docs/developers-guide-{es,pt,fr,jp,cn}.md` | translations — **Claude-maintained** (GOLDEN RULE #8); currently **stale**: pt/jp/cn are English copies, es partial, fr missing | localized readers |
+| `docs/{BENCHMARKS,BUILDING,database-runtime,observability,cobol85-supported-syntax}-{es,pt,fr,jp,cn}.md` | translations — current as of 2026-08-20 | localized readers |
 | `docs/cobol85-supported-syntax.md` | current | language reference |
 | `docs/cobol85-verb-test-matrix.md` | current | verb coverage |
 | `CHANGELOG.md` | current | release notes |
@@ -68,17 +69,25 @@ are candidates for update. Sections use the doc's GitHub anchor.
   need the operator to drive while the skill captures.
 - Reference an image from `docs/` as `../assets/images/screenshots/<name>.png`.
 
-## Localization policy (`/doc-localize`)
+## Localization policy (GOLDEN RULE #8)
 
-- **Claude edits the English canonical only.** Translations
-  (`developers-guide-{es,pt,jp,cn,fr}.md`) are produced/maintained **externally**
-  (GOLDEN RULE #3) — **never spend Claude credits translating**; those are for
-  building PowerRustCOBOL components.
-- When the English doc changes, `/doc-localize` emits a **work order** under
-  `specs/localization/` describing what changed (file, sections/anchors, English
-  deltas) and the target languages, for an external/cheaper translation agent.
-- Target languages: **es, pt, jp, cn** (existing) and **fr** (UI shipped; guide
-  translation not yet created — flag for creation).
+- **Every documentation change ships in every language, in the same change.**
+  After any new feature or any fix, the docs that describe it are updated in
+  **en, es, pt, fr, jp, cn** before the change is considered done.
+- **English first, then the same delta into each translation.** The English file
+  is the canonical text and the only one to reason about correctness in. Never
+  translate from a translation.
+- **Naming:** `<doc>-<lang>.md` beside the English file — `observability-fr.md`,
+  `BUILDING-jp.md`. The English canonical keeps its own name.
+- **Claude writes the translations directly.** This **supersedes** the former
+  "English canonical only / never spend Claude credits translating" policy
+  (reversed 2026-08-20 by operator instruction). `/doc-localize` is retained only
+  for bulk work the operator explicitly asks to route outside; it is no longer
+  the default path out of `/docsync`.
+- **Verify before claiming done:** each touched file passes
+  `iconv -f UTF-8 -t UTF-8`, has zero double-encoded sequences, and carries no
+  leftover English prose or characters from another script.
+- Target languages: **es, pt, fr, jp, cn** (fr included — the IDE ships French).
 - **Glossary — keep untranslated:** `PowerRustCOBOL`, product/menu names, all
   COBOL keywords/identifiers and code samples. Never introduce "cobolt" in any
   language.

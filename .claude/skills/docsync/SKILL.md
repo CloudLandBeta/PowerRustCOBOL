@@ -29,15 +29,23 @@ to `/doc-localize`.
    to add a diagram, colour/emphasis).
 5. **Screenshots:** if a change invalidates an image (UI/layout), or a section is
    missing one, list it and invoke **`/doc-shots`** (or note it for the operator).
-6. **Translations:** for every English doc you changed that has translations, do
-   **not** edit the translations (GOLDEN RULE #3). Instead invoke **`/doc-localize`**
-   to emit a work order for the external translation agent.
-7. **Report** a concise summary: which docs/sections changed, registry rows added,
-   screenshots flagged, and the localization work order path.
+6. **Translations (GOLDEN RULE #8 — required, not optional):** carry **the same
+   delta** you just wrote into **every** supported language — **es, pt, fr, jp,
+   cn** — as `<doc>-<lang>.md` beside the English file. Translate the prose only:
+   COBOL keywords, `cobol` blocks, CLI commands/flags, paths, identifiers,
+   property names, menu labels and the product names stay English. Never
+   translate from a translation, and never copy English in to make a file exist.
+   Then verify each touched file: `iconv -f UTF-8 -t UTF-8` passes, zero
+   double-encoded sequences, no leftover English prose.
+7. **Report** a concise summary: which docs/sections changed in which languages,
+   registry rows added, and screenshots flagged.
 
 ## Rules
 
-- **English canonical only.** Never edit `developers-guide-{es,pt,jp,cn,fr}.md`.
+- **English first, every language same change.** Write/patch the English
+  canonical, then carry it into all five translations before calling the change
+  done. (This **supersedes** the old "English canonical only" rule — Claude now
+  writes translations directly.)
 - Keep the registry in `specs/steering/docs.md` current — a new doc/section needs
   a row in the same change.
 - New `README.md` files are hidden by the global gitignore — `git add -f` them.
