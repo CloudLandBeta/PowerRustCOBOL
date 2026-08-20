@@ -937,6 +937,13 @@ fn build_core(
     // ── 5. Collect form files ─────────────────────────────────────────────────
     report(0.42, "Collecting forms & generated code…");
     let mut forms: Vec<(String, Vec<u8>)> = Vec::new(); // (id, raw_xml_bytes)
+    // 049 — the menu sidecars, keyed by the control that owns them. A SideMenu
+    // or MenuBar keeps its structure in `<control id>.menu.yaml` beside the
+    // `.cfrm`, never in a property, so a build that embedded only the forms
+    // produced an application whose menus were empty: the compiled shell had
+    // a rail with nothing on it. They ride into the binary exactly as the
+    // forms do.
+    let mut menus: Vec<(String, Vec<u8>)> = Vec::new(); // (control id, yaml bytes)
 
     for rel in &proj.files.forms {
         let abs = project_dir.join(rel);
@@ -950,6 +957,28 @@ fn build_core(
             .unwrap_or(rel.as_str())
             .to_ascii_uppercase();
         let raw = std::fs::read(&abs)?;
+        // `menu_yaml_path` names the sidecar `<control id>.menu.yaml`, so the
+        // file stem IS the control id and the directory can be read without
+        // parsing the form again.
+        if let Some(dir) = abs.parent() {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    let Some(name) = p.file_name().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let Some(ctrl_id) = name.strip_suffix(".menu.yaml") else {
+                        continue;
+                    };
+                    if menus.iter().any(|(k, _)| k == ctrl_id) {
+                        continue;
+                    }
+                    if let Ok(bytes) = std::fs::read(&p) {
+                        menus.push((ctrl_id.to_owned(), bytes));
+                    }
+                }
+            }
+        }
         forms.push((id, raw));
     }
 
@@ -1066,6 +1095,15 @@ fn build_core(
     // Write form files
     for (id, raw) in &forms {
         write_if_changed(&forms_dir.join(format!("{id}.cfrm")), raw)?;
+    }
+
+    // 049 — the menu sidecars, beside the forms they belong to.
+    if !menus.is_empty() {
+        let menus_dir = assets_dir.join("menus");
+        std::fs::create_dir_all(&menus_dir)?;
+        for (ctrl_id, yaml) in &menus {
+            write_if_changed(&menus_dir.join(format!("{ctrl_id}.menu.yaml")), yaml)?;
+        }
     }
 
     // 051 R1 — each openable form's program, beside the main `program.bin`.
@@ -1196,12 +1234,14 @@ fn build_core(
         &proj.forms.exit_easing,
     );
     let program_ids: Vec<&str> = form_programs.iter().map(|(id, _)| id.as_str()).collect();
+    let menu_ids: Vec<&str> = menus.iter().map(|(id, _)| id.as_str()).collect();
     let main_rs = generate_main_rs(
         &proj.project.name,
         &proj.project.version,
         has_forms,
         &form_ids,
         &program_ids,
+        &menu_ids,
         &staged_themes,
         &project_theme_default,
         &entrance_fx,
@@ -1759,6 +1799,7 @@ fn generate_main_rs(
     has_forms: bool,
     form_ids: &[&str],
     program_ids: &[&str],
+    menu_ids: &[&str],
     themes: &[StagedTheme],
     project_theme_default: &str,
     entrance_fx: &str,
@@ -1790,6 +1831,22 @@ fn generate_main_rs(
         format!(
             "#[allow(dead_code)]\nstatic PROGRAMS: &[(&str, &[u8])] = &[\n{programs_entries}];\n"
         )
+    };
+
+    // 049 — the menu sidecars, keyed by the control that owns them. A shell
+    // application builds its rail from these; without them a compiled binary
+    // came up with an empty MenuPane, because a menu lives in a `.menu.yaml`
+    // beside the form and never in a property.
+    let menus_entries: String = menu_ids
+        .iter()
+        .map(|id| {
+            format!("    (\"{id}\", include_str!(\"../assets/menus/{id}.menu.yaml\")),\n")
+        })
+        .collect();
+    let menus_const = if menu_ids.is_empty() {
+        "#[allow(dead_code)]\nstatic MENUS: &[(&str, &str)] = &[];\n".to_owned()
+    } else {
+        format!("#[allow(dead_code)]\nstatic MENUS: &[(&str, &str)] = &[\n{menus_entries}];\n")
     };
 
     // Embedded asset-pack themes: `(id, theme.toml, [(image ref, bytes)])`.
@@ -1973,6 +2030,27 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     let (closed_tx, closed_rx) = mpsc::channel::<String>();
     let form_object = first_form.name.trim().to_ascii_uppercase();
 
+    // 049 — a SideMenu on the MAIN form puts the application in SHELL mode:
+    // one window laid out as MenuPane + breadcrumb + ContentPane, exactly what
+    // `rcrun run-form` does. Read BEFORE the form moves into the config below.
+    //
+    // A built application used to skip this decision entirely and always open
+    // the classic single window, so a shell app's embedded forms were painted
+    // across the whole window — over the rail rather than beside it — and the
+    // Open/Collapsed state moved nothing, there being no pane to be in.
+    let shell_mode = first_form.has_side_menu();
+    let root_menu = if shell_mode {
+        first_form.side_menu_control_id().and_then(|ctrl_id| {
+            MENUS
+                .iter()
+                .find(|(id, _)| id.eq_ignore_ascii_case(&ctrl_id))
+                .and_then(|(_, yaml)| cobolt_forms::menu::parse_menu(yaml).ok())
+                .map(|def| (ctrl_id, def))
+        })
+    } else {
+        None
+    };
+
     // The COBOL event loop runs on its own thread. The input channel lets the UI
     // push live control values (slider drag, text edit, …) so event handlers read
     // the current value rather than the seeded default. This thread is the
@@ -2058,7 +2136,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // Everything from here is the SHARED host (042 R1/R3) — the same window
     // code `rcrun run-form` runs: viewport assembly from the designed window
     // properties, 038 effect playback, 037 lifecycle, state/event routing.
-    cobolt_form_host::run(cobolt_form_host::FormHostConfig {
+    let host_config = cobolt_form_host::FormHostConfig {
         form: first_form,
         flat,
         state,
@@ -2089,9 +2167,16 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         // 042 R17 — the designed `form.title` wins; the branded fallback shows
         // only when the design left the title blank.
         title_fallback: format!("{} v{}", APP_NAME, APP_VERSION),
+        // `run_shell` forces Pane itself; a classic one-window application
+        // stays exactly as it was.
         surface: cobolt_form_host::Surface::Window,
         hooks: Box::new(BlockWindows),
-    });
+    };
+    if shell_mode {
+        cobolt_form_host::shell::run_shell(host_config, root_menu);
+    } else {
+        cobolt_form_host::run(host_config);
+    }
 }
 
 "#
@@ -2126,6 +2211,10 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 /// spawns an interpreter over it when the form is opened. The MAIN form's
 /// program is `PROGRAM_AST`, exactly as it always was.
 {programs_const}
+/// Embedded menu sidecars, keyed by the id of the control that owns them
+/// (049). A SideMenu on the MAIN form puts the application in SHELL mode, and
+/// its rail is built from the entry named here.
+{menus_const}
 /// Embedded asset-pack themes: `(id, theme.toml source, [(image ref, bytes)])`.
 /// Only the packs the forms actually resolve to are baked in, and only the art
 /// their manifests reference, so a themed app is self-contained without
@@ -2187,6 +2276,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         version = version,
         forms_const = forms_const,
         programs_const = programs_const,
+        menus_const = menus_const,
         themes_const = themes_const,
         theme_default_const = theme_default_const,
         window_fx_const = window_fx_const,
@@ -2813,8 +2903,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ShowValue" => (BOOL_DOMAIN, "Draws the numeric value on the control."),
         "TickFrequency" => ("integer > 0 (value units)", "Draw a tick every N units."),
         "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn."),
-        "TrackColor" => (COLOR_DOMAIN, "Slider rail color — the part still to travel, from Value to Maximum. Outranks the Appearance BackgroundColor; left at its default the active theme paints."),
+        "TrackColor" => (COLOR_DOMAIN, "The part still to travel: a Slider's rail from Value to Maximum, a Knob's arc from Value round to Maximum. Outranks the Appearance BackgroundColor; left at its default the active theme paints."),
         "ThumbColor" => (COLOR_DOMAIN, "Slider knob color. Outranks the Appearance ForegroundColor; left at its default the active theme paints."),
+        "FaceColor" => (COLOR_DOMAIN, "Knob dial face — the round body the indicator turns over. Empty (the default) leaves it to the theme. The rim's own fill is this colour lightened, so a face colour carries the whole dial."),
+        "RimColor" => (COLOR_DOMAIN, "Knob rim and inner ring — the two outlines around the dial face. Empty (the default) leaves them to the theme."),
 
         // ── Date/time ──
         "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Date display format preset."),
@@ -3226,7 +3318,7 @@ fn control_purpose(name: &str) -> &'static str {
         "PictureBox" => "Displays a still image.",
         "ProgressBar" => "Shows progress within Minimum..Maximum.",
         "MenuBar" => "Window menu bar (menu structure is edited in the designer and stored in a `.menu.yaml` sidecar, not in a property). Menu items may carry an icon from the built-in catalogue: 660+ pure-vector icons in 26 categories (documents, editing, navigation, commerce, payroll, receivables, payments, stock control, transportation, logistics, financial, company departments, transaction kinds, civilian vehicles, military equipment, and more). Icons are resolution-independent line work tinted by the item's colour; the engine can also apply a second accent colour, a drop shadow, or a neumorphic emboss.",
-        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The sidebar also owns the BREADCRUMB FRAME, which always runs from its right edge to the window's right edge (no width or position property exists): `BreadcrumbHeight` (16..200, default 28) and `BreadcrumbBackgroundColor` (empty = follow the ContentPane's backdrop; alpha allowed, the frame is still painted opaque) and `BreadcrumbTextAlign` (Top | Middle | Bottom, default Middle — it places the chain AND the Open/Collapsed toggle together, since they are the two things in the band; their SIZES stay separate), `BreadcrumbFontSize` (0 = follow the rail's FontSize, the historical behaviour; otherwise 4..200) and `BreadcrumbIconSize` (0 = the toggle stays a square of the frame's height capped at 48, the historical behaviour; otherwise 8..200, never taller than the frame). THE FRAME'S HEIGHT, THE CHAIN'S TEXT SIZE AND THE TOGGLE'S SIZE ARE THREE SEPARATE DIALS: changing one moves nothing else. In particular the chain no longer has to share the rail's FontSize (that one property used to size the menu labels and the navigation chain together, so neither could be set alone), and raising `BreadcrumbHeight` to make room for your own controls no longer grows the toggle arrow with it. The frame's height is independent of the breadcrumb's font — a bigger FontSize never grows it, a smaller one never shrinks it, and text too big for the frame is CLIPPED by it rather than drawn outside — which is what gives `BreadcrumbTextAlign` something to do: on a frame taller than its text it puts the chain against the top, in the middle, or against the bottom. A form LOADED INTO THE CONTENTPANE starts BELOW the frame, never over it, so an embedded form's first row of controls can never land on the navigation chain. While `FullHeight` is on the frame OVERLAYS the top band of the SHELL form's own coordinate space, exactly as the designer canvas draws it, so THE SHELL FORM'S OWN CONTROLS MAY BE PLACED OVER IT — the frame is chrome, NOT a container: such a control is nobody's child, is not clipped by or scrolled with the frame, keeps every property and event, paints on top and takes the click. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons, and they are sized per rail state: `IconSize` (default 22) while the rail is OPEN and `IconSizeCollapsed` (default 22) while it is COLLAPSED, since an icon beside a label and an icon that IS the row are two different pictures; a form with no `IconSizeCollapsed` uses `IconSize` for both. EXPANDED, a group's items are indented under it one level at a time, the whole row moving together so an item's icon stays beside its own label at every level. COLLAPSED, the rail carries an item when, and only when, it has an icon, has an action and is not a group — a group is dropped and its qualifying children come up in its place, flattened from wherever they sit, so the rail is the shortcuts rather than the structure; section dividers survive only between two icons. On that rail an item whose action is `home` is followed by a whole row's worth of extra space, so the distance from it to the icon below is twice the distance between any other two; it is the ACTION that earns the space, never the label, and nothing is added where a divider already falls beneath it. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. `Home (main content pane)` takes NO target and opens nothing: it puts the shell form's OWN ContentPane content back on screen, so a 'main screen' needs no form of its own. Home PARKS rather than destroys — the outgoing occupant gets onDeactivate but no onDestroy, keeps its WORKING-STORAGE, and a later load of it revives that same instance; every other live form, child windows included, is untouched. The breadcrumb collapses to the shell form and the contextual menu section empties; Home while already home does nothing. Home is offered on a SideMenu only, since a MenuBar form has no ContentPane to restore. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
+        "SideMenu" => "Vertical sidebar menu (spec 049). On the MAIN form it puts the application in SHELL mode: one window with a MenuPane, a breadcrumb and a ContentPane. The menu structure is edited in the SAME menu editor a MenuBar uses (inspector button 'Edit Menu...') and stored in a `.menu.yaml` sidecar keyed by control id; a MenuBar deliberately does NOT trigger the shell, so existing projects keep classic multi-window mode. Property `FullHeight` (default true): true = the sidebar owns the window's whole vertical extent and the breadcrumb starts at its right edge; false = the breadcrumb spans the full width and the sidebar fills the height beneath it. While FullHeight is true the control's Y and Height are inert (greyed in the inspector, drawn down the form's full height in the designer and following a form resize); Width stays developer-set. Property `Collapsed` (default false) is the pane state the application OPENS in; the operator's own remembered choice (persisted per application) wins over it from then on. The sidebar also owns the BREADCRUMB FRAME, which always runs from its right edge to the window's right edge (no width or position property exists): `BreadcrumbHeight` (16..200, default 28) and `BreadcrumbBackgroundColor` (empty = follow the ContentPane's backdrop; alpha allowed, the frame is still painted opaque) and `BreadcrumbTextAlign` (Top | Middle | Bottom, default Middle — it places the chain AND the Open/Collapsed toggle together as ONE GROUP: the alignment moves the pair inside the frame and the chain then centres on the toggle's own line, so the text sits on the icon's middle at Top and at Bottom just as it does at Middle, however large the icon; their SIZES stay separate), `BreadcrumbFontSize` (0 = follow the rail's FontSize, the historical behaviour; otherwise 4..200) and `BreadcrumbIconSize` (0 = the toggle stays a square of the frame's height capped at 48, the historical behaviour; otherwise 8..200, never taller than the frame). THE FRAME'S HEIGHT, THE CHAIN'S TEXT SIZE AND THE TOGGLE'S SIZE ARE THREE SEPARATE DIALS: changing one moves nothing else. In particular the chain no longer has to share the rail's FontSize (that one property used to size the menu labels and the navigation chain together, so neither could be set alone), and raising `BreadcrumbHeight` to make room for your own controls no longer grows the toggle arrow with it. The frame's height is independent of the breadcrumb's font — a bigger FontSize never grows it, a smaller one never shrinks it, and text too big for the frame is CLIPPED by it rather than drawn outside — which is what gives `BreadcrumbTextAlign` something to do: on a frame taller than its text it puts the chain against the top, in the middle, or against the bottom. A form LOADED INTO THE CONTENTPANE starts BELOW the frame, never over it, so an embedded form's first row of controls can never land on the navigation chain. While `FullHeight` is on the frame OVERLAYS the top band of the SHELL form's own coordinate space, exactly as the designer canvas draws it, so THE SHELL FORM'S OWN CONTROLS MAY BE PLACED OVER IT — the frame is chrome, NOT a container: such a control is nobody's child, is not clipped by or scrolled with the frame, keeps every property and event, paints on top and takes the click. The ☰ toggle is painted at the TOP of the sidebar in the designer and at run time, in both pane states and whether or not the menu has items; the sidebar's ☰, items and empty hint are all top-anchored, never vertically centred. Menu-item ICONS render in the sidebar on every surface (designer canvas, preview, Run Form pane and the shell MenuPane). Property `IconEffect` (None | Shadow | Neumorphic, default None) styles those icons, and they are sized per rail state: `IconSize` (default 22) while the rail is OPEN and `IconSizeCollapsed` (default 22) while it is COLLAPSED, since an icon beside a label and an icon that IS the row are two different pictures; a form with no `IconSizeCollapsed` uses `IconSize` for both. EXPANDED, a group's items are indented under it one level at a time, the whole row moving together so an item's icon stays beside its own label at every level. COLLAPSED, the rail carries an item when, and only when, it has an icon, has an action and is not a group — a group is dropped and its qualifying children come up in its place, flattened from wherever they sit, so the rail is the shortcuts rather than the structure; section dividers survive only between two icons. On that rail an item whose action is `home` is followed by a whole row's worth of extra space, so the distance from it to the icon below is twice the distance between any other two; it is the ACTION that earns the space, never the label, and nothing is added where a divider already falls beneath it. In preview and Run Form the sidebar is LIVE: the ☰ toggles the rail (firing onMenuOpen/onMenuClose) and item rows click (SelectedItemId + onMenuItemClick). The menu editor's Indent/Outdent buttons restructure items across sections and levels (3 levels max). Menu-item ACTIONS (spec 051): `Open form` loads the target into the ContentPane as its own program instance (target must be FormFormat Embedded or Both); `Open Stand Alone Form (Sync)`/`(Async)` open the target in its OWN window, same process, parented to the shell — Sync is implicitly modal (the whole shell face waits until the child closes), Async is modeless (target must be Standalone or Both); the Target picker lists only the forms the chosen action may load. `Home (main content pane)` takes NO target and opens nothing: it puts the shell form's OWN ContentPane content back on screen, so a 'main screen' needs no form of its own. Home PARKS rather than destroys — the outgoing occupant gets onDeactivate but no onDestroy, keeps its WORKING-STORAGE, and a later load of it revives that same instance; every other live form, child windows included, is untouched. The breadcrumb collapses to the shell form and the contextual menu section empties; Home while already home does nothing. Home is offered on a SideMenu only, since a MenuBar form has no ContentPane to restore. The control also exposes the methods `OpenStandAloneFormSync`/`OpenStandAloneFormAsync` (see its Methods) for opening those windows from COBOL.",
         "ToolBar" => "Groups of buttons in a horizontal strip. Each group is a frame with its own border and corner radius, separated from the next by an invisible gap; each button carries an icon, its own colours and an action. Built in the designer's Toolbar Editor (`ToolbarLayout`), not from a property list.",
         "StatusBar" => "Bottom status strip.",
         "Line" => "Decorative straight line.",
@@ -3773,6 +3865,9 @@ fn controls_reference_doc() -> String {
          too big for the frame is CLIPPED by it rather than drawn outside. That is what makes \
          the alignment meaningful — on a frame taller than its text, `BreadcrumbTextAlign` \
          says whether the chain sits against the top, in the middle, or against the bottom. \
+         The chain and the toggle move as ONE GROUP: the alignment places the pair, and the \
+         text then centres on the toggle's own line, so a tall icon and a small font stay on \
+         one line at Top and at Bottom exactly as they do at Middle. \
          While the sidebar's `FullHeight` is on (the \
          default) the frame is the top BAND of the content area — it OVERLAYS the SHELL \
          form's own coordinate space exactly as the designer canvas draws it, so the window \
@@ -4422,6 +4517,7 @@ mod resolve_main_tests {
             &["MAIN", "CRM", "REPORT"],
             &["CRM", "REPORT"],
             &[],
+            &[],
             "",
             "none:600:ease-out",
             "none:600:ease-out",
@@ -4452,6 +4548,7 @@ mod resolve_main_tests {
             "1.0.0",
             true,
             &["MAIN"],
+            &[],
             &[],
             &[],
             "",
@@ -4684,7 +4781,7 @@ mod resolve_main_tests {
     /// for free by going through the same `FormHost` as Run Form.
     #[test]
     fn elegance_generated_binary_publishes_its_surface_theme() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("fn resolve_surface_theme("));
         assert!(src.contains("None => resolve_surface_theme(&first_form),"));
         assert!(src.contains("surface_theme,"));
@@ -4700,13 +4797,60 @@ mod resolve_main_tests {
         );
     }
 
+    /// 049 — a built application enters SHELL mode for itself.
+    ///
+    /// The generated glue used to call `cobolt_form_host::run` unconditionally,
+    /// so a compiled app with a SideMenu opened the classic single window: no
+    /// MenuPane, no ContentPane, and an embedded form painted across the whole
+    /// window instead of beside the rail. `rcrun run-form` made this decision
+    /// (`form.has_side_menu()`) and the binary did not, which is exactly why
+    /// the same project behaved differently once it was compiled.
+    #[test]
+    fn a_built_application_opens_a_shell_when_the_main_form_has_a_sidebar() {
+        let src = generate_main_rs(
+            "Demo",
+            "1.0.0",
+            true,
+            &["MAIN"],
+            &[],
+            &["SIDE-1"],
+            &[],
+            "",
+            "none:600:ease-out",
+            "none:600:ease-out",
+            false,
+        );
+
+        // The decision itself, taken before the form moves into the config.
+        assert!(src.contains("let shell_mode = first_form.has_side_menu();"));
+        assert!(src.contains("cobolt_form_host::shell::run_shell(host_config, root_menu);"));
+        // …and the classic one-window path is still there for every form
+        // without a sidebar.
+        assert!(src.contains("cobolt_form_host::run(host_config);"));
+
+        // The rail needs its menu, and a compiled binary has no `.menu.yaml`
+        // on disk — so the sidecar is embedded and parsed from memory.
+        assert!(
+            src.contains(r#"("SIDE-1", include_str!("../assets/menus/SIDE-1.menu.yaml"))"#),
+            "the menu sidecar must be embedded, or the shell opens an empty rail"
+        );
+        assert!(src.contains("cobolt_forms::menu::parse_menu(yaml)"));
+
+        // Single braces: this half of the template is a raw string, NOT a
+        // format! target, so a doubled brace would reach the generated file.
+        assert!(
+            !src.contains("if shell_mode {{"),
+            "the generated source must not carry format! brace escapes"
+        );
+    }
+
     #[test]
     fn generated_binary_publishes_its_theme_pack_every_frame() {
         let themes = vec![StagedTheme {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
@@ -4716,7 +4860,7 @@ mod resolve_main_tests {
         // pack into the host's config.
         assert!(src.contains("let theme_pack = resolve_theme_pack(&first_form);"));
         assert!(src.contains("theme_pack,"));
-        assert!(src.contains("cobolt_form_host::run(cobolt_form_host::FormHostConfig {"));
+        assert!(src.contains("let host_config = cobolt_form_host::FormHostConfig {"));
 
         // The pack's manifest and art are embedded, keeping the binary
         // self-contained on a machine with no PowerRustCOBOL install.
@@ -4744,6 +4888,7 @@ mod resolve_main_tests {
             &["MAIN"],
             &[],
             &[],
+            &[],
             "",
             "matrix-rain:1500:ease-in-out",
             "fade:400:ease-in",
@@ -4758,7 +4903,7 @@ mod resolve_main_tests {
         assert!(src.contains("PRC_NO_WINDOW_FX"));
         assert!(src.contains("cobolt_forms::window_fx::FxSpec::parse(PROJECT_FX_ENTRANCE)"));
         // Thin glue over the shared host — the divergent-host era is over.
-        assert!(src.contains("cobolt_form_host::run(cobolt_form_host::FormHostConfig {"));
+        assert!(src.contains("let host_config = cobolt_form_host::FormHostConfig {"));
         assert!(src.contains("cobolt_form_host::seeding::build_object_seed"));
         assert!(src.contains("set_form_host"));
         assert!(!src.contains("struct CtrlState"), "no second control-state copy");
@@ -4775,7 +4920,7 @@ mod resolve_main_tests {
         // A project with no effects bakes inert triples — `none` parses to
         // WindowEffect::None, so nothing plays.
         let quiet = generate_main_rs(
-            "Demo", "1.2.3", true, &["MAIN"], &[], &[], "",
+            "Demo", "1.2.3", true, &["MAIN"], &[], &[], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
         );
         assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
@@ -4794,7 +4939,7 @@ mod resolve_main_tests {
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -4839,6 +4984,7 @@ mod resolve_main_tests {
             "GenCompileCheck",
             "0.1.0",
             true,
+            &[],
             &[],
             &[],
             &[],
@@ -4944,7 +5090,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(
@@ -5122,7 +5268,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(

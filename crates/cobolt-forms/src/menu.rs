@@ -311,8 +311,18 @@ mod hex {
 // ── Load / Save ─────────────────────────────────────────────────────────────────
 
 pub fn load_menu(path: &Path) -> Result<MenuDefinition, MenuError> {
-    let content = std::fs::read_to_string(path)?;
-    let def: MenuDefinition = serde_yaml::from_str(&content)?;
+    parse_menu(&std::fs::read_to_string(path)?)
+}
+
+/// The same menu, read from text rather than from a file — including the HMAC
+/// check, which is the point of sharing one parser.
+///
+/// A COMPILED application has no `.menu.yaml` on disk: the sidecars are
+/// embedded in the executable, so the shell's rail has to be built from bytes.
+/// Without this the binary would either carry no menu at all or reach for
+/// `serde_yaml` itself and skip the verification `load_menu` performs.
+pub fn parse_menu(yaml: &str) -> Result<MenuDefinition, MenuError> {
+    let def: MenuDefinition = serde_yaml::from_str(yaml)?;
     verify_hmac(&def)?;
     Ok(def)
 }
