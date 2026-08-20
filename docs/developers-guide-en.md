@@ -311,9 +311,8 @@ The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fad
 - **Output panel (bottom).** Program `DISPLAY` output, build logs, and status
   messages.
 
-> ð· **Screenshot needed â `ide-overview.png`.** A full-window capture with a
-> project open, a form selected (so the property inspector is visible), and some
-> text in the Output panel. Annotate the four regions if you can.
+<!-- 📷 ide-overview.png — A full-window capture with a project open, a form selected (so the property inspector is visible), and some text in the Output panel. Annotate the four regions if you can. -->
+<p align="center"><img src="../assets/images/screenshots/ide-overview.png" alt="A full-window capture with a project open, a form selected (so the property inspector is visible), and some text in the…" width="900"></p>
 
 ### The AI assistant (optional)
 
@@ -1488,7 +1487,18 @@ it is born rounded, at `10`. The frame itself answers to the same `BorderStyle`,
 `Accent` (the colour of the arc and the indicator â any colour, from the
 properties pane's picker), `Bipolar` (the fill grows from the centre
 outward instead of from `Minimum`), `ShowValue` (draws the numeric readout),
-and `Label` (a caption under the dial). Its primary event is `onChange`
+and `Label` (a caption under the dial).
+
+Three more properties paint the dial itself, which the theme used to own
+outright: `FaceColor` (the round face the indicator turns over), `RimColor`
+(the rim and the thin inner ring around that face), and `TrackColor` (the
+part of the arc still to travel, from `Value` round to `Maximum`). Each is
+empty by default, and empty means the active theme paints that part exactly
+as before, so a knob you never coloured looks unchanged. `Accent` still
+covers the travelled arc and the indicator together. The rim's fill is the
+face colour lightened, so setting `FaceColor` alone carries the whole dial.
+
+Its primary event is `onChange`
 (also `onValueChanged`), fired as the user drags. Methods: `SetValue()` /
 `GetValue()` / `Increment()` / `Decrement()` / `Reset()` â the same
 value-control contract as `Slider`/`NumericUpDown`.
@@ -4625,7 +4635,7 @@ owns the three things that are yours to choose:
 |---|---|---|
 | `BreadcrumbHeight` | **Breadcrumb height** | How tall the frame is drawn, 16 to 200 points. Default 28. |
 | `BreadcrumbBackgroundColor` | **Breadcrumb background** | The frame's own colour. Leave it **empty** and the frame keeps following the content pane's background, which is what it has always done. |
-| `BreadcrumbTextAlign` | **Breadcrumb vertical align** | Where the chain **and the Open/Collapsed toggle** sit inside the frame: `Top`, `Middle` (the default) or `Bottom`. They move together — they are the two things in the band, and one at an edge with the other pinned to the middle reads as two unrelated controls. |
+| `BreadcrumbTextAlign` | **Breadcrumb vertical align** | Where the chain **and the Open/Collapsed toggle** sit inside the frame: `Top`, `Middle` (the default) or `Bottom`. They move as one group: the alignment places the pair, and the chain then centres on the toggle's own line, so the text sits on the icon's middle at `Top` and at `Bottom` exactly as it does at `Middle`, however large the icon. Aligning each to the frame's own edge instead left a tall icon and a small font with their middles apart, reading as two unrelated controls. |
 | `BreadcrumbFontSize` | **Breadcrumb font size** | The chain's own text size. `0` — the default — keeps it following the sidebar's `FontSize`, as it always did. |
 | `BreadcrumbIconSize` | **Breadcrumb icon size** | The Open/Collapsed toggle's own size. `0` — the default — keeps it a square of the frame's height, as it always did. It is never drawn taller than the frame. |
 

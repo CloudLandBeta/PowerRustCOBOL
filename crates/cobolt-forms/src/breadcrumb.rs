@@ -106,24 +106,22 @@ impl TextAlign {
         }
     }
 
-    /// The y to anchor text at inside `rect`, and the matching egui alignment.
-    fn anchor(self, rect: Rect) -> (f32, egui::Align) {
-        match self {
-            Self::Top => (rect.min.y + PAD_Y, egui::Align::TOP),
-            Self::Middle => (rect.center().y, egui::Align::Center),
-            Self::Bottom => (rect.max.y - PAD_Y, egui::Align::BOTTOM),
-        }
-    }
-
-    /// Where the centre of a `side`-tall toggle cell goes inside `rect`.
+    /// The one line the toggle and the chain both centre on inside `rect`.
     ///
-    /// The toggle rides the SAME alignment as the chain: they are the two
-    /// things in the band, and pinning the arrow to the middle while the text
-    /// moved to an edge left them looking like two unrelated controls. Its
-    /// SIZE stays its own (`BreadcrumbIconSize`) — only the placement is
-    /// shared. Clamped, so the cell can never hang out of the frame.
-    fn cell_center_y(self, rect: Rect, side: f32) -> f32 {
-        let half = side * 0.5;
+    /// The arrow and the text are a GROUP, not two things that happen to share
+    /// a band. The group is as tall as its tallest member, the alignment moves
+    /// the GROUP inside the frame, and both members then centre on the line
+    /// this returns — so the text sits on the icon's middle at Top and at
+    /// Bottom exactly as it always did at Middle.
+    ///
+    /// Aligning them separately is what made them read as two unrelated
+    /// controls: each pinned its own edge to the frame's, so a 34-point icon
+    /// and a 20-point line of text came out with their middles 7 points apart,
+    /// and the taller the icon the wider the gap. Their SIZES stay their own
+    /// (`BreadcrumbIconSize`, and the chain's own font) — only the line is
+    /// shared. Clamped, so the group can never hang out of the frame.
+    fn group_center_y(self, rect: Rect, side: f32, text_h: f32) -> f32 {
+        let half = side.max(text_h).min(rect.height()) * 0.5;
         let (top, bottom) = (rect.min.y + half, rect.max.y - half);
         if top >= bottom {
             return rect.center().y;
@@ -310,10 +308,17 @@ pub fn layout(
         Some(size) => size.min(rect.height()),
         None => rect.height().min(TOGGLE_MAX),
     };
+    // The chain's own line height. The toggle is placed against the GROUP the
+    // two of them form, so a font taller than the arrow moves the arrow instead
+    // of leaving the text to fend for itself against the frame's edge.
+    let text_h = painter
+        .layout_no_wrap("Ag".to_owned(), state.font.clone(), state.fg)
+        .size()
+        .y;
     let toggle = Rect::from_center_size(
         Pos2::new(
             rect.min.x + side * 0.5,
-            state.align.cell_center_y(rect, side),
+            state.align.group_center_y(rect, side, text_h),
         ),
         Vec2::splat(side),
     );
@@ -375,9 +380,12 @@ pub fn paint(
     // The clip is what makes the frame's height authoritative: a font too big
     // for the frame is cut off BY the frame, never drawn outside it.
     let p = painter.with_clip_rect(rect);
-    let (text_y, valign) = state.align.anchor(rect);
-    let align_left = egui::Align2([egui::Align::LEFT, valign]);
-    let align_right = egui::Align2([egui::Align::RIGHT, valign]);
+    // The chain centres on the toggle's own line, READ from the layout rather
+    // than worked out a second time here — that second calculation is what let
+    // the two disagree about where the line was.
+    let text_y = l.toggle.center().y;
+    let align_left = egui::Align2([egui::Align::LEFT, egui::Align::Center]);
+    let align_right = egui::Align2([egui::Align::RIGHT, egui::Align::Center]);
     let sep_at = |x: f32| {
         p.text(
             Pos2::new(x - SEP_GAP, text_y),
@@ -1019,7 +1027,7 @@ mod tests {
 
         let ys: Vec<f32> = [TextAlign::Top, TextAlign::Middle, TextAlign::Bottom]
             .iter()
-            .map(|a| a.anchor(tall).0)
+            .map(|a| a.group_center_y(tall, 24.0, 16.0))
             .collect();
         assert!(ys[0] < ys[1] && ys[1] < ys[2], "top above middle above bottom: {ys:?}");
         assert!(ys[0] >= tall.min.y, "top stays inside the frame");
@@ -1126,24 +1134,64 @@ mod tests {
         assert_eq!(after.toggle_size, icon_before, "…nor the toggle");
     }
 
-    /// The toggle rides the chain's alignment, so the two stay on one line.
+    /// The toggle and the chain are ONE group: at every alignment the text's
+    /// middle sits on the icon's middle, never on the frame's own edge.
+    ///
+    /// The text is measured where it actually landed — walked out of the
+    /// painted shapes — because the bug this pins was precisely that the
+    /// placement the layout computed and the placement the paint computed were
+    /// two different numbers.
     #[test]
     fn the_toggle_moves_with_the_chain_not_apart_from_it() {
         let ctx = ctx();
         let segs = vec!["Main Menu".to_string()];
         let tall = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 120.0));
 
-        let placed = |align: TextAlign| {
+        // `(toggle centre, painted text centre)`.
+        let placed = |align: TextAlign, side: f32| -> (f32, f32) {
             let mut st = state_plain(&segs, CHROME);
             st.align = align;
-            st.toggle_size = Some(24.0);
-            let l = with_painter(&ctx, |p| layout(p, tall, &st));
-            (l.toggle.center().y, align.anchor(tall).0)
+            st.toggle_size = Some(side);
+            let mut toggle_y = f32::NAN;
+            let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let l = layout(ui.painter(), tall, &st);
+                toggle_y = l.toggle.center().y;
+                paint(ui.painter(), tall, &st, &l);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Option<f32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    // By its own text, so the toggle's glyph can never be
+                    // mistaken for the chain and make this tautological.
+                    egui::Shape::Text(t) if t.galley.text() == "Main Menu" => {
+                        *out = Some(t.pos.y + t.galley.size().y * 0.5);
+                    }
+                    _ => {}
+                }
+            }
+            let mut text_y = None;
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut text_y);
+            }
+            (toggle_y, text_y.expect("the chain painted its text"))
         };
 
-        let (top_icon, top_text) = placed(TextAlign::Top);
-        let (mid_icon, mid_text) = placed(TextAlign::Middle);
-        let (bot_icon, bot_text) = placed(TextAlign::Bottom);
+        // Whatever the icon's size, and wherever the group sits.
+        for side in [16.0_f32, 24.0, 34.0] {
+            for align in [TextAlign::Top, TextAlign::Middle, TextAlign::Bottom] {
+                let (icon, text) = placed(align, side);
+                assert!(
+                    (icon - text).abs() <= 0.5,
+                    "{align:?} with a {side}pt icon: the text must sit on the icon's \
+                     middle — icon at {icon}, text at {text}"
+                );
+            }
+        }
+
+        let (top_icon, top_text) = placed(TextAlign::Top, 24.0);
+        let (mid_icon, _) = placed(TextAlign::Middle, 24.0);
+        let (bot_icon, bot_text) = placed(TextAlign::Bottom, 24.0);
 
         // Both ends move, and in the same direction as the text.
         assert!(top_icon < mid_icon && mid_icon < bot_icon, "the toggle must follow");
