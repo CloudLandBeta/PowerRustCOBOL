@@ -528,6 +528,7 @@ impl FormHost {
             pending_crumb_detail: None,
             pane_chrome: None,
             pane_band: 0.0,
+            last_occupant_rect: None,
         };
         (host, form)
     }
@@ -1505,6 +1506,11 @@ pub struct FormHost {
     /// the pane may not: it is a different form, and its origin starts below
     /// the band. Only the occupant path reads this.
     pane_band: f32,
+    /// Where the last frame actually put the ContentPane's occupant. Recorded
+    /// so a test can check an embedded form lands inside the pane instead of
+    /// over the MenuPane — the thing that went wrong is a RECT, and nothing
+    /// else about the form's state reveals it.
+    last_occupant_rect: Option<egui::Rect>,
 }
 
 impl FormHost {
@@ -1847,6 +1853,13 @@ impl FormHost {
     /// The pane's current occupant (UPPERCASE form object), `None` = root.
     pub fn active_occupant_form(&self) -> Option<&str> {
         self.active_occupant.as_deref()
+    }
+
+    /// Where the last rendered frame placed the ContentPane's occupant, or
+    /// `None` if no embedded form was on the pane. The pane's origin is the
+    /// whole point (see the occupant branch of `ui_impl`).
+    pub fn last_occupant_rect(&self) -> Option<egui::Rect> {
+        self.last_occupant_rect
     }
 
     /// Test-only: mark the root's lifecycle pair as already fired, the state
@@ -2743,11 +2756,29 @@ impl FormHost {
                 // The band is also painted HERE rather than inside the
                 // occupant's scroll area, so the chrome does not scroll away
                 // with the form's content (the same rule the root path keeps).
+                //
+                // 051 — and it is the PANE's rect, not the window's. `ui_impl`
+                // is handed the shell's ROOT `Ui`, the same surface the
+                // MenuPane and (when the breadcrumb is not full-height) the
+                // crumb strip were added to as panels; `max_rect()` on it is
+                // the whole window and knows nothing about those siblings.
+                // The root-form path below never had to think about this
+                // because it goes through a `CentralPanel`, which consumes
+                // exactly what the panels left — so the shell form landed in
+                // the ContentPane while a form LOADED into the pane was drawn
+                // from the window's top-left, over the rail, offset by nothing
+                // but the band (operator, 2026-08-20). `available_rect_before_wrap`
+                // is that same leftover region, and it is what the shell itself
+                // records as `ShellLayout::content_rect`. In a plain form
+                // WINDOW there are no such siblings, so it is the whole root
+                // rect and this path is unchanged.
+                let pane_rect = root_ui.available_rect_before_wrap();
                 if let Some(chrome) = chrome.as_deref() {
-                    chrome(root_ui.painter(), root_ui.max_rect());
+                    chrome(root_ui.painter(), pane_rect);
                 }
-                let mut rect = root_ui.max_rect();
+                let mut rect = pane_rect;
                 rect.min.y += band;
+                self.last_occupant_rect = Some(rect);
                 let mut pane = root_ui.new_child(egui::UiBuilder::new().max_rect(rect));
                 occ.body.child_frame(&mut pane, root_blocked, None);
                 ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -3236,6 +3267,76 @@ mod parity {
 
     fn host_with(entrance: &str, exit: &str, restore: bool) -> (FormHost, Pipes) {
         host_with_surface(entrance, exit, restore, Surface::Window)
+    }
+
+    /// **`SET x::VISIBLE TO 1` must undo `SET x::VISIBLE TO 0`.** Reported as
+    /// hiding working and showing not (operator, 2026-08-20). Drives the exact
+    /// pair through the same entry point a running interpreter uses, and reads
+    /// back what the renderer's visibility gate reads.
+    #[test]
+    fn showing_a_control_again_undoes_hiding_it() {
+        use cobolt_forms::render::FormState;
+        let form = cobolt_forms::Form::new("MAIN", "Main", 320, 200);
+        let mut sw = cobolt_forms::Control::new("Switch-1", cobolt_forms::ControlType::Switch, 10, 10);
+        sw.rect = cobolt_forms::model::Rect::new(10, 10, 60, 24);
+        let flat = vec![sw.clone()];
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(),
+            fx_exit: FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+
+        // What the renderer asks, through the very same `FormState` it uses.
+        let is_visible = |h: &FormHost| -> bool {
+            let st = crate::state::LiveState {
+                state: &h.root.state,
+                anim: &h.root.anim,
+            };
+            st.visible(&sw)
+        };
+
+        assert!(is_visible(&host), "a designed-visible Switch starts visible");
+
+        // COBOL upper-cases unquoted identifiers, so this is the shape the
+        // interpreter actually sends.
+        host.root
+            .apply_interpreter_update(StateUpdate::new("SWITCH-1", "VISIBLE", "0"), false);
+        assert!(!is_visible(&host), "SET …::VISIBLE TO 0 hides it");
+
+        host.root
+            .apply_interpreter_update(StateUpdate::new("SWITCH-1", "VISIBLE", "1"), false);
+        assert!(
+            is_visible(&host),
+            "SET …::VISIBLE TO 1 must bring it back — hiding is not one-way"
+        );
     }
 
     fn host_with_surface(

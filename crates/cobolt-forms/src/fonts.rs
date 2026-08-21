@@ -202,6 +202,28 @@ fn is_builtin(fam: &str) -> bool {
         || fam.eq_ignore_ascii_case("sans-serif")
 }
 
+/// Is `fam` bound to fonts in THIS context right now?
+///
+/// Naming a family epaint does not know is not a fallback — it is a **panic**
+/// (`FontFamily::Name("Arial Black") is not bound to any fonts`, epaint's
+/// `FontsImpl::font`). So the question has to be asked of the context, not of
+/// our own cache: `set_fonts` REPLACES a context's definitions wholesale, and
+/// anyone may call it, which drops every family loaded here while our cache
+/// still says `Ready`. That is exactly what happened — opening the
+/// documentation window re-installed the base definitions on the IDE's shared
+/// context and the next repaint of an open designer panicked on a control
+/// whose Font was "Arial Black" (operator, 2026-08-20).
+///
+/// `false` when the context has no fonts yet (before the first pass), which
+/// keeps this usable outside a running app.
+fn is_bound(ctx: &egui::Context, fam: &str) -> bool {
+    let target = egui::FontFamily::Name(fam.into());
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ctx.fonts(|f| f.families().iter().any(|k| *k == target))
+    }))
+    .unwrap_or(false)
+}
+
 /// Resolve a `FontId` for `family` at `size`, loading the system font on demand.
 /// Falls back to the built-in proportional font for Arial/default or if the font
 /// can't be loaded (i.e. "fall back to Arial when the font isn't available").
@@ -213,14 +235,28 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
     }
 
     let now = ctx.cumulative_pass_nr();
+    // Asked BEFORE our own lock is taken: `is_bound` writes the egui context,
+    // and so does `set_fonts` below — nesting the two would be a deadlock
+    // waiting to happen, and there is nothing to gain by holding both.
+    let bound = is_bound(ctx, fam);
     let mut g = inner().lock().unwrap();
     let named = || egui::FontId::new(size, egui::FontFamily::Name(fam.into()));
+
+    // Our cache says the family is installed but the context disagrees: the
+    // definitions were replaced under us. Forget what we knew and let the
+    // `None` arm register it again — one proportional pass, then it is back.
+    if !bound && matches!(g.state.get(fam), Some(FontState::Ready)) {
+        g.state.remove(fam);
+    }
 
     match g.state.get(fam).copied() {
         Some(FontState::Ready) => named(),
         Some(FontState::Failed) => egui::FontId::proportional(size),
         Some(FontState::Loading(when)) => {
-            if now > when {
+            // `now > when` says the atlas has had a pass to rebuild — but only
+            // the context can say the family SURVIVED it (a clobber inside that
+            // window would otherwise be promoted straight to a panic).
+            if now > when && bound {
                 g.state.insert(fam.to_owned(), FontState::Ready);
                 named()
             } else {
@@ -229,6 +265,16 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
             }
         }
         None => {
+            // Already loaded once (this is a re-registration after the context's
+            // definitions were replaced): the bytes are still in `defs`, so put
+            // them back rather than reading the file again. One `set_fonts`
+            // restores EVERY family loaded here, not just this one.
+            if g.defs.families.contains_key(&egui::FontFamily::Name(fam.into())) {
+                let defs = g.defs.clone();
+                ctx.set_fonts(defs);
+                g.state.insert(fam.to_owned(), FontState::Loading(now));
+                return egui::FontId::proportional(size);
+            }
             match load_font_bytes(fam) {
                 Some(bytes) => {
                     g.defs.font_data.insert(
@@ -261,6 +307,20 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
 mod tests {
     use super::*;
 
+    /// `font_id`'s cache is process-global while the binding it hands out is
+    /// per-`Context` — a `set_fonts` reaches ONE context. That is fine in an
+    /// application (one context per process) and a race between any two tests
+    /// that drive it with contexts of their own: each marks the shared state
+    /// `Ready` for a family the other's context has never been given. Every
+    /// test below that calls `font_id` on a real font takes this first.
+    static FONT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Take it without caring that a previous failure poisoned it — a panicking
+    /// test must not turn one red into several.
+    fn font_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        FONT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn enumerates_system_fonts_with_arial() {
         let fonts = system_fonts();
@@ -273,6 +333,83 @@ mod tests {
             "enumerated {} font families (e.g. {:?})",
             fonts.len(),
             &fonts[..fonts.len().min(8)]
+        );
+    }
+
+    /// **The crash, reproduced: a font family the context lost must never be
+    /// named again.** `set_fonts` REPLACES a context's definitions, and epaint
+    /// PANICS on a family it cannot find rather than falling back — so any part
+    /// of the app installing its own font set silently armed a crash in every
+    /// open designer holding a non-builtin Font. Opening the documentation
+    /// window did exactly that and the IDE went down on
+    /// `FontFamily::Name("Arial Black") is not bound to any fonts`
+    /// (operator, 2026-08-20).
+    ///
+    /// Drives the real sequence: load a family, clobber the context the way the
+    /// doc window did, then ask again — and lay the answer out for real, which
+    /// is where the panic actually happened.
+    #[test]
+    fn a_clobbered_font_family_is_re_registered_never_named_unbound() {
+        let _serial = font_test_guard();
+        let ctx = egui::Context::default();
+        // Any installed non-builtin face will do; the mechanism is not
+        // particular to one name.
+        let Some(fam) = system_fonts()
+            .into_iter()
+            .find(|f| !is_builtin(f) && load_font_bytes(f).is_some())
+        else {
+            eprintln!("no loadable non-builtin system font here — nothing to check");
+            return;
+        };
+
+        // One repaint: resolve the family and lay text out with it INSIDE the
+        // same pass, which is what a control caption does (`styled_text_job`
+        // asks for the `FontId`, `Painter::layout_job` uses it). Resolving
+        // outside a pass would be testing something the app never does —
+        // `set_fonts` only takes effect at the START of the next pass, so a
+        // resolve made between passes reads a font set the layout will not use.
+        let pass = |ctx: &egui::Context| -> egui::FontId {
+            let mut got = egui::FontId::proportional(14.0);
+            ctx.run_ui(Default::default(), |ui| {
+                let id = font_id(ui.ctx(), &fam, 14.0);
+                // An unbound family panics HERE, which is the whole point.
+                ui.ctx().fonts_mut(|f| {
+                    f.layout_no_wrap("Ag".to_owned(), id.clone(), egui::Color32::WHITE)
+                });
+                got = id;
+            })
+            .textures_delta
+            .clear();
+            got
+        };
+
+        // Warm up until the family is actually in use (loading spends a pass
+        // rebuilding the atlas before it reports Ready).
+        let mut named = egui::FontId::proportional(14.0);
+        for _ in 0..6 {
+            named = pass(&ctx);
+        }
+        assert_eq!(
+            named.family,
+            egui::FontFamily::Name(fam.as_str().into()),
+            "{fam:?} never became usable, so this test proves nothing"
+        );
+
+        // The doc window's move: install a fresh set over the top.
+        ctx.set_fonts(base_font_definitions());
+
+        // The repaints that follow. Before the fix the first of these named the
+        // lost family and epaint brought the process down.
+        let mut recovered = egui::FontId::proportional(14.0);
+        for _ in 0..6 {
+            recovered = pass(&ctx);
+        }
+
+        // …and it recovers rather than falling back to Arial forever.
+        assert_eq!(
+            recovered.family,
+            egui::FontFamily::Name(fam.as_str().into()),
+            "{fam:?} must be re-registered after the clobber, not abandoned"
         );
     }
 
@@ -339,6 +476,7 @@ mod tests {
 
     #[test]
     fn chosen_system_font_loads_and_resolves_to_named_family() {
+        let _serial = font_test_guard();
         // Find a real, loadable, non-builtin system font.
         let fam = system_fonts()
             .iter()

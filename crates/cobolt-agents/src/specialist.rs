@@ -35,6 +35,11 @@ pub struct MeshRequest {
     pub max_tokens: u32,
     /// Include full request/response bodies in the returned trace.
     pub verbose: bool,
+    /// Accept a reply made only of hidden reasoning — see
+    /// [`crate::rig_transport::ChatCall::reasoning_counts_as_reply`]. Only a
+    /// caller asking whether the model is REACHABLE may set this; anything
+    /// that parses the reply needs visible text.
+    pub reasoning_counts_as_reply: bool,
 }
 
 pub struct Specialist {

@@ -1972,6 +1972,128 @@ mod tests {
         );
     }
 
+    /// **A form LOADED into the pane is placed in the pane.** It was drawn
+    /// from the window's top-left instead — over the menu rail, offset by
+    /// nothing but the breadcrumb band — while the shell's own form, on the
+    /// same pane, sat where it belonged (operator, 2026-08-20).
+    ///
+    /// The two took different roads: the shell form goes through a
+    /// `CentralPanel`, which consumes what the panels left; the occupant was
+    /// placed from the root `Ui`'s FULL rect, and that `Ui` is the very
+    /// surface those panels were added to. So the assertion is against the
+    /// shell's own `content_rect` — one number, from the shell's bookkeeping,
+    /// not a hand-computed guess at where the rail ends.
+    #[test]
+    fn a_loaded_form_is_placed_in_the_content_pane_not_the_window() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            Ok((
+                cobolt_forms::Form::new(up.as_str(), up.as_str(), 400, 300),
+                program(),
+            ))
+        });
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        host.ensure_occupant("CRM").expect("CRM builds");
+        host.show_occupant(Some("CRM"));
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        let mut run = |shell: &mut Shell, host: &mut crate::FormHost| -> ShellLayout {
+            let mut out = None;
+            let mut full = ctx.run_ui(raw(Vec2::new(1000.0, 700.0)), |root_ui| {
+                out = Some(shell.show_with_host(root_ui, |_ui| {}, host));
+            });
+            full.textures_delta.clear();
+            out.expect("shell ran")
+        };
+
+        let open = run(&mut shell, &mut host);
+        let placed = host
+            .last_occupant_rect()
+            .expect("an occupant owns the pane, so it was placed");
+
+        assert!(
+            (placed.min.x - open.content_rect.min.x).abs() < 1.0,
+            "the loaded form starts at the ContentPane's left edge \
+             ({}), not the window's ({}) — it was drawn over the rail",
+            open.content_rect.min.x,
+            placed.min.x
+        );
+        assert!(
+            placed.min.x >= MENU_PANE_OPEN_WIDTH - 1.0,
+            "…which is right of the open rail ({MENU_PANE_OPEN_WIDTH}px), \
+             not at the window origin: {placed:?}"
+        );
+        assert!(
+            (placed.max.x - open.content_rect.max.x).abs() < 1.0,
+            "and it ends where the pane ends: {placed:?} vs {:?}",
+            open.content_rect
+        );
+
+        // …and it travels with the pane, exactly as the shell's own form does.
+        shell.collapsed = true;
+        let collapsed = run(&mut shell, &mut host);
+        let moved = host.last_occupant_rect().expect("still placed");
+        let shift = placed.min.x - moved.min.x;
+        let expect = MENU_PANE_OPEN_WIDTH - MENU_PANE_COLLAPSED_WIDTH;
+        assert!(
+            (shift - expect).abs() < 1.0,
+            "collapsing the rail moves the loaded form left by the rail delta: \
+             shift {shift}, expect {expect}"
+        );
+        assert!(
+            (moved.min.x - collapsed.content_rect.min.x).abs() < 1.0,
+            "and it is still anchored to the pane, not to the window"
+        );
+    }
+
     /// AC4 — a hosted form travels with the pane edge on collapse, at its
     /// designed size. (The form anchors at the ContentPane origin — the
     /// render engine draws at `ui.min_rect().min` by contract — so the

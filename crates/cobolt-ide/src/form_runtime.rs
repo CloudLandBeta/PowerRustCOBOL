@@ -205,6 +205,12 @@ impl ExternalFormRun {
         let spawn_with = |program: &std::path::Path| {
             let mut cmd = Command::new(program);
             cmd.arg("run-form").arg(&form_path).arg(cbl_path);
+            // Only the main form starts an application — except under the
+            // designer, which is the one place where running any form on
+            // demand is the point. `rcrun` refuses a non-main form without
+            // this, so Run Form on a secondary form is IDE-only by
+            // construction.
+            cmd.arg("--designer");
             if let Some(id) = theme_default {
                 cmd.arg("--theme-default").arg(id);
             }

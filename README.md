@@ -30,6 +30,8 @@ practical subset of the **COBOL-85 standard** with a visual form designer, a ric
 toolbox, an interactive debugger, and a compiler that turns a project into one
 **self-contained native binary** — no COBOL source shipped inside it.
 
+[SCREENSHOT]
+
 | Name | Role |
 |------|------|
 | **RustCOBOL** | The language and compiler (a COBOL dialect with visual RAD extensions). |
@@ -53,6 +55,9 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 ## What's implemented
 
 ### The IDE (PowerRustCOBOL)
+
+[SCREENSHOT]
+
 - **Visual form designer**: Complete design canvas supporting multiple themes (**Liquid Glass** and **Cobalt Steel**), grid snapping, drag-resize of controls and the canvas, multi-select alignment tools, and z-ordering.
 - **Unified rendering engine**: Ensures 100% pixel-parity between the visual designer, the form previewer, the running application, and the compiled native binary outputs.
 - **Universal corner radius & rounded clipping**: GroupBoxes, Panels, and other containers support configurable `CornerRadius`. Nested child controls (e.g. PictureBoxes, Panels) clip perfectly to their parent's rounded border, utilizing custom corner-notch masking.
@@ -70,7 +75,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 - **Grace, the orchestrator**: Grace decomposes a request into tasks, routes each to the specialist that owns it (Form Designer, COBOL Event Handler, Data/Indexed File, Documentation, Version Control), and enforces a one-to-one **Pedantic reviewer** on every result — no specialist approves its own work. She rates a request for clarity before any retrieval happens and asks rather than guessing, keeps per-agent performance ratings across runs, feeds specialists *lessons* rather than scores, and answers investigative questions about the open project from the real project state instead of from memory.
 - **A project-wide COBOL code standard the agents write against**: application data under meaningful `01 … GLOBAL` records, `OCCURS` tables instead of repeated fields, reusable numeric-edited buffers matched to their source picture, currency edited with the required digit before the separator, table values initialized procedurally in a dedicated `INITIALIZE-… SECTION`, and a `MAIN SECTION` that only orchestrates. Form data is initialized in a common procedure invoked from the form's `onLoad` — never from a control's handler, which re-runs on every user action. The Pedantic reviewer enforces the same standard, so the pair cannot disagree.
 - **Chunked Knowledge Base with RAG**: Reference documentation is indexed one record per subject rather than per file, so retrieval returns the paragraph that answers the question. The IDE ships its System KB store **pre-embedded**, embeddings run on the **GPU with a cool-running CPU fallback** under one policy, an indexing progress bar shows the work, and **File → Reindex Knowledge Bases** re-runs it on demand.
-- **Form lifecycle and windowing**: Every project designates one **main form** (which alone carries the taskbar icon); per-form window chrome and state are honoured by the run-form host; a `Waiting` **FormState** cannot be dismissed by the user; `OpenFormSync` / `OpenFormAsync` open one form from another; and a form's **window position** is a design-time property. **Entrance and exit window effects** are configured once per project and play with no chrome, over the desktop.
+- **Form lifecycle and windowing**: Every project designates one **main form** (which alone carries the taskbar icon), and **only the main form starts an application** — the IDE runs any form you ask it to, but a built binary and `rcrun` open the main form and nothing else, so a sign-on form cannot be stepped over; a project whose designation has been edited by hand reports a corrupted application and stops. Per-form window chrome and state are honoured by the run-form host; a `Waiting` **FormState** cannot be dismissed by the user; `OpenFormSync` / `OpenFormAsync` open one form from another; and a form's **window position** is a design-time property. **Entrance and exit window effects** are configured once per project and play with no chrome, over the desktop.
 - **Multi-window runtime**: Preview and run screens rendered in dedicated OS viewports via egui multi-viewport.
 - **Internationalised UI**: Built-in support for 6 interface languages (English, Spanish, Portuguese, Japanese, Chinese, French).
 - **Non-blocking native file dialogs** (open/save/browse) that never stall the UI event loop.

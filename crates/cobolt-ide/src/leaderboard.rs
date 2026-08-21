@@ -269,11 +269,58 @@ impl Entry {
     }
 }
 
+/// Why a model left the board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetiredBecause {
+    /// The provider stopped offering it: a successful, non-empty catalogue
+    /// refresh for that provider no longer lists the model.
+    Decommissioned,
+    /// The developer pressed Remove.
+    Removed,
+}
+
+/// A model taken off the board, and kept off it.
+///
+/// Dropping the row is not enough on its own. `backfill_leaderboard_from_archive`
+/// replays every scored report a project ever archived, so a model deleted
+/// today is back the next time the board opens — which is why the board had no
+/// working Remove at all. The tombstone is what makes a removal stick.
+///
+/// It is deliberately NOT implemented by editing
+/// `agentic_ai/model-benchmarks.jsonl`: that archive is the record of what was
+/// actually run and paid for, and deleting evidence to tidy a list is the wrong
+/// trade. The scores stay on disk; the board just stops showing them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Retired {
+    pub provider: String,
+    pub model: String,
+    /// Unix seconds, for the hover text on the "retired models" line.
+    #[serde(default)]
+    pub at_unix: i64,
+    pub because: RetiredBecause,
+}
+
+impl Retired {
+    fn matches(&self, provider: &str, model: &str) -> bool {
+        self.provider.eq_ignore_ascii_case(provider.trim())
+            && self.model.eq_ignore_ascii_case(model.trim())
+    }
+
+    pub fn label(&self) -> String {
+        format!("{} · {}", self.provider, self.model)
+    }
+}
+
 /// The whole board.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Leaderboard {
     #[serde(default)]
     pub entries: Vec<Entry>,
+    /// Models that must not come back on their own (see [`Retired`]). `default`
+    /// so a board written before this existed still loads.
+    #[serde(default)]
+    pub retired: Vec<Retired>,
 }
 
 fn now_unix() -> i64 {
@@ -344,10 +391,82 @@ impl Leaderboard {
             if self.get(provider, model).is_some() {
                 continue;
             }
+            // A retired model does not come back because an agent still points
+            // at it — that agent is exactly what the developer is being asked
+            // to re-point. Testing it again is what revives it (`record_*`).
+            if self.is_retired(provider, model) {
+                continue;
+            }
             self.entries.push(Entry::new(provider, model, endpoint));
             added = true;
         }
         added
+    }
+
+    /// Is this model tombstoned?
+    pub fn is_retired(&self, provider: &str, model: &str) -> bool {
+        self.retired.iter().any(|r| r.matches(provider, model))
+    }
+
+    /// Drop the tombstone, if any. A model that runs again is alive, whatever
+    /// the board decided earlier — so a wrong retirement costs one test, not a
+    /// hand-edited JSON file.
+    fn revive(&mut self, provider: &str, model: &str) {
+        self.retired.retain(|r| !r.matches(provider, model));
+    }
+
+    /// Take one model off the board and keep it off. Returns its label when a
+    /// row actually went, `None` when there was nothing to remove.
+    pub fn retire(
+        &mut self,
+        provider: &str,
+        model: &str,
+        because: RetiredBecause,
+    ) -> Option<String> {
+        let label = self.get(provider, model).map(|e| e.label());
+        self.entries.retain(|e| !e.matches(provider, model));
+        if !self.is_retired(provider, model) {
+            self.retired.push(Retired {
+                provider: provider.trim().to_string(),
+                model: model.trim().to_string(),
+                at_unix: now_unix(),
+                because,
+            });
+        }
+        label
+    }
+
+    /// Retire every row of `provider` whose model the provider no longer
+    /// offers. Returns the labels of what went.
+    ///
+    /// ⚠️ **An empty `catalogue` retires nothing, ever.** "The provider listed
+    /// no models" and "the provider offers no models" are the same sentence
+    /// from here and mean opposite things: a failed request, an expired key, a
+    /// provider that has not been refreshed yet, all produce an empty list, and
+    /// acting on one would delete a whole board's worth of paid-for scores on
+    /// the strength of one network call. Only a refresh that came back with
+    /// models is evidence about which models exist.
+    ///
+    /// Scoped to ONE provider for the same reason: a successful refresh of
+    /// Anthropic says nothing whatsoever about OpenAI's catalogue.
+    pub fn retire_missing(&mut self, provider: &str, catalogue: &[String]) -> Vec<String> {
+        if catalogue.is_empty() || provider.trim().is_empty() {
+            return Vec::new();
+        }
+        let gone: Vec<(String, String)> = self
+            .entries
+            .iter()
+            .filter(|e| e.provider.eq_ignore_ascii_case(provider.trim()))
+            .filter(|e| {
+                !catalogue
+                    .iter()
+                    .any(|m| m.trim().eq_ignore_ascii_case(&e.model))
+            })
+            .map(|e| (e.provider.clone(), e.model.clone()))
+            .collect();
+        gone.iter()
+            .filter_map(|(p, m)| self.retire(p, m, RetiredBecause::Decommissioned))
+            .collect()
     }
 
     /// Whether this model has a row yet, whatever its state.
@@ -401,6 +520,9 @@ impl Leaderboard {
         endpoint: &str,
         outcome: RunOutcome,
     ) {
+        // It answered, so it exists — whatever the catalogue said when it was
+        // retired. Reviving here is what keeps a wrong retirement cheap.
+        self.revive(provider, model);
         let e = self.slot(provider, model, endpoint);
         e.runs += 1;
         e.tested_at_unix = now_unix();
@@ -422,6 +544,11 @@ impl Leaderboard {
     /// Record a run that could not be carried out. The model keeps whatever it
     /// scored previously; only its error changes.
     pub fn record_failure(&mut self, provider: &str, model: &str, endpoint: &str, error: &str) {
+        // A FAILED run is not evidence the model exists — the failure may be
+        // "no such model". It does mean the developer deliberately aimed a test
+        // at it, though, so the row comes back carrying the reason rather than
+        // vanishing silently.
+        self.revive(provider, model);
         let e = self.slot(provider, model, endpoint);
         e.tested_at_unix = now_unix();
         e.last_error = Some(error.trim().to_string());
@@ -448,6 +575,8 @@ impl Leaderboard {
         }
     }
 
+    /// Drop a row without tombstoning it — it may be recreated by the next
+    /// sync. Use [`Self::retire`] for a removal that is meant to stick.
     pub fn remove(&mut self, provider: &str, model: &str) {
         self.entries.retain(|e| !e.matches(provider, model));
     }
@@ -492,6 +621,109 @@ mod tests {
         RunOutcome {
             metrics: metrics(overall),
         }
+    }
+
+    /// **A failed or unlisted refresh retires nothing.** This is the guard that
+    /// makes automatic retirement safe to have at all: an empty catalogue is
+    /// what a network error, an expired key and a provider nobody has refreshed
+    /// yet all look like from here, and acting on it would delete a whole
+    /// board's worth of paid-for scores on one bad request.
+    #[test]
+    fn an_empty_catalogue_never_retires_anything() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-5", "", outcome(90.0));
+        lb.record_success("anthropic", "claude-sonnet-5", "", outcome(80.0));
+
+        assert!(
+            lb.retire_missing("anthropic", &[]).is_empty(),
+            "an empty listing is not evidence about which models exist"
+        );
+        assert_eq!(lb.entries.len(), 2, "and nothing was taken off the board");
+        assert!(lb.retired.is_empty(), "nor tombstoned");
+    }
+
+    /// A refresh of ONE provider says nothing about another's catalogue.
+    #[test]
+    fn retiring_is_scoped_to_the_provider_that_answered() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-5", "", outcome(90.0));
+        lb.record_success("openai", "gpt-9", "", outcome(70.0));
+
+        let gone = lb.retire_missing("anthropic", &["claude-opus-5".into()]);
+        assert!(gone.is_empty(), "the listed model stays: {gone:?}");
+        assert!(
+            lb.get("openai", "gpt-9").is_some(),
+            "another provider's model is untouched by Anthropic's catalogue"
+        );
+    }
+
+    /// The operator's case: a provider decommissions a model, so it goes — and
+    /// a score is not a reason to keep a model that no longer exists (which is
+    /// what separates this from `prune_untested_orphans`, where runs protect a
+    /// row absolutely).
+    #[test]
+    fn a_model_the_provider_dropped_is_retired_even_with_scores() {
+        let mut lb = Leaderboard::default();
+        lb.record_success("anthropic", "claude-opus-4", "", outcome(88.0));
+        lb.record_success("anthropic", "claude-opus-5", "", outcome(93.0));
+
+        let gone = lb.retire_missing("anthropic", &["claude-opus-5".into()]);
+        assert_eq!(gone.len(), 1, "exactly the decommissioned one: {gone:?}");
+        assert!(gone[0].contains("claude-opus-4"), "named: {gone:?}");
+        assert!(lb.get("anthropic", "claude-opus-4").is_none());
+        assert!(lb.get("anthropic", "claude-opus-5").is_some());
+    }
+
+    /// **A retirement sticks.** The board is re-synced from the agents on every
+    /// startup and project open, so without a tombstone the very next sync puts
+    /// a still-assigned model straight back and the removal is theatre.
+    #[test]
+    fn a_retired_model_is_not_re_added_by_the_next_sync() {
+        let mut lb = Leaderboard::default();
+        let assigned = vec![(
+            "anthropic".to_string(),
+            "claude-opus-4".to_string(),
+            String::new(),
+        )];
+        lb.ensure_models(&assigned);
+        assert!(lb.get("anthropic", "claude-opus-4").is_some());
+
+        lb.retire("anthropic", "claude-opus-4", RetiredBecause::Removed);
+        assert!(lb.is_retired("anthropic", "claude-opus-4"));
+
+        assert!(
+            !lb.ensure_models(&assigned),
+            "the sync must not resurrect a retired model"
+        );
+        assert!(lb.get("anthropic", "claude-opus-4").is_none());
+    }
+
+    /// …and it is not a life sentence. A model that answers again is alive,
+    /// whatever the catalogue said — so a wrong retirement costs one test run,
+    /// not a hand-edited JSON file.
+    #[test]
+    fn testing_a_retired_model_brings_it_back() {
+        let mut lb = Leaderboard::default();
+        lb.retire("anthropic", "claude-opus-4", RetiredBecause::Decommissioned);
+        assert!(lb.is_retired("anthropic", "claude-opus-4"));
+
+        lb.record_success("anthropic", "claude-opus-4", "", outcome(85.0));
+        assert!(
+            !lb.is_retired("anthropic", "claude-opus-4"),
+            "a live run revives it"
+        );
+        assert!(lb.get("anthropic", "claude-opus-4").is_some());
+    }
+
+    /// A board written before retirement existed still loads, with no
+    /// tombstones — `#[serde(default)]` on the new field.
+    #[test]
+    fn a_board_from_before_this_feature_still_loads() {
+        let old = r#"{"entries":[{"provider":"anthropic","model":"claude-opus-5",
+                       "endpoint":"","runs":1,"scores":{},"tested_at_unix":0}]}"#;
+        let lb: Leaderboard = serde_json::from_str(old).expect("older board parses");
+        assert_eq!(lb.entries.len(), 1);
+        assert!(lb.retired.is_empty());
     }
 
     #[test]

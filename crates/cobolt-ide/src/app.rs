@@ -236,6 +236,16 @@ pub struct CoboltApp {
     runner: Runner,
     forms_list: FormsListPanel,
 
+    /// Work rescued from a session that did not exit cleanly, waiting for the
+    /// developer to accept or discard it. Empty on a normal start.
+    pending_recovery: Vec<crate::crash::Recovered>,
+
+    /// When unsaved work was last copied to the recovery directory.
+    ///
+    /// A timer rather than a save-on-every-edit, because the point is to bound
+    /// what a hard kill can cost, not to mirror every keystroke.
+    last_autosave: std::time::Instant,
+
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
     designer_activation_requests: DesignerActivationRequests,
@@ -464,6 +474,9 @@ pub struct CoboltApp {
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
+    /// Project-structure upgrades due on the open project, offered once per
+    /// open. Empty = the project is current (or the developer said Not now).
+    project_upgrades: Vec<&'static dyn crate::project_upgrade::ProjectUpgrade>,
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
     /// IDE-wide debug switches (Help → Debug Settings) and their modal. Machine-
@@ -729,6 +742,48 @@ fn error_modal_body_ui(
             if let Some(intro) = intro {
                 ui.label(egui::RichText::new(intro).strong());
                 ui.add_space(6.0);
+            }
+            // The reason, first and set apart. The log below is every request
+            // line, header and retry — which is what you want when something is
+            // wrong, and which buried the one sentence that says WHAT is wrong,
+            // usually inside a JSON body on a single very long line (operator,
+            // 2026-08-20). The headline is the provider's own words, quoted;
+            // when there is no payload to quote there is no headline, and this
+            // modal looks exactly as it always did.
+            let summary = crate::error_summary::summarize(msg);
+            if let Some(summary) = &summary {
+                ui.add_space(2.0);
+                // Wrapped, unlike the log: a reason is prose and belongs on
+                // screen in full, not off the right-hand edge.
+                ui.label(
+                    egui::RichText::new(&summary.headline)
+                        .strong()
+                        .size(*font_size + 2.0)
+                        .color(egui::Color32::from_rgb(240, 170, 90)),
+                );
+                let mut detail: Vec<String> = Vec::new();
+                if let Some(param) = &summary.param {
+                    if !summary.headline.contains(param.as_str()) {
+                        detail.push(format!("parameter: {param}"));
+                    }
+                }
+                if let Some(code) = &summary.code {
+                    if !summary.headline.contains(code.as_str()) {
+                        detail.push(code.clone());
+                    }
+                }
+                if !detail.is_empty() {
+                    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new(detail.join("   ·   "))
+                            .monospace()
+                            .size(*font_size)
+                            .color(crate::theme::active().text_dim),
+                    );
+                }
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
             }
             egui::ScrollArea::both()
                 .id_salt("error_modal_scroll")
@@ -1100,6 +1155,14 @@ impl CoboltApp {
         let mut app = Self {
             project: ProjectPanel::new(),
             editor: EditorPanel::new(),
+            // Only a session that never reached its clean exit leaves both a
+            // marker and copies behind; a normal start finds neither.
+            pending_recovery: if crate::crash::ended_badly() {
+                crate::crash::recovered()
+            } else {
+                Vec::new()
+            },
+            last_autosave: std::time::Instant::now(),
             output: OutputPanel::new(),
             runner: Runner::new(),
             forms_list: FormsListPanel::new(),
@@ -1204,6 +1267,7 @@ impl CoboltApp {
             main_form_prev: Vec::new(),
             about_open: false,
             ai_setup_modal: false,
+            project_upgrades: Vec::new(),
             doc_viewer: Default::default(),
             debug: crate::debug_settings::DebugSettings::load(),
             debug_modal: Default::default(),
@@ -2522,6 +2586,10 @@ impl CoboltApp {
                 }
                 // Spec 037 R3 — exactly one main form per project.
                 self.apply_main_form_invariant();
+                // A project of an older shape is offered its upgrades — after
+                // the R3 repair, so an ambiguous designation is settled before
+                // the seal upgrade is asked whether it applies.
+                self.detect_project_upgrades();
             }
             Err(e) => {
                 self.output.push_status(format!(
@@ -4503,6 +4571,9 @@ impl CoboltApp {
         self.editor.reload_file(&cbl);
         self.output
             .push_status(format!("Regenerated {}", cbl.display()));
+        // A form save can be the moment a MainForm claim reaches disk, so the
+        // sealed copy in the project file is restated here too.
+        self.reseal_project_designation();
 
         // Validate the saved form (syntax + semantic) so the tree semaphore turns
         // green (clean) or red (has an error) right after a save — the developer
@@ -5648,6 +5719,43 @@ impl CoboltApp {
                     .push_status(format!("Leaderboard: added {provider}/{model}."));
             }
         }
+        if let Some((provider, model)) = act.retire {
+            // The developer's own say-so, for a model the provider shut down
+            // before its catalogue caught up. Same ending as the automatic
+            // path: the row goes, a tombstone keeps the archive replay from
+            // bringing it back, and an agent left holding it gets said so.
+            let stranded = self.agents_running_model(&provider, &model);
+            if let Some(label) = self.leaderboard.retire(
+                &provider,
+                &model,
+                crate::leaderboard::RetiredBecause::Removed,
+            ) {
+                let tr = self.lang.tr();
+                self.save_leaderboard();
+                self.output
+                    .push_status(tr.leaderboard_retired.replacen("{}", &label, 1));
+                for agent in &stranded {
+                    self.output.push_status(
+                        tr.leaderboard_agent_stranded
+                            .replacen("{}", agent, 1)
+                            .replacen("{}", &model, 1),
+                    );
+                }
+                if let Some(agent) = stranded.first() {
+                    if let Some(dir) = self
+                        .project_path
+                        .as_ref()
+                        .and_then(|p| p.parent())
+                        .map(|p| p.to_path_buf())
+                    {
+                        self.agents_modal =
+                            Some(crate::panels::agents_modal::AgentsModal::open_at(
+                                &dir, &mut self.llm, agent,
+                            ));
+                    }
+                }
+            }
+        }
         if let Some((provider, model)) = act.open_report {
             // The full report text lives in the project archive, not in the
             // ranked store; re-running is the only way to see it if this
@@ -5798,6 +5906,100 @@ impl CoboltApp {
         }
     }
 
+    /// Which agents run `(provider, model)` right now, by name.
+    ///
+    /// Needed when a model is retired: an agent left pointing at a model that
+    /// no longer exists is the real damage — a board row is only a list entry.
+    fn agents_running_model(&self, provider: &str, model: &str) -> Vec<String> {
+        let Some(root) = self.project_dir() else {
+            return Vec::new();
+        };
+        let db = crate::agents_db::AgentsDb::load(&root);
+        db.agents
+            .iter()
+            .filter(|a| {
+                crate::agents_db::resolve_agent_connection(a, &self.llm)
+                    .map(|cfg| {
+                        cfg.provider.trim().eq_ignore_ascii_case(provider.trim())
+                            && cfg.model.trim().eq_ignore_ascii_case(model.trim())
+                    })
+                    .unwrap_or(false)
+            })
+            .map(|a| a.name.clone())
+            .collect()
+    }
+
+    /// A provider's catalogue came back and no longer lists models this board
+    /// carries: they were decommissioned, so they go (operator, 2026-08-20).
+    ///
+    /// Nothing here fires on a failed or empty listing — see
+    /// [`crate::leaderboard::Leaderboard::retire_missing`], which refuses it —
+    /// and nothing fires for a provider that was not the one refreshed.
+    ///
+    /// A retirement that strands an agent does not end silently: the Agents
+    /// Manager opens on the first affected agent so a replacement model can be
+    /// chosen there and then. Leaving that to be discovered on the next run,
+    /// as a connection error, is how a tidy-up becomes an outage.
+    fn retire_decommissioned_models(&mut self, provider: &str, catalogue: &[String]) {
+        // Who runs what, BEFORE the rows go: afterwards the board no longer
+        // knows these models existed.
+        let doomed: Vec<(String, String)> = self
+            .leaderboard
+            .entries
+            .iter()
+            .filter(|e| e.provider.eq_ignore_ascii_case(provider.trim()))
+            .filter(|e| {
+                !catalogue
+                    .iter()
+                    .any(|m| m.trim().eq_ignore_ascii_case(&e.model))
+            })
+            .map(|e| (e.provider.clone(), e.model.clone()))
+            .collect();
+        let stranded: Vec<(String, String)> = doomed
+            .iter()
+            .flat_map(|(p, m)| {
+                self.agents_running_model(p, m)
+                    .into_iter()
+                    .map(move |agent| (agent, m.clone()))
+            })
+            .collect();
+
+        let removed = self.leaderboard.retire_missing(provider, catalogue);
+        if removed.is_empty() {
+            return;
+        }
+        let tr = self.lang.tr();
+        self.output.push_status(
+            tr.leaderboard_decommissioned
+                .replacen("{}", &removed.len().to_string(), 1)
+                .replacen("{}", &removed.join(", "), 1),
+        );
+        self.save_leaderboard();
+
+        for (agent, model) in &stranded {
+            self.output.push_status(
+                tr.leaderboard_agent_stranded
+                    .replacen("{}", agent, 1)
+                    .replacen("{}", model, 1),
+            );
+        }
+        // One window, on the first stranded agent — opening several would bury
+        // the developer under modals for what is one decision per agent, and
+        // the manager lists them all anyway.
+        if let Some((agent, _)) = stranded.first() {
+            if let Some(dir) = self
+                .project_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf())
+            {
+                self.agents_modal = Some(crate::panels::agents_modal::AgentsModal::open_at(
+                    &dir, &mut self.llm, agent,
+                ));
+            }
+        }
+    }
+
     /// Housekeeping when the board is OPENED: a row that no agent uses **and**
     /// that was never tested is noise, and goes (spec 048 R18).
     ///
@@ -5868,6 +6070,15 @@ impl CoboltApp {
                 continue;
             }
             if already_rated.contains(&(provider.to_lowercase(), model.to_lowercase())) {
+                continue;
+            }
+            // A retired model stays off the board. This replay is the reason a
+            // removal needed a tombstone at all: the archive keeps every scored
+            // report forever, so without this the model deleted a moment ago is
+            // back the next time the board opens. A LIVE run still revives it
+            // (`record_success`) — replaying old evidence is not the same as
+            // the model answering today.
+            if self.leaderboard.is_retired(provider, model) {
                 continue;
             }
             let Some(report) = v.get("report").and_then(|r| r.as_str()) else {
@@ -7415,6 +7626,11 @@ impl CoboltApp {
             for line in act.log_lines {
                 self.output.push_status(line);
             }
+            // A catalogue that actually listed models is the only thing that
+            // can tell a decommissioned model from an unreachable provider.
+            if let Some((provider, catalogue)) = act.catalogue {
+                self.retire_decommissioned_models(&provider, &catalogue);
+            }
             if let Some(err) = act.alert_error {
                 crate::llm::push_connection_log(&format!("=== MODELS MANAGER ERROR ===\n{err}\n"));
                 // The dialog shows the whole connection log, which is the right
@@ -8959,6 +9175,97 @@ impl CoboltApp {
     /// usable model or no configured agent. The two buttons open the very same
     /// managers as the Project Settings rows (`manage_models` / `manage_agents`),
     /// so there is a single way to configure each.
+    /// Note which project-structure upgrades the open project is due, so the
+    /// dialog can offer them. Called when a project opens; costs one pass over
+    /// the registry and, for the upgrades that need it, a read of the forms.
+    fn detect_project_upgrades(&mut self) {
+        let (Some(proj), Some(dir)) = (self.cobolt_project.as_ref(), self.project_dir()) else {
+            self.project_upgrades.clear();
+            return;
+        };
+        self.project_upgrades = crate::project_upgrade::pending(proj, &dir);
+    }
+
+    /// Offer the pending project-structure upgrades. The developer's project,
+    /// the developer's call: **Not now** costs nothing and is offered again on
+    /// the next open, so declining is never a dead end.
+    fn show_project_upgrade_modal(&mut self, ctx: &Context, tr: &Tr) {
+        if self.project_upgrades.is_empty() {
+            return;
+        }
+        let mut open = true;
+        let mut accept = false;
+        let mut later = false;
+        let upgrades = self.project_upgrades.clone();
+        let dim = self.current_theme().text_dim;
+
+        egui::Window::new(tr.upgrade_title)
+            .id(egui::Id::new("project_upgrade"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_max_width(560.0);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(tr.upgrade_intro).size(13.0));
+                ui.add_space(12.0);
+                for u in &upgrades {
+                    ui.label(egui::RichText::new(u.title(tr)).size(13.0).strong());
+                    ui.add_space(2.0);
+                    ui.label(egui::RichText::new(u.detail(tr)).size(12.0).color(dim));
+                    ui.add_space(10.0);
+                }
+                ui.separator();
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.upgrade_apply).clicked() {
+                        accept = true;
+                    }
+                    if ui.button(tr.upgrade_later).clicked() {
+                        later = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+
+        if accept {
+            self.apply_project_upgrades(&upgrades, tr);
+        }
+        // ✕ and Not now are the same answer: nothing changes, and the offer
+        // returns next time this project is opened.
+        if accept || later || !open {
+            self.project_upgrades.clear();
+        }
+    }
+
+    /// Run the accepted upgrades and save the project once. A failure keeps
+    /// whatever succeeded before it — a partial run is still a consistent
+    /// project, and the next open offers the rest.
+    fn apply_project_upgrades(
+        &mut self,
+        upgrades: &[&'static dyn crate::project_upgrade::ProjectUpgrade],
+        tr: &Tr,
+    ) {
+        let (Some(proj), Some(dir)) = (self.cobolt_project.as_mut(), self.project_path.clone())
+        else {
+            return;
+        };
+        let Some(project_dir) = dir.parent().map(|p| p.to_path_buf()) else {
+            return;
+        };
+        let (done, failure) = crate::project_upgrade::apply_all(proj, &project_dir, upgrades);
+        if !done.is_empty() {
+            self.do_save_project();
+            self.output
+                .push_status(tr.upgrade_done.replacen("{}", &done.join(", "), 1));
+        }
+        if let Some(e) = failure {
+            self.output
+                .push_status(tr.upgrade_failed.replacen("{}", &e, 1));
+        }
+    }
+
     fn show_ai_setup_modal(&mut self, ctx: &Context, tr: &Tr) {
         if !self.ai_setup_modal {
             return;
@@ -9950,6 +10257,37 @@ impl CoboltApp {
             }
             Err(e) => self.output.push_status(format!("Main form check: {e}")),
         }
+        self.reseal_project_designation();
+    }
+
+    /// Restate the main-form designation in the project file.
+    ///
+    /// The designation itself lives in the `.cfrm` files — exactly one carries
+    /// `main-form="true"` (037 R3). The project file keeps a **sealed copy**,
+    /// because only the main form starts an application and a runtime has to
+    /// be able to tell a designation the IDE made from one somebody edited by
+    /// hand. [`save_project`] recomputes the seal, so every path that can
+    /// change which form is main ends up here.
+    ///
+    /// Quiet on purpose: this is bookkeeping the developer did not ask for, and
+    /// it happens several times in an ordinary editing session. Only a failure
+    /// is worth a status line.
+    fn reseal_project_designation(&mut self) {
+        let (Some(proj), Some(path)) = (self.cobolt_project.as_ref(), self.project_path.clone())
+        else {
+            return;
+        };
+        // A project of an older shape carries no seal, and the IDE does not
+        // give it one uninvited — so there is nothing to restate, and no
+        // reason to rewrite the developer's project file just by opening it.
+        if proj.project.structure < crate::project_upgrade::STRUCTURE_MAIN_FORM_SEAL {
+            return;
+        }
+        let proj = proj.clone();
+        if let Err(e) = save_project(&proj, &path) {
+            self.output
+                .push_status(format!("Main form seal not written: {e}"));
+        }
     }
 
     /// 037 R2 — settle MainForm flag transitions emitted by the designers'
@@ -10074,6 +10412,10 @@ impl CoboltApp {
                     None => self.apply_main_form_invariant(),
                 }
             }
+            // Which form is main just changed on disk: restate the sealed copy
+            // in the project file, or the next `rcrun` reports as corruption a
+            // change the developer made here deliberately.
+            self.reseal_project_designation();
         }
     }
 
@@ -10577,6 +10919,95 @@ impl CoboltApp {
     }
 }
 
+impl CoboltApp {
+    /// Keep the crash log's context current, and copy unsaved work aside on a
+    /// timer.
+    ///
+    /// The open-file list is rebuilt every frame rather than on the timer: the
+    /// reported crash happened seconds after opening a window, and a report
+    /// that failed to name what was open would have been no use. It is a
+    /// handful of short paths — cheap beside anything else in a frame.
+    /// Offer work rescued from a session that ended badly.
+    ///
+    /// Shown before anything else can take focus, because the developer's first
+    /// question after the IDE disappears is whether their work went with it.
+    fn show_recovery_prompt(&mut self, ctx: &egui::Context) {
+        if self.pending_recovery.is_empty() {
+            return;
+        }
+        let tr = self.lang.tr();
+        let mut restore = false;
+        let mut discard = false;
+
+        egui::Window::new(tr.recover_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_max_width(560.0);
+                ui.label(tr.recover_body);
+                ui.add_space(8.0);
+                for item in &self.pending_recovery {
+                    ui.label(format!("• {}", item.origin.display()));
+                }
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    restore = ui.button(tr.recover_restore).clicked();
+                    discard = ui.button(tr.recover_discard).clicked();
+                });
+            });
+
+        if restore {
+            let written = crate::crash::restore_beside_originals(&self.pending_recovery);
+            for path in &written {
+                self.output.push_status(format!("↺ {}", path.display()));
+            }
+            crate::crash::discard();
+            self.pending_recovery.clear();
+        } else if discard {
+            crate::crash::discard();
+            self.pending_recovery.clear();
+        }
+    }
+
+    fn recovery_tick(&mut self) {
+        let mut open: Vec<PathBuf> = self.editor.tabs.iter().map(|t| t.path.clone()).collect();
+        open.extend(self.designers.iter().map(|(p, _)| p.clone()));
+        crate::crash::note_open(open);
+
+        if self.last_autosave.elapsed().as_secs_f64() < crate::crash::AUTOSAVE_SECS {
+            return;
+        }
+        self.last_autosave = std::time::Instant::now();
+
+        let mut items: Vec<crate::crash::Recoverable> = Vec::new();
+        for tab in &self.editor.tabs {
+            // Generated code is read-only and regenerated on demand; recovering
+            // it would restore a copy of something the project rebuilds anyway.
+            if tab.dirty && !tab.read_only {
+                items.push(crate::crash::Recoverable {
+                    origin: tab.path.clone(),
+                    body: tab.content.clone(),
+                });
+            }
+        }
+        for (path, designer) in &self.designers {
+            if !designer.dirty {
+                continue;
+            }
+            // A form that will not serialize is skipped rather than reported:
+            // autosave must never interrupt the developer mid-edit.
+            if let Ok(xml) = cobolt_forms::form_to_string(&designer.form) {
+                items.push(crate::crash::Recoverable {
+                    origin: path.clone(),
+                    body: xml,
+                });
+            }
+        }
+        crate::crash::autosave(&items);
+    }
+}
+
 impl eframe::App for CoboltApp {
     /// Clear to fully transparent so the OS compositor blends our semi-transparent
     /// panels directly against the desktop wallpaper.
@@ -10596,6 +11027,12 @@ impl eframe::App for CoboltApp {
         // (operator, 2026-08-09). The panels that raise them cannot reach the
         // Output panel, so they record instead and this drains the record —
         // once a frame, before anything else can add to it.
+        // Unsaved work is copied aside on a timer so a hard kill costs at most
+        // one interval. Runs before the UI: if this frame is the one that
+        // panics, the copy is already on disk.
+        self.recovery_tick();
+        self.show_recovery_prompt(ctx);
+
         for message in crate::error_log::drain() {
             self.output.push_status(format!("✗ {message}"));
         }
@@ -10960,6 +11397,7 @@ impl eframe::App for CoboltApp {
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
+        self.show_project_upgrade_modal(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
         // External Crates (spec 044): the service mutates `cobolt.toml` on
         // disk; when an action finished, reload so the tree shows the pins

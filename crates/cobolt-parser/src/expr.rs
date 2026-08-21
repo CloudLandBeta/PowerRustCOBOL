@@ -154,6 +154,28 @@ pub(crate) fn parse_literal(p: &mut Parser) -> Option<(Literal, Span)> {
 fn parse_primary(p: &mut Parser) -> Option<Expr> {
     let span = p.peek_span();
 
+    // TRUE / FALSE as an ordinary operand — sugar for 1 and 0, and nothing
+    // more (operator, 2026-08-20). Putting them here rather than in each
+    // statement is what makes them work everywhere an operand is allowed at
+    // once: `IF x = TRUE`, `IF x NOT = FALSE`, `PERFORM UNTIL x = FALSE`,
+    // `INVOKE obj "m" USING TRUE`, `WHEN TRUE` — one rule, no per-statement
+    // list to keep in step.
+    //
+    // This does NOT disturb the two places TRUE/FALSE already meant something:
+    // `SET <88-name> TO TRUE` still routes through `exec_move`'s condition-name
+    // branch (it receives the same literal 1 it always did), and
+    // `EVALUATE TRUE`/`EVALUATE FALSE` are recognised by `parse_evaluate`
+    // before any expression is parsed, so a bare subject still means "match the
+    // WHEN conditions", not "the number 1".
+    if p.at(&Token::True_) {
+        p.advance();
+        return Some(Expr::Literal(Literal::Integer(1), span));
+    }
+    if p.at(&Token::False_) {
+        p.advance();
+        return Some(Expr::Literal(Literal::Integer(0), span));
+    }
+
     // Unary minus
     if p.at(&Token::Minus) {
         p.advance();
@@ -393,6 +415,26 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
     base
 }
 
+/// Consume `TRUE`/`FALSE` when it is being used as a **truth test** rather than
+/// as an operand (`x IS TRUE`, `x NOT FALSE`), returning the value it stands
+/// for — 1 and 0, the whole of what these keywords mean here.
+///
+/// Distinct from [`parse_primary`], which takes them as operands. Both exist
+/// because `x = TRUE` and `x IS TRUE` reach this file by different routes and
+/// have to end up as the same comparison.
+fn take_truth_literal(p: &mut Parser) -> Option<(i64, cobolt_lexer::Span)> {
+    let span = p.peek_span();
+    if p.at(&Token::True_) {
+        p.advance();
+        return Some((1, span));
+    }
+    if p.at(&Token::False_) {
+        p.advance();
+        return Some((0, span));
+    }
+    None
+}
+
 /// Consume a string literal if the current token is one.
 pub(crate) fn take_string_literal(p: &mut Parser) -> Option<String> {
     if let Token::StringLiteral(s) = p.peek() {
@@ -568,6 +610,26 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
         return cond;
     }
 
+    // A bare `TRUE` / `FALSE` as the WHOLE condition: `IF TRUE`,
+    // `PERFORM UNTIL TRUE`. Taken before the operand parser, so it stays a
+    // condition instead of becoming a lone literal with nothing to compare
+    // against — which is "expected comparison operator in condition".
+    //
+    // Only when nothing follows that would make it an operand: `IF TRUE = X`
+    // is a comparison and must still parse as one.
+    if matches!(p.peek(), Token::True_ | Token::False_)
+        && !matches!(p.peek_at(1), Token::Is)
+        && !is_relop_start(p.peek_at(1))
+    {
+        let (value, vspan) = take_truth_literal(p).expect("just matched");
+        return Condition::Comparison {
+            lhs: Expr::Literal(Literal::Integer(1), vspan),
+            op: CmpOp::Eq,
+            rhs: Expr::Literal(Literal::Integer(value), vspan),
+            span: vspan,
+        };
+    }
+
     // Parse LHS arithmetic expression
     let lhs = parse_expr(p);
 
@@ -639,8 +701,39 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
             };
         }
 
+        // `IS [NOT] TRUE|FALSE` — a truth test. TRUE and FALSE are sugar for 1
+        // and 0, so this is `= 1` / `= 0`, negated to `<>` after `IS NOT`.
+        if let Some((value, vspan)) = take_truth_literal(p) {
+            return Condition::Comparison {
+                lhs,
+                op: if negated { CmpOp::Ne } else { CmpOp::Eq },
+                rhs: Expr::Literal(Literal::Integer(value), vspan),
+                span: span.merge(vspan),
+            };
+        }
+
         p.emit_error("unrecognised IS clause in condition");
         return Condition::ConditionName("<error>".into(), span);
+    }
+
+    // The same test with `IS` left out: `x TRUE`, `x NOT FALSE`. Checked before
+    // the relational-operator paths below because there is no operator here to
+    // find — without this the condition ends at `x`, the rest of the line is
+    // left over, and the statement fails on a stray `NOT`.
+    {
+        let bare_not = p.at(&Token::Not)
+            && matches!(p.peek_at(1), Token::True_ | Token::False_);
+        if bare_not {
+            p.advance(); // NOT
+        }
+        if let Some((value, vspan)) = take_truth_literal(p) {
+            return Condition::Comparison {
+                lhs,
+                op: if bare_not { CmpOp::Ne } else { CmpOp::Eq },
+                rhs: Expr::Literal(Literal::Integer(value), vspan),
+                span: span.merge(vspan),
+            };
+        }
     }
 
     // A bare leading `NOT` before a relational operator (no `IS`): `a NOT = b`,

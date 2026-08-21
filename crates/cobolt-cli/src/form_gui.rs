@@ -110,6 +110,73 @@ fn parse_fx_args(
     )
 }
 
+/// Exit code for an application whose own records disagree about which form
+/// is the main one. Distinct from a plain failure so a launcher can tell
+/// "this copy has been tampered with" from "this program has a bug".
+const EXIT_CORRUPT: i32 = 3;
+/// Exit code for a start request aimed at a form that is not the main one.
+const EXIT_NOT_MAIN: i32 = 4;
+
+/// **Only the main form starts an application.**
+///
+/// A runtime opens the door the application put there; it does not let a
+/// caller pick a different one. Where the main form is a sign-on form, that
+/// is the whole of the application's authentication — starting form three
+/// directly would step over it.
+///
+/// `designer` is the IDE's exemption, and only the IDE's: running any form
+/// on demand is what a form designer *is*. It announces itself on stderr so
+/// a designer run can never be mistaken for how the application starts.
+///
+/// This function either returns or ends the process. See
+/// [`cobolt_compiler::main_form_guard`] for exactly what is verified — and
+/// for the honest limits of a seal whose key ships with the tool.
+fn enforce_main_form(cfrm: &std::path::Path, cbl: &std::path::Path, designer: bool) {
+    use cobolt_compiler::main_form_guard::{authorize_form_start, StartVerdict};
+
+    if designer {
+        eprintln!(
+            "run-form: DESIGNER MODE — running {} on request. This is not how the \
+             application starts: a built application and `rcrun run-form` open the \
+             project's main form.",
+            cfrm.display()
+        );
+        return;
+    }
+
+    match authorize_form_start(cfrm, Some(cbl)) {
+        StartVerdict::Allowed => {}
+        StartVerdict::AllowedUnsealed => {
+            eprintln!(
+                "run-form: warning — this project carries no main-form seal, so its \
+                 designation cannot be verified. Open and save it in PowerRustCOBOL to \
+                 seal it."
+            );
+        }
+        StartVerdict::Refused { requested, main } => {
+            let main = if main.is_empty() {
+                "this project designates no form".to_owned()
+            } else {
+                format!("its main form is {main}")
+            };
+            eprintln!(
+                "run-form: {requested} is not this application's main form ({main}).\n\
+                 An application always starts at its main form. Open {requested} from \
+                 the running application, or run it from PowerRustCOBOL."
+            );
+            process::exit(EXIT_NOT_MAIN);
+        }
+        StartVerdict::Corrupt(why) => {
+            eprintln!(
+                "run-form: CORRUPTED APPLICATION — {why}.\n\
+                 This application will not start. Restore it from its original \
+                 distribution, or rebuild it in PowerRustCOBOL."
+            );
+            process::exit(EXIT_CORRUPT);
+        }
+    }
+}
+
 pub fn cmd_run_form(args: &[String]) {
     let (cfrm_path, cbl_path) = match (args.first(), args.get(1)) {
         (Some(a), Some(b)) => (PathBuf::from(a), PathBuf::from(b)),
@@ -120,6 +187,13 @@ pub fn cmd_run_form(args: &[String]) {
             process::exit(2);
         }
     };
+    // Before anything is loaded, parsed or drawn: may this form start at all?
+    // `--designer` is passed by the IDE, and by nothing that ships.
+    enforce_main_form(
+        &cfrm_path,
+        &cbl_path,
+        args.iter().any(|a| a == "--designer"),
+    );
     // Project-level default theme id, forwarded by the IDE (per-form overrides
     // in the .cfrm still win — same resolution the designer canvas uses).
     let theme_default: Option<String> = args

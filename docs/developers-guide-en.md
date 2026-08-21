@@ -288,8 +288,11 @@ The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fad
   drag the resizer freely (the split moves independently of any label length,
   up to 80 % of the pane width). Controls on the right are elastic and all
   start at the same x position after a 10 px gap, giving perfect vertical
-  alignment of every property value. Sections: Project, License, Appearance,
-  AI assistant, Runtime. Explicit **Save** and **Cancel** buttons at the bottom
+  alignment of every property value. Sections, in order: Project, AI assistant,
+  Appearance, License, Integrations, Runtime — the AI settings (Agents Manager,
+  Model Providers Manager, Model Leaderboard) sit directly under Project, where
+  you reach them without scrolling past a licence text you set once and rarely
+  touch again. Explicit **Save** and **Cancel** buttons at the bottom
   of the card (Cancel enabled only after changes; reverts to last saved). The
   resizer line follows the current theme (brighter when hovered or dragged).
   The code editor (when visible) carries a **status bar** along the bottom —
@@ -341,6 +344,29 @@ dot marks one that is configured), adjust its endpoint if you need a different
 host, paste the key, and use **Refresh models** to pull the current catalogue.
 **Test** sends one request so you can confirm the credential before relying on
 it.
+
+**When a call fails.** The error window opens with the reason on its own line at
+the top, above a rule, and the full connection log underneath. The headline is
+the provider's own sentence, quoted — *"You exceeded your current quota, please
+check your plan and billing details"*, *"'temperature' is not supported with this
+model"* — with the request field or error code it named shown beneath when the
+sentence does not already say them. The log below is unchanged and complete;
+**Copy** and **Save…** take the whole thing, not the headline. An error whose
+payload carries no such sentence gets no headline: you are never shown a summary
+of something that was not said.
+
+**Note — reasoning models pass the test.** *Test* asks one question: is this
+model reachable and answering? Some models think before they speak and return
+only hidden reasoning on a request this small — the endpoint resolved, the key
+was accepted, tokens came back, but no visible text did. That counts as a pass,
+and the result says so. It is only the agents that need visible text: they parse
+a reply into form operations, and reasoning they never see cannot be applied —
+so a model that answers agents with hidden reasoning alone is still reported as
+unusable *there*, with the same advice to turn thinking off for it.
+
+The provider panel on the right **scrolls** — endpoint, key, models and *Where
+keys are kept* are all reachable however short you make the window, and the
+provider list on the left scrolls independently of it.
 
 Provider configuration is **machine-wide**, stored beside your other
 machine-local settings rather than in the project. Configure Anthropic once and
@@ -425,6 +451,33 @@ A row whose model is reserved for another role shows a warning beside the agent
 name: a specialist may not run Grace's model, nor the Judge's. (The Judge *may*
 share Grace's model, as long as no specialist is on it.)
 
+**When a provider retires a model.** Models are decommissioned — Anthropic,
+OpenAI, Meta and the rest withdraw them on their own schedule — and a rank for a
+model that no longer exists is worse than no rank: it invites you to choose it.
+So a refresh in the Model Providers Manager that comes back with a catalogue also
+takes off the Leaderboard any of that provider's models the catalogue no longer
+lists, and says which in the Output pane.
+
+Only a refresh that **actually listed models** can do this, and only for the
+provider it listed. A failed request, an expired key and a provider you have not
+refreshed yet all produce an empty list, which says nothing about what exists —
+so an empty result removes nothing at all. You can also retire a model yourself:
+each Leaderboard row has **Remove**, for the case where a provider has shut a
+model down before its catalogue has caught up. It asks first, because a rank
+costs real tokens and real time.
+
+If an agent was running the model that went, the Agents Manager opens on that
+agent so you can give it another one straight away — an agent pointing at a
+withdrawn model is the part that actually breaks a run, and finding out at the
+next workflow, as a connection error, is the expensive way to learn it.
+
+A removal sticks: a retired model is not put back by the next project sync, and
+not by the replay of archived benchmark reports either. Your archive in
+`agentic_ai/model-benchmarks.jsonl` is untouched — those reports are the record
+of what you ran and paid for, and none of this deletes them. **Testing a retired
+model again brings it back**, with its new result, so a retirement you disagree
+with costs one run to undo.
+
 **Tab 2 — Agent Configuration.** The agent list on the left drives the detail
 pane on the right: **Agent Details** (id, name, kind, specialisation, purpose,
 enabled), the prompt editor, capabilities, knowledge and relationships.
@@ -496,6 +549,14 @@ reviewer prompts remain editable in Agents Manager and fixed-agent repair
 preserves those edits. Give each reviewer a model in the runtime table before
 enabling its review connection; a primary and its Pedantic companion cannot use
 the same model.
+
+**When Grace asks instead of acting.** A request that admits more than one
+reading gets a question rather than a guess — a red balloon in the same chat,
+naming exactly what is ambiguous. Answer it in the same box, as briefly as you
+like ("the Caption", "UUID", "aas-clientes"): the answer goes back carrying the
+question it answers, so Grace resumes the original request with your decision
+applied. You do not have to restate what you asked for. If you type something
+else instead, that becomes the request and the questions are dropped.
 
 The built-in routing contracts are explicit: Form Designer Agent owns RAD form
 design and delegates event implementation; COBOL Event Handler Script Agent
@@ -715,8 +776,28 @@ backend and use the CPU path.
 When the agent **repositions controls** on a form, the affected controls
 **glide** from their old places to the new ones — all at once, over about a
 second — so you can see the layout change take shape instead of the controls
-jumping. The animation is purely visual: the form and its generated code hold the
-final positions immediately.
+jumping. A control the agent **creates** announces itself the same way: it
+plays a one-time **ZoomOut** pulse over a second — full size, dipping to about a
+quarter, back to full size — so you can see at a glance what is new on the form.
+Everything one request creates pulses together, on the same clock as the moves,
+so a single change-set reads as a single gesture. A control the agent merely
+re-sends (agents routinely repeat a whole change-set) does not pulse again.
+
+Both animations are purely visual: the form, its saved `.cfrm` and its generated
+code hold the final positions and the finished controls immediately, and the
+pulse is never written into the control — it does not follow your form into the
+built application.
+
+**What happens the moment you press Send.** In the Form Designer's AI Assistant
+the workflow does not start straight away: Grace first reads your request back
+for clarity, rewriting it into the wording the specialists will be held to and
+marking any passage that still reads two ways. That pass takes as long as a
+model call takes, and while it runs the pane says so — a spinner and *Grace is
+reviewing the request…*, in the IDE's language, both on the row under the prompt
+box and as the last balloon in the transcript. When it finishes you get the
+review to read, edit and approve; only then does the work begin. A review that
+fails or comes back unreadable costs you nothing: your request is sent exactly
+as you wrote it.
 
 Every chatbot composer keeps **Send** immediately to the right of its prompt.
 The prompt consumes the remaining width while the command stays visible as the
@@ -2932,8 +3013,19 @@ itself decides who gets through, which is the point.
 > **Note.** A project whose files predate the seal keeps working. With no
 > designation recorded, the runtime falls back to the form marked main — or, in
 > a project older than the marker, to the first form in the project — and warns
-> once that the project is unsealed. Open and save it in PowerRustCOBOL to seal
-> it.
+> once that the project is unsealed.
+
+**Updating an older project.** Open one in PowerRustCOBOL and it offers the
+upgrade — *Update this project's structure*, listing what changes and what it
+buys. Accept and the designation is recorded and sealed. Decline and **nothing
+changes**: the IDE does not touch the shape of a project you did not ask it to
+change, not even on save, and the offer returns the next time you open it.
+
+The mechanism is general. `[project] structure` numbers the shape of a project
+file; PowerRustCOBOL writes the current number into every project it creates,
+and any project below it is offered the steps that bring it up. Future changes
+to the project file arrive the same way — as an offer, described in your
+language, that you are free to refuse.
 
 ⚠️ **Caveat — what the seal is and is not.** It detects an *edited* project,
 which is what this rule is about. It is not a lock. Its key ships with the
@@ -4013,7 +4105,20 @@ independent halves with different credential needs:
 - **The basemap needs no API key at all.** `CenterLat` / `CenterLng` /
   `Zoom` position the view; the user pans and scrolls the wheel to zoom
   interactively, firing `onBoundsChanged` (and updating those three
-  properties) when they do.
+  properties) when they do. Writing those three from COBOL moves the map:
+
+  ```cobol
+  MOVE "-23.5614" TO MAP-1::CenterLat
+  MOVE "-46.6558" TO MAP-1::CenterLng
+  MOVE 16         TO MAP-1::Zoom
+  ```
+
+  ⚠️ **A grey map with only its markers on it** means the tiles are not
+  arriving — the control is fine, the download is not. Tiles come from
+  `tile.openstreetmap.org` over HTTPS and need no key, so the usual causes are
+  no network or a proxy in the way. The first failure of a session says so on
+  the console; centring and markers keep working regardless, which is why an
+  empty basemap can otherwise pass for a map of open water.
 - **Markers** are pins on the map: one line per marker in the `Markers`
   property, TAB-separated (`id`⇥`lat`⇥`lng`⇥`label`⇥`info`). Prefer
   `AddMarker(id, lat, lng, label, info)` / `RemoveMarker(id)` over

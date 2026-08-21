@@ -72,9 +72,6 @@ pub struct DocViewer {
     show_source: bool,
     show_shortcuts: bool,
     focus_find: bool,
-    /// One-shot guard: install the broad fallback font into the child viewport
-    /// context once (so glyphs egui's default font lacks render, not as tofu).
-    fonts_ready: bool,
     /// Procedural "uneven frosted glass" overlay, built once for the window.
     fog_tex: Option<egui::TextureHandle>,
 }
@@ -104,7 +101,6 @@ impl Default for DocViewer {
             show_source: false,
             show_shortcuts: false,
             focus_find: false,
-            fonts_ready: false,
             fog_tex: None,
         }
     }
@@ -196,12 +192,24 @@ impl DocViewer {
         }
     }
 
-    /// Install a broad system font as a fallback in the doc window's context so
-    /// glyphs egui's default font lacks (e.g. the U+2011 non-breaking hyphen in
-    /// "RustCOBOL‑85") render properly instead of as tofu boxes. Runs once.
-    fn install_doc_fonts(ctx: &Context) {
-        ctx.set_fonts(crate::fonts::base_font_definitions());
-    }
+    // The broad-Latin/CJK fallback this window needs (the U+2011 non-breaking
+    // hyphen in "RustCOBOL‑85", 日本語, 中文) is installed ONCE, at start-up, by
+    // `CoboltApp::new` — on the very context this window draws on, because
+    // `show_viewport_immediate` shares the application's single egui Context.
+    //
+    // Re-installing it here was therefore a no-op with a bite: `set_fonts`
+    // REPLACES a context's definitions, so it also dropped every font family
+    // `cobolt_forms::fonts` had loaded on demand for the open forms. The next
+    // repaint of a designer holding a control whose Font is not a built-in —
+    // "Arial Black" on the reported form — asked epaint for a family it no
+    // longer had, and epaint panics on that rather than falling back:
+    // `FontFamily::Name("Arial Black") is not bound to any fonts`. Opening the
+    // documentation crashed the IDE (operator, 2026-08-20).
+    //
+    // `cobolt_forms::fonts::font_id` now also re-registers a family the context
+    // has lost, so no single `set_fonts` anywhere can bring the panic back. Both
+    // halves matter: this one is why nothing is dropped, that one is why a drop
+    // would no longer be fatal.
 
     /// Paint the "uneven frosted glass" overlay across the whole window on the
     /// background layer (below the panels, which are transparent). The fog uses
@@ -299,10 +307,6 @@ impl DocViewer {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
                 ctx.set_global_style((*parent_style).clone());
-                if !self.fonts_ready {
-                    Self::install_doc_fonts(ctx);
-                    self.fonts_ready = true;
-                }
                 ctx.set_zoom_factor(self.zoom);
 
                 // Translucent "frosted glass": the window is transparent and the

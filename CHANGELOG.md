@@ -1,5 +1,342 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.122] — 2026-08-20
+
+### Fixed — the Maps control draws a map
+
+It drew a flat grey square. Markers appeared on it, in the right places, which
+made it look like a working control with nothing to show — and grey is also
+exactly what a map centred on open water looks like, so nothing distinguished
+"no basemap" from "no land here".
+
+No tile was ever fetched. `ureq`'s `native-tls` feature is an **adapter only**:
+its crate-level helpers never pick up a TLS backend, so an HTTPS request made
+that way fails before it leaves the machine with "no TLS backend". The tile
+fetcher used exactly that shape. The rule was already written down, in the
+runtime's own HTTP client — which was the only place obeying it. Tile requests
+now go through an agent carrying the platform connector, like every other HTTPS
+call in the workspace.
+
+The basemap needs no API key and never did — tiles come from OpenStreetMap. The
+Google-backed calls (`Geocode`, `Directions`, `PlacesSearch`, `DistanceMatrix`)
+are the only part that needs one.
+
+**And a failed basemap now says so.** The first failure of a session prints what
+went wrong and that markers and centring still work, because the previous
+behaviour — a silent grey square — is what let a misconfigured HTTP client pass
+for a working map.
+
+## [PowerRustCOBOL 1.61.121] — 2026-08-20
+
+### Fixed — `TRUE` and `FALSE` work as operands, not just in two special places
+
+`SET X TO TRUE` worked, and so did the standard `EVALUATE TRUE` case statement.
+Everywhere else the words were a parse error — `IF X = TRUE`, `IF X IS FALSE`,
+`IF X NOT FALSE`, `PERFORM UNTIL X = FALSE` — which made the two that did work
+look like an accident rather than a rule.
+
+They are now what they always read as: **sugar for `1` and `0`**, accepted
+wherever a value is allowed. `IF X = TRUE`, `IF X IS [NOT] TRUE`, the bare
+`IF X NOT FALSE` with no relational operator, `PERFORM UNTIL X = FALSE`,
+`MOVE TRUE TO X`, `COMPUTE N = N + TRUE`, `INVOKE OBJ "m" USING TRUE`, and
+`WHEN TRUE` against a value subject. A bare `TRUE`/`FALSE` is also a complete
+condition, so `IF TRUE` and `PERFORM UNTIL TRUE` say what they look like.
+
+The rule lives in one place — the operand parser — rather than in a list of
+statements that would drift apart, which is why it reaches every verb at once.
+
+**The two older meanings are untouched, and tested.** `SET <88-name> TO TRUE`
+still sets the host item to a value that *satisfies* the condition — `"Y"`, not
+the number 1 — and reading an 88 by name is still a condition. `EVALUATE TRUE`
+and `EVALUATE FALSE` still select the WHEN whose *condition* has that truth
+value, which is a different thing from matching the value 1 and must not be
+confused with it; `EVALUATE X … WHEN TRUE` is the other reading, and both are
+pinned by their own tests.
+
+## [PowerRustCOBOL 1.61.120] — 2026-08-20
+
+### Fixed — an AI error says what went wrong, at the top, in one sentence
+
+The error window showed the whole connection log: every request line, every
+header, every retry. That is what you want when something is wrong — and it
+buried the one sentence that says *what* is wrong, usually inside a JSON body on
+a single very long line running off the right-hand edge. Finding out that a model
+needs a paid plan, or that it will not take the `temperature` you set, meant
+reading a wall of text for it.
+
+The reason now sits at the top of the window on its own, above a rule, with the
+full log underneath exactly as before. Nothing is hidden and nothing is
+rewritten: the headline is the **provider's own words**, quoted from its payload.
+Where the provider named the offending request field or a machine code —
+`temperature`, `insufficient_quota`, `permission_error` — those are shown under
+it, and left out when the sentence already says them.
+
+It reads the fields providers fill in (`error.message`, `error.code`,
+`error.param`) rather than trying to work out from the prose what kind of failure
+it was; a guess about that would be wrong exactly when the error is unusual,
+which is when this matters. Gateways that re-wrap an upstream body are followed
+through to the real reason, and when several attempts are in the log the most
+recent one is the one quoted. **An error with no payload to quote gets no
+headline at all** — that window looks precisely as it always did, rather than
+carrying an invented summary.
+
+## [PowerRustCOBOL 1.61.119] — 2026-08-20
+
+### Fixed — the Leaderboard lets go of models that no longer exist
+
+Providers retire models on their own schedule, and a rank for a model that has
+been withdrawn is worse than no rank at all: it invites you to pick it. Until now
+the board had no way to let one go — and worse, it actively brought them back,
+because every scored report a project ever archived is replayed onto the board
+each time it opens.
+
+A refresh in the Model Providers Manager that comes back with a catalogue now
+also retires that provider's models the catalogue no longer lists, and names them
+in the Output pane. Each row also has **Remove**, for a model shut down before its
+catalogue caught up; it asks first, because a rank costs real tokens and real
+time.
+
+**It only acts on evidence.** A refresh that actually listed models is the only
+thing that can retire one, and only for the provider that answered. A failed
+request, an expired key and a provider you have never refreshed all produce the
+same empty list, and an empty list says nothing about what exists — so it removes
+nothing. A successful Anthropic refresh says nothing about OpenAI's catalogue,
+and does nothing to it.
+
+**An agent left holding a withdrawn model is the part that actually breaks a
+run**, so that is not left to be discovered later as a connection error: the
+Agents Manager opens on the affected agent so another model can be chosen there
+and then, with every stranded agent named in the Output pane.
+
+**Removals stick, and nothing is destroyed.** A retired model is not restored by
+the next project sync, nor by the archive replay. Your
+`agentic_ai/model-benchmarks.jsonl` is untouched — it is the record of what you
+ran and paid for, and tidying a list is not a reason to delete evidence. Testing
+a retired model again brings it back with its new result, so a retirement you
+disagree with costs one run to undo. Boards written before this release load
+unchanged.
+
+## [PowerRustCOBOL 1.61.118] — 2026-08-20
+
+### Fixed — opening the documentation no longer takes the IDE down with it
+
+Open the Documentation window with a form designer behind it and the IDE
+crashed:
+
+```
+panic: FontFamily::Name("Arial Black") is not bound to any fonts
+```
+
+Every window in the IDE shares one drawing context, and installing a font set
+**replaces** that context's fonts rather than adding to them. The documentation
+window installed the base set on the way up — the very same set already put there
+at start-up, so it changed nothing except this: it discarded every font family
+loaded on demand for the open forms. The next repaint of a designer holding a
+control whose Font is not one of the built-ins asked for a family the context no
+longer had, and that is not a fallback — the drawing engine stops the process on
+it. The redundant install is gone; nothing is dropped.
+
+The second half matters more than the first. Font resolution now asks the
+context whether a family is really there before naming it, and re-installs it if
+it is not — so **no** part of the IDE, present or future, can arm this crash by
+setting its own fonts. A form using an unusual font falls back to Arial for one
+frame and is back to its own face on the next, which is what the fallback rule
+always promised.
+
+Both halves are pinned by a test that loads a real system font, clobbers the
+context the way the documentation window did, and lays text out with what
+resolution hands back — it reproduces the panic exactly without the fix.
+
+## [PowerRustCOBOL 1.61.117] — 2026-08-20
+
+### Fixed — a form loaded into the ContentPane lands in the ContentPane
+
+Open a form through a SideMenu item (`open-form:`) and it was drawn from the
+**window's** top-left, straight over the menu rail, offset by nothing but the
+breadcrumb band — while the shell's own main form, on the very same pane, sat
+where it belonged.
+
+The two took different roads. The shell form is drawn inside a `CentralPanel`,
+which consumes exactly the space the rail and the crumb strip left. The loaded
+form was placed from the root `Ui`'s full rect instead — and that `Ui` is the
+surface those panels were added to, so its rect is the whole window and knows
+nothing about them. A loaded form now takes the same leftover region the shell
+records as the ContentPane, and travels with it when the rail collapses. In a
+plain form window there are no such siblings, so nothing there changes.
+
+## [PowerRustCOBOL 1.61.116] — 2026-08-20
+
+### Fixed — the Model Providers Manager reaches its own settings
+
+**The provider panel scrolls.** Its right-hand side is the one part of that
+window whose height comes from its content — endpoint, key, the model row, and
+the four *Where keys are kept* choices — while the room it gets is whatever the
+window has left after the provider rail and the two footer blocks. It had no
+scroll area, so the surplus was simply cut off: *Where keys are kept* ended
+mid-sentence and none of the choices under it could be reached by wheel, drag or
+resize. The panel now scrolls, exactly as the provider list beside it always has.
+
+It scrolls **without moving the window**: the scroll area fills the space it is
+given instead of reporting its content's height back up, so a provider with more
+to say can never widen or lengthen the window — the failure mode that would have
+traded one layout bug for a worse one. Pinned by a test that renders the manager
+for real, in all six languages, and checks the window's own rendered rect is
+unchanged frame to frame and never larger than the screen.
+
+## [PowerRustCOBOL 1.61.115] — 2026-08-20
+
+### Fixed — the review that looked like nothing, a test that failed working models, and settings you had to scroll for
+
+**Grace's review of your request now says it is running.** Pressing Send in the
+Form Designer's AI Assistant does not start the workflow — Grace first reads your
+request back for clarity and marks whatever still reads two ways. That takes as
+long as a model call takes, and the pane showed nothing for it: the status it
+stores *is* progress, and the footer only renders a status that is **not**
+progress, so the one line that would have said "Grace is reviewing the request…"
+was written to a field nothing displayed. What you saw was your prompt still in
+the box and a transcript that had not moved. A spinner and Grace's own words now
+sit directly under the prompt box, where you just clicked, and the transcript
+balloon names the review instead of calling it "Thinking…" — so the review reads
+as its own step and not as the run that follows it. In all six languages.
+
+The spinner takes its colours from the theme, never from the surrounding widget
+style: the AI pane deliberately zeroes the "active control" stroke to kill a
+panel border, and that stroke is exactly where a default spinner reads its
+colour — one drawn there would have been painted fully transparent.
+
+**A reasoning model no longer fails its own connection test.** *Test* in the
+Model Providers Manager asks one question — is this model reachable and
+answering? It clamps the request to 16 tokens, which a model that thinks before
+it speaks can spend entirely on thinking: it streams hidden reasoning, no visible
+text, and a model that had just proved itself reachable was reported as
+`The model returned 68 reasoning character(s) but no assistant message content`.
+Reachability was settled the moment those tokens arrived, so the test now accepts
+them and says what happened. The refusal stays exactly where it belongs — the
+agent path parses a reply into form operations and cannot apply reasoning it
+never sees — so a model that answers *agents* that way is still reported as
+unusable there, with the same advice.
+
+**The AI settings sit where you can find them.** Project settings ran Project →
+License → Appearance → AI assistant, which put Agents Manager, Model Providers
+Manager and Model Leaderboard below a licence text box you set once and rarely
+touch. License and AI have swapped places: the order is now Project → AI
+assistant → Appearance → License → Integrations → Runtime.
+
+## [PowerRustCOBOL 1.61.114] — 2026-08-20
+
+### Added — a control the agent creates says so
+
+An agent that repositions controls has made them glide since 1.35; an agent that
+**creates** one gave you no signal at all — the control simply was there, and on
+a busy form you had to hunt for what had changed. A newly created control now
+plays a one-time **ZoomOut** pulse over **1000 ms**: full size, dipping to about
+a quarter, back to full size. Not an exit — a control that ends smaller or gone
+would be the opposite of "this is your new control".
+
+Everything one change-set creates pulses **together**, on the same clock as that
+change-set's moves, so one request reads as one gesture. A control the agent
+merely re-sends does not pulse again: agents re-emit whole change-sets as a
+matter of course, and a form that flashed on every repeat would be noise.
+
+Purely visual, like the glide. The pulse is never written into the control, so it
+does not reach the `.cfrm`, the generated COBOL, or the built application — and
+the control is at full size in the model from the instant the change-set lands.
+The curve is the catalogue's own ZoomOut, read through the same `anim_transform`
+every other animation uses, so there is one definition of what ZoomOut means.
+
+## [PowerRustCOBOL 1.61.113] — 2026-08-20
+
+### Fixed — answering Grace continues the work, and the AI pane stays where you put it
+
+**An answer to Grace's question now reaches her as an answer.** When a request
+admits more than one reading, Grace asks instead of guessing — and in the Form
+Designer's AI Assistant her questions were balloons and nothing else. Your reply
+went out as a fresh request of its own: "the Caption", "UUID", "aas-clientes" —
+which means nothing on its own, so the run ended having applied no changes at
+all. The reply now carries the questions it answers, and Grace resumes the
+original request with your decision applied.
+
+The reply also no longer passes through the prompt reviewer. The reviewer is
+given the form and the project but never the conversation, so it was rewriting a
+one-word answer as though it were a standalone request — a laundered fragment
+was what reached Grace. Whether a message answers the question or changes the
+subject is decided by Grace, whose routing contract already makes that call in
+whatever language you are writing.
+
+**The AI Assistant pane keeps its height.** It was the one panel in the designer
+keyed by a constant id while every sibling (`dl_{idx}`, `dtb_{idx}`,
+`props_{idx}`) is keyed per designer. egui stores a panel's size under its id
+alone, so with two forms open both panes wrote the same slot every frame and the
+last writer won: dragging one sprang straight back, always to the same height.
+Each designer now owns its own pane size.
+
+Also: the "nothing to change" reply is no longer hard-coded English — it reads in
+the IDE's language, like every other message.
+
+## [PowerRustCOBOL 1.61.112] — 2026-08-20
+
+### Added — older projects are offered an upgrade, never given one
+
+> Read this together with the section below it: the upgrade exists because of
+> that rule, and the rule keeps working without the upgrade.
+
+Open a project written by an earlier PowerRustCOBOL and it now says so, listing
+what can be brought up to date and what each change buys. Accept and it is
+applied and saved in one step. Decline and **nothing changes** — the IDE does
+not alter the shape of a project you did not ask it to change, not even on
+save — and the offer returns the next time you open it.
+
+One upgrade ships today: **record and seal the main form**, which gives a
+pre-1.61.111 project the designation `rcrun` and a built binary verify. Without
+it those keep running and warn once that the project cannot be verified.
+
+The mechanism is general, because this will not be the last time. `[project]
+structure` numbers the shape of a project file; every project PowerRustCOBOL
+creates is born at the current number, and anything below it is offered the
+steps in between. A new upgrade is a struct with *does this project need it?*
+and *do it*, registered in one list — the dialog, the ordering, the save and the
+six translations come with it.
+
+### Changed — only the main form starts an application
+
+The IDE runs whichever form you ask it to; that is what a designer is for. A
+runtime no longer does. `rcrun run-form` and a built binary open the project's
+**main form**, and nothing else. Where the main form is your sign-on form, this
+is what stops someone starting the third form directly and walking past it.
+
+**The designation is recorded twice.** Inside the form, as the `main-form` mark
+in its `.cfrm`; and in the project file, as `main-form` under `[forms]` next to
+`main-form-seal`, a digest over the designation and the project's form list. The
+IDE writes both whenever it saves — you never maintain them by hand.
+
+**A disagreement is corruption, and stops the application.** A mark moved to
+another form, `[forms] main-form` pointed elsewhere, a seal deleted, two forms
+claiming the mark: the runtime reports a corrupted application and exits before
+any window opens (exit code **3**). A form that is merely not the main one is
+refused, naming the form the application does start at (exit code **4**).
+
+**A built binary is the strong case.** Its forms live inside the executable and
+its main form is baked in at build time, so it also checks at startup that the
+form it is about to open is still the one it was built to open. `rcrun build`
+now refuses a project in which two forms claim the mark, instead of picking one.
+
+**Nothing changes inside a running application.** `OpenFormSync` /
+`OpenFormAsync` and menu navigation are untouched — the application itself
+decides who gets through, which is the point. **Run Form** in the IDE is
+unchanged too: it passes `--designer`, which `rcrun` announces on stderr so a
+designer run cannot be mistaken for how the application starts.
+
+⚠️ The seal detects an *edited* project. It is not a lock: its key ships with
+the tools, so anyone holding the project folder and PowerRustCOBOL can
+re-designate a main form and seal it — exactly as if they had opened the project
+and changed it. Ship applications as built binaries when the sign-on form is the
+thing you are protecting.
+
+Projects that predate the seal keep working: the runtime falls back to the
+marked form — or, in a project older than the marker, the first form in the
+project — and warns once that it is unsealed. Saving it in PowerRustCOBOL seals
+it.
+
 ## [PowerRustCOBOL 1.61.101] — 2026-08-18
 
 ### Added — the breadcrumb is a frame you can design in

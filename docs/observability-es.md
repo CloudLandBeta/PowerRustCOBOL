@@ -17,6 +17,7 @@ crecerá para cubrir otras superficies del runtime.
 |---------|--------|-------|
 | **Log de transacciones de ficheros INDEXED** | ✅ disponible | este documento, §1 |
 | Trazado del runtime (`COBOLT_LOG`) | ✅ disponible | §2 |
+| **Registros de caída y recuperación del trabajo** | ✅ disponible | §5 |
 | Runtime de bases de datos SQL | 🔭 previsto | — |
 | Cliente HTTP / REST | 🔭 previsto | — |
 
@@ -307,6 +308,46 @@ sequenceDiagram
     Child-->>IDE: Done
     Note over IDE: inspector shows CPU/RSS tree + anomalies
 ```
+
+---
+
+## 5. Registros de caída y recuperación del trabajo
+
+Una aplicación con ventana no tiene un terminal asociado, así que cuando la IDE
+muere su mensaje de pánico, su `file:line` y su traza van a un stderr que nadie
+está leyendo: la ventana simplemente desaparece y no deja nada tras de sí. Dos
+mecanismos distintos sustituyen eso, porque resuelven dos problemas distintos.
+
+**Registros de caída — para que haya algo que diagnosticar.** Un manejador de
+pánico escribe `<data>/cobolt/crash/crash-<segundos>.log` con el mensaje del
+pánico, su `file:line:column`, una traza forzada, la versión de la IDE, el
+sistema operativo, el hilo y los ficheros que estaban abiertos en ese momento.
+Adjúntelo a un informe de error.
+
+**Autoguardado — para que el trabajo sobreviva.** Cada **20 segundos**, cada
+búfer del editor sin guardar y cada form modificado se copian a
+`<data>/cobolt/recovery/`, junto a un `manifest.toml` que asocia cada copia con
+su original. Un fichero marcador registra que hay una sesión en marcha y se
+borra al salir limpiamente; encontrar uno en el siguiente arranque es
+exactamente lo que significa «la última sesión terminó mal», y entonces la IDE
+ofrece restaurar.
+
+**Restaurar nunca sobrescribe.** Al aceptar el ofrecimiento, cada copia se
+escribe junto a su original como `<nombre>.recovered.<ext>` y las rutas se
+listan en el panel Output. La copia salió de un proceso que ya había perdido pie,
+así que qué versión gana es decisión suya, no de la IDE.
+
+> ⚠️ **Un manejador de pánico no puede atraparlo todo.** Un desbordamiento de
+> pila falla en la página de guarda y llega como `SIGSEGV`; el asesino por falta
+> de memoria envía `SIGKILL`; un segundo pánico durante el desenrollado aborta.
+> En los tres casos el manejador nunca se ejecuta y **no se escribe ningún
+> registro de caída**. El autoguardado es lo que cubre esos casos, porque ya ha
+> ocurrido para cuando algo va mal — que es también por lo que el intervalo es la
+> garantía real: como mucho 20 segundos de trabajo.
+
+`<data>` es el directorio de datos del sistema operativo:
+`~/Library/Application Support` en macOS, `%APPDATA%` en Windows,
+`~/.local/share` en Linux.
 
 ---
 

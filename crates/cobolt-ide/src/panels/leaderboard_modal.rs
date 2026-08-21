@@ -61,6 +61,9 @@ pub struct LeaderboardModal {
     add_provider: String,
     /// Model chosen in that row.
     add_model: String,
+    /// The row whose Remove is awaiting a yes. One at a time — this is a
+    /// destructive, deliberately unhurried action.
+    confirm_retire: Option<(String, String)>,
     /// The window's size, owned here rather than by egui.
     ///
     /// This is the whole defence against the self-inflating window: the size
@@ -88,6 +91,10 @@ pub struct LeaderboardAction {
     /// Put this `(provider, model)` on the board so it can be tested, even
     /// though no agent runs it (spec 048 R20).
     pub add_model: Option<(String, String)>,
+    /// Take this `(provider, model)` off the board for good — the provider
+    /// decommissioned it. Tombstoned, so the archive replay cannot bring it
+    /// back; testing it again would.
+    pub retire: Option<(String, String)>,
 }
 
 impl LeaderboardModal {
@@ -102,6 +109,7 @@ impl LeaderboardModal {
             pending_run: None,
             add_provider: String::new(),
             add_model: String::new(),
+            confirm_retire: None,
             size: egui::vec2(DEFAULT_W, DEFAULT_H),
         }
     }
@@ -534,7 +542,43 @@ impl LeaderboardModal {
                                 // silently rewrote several agents from a screen
                                 // that shows none of them was the wrong place
                                 // for it (operator, 2026-08-09).
-                                let _ = &id;
+                                //
+                                // Retiring a model by hand, for the provider
+                                // that shut one down without the catalogue
+                                // saying so yet. Confirmed, because a score is
+                                // hours and tokens, and the row does not come
+                                // back on its own once it goes.
+                                if self.confirm_retire.as_ref() == Some(&id) {
+                                    ui.label(
+                                        egui::RichText::new(tr.leaderboard_retire_confirm)
+                                            .size(SZ_BODY)
+                                            .color(egui::Color32::from_rgb(220, 120, 120)),
+                                    );
+                                    if ui
+                                        .button(
+                                            egui::RichText::new(tr.leaderboard_retire_yes)
+                                                .size(SZ_BODY),
+                                        )
+                                        .clicked()
+                                    {
+                                        action.retire = Some(id.clone());
+                                        self.confirm_retire = None;
+                                    }
+                                    if ui
+                                        .button(egui::RichText::new(tr.btn_cancel).size(SZ_BODY))
+                                        .clicked()
+                                    {
+                                        self.confirm_retire = None;
+                                    }
+                                } else if ui
+                                    .button(
+                                        egui::RichText::new(tr.leaderboard_retire).size(SZ_BODY),
+                                    )
+                                    .on_hover_text(tr.leaderboard_retire_hint)
+                                    .clicked()
+                                {
+                                    self.confirm_retire = Some(id.clone());
+                                }
                             });
                             ui.end_row();
                         }

@@ -16,6 +16,7 @@ what it did, how fast, and how healthy the underlying stores are. It starts with
 |---------|--------|-------|
 | **INDEXED file transaction log** | ✅ available | this document, §1 |
 | Runtime tracing (`COBOLT_LOG`) | ✅ available | §2 |
+| **Crash logs and work recovery** | ✅ available | §5 |
 | SQL database runtime | 🔭 planned | — |
 | HTTP / REST client | 🔭 planned | — |
 
@@ -294,6 +295,42 @@ sequenceDiagram
     Child-->>IDE: Done
     Note over IDE: inspector shows CPU/RSS tree + anomalies
 ```
+
+---
+
+## 5. Crash logs and work recovery
+
+A windowed application has no terminal attached, so when the IDE dies its panic
+message, its `file:line`, and its backtrace all go to a stderr nobody is
+reading — the window simply disappears and leaves nothing behind. Two separate
+mechanisms replace that, because they solve two different problems.
+
+**Crash logs — so there is something to diagnose.** A panic hook writes
+`<data>/cobolt/crash/crash-<seconds>.log` holding the panic message, its
+`file:line:column`, a forced backtrace, the IDE version, the OS, the thread, and
+the files that were open at the time. Attach it to a bug report.
+
+**Autosave — so the work survives.** Every **20 seconds** each unsaved editor
+buffer and each modified form is copied to `<data>/cobolt/recovery/`, alongside a
+`manifest.toml` mapping every copy back to its original. A marker file records
+that a session is running and is deleted on a clean exit; finding one at the next
+start is exactly what "the last session ended badly" means, and the IDE then
+offers to restore.
+
+**Restoring never overwrites.** Accepting the offer writes each copy beside its
+original as `<name>.recovered.<ext>` and lists the paths in the Output panel. The
+copy came out of a process that had already lost its footing, so which version
+wins is your decision, not the IDE's.
+
+> ⚠️ **A panic hook cannot catch everything.** A stack overflow faults on the
+> guard page and is delivered as `SIGSEGV`; the OOM killer sends `SIGKILL`; a
+> second panic while unwinding aborts. In all three the hook never runs and **no
+> crash log is written**. Autosave is what covers those cases, because it has
+> already happened by the time anything goes wrong — which is also why the
+> interval is the real guarantee: at most 20 seconds of work.
+
+`<data>` is the OS data directory — `~/Library/Application Support` on macOS,
+`%APPDATA%` on Windows, `~/.local/share` on Linux.
 
 ---
 

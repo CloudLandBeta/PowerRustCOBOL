@@ -302,6 +302,16 @@ unhandled error `FILE STATUS`.
 - ✅ Class: `id IS [NOT] {NUMERIC | ALPHABETIC | ALPHABETIC-LOWER | ALPHABETIC-UPPER}`.
 - ✅ Sign: `id IS [NOT] {POSITIVE | NEGATIVE | ZERO}`.
 - ✅ 88‑level condition‑name (bare name as a condition).
+- ✅ **`TRUE` / `FALSE` as operands** (PowerRustCOBOL extension) — sugar for `1`
+  and `0`, wherever a value is allowed: `IF x = TRUE`, `IF x IS [NOT] FALSE`,
+  `IF x NOT TRUE` (the bare `NOT` form, no relational operator),
+  `PERFORM UNTIL x = FALSE`, `MOVE TRUE TO x`, `COMPUTE n = n + TRUE`,
+  `INVOKE obj "m" USING TRUE`, and `WHEN TRUE` against a value subject. A bare
+  `TRUE`/`FALSE` is also a complete condition (`IF TRUE`, `PERFORM UNTIL TRUE`).
+  ⚠️ This does **not** change the two places the words already meant something:
+  `SET <88‑name> TO TRUE` still sets the host item to a value satisfying the
+  condition (not the number 1), and `EVALUATE TRUE`/`EVALUATE FALSE` below
+  remain the standard case statement.
 - ✅ Combined `AND` / `OR` / `NOT`, parentheses (AND binds tighter than OR).
 - ✅ **Operator‑prefixed abbreviated conditions** — `a > 1 AND < 9`,
   `a = 5 OR = 7` (the preceding comparison subject is reused).
