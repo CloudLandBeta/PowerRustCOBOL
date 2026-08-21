@@ -592,6 +592,23 @@ pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egu
 
 // ── Action ────────────────────────────────────────────────────────────────────
 
+/// What the inspector is looking at when more than one control is selected.
+///
+/// The pane still reads its values from the **primary** control; this says how
+/// many others the caller will fan each edit out to, and whether they all share
+/// a type — which decides whether the full pane applies or only the properties
+/// the types have in common.
+#[derive(Clone, Debug)]
+pub struct MultiSelection {
+    /// How many controls are selected.
+    pub count: usize,
+    /// Do they all have the same control type?
+    pub uniform: bool,
+    /// The property names every one of them carries. Only consulted when the
+    /// selection is not uniform; a uniform one shares its whole vocabulary.
+    pub common_keys: Vec<String>,
+}
+
 /// Actions the inspector wants the designer to perform this frame.
 #[derive(Default)]
 pub struct InspectorAction {
@@ -3500,6 +3517,40 @@ impl PropertiesPanel {
         indexed_files: &[String],
         tr: &Tr,
     ) -> InspectorAction {
+        self.show_selection(ui, form, ctrl, indexed_files, tr, None)
+    }
+
+    /// The inspector for a **multi-selection**.
+    ///
+    /// `selection` is `(how many controls are selected, do they all share a
+    /// type)`. `ctrl` stays the primary: it is what the rows read their current
+    /// values from, and the caller fans every edit out to the rest.
+    ///
+    /// A uniform selection is drawn in full — every row the pane would show for
+    /// one Button applies to five Buttons. A mixed selection is narrowed to the
+    /// properties the types genuinely share, because a row that only some of
+    /// them carry would silently do nothing to the others.
+    pub fn show_multi(
+        &mut self,
+        ui: &mut Ui,
+        form: &Form,
+        primary: Option<&Control>,
+        indexed_files: &[String],
+        tr: &Tr,
+        selection: MultiSelection,
+    ) -> InspectorAction {
+        self.show_selection(ui, form, primary, indexed_files, tr, Some(selection))
+    }
+
+    fn show_selection(
+        &mut self,
+        ui: &mut Ui,
+        form: &Form,
+        ctrl: Option<&Control>,
+        indexed_files: &[String],
+        tr: &Tr,
+        multi: Option<MultiSelection>,
+    ) -> InspectorAction {
         let mut action = InspectorAction::default();
         self.hints.seen.clear();
         let auto_split = (ui.available_width() * 0.42).clamp(96.0, 400.0);
@@ -3513,7 +3564,17 @@ impl PropertiesPanel {
                 ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
                 ui.data_mut(|d| d.insert_temp(property_split_id(), self.property_split));
                 if let Some(ctrl) = ctrl {
-                    self.show_control(ui, form, ctrl, indexed_files, &mut action, tr);
+                    match multi {
+                        Some(m) if m.count > 1 => {
+                            multi_selection_banner(ui, &m, tr);
+                            if m.uniform {
+                                self.show_control(ui, form, ctrl, indexed_files, &mut action, tr);
+                            } else {
+                                self.show_shared_properties(ui, ctrl, &m, &mut action, tr);
+                            }
+                        }
+                        _ => self.show_control(ui, form, ctrl, indexed_files, &mut action, tr),
+                    }
                 } else {
                     self.show_form(ui, form, &mut action, tr);
                 }
@@ -8961,6 +9022,87 @@ fn paint_property_grid_dashed_line(
             stroke,
         );
         offset += dash + gap;
+    }
+}
+
+/// The header a multi-selection gets, so it is never a mystery which controls an
+/// edit is about to change.
+fn multi_selection_banner(ui: &mut Ui, m: &MultiSelection, tr: &Tr) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            RichText::new(format!("{} {}", m.count, tr.props_multi_selected))
+                .strong()
+                .color(crate::theme::active().accent),
+        );
+    });
+    ui.label(
+        RichText::new(if m.uniform {
+            tr.props_multi_same_type
+        } else {
+            tr.props_multi_mixed_types
+        })
+        .small()
+        .color(Color32::GRAY),
+    );
+    ui.separator();
+}
+
+impl PropertiesPanel {
+    /// The properties a MIXED-type selection has in common, and nothing else.
+    ///
+    /// A uniform selection gets the ordinary pane — every row it draws for one
+    /// Button is true of five Buttons. Mixed types cannot: most of the pane is
+    /// built per control type, and a row only some of the selection carries
+    /// would look like it worked and change nothing on the rest. So this draws
+    /// exactly the intersection, typed from the primary's current value.
+    fn show_shared_properties(
+        &mut self,
+        ui: &mut Ui,
+        primary: &Control,
+        m: &MultiSelection,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        let id = primary.id.clone();
+        // Size, but never position: X and Y are common to everything, and
+        // setting them across a selection stacks every control on one spot.
+        // Alignment is what the toolbar's align/distribute commands are for.
+        for key in ["Width", "Height"] {
+            int_prop_row(ui, &id, key, key, primary, action, 1..=10_000, None, 100);
+        }
+        let mut drawn = 0usize;
+        for key in &m.common_keys {
+            if matches!(key.as_str(), "X" | "Y" | "Width" | "Height") {
+                continue;
+            }
+            // Typed from what the primary is holding — the property map is the
+            // only description of a property's kind this pane has.
+            let Some(current) = primary.get_prop(key) else {
+                continue;
+            };
+            match current {
+                PropValue::Bool(_) => bool_prop_row(ui, &id, key, key, primary, action),
+                PropValue::Int(_) => {
+                    int_prop_row(ui, &id, key, key, primary, action, -10_000..=10_000, None, 0)
+                }
+                PropValue::String(_) if key.ends_with("Color") => {
+                    color_prop_row(ui, &id, key, key, primary, action, "#000000")
+                }
+                // Free text is deliberately left out: the shared vocabulary of
+                // unlike controls is appearance, and writing one caption onto
+                // five different controls is not something a developer asks for
+                // by selecting them together.
+                PropValue::String(_) => continue,
+            }
+            drawn += 1;
+        }
+        if drawn == 0 {
+            ui.label(
+                RichText::new(tr.props_multi_nothing_shared)
+                    .small()
+                    .color(Color32::GRAY),
+            );
+        }
     }
 }
 

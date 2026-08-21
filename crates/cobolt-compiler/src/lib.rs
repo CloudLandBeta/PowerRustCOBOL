@@ -2702,7 +2702,7 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 ## The two Knowledge Bases
 There are two separate stores, and they are never merged on disk:
 
-- **System Knowledge Base** — this document and its siblings (`rustcobol_extensions.md`, `form_designer_controls.md`, `control_methods_reference.md`, `agents_registry.md`). It describes the PLATFORM, so it lives at machine level in `~/PowerRustCOBOL/Knowledge Base/`, with its vector index in `~/PowerRustCOBOL/data/`. It is regenerated from the running binary at the start of every workflow — which is why it cannot drift behind the installed IDE and is never legitimately empty. It is **not** copied into any project, and compilation does not publish it into one.
+- **System Knowledge Base** — this document and its siblings (`rustcobol_extensions.md`, `form_designer_controls.md`, `control_methods_reference.md`, `form_themes.md`, `form_layout_and_events.md`, `project_model_and_settings.md`, `agents_registry.md`). It describes the PLATFORM, so it lives at machine level in `~/PowerRustCOBOL/Knowledge Base/`, with its vector index in `~/PowerRustCOBOL/data/`. It is regenerated from the running binary at the start of every workflow — which is why it cannot drift behind the installed IDE and is never legitimately empty. It is **not** copied into any project, and compilation does not publish it into one.
 - **Project Knowledge Base** — the developer's own `<project>/Knowledge Base/` folder: requirements, diagrams, data models, decisions. Its index lives in `<project>/data/`. An empty Project Knowledge Base is a normal state, not a fault.
 
 Both stores are searched for every request, and the matching subject records — not whole documents — are injected into the agents' context. Each excerpt carries a `SOURCE:` line naming its store, because the two use identically shaped paths: a System KB hit reads `Knowledge Base/form_designer_controls.md`, which is exactly how a project file would read even though the project contains no such file. Cite the project-relative path only for Project Knowledge Base excerpts; a System Knowledge Base excerpt is platform documentation and must never be reported as a project file, nor requested from the developer.
@@ -2748,6 +2748,432 @@ This document lists all built-in specialist and reviewer agents configured in th
   - **Companion Reviewer**: `Version Control Agent Pedantic Reviewer`
 "##;
     std::fs::write(kb_dir.join("agents_registry.md"), agents_reg)?;
+
+    // Write File 6: form_themes.md — what a theme is, how one is selected, and
+    // the two rules agents kept getting wrong (self-contained themes ignore
+    // GlassStyle; explicit control properties always win).
+    //
+    // Every `##` section here has to stand on its own: the chunker makes one
+    // retrievable record per heading, and a search hit injects that record
+    // alone — not the document around it.
+    let themes = r##"# PowerRustCOBOL Form Themes
+
+## What a form theme is
+
+A **form theme** decides how a form's surfaces are painted: fills, borders,
+corner radii, relief and shadow, and the colours of text and structural
+surfaces. It is chosen **per form** (or per project) by a catalogue **id**, and
+it applies to that whole form. There is no operation that applies a theme to a
+single control, and a theme is never "installed" onto controls one at a time.
+
+Two kinds exist:
+
+- **Procedural** — drawn entirely in code. `liquid-glass` and `elegance`.
+- **Asset pack** — composited from 9-slice images in `assets/themes/<id>/`,
+  described by a `theme.toml` manifest. Packs are discovered at start-up, so a
+  new one is a drop-in with no code change.
+
+A theme answers only the questions it wants to. Anything it leaves unanswered
+falls back to Liquid Glass, which is why a partial theme is a legitimate theme.
+
+## The theme catalogue
+
+| id | Display name | Kind | Self-contained |
+|---|---|---|---|
+| `liquid-glass` | Liquid Glass | Procedural | no |
+| `elegance` | Elegance | Procedural | **yes** |
+| `neumorphic` | Neumorphic | Asset pack | declared in its manifest |
+| `cobalt-steel` | Cobalt Steel | Asset pack | declared in its manifest |
+
+`liquid-glass` is the default look and the base every other theme falls back to.
+`elegance` is flat slate surfaces with a cool accent family, drawn in code.
+
+**An unknown id, an empty id, or no selection at all resolves to
+`liquid-glass`.** Nothing fails and nothing is reported: that is the fallback
+rule, not an error path. Do not tell a developer that a theme id was rejected.
+
+## Selecting a theme — the resolution order
+
+The effective theme is the first of these that is set:
+
+1. the **form's** own `Theme` property, if non-empty;
+2. the **project** default — `theme` under `[forms]` in the project manifest;
+3. `liquid-glass`.
+
+Whitespace counts as unset. Set the form-level override like any other form
+property:
+
+```json
+{ "op": "set_property", "control_id": "Form", "key": "Theme", "value": "elegance" }
+```
+
+`UseThemeBackground` (form-level, Boolean, default false) opts the form into the
+theme's own background art. While it is **false** the form's `BackgroundColor` /
+background image apply; while it is **true** and the active pack supplies a
+background, the pack's art replaces the form's own — on the designer canvas and
+at run time alike.
+
+## Self-contained themes and GlassStyle
+
+`GlassStyle` selects a **Liquid Glass recipe** — `"Classic"`, `"Enhanced"`,
+`"Neumorphic Light"`, `"Neumorphic Dark"`. It is therefore a setting *of Liquid
+Glass*, not a general style register.
+
+A theme that declares itself **self-contained** owns the whole look, and Liquid
+Glass's ambient configuration — the `GlassStyle` register, its frost, its
+neumorphic relief — is excluded from every control that theme paints. `elegance`
+is self-contained; an asset pack declares `self_contained` in its manifest.
+
+Consequences worth stating before a developer is surprised by them:
+
+- On a self-contained theme the IDE **disables** the `GlassStyle` setting.
+  Setting it anyway is stored and has **no visual effect**, and it changes
+  nothing else about the form or its controls.
+- Never advise changing `GlassStyle` to fix an appearance problem on such a
+  form. It cannot be the cause and it cannot be the cure.
+
+## What a theme never overrides
+
+A theme supplies **defaults**, never overrides. The developer's own explicit
+control properties always win — under every theme and every `GlassStyle`:
+
+`BackgroundColor`, `ForegroundColor`, `CornerRadius`, `Transparency`, and the
+whole `Shadow*` family.
+
+In particular `ShadowEnabled` draws a drop shadow under every theme and every
+`GlassStyle` value. If a shadow is missing, the cause is the shadow properties,
+not the theme.
+
+## Asset-pack themes — the `theme.toml` manifest
+
+A pack is a folder `assets/themes/<id>/` holding a `theme.toml` manifest plus
+its art. The manifest is the pack's public contract:
+
+```toml
+id = "cobalt-steel"
+display_name = "Cobalt Steel"
+self_contained = true
+
+[background]
+image = "background.png"      # optional themed background
+tile  = false
+
+[palette]
+foreground = "#dfe7ff"                                  # default text colour
+chart = ["#4C9BE8", "#E87A4C", "#4CE87A", "#E84C9B"]    # chart data palette
+
+[chart_style]
+stroke_width = 2.0
+fill_texture = "chart_fill.png"    # optional material fill for bars and slices
+
+[controls.button]
+image    = "button.png"
+slice    = [12, 12, 12, 12]        # 9-slice insets: left, top, right, bottom
+hover    = "button_hover.png"      # optional per-state art
+pressed  = "button_pressed.png"
+disabled = "button_disabled.png"
+focused  = "button_focused.png"
+```
+
+The 9-slice insets keep corners fixed while edges and centre stretch, so one
+image skins a control at any size. States other than `Normal` fall back to
+`Normal` when the pack does not provide them, and a control the pack does not
+cover is painted by Liquid Glass. A pack id that collides with a built-in id
+loses: the built-in wins.
+"##;
+    std::fs::write(kb_dir.join("form_themes.md"), themes)?;
+
+    // Write File 7: form_layout_and_events.md — the layout model, the complete
+    // form event catalogue, and the hosting/shell rules.
+    let layout = r##"# PowerRustCOBOL Form Layout, Events and Hosting
+
+## The layout model — position, nesting, order
+
+A form holds a **flat list** of controls; nesting is derived from each control's
+`parent` link rather than stored as a tree. Four pieces of state place a control:
+
+- **`X` / `Y` / `Width` / `Height`** — position and size in points. A control's
+  `X`/`Y` are relative to its container (the form, or the parent control).
+- **`parent`** — the id of the enclosing container, or none for a direct child
+  of the form. A control whose parent is a **TabControl** also carries `tab`,
+  the 0-based page it belongs to.
+- **`z_order`** — higher is drawn on top; 0 is bottommost; negatives are legal.
+- **`tab_order`** — the keyboard traversal sequence.
+
+There is **no anchoring or docking layout engine**: a control does not resize
+with its container. Geometry is what the designer recorded, and COBOL changes it
+by writing `X`, `Y`, `Width` or `Height` at run time.
+
+## `Anchor` is a design-time lock, not an edge constraint
+
+`Anchor` (Boolean, default false) locks a control's position **against mouse
+dragging on the designer canvas**. Keyboard nudges and property-pane entry still
+move it, and it has no run-time effect whatsoever.
+
+It is **not** the `Top,Left`-style edge anchoring of other RAD tools. Forms
+saved with a legacy string value such as `"Top,Left"` read as **unanchored**, so
+loading an old form never silently locks every control. Do not offer `Anchor` as
+a way to make a control follow its container's size — nothing in the platform
+does that.
+
+## The form's own geometry and `StartPosition`
+
+A FORM's `X`/`Y` are its window's position on screen — not to be confused with a
+CONTROL's `X`/`Y`, which are inside the form.
+
+`StartPosition` decides where the window opens. Accepted values, exactly:
+`"System"`, `"Custom"`, `"TopLeft"`, `"TopCenter"`, `"TopRight"`, `"MiddleLeft"`,
+`"Center"`, `"MiddleRight"`, `"BottomLeft"`, `"BottomCenter"`, `"BottomRight"`.
+
+- `"System"` (the default) leaves placement to the window manager and **ignores
+  `X`/`Y`**.
+- `"Custom"` applies the form's `X`/`Y` at launch.
+- Every other value computes a position from the real screen and window size at
+  launch and ignores `X`/`Y`.
+
+Setting `X`/`Y` alone moves nothing unless `StartPosition` is also `"Custom"`.
+
+## Form events — the complete catalogue
+
+A form supports **68** events, all `on`-prefixed, in these groups. Bind them the
+way control events are bound.
+
+- **Lifecycle** — `onCreate`, `onInitialize`, `onLoad`, `onOpened`, `onShow`,
+  `onHide`, `onClose`, `onClosing`, `onCloseRejected`, `onClosed`, `onDestroy`
+- **Activation & Focus** — `onActivate`, `onActivated`, `onDeactivate`,
+  `onDeactivated`, `onGotFocus`, `onLostFocus`
+- **Window State** — `onResize`, `onResizing`, `onMove`, `onMoving`,
+  `onMinimize`, `onMaximize`, `onRestore`, `onFullscreen`, `onExitFullscreen`,
+  `onFullScreenChanged`
+- **Layout & Painting** — `onLayout`, `onPaint`, `onRepaint`, `onThemeChanged`,
+  `onDpiChanged`, `onFontChanged`
+- **Mouse** — `onClick`, `onDoubleClick`, `onMouseDown`, `onMouseUp`,
+  `onMouseMove`, `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onContextMenu`
+- **Touch & Pointer** — `onPointerDown`, `onPointerUp`, `onPointerMove`,
+  `onPointerEnter`, `onPointerLeave`, `onPointerCancel`, `onGesture`
+- **Scrolling** — `onScroll`, `onScrollStart`, `onScrollEnd`,
+  `onHorizontalScroll`, `onVerticalScroll`
+- **Drag & Drop** — `onDragEnter`, `onDragLeave`, `onDragOver`, `onDrop`
+- **Clipboard** — `onCut`, `onCopy`, `onPaste`
+- **System / OS** — `onSystemColorChanged`, `onDisplayChanged`,
+  `onPowerSuspend`, `onPowerResume`, `onSessionLock`, `onSessionUnlock`
+- **Error Handling** — `onUnhandledException`
+
+`onCloseRejected` fires when a close attempt was refused because the form (or a
+synchronous child of it) is `Waiting`. `onFullScreenChanged` fires when the
+actual fullscreen state changed in either direction — read `me`'s `FullScreen`
+for the new value.
+
+## Which teardown event to use: `onDeactivate` or `onDestroy`
+
+These two are constantly confused, and using the wrong one closes files that are
+still in use — or leaks the ones that are not.
+
+- **`onDeactivate`** — the form's body left the ContentPane but the form is
+  **still resident**: it became an ancestor in the navigation chain, or it was
+  parked by *Preserve previous form*. Its storage and its handlers stay live.
+  **Do not close files here.**
+- **`onDestroy`** — the form's storage is about to be released. This is the
+  teardown point: close files, `COMMIT`, free resources. It is **never** fired
+  for a mere swap-out.
+
+## Form hosting — `Standalone`, `Embedded`, `Both`
+
+The form-level `FormFormat` property decides how a form may be loaded:
+
+- **`Standalone`** (default, and what every older `.cfrm` reads as) — its own OS
+  window, reached by `OpenFormSync` / `OpenFormAsync`.
+- **`Embedded`** — loaded into the application shell's ContentPane by a menu
+  item.
+- **`Both`** — valid on either path: a reusable lookup screen that is a modal
+  dialog in one place and a pane occupant in another.
+
+A menu item may load only a form that allows `Embedded`; `OpenFormSync` /
+`OpenFormAsync` may open only one that allows `Standalone`. Anything
+unrecognised in the file reads as `Standalone`, so a hand-edited form never
+fails to load over this field.
+
+## The application shell — one window instead of many
+
+Placing a **SideMenu** control on the **main form** is the entire switch that
+turns an application into a shell: one window divided into a menu pane, a
+breadcrumb, and a ContentPane where forms load in place.
+
+- Main form with a SideMenu → shell mode.
+- No SideMenu — including a form with a classic `MenuBar` → every form opens in
+  its own window, exactly as before.
+
+An existing project cannot become a shell application by accident. The sidebar
+is filled with the **same menu editor a `MenuBar` uses** (select it, then *Edit
+Menu…*), because the menu is stored in a sidecar keyed by the control, not by
+the kind of control.
+
+The **breadcrumb is the navigation chain**: every form on it is still resident
+and its handlers still fire while its body is not displayed. Clicking a segment
+destroys everything below it, deepest first, and shows that form again. Per
+menu item, *Preserve previous form* decides whether a sibling switch destroys
+the form being left or keeps it resident for an instant return.
+
+## `me` and `super` — addressing a form from COBOL
+
+`me` addresses the current form. **`super`** addresses the form that loaded or
+opened it, on both paths — a menu load and `OpenFormSync` / `OpenFormAsync`.
+
+```cobol
+           MOVE super::Title TO WS-T.
+           MOVE "Processing..." TO super::Title.
+           INVOKE super::"SetWindowState"("Minimized").
+           MOVE super::super::Title TO WS-T.
+           super::SIDE-1::Collapse().
+           super::SIDE-1::Open().
+```
+
+- **Bare properties are checked at build time** against the universal form
+  surface: `Name`, `Title`, `Width`, `Height`, `X`, `Y`, `WindowState`,
+  `FullScreen`, `TitleVisible`, `CanMinimize`, `CanMaximize`, `FormState`,
+  `FormFormat`, `BackgroundColor`, `Transparency`. A typo such as `super::Widht`
+  fails the build at any depth.
+- **Form-specific procedures use parentheses** — `super::"RecalcTotals"()` — and
+  dispatch at run time.
+- **`super` can be NULL**: in the main form, and in an async-opened form whose
+  opener has closed (a child never keeps its opener alive). Referencing a NULL
+  `super` raises the standard runtime error.
+- Each opened form runs as its **own program with its own WORKING-STORAGE**.
+  Forms never read each other's data items; they talk through published form
+  properties, `super::X`, and windowHandler methods.
+"##;
+    std::fs::write(kb_dir.join("form_layout_and_events.md"), layout)?;
+
+    // Write File 8: project_model_and_settings.md — what a project IS. The
+    // agents could describe every control and still not know where a file
+    // belongs, what the manifest is called, or which settings exist.
+    let project_model = r##"# PowerRustCOBOL Project Model and Settings
+
+## What a project is on disk
+
+A project is one **TOML manifest** plus the files it lists. The manifest is
+named after the project — `PowerDemo3.project.toml` — **not** a fixed file name,
+so tooling finds it by scanning a directory and its ancestors for
+`*.project.toml`. A legacy `cobolt.toml` is still accepted and wins when both
+are present.
+
+A `.cfrm` written into `forms/` is **not** in the project until it is listed
+under `[files] forms`. Writing a file to disk is half the job; the tree shows
+only what the manifest tracks.
+
+The standard sub-folders are `forms/`, `indexed/`, `src/`, `generated/`,
+`Assets/`, `Knowledge Base/`, `data/`, `bin/` and `dist/`. Missing ones are
+back-filled when an older project is opened.
+
+## The manifest sections
+
+```toml
+[project]
+name    = "MyApp"
+version = "1.0.0"
+main    = "src/main.cbl"
+
+[files]
+sources = ["src/main.cbl", "src/helpers.cbl"]
+forms   = ["forms/main-form.cfrm", "forms/login.cfrm"]
+assets  = ["Assets/logo.png"]
+
+[runtime]
+fixed_format = false
+```
+
+Beyond these there are `[ide]` (per-project IDE appearance), `[forms]` (form
+defaults, window effects, the main-form designation), `[ai]` (model profiles and
+agent settings) and the External Crates pins. Every section is optional: a
+missing section takes its defaults, which is what keeps older projects loading
+unchanged.
+
+## `[files]` — the five tracked lists
+
+- **`sources`** — hand-written COBOL (`.cbl`).
+- **`forms`** — form definitions (`.cfrm`).
+- **`generated`** — RAD output, one `.cbl` per form. Moved out of `sources`
+  when a form generates it.
+- **`indexed`** — indexed-file definitions (`.cidx`).
+- **`assets`** — images and other resources.
+- **`documentation`** — the project's own Knowledge Base documents.
+
+## The project tree's seven categories
+
+The IDE owns these top-level nodes; developers add entries *within* a category,
+never a category of their own. In display order, with the folder each one owns:
+
+| Category | Folder | Notes |
+|---|---|---|
+| Forms | `forms/` | `.cfrm` |
+| Indexed Files | `indexed/` | `.cidx` |
+| Common Code | `src/` | hand-written COBOL only |
+| Generated Code | `generated/` | **read-only**, populated by the designer |
+| External Crates | vendor folder | one node per registered crate pin |
+| Assets | `Assets/` | |
+| Documentation | `Knowledge Base/` | the project's own KB |
+
+**Generated Code cannot be added to** and its files cannot be edited: they are
+opened read-only and drawn in blue, and they are regenerated from the form. A
+change belongs in the form or in Common Code, never in `generated/`.
+
+## `[project]` — metadata and build settings
+
+`name`, `version`, `main` (the entry program), `copyright`, `license_model` and
+`license_text`, `destination_folder` (where a build installs the deliverable —
+`dist/` when unset), `debug_compilation`, and `built_with_version`, which
+records the PowerRustCOBOL that last **fully** built the project. Opening a
+project last fully built by an older PowerRustCOBOL — or never fully built —
+makes the next **Build** a full one.
+
+## `[forms]` — form defaults and the main form
+
+- **`theme`** — the project's default **form** theme id. Empty means Liquid
+  Glass. A form's own `Theme` overrides it.
+- **Window effects** — `entrance-effect`, `entrance-ms`, `entrance-easing`,
+  `exit-effect`, `exit-ms`, `exit-easing`, `entrance-on-restore`. Effects are a
+  **project-level** choice: a form only decides *whether* to play them, through
+  its `WindowEffects` property. Absent settings mean no effect, so a project
+  written before effects existed is unchanged.
+- **`main-form`** and its seal — exactly one form per project is the main form.
+  Only the main form starts an application: `rcrun` and a built binary open the
+  form the project designates, never one a caller names. The designation is
+  recorded in both the manifest and the `.cfrm` itself.
+
+## `[ide]` — per-project IDE appearance
+
+The look travels with the project, not with the developer: `theme` (the IDE
+colour theme id), `background_image`, `background_opacity` (0-100),
+`project_icon`, and `hide_ai_setup_prompt`.
+
+These theme the **IDE chrome**. They are a different setting from `[forms]
+theme`, which themes the developer's designed forms. Do not confuse the two: no
+`[ide]` setting changes how a form looks at run time.
+
+Machine-local developer aids are deliberately **not** here — the IDE debug
+switches live in the IDE's own settings (Help → Debug Settings), so they are not
+project data and are not shared with a colleague who opens the project.
+
+## `[runtime]` — source format
+
+`fixed_format` selects fixed-form COBOL (columns 7-72) rather than free form.
+Free form is the default for new projects.
+
+## Where things that are NOT project files live
+
+- **The System Knowledge Base** — platform documentation, regenerated from the
+  running binary at machine level in `~/PowerRustCOBOL/Knowledge Base/`, with
+  its index in `~/PowerRustCOBOL/data/`. It is never copied into a project, and
+  a build never publishes it into one.
+- **The Project Knowledge Base** — the developer's own `<project>/Knowledge
+  Base/`, indexed under `<project>/data/`. Empty is a normal state.
+- **API keys** — never in the manifest. They resolve from the machine-local
+  store by model-profile id, so a manifest can be committed and shared safely.
+"##;
+    std::fs::write(
+        kb_dir.join("project_model_and_settings.md"),
+        project_model,
+    )?;
 
     Ok(())
 }
@@ -3131,6 +3557,24 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Mode" => ("`Async` | `Sync`", "Async fires onComplete/onError later; Sync blocks and returns in-statement."),
         "Busy" => (BOOL_DOMAIN, "Read-only runtime flag: an async operation is in flight."),
         "TimeoutMs" => ("milliseconds ≥ 0; 0 = fall back to TimeoutSeconds", "Async operation timeout."),
+
+        // ── The async lifecycle's read-only answers (spec 032) ──
+        // Written by the runtime, never by the designer. They have no default
+        // and are not saved — but reading one is the ONLY way a handler sees
+        // what an async method returned, since the call itself returns an
+        // empty string immediately.
+        "ResponseBody" => (
+            "runtime-only, read-only",
+            "The answer to the last async call, delivered with `onComplete`. Its shape is the method's — a Directions answer is seven TAB-separated fields, PlacesSearch is one line per result, a RestClient verb is the raw body. UNSTRING it in the onComplete handler; it is empty before the first call completes.",
+        ),
+        "StatusCode" => (
+            "runtime-only, read-only; HTTP status as text",
+            "The HTTP status of the last call. `0` when the request never reached a server.",
+        ),
+        "LastError" => (
+            "runtime-only, read-only",
+            "Why the last async call failed, delivered with `onError`. Empty after a call that succeeded.",
+        ),
 
         // ── SqlDatabase ──
         "Driver" => ("one of: `sqlite` | `postgres` | `mysql` | `mssql`", "Database backend."),
@@ -3577,6 +4021,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Directions(origin: String, destination: String)", "**Async** — `onComplete` delivers SEVEN TAB-separated fields in `ResponseBody`: `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline\\ttraffic_SECONDS`. The first three read; the numbers are what you COMPUTE with; the polyline goes straight into `AddRoute` to trace the route. The LAST field is the drive time with CURRENT TRAFFIC (0 when Google supplied none) — the traffic-aware answer to \"how long, leaving now\"."),
             ("DistanceMatrix(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text\\tdistance_METRES\\tduration_SECONDS` in `ResponseBody`."),
             ("PlacesSearch(query: String, radiusMeters: String)", "**Async** — `onComplete` delivers one `place_id\\tname\\taddress\\tlat\\tlng` line per result in `ResponseBody`."),
+            ("TraceRoad(apiKey: String, fromLat: String, fromLng: String, toLat: String, toLng: String)", "**Async** — a road route from **OpenRouteService**, for programs with no Google credential. `onComplete` delivers THREE TAB-separated fields in `ResponseBody`: `distance_METRES\\tduration_SECONDS\\tencoded_polyline`; the polyline goes straight into `AddRoute`. **The key is the first ARGUMENT, not a project setting** — ask the operator for it (a TextBox on the form) and pass it in; PowerRustCOBOL never stores it. A blank key fails on `onError` without a network call. Use this when you need the ROAD; a hand-written waypoint list is only ever as close to it as its own points."),
             (
                 "AddMarker(id: String, lat: String, lng: String, label: String, info: String)",
                 "Append one pin to Markers (ergonomic alternative to hand-formatting the TAB-separated property)."
@@ -4164,6 +4609,31 @@ fn controls_reference_doc() -> String {
         }
         doc.push('\n');
 
+        // Run-time-only properties. Without this section the reference listed
+        // what the DESIGNER can set and said, separately, that an async method
+        // "delivers its answer in ResponseBody" — from which the reasonable
+        // conclusion is that ResponseBody is not a property at all. It is: it
+        // is read-only, and reading it is the only way a handler ever sees the
+        // answer it asked for.
+        let runtime = cobolt_forms::model::runtime_property_names_for(name.as_str());
+        if !runtime.is_empty() {
+            doc.push_str("### Runtime Properties (read-only)\n");
+            doc.push_str(
+                "Written by the runtime when it has something to report, never by the \
+                 designer — so they carry no default, do not appear in the property pane \
+                 and are not saved in the form. **Read them; never try to set them.**\n\n",
+            );
+            for pname in runtime {
+                let (_, desc) = property_reference(pname).unwrap_or(("", ""));
+                if desc.is_empty() {
+                    doc.push_str(&format!("- `{pname}`\n"));
+                } else {
+                    doc.push_str(&format!("- `{pname}` — {desc}\n"));
+                }
+            }
+            doc.push('\n');
+        }
+
         // Events — split into universal (compact) and specific (described).
         doc.push_str("### Supported Events\n");
         let universal: Vec<&str> = events
@@ -4462,13 +4932,14 @@ fn methods_reference_doc() -> String {
         ),
         (
             "Maps",
-            "The OSM basemap needs no API key; only the five data methods below call the real Google Maps API and need a `google-maps` project credential (Settings → Integrations) — with none configured they fail immediately with `onError` (R33), never a crash or network call. **All five are ALWAYS async**: the call returns an empty string immediately, sets `Busy`, and the answer arrives in `ResponseBody` with `onComplete` (or `LastError` with `onError`). There is no Sync mode — do NOT write `MOVE Maps1::Geocode(...) TO X`, which only ever moves an empty string.",
+            "The OSM basemap needs no API key; only the five Google data methods below call the real Google Maps API and need a `google-maps` project credential (Settings → Integrations) — with none configured they fail immediately with `onError` (R33), never a crash or network call. `TraceRoad` is the exception in a different direction: it uses **OpenRouteService** and takes its key as an ARGUMENT, so a program with no Google credential can still trace a real road. **Every data method is ALWAYS async**: the call returns an empty string immediately, sets `Busy`, and the answer arrives in `ResponseBody` with `onComplete` (or `LastError` with `onError`). There is no Sync mode — do NOT write `MOVE Maps1::Geocode(...) TO X`, which only ever moves an empty string.",
             &[
                 ("Geocode(address: String)", "Async. `onComplete`: `ResponseBody` = `lat\\tlng\\tformatted_address`."),
                 ("ReverseGeocode(lat: String, lng: String)", "Async. `onComplete`: `ResponseBody` = the formatted address."),
                 ("Directions(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline\\ttraffic_SECONDS` — the numbers to COMPUTE with, the polyline for `AddRoute`, and the last field the drive time with current traffic (0 if none was supplied)."),
                 ("DistanceMatrix(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\tdistance_METRES\\tduration_SECONDS`."),
                 ("PlacesSearch(query: String, radiusMeters: String)", "Async. `onComplete`: `ResponseBody` = one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
+                ("TraceRoad(apiKey, fromLat, fromLng, toLat, toLng: String)", "Async, **OpenRouteService** — no Google credential. `onComplete`: `ResponseBody` = `distance_METRES\\tduration_SECONDS\\tencoded_polyline`. The key is the first ARGUMENT and is never stored: read it from a field the operator filled in. A blank key fires `onError` with no network call."),
                 ("AddMarker(id, lat, lng, label, info: String)", "Append one pin to `Markers`."),
                 ("RemoveMarker(id: String)", "Remove the marker with that id."),
                 ("AddRoute(id, colour, width, geometry: String)", "Trace a line: an encoded polyline or `lat,lng;lat,lng;…`. Re-using an id replaces it. No API key needed."),
@@ -6473,6 +6944,9 @@ generated = ["generated/inner-form1.cbl"]
         assert!(kb.join("form_designer_controls.md").exists());
         assert!(kb.join("agents_registry.md").exists());
         assert!(kb.join("control_methods_reference.md").exists());
+        assert!(kb.join("form_themes.md").exists());
+        assert!(kb.join("form_layout_and_events.md").exists());
+        assert!(kb.join("project_model_and_settings.md").exists());
 
         // Check form designer controls document contents
         let form_controls_doc = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
@@ -6482,6 +6956,14 @@ generated = ["generated/inner-form1.cbl"]
         assert!(form_controls_doc.contains("### Settable Properties"));
         assert!(form_controls_doc.contains("### Supported Events"));
         assert!(form_controls_doc.contains("### Methods"));
+        // Read-only runtime properties are documented as properties. Listing
+        // only what the designer can SET, while saying elsewhere that an async
+        // method "delivers its answer in ResponseBody", reads as though
+        // ResponseBody were not a property — which is how a correct handler
+        // came to be rejected as hallucinated (operator, 2026-08-21).
+        assert!(form_controls_doc.contains("### Runtime Properties (read-only)"));
+        assert!(form_controls_doc.contains("- `ResponseBody` —"));
+        assert!(form_controls_doc.contains("- `SelectedMarkerId` —"));
         // Enrichment: types + defaults + domains are present.
         assert!(form_controls_doc.contains("(Boolean, default"));
         assert!(form_controls_doc.contains("(Integer, default"));
@@ -6505,6 +6987,68 @@ generated = ["generated/inner-form1.cbl"]
         assert!(methods_doc.contains("GET-<Prop>()"));
 
         // Clean up
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The platform reference has to cover the things a developer configures,
+    /// not only the controls they drop. Themes, the layout/event model and the
+    /// project model were the three gaps; each assertion below pins the fact
+    /// that was actually being got wrong, so gutting a document fails here
+    /// rather than silently degrading every agent answer.
+    #[test]
+    fn the_platform_reference_covers_themes_layout_and_the_project_model() {
+        let dir = temp_dir("pubdocs-coverage");
+        assert!(publish_system_documentation(&dir).is_ok());
+        let kb = dir.join("Knowledge Base");
+
+        let themes = fs::read_to_string(kb.join("form_themes.md")).unwrap();
+        for fact in [
+            "liquid-glass",
+            "elegance",
+            "self-contained",
+            "GlassStyle",
+            "theme.toml",
+        ] {
+            assert!(themes.contains(fact), "form_themes.md lost `{fact}`");
+        }
+
+        let layout = fs::read_to_string(kb.join("form_layout_and_events.md")).unwrap();
+        for fact in ["StartPosition", "FormFormat", "super::", "onDeactivate"] {
+            assert!(layout.contains(fact), "form_layout_and_events.md lost `{fact}`");
+        }
+        // Every form event the model supports is named in the document. An
+        // event nobody carried into the KB is invisible to every agent.
+        let missing: Vec<&str> = cobolt_forms::model::form_supported_events()
+            .filter(|ev| !layout.contains(*ev))
+            .collect();
+        assert!(missing.is_empty(), "form events missing from the KB: {missing:?}");
+
+        let project = fs::read_to_string(kb.join("project_model_and_settings.md")).unwrap();
+        for fact in [".project.toml", "[files]", "Generated Code", "[forms]"] {
+            assert!(
+                project.contains(fact),
+                "project_model_and_settings.md lost `{fact}`"
+            );
+        }
+
+        // The System KB describes itself, so every document it publishes must
+        // be named in its own sibling list — a document nothing points at is a
+        // document no agent will think to search.
+        let ide = fs::read_to_string(kb.join("ide_functionalities.md")).unwrap();
+        let mut published = 0;
+        for entry in fs::read_dir(&kb).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            published += 1;
+            if name == "ide_functionalities.md" {
+                continue; // "this document"
+            }
+            assert!(
+                ide.contains(&name),
+                "{name} is published but not named in the System KB sibling list"
+            );
+        }
+        println!("System KB publishes {published} documents, all cross-referenced");
+
         fs::remove_dir_all(&dir).ok();
     }
 

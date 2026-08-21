@@ -135,6 +135,31 @@ file or create a full **project** (recommended — see §6).
 From a terminal you can also drive everything headlessly with `rcrun` (see §17),
 which is what continuous-integration pipelines use.
 
+### 首次运行时的 Rust 检查
+
+IDE 自己就能设计 form 并*运行*程序。**Build** 是例外：它通过 **Rust 工具链**
+（§18）把您的项目编译成原生应用程序，运行任何包含 `EXEC RUST` 块的程序也走同一
+条路径。因此 PowerRustCOBOL 在首次运行时会查找 Rust — 找到可用的版本时，它什么
+也不说。
+
+找不到时，它会告诉您属于哪种情况 — 没有安装 Rust，还是版本低于 PowerRustCOBOL
+要求的 **1.92** — 并显示 [rustup.rs](https://rustup.rs) 的官方命令，同时提出替您
+执行。如果您拒绝，它会再问一次，因为拒绝是有代价的，值得说清楚：
+
+| 没有 Rust 会失去 | 仍然保留 |
+|---|---|
+| **Build** — 没有原生可执行文件，也无法打包 | Form Designer |
+| 运行任何包含 `EXEC RUST` 块的程序 | 代码编辑器与 COBOL 工具 |
+| | **Run**（解释执行）与调试器 |
+
+第二次拒绝即为定论，此后不再询问。以后从 [rustup.rs](https://rustup.rs) 安装
+Rust，**Build** 就会直接开始工作 — 无需告知 IDE。
+
+> **注意** — rustup 把 Rust 装在 `~/.cargo/bin`，该路径由您的 *shell 配置文件*
+> 加入 `PATH`。从 Finder 或 Windows 桌面启动的应用程序不会读取该配置文件，因此
+> PowerRustCOBOL 会自行查看该位置并使用在那里找到的版本。您不必为了 **Build**
+> 而从终端启动 IDE。
+
 ---
 
 ## 4. Your first application: Hello, Form
@@ -423,6 +448,33 @@ toggle, alignment tools, undo/redo.
 > state, progress value. What you style on the canvas is exactly what runs;
 > the runtime only adds the live behaviour (press feedback, focus, input).
 
+#### 选中多个控件
+
+有两种方式，并且可以配合使用：
+
+- **在空白画布上拖出套索** —— 矩形碰到的控件都会被选中。
+- **按住 Command（macOS）或 Control（Windows/Linux）再单击** —— 把控件加入选
+  区；若它已在选区内，则移出。对尚未选中的控件按住修饰键拖动，会先把它加入选
+  区，再用同一个手势移动整个选区。
+
+选中**容器**时，就移动而言它的子控件也一并被选中，因此 GroupBox 会带着整棵子
+树一起移动，布局保持不变。最先选中的控件是**主控件**：对齐和调整尺寸的命令都
+以它为基准，属性面板也读取它的值。
+
+**拖动选区是刚性的。** 整组按同一个位移移动，该位移取自指针下的那个控件，所以
+你排好的间距在移动后依然保持——即使控件并没有落在网格线上。
+
+**属性面板会编辑整个选区。** 选中多个控件时，它显示这些控件的共有属性，并把每
+一次修改应用到全部控件：
+
+- **类型相同** —— 完整面板。一个 Button 有的属性，选中的五个 Button 都有。
+- **类型不同** —— 只显示这些类型确实共有的属性；只有部分控件才有的那一行，看
+  起来生效了，实际上对其余控件毫无作用。
+
+一次修改就是**一步撤销**，不管它涉及多少个控件。没有该属性的控件保持原样，而
+不会因此获得该属性；身份信息——控件 ID、Tab 顺序和父控件——永远不共享，因为两个
+控件不能拥有相同的身份。
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile
@@ -510,6 +562,19 @@ abbreviations). A few you will use constantly:
 > (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
 > (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
 > digits, hyphens; no leading/trailing hyphen).
+
+### 圆角与控件的阴影
+
+`CornerRadius` 会把控件的背景和边框变成圆角，并把内容裁剪成圆角形状。该值最大
+只能取较短边的一半，因此不会超过完全圆的形状（"胶囊"或圆形）；`0` 表示直角，
+且不做任何裁剪。
+
+被圆角切掉的区域不再属于该控件。你在那里看到的是控件**背后**的东西：窗体的表
+面，**以及控件投在窗体上的阴影**。正是这种连续性，让圆角控件看起来是放在窗体
+上的，而不是从窗体里抠出来的；**Shadow distance** 和 **Shadow blur** 设得越
+大，这一点越明显。
+
+同样的圆角半径和裁剪规则，在设计画布、预览和运行中的窗体上完全一致。
 
 ---
 

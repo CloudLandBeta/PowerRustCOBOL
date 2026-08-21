@@ -232,6 +232,62 @@ fn clamp_pane_width(width: f32, min: f32, max: f32, fallback: f32) -> f32 {
 }
 
 #[cfg(test)]
+mod handler_member_gate_tests {
+    use super::*;
+
+    fn form_with_a_map() -> Form {
+        let mut form = Form::new("MapsDemo", "Maps demo", 640, 480);
+        form.controls.push(cobolt_forms::Control::new(
+            "MAP-1",
+            cobolt_forms::ControlType::Maps,
+            10,
+            10,
+        ));
+        form
+    }
+
+    /// The save-time gate must not reject the handler the platform documents.
+    ///
+    /// `Directions` is async: it returns an empty string at once and delivers
+    /// seven TAB-separated fields in `ResponseBody` on `onComplete`. Reading
+    /// that is the only way to get the answer — and the gate refused it,
+    /// because it judged a READ against the list of what the designer can SET
+    /// (operator, 2026-08-21: "Did you invent properties?"). It had not: the
+    /// gate's idea of a property was incomplete.
+    #[test]
+    fn reading_an_async_answer_is_not_a_hallucinated_property() {
+        let form = form_with_a_map();
+        let handler = concat!(
+            "           UNSTRING MAP-1::ResponseBody DELIMITED BY X\"09\"\n",
+            "               INTO WS-DIST WS-TIME WS-SUMMARY.\n",
+            "           MOVE MAP-1::SelectedMarkerId TO WS-ID.\n",
+            "           MOVE MAP-1::LastError TO WS-ERR.\n",
+        );
+        let diags = validate_handler_members(&form, handler);
+        assert!(
+            diags.is_empty(),
+            "the documented async read was rejected: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// The gate still earns its keep: a property no control has is still caught,
+    /// on the right line.
+    #[test]
+    fn an_invented_property_is_still_refused() {
+        let form = form_with_a_map();
+        let handler = "           MOVE 4 TO MAP-1::Depth.\n";
+        let diags = validate_handler_members(&form, handler);
+        assert_eq!(diags.len(), 1, "{diags:?}");
+        assert!(
+            diags[0].message.contains("has no property 'Depth'"),
+            "{}",
+            diags[0].message
+        );
+    }
+}
+
+#[cfg(test)]
 mod collapsible_chrome_tests {
     use super::*;
 
@@ -562,6 +618,14 @@ enum Cmd {
         before: Box<StyleSnapshot>,
         style: String,
     },
+    /// A per-form Theme switch. Since 1.61.134 it re-applies the target's
+    /// defaults to every control instead of only recording the choice, so it
+    /// bulldozes appearance exactly as a GlassStyle switch does and carries the
+    /// same snapshot to undo it.
+    SetFormTheme {
+        before: Box<StyleSnapshot>,
+        theme: String,
+    },
     /// A control's full animation list (add / remove / field edit — the
     /// `_AddAnimation` / `_RemoveAnimN` / `AnimN_*` meta-keys returned before
     /// the stack until the 2026-07-29 audit). Whole-list snapshots keep the
@@ -618,12 +682,20 @@ fn touches_procedures(cmd: &Cmd) -> bool {
     }
 }
 
-/// Everything `Form::apply_glass_style_defaults` can touch — captured before a
-/// GlassStyle switch so [`Cmd::SetGlassStyle`] restores the exact pre-switch
-/// appearance on undo.
+/// Everything a theme switch can touch — captured before one so
+/// [`Cmd::SetGlassStyle`] and [`Cmd::SetFormTheme`] restore the exact
+/// pre-switch appearance on undo.
+///
+/// Both switches now re-apply the target's defaults across every control
+/// (operator rule, 2026-08-21), so both bulldoze appearance and both need the
+/// whole picture back — reverting the enum or the theme id alone would leave
+/// the rewritten colours in place.
 #[derive(Clone)]
 struct StyleSnapshot {
     glass_style: cobolt_forms::GlassStyle,
+    /// The per-form theme override. A GlassStyle switch does not change it and
+    /// simply restores the same value; a Theme switch is the reason it is here.
+    theme: Option<String>,
     background_color: String,
     background_gradient_enabled: bool,
     background_gradient_start_color: String,
@@ -1624,6 +1696,19 @@ pub struct DesignerPanel {
     /// All currently selected control IDs (first = primary selection).
     pub selected_ids: Vec<String>,
 
+    /// A control that the mouse-DOWN of a modifier-click just added to the
+    /// selection, so the mouse-UP does not immediately toggle it back out.
+    ///
+    /// Cmd/Ctrl+click is handled in two places and has to be, because the two
+    /// gestures differ only after the fact: the press must add the control
+    /// straight away or a Cmd+DRAG could not move it, while the release is
+    /// where a click on an ALREADY selected control removes it. Both fired for
+    /// the same gesture, so adding a control on the way down and toggling it on
+    /// the way up cancelled out and Cmd/Ctrl+click appeared to do nothing
+    /// (operator, 2026-08-21). Whoever acts first records the id here; the
+    /// other stands down.
+    modifier_added_on_press: Option<String>,
+
     /// Design-time active tab page per `TabControl` id (spec 012). Set when the
     /// user clicks a tab to edit its page; absent ⇒ fall back to `SelectedTab`.
     active_tabs: std::collections::HashMap<String, u32>,
@@ -1877,6 +1962,7 @@ impl DesignerPanel {
             form,
             cfrm_dir: None,
             selected_ids: Vec::new(),
+            modifier_added_on_press: None,
             active_tabs: std::collections::HashMap::new(),
             scroll_offsets: std::collections::HashMap::new(),
             drag: DragState::None,
@@ -2039,7 +2125,7 @@ impl DesignerPanel {
         self.image_cache.remove(path);
     }
 
-    fn is_selected(&self, id: &str) -> bool {
+    pub fn is_selected(&self, id: &str) -> bool {
         self.selected_ids.iter().any(|s| s == id)
     }
 
@@ -2056,6 +2142,138 @@ impl DesignerPanel {
         } else {
             self.selected_ids.push(id.to_owned());
         }
+    }
+
+    /// Mouse-DOWN half of a Cmd/Ctrl+click: add `id` to the selection if it is
+    /// not in it yet, and remember that we did.
+    ///
+    /// It has to happen on the way down, not the way up, or a Cmd+DRAG of an
+    /// unselected control would have nothing to move. Returns whether the
+    /// selection changed.
+    fn modifier_press_select(&mut self, id: &str) -> bool {
+        if self.is_selected(id) {
+            return false;
+        }
+        self.selected_ids.push(id.to_owned());
+        self.modifier_added_on_press = Some(id.to_owned());
+        true
+    }
+
+    /// Mouse-UP half of a Cmd/Ctrl+click: toggle `id` — unless
+    /// [`Self::modifier_press_select`] already added it for this same gesture,
+    /// in which case toggling would remove it again and the click would appear
+    /// to do nothing at all (operator, 2026-08-21).
+    ///
+    /// Returns whether the selection changed.
+    fn modifier_click_select(&mut self, id: &str) -> bool {
+        if self.modifier_added_on_press.as_deref() == Some(id) {
+            self.modifier_added_on_press = None;
+            return false;
+        }
+        self.toggle_selected(id);
+        true
+    }
+
+    /// A gesture that turned into a drag never produces a click, so the press's
+    /// claim would otherwise sit there and swallow the NEXT Cmd/Ctrl+click on
+    /// that control.
+    fn forget_modifier_press_claim(&mut self) {
+        self.modifier_added_on_press = None;
+    }
+
+    /// Properties that name a control rather than describe it, and so can never
+    /// be set across a multi-selection: two controls cannot share an id, a tab
+    /// position, or a parent chosen for one of them.
+    const NOT_SHARED_ACROSS_A_SELECTION: &'static [&'static str] =
+        &["Name", "TabOrder", "Parent", "Tab"];
+
+    /// The properties every control in the current multi-selection has —
+    /// what the inspector may show and edit for all of them at once.
+    ///
+    /// The intersection, not the union: offering a property that only some of
+    /// them carry would silently do nothing to the rest. Same-type selections
+    /// therefore get the whole type's vocabulary, and mixed-type ones get what
+    /// their types genuinely agree on.
+    pub fn common_property_keys(&self) -> Vec<String> {
+        let mut common: Option<std::collections::BTreeSet<String>> = None;
+        for id in &self.selected_ids {
+            let Some(c) = self.form.find_control(id) else {
+                continue;
+            };
+            let names: std::collections::BTreeSet<String> =
+                cobolt_forms::model::property_names_for(c.control_type.as_str())
+                    .into_iter()
+                    .filter(|k| !Self::NOT_SHARED_ACROSS_A_SELECTION.contains(&k.as_str()))
+                    .collect();
+            common = Some(match common {
+                Some(acc) => acc.intersection(&names).cloned().collect(),
+                None => names,
+            });
+        }
+        common.map(|s| s.into_iter().collect()).unwrap_or_default()
+    }
+
+    /// Do all the selected controls have the same type? Then the inspector can
+    /// draw its normal, full pane — every row it would show for one of them
+    /// applies to all.
+    pub fn selection_is_uniform(&self) -> bool {
+        let mut types = self
+            .selected_ids
+            .iter()
+            .filter_map(|id| self.form.find_control(id))
+            .map(|c| c.control_type.clone());
+        match types.next() {
+            Some(first) => types.all(|t| t == first),
+            None => true,
+        }
+    }
+
+    /// Set one property on **every** selected control that has it, as a single
+    /// undoable step.
+    ///
+    /// One step, not one per control: the developer performed one action, and
+    /// having to press Undo five times to take back one edit to five buttons is
+    /// the kind of thing that makes an Undo stack untrustworthy. Controls that
+    /// do not carry the property are skipped rather than given it — a property
+    /// a type does not have is not a property it should acquire by being
+    /// selected next to something that does.
+    pub fn set_property_multi(&mut self, key: &str, value: PropValue) {
+        let targets: Vec<String> = self
+            .selected_ids
+            .iter()
+            .filter(|id| {
+                self.form.find_control(id).is_some_and(|c| {
+                    cobolt_forms::model::property_names_for(c.control_type.as_str())
+                        .iter()
+                        .any(|k| k.eq_ignore_ascii_case(key))
+                })
+            })
+            .cloned()
+            .collect();
+        if targets.len() <= 1 {
+            if let Some(id) = targets.first().cloned() {
+                self.set_property(&id, key, value);
+            }
+            return;
+        }
+        // Built by running the single-control setter and capturing the commands
+        // it produced, so a multi-edit cannot drift from a single edit: the
+        // meta-keys, the geometry mapping and the structural properties all keep
+        // whatever behaviour `set_property` gives them.
+        let mut batch: Vec<Cmd> = Vec::new();
+        for id in targets {
+            let before = self.undo_stack.len();
+            self.set_property(&id, key, value.clone());
+            batch.extend(self.undo_stack.drain(before..));
+        }
+        if batch.is_empty() {
+            return;
+        }
+        // The commands are already applied; record them as one step without
+        // re-executing.
+        self.undo_stack.push(Cmd::AgentBatch { cmds: batch });
+        self.redo_stack.clear();
+        self.dirty = true;
     }
 
     // ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -2923,6 +3141,9 @@ impl DesignerPanel {
             Cmd::SetGlassStyle { style, .. } => {
                 self.set_form_prop_direct("GlassStyle", style.clone());
             }
+            Cmd::SetFormTheme { theme, .. } => {
+                self.set_form_prop_direct("Theme", theme.clone());
+            }
             Cmd::SetAnimations { id, new, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) {
                     c.animations = new.clone();
@@ -3094,19 +3315,25 @@ impl DesignerPanel {
                     *slot = old.clone();
                 }
             }
-            Cmd::SetGlassStyle { before, .. } => {
-                self.form.glass_style = before.glass_style;
-                self.form.background_color = before.background_color.clone();
-                self.form.background_gradient_enabled = before.background_gradient_enabled;
-                self.form.background_gradient_start_color =
-                    before.background_gradient_start_color.clone();
-                self.form.background_gradient_end_color =
-                    before.background_gradient_end_color.clone();
-                self.form.background_gradient_direction =
-                    before.background_gradient_direction.clone();
-                self.form.controls = before.controls.clone();
+            Cmd::SetGlassStyle { before, .. } | Cmd::SetFormTheme { before, .. } => {
+                self.restore_style_snapshot(before);
             }
         }
+    }
+
+    /// Put the form's whole appearance back as a theme switch found it.
+    ///
+    /// Shared by both switches: each re-applies the target theme's defaults to
+    /// every control, so each needs the same restore. Two copies of this drift.
+    fn restore_style_snapshot(&mut self, before: &StyleSnapshot) {
+        self.form.glass_style = before.glass_style;
+        self.form.theme = before.theme.clone();
+        self.form.background_color = before.background_color.clone();
+        self.form.background_gradient_enabled = before.background_gradient_enabled;
+        self.form.background_gradient_start_color = before.background_gradient_start_color.clone();
+        self.form.background_gradient_end_color = before.background_gradient_end_color.clone();
+        self.form.background_gradient_direction = before.background_gradient_direction.clone();
+        self.form.controls = before.controls.clone();
     }
 
     /// Rename a control's id form-wide (undoable). Returns `false` if the new id
@@ -4647,6 +4874,21 @@ impl DesignerPanel {
     /// full pre-switch snapshot (the Neumorphic appliers rewrite appearance
     /// defaults on every control, so the style enum alone cannot restore it).
     /// Unknown keys are ignored, exactly like the direct setter.
+    /// The form's whole appearance as it stands, for a switch that is about to
+    /// rewrite it.
+    fn style_snapshot(&self) -> StyleSnapshot {
+        StyleSnapshot {
+            glass_style: self.form.glass_style,
+            theme: self.form.theme.clone(),
+            background_color: self.form.background_color.clone(),
+            background_gradient_enabled: self.form.background_gradient_enabled,
+            background_gradient_start_color: self.form.background_gradient_start_color.clone(),
+            background_gradient_end_color: self.form.background_gradient_end_color.clone(),
+            background_gradient_direction: self.form.background_gradient_direction.clone(),
+            controls: self.form.controls.clone(),
+        }
+    }
+
     pub fn set_form_prop(&mut self, key: &str, value: String) {
         let Some(canonical) = canonical_form_prop_key(key) else {
             return;
@@ -4656,21 +4898,26 @@ impl DesignerPanel {
             if style == self.form.glass_style {
                 return;
             }
-            let before = Box::new(StyleSnapshot {
-                glass_style: self.form.glass_style,
-                background_color: self.form.background_color.clone(),
-                background_gradient_enabled: self.form.background_gradient_enabled,
-                background_gradient_start_color: self
-                    .form
-                    .background_gradient_start_color
-                    .clone(),
-                background_gradient_end_color: self.form.background_gradient_end_color.clone(),
-                background_gradient_direction: self.form.background_gradient_direction.clone(),
-                controls: self.form.controls.clone(),
-            });
+            let before = Box::new(self.style_snapshot());
             self.apply(Cmd::SetGlassStyle {
                 before,
                 style: value,
+            });
+            return;
+        }
+        // The Theme switch rewrites every control the same way (1.61.134), so
+        // it is undone the same way — the id alone would revert the name of the
+        // theme and leave the form wearing it.
+        if canonical == "Theme" {
+            let target = value.trim();
+            let target = (!target.is_empty()).then(|| target.to_owned());
+            if target == self.form.theme {
+                return;
+            }
+            let before = Box::new(self.style_snapshot());
+            self.apply(Cmd::SetFormTheme {
+                before,
+                theme: value,
             });
             return;
         }
@@ -4873,14 +5120,18 @@ impl DesignerPanel {
                 self.dirty = true;
             }
             // 007 Form themes — per-form override + themed-background opt-in.
+            // Changing the theme re-applies the defaults a NEW form would carry
+            // under it, to the form and to every control, so nothing the
+            // outgoing theme stamped is left behind (operator rule,
+            // 2026-08-21). Appearance only — captions, text, geometry,
+            // behaviour and bindings are the developer's and are untouched.
             "Theme" => {
                 let v = value.trim();
-                self.form.theme = if v.is_empty() {
-                    None
-                } else {
-                    Some(v.to_owned())
-                };
-                self.dirty = true;
+                let target = (!v.is_empty()).then(|| v.to_owned());
+                if self.form.theme != target {
+                    self.form.apply_theme_defaults(target);
+                    self.dirty = true;
+                }
             }
             "UseThemeBackground" => {
                 self.form.use_theme_background = value == "true" || value == "1";
@@ -6705,38 +6956,27 @@ impl DesignerPanel {
                 if !rounded_clip_on {
                     let img_alpha = (255.0 * form_alpha_mul) as u8;
                     for (idx, ctrl) in self.form.controls.iter().enumerate() {
-                        if !matches!(
-                            ctrl.control_type,
-                            ControlType::GroupBox | ControlType::Panel
-                        ) {
-                            continue;
-                        }
-                        if !cobolt_forms::containers::has_descendants(&self.form.controls, idx) {
-                            continue;
-                        }
-                        if ctrl.parent.is_some() {
-                            // Nested rounded containers must reveal the already
-                            // painted parent surface in their notches. Masking
-                            // them with the form/canvas backdrop cuts through
-                            // that parent and creates the dark patterned corner
-                            // rectangles we are debugging.
-                            continue;
-                        }
                         let rad = cobolt_forms::paint::corner_radius(ctrl);
-                        if rad < 0.5 {
-                            continue;
-                        }
                         if let Some(crect) = control_rects.get(&ctrl.id) {
-                            // Only mask the corners a descendant actually reaches;
-                            // leave clean corners untouched so the panel keeps its own
-                            // rounded corner (matching an empty GroupBox) instead of
-                            // having the backdrop painted over it for no reason.
-                            let rounding = cobolt_forms::render::corner_notch_rounding(
-                                *crect,
-                                rad,
+                            // The SAME rule the run/preview renderer uses — which
+                            // corners (if any) need the backdrop repainted over
+                            // them. Two copies of this diverged once already; the
+                            // canvas is where the divergence shows first, because
+                            // it is where forms are designed.
+                            let Some(rounding) = cobolt_forms::render::notch_mask_rounding(
                                 &self.form.controls,
                                 idx,
+                                *crect,
+                                rad,
                                 &control_rects,
+                            ) else {
+                                continue;
+                            };
+                            let notch_shadow = cobolt_forms::paint::control_shadow_stack(
+                                ui.ctx(),
+                                ctrl,
+                                *crect,
+                                form_alpha_mul,
                             );
                             cobolt_forms::paint::draw_container_notch_mask(
                                 &painter,
@@ -6759,6 +6999,11 @@ impl DesignerPanel {
                                 }),
                                 notch_img,
                                 img_alpha,
+                                // The control's own shadow, put back on top of the
+                                // repainted backdrop — the canvas must show the
+                                // same corner the run form does, or a shadow fixed
+                                // in one is still broken in the other.
+                                (!notch_shadow.is_empty()).then_some(&notch_shadow),
                             );
                             if self.show_grid {
                                 draw_grid_in_rounded_notches(
@@ -7334,10 +7579,9 @@ impl DesignerPanel {
                             // Hit-test topmost visible control (container-aware, spec 012).
                             let hit: Option<String> = self.hit_top_id(cx, cy);
                             if ctrl_held {
-                                // Ctrl+click = toggle in multi-select
+                                // Cmd/Ctrl+click = toggle in multi-select.
                                 if let Some(id) = hit {
-                                    self.toggle_selected(&id);
-                                    selection_changed = true;
+                                    selection_changed |= self.modifier_click_select(&id);
                                 }
                             } else {
                                 let hit_same = self.selected_ids.len() == 1
@@ -10387,6 +10631,13 @@ impl DesignerPanel {
             resp.contains_pointer() && resp.ctx.input(|i| i.pointer.primary_pressed());
         let begin_drag = resp.drag_started() || primary_just_pressed;
 
+        // A gesture that becomes a real drag never produces a click, so the
+        // press's Cmd/Ctrl claim has no release coming to consume it. Drop it
+        // here or it would swallow the NEXT modifier-click on that control.
+        if resp.drag_started() {
+            self.forget_modifier_press_claim();
+        }
+
         // Begin drag immediately on mouse-down. Waiting for `drag_started()` makes
         // fast pointer motion outrun the selected control/tool before egui's drag
         // threshold is crossed.
@@ -10454,12 +10705,10 @@ impl DesignerPanel {
                         if let Some(id) = hit_id {
                             // If not already selected, select it (unless Ctrl held)
                             let ctrl_held = resp.ctx.input(|i| i.modifiers.command);
-                            if !self.is_selected(&id) {
-                                if ctrl_held {
-                                    self.selected_ids.push(id.clone());
-                                } else {
-                                    self.set_selected_one(Some(id.clone()));
-                                }
+                            if ctrl_held {
+                                *selection_changed |= self.modifier_press_select(&id);
+                            } else if !self.is_selected(&id) {
+                                self.set_selected_one(Some(id.clone()));
                                 *selection_changed = true;
                             }
                             // Gather origins for the selected controls AND the
@@ -10660,16 +10909,31 @@ impl DesignerPanel {
         if resp.drag_stopped() || (primary_released && !matches!(&self.drag, DragState::None)) {
             match self.drag.clone() {
                 DragState::MovingControls {
+                    primary_id,
                     origins,
                     start_x,
                     start_y,
-                    ..
                 } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
-                    if dx != 0 || dy != 0 {
-                        let gp = self.form.grid_size as i32;
-                        let sn = self.form.snap_to_grid;
+                    let gp = self.form.grid_size as i32;
+                    let sn = self.form.snap_to_grid;
+                    // The SAME one-delta rule the in-drag branch uses.
+                    //
+                    // This branch kept snapping each control's own `origin + dx`
+                    // long after the drag itself was made rigid (2026-08-20), so
+                    // a selection travelled correctly and then deformed the
+                    // instant it was dropped — controls at different sub-grid
+                    // offsets each rounded to a different grid line. On a form
+                    // with a 16 px grid and buttons 56 px apart, a group of five
+                    // landed at alternating 64/48 spacing (operator, 2026-08-21).
+                    // Committing the delta the drag was actually showing is what
+                    // makes drop match what the developer saw.
+                    let primary_origin = origins
+                        .iter()
+                        .find(|(id, _, _)| *id == primary_id)
+                        .map(|(_, ox, oy)| (*ox, *oy));
+                    if let Some((mdx, mdy)) = group_move_delta(primary_origin, dx, dy, gp, sn) {
                         // Anchored controls are locked against mouse dragging, so
                         // don't commit a moved position for them on release — this
                         // mirrors the in-drag skip above. X/Y stay editable via the
@@ -10682,15 +10946,7 @@ impl DesignerPanel {
                                     .find_control(id)
                                     .map_or(false, |c| c.is_anchored())
                             })
-                            .map(|(id, ox, oy)| {
-                                (
-                                    id.clone(),
-                                    *ox,
-                                    *oy,
-                                    snap(ox + dx, gp, sn),
-                                    snap(oy + dy, gp, sn),
-                                )
-                            })
+                            .map(|(id, ox, oy)| (id.clone(), *ox, *oy, ox + mdx, oy + mdy))
                             .collect();
                         if !moves.is_empty() {
                             let changed_ids: Vec<String> =
@@ -13032,6 +13288,178 @@ mod shell_prop_tests {
     use super::*;
     use cobolt_forms::model::FormFormat;
 
+    /// Cmd/Ctrl+click must actually build a multi-selection.
+    ///
+    /// The gesture is handled twice, and has to be: the mouse-DOWN adds the
+    /// control so a Cmd+drag has something to move, and the mouse-UP is where a
+    /// click on an ALREADY selected control removes it. Both ran for the same
+    /// gesture, so a modifier-click on an unselected control was added on the
+    /// way down and toggled straight back out on the way up — Cmd/Ctrl+click did
+    /// nothing at all (operator, 2026-08-21). Each step is exercised here in the
+    /// order the pointer produces them.
+    #[test]
+    fn modifier_click_adds_to_the_selection_and_clicking_again_removes_it() {
+        let mut d = DesignerPanel::new(Form::new("F", "F", 640, 480));
+        d.form.controls.push(Control::new("A", ControlType::Button, 10, 10));
+        d.form.controls.push(Control::new("B", ControlType::Button, 10, 60));
+        d.set_selected_one(Some("A".into()));
+
+        // Cmd+click B: press adds it, release must LEAVE it there.
+        assert!(d.modifier_press_select("B"), "the press adds B");
+        assert!(
+            !d.modifier_click_select("B"),
+            "the release must stand down - it was the press that added B"
+        );
+        assert_eq!(
+            d.selected_ids,
+            vec!["A".to_string(), "B".to_string()],
+            "Cmd+click on an unselected control ADDS it to the selection"
+        );
+
+        // Cmd+click B again: it is already selected, so the press does nothing
+        // and the release is what removes it.
+        assert!(!d.modifier_press_select("B"), "B is already selected");
+        assert!(d.modifier_click_select("B"), "the release removes B");
+        assert_eq!(
+            d.selected_ids,
+            vec!["A".to_string()],
+            "Cmd+click on a selected control removes it again"
+        );
+
+        // A gesture that became a drag never delivers a click, so its claim must
+        // not survive to swallow the next modifier-click on that control.
+        assert!(d.modifier_press_select("B"), "press adds B for a drag");
+        d.forget_modifier_press_claim();
+        assert!(
+            d.modifier_click_select("B"),
+            "after a drag, the next Cmd+click on B must toggle normally"
+        );
+        assert_eq!(d.selected_ids, vec!["A".to_string()]);
+    }
+
+    /// Dropping a multi-selection must land it exactly where the drag showed it.
+    ///
+    /// The in-drag branch was made rigid on 2026-08-20, but the RELEASE branch
+    /// went on snapping each control's own `origin + delta`, so a selection
+    /// travelled correctly and deformed the moment it was dropped. The
+    /// operator's own geometry is the case that exposes it: a 16 px grid with
+    /// buttons 56 px apart, where independent snapping turns an even 56/56/56/56
+    /// pitch into 64/48/64/48 (2026-08-21). Committing the one delta the drag
+    /// was already using is what keeps the two agreeing.
+    #[test]
+    fn dropping_a_selection_keeps_its_spacing_on_an_off_grid_pitch() {
+        const GRID: i32 = 16;
+        // The five demo buttons: y = 96, 152, 208, 264, 320.
+        let origins: Vec<(i32, i32)> = (0..5).map(|i| (944, 96 + i * 56)).collect();
+        let (mdx, mdy) =
+            group_move_delta(Some(origins[0]), 40, 40, GRID, true).expect("a real drag");
+
+        let dropped: Vec<i32> = origins.iter().map(|(_, oy)| oy + mdy).collect();
+        let pitches: Vec<i32> = dropped.windows(2).map(|w| w[1] - w[0]).collect();
+        assert_eq!(
+            pitches,
+            vec![56, 56, 56, 56],
+            "the group must keep its 56 px pitch; snapping each control on its \
+             own gives {dropped:?}"
+        );
+        // And the delta really is one snapped step, not the raw drag.
+        assert_eq!(mdx % GRID, (origins[0].0 + mdx) % GRID - origins[0].0 % GRID);
+        let snapped_each: Vec<i32> = origins
+            .iter()
+            .map(|(_, oy)| snap(oy + 40, GRID, true))
+            .collect();
+        let bad: Vec<i32> = snapped_each.windows(2).map(|w| w[1] - w[0]).collect();
+        assert_ne!(
+            bad,
+            vec![56, 56, 56, 56],
+            "the per-control snapping this replaced must genuinely deform, or \
+             this test proves nothing: {snapped_each:?}"
+        );
+    }
+
+    /// One edit to a multi-selection changes every control that has the
+    /// property — and is ONE undo step, because the developer performed one
+    /// action (operator, 2026-08-21).
+    #[test]
+    fn setting_a_property_on_a_multi_selection_changes_all_of_them_in_one_step() {
+        let mut d = DesignerPanel::new(Form::new("F", "F", 640, 480));
+        d.form.controls.push(Control::new("A", ControlType::Button, 10, 10));
+        d.form.controls.push(Control::new("B", ControlType::Button, 10, 60));
+        d.form.controls.push(Control::new("C", ControlType::Button, 10, 110));
+        d.selected_ids = vec!["A".into(), "B".into(), "C".into()];
+
+        d.set_property_multi("BackgroundColor", PropValue::String("#123456".into()));
+        for id in ["A", "B", "C"] {
+            assert_eq!(
+                d.form
+                    .find_control(id)
+                    .and_then(|c| c.get_prop("BackgroundColor"))
+                    .map(|v| v.as_str().to_owned())
+                    .as_deref(),
+                Some("#123456"),
+                "{id} must have taken the shared edit"
+            );
+        }
+        d.undo();
+        assert_ne!(
+            d.form
+                .find_control("C")
+                .and_then(|c| c.get_prop("BackgroundColor"))
+                .map(|v| v.as_str().to_owned())
+                .as_deref(),
+            Some("#123456"),
+            "one Undo must take back the whole multi-edit, not one control of it"
+        );
+    }
+
+    /// A property only some of the selection carries is applied to those that do
+    /// and withheld from the rest — a control does not acquire a property by
+    /// being selected next to something that has one.
+    #[test]
+    fn a_mixed_selection_shares_only_what_its_types_agree_on() {
+        let mut d = DesignerPanel::new(Form::new("F", "F", 640, 480));
+        d.form.controls.push(Control::new("BTN", ControlType::Button, 10, 10));
+        d.form.controls.push(Control::new("GRID", ControlType::DataGrid, 10, 60));
+        d.selected_ids = vec!["BTN".into(), "GRID".into()];
+
+        assert!(!d.selection_is_uniform(), "a Button and a DataGrid differ");
+        let common = d.common_property_keys();
+        assert!(
+            common.iter().any(|k| k == "BackgroundColor"),
+            "both carry BackgroundColor: {common:?}"
+        );
+        assert!(
+            !common.iter().any(|k| k == "HeaderBackgroundColor"),
+            "only the grid has header colours, so they are not shared: {common:?}"
+        );
+        // Identity is never shared: two controls cannot take the same name.
+        for never in ["Name", "TabOrder", "Parent"] {
+            assert!(
+                !common.iter().any(|k| k == never),
+                "{never} must never be offered across a selection"
+            );
+        }
+
+        // A grid-only property applied across the selection reaches the grid and
+        // leaves the button untouched.
+        d.set_property_multi("HeaderBackgroundColor", PropValue::String("#abcdef".into()));
+        assert_eq!(
+            d.form
+                .find_control("GRID")
+                .and_then(|c| c.get_prop("HeaderBackgroundColor"))
+                .map(|v| v.as_str().to_owned())
+                .as_deref(),
+            Some("#abcdef")
+        );
+        assert!(
+            d.form
+                .find_control("BTN")
+                .and_then(|c| c.get_prop("HeaderBackgroundColor"))
+                .is_none(),
+            "the Button must not have acquired a DataGrid property"
+        );
+    }
+
     #[test]
     fn form_format_prop_round_trips_and_main_form_is_pinned_049() {
         // 049 R1/R5 — FormFormat is settable through the prop plumbing on an
@@ -15075,6 +15503,68 @@ mod text_align_tests {
         let depth = d.undo_stack.len();
         d.set_form_prop("GlassStyle", "Neumorphic Dark".into());
         assert_eq!(d.undo_stack.len(), depth, "same-style set is a no-op");
+    }
+
+    /// The other half of that same complaint: **changing the Theme** is
+    /// undoable too.
+    ///
+    /// It used to record the choice and nothing else, so there was little to
+    /// undo and no way to undo it. Since 1.61.134 a theme switch re-applies the
+    /// target's defaults to every control (operator rule, 2026-08-21), which
+    /// makes it as destructive as a GlassStyle switch — and it now carries the
+    /// same snapshot, so one undo puts the whole form back.
+    #[test]
+    fn a_theme_switch_is_undoable_including_what_it_rewrote() {
+        use cobolt_forms::GlassStyle;
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("L1", ControlType::Label, 10, 10));
+        d.set_property("L1", "ForegroundColor", PropValue::String("#FF0000".into()));
+        d.set_property("L1", "Caption", PropValue::String("Total".into()));
+        d.set_form_prop("GlassStyle", "Neumorphic".into());
+        let depth = d.undo_stack.len();
+
+        d.set_form_prop("Theme", "elegance".into());
+        assert_eq!(d.form.theme.as_deref(), Some("elegance"));
+        assert_eq!(
+            d.undo_stack.len(),
+            depth + 1,
+            "a theme switch is one undoable step"
+        );
+
+        d.undo();
+        assert_eq!(d.form.theme, None, "the theme id undoes");
+        assert_eq!(
+            d.form.glass_style,
+            GlassStyle::Neumorphic,
+            "the glass style is untouched by a theme undo"
+        );
+        let l1 = d.form.find_control("L1").unwrap();
+        assert_eq!(
+            l1.get_prop("BackgroundColor").unwrap().as_str(),
+            cobolt_forms::model::NEUMORPHIC_SURFACE_COLOR,
+            "what the switch rewrote comes back"
+        );
+        assert_eq!(
+            l1.get_prop("Caption").unwrap().as_str(),
+            "Total",
+            "content was never at risk"
+        );
+
+        d.redo();
+        assert_eq!(d.form.theme.as_deref(), Some("elegance"));
+
+        // Selecting the theme already in force changes nothing and stacks
+        // nothing — the same guard the style switch has.
+        let depth = d.undo_stack.len();
+        d.set_form_prop("Theme", "elegance".into());
+        assert_eq!(d.undo_stack.len(), depth, "same-theme set is a no-op");
+        // And clearing it back to "no override" is itself a normal step.
+        d.set_form_prop("Theme", String::new());
+        assert_eq!(d.form.theme, None);
+        d.undo();
+        assert_eq!(d.form.theme.as_deref(), Some("elegance"));
     }
 
     /// Visible / Enabled / TabOrder mutated struct fields directly and were

@@ -7,15 +7,21 @@
 //! The geometry a `Maps` control draws on top of its tiles: traced routes and
 //! filled regions.
 //!
-//! Three pure pieces, none of which need egui, so all three are testable
-//! without a screen:
+//! Pure pieces, none of which need egui, so every one is testable without a
+//! screen:
 //!
 //! 1. [`decode_polyline`] — Google's encoded-polyline algorithm. A route comes
 //!    back from Directions as one such string, and it is the only compact way
 //!    to carry a few thousand points through a COBOL property.
-//! 2. [`parse_points`] — the other accepted spelling, `lat,lng;lat,lng;…`, for
+//! 2. [`encode_polyline`] — its inverse, because a Directions answer carries the
+//!    road one polyline per navigation step and those pieces have to be decoded,
+//!    joined and encoded once to become a single line.
+//! 3. [`simplify_polyline`] / [`encode_polyline_within`] — spending a fixed
+//!    character budget on the closest line it can buy, since the field this
+//!    travels through has a size the developer declared.
+//! 4. [`parse_points`] — the other accepted spelling, `lat,lng;lat,lng;…`, for
 //!    geometry a developer wrote or computed rather than fetched.
-//! 3. [`triangulate`] — ear clipping, so a filled region may be **concave**.
+//! 5. [`triangulate`] — ear clipping, so a filled region may be **concave**.
 //!    A delivery zone, a municipal boundary or a sales territory almost never
 //!    is convex, and epaint's `convex_polygon` silently renders those wrong.
 
@@ -57,6 +63,137 @@ pub fn decode_polyline(encoded: &str) -> Vec<LatLng> {
         });
     }
     out
+}
+
+/// Encode points back into Google's encoded-polyline form — the inverse of
+/// [`decode_polyline`].
+///
+/// Needed because a Directions answer carries its road geometry in **pieces**:
+/// `overview_polyline` is Google's *simplified* line, while the shape that
+/// actually follows the road is one polyline per navigation step. Each piece is
+/// delta-encoded from its own origin, so the pieces cannot be concatenated as
+/// text — they have to be decoded, joined, and encoded once. Without this the
+/// route drawn over the map is a smoothed approximation of the road rather than
+/// the road.
+///
+/// Coordinates are rounded to the format's 1e-5 degree grid (about a metre),
+/// which is the precision the encoding has and all a map at any usable zoom can
+/// show.
+pub fn encode_polyline(points: &[LatLng]) -> String {
+    let mut out = String::with_capacity(points.len() * 6);
+    let (mut prev_lat, mut prev_lng) = (0i64, 0i64);
+    for p in points {
+        let lat = (p.lat * 1e5).round() as i64;
+        let lng = (p.lng * 1e5).round() as i64;
+        push_value(&mut out, lat - prev_lat);
+        push_value(&mut out, lng - prev_lng);
+        prev_lat = lat;
+        prev_lng = lng;
+    }
+    out
+}
+
+/// Drop the points that do not change a line's shape — Ramer-Douglas-Peucker,
+/// with `epsilon` in degrees.
+///
+/// Route geometry is delivered through a COBOL field of a size the developer
+/// declared, so fidelity is not free: it is spent, and a line that overflows the
+/// field is truncated into a route that stops in the middle of nowhere. This is
+/// how a long route is fitted to a budget while keeping its **shape** — every
+/// bend that matters survives, and it is only the straight runs that give up
+/// their redundant points. Decimating "every Nth point" instead is what makes a
+/// motorway look hand-drawn: it discards curves and straights alike.
+///
+/// Fewer than three points, or a non-positive epsilon, returns the input.
+pub fn simplify_polyline(points: &[LatLng], epsilon: f64) -> Vec<LatLng> {
+    if points.len() < 3 || !(epsilon > 0.0) {
+        return points.to_vec();
+    }
+    let mut keep = vec![false; points.len()];
+    keep[0] = true;
+    keep[points.len() - 1] = true;
+    // Explicit stack rather than recursion: a full-detail intercity route is
+    // thousands of points, and the worst case recurses once per point.
+    let mut stack = vec![(0usize, points.len() - 1)];
+    while let Some((first, last)) = stack.pop() {
+        if last <= first + 1 {
+            continue;
+        }
+        let mut worst = (0.0f64, first);
+        for (i, p) in points.iter().enumerate().take(last).skip(first + 1) {
+            let d = perpendicular_distance(*p, points[first], points[last]);
+            if d > worst.0 {
+                worst = (d, i);
+            }
+        }
+        if worst.0 > epsilon {
+            keep[worst.1] = true;
+            stack.push((first, worst.1));
+            stack.push((worst.1, last));
+        }
+    }
+    points
+        .iter()
+        .zip(keep)
+        .filter_map(|(p, k)| k.then_some(*p))
+        .collect()
+}
+
+/// Distance from `p` to the segment `a`-`b`, in degrees.
+///
+/// Longitude is scaled by cos(latitude) so a degree of longitude counts for
+/// what it is worth at that latitude — without it, simplification is far more
+/// aggressive east-west than north-south, and at Spanish latitudes that is a
+/// 25 % error in one axis only, which shows as a route that straightens across
+/// its horizontal bends but not its vertical ones.
+fn perpendicular_distance(p: LatLng, a: LatLng, b: LatLng) -> f64 {
+    let scale = ((a.lat + b.lat) * 0.5).to_radians().cos().abs().max(1e-6);
+    let (px, py) = ((p.lng - a.lng) * scale, p.lat - a.lat);
+    let (bx, by) = ((b.lng - a.lng) * scale, b.lat - a.lat);
+    let len_sq = bx * bx + by * by;
+    if len_sq <= f64::EPSILON {
+        return (px * px + py * py).sqrt();
+    }
+    let t = ((px * bx + py * by) / len_sq).clamp(0.0, 1.0);
+    let (dx, dy) = (px - t * bx, py - t * by);
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Encode `points`, simplifying only as much as it takes to fit `max_chars`.
+///
+/// Full detail when it fits — a city trip's road geometry is a few hundred
+/// points and costs a couple of kilobytes. A long route gives up its redundant
+/// straight-run points, doubling the tolerance until the encoding fits, so the
+/// caller always gets the closest line the budget can hold rather than either an
+/// arbitrary thumbnail or a truncated one.
+pub fn encode_polyline_within(points: &[LatLng], max_chars: usize) -> String {
+    let full = encode_polyline(points);
+    if full.len() <= max_chars || points.len() < 3 {
+        return full;
+    }
+    // ~1 m, then doubling. Twenty steps reaches ~1 000 km, so the loop always
+    // ends on shape rather than on its own iteration count.
+    let mut epsilon = 1e-5;
+    for _ in 0..20 {
+        let encoded = encode_polyline(&simplify_polyline(points, epsilon));
+        if encoded.len() <= max_chars {
+            return encoded;
+        }
+        epsilon *= 2.0;
+    }
+    // Nothing simplified far enough (a degenerate input): the two ends still
+    // describe the journey, and they always fit.
+    encode_polyline(&[points[0], points[points.len() - 1]])
+}
+
+/// One zig-zag-encoded varint appended to `out` — the inverse of [`next_value`].
+fn push_value(out: &mut String, value: i64) {
+    let mut v = if value < 0 { !(value << 1) } else { value << 1 };
+    while v >= 0x20 {
+        out.push((((0x20 | (v & 0x1f)) + 63) as u8) as char);
+        v >>= 5;
+    }
+    out.push(((v + 63) as u8) as char);
 }
 
 /// One zig-zag-encoded varint from `bytes`, advancing `i` past it.
@@ -241,6 +378,136 @@ mod tests {
         assert!(near(pts[0].lat, 38.5) && near(pts[0].lng, -120.2), "{:?}", pts[0]);
         assert!(near(pts[1].lat, 40.7) && near(pts[1].lng, -120.95), "{:?}", pts[1]);
         assert!(near(pts[2].lat, 43.252) && near(pts[2].lng, -126.453), "{:?}", pts[2]);
+    }
+
+    /// The encoder is the decoder's inverse, byte for byte, on Google's own
+    /// worked example.
+    #[test]
+    fn encodes_the_reference_polyline() {
+        let reference = "_p~iF~ps|U_ulLnnqC_mqNvxq`@";
+        assert_eq!(encode_polyline(&decode_polyline(reference)), reference);
+    }
+
+    /// What the encoder exists for: joining the per-step geometry of a
+    /// Directions answer into one line. Encoded pieces cannot be concatenated
+    /// as text — each is delta-encoded from its own origin — so they are
+    /// decoded, joined and encoded once, and the result must decode back to
+    /// exactly the points that went in.
+    #[test]
+    fn joined_steps_survive_a_round_trip() {
+        let steps = ["_p~iF~ps|U_ulLnnqC", "_mqNvxq`@", "_p~iF~ps|U"];
+        let joined: Vec<LatLng> = steps.iter().flat_map(|s| decode_polyline(s)).collect();
+        let back = decode_polyline(&encode_polyline(&joined));
+        assert_eq!(back.len(), joined.len());
+        for (a, b) in joined.iter().zip(back.iter()) {
+            assert!(
+                (a.lat - b.lat).abs() < 1e-5 && (a.lng - b.lng).abs() < 1e-5,
+                "{a:?} != {b:?}"
+            );
+        }
+    }
+
+    /// Southern/western hemispheres and sub-metre deltas: the sign bit and the
+    /// rounding are where a hand-written varint encoder goes wrong.
+    #[test]
+    fn negative_and_tiny_deltas_round_trip() {
+        let pts = vec![
+            LatLng {
+                lat: -33.86785,
+                lng: 151.20732,
+            },
+            LatLng {
+                lat: -33.86786,
+                lng: 151.20731,
+            },
+            LatLng {
+                lat: 37.17730,
+                lng: -3.59860,
+            },
+            LatLng { lat: 0.0, lng: 0.0 },
+        ];
+        let back = decode_polyline(&encode_polyline(&pts));
+        assert_eq!(back.len(), pts.len());
+        for (a, b) in pts.iter().zip(back.iter()) {
+            assert!(
+                (a.lat - b.lat).abs() < 1e-5 && (a.lng - b.lng).abs() < 1e-5,
+                "{a:?} != {b:?}"
+            );
+        }
+        assert_eq!(encode_polyline(&[]), "");
+    }
+
+    /// Simplification drops redundant points and keeps the corners — the whole
+    /// difference between fitting a budget and hand-drawing a motorway.
+    #[test]
+    fn simplification_keeps_the_bend_and_drops_the_straight_run() {
+        // A straight run east, then a sharp turn north.
+        let pts = vec![
+            LatLng {
+                lat: 40.0,
+                lng: -4.0,
+            },
+            LatLng {
+                lat: 40.0,
+                lng: -3.9,
+            },
+            LatLng {
+                lat: 40.0,
+                lng: -3.8,
+            },
+            LatLng {
+                lat: 40.0,
+                lng: -3.7,
+            }, // the corner
+            LatLng {
+                lat: 40.1,
+                lng: -3.7,
+            },
+            LatLng {
+                lat: 40.2,
+                lng: -3.7,
+            },
+        ];
+        let simple = simplify_polyline(&pts, 1e-4);
+        assert_eq!(simple.len(), 3, "ends plus the corner: {simple:?}");
+        assert_eq!(simple[0], pts[0]);
+        assert_eq!(simple[1], pts[3], "the corner must survive");
+        assert_eq!(simple[2], pts[5]);
+        // Ends are never dropped, and a line with nothing to drop is unchanged.
+        assert_eq!(simplify_polyline(&pts, 0.0), pts);
+        assert_eq!(simplify_polyline(&pts[..2], 1.0).len(), 2);
+    }
+
+    /// The budget is a promise: whatever the route, the encoded field fits.
+    #[test]
+    fn geometry_is_fitted_to_its_budget() {
+        // A long, wiggly route — every point genuinely off the straight line,
+        // so nothing can be dropped for free.
+        let pts: Vec<LatLng> = (0..4000)
+            .map(|i| LatLng {
+                lat: 40.0 + i as f64 * 1e-3,
+                lng: -3.7 + if i % 2 == 0 { 1e-3 } else { -1e-3 },
+            })
+            .collect();
+        let full = encode_polyline(&pts);
+        assert!(full.len() > 4_000, "the test route must exceed the budget");
+
+        let fitted = encode_polyline_within(&pts, 4_000);
+        assert!(fitted.len() <= 4_000, "fitted to {} chars", fitted.len());
+        let back = decode_polyline(&fitted);
+        assert!(back.len() >= 2);
+        // It is still the same journey: the ends are where they were.
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-4;
+        assert!(near(back[0].lat, pts[0].lat) && near(back[0].lng, pts[0].lng));
+        let (last_in, last_out) = (pts[pts.len() - 1], back[back.len() - 1]);
+        assert!(near(last_out.lat, last_in.lat) && near(last_out.lng, last_in.lng));
+
+        // And a route that already fits is handed over untouched — full detail
+        // is the normal case, not the exception.
+        assert_eq!(
+            encode_polyline_within(&pts[..10], 4_000),
+            encode_polyline(&pts[..10])
+        );
     }
 
     /// A truncated route draws the part that survived rather than vanishing.

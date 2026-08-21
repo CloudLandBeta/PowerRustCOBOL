@@ -24,6 +24,11 @@ See the LICENSE file in the project root for full license information.
 | **一个 C 编译器和一个链接器** | Rust 构建*任何*二进制文件都需要的链接器，外加两个 C 依赖 |
 | **原生 GUI 库**（仅 Linux） | 创建窗口和原生文件对话框 |
 
+> **打包后的 IDE 会自行检查 Rust 需求。** *使用* PowerRustCOBOL 而不是自行构建的
+> 人从不会读这一页，因此 IDE 会在首次运行时查找 Rust，并在未满足同样的 **1.92**
+> 下限时提出替您安装。这个版本号读自本 workspace 自己的清单，因此二者不会出现分
+> 歧。参见《开发者指南》§3。
+
 ### 关于 C 编译器
 
 代码树中有两个 crate 会编译 C 源码，所以 C 编译器确实是必需的：

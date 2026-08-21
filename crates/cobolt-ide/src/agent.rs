@@ -994,7 +994,11 @@ pub(crate) fn scan_member_refs(code: &str) -> Vec<MemberRef> {
 
 /// First `Control::Property` reference in `code` whose property does not exist on
 /// its (known) control — a hallucinated property such as `TextBox-2::Depth`. Method
-/// calls are ignored. Uses the same `property_valid` the `set_property` op trusts.
+/// calls are ignored.
+///
+/// Reading is judged by `property_readable`, not `property_valid`: a handler
+/// legitimately reads what the runtime delivered (`Maps-1::ResponseBody`) even
+/// though nothing can *set* it in the designer.
 fn unknown_property_ref(
     code: &str,
     known: &HashMap<String, ControlType>,
@@ -1004,7 +1008,7 @@ fn unknown_property_ref(
             continue; // methods handled elsewhere
         }
         if let Some(ct) = known.get(&r.recv.to_ascii_uppercase()) {
-            if !property_valid(ct, &r.member) {
+            if !property_readable(ct, &r.member) {
                 return Some((r.recv, r.member));
             }
         }
@@ -1019,6 +1023,20 @@ fn property_valid(ct: &ControlType, key: &str) -> bool {
     property_names_for(ct.as_str())
         .iter()
         .any(|k| k.eq_ignore_ascii_case(key))
+}
+
+/// A property key a handler may **read**: everything [`property_valid`] accepts,
+/// plus the ones the runtime delivers (`ResponseBody`, `SelectedMarkerId`, …).
+///
+/// Reading and writing are not the same question. `ResponseBody` cannot be set —
+/// it is an answer, not a setting — but reading it is the only way a handler
+/// ever sees what `Directions` or a `RestClient` verb returned, so judging a read
+/// by the *settable* list rejected every correct async handler there is.
+fn property_readable(ct: &ControlType, key: &str) -> bool {
+    property_valid(ct, key)
+        || cobolt_forms::model::runtime_property_names_for(ct.as_str())
+            .iter()
+            .any(|k| k.eq_ignore_ascii_case(key))
 }
 
 fn deploy_property_valid(ct: &ControlType, key: &str) -> bool {
@@ -2074,6 +2092,46 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reading an async answer is not "a hallucinated property".
+    ///
+    /// `Directions`, `Geocode`, every `RestClient` verb and `WebSearch::Search`
+    /// return an empty string at once and deliver through `ResponseBody` on
+    /// `onComplete` — the documented, only way. Judging that read against the
+    /// *settable* property list rejected the handler the platform's own KB tells
+    /// developers to write (operator, 2026-08-21).
+    #[test]
+    fn an_async_answer_is_readable_even_though_nothing_can_set_it() {
+        let mut known = HashMap::new();
+        known.insert("MAP-1".to_string(), ControlType::Maps);
+        known.insert("REST-1".to_string(), ControlType::RestClient);
+
+        let reads = concat!(
+            "       PROCEDURE DIVISION.\n",
+            "           UNSTRING MAP-1::ResponseBody DELIMITED BY X\"09\"\n",
+            "               INTO WS-A WS-B.\n",
+            "           MOVE MAP-1::SelectedMarkerId TO WS-ID.\n",
+            "           MOVE REST-1::StatusCode TO WS-ST.\n",
+        );
+        assert_eq!(
+            unknown_property_ref(reads, &known),
+            None,
+            "the runtime's own delivery channel must pass the gate"
+        );
+
+        // The gate still catches an actually invented property.
+        let invented = "       PROCEDURE DIVISION.\n           MOVE MAP-1::Depth TO WS-X.\n";
+        assert_eq!(
+            unknown_property_ref(invented, &known),
+            Some(("MAP-1".to_string(), "Depth".to_string()))
+        );
+
+        // Reading and writing stay different questions: nothing SETS an answer.
+        assert!(property_readable(&ControlType::Maps, "ResponseBody"));
+        assert!(!property_valid(&ControlType::Maps, "ResponseBody"));
+        // And a control with no async surface gains nothing either way.
+        assert!(!property_readable(&ControlType::Button, "ResponseBody"));
+    }
 
     /// `EXEC RUST` is the developer's choice, and every text an agent reads
     /// must say so.

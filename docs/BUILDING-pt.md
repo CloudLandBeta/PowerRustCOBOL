@@ -26,6 +26,13 @@ sistema operacional.
 | **Um compilador C e um linkeditor** | o linkeditor que o Rust exige para *qualquer* binário, mais duas dependências em C |
 | **Bibliotecas GUI nativas** (somente Linux) | criação de janelas e diálogos de arquivo nativos |
 
+> **A IDE empacotada verifica o requisito do Rust por conta própria.** Quem
+> *usa* o PowerRustCOBOL em vez de compilá-lo nunca lê esta página, então a IDE
+> procura o Rust na primeira execução e se oferece para instalá-lo quando este
+> mesmo mínimo de **1.92** não é atendido. Ela lê o número do próprio manifesto
+> deste workspace, de modo que os dois não podem divergir. Veja o §3 do Guia do
+> desenvolvedor.
+
 ### Sobre o compilador C
 
 Duas crates da árvore compilam código C, portanto um compilador C é realmente

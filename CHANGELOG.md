@@ -1,5 +1,455 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.139] — 2026-08-21
+
+### Fixed — a dropped selection lost its spacing
+
+Dragging several controls looked right the whole way and then deformed the
+moment the mouse was released: evenly spaced buttons landed unevenly.
+
+The drag itself was made rigid in 1.61.125 — one delta, taken from the control
+under the pointer, applied to every captured origin. The **release** branch was
+not: it went on snapping each control's own `origin + delta` to the grid
+independently, so controls sitting at different sub-grid offsets each rounded to
+a different line. On a form with a 16 px grid and buttons 56 px apart — the Maps
+demo exactly — an even 56/56/56/56 pitch dropped as 64/48/64/48.
+
+Both branches now commit the same delta, so a drop lands the selection precisely
+where the drag was showing it. A test pins the operator's own geometry and
+checks that the per-control snapping it replaces genuinely deforms, so the guard
+cannot quietly stop proving anything.
+
+## [PowerRustCOBOL 1.61.138] — 2026-08-21
+
+### Fixed — the properties pane ignored a multi-selection
+
+Selecting several controls showed the properties of one of them, and editing one
+changed only that one. Multi-selection existed — lasso, and now Cmd/Ctrl+click —
+but the pane had no notion of it, which left the selection unable to do the work
+it exists for.
+
+The pane now speaks for the whole selection. Controls of the **same type** get
+the full property pane, since every row it draws for one Button is true of five.
+A selection of **different types** is narrowed to the properties their types
+genuinely have in common, because a row only some of them carry would look like
+it worked and change nothing on the rest. A header says which case you are in
+and how many controls an edit is about to change.
+
+An edit reaches every selected control that carries the property, and lands as
+**one** undoable step — the developer performed one action, and having to press
+Undo five times to take back one edit is what makes an undo stack untrustworthy.
+Controls that do not have the property are skipped rather than given it. Identity
+is never shared: two controls cannot take the same name, tab order or parent.
+
+The fan-out is built by running the ordinary single-control setter once per
+target and collecting what it did, so a multi-edit cannot drift from a single
+edit — the animation meta-keys, the geometry mapping and the structural
+properties all keep exactly the behaviour they already had.
+
+## [PowerRustCOBOL 1.61.137] — 2026-08-21
+
+### Fixed — Cmd/Ctrl+click did not build a multi-selection
+
+Holding Command (or Control) and clicking a second control left the selection
+exactly as it was.
+
+The gesture is handled in two places, and has to be: the mouse-**down** adds the
+control, because a Cmd+drag of an unselected control needs something to move,
+and the mouse-**up** is where a click on an *already* selected control removes it
+again. Both fired for the same gesture, so a modifier-click on an unselected
+control was added on the way down and toggled straight back out on the way up —
+a net change of nothing, which reads as the modifier being ignored.
+
+Whichever half acts now records that it did, and the other stands down. A
+gesture that turns into a real drag never delivers a click, so its claim is
+dropped when the drag starts rather than left to swallow the next modifier-click
+on that control. Rubber-band lasso selection was never affected and is unchanged.
+
+## [PowerRustCOBOL 1.61.136] — 2026-08-21
+
+### Fixed — a dark hair on the corners of a running map
+
+With the corner wedge gone, a thin dark line was left tracing each rounded
+corner of a Maps control — in the **running form** only, never on the design
+canvas.
+
+The two symptoms named the cause together. Every stroke in the frame turned out
+to be clipped to one of the four corner squares: a glass rim and an **opaque 1px
+border**, drawn on the arcs and nowhere else on the control. They come from
+`restore_container_outline`, which redraws a container's own rim after the notch
+mask repaints the backdrop over it — and which the designer canvas never calls,
+which is exactly why the canvas was clean.
+
+Restore means *restore*. A Maps control paints its halo, its background gradient
+and its tiles and stops before any rim or border, so a map has no edge line
+anywhere; there was nothing to put back, and drawing one invented an edge that
+existed on the corners alone. Maps joined the corner-notch mask in 1.61.134 and
+inherited the restore with it. The restore is now limited to the controls whose
+face actually draws an outline, stated positively so a control type that later
+joins the mask has to opt in rather than inherit an edge it never draws.
+
+## [PowerRustCOBOL 1.61.135] — 2026-08-21
+
+### Fixed — a grey wedge at every rounded corner of a control with a shadow
+
+A Maps control with a `CornerRadius` and a drop shadow showed a flat grey wedge
+at each corner, bitten out of the shadow — obvious as soon as `ShadowDistance`
+and `ShadowBlurStrength` were turned up.
+
+The corner-notch mask repaints the form's backdrop over the region inside a
+rounded control's bounding box but outside its arc, so square content cannot
+show in the corner. The backdrop, though, is **not everything behind a
+control**: the shadow it casts is painted there too, and seeing it through the
+notch is exactly what makes a rounded corner look attached to the surface.
+Repainting the flat backdrop erased that shadow inside the bounding box while
+the same shadow survived one pixel outside it — and that discontinuity is the
+wedge.
+
+The mask now re-composites the control's own shadow on top of the backdrop it
+repaints. Both shadow painters — the ordinary drop shadow and the Neumorphic
+dual halo — build their layers through **one** definition, so what the mask puts
+back cannot drift from what was drawn; and the notch is tessellated as a radial
+grid rather than a fan, because a fan samples a shadow's falloff only at the arc
+and the corner and would band it across the notch. The re-composite uses the
+alpha the control was actually drawn with, so a faded or animating control does
+not get a full-strength shadow in its corners.
+
+Applied at both call sites, the running form and the designer canvas, so the
+corner looks the same where a form is designed and where it runs.
+
+## [PowerRustCOBOL 1.61.134] — 2026-08-21
+
+### Fixed — the Neumorphic pack skinned its controls with design mock-ups
+
+Switching a form to **Neumorphic** turned every button into a dark striped pill
+with a pale bar of nonsense across the middle. That bar was **placeholder text
+drawn into the picture**: the pack's manifest pointed each `[controls.*]` entry
+at the `<control>/…_ref.png` files — full design references of a finished
+control, hundreds of pixels wide — instead of the 9-slice tiles beside them.
+Stretched across a button by the slice middle, the mock-up's fake caption landed
+inside every real one.
+
+The manifest now points at the tiles, the same convention `cobalt-steel` has
+always used; the six control types with real tiles are skinned and the rest fall
+back to Liquid Glass, which is the documented behaviour and a far better answer
+than a stretched mock-up. A test refuses any shipped pack that skins a control
+with a `_ref` image, or with insets that cannot stretch.
+
+The pack's own light-clay `background.png` and its dark slate palette are
+genuinely its own and are untouched — that pairing is what the theme was
+designed around, and a form reaches it with `UseThemeBackground`.
+
+### Fixed — a placeholder stayed on screen once you typed over it
+
+`HintText` was drawn *through* the content of a TextBox — visible crossed
+through the real characters, and through the mask of a password field.
+
+The run path drew the control's face with `Text` blanked on a clone, to stop
+the static caption appearing under the live editor. But the face previews a
+TextBox's `HintText` **precisely when its `Text` is empty**, so blanking it
+switched the placeholder ON instead: painted under the editor, and staying
+there however much was typed.
+
+The face is now drawn with `draw_control_face`, which silences caption and hint
+together — the same call, and the same reason, as the ComboBox arm beside it.
+The editor supplies the placeholder itself through `TextEdit::hint_text`, which
+egui hides the moment the buffer has content. That one was always correct; it
+was just never the only one on screen.
+
+### Fixed — Corner radius did nothing to a Maps control's corners
+
+A map with `CornerRadius` set drew square tiles inside its own rounded outline.
+egui clips to axis-aligned rectangles only, so the basemap filled the corners
+the face had rounded away — the same reason a rounded container's children
+bleed past its arc, and the same repair: repaint the form's surface over the
+four corner notches (spec 017).
+
+A container qualifies for that mask by having **children**. A map has none — it
+bleeds through its own tiles — so it never qualified. `notch_mask_rounding` now
+answers "which corners, if any" for both, in **one** place: the rule previously
+lived at two call sites (the renderer and the designer canvas), and the canvas
+is where a divergence shows first, because it is where forms are designed. A
+map masks all four corners, since its tiles genuinely reach every one; a
+container keeps its per-corner guardian, so a clean corner is still left alone.
+
+Nested controls are skipped in both cases, unchanged: their notches must reveal
+the parent surface, and this mask can only repaint the form backdrop.
+
+### Fixed — a map's appearance vanished when the form ran
+
+Everything set on a Maps control in **Appearance** and **Drop Shadow** applied
+on the designer canvas and disappeared the moment the form ran: no shadow, no
+background gradient, no corner radius. The two surfaces were drawing different
+things, which is why the canvas looked right and the running form did not.
+
+The run path draws the live, pannable map itself, so it could not call the face
+renderer — that would have painted a second, static basemap underneath. It
+therefore drew **no face at all** and went straight to interaction and tiles.
+
+`draw_control_face` now stops before the basemap, exactly as it already stops
+before a caption: the tiles are the canvas's stand-in for live content, and
+`with_label` is the flag that says "this caller draws its own". The run arm
+calls it first, the same way the TextBox and ComboBox arms beside it do. Both
+surfaces now draw one face and one map.
+
+### Fixed — a Maps control had no drop shadow, however it was configured
+
+Tick **Drop Shadow ▸ Enabled** on a map, set a distance and a blur, and nothing
+appeared. The Maps branch in `draw_control` painted its gradient and its tiles
+and returned — before any shadow work at all.
+
+That is invisible under Classic and Enhanced, where the shared path draws the
+shadow before the branch is reached. Under the **Neumorphic** register it is
+not: while that register is on, `drop_shadow_spec` returns `None` for *every*
+control, because the relief is the shadow — and each branch draws its own halo.
+Maps drew neither, so it was the one control on the form sitting flat. It now
+draws the halo before the tiles, the way ProgressBar does; a basemap is opaque,
+so one painted afterwards would be buried under it.
+
+### Fixed — a theme switch left the old theme's properties behind
+
+Only the Neumorphic styles ever wrote properties onto controls, and **nothing
+ever un-wrote them**. Switching Neumorphic → Classic kept the neumorphic
+surface colour, black ink, 15 px corners and the whole shadow set on every
+control: a form that had visibly changed theme had not actually changed. The
+Theme dropdown was worse — it recorded the choice and applied no defaults at
+all, so a form could end up wearing half of each.
+
+Changing either the **Theme** or the **Glass style** now applies the defaults a
+**new** form would carry under the target, to the form and to every control,
+clearing whatever the outgoing one stamped.
+
+`THEME_OWNED_PROPS` draws the line, and it is exactly the set the style
+appliers write — which is what makes "nothing left behind" true rather than
+aspirational: anything a switch can stamp, a switch can un-stamp. Everything
+else is the developer's and is never touched — captions and `Text`, `Items` and
+`Value`, geometry, tab order, `Enabled`/`Visible`, event handlers, data
+bindings. A property the target does not carry at all is *removed* rather than
+blanked, so a `ShadowColor` left by Neumorphic Dark does not survive the move.
+
+**A colour the developer chose is not residue, and is kept.** That is the older
+rule from 2026-07-28 — *"a developer-chosen foreground survives the switch"* —
+and it does not contradict the newer one: the newer rule is about the previous
+*theme's* marks. The two are told apart by asking whether the current value is
+one a theme could have written, which is answered by running the appliers on a
+fresh control rather than by a hand-written table that would stop recognising
+its own marks. Values are compared as typed properties, not through `as_str`,
+which reports `""` for every `Int` and `Bool` — comparing through it made every
+numeric property look identical and wiped hand-set corner radii.
+
+**Both switches are undoable in one step.** A Theme change now rewrites as much
+as a GlassStyle change does, so it carries the same full pre-switch snapshot:
+one undo restores the theme id, the form's own appearance and every control —
+hand-picked colours included. That closes the other half of the 2026-07-28
+complaint, *"if I change the theme I cannot undo it"*: the style half was
+answered then, and the dropdown itself was not.
+
+## [PowerRustCOBOL 1.61.133] — 2026-08-21
+
+### Fixed — black captions on a dark form after switching theme
+
+Selecting an asset-pack theme with the **Neumorphic Light** glass style on a
+dark form turned every caption black on a dark ground: the labels, the numbers
+panel, the hint text — the whole side of the form unreadable at once.
+
+The register's default ink was a flat `Color32::BLACK`, justified in a comment
+as "black text on light surface". That is true of the light face the register
+paints, and false of the control that paints **no face at all**: a Label is
+frameless, so its text lands on the *form's backdrop*. Nothing checked what that
+backdrop was.
+
+The ink is now **derived from the ground the text actually lands on** — the
+control's own face when it paints one, the form's backdrop when it does not —
+using the same `readable_ink` rule the map's info window settled: pure black or
+pure white, whichever contrasts more, decided by comparing both rather than
+guessing from a threshold. Over a light form the ink stays dark, so this is a
+repair and not a reversal; an explicit `ForegroundColor` still wins, as always.
+
+Elegance never showed this because it is **self-contained**: the glass register
+does not apply over it, so the ink came from Elegance's own palette. The bug was
+always there, waiting for a theme that leaves the register switched on.
+
+## [PowerRustCOBOL 1.61.132] — 2026-08-21
+
+### Added — a real road route without a Google credential
+
+`TraceRoad(apiKey, fromLat, fromLng, toLat, toLng)` on the Maps control asks
+**OpenRouteService** and answers on `onComplete` with three TAB-separated
+fields: distance in **metres**, duration in **seconds**, and the encoded
+polyline, ready for `AddRoute`. Same 4,000-character bound as a `Directions`
+answer, so one `PIC X(4096)` holds either.
+
+Until now a program with no `google_maps` key could draw only the geometry it
+already had — and a hand-written waypoint list is exactly as close to the road
+as its own points. This is the other door.
+
+**The key is an argument, and the platform never stores it.** Not in the form,
+not in the project manifest, not in any file: the program asks its operator
+(a `TextBox` with `PasswordCharacter` set) and passes what they typed. A
+credential written into a project file travels to everyone that project is
+shared with, which is the whole reason. A blank key fails on `onError` with no
+network call at all — the same shape as a missing Google key. When local and
+cloud vaults arrive, the vault becomes the better place to keep one and this
+stays the way to work without it.
+
+Coordinates are `[lng, lat]` on the wire — OpenRouteService follows GeoJSON's
+axis order, the reverse of how every COBOL program here says a position — so
+that flip is done in exactly one place and pinned by a test. The service's own
+sentence is passed through on failure, because "Access to this API has been
+disallowed" tells a developer what to do and `403` does not.
+
+**Two services, two answer shapes, one event.** `Directions` sends seven fields
+and `TraceRoad` sends three, both on `onComplete`. The guide says so where the
+method is described, and the Maps example records which one it called in a
+one-character flag and branches on it — a handler that assumes the seven-field
+shape reads metres as a distance *text* and the polyline as a route summary.
+
+The Maps example gained a masked key field and a sixth button, so all three
+lines can be seen at once: **blue** the corridor you wrote by hand, **green**
+Google's road, **orange** OpenRouteService's. Its button 3 no longer claims to
+"trace" what is really a planned corridor, and its `onComplete` now reports how
+many characters of road geometry came back — the one number that tells a real
+road from a thumbnail.
+
+## [PowerRustCOBOL 1.61.131] — 2026-08-21
+
+### Fixed — reading an async answer was refused as a hallucinated property
+
+`MAP-1::ResponseBody` could not be saved. The handler gate reported *"Control
+'MAP-1' has no property 'ResponseBody'"* and offered to save anyway — for the
+one and only way the platform lets a handler read what it asked for.
+
+`Directions`, `Geocode`, `ReverseGeocode`, `DistanceMatrix`, `PlacesSearch`,
+every `RestClient` verb and `WebSearch::Search` are **always async**: the call
+returns an empty string immediately and the answer arrives in `ResponseBody` on
+`onComplete`. That property is written by the runtime, so it is not in
+`Control::new` — and the gate was built from `Control::new`. It judged a **read**
+against the list of what the **designer can set**, so every correct async
+handler for all three controls failed, including the one in the Maps demo and
+the one the platform's own Knowledge Base tells developers to write.
+
+Reading and writing are now different questions. `runtime_property_names_for`
+names what the runtime delivers — `ResponseBody`, `StatusCode`, `Busy`,
+`LastError`, and on Maps also `SelectedMarkerId`, `SelectedRegionId`,
+`HoveredMarkerId`, `HoveredRegionId` — and the save-time gate, the change-set
+gate and IntelliSense all accept a read of them. Nothing can *set* them, and a
+genuinely invented property (`MAP-1::Depth`) is still refused on its own line.
+
+**The reference had the same hole.** The controls document listed what the
+designer can set and said, elsewhere, that a method "delivers its answer in
+`ResponseBody`" — from which the reasonable conclusion is that `ResponseBody` is
+not a property. Each control that has them now carries a **Runtime Properties
+(read-only)** section, with `ResponseBody`, `StatusCode` and `LastError`
+described for the first time. Index rebuilt.
+
+## [PowerRustCOBOL 1.61.130] — 2026-08-21
+
+### Fixed — a traced route now sits on the road instead of near it
+
+A `Directions` answer carries its road geometry twice over, and we were reading
+the wrong copy. `overview_polyline` is Google's **simplified** line — meant for a
+thumbnail — and over a few hundred kilometres it cuts corners the road does not:
+zoom in on a traced Madrid → Granada and the line visibly leaves the motorway.
+
+The shape that follows the road is one polyline per navigation **step**. Those
+cannot be joined as text, because each is delta-encoded from its own origin, so
+field 6 is now decoded, joined and re-encoded once — with the shared endpoint
+between consecutive steps dropped, since a repeated point is a zero-length
+segment that widens the join under a thick stroke. A response with no steps at
+all still falls back to the overview line: a coarse route beats no route.
+
+`map_geometry` gained `encode_polyline`, the exact inverse of the decoder it has
+always had, tested on Google's own worked example and round-tripped over
+southern/western coordinates where a hand-written varint encoder goes wrong.
+
+**Fidelity is spent, not free.** Field 6 is UNSTRINGed into a COBOL item whose
+size the developer declared, and a line that overflows it is truncated into a
+route that stops in the middle of nowhere — so the geometry is now fitted to a
+**4,000-character budget** (the `PIC X(4096)` the guide's worked example
+declares). Full detail when it fits, which is the normal case; a route too long
+for that is simplified by Ramer-Douglas-Peucker, giving up redundant points on
+the straight runs and keeping every bend. Decimating every Nth point instead is
+precisely what makes a motorway look hand-drawn. There was no bound here before
+— `overview_polyline`'s length is limited by nothing — so a long enough route
+could already overflow whatever the handler declared, silently.
+
+**What this does not change:** a route drawn from *your own* waypoint list is
+still exactly as close to the road as the points in it. The map draws every
+point and invents none, so a dozen hand-written waypoints are a planned
+corridor, not a road. The guide now says so where the geometry is described.
+
+## [PowerRustCOBOL 1.61.129] — 2026-08-21
+
+### Fixed — the platform reference stopped at the controls
+
+The System Knowledge Base documented every control, property, event and method —
+1,793 lines of it — and then stopped. Ask an agent which themes exist, what
+`Anchor` actually does, which event to close a file in, or what the project
+manifest is called, and it had nothing to retrieve: `cobolt.toml` appeared zero
+times, the layout model was a single line about container hierarchies, and
+themes were three bullets about `GlassStyle`. Answers to those questions came
+from general GUI knowledge, which is where confident wrong answers come from.
+
+Three documents close it, published from the running binary like their siblings:
+
+- **`form_themes.md`** — what a theme is, the catalogue, the resolution order
+  (form → project → `liquid-glass`), what *self-contained* means and why
+  `GlassStyle` is inert on such a theme, what a theme never overrides, and the
+  asset-pack manifest.
+- **`form_layout_and_events.md`** — the layout model, the fact that `Anchor` is a
+  design-time drag lock and **not** edge anchoring, `StartPosition`, the
+  complete 68-event form catalogue, `onDeactivate` versus `onDestroy` (closing
+  files in the wrong one is how data gets lost), hosting, the shell, and
+  `me` / `super`.
+- **`project_model_and_settings.md`** — that the manifest is
+  `<Name>.project.toml` and not a fixed name, the tracked file lists, the seven
+  tree categories, and every per-project section.
+
+The precedence contract now names those subject areas, so an agent knows the
+platform *has* an answer to search for rather than reaching for training. Each
+`##` section stands alone, because retrieval injects one section, not a
+document. The shipped index is rebuilt: **1,201 records across 8 documents.**
+
+A new test pins it: every form event the model supports must appear in the
+reference, and every published document must be named in the System KB's own
+sibling list. The first of those caught eight events already missing.
+
+## [PowerRustCOBOL 1.61.128] — 2026-08-21
+
+### Added — PowerRustCOBOL asks about Rust on its first run, not at Build time
+
+The IDE designs forms and *runs* programs entirely on its own — the interpreter
+is linked in. **Build** is the exception: it compiles the project through Rust,
+and so does any Run of a program holding an `EXEC RUST` block. On a machine
+without Rust those two were the only things that failed, and they failed late —
+install the IDE, spend the afternoon on a form, press Build, read a toolchain
+error.
+
+The question is now asked once, on the first run, while the answer is still
+cheap. **Nothing is shown when the machine is ready**, so a developer who has
+Rust never learns the dialog exists. When it is not, the dialog says which of
+the two cases it is — nothing installed, or a version below the **1.92** the
+workspace itself declares (read from the manifest at build time, so the number
+enforced here is the number the build requires) — shows the official rustup.rs
+command *before* it is approved, and offers to run it.
+
+**A refusal is asked once more**, and that second question is the one that
+carries the cost: without Rust there is no Build, no packaged application, and a
+program containing an `EXEC RUST` block will not run — while form design,
+editing and interpreted Run are untouched. Declining twice settles it for good;
+the IDE does not ask again.
+
+**PATH is part of the answer, not a detail.** A desktop app launched from Finder
+or Explorer inherits the session's PATH, not the shell's — and `~/.cargo/bin` is
+put there by the profile rustup edits. Asking PATH alone would have told
+somebody who installed Rust yesterday that they had not. Every standard location
+is probed, and when the `rustc` that answers lives outside PATH its directory is
+put back on the PATH the IDE hands to `cargo`, so Build works in the session
+that found it — and in the session that installs it.
+
+Nothing here runs on its own: the installer is spawned only by the button, and
+the command it runs is the string on screen.
+
 ## [PowerRustCOBOL 1.61.126] — 2026-08-21
 
 ### Fixed — a marker's label and info now appear somewhere

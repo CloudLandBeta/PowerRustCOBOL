@@ -26,6 +26,13 @@ diffère selon le système.
 | **Un compilateur C et un éditeur de liens** | l'éditeur de liens dont Rust a besoin pour *tout* binaire, plus deux dépendances en C |
 | **Bibliothèques GUI natives** (Linux uniquement) | création des fenêtres et boîtes de dialogue de fichiers natives |
 
+> **L'IDE empaquetée vérifie elle-même le prérequis Rust.** Celui qui *utilise*
+> PowerRustCOBOL au lieu de le compiler ne lit jamais cette page : l'IDE cherche
+> donc Rust à son premier démarrage et propose de l'installer lorsque ce même
+> minimum de **1.92** n'est pas atteint. Elle lit ce numéro dans le manifeste de
+> ce workspace, si bien que les deux ne peuvent pas diverger. Voir le §3 du
+> Guide du développeur.
+
 ### À propos du compilateur C
 
 Deux crates de l'arborescence compilent du code C, un compilateur C est donc

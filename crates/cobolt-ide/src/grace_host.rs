@@ -621,7 +621,7 @@ const PROJECT_KB_SOURCE: &str = "Project Knowledge Base (this project's own mate
 /// What an agent may conclude from a retrieved excerpt, and what it may not.
 /// The citation rule is per-store: quoting a System KB path as a project file
 /// sends the developer looking for something their project does not contain.
-const KNOWLEDGE_PRECEDENCE_CONTRACT: &str = "KNOWLEDGE PRECEDENCE CONTRACT:\n- Treat relevant Knowledge Base excerpts as authoritative evidence and prefer them over general model training.\n- Every excerpt carries a SOURCE line. Excerpts from the System Knowledge Base are the PLATFORM's own reference (controls, properties, events, RustCOBOL extensions, the agent registry); that store lives outside every project and is never copied into one. Excerpts from the Project Knowledge Base are the developer's own material for THIS project.\n- Cite the project-relative PATH only for a Project Knowledge Base excerpt. Cite a System Knowledge Base excerpt as platform documentation — never as a file in the project, and never ask the developer to add, publish or copy it into their project.\n- Never replace, contradict, or embellish this evidence with generic assumptions.\n- If there is no relevant evidence, say so clearly. Use general knowledge only when appropriate and label it as general guidance; ask the developer for missing project facts instead of inventing them.";
+const KNOWLEDGE_PRECEDENCE_CONTRACT: &str = "KNOWLEDGE PRECEDENCE CONTRACT:\n- Treat relevant Knowledge Base excerpts as authoritative evidence and prefer them over general model training.\n- Every excerpt carries a SOURCE line. Excerpts from the System Knowledge Base are the PLATFORM's own reference; that store lives outside every project and is never copied into one. It covers, and is the place to search for: controls, their properties, events and methods; the RustCOBOL extensions; FORM THEMES (which themes exist, how one is selected, what a theme does and does not override); the LAYOUT model, the complete form-event catalogue, and how a form is hosted (its own window or the application shell); the PROJECT MODEL and its settings (the manifest, the tracked file lists, the tree categories, the per-project sections); and the agent registry. If a question falls in one of those areas and the injected excerpts do not already answer it, SEARCH the Knowledge Base for it — do not answer such a question from general GUI, IDE or COBOL knowledge, and do not report that the platform has no documentation for it. Excerpts from the Project Knowledge Base are the developer's own material for THIS project.\n- Cite the project-relative PATH only for a Project Knowledge Base excerpt. Cite a System Knowledge Base excerpt as platform documentation — never as a file in the project, and never ask the developer to add, publish or copy it into their project.\n- Never replace, contradict, or embellish this evidence with generic assumptions.\n- If there is no relevant evidence, say so clearly. Use general knowledge only when appropriate and label it as general guidance; ask the developer for missing project facts instead of inventing them.";
 
 /// Render the retrieved excerpts for the agents' context, each carrying the
 /// store it came from.
@@ -643,10 +643,13 @@ fn format_knowledge_excerpts(hits: &[(&str, cobolt_agents::chunked_knowledge::Ch
 /// The platform's own reference documents. They are generated from the
 /// compiled binary, so a missing one means the installed platform predates the
 /// document — the one condition that a rebuild, and nothing else, fixes.
-const ESSENTIAL_SYSTEM_DOCUMENTS: [&str; 4] = [
+const ESSENTIAL_SYSTEM_DOCUMENTS: [&str; 7] = [
     "Knowledge Base/rustcobol_extensions.md",
     "Knowledge Base/ide_functionalities.md",
     "Knowledge Base/form_designer_controls.md",
+    "Knowledge Base/form_themes.md",
+    "Knowledge Base/form_layout_and_events.md",
+    "Knowledge Base/project_model_and_settings.md",
     "Knowledge Base/agents_registry.md",
 ];
 

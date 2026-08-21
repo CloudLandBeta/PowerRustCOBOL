@@ -24,6 +24,12 @@ clone, `cargo build`. Only the first step differs per OS.
 | **A C compiler and a linker** | the linker Rust needs for *any* binary, plus two C dependencies |
 | **Native GUI libraries** (Linux only) | window creation and the native file dialogs |
 
+> **The packaged IDE checks the Rust requirement itself.** Somebody who *uses*
+> PowerRustCOBOL rather than building it never reads this page, so the IDE looks
+> for Rust on its first run and offers to install it when this same **1.92**
+> minimum is not met. It reads the number from this workspace's own manifest, so
+> the two cannot disagree. See §3 of the Developer's Guide.
+
 ### About the C compiler
 
 Two crates in the tree compile C source, so a C compiler is genuinely required:

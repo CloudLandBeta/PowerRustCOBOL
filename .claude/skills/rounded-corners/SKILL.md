@@ -58,6 +58,8 @@ All in `crates/cobolt-forms/` (`paint.rs`, `render.rs`):
 | **Thin DARK arcs** hugging corners (borders) | egui ≥0.31 radii are **u8**; the old idiom `rect.shrink(half) + (r−half) + StrokeKind::Middle` needs fractional radii; rounding UP pushes the stroke arc outside the face | Concentric strokes use `StrokeKind::Inside` at the full rect + integer face radius — exact, no fractional radius exists. Never reintroduce `shrink(half)` strokes |
 | **Thin LIGHT arcs** at corners (mask sliver) | Same u8 problem, rounding DOWN: restored rim tighter than the mask boundary exposes masked backdrop | Same fix — Inside stroke outer edge == face edge == mask boundary |
 | **Dark banding on corner diagonals** (neumorphic) | Shadow-fill radii (`r + fractional expand`) floored → every layer squarer | `round_map` uses round-to-nearest for FILLS (strokes don't go through it anymore) |
+| **Flat WEDGE bitten out of the drop shadow at every corner** (obvious with a big `ShadowDistance`/`ShadowBlurStrength`) | The notch mask repaints the **form backdrop**, but the backdrop is not everything behind a control — its own shadow is painted there too and legitimately shows through the notch. The repaint erased it *inside* the bbox while the same shadow survived just outside, because the mask is clipped to the control's rect. That discontinuity is the wedge | `draw_container_notch_mask` takes the control's `ShadowStack` ([`paint::control_shadow_stack`]) and re-composites it over the repainted backdrop. Both shadow painters build layers through ONE definition so the sampler cannot drift; the notch is tessellated as a **radial grid** (`push_notch_rings`), because a fan samples a falloff only at the arc and the bbox corner. Use the alpha the control was DRAWN with. Pinned by `a_rounded_maps_corner_keeps_the_shadow_the_mask_paints_over` |
+| **Thin dark HAIR tracing each corner arc, in the RUN form but NOT the designer** | `restore_container_outline` redrawing an outline the control's face never painted. It puts a rim + BorderColor border back on the masked corners; a control whose face returns before any border (Maps: halo → gradient → tiles → `return`) then gets an edge on the four arcs and nowhere else. The run-form-only tell is diagnostic: **designer.rs never calls restore at all** | Restore only for control types whose face draws an outline (`Panel`/`GroupBox`), stated positively so a new masked type opts in. Pinned by `restore_outline_skips_a_control_whose_face_draws_none`. Dump strokes, not fills — a hair is a stroke, and a notch/fill dump cannot see it |
 | **Transparent/discoloured CRESCENT on a clean corner** | Notch mask painted over a corner **no child reaches**, destroying the container's own arc | `corner_notch_rounding` guardian: mask only corners a descendant overlaps. BOTH call sites must route through it — never call `draw_container_notch_mask` with blanket `CornerRadius::same(r)`. Pinned by `corner_notch_guardian_*` tests |
 | **Backdrop-coloured hole punched through a parent panel** | Notch mask applied to a NESTED container repaints the *form* backdrop, not the parent surface | Nested containers skip the flat mask entirely; only the GL rounded clip can fix them properly |
 | **Bleed visible over translucent surfaces** | Flat mask can't reproduce a see-through backdrop | GL capture/re-blit path (`COBOLT_ROUNDED_CLIP=1`) |
@@ -90,11 +92,25 @@ All in `crates/cobolt-forms/` (`paint.rs`, `render.rs`):
 - Fill radii derived with fractional math go through `round_map`
   (round-to-nearest).
 - The notch mask must exactly share the face's integer radius, must repaint
-  the image backdrop (not just the colour), and must only touch corners a
-  child reaches.
+  the image backdrop (not just the colour), must re-composite the control's
+  own **shadow** over what it repaints, and must only touch corners a child
+  reaches.
+- Anything that both PAINTS a stack of shapes and has to be SAMPLED later
+  (shadows, gradients, relief) gets one definition that produces the layers,
+  used by both. Deriving the geometry twice is how this codebase has
+  repeatedly ended up with two painters that quietly disagree.
 - Whatever the mask overpaints, `restore_container_outline` must redraw at
-  the SAME boundary (Inside at face radius).
+  the SAME boundary (Inside at face radius) — and **only what the face
+  actually painted**. Restoring an outline a control never drew invents an
+  edge on the corners alone.
+- **Only the run form calls `restore_container_outline`** (`render.rs`); the
+  designer canvas masks without restoring. So "artifact in the run form, clean
+  in the RAD" points straight at the restore, while "both surfaces" points at
+  the mask or the face. Ask the operator which surface, or read the two call
+  sites — it is a two-grep answer.
 - Extend the shape-dump scenes + guard tests with any new corner behavior.
+  Dump **strokes as well as fills**: a hair is a stroke, and a fill/notch dump
+  is blind to it.
 
 Related (non-corner egui upgrade regressions — Resize ratchet, popup
 force-close): see the `egui-paint-regressions` skill.

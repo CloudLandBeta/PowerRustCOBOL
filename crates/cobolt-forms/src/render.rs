@@ -546,6 +546,48 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
 /// Both notch-mask call sites (runtime `mask_container_notches` and the designer's
 /// notch loop) MUST route through this â do not call `draw_container_notch_mask`
 /// with a blanket `CornerRadius::same(rad)`.
+/// Does control `idx` need its corner notches repainted, and on which corners?
+///
+/// `None` means "no mask" — the answer for most controls. This is the ONE place
+/// that decides, because the rule lives at two call sites (the run/preview
+/// renderer and the designer canvas) and a rule implemented twice is a rule
+/// that will disagree with itself.
+///
+/// Two kinds of control paint past their own arc, for the same reason — egui
+/// clips to axis-aligned rects only:
+///
+/// * a **rounded container**, through its children. Only the corners a
+///   descendant actually reaches are masked; a clean corner masked anyway loses
+///   the container's own arc to a backdrop-coloured crescent.
+/// * a **Maps** control, through its own tiles. It has no children and would
+///   never qualify above, which is why a map with `CornerRadius` set drew
+///   square corners inside a rounded selection outline (operator, 2026-08-21).
+///   Its tiles cover the whole face, so **every** corner is genuinely reached
+///   and the blanket radius is the correct answer here rather than the mistake
+///   the per-corner guardian exists to prevent.
+///
+/// A **nested** control is skipped in both cases: its notches must reveal the
+/// parent surface, and this mask can only repaint the form backdrop — which
+/// would cut a hole through the parent panel.
+pub fn notch_mask_rounding(
+    controls: &[Control],
+    idx: usize,
+    rect: Rect,
+    radius: f32,
+    control_rects: &HashMap<String, Rect>,
+) -> Option<egui::CornerRadius> {
+    let ctrl = controls.get(idx)?;
+    if radius < 0.5 || ctrl.parent.is_some() {
+        return None;
+    }
+    match ctrl.control_type {
+        ControlType::Maps => Some(egui::CornerRadius::same(crate::paint::cr8(radius))),
+        ControlType::GroupBox | ControlType::Panel => containers::has_descendants(controls, idx)
+            .then(|| corner_notch_rounding(rect, radius, controls, idx, control_rects)),
+        _ => None,
+    }
+}
+
 pub fn corner_notch_rounding(
     container: Rect,
     radius: f32,
@@ -592,6 +634,7 @@ pub fn corner_notch_rounding(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn mask_container_notches(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
@@ -601,6 +644,10 @@ fn mask_container_notches(
     img_alpha: u8,
     bg: Color32,
     gradient: Option<(Rect, Color32, Color32, &str)>,
+    // The alpha each control was DRAWN with (ancestor opacity × animation ×
+    // enabled), collected by the render loop. It cannot be recomputed here: the
+    // animation transform only exists inside that loop.
+    alphas: &HashMap<String, f32>,
 ) {
     // `controls` is the EFFECTIVE (post-`expand_repeating_groups`) list the render
     // loop drew from â NOT `input.controls`. The notch-mask guardian
@@ -611,39 +658,44 @@ fn mask_container_notches(
     // mask nothing and the card content bleeds past the container arc (spec 015/024
     // repeating groups Ã the spec 017 notch mask).
     for (idx, base) in controls.iter().enumerate() {
-        if !matches!(
-            base.control_type,
-            ControlType::GroupBox | ControlType::Panel
-        ) {
-            continue;
-        }
-        if !containers::has_descendants(controls, idx) {
-            continue;
-        }
-        if base.parent.is_some() {
-            // A nested rounded container sits on top of another container. Its
-            // notches must reveal that parent surface, not the form backdrop.
-            // Repainting with the form backdrop cuts a dark/background-pattern
-            // hole through the parent panel (visible in the designer grid). A
-            // true fix needs parent-surface/offscreen compositing; until then,
-            // only form-level containers use the global backdrop mask.
-            continue;
-        }
+        // Which control types can need a mask is `notch_mask_rounding`'s to
+        // decide — this loop only skips what is not on screen.
         if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
             continue;
         }
         let live = input.state.live(base);
         let rad = crate::paint::corner_radius(&live);
-        if rad < 0.5 {
-            continue;
-        }
         let Some(&screen) = out.control_rects.get(&live.id) else {
             continue;
         };
-        // Only mask corners a child actually reaches; clean corners stay untouched.
-        let rounding = corner_notch_rounding(screen, rad, controls, idx, &out.control_rects);
+        // One rule, both call sites: which corners need repainting, if any.
+        let Some(rounding) =
+            notch_mask_rounding(controls, idx, screen, rad, &out.control_rects)
+        else {
+            continue;
+        };
+        // The backdrop is not everything behind this control: its own drop shadow
+        // (or Neumorphic halo) is painted there too and shows through the notch.
+        // Repainting the flat backdrop alone erased it inside the bbox while it
+        // survived outside — the grey wedge at every rounded corner of a Maps
+        // control (operator, 2026-08-21). The alpha it was DRAWN with, not 1.0:
+        // restoring a full-strength shadow behind a faded or animating control
+        // would trade one wedge for another.
+        let stack = crate::paint::control_shadow_stack(
+            painter.ctx(),
+            &live,
+            screen,
+            alphas.get(&live.id).copied().unwrap_or(1.0),
+        );
         crate::paint::draw_container_notch_mask(
-            painter, screen, rounding, bg, gradient, image, img_alpha,
+            painter,
+            screen,
+            rounding,
+            bg,
+            gradient,
+            image,
+            img_alpha,
+            (!stack.is_empty()).then_some(&stack),
         );
         // The notch mask repaints the backdrop over the corner arcs it touched,
         // erasing the container's own border/rim there. Restore the rim on exactly
@@ -1302,6 +1354,10 @@ pub fn render_form_with_chrome(
     chrome: Option<ChromeUnderControls<'_>>,
 ) -> RenderOutput {
     let mut out = RenderOutput::default();
+    // Each control's drawn alpha, for the corner-notch pass at the end of the
+    // frame: it re-composites the control's own shadow and must use the alpha
+    // that shadow was painted with, which only the control loop knows.
+    let mut control_alphas: HashMap<String, f32> = HashMap::new();
     let origin = ui.min_rect().min;
     let painter = ui.painter().clone();
 
@@ -1542,6 +1598,9 @@ pub fn render_form_with_chrome(
         let anc = containers::ancestor_opacity(controls, idx);
         let enabled = input.state.enabled(base);
         let alpha = anc * tf.alpha * if enabled { 1.0 } else { 0.45 };
+        // Kept for the corner-notch pass, which runs after this loop and cannot
+        // recompute it — `tf` only exists here.
+        control_alphas.insert(live.id.clone(), alpha);
 
         // Screen-normalised face: the live control re-based to the on-screen rect,
         // so a shifted/scaled animation draws at the transformed position+size.
@@ -1629,6 +1688,7 @@ pub fn render_form_with_chrome(
                 input.backdrop.gradient_direction.as_str(),
             )
         }),
+        &control_alphas,
     );
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
@@ -3331,13 +3391,18 @@ fn render_interactive(
             }
         }
         CT::TextBox => {
-            // Face via the shared renderer; static caption blanked so the editable
-            // overlay shows the value.
-            let mut drawn = ctrl.clone();
-            drawn
-                .properties
-                .insert("Text".to_owned(), crate::PropValue::String(String::new()));
-            paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
+            // Face only — no caption, no hint. `draw_control_face` rather than
+            // `draw_control` with a blanked `Text`, which is what this used to
+            // do: the canvas face previews `HintText` **when `Text` is empty**,
+            // so blanking it to silence the caption switched the placeholder ON
+            // instead — painted under the live editor, and staying there
+            // however much the operator typed (operator, 2026-08-21).
+            //
+            // The editor supplies the placeholder itself through
+            // `TextEdit::hint_text`, which egui shows only while the buffer is
+            // empty. That is the one that should be visible, and now the only
+            // one. Same reasoning as the ComboBox arm below.
+            paint::draw_control_face(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let txt_col = {
                 let fg = sv(ctrl, "ForegroundColor");
                 if fg.is_empty() {
@@ -3909,6 +3974,16 @@ fn render_interactive(
         // face, `paint.rs`) draws the result.
         CT::Maps => {
             use crate::map_tiles;
+
+            // The face first — drop shadow, neumorphic relief, the designed
+            // background gradient, the corner radius. This arm used to go
+            // straight to interaction and tiles, so everything a developer set
+            // in the Appearance and Drop Shadow sections applied on the canvas
+            // and vanished the moment the form ran. `draw_control_face` (not
+            // `draw_control`) because the canvas's stand-in basemap must not be
+            // painted under the live one — the same call, and the same reason,
+            // as the TextBox and ComboBox arms.
+            paint::draw_control_face(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
 
             let center_lat: f64 = sv(ctrl, "CenterLat").parse().unwrap_or(0.0);
             let center_lng: f64 = sv(ctrl, "CenterLng").parse().unwrap_or(0.0);
@@ -7639,6 +7714,62 @@ mod tests {
         );
     }
 
+    /// A Maps control paints its own tiles past its arc, so it needs the same
+    /// notch mask a container needs for its children — on **every** corner,
+    /// because the basemap covers the whole face.
+    ///
+    /// It has no descendants, so the container rule would never have selected
+    /// it: a map with `CornerRadius = 34` drew square tile corners inside a
+    /// rounded selection outline (operator, 2026-08-21). This also pins the two
+    /// exclusions that keep the blanket radius honest — a nested map cannot use
+    /// this mask (its notches must reveal the parent, not the form backdrop),
+    /// and no radius means no mask.
+    #[test]
+    fn a_maps_control_masks_all_four_corners_and_a_nested_one_masks_none() {
+        use std::collections::HashMap;
+        let map = ctrl("MAP-1", ControlType::Maps, 0, 0, 880, 700);
+        let controls = vec![map];
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(880.0, 700.0));
+        let mut rects = HashMap::new();
+        rects.insert("MAP-1".to_string(), rect);
+
+        let r = notch_mask_rounding(&controls, 0, rect, 34.0, &rects)
+            .expect("a rounded map needs its notches repainted");
+        assert_eq!(
+            r,
+            egui::CornerRadius::same(crate::paint::cr8(34.0)),
+            "tiles cover the whole face, so every corner is reached"
+        );
+
+        // No radius, no mask — nothing is being rounded away.
+        assert!(notch_mask_rounding(&controls, 0, rect, 0.0, &rects).is_none());
+
+        // Nested: the form backdrop is the wrong paint for those notches.
+        let mut nested = ctrl("MAP-2", ControlType::Maps, 0, 0, 200, 200);
+        nested.parent = Some("PANEL".into());
+        let nested_controls = vec![nested];
+        assert!(
+            notch_mask_rounding(&nested_controls, 0, rect, 34.0, &rects).is_none(),
+            "a nested map must not have the form backdrop painted into its corners"
+        );
+
+        // And the container rule is unchanged: an empty Panel still masks
+        // nothing, so this did not become a blanket mask for everything.
+        let empty = vec![ctrl("PANEL", ControlType::Panel, 0, 0, 200, 150)];
+        let mut prects = HashMap::new();
+        prects.insert("PANEL".to_string(), rect);
+        // `None` rather than `Some(ZERO)`: both mask nothing, but skipping the
+        // call is the honest answer for a container with nothing to bleed.
+        assert_eq!(
+            notch_mask_rounding(&empty, 0, rect, 20.0, &prects),
+            None,
+            "a childless Panel keeps its own corners"
+        );
+        // A control that paints nothing past its arc is never masked.
+        let label = vec![ctrl("L", ControlType::Label, 0, 0, 100, 20)];
+        assert!(notch_mask_rounding(&label, 0, rect, 20.0, &prects).is_none());
+    }
+
     #[test]
     fn corner_notch_guardian_masks_only_the_reached_corner() {
         use std::collections::HashMap;
@@ -7733,6 +7864,66 @@ mod tests {
         assert!(
             hit.is_empty(),
             "no corner masked â restore must be a no-op, saw {hit:?}",
+        );
+    }
+
+    /// Restore means RESTORE: a control whose face draws no outline has none to
+    /// put back.
+    ///
+    /// A Maps control joined the notch mask in 1.61.134 and inherited the restore
+    /// with it — but `draw_control`'s Maps branch paints its halo, its gradient
+    /// and its tiles and returns before any rim or border, so a map has no edge
+    /// line anywhere. Restoring one gave it a hard 1px border on the four corner
+    /// arcs and nowhere else: a dark hair at each corner of a RUNNING map, absent
+    /// from the designer canvas, which never calls this function at all
+    /// (operator, 2026-08-21).
+    #[test]
+    fn restore_outline_skips_a_control_whose_face_draws_none() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(880.0, 700.0));
+        let r = 51.0;
+        let all = egui::CornerRadius::same(crate::paint::cr8(r));
+
+        let strokes = |ct: ControlType| {
+            let ctx = egui::Context::default();
+            crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+            let mut c = Control::new("C", ct, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, rect.width() as i32, rect.height() as i32);
+            c.set_prop("CornerRadius", PropValue::Int(r as i64));
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let painter = root_ui.painter_at(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    Vec2::new(1000.0, 800.0),
+                ));
+                crate::paint::restore_container_outline(&painter, &c, rect, r, true, all);
+            });
+            full.textures_delta.clear();
+            fn count(s: &egui::Shape, n: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| count(s, n)),
+                    egui::Shape::Rect(rs) if rs.stroke.width > 0.0 => *n += 1,
+                    _ => {}
+                }
+            }
+            let mut n = 0;
+            for cs in &full.shapes {
+                count(&cs.shape, &mut n);
+            }
+            n
+        };
+
+        assert_eq!(
+            strokes(ControlType::Maps),
+            0,
+            "a map's face draws no outline, so its corners must get none either - \
+             that invented border IS the dark hair at the corners"
+        );
+        assert!(
+            strokes(ControlType::Panel) > 0,
+            "a Panel DOES draw a rim on its face, so the mask erases it at the \
+             corners and the restore must still put it back"
         );
     }
 
@@ -14379,6 +14570,491 @@ mod elegance_live_tests {
                 !fills.iter().any(|f| same(*f, card) || same(*f, input_bg)),
                 "{name} painted an Elegance colour under Liquid Glass"
             );
+        }
+    }
+}
+
+// ── Maps corner-notch measurement (CORNER-BLEED-PLAYBOOK §4) ─────────────────
+//
+// The operator's report: a Maps control with a corner radius shows a grey wedge
+// at each rounded corner in the RUN form, easiest to see with an exaggerated
+// drop shadow. Scene E reproduces `PowerDemo3/forms/Inner-Forms/maps-demo.cfrm`
+// literally — the params matter, and a scaled-down guess passes while the real
+// form bleeds (§4.2).
+#[cfg(test)]
+mod maps_corner_tests {
+    use super::*;
+    use crate::model::{Control, ControlType, PropValue};
+
+    // Straight from the operator's .cfrm.
+    const FORM_W: f32 = 1280.0;
+    const FORM_H: f32 = 860.0;
+    const MAP_X: f32 = 32.0;
+    const MAP_Y: f32 = 96.0;
+    const MAP_W: f32 = 880.0;
+    const MAP_H: f32 = 700.0;
+    const MAP_R: f32 = 51.0;
+    const BACKDROP_HEX: &str = "EAEBEFFF";
+
+    fn maps_scene() -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+
+        let mut map = Control::new("MAP-1", ControlType::Maps, MAP_X as i32, MAP_Y as i32);
+        map.rect = crate::model::Rect::new(
+            MAP_X as i32,
+            MAP_Y as i32,
+            MAP_W as i32,
+            MAP_H as i32,
+        );
+        for (k, v) in [
+            ("CenterLat", "40.0000"),
+            ("CenterLng", "-3.7000"),
+            ("Zoom", "6"),
+            ("BackgroundColor", "#FFFFFFFF"),
+            ("ShadowLightColor", "#FFFFFFFF"),
+            ("ShadowColor", "#000000"),
+            ("ShadowDirection", "SouthEast"),
+        ] {
+            map.set_prop(k, PropValue::String(v.into()));
+        }
+        map.set_prop("ShadowEnabled", PropValue::Bool(true));
+        map.set_prop("ShadowBlur", PropValue::Bool(true));
+        map.set_prop("ShadowOpacity", PropValue::Int(33));
+        map.set_prop("ShadowDistance", PropValue::Int(7));
+        map.set_prop("ShadowBlurStrength", PropValue::Int(14));
+        map.set_prop("CornerRadius", PropValue::Int(MAP_R as i64));
+        map.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
+        let controls = vec![map];
+
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            Vec2::new(FORM_W, FORM_H),
+        ));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(FORM_W, FORM_H),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: BACKDROP_HEX.into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: None,
+                            image_mode: Default::default(),
+                            use_theme_background: false,
+                            window_size: None,
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        full.textures_delta.clear();
+        full.shapes
+    }
+
+    /// Does this rect shape paint `p`, honouring its OWN effective corner radius
+    /// (egui clamps each corner to half the shorter side — the stored value lies,
+    /// playbook §1.1)?
+    fn rect_paints(rs: &egui::epaint::RectShape, p: egui::Pos2) -> bool {
+        let r = rs.rect;
+        if !r.contains(p) {
+            return false;
+        }
+        let cap = (r.width() * 0.5).min(r.height() * 0.5);
+        let corners = [
+            (rs.corner_radius.nw as f32, pos2(r.min.x, r.min.y), -1.0, -1.0),
+            (rs.corner_radius.ne as f32, pos2(r.max.x, r.min.y), 1.0, -1.0),
+            (rs.corner_radius.se as f32, pos2(r.max.x, r.max.y), 1.0, 1.0),
+            (rs.corner_radius.sw as f32, pos2(r.min.x, r.max.y), -1.0, 1.0),
+        ];
+        for (stored, apex, sx, sy) in corners {
+            let cr = stored.min(cap);
+            if cr <= 0.0 {
+                continue;
+            }
+            let c = pos2(apex.x - sx * cr, apex.y - sy * cr);
+            let beyond_x = (p.x - c.x) * sx > 0.0;
+            let beyond_y = (p.y - c.y) * sy > 0.0;
+            if beyond_x && beyond_y && (p - c).length() > cr {
+                return false; // carved away by this corner's arc
+            }
+        }
+        true
+    }
+
+    fn tri_contains(a: egui::Pos2, b: egui::Pos2, c: egui::Pos2, p: egui::Pos2) -> bool {
+        let cross = |u: egui::Vec2, v: egui::Vec2| u.x * v.y - u.y * v.x;
+        let d1 = cross(b - a, p - a);
+        let d2 = cross(c - b, p - b);
+        let d3 = cross(a - c, p - c);
+        let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+        let pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+        !(neg && pos)
+    }
+
+    /// Every visible painter covering `p`, in PAINT ORDER, described.
+    fn painters_at(shapes: &[egui::epaint::ClippedShape], p: egui::Pos2) -> Vec<String> {
+        fn walk(s: &egui::Shape, clip: egui::Rect, p: egui::Pos2, out: &mut Vec<String>) {
+            if !clip.contains(p) {
+                return;
+            }
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, p, out)),
+                egui::Shape::Rect(rs) => {
+                    if rs.fill.a() > 0 && rect_paints(rs, p) {
+                        out.push(format!(
+                            "RECT [{:.1} {:.1} {:.1} {:.1}] r=[{} {} {} {}] #{:02x}{:02x}{:02x}{:02x}",
+                            rs.rect.min.x, rs.rect.min.y, rs.rect.max.x, rs.rect.max.y,
+                            rs.corner_radius.nw, rs.corner_radius.ne,
+                            rs.corner_radius.se, rs.corner_radius.sw,
+                            rs.fill.r(), rs.fill.g(), rs.fill.b(), rs.fill.a(),
+                        ));
+                    }
+                }
+                egui::Shape::Mesh(m) => {
+                    for tri in m.indices.chunks_exact(3) {
+                        let (a, b, c) = (
+                            m.vertices[tri[0] as usize],
+                            m.vertices[tri[1] as usize],
+                            m.vertices[tri[2] as usize],
+                        );
+                        if tri_contains(a.pos, b.pos, c.pos, p) && a.color.a() > 0 {
+                            out.push(format!(
+                                "MESH v={} #{:02x}{:02x}{:02x}{:02x} bbox=[{:.1} {:.1} {:.1} {:.1}]",
+                                m.vertices.len(),
+                                a.color.r(), a.color.g(), a.color.b(), a.color.a(),
+                                m.calc_bounds().min.x, m.calc_bounds().min.y,
+                                m.calc_bounds().max.x, m.calc_bounds().max.y,
+                            ));
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, cs.clip_rect, p, &mut out);
+        }
+        out
+    }
+
+    /// The colour the whole frame leaves at `p`: every painter that covers it,
+    /// composited in paint order. Mesh colours are interpolated barycentrically,
+    /// so a gradient across a mesh is read where it is sampled rather than at its
+    /// first vertex.
+    fn composite_at(shapes: &[egui::epaint::ClippedShape], p: egui::Pos2) -> Color32 {
+        let mut acc = Color32::TRANSPARENT;
+        for cs in shapes {
+            walk_composite(&cs.shape, cs.clip_rect, p, &mut acc);
+        }
+        acc
+    }
+
+    fn walk_composite(shape: &egui::Shape, clip: egui::Rect, p: egui::Pos2, out: &mut Color32) {
+        fn walk(s: &egui::Shape, clip: egui::Rect, p: egui::Pos2, acc: &mut Color32) {
+            if !clip.contains(p) {
+                return;
+            }
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, p, acc)),
+                egui::Shape::Rect(rs) => {
+                    if rs.fill.a() > 0 && rect_paints(rs, p) {
+                        *acc = crate::paint::composite_premultiplied_over(rs.fill, *acc);
+                    }
+                }
+                egui::Shape::Mesh(m) => {
+                    for tri in m.indices.chunks_exact(3) {
+                        let (a, b, c) = (
+                            m.vertices[tri[0] as usize],
+                            m.vertices[tri[1] as usize],
+                            m.vertices[tri[2] as usize],
+                        );
+                        if !tri_contains(a.pos, b.pos, c.pos, p) {
+                            continue;
+                        }
+                        let cross = |u: egui::Vec2, v: egui::Vec2| u.x * v.y - u.y * v.x;
+                        let area = cross(b.pos - a.pos, c.pos - a.pos);
+                        let (wa, wb, wc) = if area.abs() < 1e-6 {
+                            (1.0, 0.0, 0.0)
+                        } else {
+                            (
+                                cross(b.pos - p, c.pos - p) / area,
+                                cross(c.pos - p, a.pos - p) / area,
+                                cross(a.pos - p, b.pos - p) / area,
+                            )
+                        };
+                        let chan = |f: &dyn Fn(Color32) -> u8| {
+                            (f(a.color) as f32 * wa + f(b.color) as f32 * wb
+                                + f(c.color) as f32 * wc)
+                                .clamp(0.0, 255.0) as u8
+                        };
+                        let col = Color32::from_rgba_premultiplied(
+                            chan(&|c: Color32| c.r()),
+                            chan(&|c: Color32| c.g()),
+                            chan(&|c: Color32| c.b()),
+                            chan(&|c: Color32| c.a()),
+                        );
+                        if col.a() > 0 {
+                            *acc = crate::paint::composite_premultiplied_over(col, *acc);
+                        }
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk(shape, clip, p, out);
+    }
+
+    /// The colour at `p` from everything painted BEFORE the control's own face —
+    /// i.e. what is genuinely behind it there: the form backdrop plus its drop
+    /// shadow.
+    ///
+    /// The cut is the first shape whose bbox fits INSIDE the control's rect. A
+    /// shadow layer is always bigger than the control (it is offset and expanded)
+    /// and the backdrop spans the form, so the first shape small enough to fit is
+    /// the control's own content — the square basemap fill, in a Maps control's
+    /// case. No painter is named, so the guard survives the face being drawn
+    /// differently.
+    fn behind_control_at(
+        shapes: &[egui::epaint::ClippedShape],
+        p: egui::Pos2,
+        ctrl: egui::Rect,
+    ) -> Color32 {
+        fn walk(
+            s: &egui::Shape,
+            clip: egui::Rect,
+            p: egui::Pos2,
+            ctrl: egui::Rect,
+            acc: &mut Color32,
+            stop: &mut bool,
+        ) {
+            if *stop {
+                return;
+            }
+            if let egui::Shape::Vec(v) = s {
+                for s in v {
+                    walk(s, clip, p, ctrl, acc, stop);
+                }
+                return;
+            }
+            let bbox = s.visual_bounding_rect();
+            if bbox.is_finite()
+                && bbox.width() > 0.0
+                && ctrl.expand(0.5).contains_rect(bbox)
+            {
+                *stop = true;
+                return;
+            }
+            let mut one = Color32::TRANSPARENT;
+            walk_composite(s, clip, p, &mut one);
+            if one.a() > 0 {
+                *acc = crate::paint::composite_premultiplied_over(one, *acc);
+            }
+        }
+        let mut acc = Color32::TRANSPARENT;
+        let mut stop = false;
+        for cs in shapes {
+            walk(&cs.shape, cs.clip_rect, p, ctrl, &mut acc, &mut stop);
+        }
+        acc
+    }
+
+    /// Sample points inside each corner NOTCH: within the bbox, outside the arc,
+    /// and clear of the restored rim that is redrawn on the arc itself.
+    fn corner_notch_samples() -> Vec<(String, egui::Pos2)> {
+        let (x0, y0) = (MAP_X, MAP_Y);
+        let (x1, y1) = (MAP_X + MAP_W, MAP_Y + MAP_H);
+        let mut out = Vec::new();
+        for d in [3.0_f32, 6.0, 10.0] {
+            for k in [3.0_f32, 8.0, 16.0, 26.0] {
+                for (name, ax, ay, sx, sy) in [
+                    ("NW", x0, y0, 1.0_f32, 1.0_f32),
+                    ("NE", x1, y0, -1.0, 1.0),
+                    ("SE", x1, y1, -1.0, -1.0),
+                    ("SW", x0, y1, 1.0, -1.0),
+                ] {
+                    // Along the horizontal edge, then along the vertical one.
+                    out.push((
+                        format!("{name} horiz k={k} d={d}"),
+                        pos2(ax + sx * k, ay + sy * d),
+                    ));
+                    out.push((
+                        format!("{name} vert k={k} d={d}"),
+                        pos2(ax + sx * d, ay + sy * k),
+                    ));
+                }
+            }
+        }
+        // Keep only what is really in the notch: inside the bbox, outside the arc.
+        let bbox = Rect::from_min_max(pos2(x0, y0), pos2(x1, y1));
+        out.retain(|(_, p)| {
+            bbox.contains(*p)
+                && !crate::paint::rounded_rect_contains(
+                    bbox,
+                    egui::CornerRadius::same(crate::paint::cr8(MAP_R)),
+                    *p,
+                )
+        });
+        out
+    }
+
+    fn max_channel_diff(a: Color32, b: Color32) -> i32 {
+        [
+            (a.r() as i32 - b.r() as i32).abs(),
+            (a.g() as i32 - b.g() as i32).abs(),
+            (a.b() as i32 - b.b() as i32).abs(),
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(0)
+    }
+
+    /// The corner leak (operator, 2026-08-21): a Maps control with a corner
+    /// radius showed a grey wedge at each rounded corner in the RUN form.
+    ///
+    /// The measurement that found it: the corner-notch mask repaints the FORM's
+    /// flat backdrop over the notch — which also erases the control's own drop
+    /// shadow, the one thing that legitimately shows there. The mask is clipped
+    /// to the control's bbox, so the same shadow survived one pixel outside it,
+    /// and the discontinuity along that edge is the wedge.
+    ///
+    /// So the guard is the discontinuity itself, not any particular painter:
+    /// step across the bbox edge inside each corner's arc zone and the composited
+    /// colour must barely move. That holds however the notch is repainted, and it
+    /// goes red on the broken code (the jump there is ~60 levels of grey).
+    #[test]
+    fn a_rounded_maps_corner_keeps_the_shadow_the_mask_paints_over() {
+        let shapes = maps_scene();
+        let bbox = Rect::from_min_size(pos2(MAP_X, MAP_Y), Vec2::new(MAP_W, MAP_H));
+        let samples = corner_notch_samples();
+        assert!(
+            samples.len() > 20,
+            "the sample set collapsed - {} points landed in the notch",
+            samples.len()
+        );
+        // The repaint samples the shadow on a radial grid and egui interpolates
+        // between vertices, so it renders a RAMP where the layer stack is a
+        // staircase: an inherent few levels of error at the dense core, which
+        // more rings do not remove (measured max 20 over these 66 points, and
+        // finer grids only move which point is worst). The flat backdrop repaint
+        // this replaced was 60+ levels out AND hard-edged.
+        const TOL: i32 = 24;
+        // Where the shadow is strong, "the notch is still just the backdrop" is
+        // the bug itself, and no tolerance should let it back in.
+        const STRONG: i32 = 30;
+        let backdrop = crate::paint::parse_color(BACKDROP_HEX);
+        let mut wedges = Vec::new();
+        for (label, p) in samples {
+            let want = behind_control_at(&shapes, p, bbox);
+            let got = composite_at(&shapes, p);
+            let d = max_channel_diff(want, got);
+            let shadow_depth = max_channel_diff(want, backdrop);
+            let describe = |d: i32, why: &str| {
+                format!(
+                    "  {label} ({:.0},{:.0}): behind #{:02x}{:02x}{:02x} but painted \
+                     #{:02x}{:02x}{:02x} - {d} levels apart ({why})",
+                    p.x, p.y,
+                    want.r(), want.g(), want.b(),
+                    got.r(), got.g(), got.b(),
+                )
+            };
+            if d > TOL {
+                wedges.push(describe(d, "beyond the sampling tolerance"));
+            } else if shadow_depth > STRONG && max_channel_diff(got, backdrop) * 2 < shadow_depth {
+                wedges.push(describe(d, "closer to the bare backdrop than to the shadow"));
+            }
+        }
+        assert!(
+            wedges.is_empty(),
+            "a rounded corner's notch must show what is BEHIND the control - the \
+             backdrop AND the shadow the control casts on it. These notch points \
+             do not, which is the grey wedge:\n{}",
+            wedges.join("\n")
+        );
+    }
+
+    /// Diagnostic: every STROKE in the scene, with its rect, radius, colour and
+    /// clip. A thin line hugging a corner is a stroke, not a fill, so the notch
+    /// dump above cannot see it.
+    #[test]
+    fn measure_maps_corner_strokes() {
+        if std::env::var_os("COBOLT_MAPS_CORNER_MEASURE").is_none() {
+            return;
+        }
+        fn walk(s: &egui::Shape, clip: egui::Rect, out: &mut Vec<String>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+                egui::Shape::Rect(rs) if rs.stroke.width > 0.0 => out.push(format!(
+                    "STROKE rect=[{:.1} {:.1} {:.1} {:.1}] r=[{} {} {} {}] w={:.2} \
+                     #{:02x}{:02x}{:02x}{:02x} kind={:?} clip=[{:.1} {:.1} {:.1} {:.1}]",
+                    rs.rect.min.x, rs.rect.min.y, rs.rect.max.x, rs.rect.max.y,
+                    rs.corner_radius.nw, rs.corner_radius.ne,
+                    rs.corner_radius.se, rs.corner_radius.sw,
+                    rs.stroke.width,
+                    rs.stroke.color.r(), rs.stroke.color.g(),
+                    rs.stroke.color.b(), rs.stroke.color.a(),
+                    rs.stroke_kind,
+                    clip.min.x, clip.min.y, clip.max.x, clip.max.y,
+                )),
+                _ => {}
+            }
+        }
+        let shapes = maps_scene();
+        let mut out = Vec::new();
+        for cs in &shapes {
+            walk(&cs.shape, cs.clip_rect, &mut out);
+        }
+        println!("--- {} stroked shapes", out.len());
+        for (i, s) in out.iter().enumerate() {
+            println!("  {i:2}. {s}");
+        }
+    }
+
+    /// Diagnostic: print, in paint order, everything that covers a point inside
+    /// each corner NOTCH (inside the control's bbox, outside its arc). Run with
+    /// `--nocapture` while chasing a corner artefact.
+    #[test]
+    fn measure_maps_corner_notch_painters() {
+        if std::env::var_os("COBOLT_MAPS_CORNER_MEASURE").is_none() {
+            return;
+        }
+        let shapes = maps_scene();
+        let (x0, y0) = (MAP_X, MAP_Y);
+        let (x1, y1) = (MAP_X + MAP_W, MAP_Y + MAP_H);
+        for (name, ax, ay, sx, sy) in [
+            ("NW", x0, y0, 1.0_f32, 1.0_f32),
+            ("NE", x1, y0, -1.0, 1.0),
+            ("SE", x1, y1, -1.0, -1.0),
+            ("SW", x0, y1, 1.0, -1.0),
+        ] {
+            for d in [2.0_f32, 6.0, 12.0] {
+                let p = pos2(ax + sx * d, ay + sy * d);
+                println!("--- {name} notch d={d} at ({:.1},{:.1})", p.x, p.y);
+                for (i, s) in painters_at(&shapes, p).iter().enumerate() {
+                    println!("    {i:2}. {s}");
+                }
+            }
+        }
+        // And one point on the face, well inside the arc, for contrast.
+        let p = pos2(x0 + MAP_W * 0.5, y0 + MAP_H * 0.5);
+        println!("--- CENTRE at ({:.1},{:.1})", p.x, p.y);
+        for (i, s) in painters_at(&shapes, p).iter().enumerate() {
+            println!("    {i:2}. {s}");
         }
     }
 }

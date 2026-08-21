@@ -135,6 +135,35 @@ file or create a full **project** (recommended — see §6).
 From a terminal you can also drive everything headlessly with `rcrun` (see §17),
 which is what continuous-integration pipelines use.
 
+### 初回起動時の Rust チェック
+
+IDE は form の設計とプログラムの*実行*を単独で行えます。例外は **Build** です。
+Build はプロジェクトを **Rust ツールチェーン**（§18）でネイティブ アプリケーション
+にコンパイルし、`EXEC RUST` ブロックを含むプログラムの Run も同じ経路を通ります。
+そのため PowerRustCOBOL は初回起動時に Rust を探し、使用できるものが見つかった
+場合は何も表示しません。
+
+見つからない場合は、どちらの状況かを伝えます — Rust が無いのか、PowerRustCOBOL
+が必要とする **1.92** より古いのか。そのうえで [rustup.rs](https://rustup.rs) の
+公式コマンドを表示し、実行を申し出ます。断ると、もう一度だけ尋ねます。断ることに
+は、はっきり述べておくべき代償があるからです。
+
+| Rust が無いと失うもの | 使い続けられるもの |
+|---|---|
+| **Build** — ネイティブ実行ファイルもパッケージ化も不可 | Form Designer |
+| `EXEC RUST` ブロックを含むプログラムの実行 | コード エディターと COBOL ツール |
+| | **Run**（インタープリター）とデバッガー |
+
+二度目に断ると決着し、以後この質問は表示されません。あとから
+[rustup.rs](https://rustup.rs) で Rust をインストールすれば **Build** はそのまま
+動き始めます — IDE に知らせる必要はありません。
+
+> **注** — rustup は Rust を `~/.cargo/bin` に置き、そのパスは*シェル プロファイル*
+> が `PATH` に追加します。Finder や Windows のデスクトップから起動したアプリケー
+> ションはそのプロファイルを読み込まないため、PowerRustCOBOL 自身がこの場所を確認
+> し、見つかったものを使用します。**Build** のために IDE をターミナルから起動する
+> 必要はありません。
+
 ---
 
 ## 4. Your first application: Hello, Form
@@ -423,6 +452,39 @@ toggle, alignment tools, undo/redo.
 > state, progress value. What you style on the canvas is exactly what runs;
 > the runtime only adds the live behaviour (press feedback, focus, input).
 
+#### 複数のコントロールを選択する
+
+方法は二つあり、組み合わせられます。
+
+- **空いているキャンバス上で投げ縄をドラッグする** — 矩形に触れたコントロール
+  がすべて選択されます。
+- **Command（macOS）または Control（Windows/Linux）を押しながらクリックする**
+  — コントロールを選択に加えます。すでに入っている場合は外します。まだ選択さ
+  れていないコントロールを修飾キー付きでドラッグすると、そのコントロールを加え
+  たうえで選択全体を一度の操作で移動できます。
+
+**コンテナ**を選択すると、移動に関してはその子も一緒に選択されます。GroupBox
+は配下のすべてをまとめて動かし、配置は崩れません。最初に選択したコントロールが
+**主選択**で、整列やサイズ変更のコマンドはそれを基準に測り、プロパティペインは
+その値を読み取ります。
+
+**選択のドラッグは剛体移動です。** グループ全体がひとつの移動量だけ動きます。
+その移動量はポインタの下にあるコントロールから決まるので、並べた間隔は移動後も
+保たれます。コントロールがグリッド線に乗っていない場合でも同じです。
+
+**プロパティペインは選択全体を編集します。** 複数のコントロールを選択している
+と、共通するものを表示し、変更をすべてに適用します。
+
+- **同じ種類** — ペイン全体。Button ひとつが持つプロパティは、選択した五つの
+  Button すべてが持っています。
+- **異なる種類** — それぞれの種類が本当に共有しているプロパティだけ。一部しか
+  持たない項目を並べると、効いたように見えて残りには何も起きないからです。
+
+ひとつの編集は、いくつのコントロールに及んでも**ひとつの取り消し操作**です。そ
+のプロパティを持たないコントロールは、与えられるのではなくそのまま残ります。ま
+た ID・タブ順・親といった同一性は決して共有されません。二つのコントロールが同
+じものを持つことはできないからです。
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile
@@ -510,6 +572,22 @@ abbreviations). A few you will use constantly:
 > (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
 > (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
 > digits, hyphens; no leading/trailing hyphen).
+
+### 角の丸みとコントロールの影
+
+`CornerRadius` はコントロールの背景と枠線を丸め、内容を丸めた形に切り抜きま
+す。値は短い辺の半分に制限されるため、完全に丸い形（「ピル」や円）を超えるこ
+とはありません。`0` は角を丸めず、切り抜きも行いません。
+
+半径によって削られた領域は、もはやコントロールの一部ではありません。そこに見
+えるのはコントロールの**背後にあるもの** — フォームの面と、**コントロール自身
+がその面に落とす影** — です。この連続性があるからこそ、丸みを帯びたコントロー
+ルはフォームから切り抜かれたものではなく、フォームの上に置かれているように見
+えます。**Shadow distance** と **Shadow blur** を大きくするほど、その違いは
+はっきり分かります。
+
+同じ半径と切り抜きは、デザイン画面でもプレビューでも実行中のフォームでも同じ
+ように適用されます。
 
 ---
 

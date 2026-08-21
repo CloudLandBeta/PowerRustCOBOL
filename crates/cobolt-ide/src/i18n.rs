@@ -1064,6 +1064,11 @@ pub struct Tr {
     pub toolbox_expand: &'static str,
     pub props_hide: &'static str,
     pub props_show: &'static str,
+    /// Follows the count: "5 controls selected".
+    pub props_multi_selected: &'static str,
+    pub props_multi_same_type: &'static str,
+    pub props_multi_mixed_types: &'static str,
+    pub props_multi_nothing_shared: &'static str,
 
     // ── Properties — section headers ─────────────────────────────────────────
     pub sec_geometry: &'static str,
@@ -1438,6 +1443,25 @@ pub struct Tr {
     pub pick_element_for_editing: &'static str,
     pub btn_select: &'static str,
     pub pick_no_candidates: &'static str,
+
+    // ── First-run Rust toolchain check ───────────────────────────────────────
+    pub rust_check_title: &'static str,
+    pub rust_check_missing: &'static str,
+    /// `{}` — the version found, then `{}` — the minimum required.
+    pub rust_check_too_old: &'static str,
+    pub rust_check_why: &'static str,
+    pub rust_check_command: &'static str,
+    pub rust_check_install: &'static str,
+    pub rust_check_later: &'static str,
+    /// Asked once more after a refusal — this one says what declining costs.
+    pub rust_check_last_title: &'static str,
+    pub rust_check_lost: &'static str,
+    pub rust_check_continue: &'static str,
+    pub rust_check_installing: &'static str,
+    /// `{}` — the version that was installed.
+    pub rust_check_installed: &'static str,
+    pub rust_check_failed: &'static str,
+    pub rust_check_close: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -2237,6 +2261,10 @@ const EN: Tr = Tr {
     toolbox_expand:   "Expand toolbox",
     props_hide:       "Hide properties",
     props_show:       "Show properties",
+    props_multi_selected:       "controls selected",
+    props_multi_same_type:      "Same type — every property below applies to all of them.",
+    props_multi_mixed_types:    "Different types — showing only what they have in common.",
+    props_multi_nothing_shared: "These controls share no editable property.",
 
     sec_geometry:       "📐 Geometry",
     sec_appearance:     "🎨 Appearance",
@@ -2575,6 +2603,21 @@ const EN: Tr = Tr {
     pick_element_for_editing: "Select the element for editing",
     btn_select: "Select",
     pick_no_candidates: "No matching element was found.",
+
+    rust_check_title:     "Rust is needed to build your projects",
+    rust_check_missing:   "Rust is not installed on this computer, or PowerRustCOBOL cannot find it.",
+    rust_check_too_old:   "Rust {} is installed. PowerRustCOBOL needs {} or newer.",
+    rust_check_why:       "Rust is what turns your project into a native application.",
+    rust_check_command:   "This runs the official installer published at rustup.rs:",
+    rust_check_install:   "Install Rust",
+    rust_check_later:     "Not now",
+    rust_check_last_title: "Continue without Rust?",
+    rust_check_lost:      "Without Rust, PowerRustCOBOL cannot compile anything: Build is unavailable, no application can be packaged, and a program containing an EXEC RUST block will not run. Designing forms, editing code and running interpreted programs are unaffected.",
+    rust_check_continue:  "Continue without Rust",
+    rust_check_installing: "Installing Rust… this can take a few minutes.",
+    rust_check_installed: "Rust {} is installed. Build is available.",
+    rust_check_failed:    "The installation did not finish. You can install Rust from rustup.rs and start PowerRustCOBOL again.",
+    rust_check_close:     "Close",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -3356,6 +3399,10 @@ const ES: Tr = Tr {
     toolbox_expand:   "Expandir la caja de herramientas",
     props_hide:       "Ocultar propiedades",
     props_show:       "Mostrar propiedades",
+    props_multi_selected:       "controles seleccionados",
+    props_multi_same_type:      "Mismo tipo: todas las propiedades de abajo se aplican a todos.",
+    props_multi_mixed_types:    "Tipos distintos: se muestra solo lo que tienen en común.",
+    props_multi_nothing_shared: "Estos controles no comparten ninguna propiedad editable.",
 
     sec_geometry:       "📐 Geometría",
     sec_appearance:     "🎨 Apariencia",
@@ -3694,6 +3741,21 @@ const ES: Tr = Tr {
     pick_element_for_editing: "Seleccione el elemento para editar",
     btn_select: "Seleccionar",
     pick_no_candidates: "No se encontró ningún elemento coincidente.",
+
+    rust_check_title:     "Rust es necesario para compilar sus proyectos",
+    rust_check_missing:   "Rust no está instalado en este equipo, o PowerRustCOBOL no lo encuentra.",
+    rust_check_too_old:   "Está instalado Rust {}. PowerRustCOBOL necesita la versión {} o posterior.",
+    rust_check_why:       "Rust es lo que convierte su proyecto en una aplicación nativa.",
+    rust_check_command:   "Esto ejecuta el instalador oficial publicado en rustup.rs:",
+    rust_check_install:   "Instalar Rust",
+    rust_check_later:     "Ahora no",
+    rust_check_last_title: "¿Continuar sin Rust?",
+    rust_check_lost:      "Sin Rust, PowerRustCOBOL no puede compilar nada: Compilar no está disponible, no se puede empaquetar ninguna aplicación y un programa que contenga un bloque EXEC RUST no se ejecutará. Diseñar formularios, editar código y ejecutar programas interpretados no se ven afectados.",
+    rust_check_continue:  "Continuar sin Rust",
+    rust_check_installing: "Instalando Rust… esto puede tardar unos minutos.",
+    rust_check_installed: "Rust {} está instalado. Compilar ya está disponible.",
+    rust_check_failed:    "La instalación no se completó. Puede instalar Rust desde rustup.rs y volver a iniciar PowerRustCOBOL.",
+    rust_check_close:     "Cerrar",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -4475,6 +4537,10 @@ const PT: Tr = Tr {
     toolbox_expand:   "Expandir a caixa de ferramentas",
     props_hide:       "Ocultar propriedades",
     props_show:       "Mostrar propriedades",
+    props_multi_selected:       "controles selecionados",
+    props_multi_same_type:      "Mesmo tipo: todas as propriedades abaixo valem para todos.",
+    props_multi_mixed_types:    "Tipos diferentes: mostrando apenas o que têm em comum.",
+    props_multi_nothing_shared: "Estes controles não têm nenhuma propriedade editável em comum.",
 
     sec_geometry:       "📐 Geometria",
     sec_appearance:     "🎨 Aparência",
@@ -4813,6 +4879,21 @@ const PT: Tr = Tr {
     pick_element_for_editing: "Selecione o elemento para editar",
     btn_select: "Selecionar",
     pick_no_candidates: "Nenhum elemento correspondente foi encontrado.",
+
+    rust_check_title:     "O Rust é necessário para compilar seus projetos",
+    rust_check_missing:   "O Rust não está instalado neste computador, ou o PowerRustCOBOL não consegue encontrá-lo.",
+    rust_check_too_old:   "O Rust {} está instalado. O PowerRustCOBOL precisa da versão {} ou posterior.",
+    rust_check_why:       "O Rust é o que transforma seu projeto em um aplicativo nativo.",
+    rust_check_command:   "Isto executa o instalador oficial publicado em rustup.rs:",
+    rust_check_install:   "Instalar o Rust",
+    rust_check_later:     "Agora não",
+    rust_check_last_title: "Continuar sem o Rust?",
+    rust_check_lost:      "Sem o Rust, o PowerRustCOBOL não compila nada: Compilar fica indisponível, nenhum aplicativo pode ser empacotado e um programa que contenha um bloco EXEC RUST não será executado. Desenhar formulários, editar código e executar programas interpretados não são afetados.",
+    rust_check_continue:  "Continuar sem o Rust",
+    rust_check_installing: "Instalando o Rust… isto pode levar alguns minutos.",
+    rust_check_installed: "O Rust {} está instalado. Compilar já está disponível.",
+    rust_check_failed:    "A instalação não foi concluída. Você pode instalar o Rust em rustup.rs e iniciar o PowerRustCOBOL novamente.",
+    rust_check_close:     "Fechar",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -5593,6 +5674,10 @@ const JA: Tr = Tr {
     toolbox_expand:   "ツールボックスを展開",
     props_hide:       "プロパティを隠す",
     props_show:       "プロパティを表示",
+    props_multi_selected:       "個のコントロールを選択中",
+    props_multi_same_type:      "同じ種類です。以下のプロパティはすべてに適用されます。",
+    props_multi_mixed_types:    "種類が異なります。共通するものだけを表示しています。",
+    props_multi_nothing_shared: "これらのコントロールに共通する編集可能なプロパティはありません。",
 
     sec_geometry:       "📐 ジオメトリ",
     sec_appearance:     "🎨 外観",
@@ -5931,6 +6016,21 @@ const JA: Tr = Tr {
     pick_element_for_editing: "編集する要素を選択",
     btn_select: "選択",
     pick_no_candidates: "一致する要素が見つかりませんでした。",
+
+    rust_check_title:     "プロジェクトのビルドには Rust が必要です",
+    rust_check_missing:   "このコンピューターに Rust がインストールされていないか、PowerRustCOBOL が見つけられません。",
+    rust_check_too_old:   "Rust {} がインストールされています。PowerRustCOBOL には {} 以降が必要です。",
+    rust_check_why:       "Rust はプロジェクトをネイティブ アプリケーションに変換するものです。",
+    rust_check_command:   "rustup.rs で公開されている公式インストーラーを実行します:",
+    rust_check_install:   "Rust をインストール",
+    rust_check_later:     "今はしない",
+    rust_check_last_title: "Rust なしで続行しますか?",
+    rust_check_lost:      "Rust がないと PowerRustCOBOL は何もコンパイルできません。ビルドは使用できず、アプリケーションをパッケージ化することもできず、EXEC RUST ブロックを含むプログラムは実行できません。フォームの設計、コードの編集、インタープリターによる実行には影響しません。",
+    rust_check_continue:  "Rust なしで続行",
+    rust_check_installing: "Rust をインストールしています… 数分かかることがあります。",
+    rust_check_installed: "Rust {} をインストールしました。ビルドが使用できます。",
+    rust_check_failed:    "インストールは完了しませんでした。rustup.rs から Rust をインストールし、PowerRustCOBOL を起動し直してください。",
+    rust_check_close:     "閉じる",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -6718,6 +6818,10 @@ const ZH: Tr = Tr {
     toolbox_expand:   "展开工具箱",
     props_hide:       "隐藏属性",
     props_show:       "显示属性",
+    props_multi_selected:       "个控件已选中",
+    props_multi_same_type:      "类型相同：下面的每一项属性都会应用到全部控件。",
+    props_multi_mixed_types:    "类型不同：只显示它们共有的属性。",
+    props_multi_nothing_shared: "这些控件没有共同的可编辑属性。",
 
     sec_geometry: "📐 几何",
     sec_appearance: "🎨 外观",
@@ -7057,6 +7161,21 @@ const ZH: Tr = Tr {
     pick_element_for_editing: "选择要编辑的元素",
     btn_select: "选择",
     pick_no_candidates: "未找到匹配的元素。",
+
+    rust_check_title:     "构建项目需要 Rust",
+    rust_check_missing:   "本机未安装 Rust，或者 PowerRustCOBOL 找不到它。",
+    rust_check_too_old:   "已安装 Rust {}。PowerRustCOBOL 需要 {} 或更高版本。",
+    rust_check_why:       "Rust 负责把您的项目转换为原生应用程序。",
+    rust_check_command:   "这将运行 rustup.rs 发布的官方安装程序：",
+    rust_check_install:   "安装 Rust",
+    rust_check_later:     "暂不安装",
+    rust_check_last_title: "不使用 Rust 继续吗？",
+    rust_check_lost:      "没有 Rust，PowerRustCOBOL 无法编译任何内容：构建不可用，无法打包应用程序，包含 EXEC RUST 块的程序也无法运行。设计窗体、编辑代码和以解释方式运行程序不受影响。",
+    rust_check_continue:  "不使用 Rust 继续",
+    rust_check_installing: "正在安装 Rust… 这可能需要几分钟。",
+    rust_check_installed: "已安装 Rust {}。现在可以使用构建。",
+    rust_check_failed:    "安装未能完成。您可以从 rustup.rs 安装 Rust，然后重新启动 PowerRustCOBOL。",
+    rust_check_close:     "关闭",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -7838,6 +7957,10 @@ const FR: Tr = Tr {
     toolbox_expand:   "Développer la boîte à outils",
     props_hide:       "Masquer les propriétés",
     props_show:       "Afficher les propriétés",
+    props_multi_selected:       "contrôles sélectionnés",
+    props_multi_same_type:      "Même type : toutes les propriétés ci-dessous s'appliquent à tous.",
+    props_multi_mixed_types:    "Types différents : seules les propriétés communes sont affichées.",
+    props_multi_nothing_shared: "Ces contrôles n'ont aucune propriété modifiable en commun.",
 
     sec_geometry:       "📐 Géométrie",
     sec_appearance:     "🎨 Apparence",
@@ -8176,6 +8299,21 @@ const FR: Tr = Tr {
     pick_element_for_editing: "Sélectionnez l'élément à modifier",
     btn_select: "Sélectionner",
     pick_no_candidates: "Aucun élément correspondant n'a été trouvé.",
+
+    rust_check_title:     "Rust est nécessaire pour compiler vos projets",
+    rust_check_missing:   "Rust n'est pas installé sur cet ordinateur, ou PowerRustCOBOL ne le trouve pas.",
+    rust_check_too_old:   "Rust {} est installé. PowerRustCOBOL exige la version {} ou plus récente.",
+    rust_check_why:       "C'est Rust qui transforme votre projet en application native.",
+    rust_check_command:   "Ceci exécute le programme d'installation officiel publié sur rustup.rs :",
+    rust_check_install:   "Installer Rust",
+    rust_check_later:     "Pas maintenant",
+    rust_check_last_title: "Continuer sans Rust ?",
+    rust_check_lost:      "Sans Rust, PowerRustCOBOL ne compile rien : Compiler n'est pas disponible, aucune application ne peut être empaquetée et un programme contenant un bloc EXEC RUST ne s'exécutera pas. La conception des formulaires, l'édition du code et l'exécution interprétée ne sont pas affectées.",
+    rust_check_continue:  "Continuer sans Rust",
+    rust_check_installing: "Installation de Rust… cela peut prendre quelques minutes.",
+    rust_check_installed: "Rust {} est installé. Compiler est disponible.",
+    rust_check_failed:    "L'installation ne s'est pas terminée. Vous pouvez installer Rust depuis rustup.rs, puis relancer PowerRustCOBOL.",
+    rust_check_close:     "Fermer",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────
@@ -8272,6 +8410,11 @@ mod i18n_tests {
             t.action_failed,
             t.rag_token_savings,
             t.kb_indexing,
+            t.rust_check_title,
+            t.rust_check_missing,
+            t.rust_check_install,
+            t.rust_check_lost,
+            t.rust_check_close,
         ]
     }
 

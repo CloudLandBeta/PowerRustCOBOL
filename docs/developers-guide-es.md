@@ -135,6 +135,36 @@ o crear un **project** completo (recommended — ver §6).
 Desde un terminal también puedes manejar todo headlessly con `rcrun` (ver §17),
 que es lo que usan los continuous-integration pipelines.
 
+### La comprobación de Rust en el primer arranque
+
+La IDE diseña forms y *ejecuta* programas por sí sola. **Build** es la
+excepción: compila tu project como aplicación nativa mediante el **toolchain de
+Rust** (§18), igual que cualquier Run de un programa que contenga un bloque
+`EXEC RUST`. Por eso, en su primer arranque PowerRustCOBOL busca Rust — y cuando
+encuentra uno utilizable, no dice nada.
+
+Cuando no lo encuentra, te indica en qué caso estás — Rust ausente, o una
+versión anterior a la **1.92** que PowerRustCOBOL exige —, muestra el comando
+oficial de [rustup.rs](https://rustup.rs) y se ofrece a ejecutarlo por ti. Si lo
+rechazas, se te pregunta una segunda vez, porque rechazarlo tiene un precio que
+conviene decir en voz alta:
+
+| Sin Rust pierdes | Conservas |
+|---|---|
+| **Build** — ningún ejecutable nativo, nada que empaquetar | El Form Designer |
+| Ejecutar cualquier programa que contenga un bloque `EXEC RUST` | El editor de código y las herramientas COBOL |
+| | **Run** (interpretado) y el debugger |
+
+Rechazarlo la segunda vez zanja el asunto y la pregunta no vuelve a aparecer.
+Instala Rust más adelante desde [rustup.rs](https://rustup.rs) y **Build**
+empezará a funcionar sin más — no hay que avisar a la IDE.
+
+> **Nota** — rustup instala Rust en `~/.cargo/bin`, ruta que añade a `PATH` tu
+> *perfil de shell*. Una aplicación iniciada desde el Finder o desde el
+> escritorio de Windows nunca lee ese perfil, así que PowerRustCOBOL mira en esa
+> ubicación por su cuenta y usa lo que encuentra. No necesitas lanzar la IDE
+> desde un terminal para que **Build** funcione.
+
 ---
 
 ## 4. Tu primera application: Hello, Form
@@ -416,6 +446,42 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (un render no interactivo), **Run Form** (live, interactive), grid toggle, glass
 toggle, alignment tools, undo/redo.
 
+#### Seleccionar más de un control
+
+Dos formas, y se combinan:
+
+- **Arrastra un lazo** sobre el lienzo vacío: se selecciona todo control que
+  toque el rectángulo.
+- **Mantén Command (macOS) o Control (Windows/Linux) y haz clic**: añade un
+  control a la selección, o lo quita si ya estaba. Arrastrar con el modificador
+  un control aún no seleccionado lo añade y mueve toda la selección en un solo
+  gesto.
+
+Seleccionar un **contenedor** selecciona con él a sus hijos a efectos de mover,
+de modo que un GroupBox arrastra todo su subárbol y mantiene rígida su
+disposición. El primer control seleccionado es el **primario**: los comandos de
+alineación y tamaño se miden respecto a él, y el panel de propiedades lee sus
+valores.
+
+**Arrastrar una selección es rígido.** Todo el grupo se mueve con un único
+desplazamiento, tomado del control que está bajo el puntero, así que la
+separación que hayas dispuesto sobrevive al movimiento, incluso cuando los
+controles no caen sobre las líneas de la cuadrícula.
+
+**El panel de propiedades edita toda la selección.** Con más de un control
+seleccionado muestra lo que tienen en común y aplica cada cambio a todos:
+
+- **Mismo tipo**: el panel completo. Toda propiedad que tiene un Button la
+  tienen cinco Buttons seleccionados.
+- **Tipos distintos**: solo las propiedades que sus tipos comparten realmente,
+  porque una fila que solo algunos tuvieran parecería funcionar y no cambiaría
+  nada en los demás.
+
+Una edición es **un solo paso de deshacer**, por muchos controles que haya
+tocado. Los controles que no tienen la propiedad se dejan como están en lugar de
+dársela, y la identidad —el ID del control, el orden de tabulación y el padre—
+nunca se comparte, porque dos controles no pueden tener la misma.
+
 ### Target devices
 
 La section **Target Device** permite dimensionar el form para un real device profile
@@ -503,6 +569,22 @@ Algunas que usarás constantemente:
 > (`BUTTON-1--ONCLICK`). Puedes renombrar el ID de un control a algo significativo
 > (e.g. `BTN-SAVE`) en el properties pane; mantenlo como valid COBOL word (letters,
 > digits, hyphens; sin leading/trailing hyphen).
+
+### Esquinas redondeadas y la sombra del control
+
+`CornerRadius` redondea el fondo y el borde del control, y recorta el contenido
+a la forma redondeada. El valor se limita a la mitad del lado menor, de modo que
+nunca pasa de una forma completamente redondeada ("píldora" o círculo); `0`
+significa esquinas rectas y ningún recorte.
+
+La zona que el radio recorta deja de pertenecer al control. Lo que se ve ahí es
+lo que está **detrás** de él: la superficie del formulario **y la sombra que el
+propio control proyecta sobre ella**. Esa continuidad es lo que hace que un
+control redondeado parezca apoyado sobre el formulario en lugar de recortado de
+él, y se nota sobre todo con **Shadow distance** y **Shadow blur** generosos.
+
+El mismo radio y el mismo recorte se aplican igual en el lienzo de diseño, en la
+vista previa y en el formulario en ejecución.
 
 ---
 

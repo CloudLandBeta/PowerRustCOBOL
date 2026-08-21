@@ -537,4 +537,61 @@ slice = [16, 16, 16, 16]
         );
         assert!(pack.manifest.background.is_some());
     }
+
+    /// Every shipped pack skins its controls with **9-slice tiles**, never with
+    /// a design reference.
+    ///
+    /// The `neumorphic` pack pointed every `[controls.*]` entry at the
+    /// `<control>/…_ref.png` mock-ups beside its tiles — full pictures of a
+    /// finished control, hundreds of pixels wide, with placeholder text drawn
+    /// INTO them. Stretched across a button by the 9-slice middle, that fake
+    /// text landed inside every caption on the form (operator, 2026-08-21:
+    /// "switching from Elegance to Neumorphic Light give me this mess").
+    ///
+    /// Two properties tell a tile from a mock-up without looking at pixels: a
+    /// tile is small, and its slice insets fit inside it. A mock-up fails both.
+    #[test]
+    fn no_shipped_pack_skins_a_control_with_a_design_reference() {
+        let themes = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/themes")
+            .canonicalize();
+        let Ok(themes) = themes else {
+            eprintln!("assets/themes not present — skipping");
+            return;
+        };
+        let packs = discover_packs(&themes);
+        assert!(!packs.is_empty(), "the tree ships at least one pack");
+        let mut checked = 0usize;
+        for pack in &packs {
+            for (name, skin) in &pack.manifest.controls {
+                for image in [
+                    Some(&skin.image),
+                    skin.hover.as_ref(),
+                    skin.pressed.as_ref(),
+                    skin.disabled.as_ref(),
+                    skin.focused.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    assert!(
+                        !image.contains("_ref."),
+                        "{}: `{name}` is skinned with the design reference `{image}` — \
+                         point it at the 9-slice tile instead",
+                        pack.id
+                    );
+                    let path = pack.asset_path(image);
+                    assert!(path.exists(), "{}: `{name}` image {image} is missing", pack.id);
+                    checked += 1;
+                }
+                let [l, t, r, b] = skin.slice;
+                assert!(
+                    l + r > 0 && t + b > 0,
+                    "{}: `{name}` has no 9-slice insets, so it cannot stretch",
+                    pack.id
+                );
+            }
+        }
+        println!("{} pack(s), {checked} skin image(s), no design references", packs.len());
+    }
 }

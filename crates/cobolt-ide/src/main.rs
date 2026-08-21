@@ -58,6 +58,7 @@ mod target_select;
 pub mod theme;
 pub mod theme_ui;
 pub mod tool_exec;
+pub mod toolchain;
 pub mod ui_prefs;
 pub mod version;
 pub mod welcome;
