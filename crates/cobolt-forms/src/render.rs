@@ -94,6 +94,54 @@ impl Default for RenderTransform {
 }
 
 /// A `FormState` that renders the designed form verbatim (the designer canvas).
+/// The pan/zoom a `Maps` control is being driven to, between frames.
+///
+/// `CenterLat`/`CenterLng`/`Zoom` remain the published truth — COBOL reads and
+/// writes them, and `onBoundsChanged` reports them. They are just not a good
+/// place to accumulate a *gesture*: a property write goes out to the host and
+/// comes back, so each frame's drag delta was being applied to a value one or
+/// more frames old, and the map lagged and stuttered against the pointer.
+///
+/// So the gesture lives here and the properties are published from it. The one
+/// subtlety is telling our own echo apart from a real write: `published` is the
+/// exact text last sent, and [`Self::sync`] only surrenders the live view when
+/// the property says something else — which is precisely when COBOL, a data
+/// binding or the designer moved the map.
+#[derive(Clone, Debug)]
+pub struct MapView {
+    pub lat: f64,
+    pub lng: f64,
+    pub zoom: u8,
+    /// Scroll pixels not yet worth a whole zoom level (see
+    /// [`crate::map_tiles::zoom_steps`]).
+    pub zoom_accum: f32,
+    /// `(CenterLat, CenterLng, Zoom)` exactly as last published.
+    pub published: (String, String, u8),
+}
+
+impl MapView {
+    pub fn seeded(lat: f64, lng: f64, zoom: u8) -> Self {
+        Self {
+            lat,
+            lng,
+            zoom,
+            zoom_accum: 0.0,
+            published: (lat.to_string(), lng.to_string(), zoom),
+        }
+    }
+
+    /// Adopt the properties when they differ from what we last published —
+    /// somebody else moved the map — and otherwise keep the live gesture.
+    pub fn sync(&mut self, lat: f64, lng: f64, zoom: u8) {
+        let outside_write = lat.to_string() != self.published.0
+            || lng.to_string() != self.published.1
+            || zoom != self.published.2;
+        if outside_write {
+            *self = Self::seeded(lat, lng, zoom);
+        }
+    }
+}
+
 pub struct DesignedState;
 impl FormState for DesignedState {}
 
@@ -3873,35 +3921,87 @@ fn render_interactive(
             let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
             focus_keyboard_events(ui, &resp, id, out, &bound);
 
-            let mut new_center = (center_lat, center_lng);
-            let mut new_zoom = zoom;
+            // The view the developer is DRAGGING, held here rather than read
+            // back from the properties each frame.
+            //
+            // The properties are the published truth, but they make a round
+            // trip through the host before they come back — so applying each
+            // frame's drag delta to whatever the property currently said meant
+            // applying it to a value one or more frames stale, and the map
+            // stuttered against the pointer. The live view is authoritative
+            // while the pointer is on it; a write from COBOL still wins,
+            // because it changes the property away from what we last published
+            // and that is what `MapView::sync` watches for.
+            let view_id = ctrl_id.with("map-view");
+            let mut view = ui
+                .ctx()
+                .data(|d| d.get_temp::<MapView>(view_id))
+                .unwrap_or(MapView::seeded(center_lat, center_lng, zoom));
+            view.sync(center_lat, center_lng, zoom);
+
             let mut bounds_changed = false;
 
             if resp.dragged() && enabled {
                 let delta = resp.drag_delta();
                 if delta != egui::Vec2::ZERO {
-                    new_center = map_tiles::offset_to_lat_lng(
-                        -delta.x,
-                        -delta.y,
-                        new_center.0,
-                        new_center.1,
-                        zoom,
+                    let (lat, lng) = map_tiles::offset_to_lat_lng(
+                        -delta.x, -delta.y, view.lat, view.lng, view.zoom,
                     );
+                    view.lat = lat;
+                    view.lng = lng;
                     bounds_changed = true;
                 }
             }
             if resp.hovered() && enabled {
-                let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-                if scroll.abs() > 0.5 {
-                    let zoomed = if scroll > 0.0 {
-                        zoom.saturating_add(1)
-                    } else {
-                        zoom.saturating_sub(1)
-                    };
-                    new_zoom = zoomed.clamp(map_tiles::MIN_ZOOM, map_tiles::MAX_ZOOM);
-                    bounds_changed = bounds_changed || new_zoom != zoom;
+                // The RAW wheel events, not `smooth_scroll_delta`.
+                //
+                // egui's smoothing spreads one gesture over several frames, and
+                // `zoom_steps` already does that job with an accumulator this
+                // code owns. Running both smooths the smoothed: the map answers
+                // late and keeps drifting after the fingers stop. Units are
+                // normalised to points exactly as egui does it, so a line-based
+                // mouse and a pixel-based trackpad agree on what a level costs.
+                let page = ui.ctx().content_rect().height();
+                let line = ui.ctx().options(|o| o.input_options.line_scroll_speed);
+                let scroll = ui.input(|i| {
+                    i.raw
+                        .events
+                        .iter()
+                        .filter_map(|e| match e {
+                            egui::Event::MouseWheel { unit, delta, .. } => Some(match unit {
+                                egui::MouseWheelUnit::Point => delta.y,
+                                egui::MouseWheelUnit::Line => delta.y * line,
+                                egui::MouseWheelUnit::Page => delta.y * page,
+                            }),
+                            _ => None,
+                        })
+                        .sum::<f32>()
+                });
+                let (levels, accum) = map_tiles::zoom_steps(view.zoom_accum, scroll);
+                view.zoom_accum = accum;
+                if levels != 0 {
+                    let target = (view.zoom as i32 + levels)
+                        .clamp(map_tiles::MIN_ZOOM as i32, map_tiles::MAX_ZOOM as i32)
+                        as u8;
+                    if target != view.zoom {
+                        // Keep whatever is under the cursor under the cursor.
+                        let anchor = ui
+                            .ctx()
+                            .pointer_latest_pos()
+                            .map(|p| p - screen.center())
+                            .unwrap_or(egui::Vec2::ZERO);
+                        let (lat, lng) = map_tiles::zoom_about(
+                            view.lat, view.lng, view.zoom, target, anchor.x, anchor.y,
+                        );
+                        view.lat = lat;
+                        view.lng = lng;
+                        view.zoom = target;
+                        bounds_changed = true;
+                    }
                 }
             }
+            let mut new_center = (view.lat, view.lng);
+            let mut new_zoom = view.zoom;
             if resp.double_clicked() && enabled {
                 if let Some(pos) = ui.ctx().pointer_latest_pos() {
                     let off = pos - screen.center();
@@ -3914,20 +4014,27 @@ fn render_interactive(
             }
 
             if bounds_changed {
-                out.prop_updates.push((
-                    id.to_owned(),
-                    "CenterLat".to_owned(),
+                let (lat_s, lng_s, zoom_s) = (
                     new_center.0.to_string(),
-                ));
-                out.prop_updates.push((
-                    id.to_owned(),
-                    "CenterLng".to_owned(),
                     new_center.1.to_string(),
-                ));
+                    new_zoom.to_string(),
+                );
+                // Remember exactly what was published, so next frame's `sync`
+                // can tell "the property came back as we left it" from "COBOL
+                // moved the map" — the first must not reset the live view.
+                view.published = (lat_s.clone(), lng_s.clone(), new_zoom);
                 out.prop_updates
-                    .push((id.to_owned(), "Zoom".to_owned(), new_zoom.to_string()));
+                    .push((id.to_owned(), "CenterLat".to_owned(), lat_s));
+                out.prop_updates
+                    .push((id.to_owned(), "CenterLng".to_owned(), lng_s));
+                out.prop_updates
+                    .push((id.to_owned(), "Zoom".to_owned(), zoom_s));
                 out.events.push(UiEvent::ev(id, "onBoundsChanged"));
             }
+            view.lat = new_center.0;
+            view.lng = new_center.1;
+            view.zoom = new_zoom;
+            ui.ctx().data_mut(|d| d.insert_temp(view_id, view.clone()));
 
             let markers_raw = sv(ctrl, "Markers");
             let records = crate::parse_map_markers(&markers_raw);
@@ -10964,6 +11071,14 @@ mod tests {
         assert!(new_lat > 40.0, "dragging down must increase latitude (north), got {new_lat}");
     }
 
+    /// Scrolling zooms — but by **scroll distance**, not by scroll event.
+    ///
+    /// This test used to send 40 px and expect a whole level, which is the
+    /// behaviour the operator reported as unusable: one level per EVENT meant a
+    /// trackpad flick (dozens of events) crossed five or six levels and the map
+    /// could not be aimed (2026-08-20). It now sends more than
+    /// `SCROLL_PER_ZOOM` for the level it expects, and the companion test below
+    /// pins the other half — that a small scroll moves nothing at all.
     #[test]
     fn engine_maps_scroll_changes_zoom_only_while_hovered() {
         let c = [ctrlp(
@@ -10990,7 +11105,7 @@ mod tests {
                         Event::PointerMoved(p),
                         Event::MouseWheel {
                             unit: egui::MouseWheelUnit::Point,
-                            delta: egui::vec2(0.0, 40.0),
+                            delta: egui::vec2(0.0, crate::map_tiles::SCROLL_PER_ZOOM + 10.0),
                             modifiers: Modifiers::default(),
                             phase: egui::TouchPhase::Move,
                         },
@@ -11004,6 +11119,50 @@ mod tests {
             .and_then(|v| v.parse().ok())
             .expect("Zoom should have been updated while hovered");
         assert_eq!(zoom, 11, "scrolling up while hovered must zoom in by one level");
+    }
+
+    /// The other half of the fix: a scroll that has not travelled a whole
+    /// level's worth moves nothing. Without this, one level per event is free
+    /// to come back and the test above would still pass.
+    #[test]
+    fn engine_maps_a_small_scroll_does_not_zoom_at_all() {
+        let c = [ctrlp(
+            "Map1",
+            ControlType::Maps,
+            0,
+            0,
+            320,
+            240,
+            &[
+                ("CenterLat", "40.0"),
+                ("CenterLng", "-74.0"),
+                ("Zoom", "10"),
+            ],
+        )];
+        let p = pos2(160.0, 120.0);
+        let (_, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (
+                    1.0,
+                    vec![
+                        Event::PointerMoved(p),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: egui::vec2(0.0, crate::map_tiles::SCROLL_PER_ZOOM / 4.0),
+                            modifiers: Modifiers::default(),
+                            phase: egui::TouchPhase::Move,
+                        },
+                    ],
+                ),
+            ],
+        );
+        let zoom = map.get("Map1").and_then(|m| m.get("Zoom"));
+        assert!(
+            zoom.is_none() || zoom.map(|z| z.as_str()) == Some("10"),
+            "a quarter-level scroll must leave the zoom alone, got {zoom:?}"
+        );
     }
 
     #[test]

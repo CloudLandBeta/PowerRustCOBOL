@@ -77,6 +77,75 @@ pub fn lat_lng_to_offset(
     )
 }
 
+/// Scroll pixels that make up one whole zoom level.
+///
+/// Zoom used to be one level per scroll EVENT, with no accumulation: a mouse
+/// notch and the dozens of small deltas a trackpad flick emits counted the
+/// same, so one gesture crossed five or six levels and the map was impossible
+/// to aim (operator, 2026-08-20). Counting pixels instead makes both devices
+/// agree — a notch is ~50 px, a flick is the sum of its parts.
+pub const SCROLL_PER_ZOOM: f32 = 90.0;
+
+/// How many zoom levels a single frame may apply, however hard the wheel is
+/// spun. The accumulator survives to the next frame, so nothing is lost — but
+/// the map never leaps, which is the whole complaint.
+pub const MAX_ZOOM_STEP_PER_FRAME: i32 = 1;
+
+/// Fold this frame's scroll into the accumulator and report how many whole
+/// zoom levels come out of it.
+///
+/// Returns `(levels, remaining accumulator)`. The remainder is kept, so slow
+/// scrolling still gets there and a fast one does not overshoot.
+pub fn zoom_steps(accumulated: f32, scroll: f32) -> (i32, f32) {
+    if !accumulated.is_finite() || !scroll.is_finite() {
+        return (0, 0.0);
+    }
+    // A reversal starts from scratch. Credit built up scrolling one way must
+    // not have to be spent before the other way answers — pushing back should
+    // zoom back, not first undo an invisible balance.
+    let base = if scroll != 0.0 && accumulated != 0.0 && accumulated.signum() != scroll.signum() {
+        0.0
+    } else {
+        accumulated
+    };
+    let mut acc = base + scroll;
+    let mut levels = (acc / SCROLL_PER_ZOOM).trunc() as i32;
+    if levels == 0 {
+        return (0, acc);
+    }
+    levels = levels.clamp(-MAX_ZOOM_STEP_PER_FRAME, MAX_ZOOM_STEP_PER_FRAME);
+    acc -= levels as f32 * SCROLL_PER_ZOOM;
+    (levels, acc)
+}
+
+/// Re-centre so the coordinate under `anchor` (a pixel offset from the
+/// viewport centre) stays under it across a zoom change.
+///
+/// Zooming used to leave the centre alone, so whatever you were pointing at
+/// slid away as the scale changed and you had to chase it — the other half of
+/// "impossible to control". This is the standard behaviour of every slippy map:
+/// the cursor is the fixed point.
+pub fn zoom_about(
+    center_lat: f64,
+    center_lng: f64,
+    from_zoom: u8,
+    to_zoom: u8,
+    anchor_dx: f32,
+    anchor_dy: f32,
+) -> (f64, f64) {
+    if from_zoom == to_zoom {
+        return (center_lat, center_lng);
+    }
+    // What is under the cursor now…
+    let (anchor_lat, anchor_lng) =
+        offset_to_lat_lng(anchor_dx, anchor_dy, center_lat, center_lng, from_zoom);
+    // …and the centre that keeps it there at the new scale.
+    let (ax, ay) = lat_lng_to_tile_frac(anchor_lat, anchor_lng, to_zoom);
+    let cx = ax - anchor_dx as f64 / TILE_SIZE;
+    let cy = ay - anchor_dy as f64 / TILE_SIZE;
+    tile_frac_to_lat_lng(cx, cy, to_zoom)
+}
+
 /// The inverse of [`lat_lng_to_offset`] — a screen-pixel offset from the
 /// viewport centre back to lat/lng. Used to resolve a click/marker-overlay
 /// hit test into a real coordinate.
@@ -261,6 +330,10 @@ pub fn paint_map(
 
     let zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
     painter.rect_filled(rect, 0.0, egui::Color32::from_gray(200)); // pre-tile backdrop
+    // Tiles are drawn whole and let the painter cut them at the viewport edge —
+    // see the `TileSlot::Ready` arm for why cutting the DESTINATION instead is
+    // what made the map ripple while it was dragged.
+    let painter = &painter.with_clip_rect(rect.intersect(painter.clip_rect()));
 
     let (center_tx, center_ty) = lat_lng_to_tile_frac(center_lat, center_lng, zoom);
     let center_tile_x = center_tx.floor() as i64;
@@ -305,14 +378,20 @@ pub fn paint_map(
             match map.get(&key) {
                 Some(TileSlot::Ready(tex)) => {
                     let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                    painter.image(tex.id(), dest.intersect(rect), uv, egui::Color32::WHITE);
+                    // The WHOLE tile, at its true size, clipped by the painter.
+                    //
+                    // This used to draw into `dest.intersect(rect)` while leaving
+                    // the UV at the full 0..1 — which does not crop an edge tile,
+                    // it SQUEEZES all 256×256 pixels of it into whatever sliver is
+                    // still inside the viewport. Every edge tile was distorted by
+                    // a different amount, and dragging changed those amounts
+                    // continuously, so the whole map rippled while it moved
+                    // (operator, 2026-08-20). Clipping is the painter's job;
+                    // geometry stays undistorted.
+                    painter.image(tex.id(), dest, uv, egui::Color32::WHITE);
                 }
                 Some(TileSlot::Failed) => {
-                    painter.rect_filled(
-                        dest.intersect(rect),
-                        0.0,
-                        egui::Color32::from_gray(210),
-                    );
+                    painter.rect_filled(dest, 0.0, egui::Color32::from_gray(210));
                 }
                 Some(TileSlot::Loading(_)) => {
                     // Left at the pre-tile backdrop colour; nothing to draw.
@@ -404,5 +483,100 @@ mod tests {
             "zoom 12's 100px offset ({delta_high} deg) should cover less \
              ground than zoom 4's ({delta_low} deg)"
         );
+    }
+
+    /// **One notch, one level.** Zoom used to move a level per scroll EVENT,
+    /// and a trackpad flick is dozens of events — so a single gesture crossed
+    /// five or six levels and the map could not be aimed.
+    #[test]
+    fn a_trackpad_flick_does_not_cross_six_zoom_levels() {
+        // Twelve small deltas, the shape a flick arrives in.
+        let mut accum = 0.0f32;
+        let mut levels = 0;
+        for _ in 0..12 {
+            let (step, next) = zoom_steps(accum, 12.0);
+            levels += step;
+            accum = next;
+        }
+        assert_eq!(
+            levels,
+            (12.0 * 12.0 / SCROLL_PER_ZOOM) as i32,
+            "144px of scroll is one level at {SCROLL_PER_ZOOM}px each, not twelve"
+        );
+        assert!(levels <= 2, "a flick must not leap: {levels} levels");
+    }
+
+    /// However hard one frame is spun, the map moves at most one level — and
+    /// the rest is kept, not thrown away, so nothing is lost.
+    #[test]
+    fn a_single_violent_frame_still_moves_only_one_level() {
+        let (levels, accum) = zoom_steps(0.0, 10_000.0);
+        assert_eq!(levels, MAX_ZOOM_STEP_PER_FRAME);
+        assert!(accum > 0.0, "the surplus is carried, not discarded");
+    }
+
+    /// Slow scrolling still gets there: the accumulator is what makes a
+    /// fine-grained device usable at all.
+    #[test]
+    fn small_deltas_accumulate_into_a_step() {
+        let mut accum = 0.0f32;
+        let mut levels = 0;
+        for _ in 0..(SCROLL_PER_ZOOM as i32 / 5) {
+            let (step, next) = zoom_steps(accum, 5.0);
+            levels += step;
+            accum = next;
+        }
+        assert_eq!(levels, 1, "enough small pushes make exactly one level");
+    }
+
+    /// Reversing direction responds at once instead of spending the old
+    /// direction's credit first.
+    #[test]
+    fn reversing_direction_does_not_have_to_pay_off_the_old_one() {
+        let (_, accum) = zoom_steps(0.0, SCROLL_PER_ZOOM * 0.9); // nearly a level in
+        let (levels, _) = zoom_steps(accum, -SCROLL_PER_ZOOM * 0.9);
+        assert_eq!(levels, 0, "no phantom step on the reversal itself");
+        let (_, accum) = zoom_steps(0.0, SCROLL_PER_ZOOM * 0.9);
+        let (levels, _) = zoom_steps(accum, -SCROLL_PER_ZOOM * 1.1);
+        assert_eq!(levels, -1, "one push the other way zooms out");
+    }
+
+    /// **The cursor is the fixed point.** Zooming used to leave the centre
+    /// alone, so whatever you were pointing at slid away as the scale changed
+    /// and you had to chase it.
+    #[test]
+    fn zooming_keeps_the_point_under_the_cursor_under_the_cursor() {
+        let (lat, lng) = (-23.5614, -46.6558); // São Paulo
+        let (anchor_dx, anchor_dy) = (120.0f32, -80.0f32);
+        let before = offset_to_lat_lng(anchor_dx, anchor_dy, lat, lng, 12);
+
+        let (new_lat, new_lng) = zoom_about(lat, lng, 12, 13, anchor_dx, anchor_dy);
+        let after = offset_to_lat_lng(anchor_dx, anchor_dy, new_lat, new_lng, 13);
+
+        assert!(
+            (before.0 - after.0).abs() < 1e-9 && (before.1 - after.1).abs() < 1e-9,
+            "the anchored coordinate moved: {before:?} -> {after:?}"
+        );
+    }
+
+    /// Zooming out about a cursor is the exact inverse of zooming in about it.
+    #[test]
+    fn zoom_about_round_trips() {
+        let (lat, lng) = (48.8566, 2.3522);
+        let (dx, dy) = (-64.0f32, 200.0f32);
+        let (l1, g1) = zoom_about(lat, lng, 10, 14, dx, dy);
+        let (l2, g2) = zoom_about(l1, g1, 14, 10, dx, dy);
+        assert!(
+            (lat - l2).abs() < 1e-9 && (lng - g2).abs() < 1e-9,
+            "in-then-out should return to the start: ({lat},{lng}) -> ({l2},{g2})"
+        );
+    }
+
+    /// A no-op zoom leaves the centre exactly alone — no drift from repeated
+    /// frames where the accumulator has not yet reached a level.
+    #[test]
+    fn an_unchanged_zoom_never_moves_the_centre() {
+        let (lat, lng) = (10.0, 20.0);
+        assert_eq!(zoom_about(lat, lng, 8, 8, 300.0, -50.0), (lat, lng));
     }
 }

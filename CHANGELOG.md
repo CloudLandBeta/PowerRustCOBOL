@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.123] — 2026-08-20
+
+### Fixed — the map moves the way you move it
+
+Now that the basemap loads, three things about handling it were wrong.
+
+**Dragging rippled the map.** Tiles at the viewport edge were drawn into a
+destination rectangle cut down to the visible part while their texture
+coordinates still covered the whole tile — which does not crop an edge tile, it
+*squeezes* all 256×256 pixels of it into whatever sliver remains. Every edge tile
+was distorted by a different amount, and dragging changed those amounts every
+frame. Tiles are now drawn whole and cut by the painter, which is what clipping
+is for.
+
+**Zoom was unusable.** It moved one level per scroll *event*, and a trackpad
+flick is dozens of events, so a single gesture crossed five or six levels. Zoom
+now counts scroll *distance* — about 90 px to the level — with the remainder
+carried between frames, so a slow scroll still arrives and a fast one cannot
+leap more than a level in any one frame. A reversal answers immediately instead
+of first spending the credit built up going the other way.
+
+**Zooming no longer runs away from the pointer.** The centre used to stay put
+while the scale changed, so whatever you aimed at slid off and you had to chase
+it. The coordinate under the cursor now stays under the cursor, as it does on
+every other slippy map.
+
+**And panning is smooth.** Each frame's drag was being applied to
+`CenterLat`/`CenterLng` as they came back from a round trip through the host —
+a value one or more frames stale — so the map stuttered against the pointer. The
+gesture is now accumulated live and the properties are published from it, which
+leaves them exactly as authoritative as before: a write from COBOL still moves
+the map, because it changes the property away from what the gesture last
+published.
+
 ## [PowerRustCOBOL 1.61.122] — 2026-08-20
 
 ### Fixed — the Maps control draws a map
