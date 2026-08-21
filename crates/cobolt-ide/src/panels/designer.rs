@@ -162,6 +162,21 @@ pub(crate) fn status_is_progress(status: &str, tr: &crate::i18n::Tr) -> bool {
     status == "Thinking..." || status == tr.review_working
 }
 
+/// What the pane calls the wait it is showing a spinner for.
+///
+/// Grace reads the request back for clarity BEFORE the workflow starts, and
+/// that is a step of its own — but the pane called every wait "Thinking…", so
+/// for the whole length of a review the developer had no way to tell the
+/// review from the run it precedes, and the review's own status text
+/// (`review_working`) was stored and displayed nowhere (operator, 2026-08-20).
+pub(crate) fn waiting_label(reviewing: bool, tr: &crate::i18n::Tr) -> &'static str {
+    if reviewing {
+        tr.review_working
+    } else {
+        tr.ai_thinking
+    }
+}
+
 // ── Collapsible designer chrome (spec 033) ──────────────────────────────────
 // Fixed geometry for the toolbox rail and properties drawer. These are CONSTANTS,
 // never derived from available/max space, so the collapsed/hidden states can't
@@ -1485,6 +1500,27 @@ pub struct MoveAnim {
 /// Duration of an agent control-move animation, in seconds (spec 035, R3).
 const MOVE_ANIM_SECS: f64 = 1.0;
 
+/// Duration of the one-shot animation a control plays when an agent CREATES it,
+/// in seconds — the sibling of [`MOVE_ANIM_SECS`], and the same 1 s, so an agent
+/// change-set that both creates and moves reads as one gesture.
+const SPAWN_ANIM_SECS: f64 = 1.0;
+
+/// The one-shot animation a newly agent-created control plays: the catalogue's
+/// **ZoomOut**, which dips to ~25% and returns to exactly 100% (see
+/// `cobolt_forms::anim`). It is a pulse, not an exit — the control is left at
+/// its normal size, which is the whole point of using it as "this one is new".
+///
+/// Built here rather than added to the control: a real `AnimationDef` on
+/// `Control::animations` would persist into the `.cfrm` and ship in the built
+/// application. This is designer feedback and nothing else.
+fn spawn_anim_def() -> cobolt_forms::model::AnimationDef {
+    let mut def = cobolt_forms::model::AnimationDef::new("agent-spawn");
+    def.kind = cobolt_forms::model::AnimKind::ZoomOut;
+    def.duration_ms = (SPAWN_ANIM_SECS * 1000.0) as u64;
+    def.delay_ms = 0;
+    def
+}
+
 /// Ease-in-out over `[0,1]` (cubic): smooth acceleration and settle (R3).
 fn eased(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -1657,6 +1693,11 @@ pub struct DesignerPanel {
     /// (spec 035). Purely visual — the model already holds the final positions.
     move_anims: Vec<MoveAnim>,
     move_anim_start: Option<f64>,
+    /// Controls an agent just CREATED, playing their one-shot spawn pulse, and
+    /// the shared start time. Purely visual, like the moves above: the control
+    /// exists at full size in the model from the instant the change-set lands.
+    spawn_anims: Vec<String>,
+    spawn_anim_start: Option<f64>,
     /// The `ctx.input().time` of the last canvas paint, so a retargeting move
     /// (R6) can compute each control's current on-screen position at apply time.
     move_anim_last_now: Option<f64>,
@@ -1707,6 +1748,9 @@ pub struct DesignerPanel {
     pub ai_error_modal: Option<String>,
     pub ai_last_seen_turns: usize,
     pub ai_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    /// Opening height of the AI pane — a **seed only**. Once the pane exists,
+    /// egui owns its size under the per-designer panel id and the developer's
+    /// drag is what changes it; nothing writes back here.
     pub ai_pane_height: f32,
     pub ai_history_font_size: f32,
     pub ai_error_font_size: f32,
@@ -1752,6 +1796,16 @@ pub struct DesignerPanel {
     review_modal: Option<crate::panels::prompt_review::PromptReview>,
     /// Set by the modal's Submit: the text the workflow actually receives.
     review_accepted: Option<String>,
+    /// Grace's last clarifying questions, still unanswered.
+    ///
+    /// A question the developer answers is only half a request; the other half
+    /// is what was asked. Kept here so the next message can carry both — see
+    /// [`Self::answer_submission`].
+    ai_open_questions: Vec<String>,
+    /// What the history should show for the next send, when the text actually
+    /// sent is not what the developer typed. An answer goes to Grace wrapped
+    /// in the question it answers; the chat still shows the answer alone.
+    ai_send_display: Option<String>,
 
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
@@ -1811,6 +1865,8 @@ impl DesignerPanel {
             last_font_size: None,
             move_anims: Vec::new(),
             move_anim_start: None,
+            spawn_anims: Vec::new(),
+            spawn_anim_start: None,
             move_anim_last_now: None,
             press_handle: None,
             press_form_edge: None,
@@ -1845,6 +1901,8 @@ impl DesignerPanel {
             review_original: None,
             review_modal: None,
             review_accepted: None,
+            ai_open_questions: Vec::new(),
+            ai_send_display: None,
             show_preview: false,
             cobol_structure_edit: None,
             preview_state: HashMap::new(),
@@ -2177,6 +2235,9 @@ impl DesignerPanel {
         // Controls this change-set deploys, by upper-cased id → index in `cmds`.
         let mut deployed: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
+        // Ids of the controls this change-set genuinely CREATES, in order — the
+        // ones that pulse once when they appear.
+        let mut spawned: Vec<String> = Vec::new();
 
         for (op, err) in cs.operations.iter().zip(status.iter()) {
             if err.is_some() {
@@ -2276,6 +2337,9 @@ impl DesignerPanel {
                         ctrl: c,
                     });
                     deployed.insert(cid.to_ascii_uppercase(), cmds.len() - 1);
+                    // This control is NEW — a redeploy folded into the existing
+                    // one long before here — so it gets the spawn pulse.
+                    spawned.push(cid.clone());
                     added += 1;
                 }
                 AgentOp::SetProperty {
@@ -2388,6 +2452,13 @@ impl DesignerPanel {
             if !anims.is_empty() {
                 self.move_anims = anims;
                 self.move_anim_start = None; // armed — first paint stamps the start
+            }
+            // Everything the change-set created pulses once, together, on the
+            // same clock as the moves — one gesture for one change-set. Armed
+            // the same way: the first paint stamps the start.
+            if !spawned.is_empty() {
+                self.spawn_anims = spawned;
+                self.spawn_anim_start = None;
             }
         }
         n
@@ -2610,6 +2681,35 @@ impl DesignerPanel {
         self.move_anims
             .iter()
             .map(|a| (a.id.clone(), move_offset(a.from, a.to, t)))
+            .collect()
+    }
+
+    /// Advance the one-shot spawn pulse for this paint and return each
+    /// animating control's current **scale**. Empty when idle.
+    ///
+    /// The curve is the catalogue's own ZoomOut, read through `anim_transform`,
+    /// so what an agent-created control does here is exactly what that
+    /// animation does anywhere else in the IDE — one definition of ZoomOut, not
+    /// two. Scale feeds the draw rect only; nothing about layout or the model
+    /// moves (the egui self-inflation guard that spec 035 §5 sets out).
+    fn tick_spawn_anims(&mut self, now: f64, ctx: &egui::Context) -> HashMap<String, f32> {
+        if self.spawn_anims.is_empty() {
+            return HashMap::new();
+        }
+        let start = *self.spawn_anim_start.get_or_insert(now);
+        let t = ((now - start) / SPAWN_ANIM_SECS).clamp(0.0, 1.0) as f32;
+        if t >= 1.0 {
+            self.spawn_anims.clear();
+            self.spawn_anim_start = None;
+            return HashMap::new();
+        }
+        ctx.request_repaint();
+        let def = spawn_anim_def();
+        let (form_w, form_h) = (self.form.width as f32, self.form.height as f32);
+        let (_, _, scale, _) = anim_transform(&def, form_w, form_h, t);
+        self.spawn_anims
+            .iter()
+            .map(|id| (id.clone(), scale))
             .collect()
     }
 
@@ -5180,7 +5280,7 @@ impl DesignerPanel {
         let canvas_h = self.form.height as f32;
 
         let tr = crate::i18n::current_tr(ui.ctx());
-        let mut panel = egui::Panel::bottom("global_ai_pane").resizable(self.ai_pane_open);
+        let mut panel = egui::Panel::bottom(self.ai_pane_id()).resizable(self.ai_pane_open);
 
         if self.ai_pane_open {
             panel = panel
@@ -5225,6 +5325,16 @@ impl DesignerPanel {
                         .ai_status
                         .as_deref()
                         .is_some_and(|s| status_is_progress(s, &tr));
+                    // Grace reads the request back for clarity BEFORE anything
+                    // runs, and that wait announced itself nowhere: the status
+                    // it stores IS progress, and the footer renders a status
+                    // only when it is NOT progress. So pressing Send left the
+                    // pane looking untouched — the prompt still in the box, the
+                    // transcript unchanged — for as long as the review took
+                    // (operator, 2026-08-20). Both the transcript indicator and
+                    // the input slab below now say what is happening, in
+                    // Grace's own words.
+                    let reviewing = self.review_rx.is_some();
                     let history_len = self.ai_history.len();
                     let history_font_size = self.ai_history_font_size;
 
@@ -5340,10 +5450,14 @@ impl DesignerPanel {
                                     // static progress lines for minutes, and
                                     // the indicator vanished exactly when the
                                     // wait was longest.)
+                                    // The review is a step of its own, before
+                                    // the workflow, so it says so: a generic
+                                    // "Thinking…" is indistinguishable from
+                                    // everything that comes after it.
                                     if busy {
                                         crate::panels::editor::chat_thinking_indicator(
                                             ui,
-                                            tr.ai_thinking,
+                                            waiting_label(reviewing, &tr),
                                             history_font_size,
                                             Some(crate::llm::token_meter()),
                                         );
@@ -5619,8 +5733,34 @@ impl DesignerPanel {
                             // last text line read as clipped by the pane.
                             ui.add_space(GLOBAL_AI_PROMPT_BOTTOM_PAD);
 
-                            if let Some(err) = &self.ai_status {
-                                if !status_is_progress(err, &tr) {
+                            // One row, either way — progress or failure, never
+                            // both — so the slab's fixed chrome budget
+                            // (`GLOBAL_AI_INPUT_HEIGHT`) covers this line
+                            // whichever branch draws it, and the controls row
+                            // under it can never be clipped away.
+                            if let Some(status) = &self.ai_status {
+                                if status_is_progress(status, &tr) {
+                                    // A spinner where the click was. The colours
+                                    // come from the THEME registry, never from
+                                    // `ui.visuals()`: this pane's own style
+                                    // zeroes `widgets.active.fg_stroke`, and that
+                                    // is exactly where egui reads a default
+                                    // `Spinner`'s colour from — a default-coloured
+                                    // spinner here paints fully transparent.
+                                    let theme = crate::theme::active();
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            egui::Spinner::new()
+                                                .size(14.0)
+                                                .color(theme.accent),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(waiting_label(reviewing, &tr))
+                                                .small()
+                                                .color(theme.text_bright),
+                                        );
+                                    });
+                                } else {
                                     ui.horizontal(|ui| {
                                         ui.label(
                                             egui::RichText::new("AI error")
@@ -5705,6 +5845,32 @@ impl DesignerPanel {
                     // Pressing send asks Grace to REVIEW the request first;
                     // the workflow starts only from the modal's Submit, with
                     // the text the developer approved (operator, 2026-07-31).
+                    // A message sent while Grace's questions are still open is
+                    // her answer's other half. It goes out with the questions
+                    // attached, and it does NOT go through the prompt reviewer:
+                    // the reviewer is given the form and the project but never
+                    // the conversation, so it was rewriting "Caption" as if it
+                    // were a standalone request — and a rewritten fragment is
+                    // what reached Grace, who could only reply that she found
+                    // nothing to apply.
+                    //
+                    // Which reading is right — an answer, or a change of
+                    // subject — is Grace's call, not a verb list's: her routing
+                    // contract already decides that, and it can do it in the
+                    // developer's own language.
+                    if do_send
+                        && self.review_rx.is_none()
+                        && self.review_modal.is_none()
+                        && !self.global_ai_prompt.trim().is_empty()
+                        && !self.ai_open_questions.is_empty()
+                    {
+                        let answer = self.global_ai_prompt.clone();
+                        self.review_accepted =
+                            Some(Self::answer_submission(&self.ai_open_questions, &answer));
+                        self.ai_send_display = Some(answer);
+                        self.ai_open_questions.clear();
+                        do_send = false;
+                    }
                     if do_send
                         && self.review_rx.is_none()
                         && self.review_modal.is_none()
@@ -5737,7 +5903,14 @@ impl DesignerPanel {
                     }
                     if let Some(prompt) = self.review_accepted.take() {
                         {
-                            self.ai_history.push(crate::llm::ChatTurn::user(prompt.clone()));
+                            // The chat shows what the developer wrote; Grace
+                            // receives the question-wrapped version when this
+                            // was an answer.
+                            let shown = self
+                                .ai_send_display
+                                .take()
+                                .unwrap_or_else(|| prompt.clone());
+                            self.ai_history.push(crate::llm::ChatTurn::user(shown));
                             self.global_ai_prompt.clear();
                             self.ai_status = Some("Thinking...".to_string());
                             self.ai_error_modal = None;
@@ -5905,6 +6078,11 @@ impl DesignerPanel {
                             crate::llm::LlmResponse::Ok(text) => {
                                 self.ai_status = None;
                                 self.global_ai_streaming.clear();
+                                // A new reply retires the last one's questions:
+                                // whatever is still open is re-established
+                                // below, so a later message is never wrapped in
+                                // questions that have already been dealt with.
+                                self.ai_open_questions.clear();
 
                                 // Try to parse it as operations
                                 if let Ok(cs) = crate::agent::parse_change_set(&text) {
@@ -5938,7 +6116,9 @@ impl DesignerPanel {
                                         if !combined_note.is_empty() {
                                             self.ai_history.push(crate::llm::ChatTurn::assistant(combined_note));
                                         } else {
-                                            self.ai_history.push(crate::llm::ChatTurn::assistant("I didn't find any actionable changes to apply based on your request. If I misunderstood, please clarify!".to_string()));
+                                            self.ai_history.push(crate::llm::ChatTurn::assistant(
+                                                tr.ai_no_actionable_changes.to_string(),
+                                            ));
                                         }
                                     } else {
                                         if !combined_note.is_empty() {
@@ -5964,6 +6144,15 @@ impl DesignerPanel {
                                             self.ai_history
                                                 .push(crate::llm::ChatTurn::assistant(context));
                                         }
+                                        // Remember what was asked. Without this
+                                        // the questions were balloons and
+                                        // nothing else: the developer's answer
+                                        // went out as a bare new request —
+                                        // "Caption", "o id" — which means
+                                        // nothing on its own, so Grace applied
+                                        // no changes (operator, 2026-08-20).
+                                        self.ai_open_questions =
+                                            questions.iter().map(|q| q.to_string()).collect();
                                         for q in questions {
                                             self.ai_history
                                                 .push(crate::llm::ChatTurn::question(q));
@@ -6359,7 +6548,7 @@ impl DesignerPanel {
                 // them exactly. The designer overlays its editor chrome (selection
                 // border + handles, badges, clones, grid, drop hints) on top using
                 // the on-screen rects the engine returns.
-                let anim_tf: std::collections::HashMap<
+                let mut anim_tf: std::collections::HashMap<
                     String,
                     cobolt_forms::render::RenderTransform,
                 > = self
@@ -6409,6 +6598,21 @@ impl DesignerPanel {
                 // a lightweight clone shifted by each control's live offset.
                 let anim_now = ui.ctx().input(|i| i.time);
                 let move_offsets = self.tick_move_anims(anim_now, ui.ctx());
+                // …and the one-shot pulse for whatever the agent just created,
+                // merged into the SAME transform table the designed animations
+                // use. One table means a control cannot be transformed twice in
+                // a frame; for the second it is new, the pulse is what shows.
+                for (id, scale) in self.tick_spawn_anims(anim_now, ui.ctx()) {
+                    anim_tf.insert(
+                        id,
+                        cobolt_forms::render::RenderTransform {
+                            dx: 0.0,
+                            dy: 0.0,
+                            scale,
+                            alpha: 1.0,
+                        },
+                    );
+                }
                 let animated_controls: Option<Vec<cobolt_forms::model::Control>> =
                     (!move_offsets.is_empty()).then(|| {
                         self.form
@@ -9859,6 +10063,49 @@ impl DesignerPanel {
             // No attribute at all = a form written before 049: Standalone.
             None => (false, true),
         }
+    }
+
+    /// This designer's AI pane, as a panel id.
+    ///
+    /// **Per designer, like every sibling panel in the window** (`dl_{idx}`,
+    /// `dtb_{idx}`, `props_{idx}`). egui persists a panel's size in
+    /// `ctx.data()` under its Id **alone** (`PanelState::load`/`store`), and
+    /// every open designer draws this panel in its own viewport over one shared
+    /// Context. Under a single constant id they all wrote the same slot every
+    /// frame and the last writer won: a drag in one designer was overwritten by
+    /// whatever the other stored, so the pane sprang back — always to the same
+    /// height, since `ai_pane_height` is only ever the opening seed (operator
+    /// report, 2026-08-20). The form's name is what makes this designer this
+    /// one; renaming the form resets the pane to that seed once, which is
+    /// cheaper than carrying an identity the panel does not otherwise need.
+    fn ai_pane_id(&self) -> egui::Id {
+        egui::Id::new(("global_ai_pane", self.form.name.as_str()))
+    }
+
+    /// What Grace receives for a message sent while her questions are open:
+    /// the questions and the developer's reply, together, and the one
+    /// instruction that says what to do with the pair.
+    ///
+    /// Deciding whether a reply is an answer or a change of subject belongs to
+    /// Grace — her routing contract already makes that call, and it makes it in
+    /// whatever language the developer is writing. A verb list here could only
+    /// make it in English.
+    ///
+    /// The instruction text is English because it addresses the model; the
+    /// questions and the reply ride verbatim, in the language they were
+    /// written, and Grace answers the developer in that same language.
+    fn answer_submission(questions: &[String], answer: &str) -> String {
+        let asked = questions
+            .iter()
+            .map(|q| format!("- {}", q.trim()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "You asked the developer:\n{asked}\n\nThe developer replied:\n{}\n\n\
+             If this reply answers those questions, continue the requested work, applying \
+             these decisions. If it is a different request instead, do that.",
+            answer.trim()
+        )
     }
 
     /// Returns `(label, name, embeddable, standaloneable)`: the label is the
@@ -15330,6 +15577,37 @@ mod ai_status_tests {
             assert!(!status_is_progress("", &tr));
         }
     }
+
+    /// **The review says it is the review.** Pressing Send starts Grace's
+    /// clarity read-back, not the workflow, and until this fix the pane said
+    /// "Thinking…" for both — so a review that took half a minute looked like
+    /// nothing had happened at all. The wait is now named in Grace's own words,
+    /// in whatever language the IDE is set to, both in the transcript and on
+    /// the spinner row under the prompt box.
+    #[test]
+    fn a_running_review_is_named_and_not_called_thinking() {
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            assert_eq!(
+                waiting_label(true, &tr),
+                tr.review_working,
+                "{lang:?}: a review must announce itself"
+            );
+            assert_eq!(
+                waiting_label(false, &tr),
+                tr.ai_thinking,
+                "{lang:?}: every other wait keeps the generic label"
+            );
+            assert_ne!(
+                tr.review_working, tr.ai_thinking,
+                "{lang:?}: the two waits must read differently or naming one is pointless"
+            );
+            // Whatever it says, the pane must still read it as progress —
+            // otherwise the footer renders it as "AI error" (the 2026-07-31
+            // regression above).
+            assert!(status_is_progress(waiting_label(true, &tr), &tr));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -16461,5 +16739,168 @@ mod menu_editor_051_tests {
             "051 picker filter — 5/5 format cases: Embedded (embed only), \
              Standalone + pre-049 (standalone only), Both (both), unreadable (both)"
         );
+    }
+}
+
+#[cfg(test)]
+mod spawn_anim_tests {
+    use super::*;
+
+    fn deploy(id: &str) -> crate::agent::AgentOp {
+        crate::agent::AgentOp::DeployControl {
+            control_type: "Button".into(),
+            id: Some(id.into()),
+            parent_id: None,
+            parent: None,
+            properties: Default::default(),
+        }
+    }
+
+    fn change_set(ops: Vec<crate::agent::AgentOp>) -> crate::agent::AgentChangeSet {
+        crate::agent::AgentChangeSet {
+            operations: ops,
+            note: None,
+        }
+    }
+
+    /// **A control an agent creates pulses once.** The animation is armed by
+    /// the change-set and stamped by the first paint, so `spawn_anim_start`
+    /// stays `None` until then.
+    #[test]
+    fn a_created_control_is_armed_to_pulse() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.apply_agent_change_set(&change_set(vec![deploy("BTN-1")]));
+        assert_eq!(d.spawn_anims, vec!["BTN-1".to_string()]);
+        assert!(d.spawn_anim_start.is_none(), "armed, not yet started");
+    }
+
+    /// **A redeploy is not a creation.** Agents re-emit whole change-sets as a
+    /// matter of course; a control that is already on the form must not flash
+    /// every time its id comes round again.
+    #[test]
+    fn re_deploying_an_existing_control_does_not_pulse() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.apply_agent_change_set(&change_set(vec![deploy("BTN-1")]));
+        d.spawn_anims.clear();
+        d.apply_agent_change_set(&change_set(vec![deploy("BTN-1")]));
+        assert!(
+            d.spawn_anims.is_empty(),
+            "the second deploy folded into the existing control: {:?}",
+            d.spawn_anims
+        );
+    }
+
+    /// Everything one change-set creates pulses together, on one clock.
+    #[test]
+    fn every_created_control_pulses_in_the_same_gesture() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.apply_agent_change_set(&change_set(vec![
+            deploy("BTN-1"),
+            deploy("BTN-2"),
+            deploy("BTN-3"),
+        ]));
+        assert_eq!(d.spawn_anims.len(), 3);
+        assert!(d.spawn_anim_start.is_none(), "one clock, stamped once");
+    }
+
+    /// **It is a pulse, not an exit.** ZoomOut dips and returns: the control is
+    /// smaller in the middle and exactly full size at both ends, so the pulse
+    /// leaves nothing shrunk or missing behind it.
+    #[test]
+    fn the_pulse_dips_and_returns_to_full_size() {
+        let def = spawn_anim_def();
+        assert_eq!(def.duration_ms, 1000, "the operator asked for 1000 ms");
+        let scale = |t: f32| anim_transform(&def, 640.0, 480.0, t).2;
+        assert!((scale(0.0) - 1.0).abs() < 0.01, "starts full size");
+        assert!((scale(1.0) - 1.0).abs() < 0.01, "ends full size");
+        assert!(
+            scale(0.5) < 0.6,
+            "and visibly dips in between: {}",
+            scale(0.5)
+        );
+    }
+
+    /// The form's own `.cfrm` never learns about it: the pulse is designer
+    /// feedback, and a control that carried it into the model would ship the
+    /// animation in the built application.
+    #[test]
+    fn the_pulse_is_never_written_to_the_control() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.apply_agent_change_set(&change_set(vec![deploy("BTN-1")]));
+        let c = d.form.controls.iter().find(|c| c.id == "BTN-1").unwrap();
+        assert!(
+            c.animations.is_empty(),
+            "the created control carries no animation: {:?}",
+            c.animations
+        );
+    }
+}
+
+#[cfg(test)]
+mod ai_pane_tests {
+    use super::*;
+
+    /// **Every open designer owns its own AI pane size.**
+    ///
+    /// egui keys a panel's persisted size by Id alone, so two designers sharing
+    /// one id share one stored height and overwrite each other every frame —
+    /// which is what made a drag spring back to the same height with more than
+    /// one form open. The sibling panels are keyed per designer; this one has
+    /// to be too.
+    #[test]
+    fn two_designers_do_not_share_one_ai_pane_size() {
+        let a = DesignerPanel::new(Form::new("CUSTOMERS", "Customers", 640, 480));
+        let b = DesignerPanel::new(Form::new("INVOICES", "Invoices", 640, 480));
+        assert_ne!(
+            a.ai_pane_id(),
+            b.ai_pane_id(),
+            "two open designers must not write the same PanelState slot"
+        );
+        assert_eq!(a.ai_pane_id(), a.ai_pane_id(), "and one designer's id is stable");
+    }
+
+    /// **An answer reaches Grace with the question attached.**
+    ///
+    /// The questions used to be balloons and nothing more: the reply went out
+    /// as a bare new request — "Caption" — which means nothing on its own, so
+    /// the run ended with no changes applied.
+    #[test]
+    fn an_answer_carries_the_question_it_answers() {
+        let submission = DesignerPanel::answer_submission(
+            &[
+                "Você quer dizer o id do controle (Button-3) ou o texto visível (Caption)?"
+                    .to_owned(),
+            ],
+            "  o Caption  ",
+        );
+        assert!(
+            submission.contains("Button-3") && submission.contains("Caption"),
+            "the question rides verbatim: {submission}"
+        );
+        assert!(
+            submission.contains("o Caption") && !submission.contains("  o Caption  "),
+            "so does the reply, trimmed: {submission}"
+        );
+        assert!(
+            submission.contains("continue the requested work"),
+            "and it says what to do with the pair: {submission}"
+        );
+        assert!(
+            submission.contains("different request"),
+            "while leaving the change-of-subject reading to Grace: {submission}"
+        );
+    }
+
+    /// Several questions in one turn are all carried — the designer asks them
+    /// as one batch, and one reply answers the batch.
+    #[test]
+    fn every_open_question_is_carried() {
+        let submission = DesignerPanel::answer_submission(
+            &["Qual arquivo?".to_owned(), "UUID ou PIC 9(9)?".to_owned()],
+            "aas-clientes, UUID",
+        );
+        assert!(submission.contains("- Qual arquivo?"));
+        assert!(submission.contains("- UUID ou PIC 9(9)?"));
+        assert!(submission.contains("aas-clientes, UUID"));
     }
 }

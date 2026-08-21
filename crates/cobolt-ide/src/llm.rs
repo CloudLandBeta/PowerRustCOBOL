@@ -1716,6 +1716,7 @@ fn run_mesh_request(
                 user_prompt: prompt.clone(),
                 temperature: req.temperature,
                 max_tokens,
+                reasoning_counts_as_reply: req.reasoning_counts_as_reply,
             };
             push_ai_log(
                 AiLogKind::Detail,
@@ -1901,6 +1902,8 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
         temperature: cfg.temperature,
         max_tokens: cfg.max_tokens,
         verbose: cfg.verbose_log,
+        // Off for every caller that reads the reply. `spawn_test` turns it on.
+        reasoning_counts_as_reply: false,
     }
 }
 
@@ -2093,7 +2096,9 @@ fn connection_test_config(cfg: &LlmConfig) -> LlmConfig {
     test_cfg
 }
 
-pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
+/// The connection test's request, split out from [`spawn_test`] so what the
+/// test asks for is checkable without a network.
+fn connection_test_request(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
     // Preserve the profile's temperature. Some models accept only their
     // default value (commonly 1.0), so silently forcing 0.0 makes a valid
     // profile fail its connection test even though the form shows 1.0.
@@ -2104,7 +2109,23 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     req.system_prompt =
         "You are testing model access. Reply with the exact text OK and nothing else.".to_string();
     req.user_prompt = "Reply with OK only.".to_string();
-    run_mesh_request(req, "connection/model access test", None)
+    // This test asks ONE question: is the model reachable and answering? A
+    // reasoning model spends the 16-token budget thinking and returns hidden
+    // reasoning with no visible text — which the agent path rightly refuses,
+    // and which failed a perfectly working model here (operator, 2026-08-20).
+    // Reachability was already proven by the time those tokens arrived, so the
+    // test accepts them. The model-policy floor still applies first, so a model
+    // known to need more room gets it (see `run_mesh_request`).
+    req.reasoning_counts_as_reply = true;
+    req
+}
+
+pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
+    run_mesh_request(
+        connection_test_request(cfg),
+        "connection/model access test",
+        None,
+    )
 }
 
 /// The Pedantic Agent's system prompt — authored verbatim by the operator
@@ -7489,6 +7510,33 @@ mod tests {
             max_tokens: 8192,
             timeout_secs: 120,
         }
+    }
+
+    /// **A reasoning model passes its connection test.** The test clamps the
+    /// budget to 16 tokens, which a hidden-reasoning model can spend entirely
+    /// on thinking — it then streams reasoning and no visible text, and the
+    /// Models Manager reported a working model as an error ("returned 68
+    /// reasoning character(s) but no assistant message content"). The test asks
+    /// only whether the model is reachable, and by the time those tokens arrive
+    /// it demonstrably is.
+    #[test]
+    fn the_connection_test_accepts_a_reply_made_only_of_reasoning() {
+        let req = connection_test_request(&LlmConfig::load_defaults_for_test());
+        assert!(
+            req.reasoning_counts_as_reply,
+            "reachability is the only question the connection test asks"
+        );
+    }
+
+    /// …and nothing else does. Every other caller parses the reply — a change
+    /// set, a review, a summary — and hidden reasoning is not something any of
+    /// them can read, so the refusal must stay in place for them.
+    #[test]
+    fn every_other_request_still_demands_visible_text() {
+        assert!(
+            !mesh_request_base(&LlmConfig::load_defaults_for_test()).reasoning_counts_as_reply,
+            "the default must be the strict one"
+        );
     }
 
     /// The prompt review names Grace as its agent, and Grace is not a built-in

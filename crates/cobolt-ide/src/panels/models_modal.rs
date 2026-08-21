@@ -75,6 +75,15 @@ pub struct ModelsModalAction {
     /// User asked for the semantic search model — the app opens its blocking
     /// download modal.
     pub semantic_download_requested: bool,
+    /// A provider's catalogue came back **successfully and non-empty**:
+    /// `(provider id, models)`. The app uses it to retire leaderboard rows for
+    /// models that provider no longer offers.
+    ///
+    /// Only ever set from a successful listing. A failed request and a provider
+    /// that genuinely offers nothing are indistinguishable here, and the second
+    /// does not happen — so an empty or failed result reports nothing at all
+    /// rather than something that would read as "everything was decommissioned".
+    pub catalogue: Option<(String, Vec<String>)>,
 }
 
 /// Whether opening the manager on `provider` should fetch its model list
@@ -347,6 +356,10 @@ impl ModelsModal {
                                 .providers_models_count
                                 .replacen("{}", &models.len().to_string(), 1);
                             self.models_msg = Some(msg.clone());
+                            if !models.is_empty() {
+                                action.catalogue =
+                                    Some((self.selected_provider().to_owned(), models.clone()));
+                            }
                             llm.set_models_for(self.selected_provider(), models);
                             action.applied = true;
                             action.log_lines.push(format!(
@@ -562,122 +575,157 @@ impl ModelsModal {
                     });
 
                 // Central: the selected provider's configuration.
+                //
+                // It SCROLLS. This pane is the only one here whose height is
+                // decided by its content — the storage section alone is a
+                // heading, a hint and four radio choices — while the space it
+                // gets is whatever the window has left after the two bottom
+                // panels and the left rail. Without a scroll area the surplus
+                // was simply clipped: "Where keys are kept" was cut off
+                // mid-sentence and no drag, wheel or resize could reach the
+                // choices under it (operator, 2026-08-20).
+                //
+                // `auto_shrink([false, false])` is what keeps the fix from
+                // becoming the other bug: the scroll area fills the rect it is
+                // given instead of reporting its content's height back up, so a
+                // tall provider can never push the window wider or taller —
+                // the same rule the left rail already follows.
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ui, |ui| {
-                        ui.add_space(6.0);
-                        let id = self.selected_provider();
-                        let label = Provider::from_id(id)
-                            .map(|p| p.label.to_string())
-                            .unwrap_or_else(|| id.to_string());
-                        ui.label(egui::RichText::new(label).strong().size(15.0));
-                        ui.add_space(6.0);
-
-                        let needs_key = crate::llm::provider_requires_key(id);
-                        if !needs_key {
-                            ui.label(egui::RichText::new(tr.providers_local_no_key).small());
-                            ui.add_space(4.0);
-                        } else if !llm.provider_is_configured(id) {
-                            ui.label(egui::RichText::new(tr.providers_unconfigured).small());
-                            ui.add_space(4.0);
-                        }
-
-                        egui::Grid::new("provider_grid")
-                            .num_columns(2)
-                            .spacing([14.0, 7.0])
+                        egui::ScrollArea::vertical()
+                            .id_salt("provider_details_scroll")
+                            .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                ui.label(tr.providers_endpoint);
-                                ui.horizontal(|ui| {
-                                    if ui
-                                        .add(
-                                            egui::TextEdit::singleline(&mut self.endpoint_buf)
-                                                .desired_width(360.0),
-                                        )
-                                        .changed()
-                                    {
-                                        self.error = None;
-                                    }
-                                    if ui.button(tr.providers_endpoint_reset).clicked() {
-                                        self.endpoint_buf = Provider::from_id(id)
-                                            .map(|p| p.default_endpoint().to_string())
-                                            .unwrap_or_default();
-                                    }
-                                });
-                                ui.end_row();
+                                ui.add_space(6.0);
+                                let id = self.selected_provider();
+                                let label = Provider::from_id(id)
+                                    .map(|p| p.label.to_string())
+                                    .unwrap_or_else(|| id.to_string());
+                                ui.label(egui::RichText::new(label).strong().size(15.0));
+                                ui.add_space(6.0);
 
-                                if needs_key {
-                                    ui.label(tr.providers_key);
+                                let needs_key = crate::llm::provider_requires_key(id);
+                                if !needs_key {
+                                    ui.label(
+                                        egui::RichText::new(tr.providers_local_no_key).small(),
+                                    );
+                                    ui.add_space(4.0);
+                                } else if !llm.provider_is_configured(id) {
+                                    ui.label(
+                                        egui::RichText::new(tr.providers_unconfigured).small(),
+                                    );
+                                    ui.add_space(4.0);
+                                }
+
+                                egui::Grid::new("provider_grid")
+                                    .num_columns(2)
+                                    .spacing([14.0, 7.0])
+                                    .show(ui, |ui| {
+                                        ui.label(tr.providers_endpoint);
+                                        ui.horizontal(|ui| {
+                                            if ui
+                                                .add(
+                                                    egui::TextEdit::singleline(
+                                                        &mut self.endpoint_buf,
+                                                    )
+                                                    .desired_width(360.0),
+                                                )
+                                                .changed()
+                                            {
+                                                self.error = None;
+                                            }
+                                            if ui.button(tr.providers_endpoint_reset).clicked() {
+                                                self.endpoint_buf = Provider::from_id(id)
+                                                    .map(|p| p.default_endpoint().to_string())
+                                                    .unwrap_or_default();
+                                            }
+                                        });
+                                        ui.end_row();
+
+                                        if needs_key {
+                                            ui.label(tr.providers_key);
+                                            ui.horizontal(|ui| {
+                                                ui.add(
+                                                    egui::TextEdit::singleline(&mut self.key_buf)
+                                                        .password(true)
+                                                        .desired_width(360.0),
+                                                );
+                                                if ui.button(tr.models_delete).clicked() {
+                                                    self.confirm_delete = true;
+                                                }
+                                            });
+                                            ui.end_row();
+                                            ui.label("");
+                                            ui.label(
+                                                egui::RichText::new(tr.agents_key_hint).small(),
+                                            );
+                                            ui.end_row();
+                                        }
+
+                                        ui.label(tr.settings_ai_model);
+                                        ui.horizontal(|ui| {
+                                            let count = llm.models_for(id).len();
+                                            if count > 0 {
+                                                ui.label(
+                                                    tr.providers_models_count
+                                                        .replacen("{}", &count.to_string(), 1),
+                                                );
+                                            } else {
+                                                ui.label(
+                                                    egui::RichText::new(tr.settings_ai_model_empty)
+                                                        .small(),
+                                                );
+                                            }
+                                            if ui.button(tr.providers_refresh_models).clicked() {
+                                                do_fetch = true;
+                                            }
+                                            if ui.button(tr.settings_ai_test).clicked() {
+                                                do_test = true;
+                                            }
+                                        });
+                                        ui.end_row();
+                                    });
+
+                                if self.confirm_delete {
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        egui::RichText::new(tr.models_delete_warn)
+                                            .color(ui.visuals().error_fg_color),
+                                    );
                                     ui.horizontal(|ui| {
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut self.key_buf)
-                                                .password(true)
-                                                .desired_width(360.0),
-                                        );
                                         if ui.button(tr.models_delete).clicked() {
-                                            self.confirm_delete = true;
+                                            do_delete = true;
+                                        }
+                                        if ui.button(tr.btn_cancel).clicked() {
+                                            self.confirm_delete = false;
                                         }
                                     });
-                                    ui.end_row();
-                                    ui.label("");
-                                    ui.label(egui::RichText::new(tr.agents_key_hint).small());
-                                    ui.end_row();
                                 }
 
-                                ui.label(tr.settings_ai_model);
-                                ui.horizontal(|ui| {
-                                    let count = llm.models_for(id).len();
-                                    if count > 0 {
-                                        ui.label(
-                                            tr.providers_models_count
-                                                .replacen("{}", &count.to_string(), 1),
-                                        );
-                                    } else {
-                                        ui.label(
-                                            egui::RichText::new(tr.settings_ai_model_empty).small(),
-                                        );
-                                    }
-                                    if ui.button(tr.providers_refresh_models).clicked() {
-                                        do_fetch = true;
-                                    }
-                                    if ui.button(tr.settings_ai_test).clicked() {
-                                        do_test = true;
-                                    }
-                                });
-                                ui.end_row();
+                                if let Some(m) = &self.models_msg {
+                                    ui.add_space(6.0);
+                                    ui.label(egui::RichText::new(m).small());
+                                }
+                                if let Some(e) = &self.error {
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        egui::RichText::new(e)
+                                            .color(ui.visuals().error_fg_color)
+                                            .small(),
+                                    );
+                                }
+
+                                // Where every key is kept — the answer to "will
+                                // I have to paste this again tomorrow?".
+                                if self.storage_section(ui, llm, tr) {
+                                    storage_changed = true;
+                                }
+                                // Breathing room under the last radio so it is
+                                // never flush against the panel separator when
+                                // scrolled to the bottom.
+                                ui.add_space(6.0);
                             });
-
-                        if self.confirm_delete {
-                            ui.add_space(6.0);
-                            ui.label(
-                                egui::RichText::new(tr.models_delete_warn)
-                                    .color(ui.visuals().error_fg_color),
-                            );
-                            ui.horizontal(|ui| {
-                                if ui.button(tr.models_delete).clicked() {
-                                    do_delete = true;
-                                }
-                                if ui.button(tr.btn_cancel).clicked() {
-                                    self.confirm_delete = false;
-                                }
-                            });
-                        }
-
-                        if let Some(m) = &self.models_msg {
-                            ui.add_space(6.0);
-                            ui.label(egui::RichText::new(m).small());
-                        }
-                        if let Some(e) = &self.error {
-                            ui.add_space(6.0);
-                            ui.label(
-                                egui::RichText::new(e).color(ui.visuals().error_fg_color).small(),
-                            );
-                        }
-
-                        // Where every key is kept — the answer to "will I have to
-                        // paste this again tomorrow?".
-                        if self.storage_section(ui, llm, tr) {
-                            storage_changed = true;
-                        }
                     });
             });
 
@@ -777,6 +825,80 @@ mod tests {
         assert_eq!(llm.provider_api_key("anthropic"), "sk-test");
         assert!(llm.provider_is_configured("anthropic"));
         println!("provider anthropic configured with a key and its default endpoint");
+    }
+
+    /// **The provider pane scrolls, and it does not grow the window doing it.**
+    ///
+    /// The pane's content is content-sized (endpoint, key, model row, and the
+    /// four "Where keys are kept" choices) while the room it gets is whatever
+    /// the window has left. With no scroll area the surplus was simply clipped
+    /// and the storage choices could not be reached by any means (operator,
+    /// 2026-08-20). The obvious fix is also the classic way to reintroduce this
+    /// codebase's oldest bug — a child sized from available space inside a
+    /// window that sizes itself from its content — so this is what it pins: the
+    /// rendered window is stable across frames of unchanged state, and it never
+    /// grows past the screen it was given. Run in every language, because a
+    /// longer translation is exactly what would tip it over — French is the
+    /// widest and wants about 920 px of its own accord, so the test screen is
+    /// wide enough to let it have that and short enough that the vertical
+    /// overflow this fix is about is the binding constraint.
+    ///
+    /// What it does NOT prove is that the pane scrolls: from outside, a window
+    /// clamped to the screen and clipping looks the same as one that scrolls,
+    /// and the scroll area's own id is derived from its parent Ui and is not
+    /// reconstructable here. That half is the operator's to see.
+    #[test]
+    fn the_provider_pane_scrolls_without_inflating_the_window() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let id = egui::Id::new("model_providers_manager_modal");
+        let screen =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 560.0));
+
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            let mut llm = LlmConfig::load_defaults_for_test();
+            let mut modal = ModelsModal::new();
+            // No network from a unit test: the manager owes a fetch on open.
+            modal.auto_fetch_pending = false;
+
+            let mut frame = |modal: &mut ModelsModal, llm: &mut LlmConfig| {
+                let input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                ctx.run_ui(input, |ui| {
+                    let ctx = ui.ctx().clone();
+                    let _ = modal.show(&ctx, llm, &tr);
+                })
+                .textures_delta
+                .clear();
+            };
+
+            // egui needs one frame to discover a window's content-driven size,
+            // so the first frame an id is ever shown is not a fair baseline —
+            // a real inflation loop keeps growing after it, not once.
+            frame(&mut modal, &mut llm);
+            frame(&mut modal, &mut llm);
+            let first = ctx.memory(|m| m.area_rect(id)).expect("modal rendered");
+            frame(&mut modal, &mut llm);
+            let second = ctx.memory(|m| m.area_rect(id)).expect("modal rendered");
+
+            assert!(
+                (first.width() - second.width()).abs() < 0.5
+                    && (first.height() - second.height()).abs() < 0.5,
+                "{lang:?}: the manager's rendered rect changed between two \
+                 frames of unchanged state ({first:?} -> {second:?}) — the \
+                 details pane is sizing the window instead of scrolling inside it"
+            );
+            assert!(
+                second.height() <= screen.height() + 0.5
+                    && second.width() <= screen.width() + 0.5,
+                "{lang:?}: the manager grew past its screen ({second:?} vs \
+                 {screen:?}) — content that does not fit must scroll, never \
+                 push the window off the display"
+            );
+        }
     }
 
     /// Blanking the key field must not erase a stored credential — deleting is

@@ -22,12 +22,14 @@ pub mod agent_inspection;
 pub mod agents_db;
 mod app;
 pub mod contrast;
+pub mod crash;
 pub mod data_binding_guardian;
 pub mod debug_settings;
 pub mod doc_shots;
 pub mod flags;
 pub mod docs_embed;
 pub mod error_log;
+pub mod error_summary;
 pub mod exec_rust_run;
 pub mod external_crates_service;
 pub mod file_dialog;
@@ -49,6 +51,7 @@ pub mod prompt_complete;
 pub mod prompt_polish;
 mod project_fs;
 mod project_model;
+pub mod project_upgrade;
 mod runner;
 pub mod secrets;
 mod target_select;
@@ -99,11 +102,22 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    eframe::run_native(
+    // Before the event loop: a windowed app has no terminal, so without this a
+    // panic prints its message, location and backtrace to a stderr nobody is
+    // reading and the window simply disappears.
+    crash::install();
+
+    let result = eframe::run_native(
         &ide_title,
         native_options,
         Box::new(|cc| Ok(Box::new(CoboltApp::new(cc)))),
-    )
+    );
+
+    // Reaching here at all means the loop returned rather than the process
+    // dying, so the session ended on purpose: drop the marker and the autosaved
+    // copies, which would otherwise offer to "recover" work already saved.
+    crash::mark_clean_exit();
+    result
 }
 
 #[cfg(target_os = "macos")]

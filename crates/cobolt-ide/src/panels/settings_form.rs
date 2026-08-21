@@ -706,546 +706,6 @@ impl SettingsForm {
 
                         ui.add_space(8.0);
 
-                        // --- License section header (left only)
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                section(ui, tr.set_sec_license, &theme);
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
-                        });
-
-                        // License model
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.lbl_license_model).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                let w = ui.available_width();
-                                egui::ComboBox::from_id_salt("license_model")
-                                    .selected_text(if self.draft.license_model.is_empty() {
-                                        "Proprietary".to_owned()
-                                    } else {
-                                        self.draft.license_model.clone()
-                                    })
-                                    .width(w)
-                                    .show_ui(ui, |ui| {
-                                        // Route the pick through set_license_model
-                                        // so choosing a license also loads its text.
-                                        let mut picked: Option<&str> = None;
-                                        for &lic in LICENSES {
-                                            if ui
-                                                .selectable_label(
-                                                    self.draft.license_model == lic,
-                                                    lic,
-                                                )
-                                                .clicked()
-                                            {
-                                                picked = Some(lic);
-                                            }
-                                        }
-                                        if let Some(lic) = picked {
-                                            self.draft.set_license_model(lic);
-                                        }
-                                    });
-                            });
-                        });
-
-                        // License text (multiline on right determines row height; label is top-aligned to it)
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.lbl_license_text).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                let w = ui.available_width();
-                                // A stock license runs to tens of thousands of
-                                // lines (GPL-3.0), and a multiline TextEdit grows
-                                // to its content — so it scrolls inside a box of
-                                // fixed height (a constant, never derived from the
-                                // available space, which would inflate the form).
-                                egui::ScrollArea::vertical()
-                                    .id_salt("license_text")
-                                    .max_height(LICENSE_BOX_HEIGHT)
-                                    .show(ui, |ui| {
-                                        ui.add(
-                                            egui::TextEdit::multiline(
-                                                &mut self.draft.license_text,
-                                            )
-                                            .desired_rows(5)
-                                            .desired_width(w)
-                                            .font(egui::TextStyle::Monospace),
-                                        );
-                                    });
-                            });
-                        });
-
-                        ui.add_space(8.0);
-
-                        // --- Appearance section header (left only)
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                section(ui, tr.set_sec_appearance, &theme);
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
-                        });
-
-                        // Theme
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.settings_theme).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                let w = ui.available_width();
-                                let cur = themes
-                                    .iter()
-                                    .find(|(id, _)| *id == self.draft.theme_id)
-                                    .map(|(_, n)| *n)
-                                    .unwrap_or(themes.first().map(|(_, n)| *n).unwrap_or(""));
-                                egui::ComboBox::from_id_salt("theme_pick")
-                                    .selected_text(cur)
-                                    .width(w)
-                                    .show_ui(ui, |ui| {
-                                        for (id, name) in themes {
-                                            ui.selectable_value(
-                                                &mut self.draft.theme_id,
-                                                (*id).to_owned(),
-                                                *name,
-                                            );
-                                        }
-                                    });
-                            });
-                        });
-
-                        // Default form theme (spec 007) — the picker is **hidden for now**:
-                        // only Liquid Glass ships as a finished look; the special asset
-                        // packs (cobalt-steel, …) need more fidelity work before they are
-                        // offered. The model field (`forms.theme`) and the theme engine are
-                        // retained, so re-enabling is just restoring this row.
-
-                        // ── Window effects (spec 038) — project-level, all forms ──────
-                        {
-                            use cobolt_forms::window_fx::{Easing, FxSpec, WindowEffect};
-                            let mut fx_row = |label: &str,
-                                              effect_id: &mut String,
-                                              ms: &mut u32,
-                                              easing_id: &mut String,
-                                              salt: &str,
-                                              ui: &mut Ui| {
-                                ui.horizontal_top(|ui| {
-                                    let left_rect = ui
-                                        .allocate_exact_size(
-                                            egui::vec2(splitter, 0.0),
-                                            egui::Sense::hover(),
-                                        )
-                                        .0;
-                                    ui.scope_builder(
-                                        egui::UiBuilder::new().max_rect(left_rect),
-                                        |ui| {
-                                            ui.style_mut().wrap_mode =
-                                                Some(egui::TextWrapMode::Truncate);
-                                            ui.set_min_width(splitter);
-                                            ui.add_space(property_indent);
-                                            ui.add(egui::Label::new(label).truncate());
-                                        },
-                                    );
-                                    ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                                    ui.add_space(gap_after_resizer);
-                                    let right_w = ui.available_width();
-                                    ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                        ui.horizontal(|ui| {
-                                            let cur = WindowEffect::from_str(effect_id);
-                                            egui::ComboBox::from_id_salt(("fx_effect", salt))
-                                                .selected_text(cur.as_str())
-                                                .width(150.0)
-                                                .show_ui(ui, |ui| {
-                                                    for e in WindowEffect::ALL {
-                                                        if ui
-                                                            .selectable_label(
-                                                                cur == e,
-                                                                e.as_str(),
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            *effect_id =
-                                                                e.as_str().to_owned();
-                                                            // Effects own their duration
-                                                            // bounds (matrix-rain runs
-                                                            // 1500–4000 ms).
-                                                            let (mn, mx) =
-                                                                e.duration_bounds();
-                                                            *ms = (*ms).clamp(mn, mx);
-                                                        }
-                                                    }
-                                                });
-                                            let (min_ms, max_ms) = cur.duration_bounds();
-                                            ui.add(
-                                                egui::DragValue::new(ms)
-                                                    .range(min_ms..=max_ms)
-                                                    .suffix(" ms"),
-                                            );
-                                            let cur_e = Easing::from_str(easing_id);
-                                            egui::ComboBox::from_id_salt(("fx_easing", salt))
-                                                .selected_text(cur_e.as_str())
-                                                .width(110.0)
-                                                .show_ui(ui, |ui| {
-                                                    for e in [
-                                                        Easing::Linear,
-                                                        Easing::EaseIn,
-                                                        Easing::EaseOut,
-                                                        Easing::EaseInOut,
-                                                    ] {
-                                                        if ui
-                                                            .selectable_label(
-                                                                cur_e == e,
-                                                                e.as_str(),
-                                                            )
-                                                            .clicked()
-                                                        {
-                                                            *easing_id =
-                                                                e.as_str().to_owned();
-                                                        }
-                                                    }
-                                                });
-                                        });
-                                    });
-                                });
-                            };
-                            fx_row(
-                                tr.set_fx_entrance,
-                                &mut self.draft.fx_entrance_effect,
-                                &mut self.draft.fx_entrance_ms,
-                                &mut self.draft.fx_entrance_easing,
-                                "ent",
-                                ui,
-                            );
-                            fx_row(
-                                tr.set_fx_exit,
-                                &mut self.draft.fx_exit_effect,
-                                &mut self.draft.fx_exit_ms,
-                                &mut self.draft.fx_exit_easing,
-                                "exit",
-                                ui,
-                            );
-                            // Restore replay + Preview on one row.
-                            ui.horizontal_top(|ui| {
-                                let left_rect = ui
-                                    .allocate_exact_size(
-                                        egui::vec2(splitter, 0.0),
-                                        egui::Sense::hover(),
-                                    )
-                                    .0;
-                                ui.scope_builder(
-                                    egui::UiBuilder::new().max_rect(left_rect),
-                                    |ui| {
-                                        ui.style_mut().wrap_mode =
-                                            Some(egui::TextWrapMode::Truncate);
-                                        ui.set_min_width(splitter);
-                                        ui.add_space(property_indent);
-                                        ui.add(
-                                            egui::Label::new(tr.set_fx_restore).truncate(),
-                                        );
-                                    },
-                                );
-                                ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                                ui.add_space(gap_after_resizer);
-                                ui.horizontal(|ui| {
-                                    ui.checkbox(&mut self.draft.fx_restore, "");
-                                    let resp = ui.add_enabled(
-                                        !fx_disabled,
-                                        egui::Button::new(tr.set_fx_preview),
-                                    );
-                                    if fx_disabled {
-                                        resp.on_disabled_hover_text(tr.set_fx_disabled_hint);
-                                    } else if resp.clicked() {
-                                        self.fx_preview_started =
-                                            Some(ui.ctx().input(|i| i.time));
-                                    }
-                                });
-                            });
-                            // Preview canvas: entrance → short hold → exit, over a
-                            // placeholder card face (same window_fx engine as the host).
-                            if let Some(started) = self.fx_preview_started {
-                                // Clamp into each effect's bounds so a draft loaded
-                                // from an out-of-band project previews what will run.
-                                let ent_effect =
-                                    WindowEffect::from_str(&self.draft.fx_entrance_effect);
-                                let (ent_mn, ent_mx) = ent_effect.duration_bounds();
-                                let ent = FxSpec {
-                                    effect: ent_effect,
-                                    duration_ms: self.draft.fx_entrance_ms.clamp(ent_mn, ent_mx),
-                                    easing: Easing::from_str(&self.draft.fx_entrance_easing),
-                                };
-                                let exit_effect =
-                                    WindowEffect::from_str(&self.draft.fx_exit_effect);
-                                let (exit_mn, exit_mx) = exit_effect.duration_bounds();
-                                let exit = FxSpec {
-                                    effect: exit_effect,
-                                    duration_ms: self.draft.fx_exit_ms.clamp(exit_mn, exit_mx),
-                                    easing: Easing::from_str(&self.draft.fx_exit_easing),
-                                };
-                                let now = ui.ctx().input(|i| i.time);
-                                let el = now - started;
-                                // The preview card's width, known before the
-                                // rect is allocated: MatrixRain schedules its
-                                // lines in real milliseconds across it, and
-                                // takes as long as that schedule needs.
-                                let card_w =
-                                    (content_w - splitter - 40.0).clamp(220.0, 460.0);
-                                let fx_ms = |spec: &FxSpec| -> u32 {
-                                    if spec.effect == WindowEffect::MatrixRain {
-                                        cobolt_forms::window_fx::matrix_effective_duration_ms(
-                                            card_w,
-                                            spec.duration_ms,
-                                        )
-                                    } else {
-                                        spec.duration_ms
-                                    }
-                                };
-                                let ent_ms = fx_ms(&ent);
-                                let exit_ms = fx_ms(&exit);
-                                let ent_d = ent_ms.max(1) as f64 / 1000.0;
-                                let hold = 0.4_f64;
-                                let exit_d = exit_ms.max(1) as f64 / 1000.0;
-                                let phase = if ent.is_active() && el < ent_d {
-                                    Some((
-                                        ent.effect,
-                                        ent.effect.progress(ent.easing, (el / ent_d) as f32),
-                                    ))
-                                } else if el < ent_d + hold {
-                                    Some((WindowEffect::None, 1.0))
-                                } else if exit.is_active() && el < ent_d + hold + exit_d {
-                                    let back = 1.0 - ((el - ent_d - hold) / exit_d) as f32;
-                                    Some((exit.effect, exit.effect.progress(exit.easing, back)))
-                                } else {
-                                    None
-                                };
-                                match phase {
-                                    None => self.fx_preview_started = None,
-                                    Some((effect, t)) => {
-                                        let (rect, _) = ui.allocate_exact_size(
-                                            egui::vec2(card_w, 150.0),
-                                            egui::Sense::hover(),
-                                        );
-                                        let painter = ui.painter().with_clip_rect(rect);
-                                        let card_bg = egui::Color32::from_rgb(46, 52, 64);
-                                        cobolt_forms::window_fx::paint_window_fx(
-                                            &painter,
-                                            rect,
-                                            card_bg,
-                                            t,
-                                            effect,
-                                            0xC0FFEE,
-                                            now,
-                                            // The preview card sits on the
-                                            // settings pane, not on a
-                                            // see-through window.
-                                            false,
-                                            if matches!(phase, Some((e, _)) if e == exit.effect) {
-                                                exit_ms
-                                            } else {
-                                                ent_ms
-                                            },
-                                            &mut |p, r| {
-                                                p.rect_filled(r, 4.0, card_bg);
-                                                let title = egui::Rect::from_min_size(
-                                                    r.min,
-                                                    egui::vec2(r.width(), r.height() * 0.14),
-                                                );
-                                                p.rect_filled(
-                                                    title,
-                                                    4.0,
-                                                    egui::Color32::from_rgb(59, 66, 82),
-                                                );
-                                                let btn = egui::Rect::from_center_size(
-                                                    r.center() + egui::vec2(0.0, r.height() * 0.2),
-                                                    egui::vec2(r.width() * 0.3, r.height() * 0.16),
-                                                );
-                                                p.rect_filled(
-                                                    btn,
-                                                    4.0,
-                                                    egui::Color32::from_rgb(94, 129, 172),
-                                                );
-                                                p.rect_filled(
-                                                    egui::Rect::from_center_size(
-                                                        r.center()
-                                                            - egui::vec2(0.0, r.height() * 0.12),
-                                                        egui::vec2(
-                                                            r.width() * 0.6,
-                                                            r.height() * 0.1,
-                                                        ),
-                                                    ),
-                                                    3.0,
-                                                    egui::Color32::from_rgb(76, 86, 106),
-                                                );
-                                            },
-                                        );
-                                        ui.ctx().request_repaint();
-                                    }
-                                }
-                            }
-                        }
-
-                        // Background image (the button row + shown path is the "value")
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.settings_background).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                ui.horizontal(|ui| {
-                                    if ui.button(tr.settings_bg_browse).clicked() {
-                                        action.browse_bg = true;
-                                    }
-                                    let shown = if self.draft.bg_image.is_empty() {
-                                        tr.settings_bg_none.to_owned()
-                                    } else {
-                                        self.draft.bg_image.clone()
-                                    };
-                                    ui.label(RichText::new(shown).small().monospace());
-                                    if !self.draft.bg_image.is_empty()
-                                        && ui.button(tr.settings_bg_clear).clicked()
-                                    {
-                                        self.draft.bg_image.clear();
-                                    }
-                                });
-                            });
-                        });
-
-                        // Background opacity (slider row)
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.settings_bg_opacity).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                let mut o = self.draft.bg_opacity as i32;
-                                if ui
-                                    .add(egui::Slider::new(&mut o, 0..=100).suffix("%"))
-                                    .changed()
-                                {
-                                    self.draft.bg_opacity = o.clamp(0, 100) as u8;
-                                }
-                            });
-                        });
-
-                        // Project icon (used by Run Form / packaged app windows)
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new("Project icon").truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                ui.horizontal(|ui| {
-                                    if ui.button("Select image...").clicked() {
-                                        action.browse_project_icon = true;
-                                    }
-                                    let shown = if self.draft.project_icon.is_empty() {
-                                        "No icon".to_owned()
-                                    } else {
-                                        self.draft.project_icon.clone()
-                                    };
-                                    ui.label(RichText::new(shown).small().monospace());
-                                    if !self.draft.project_icon.is_empty()
-                                        && ui.button(tr.settings_bg_clear).clicked()
-                                    {
-                                        self.draft.project_icon.clear();
-                                    }
-                                });
-                            });
-                        });
-
-                        ui.add_space(8.0);
-
                         // --- AI assistant section header (left only)
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
@@ -1958,6 +1418,546 @@ impl SettingsForm {
                                         .range(1024..=65535),
                                 )
                                 .on_hover_text(tr.ai_inspection_hint);
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
+                        // --- Appearance section header (left only)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                section(ui, tr.set_sec_appearance, &theme);
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
+                        });
+
+                        // Theme
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_theme).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                let cur = themes
+                                    .iter()
+                                    .find(|(id, _)| *id == self.draft.theme_id)
+                                    .map(|(_, n)| *n)
+                                    .unwrap_or(themes.first().map(|(_, n)| *n).unwrap_or(""));
+                                egui::ComboBox::from_id_salt("theme_pick")
+                                    .selected_text(cur)
+                                    .width(w)
+                                    .show_ui(ui, |ui| {
+                                        for (id, name) in themes {
+                                            ui.selectable_value(
+                                                &mut self.draft.theme_id,
+                                                (*id).to_owned(),
+                                                *name,
+                                            );
+                                        }
+                                    });
+                            });
+                        });
+
+                        // Default form theme (spec 007) — the picker is **hidden for now**:
+                        // only Liquid Glass ships as a finished look; the special asset
+                        // packs (cobalt-steel, …) need more fidelity work before they are
+                        // offered. The model field (`forms.theme`) and the theme engine are
+                        // retained, so re-enabling is just restoring this row.
+
+                        // ── Window effects (spec 038) — project-level, all forms ──────
+                        {
+                            use cobolt_forms::window_fx::{Easing, FxSpec, WindowEffect};
+                            let mut fx_row = |label: &str,
+                                              effect_id: &mut String,
+                                              ms: &mut u32,
+                                              easing_id: &mut String,
+                                              salt: &str,
+                                              ui: &mut Ui| {
+                                ui.horizontal_top(|ui| {
+                                    let left_rect = ui
+                                        .allocate_exact_size(
+                                            egui::vec2(splitter, 0.0),
+                                            egui::Sense::hover(),
+                                        )
+                                        .0;
+                                    ui.scope_builder(
+                                        egui::UiBuilder::new().max_rect(left_rect),
+                                        |ui| {
+                                            ui.style_mut().wrap_mode =
+                                                Some(egui::TextWrapMode::Truncate);
+                                            ui.set_min_width(splitter);
+                                            ui.add_space(property_indent);
+                                            ui.add(egui::Label::new(label).truncate());
+                                        },
+                                    );
+                                    ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                                    ui.add_space(gap_after_resizer);
+                                    let right_w = ui.available_width();
+                                    ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                        ui.horizontal(|ui| {
+                                            let cur = WindowEffect::from_str(effect_id);
+                                            egui::ComboBox::from_id_salt(("fx_effect", salt))
+                                                .selected_text(cur.as_str())
+                                                .width(150.0)
+                                                .show_ui(ui, |ui| {
+                                                    for e in WindowEffect::ALL {
+                                                        if ui
+                                                            .selectable_label(
+                                                                cur == e,
+                                                                e.as_str(),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            *effect_id =
+                                                                e.as_str().to_owned();
+                                                            // Effects own their duration
+                                                            // bounds (matrix-rain runs
+                                                            // 1500–4000 ms).
+                                                            let (mn, mx) =
+                                                                e.duration_bounds();
+                                                            *ms = (*ms).clamp(mn, mx);
+                                                        }
+                                                    }
+                                                });
+                                            let (min_ms, max_ms) = cur.duration_bounds();
+                                            ui.add(
+                                                egui::DragValue::new(ms)
+                                                    .range(min_ms..=max_ms)
+                                                    .suffix(" ms"),
+                                            );
+                                            let cur_e = Easing::from_str(easing_id);
+                                            egui::ComboBox::from_id_salt(("fx_easing", salt))
+                                                .selected_text(cur_e.as_str())
+                                                .width(110.0)
+                                                .show_ui(ui, |ui| {
+                                                    for e in [
+                                                        Easing::Linear,
+                                                        Easing::EaseIn,
+                                                        Easing::EaseOut,
+                                                        Easing::EaseInOut,
+                                                    ] {
+                                                        if ui
+                                                            .selectable_label(
+                                                                cur_e == e,
+                                                                e.as_str(),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            *easing_id =
+                                                                e.as_str().to_owned();
+                                                        }
+                                                    }
+                                                });
+                                        });
+                                    });
+                                });
+                            };
+                            fx_row(
+                                tr.set_fx_entrance,
+                                &mut self.draft.fx_entrance_effect,
+                                &mut self.draft.fx_entrance_ms,
+                                &mut self.draft.fx_entrance_easing,
+                                "ent",
+                                ui,
+                            );
+                            fx_row(
+                                tr.set_fx_exit,
+                                &mut self.draft.fx_exit_effect,
+                                &mut self.draft.fx_exit_ms,
+                                &mut self.draft.fx_exit_easing,
+                                "exit",
+                                ui,
+                            );
+                            // Restore replay + Preview on one row.
+                            ui.horizontal_top(|ui| {
+                                let left_rect = ui
+                                    .allocate_exact_size(
+                                        egui::vec2(splitter, 0.0),
+                                        egui::Sense::hover(),
+                                    )
+                                    .0;
+                                ui.scope_builder(
+                                    egui::UiBuilder::new().max_rect(left_rect),
+                                    |ui| {
+                                        ui.style_mut().wrap_mode =
+                                            Some(egui::TextWrapMode::Truncate);
+                                        ui.set_min_width(splitter);
+                                        ui.add_space(property_indent);
+                                        ui.add(
+                                            egui::Label::new(tr.set_fx_restore).truncate(),
+                                        );
+                                    },
+                                );
+                                ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                                ui.add_space(gap_after_resizer);
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut self.draft.fx_restore, "");
+                                    let resp = ui.add_enabled(
+                                        !fx_disabled,
+                                        egui::Button::new(tr.set_fx_preview),
+                                    );
+                                    if fx_disabled {
+                                        resp.on_disabled_hover_text(tr.set_fx_disabled_hint);
+                                    } else if resp.clicked() {
+                                        self.fx_preview_started =
+                                            Some(ui.ctx().input(|i| i.time));
+                                    }
+                                });
+                            });
+                            // Preview canvas: entrance → short hold → exit, over a
+                            // placeholder card face (same window_fx engine as the host).
+                            if let Some(started) = self.fx_preview_started {
+                                // Clamp into each effect's bounds so a draft loaded
+                                // from an out-of-band project previews what will run.
+                                let ent_effect =
+                                    WindowEffect::from_str(&self.draft.fx_entrance_effect);
+                                let (ent_mn, ent_mx) = ent_effect.duration_bounds();
+                                let ent = FxSpec {
+                                    effect: ent_effect,
+                                    duration_ms: self.draft.fx_entrance_ms.clamp(ent_mn, ent_mx),
+                                    easing: Easing::from_str(&self.draft.fx_entrance_easing),
+                                };
+                                let exit_effect =
+                                    WindowEffect::from_str(&self.draft.fx_exit_effect);
+                                let (exit_mn, exit_mx) = exit_effect.duration_bounds();
+                                let exit = FxSpec {
+                                    effect: exit_effect,
+                                    duration_ms: self.draft.fx_exit_ms.clamp(exit_mn, exit_mx),
+                                    easing: Easing::from_str(&self.draft.fx_exit_easing),
+                                };
+                                let now = ui.ctx().input(|i| i.time);
+                                let el = now - started;
+                                // The preview card's width, known before the
+                                // rect is allocated: MatrixRain schedules its
+                                // lines in real milliseconds across it, and
+                                // takes as long as that schedule needs.
+                                let card_w =
+                                    (content_w - splitter - 40.0).clamp(220.0, 460.0);
+                                let fx_ms = |spec: &FxSpec| -> u32 {
+                                    if spec.effect == WindowEffect::MatrixRain {
+                                        cobolt_forms::window_fx::matrix_effective_duration_ms(
+                                            card_w,
+                                            spec.duration_ms,
+                                        )
+                                    } else {
+                                        spec.duration_ms
+                                    }
+                                };
+                                let ent_ms = fx_ms(&ent);
+                                let exit_ms = fx_ms(&exit);
+                                let ent_d = ent_ms.max(1) as f64 / 1000.0;
+                                let hold = 0.4_f64;
+                                let exit_d = exit_ms.max(1) as f64 / 1000.0;
+                                let phase = if ent.is_active() && el < ent_d {
+                                    Some((
+                                        ent.effect,
+                                        ent.effect.progress(ent.easing, (el / ent_d) as f32),
+                                    ))
+                                } else if el < ent_d + hold {
+                                    Some((WindowEffect::None, 1.0))
+                                } else if exit.is_active() && el < ent_d + hold + exit_d {
+                                    let back = 1.0 - ((el - ent_d - hold) / exit_d) as f32;
+                                    Some((exit.effect, exit.effect.progress(exit.easing, back)))
+                                } else {
+                                    None
+                                };
+                                match phase {
+                                    None => self.fx_preview_started = None,
+                                    Some((effect, t)) => {
+                                        let (rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(card_w, 150.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        let painter = ui.painter().with_clip_rect(rect);
+                                        let card_bg = egui::Color32::from_rgb(46, 52, 64);
+                                        cobolt_forms::window_fx::paint_window_fx(
+                                            &painter,
+                                            rect,
+                                            card_bg,
+                                            t,
+                                            effect,
+                                            0xC0FFEE,
+                                            now,
+                                            // The preview card sits on the
+                                            // settings pane, not on a
+                                            // see-through window.
+                                            false,
+                                            if matches!(phase, Some((e, _)) if e == exit.effect) {
+                                                exit_ms
+                                            } else {
+                                                ent_ms
+                                            },
+                                            &mut |p, r| {
+                                                p.rect_filled(r, 4.0, card_bg);
+                                                let title = egui::Rect::from_min_size(
+                                                    r.min,
+                                                    egui::vec2(r.width(), r.height() * 0.14),
+                                                );
+                                                p.rect_filled(
+                                                    title,
+                                                    4.0,
+                                                    egui::Color32::from_rgb(59, 66, 82),
+                                                );
+                                                let btn = egui::Rect::from_center_size(
+                                                    r.center() + egui::vec2(0.0, r.height() * 0.2),
+                                                    egui::vec2(r.width() * 0.3, r.height() * 0.16),
+                                                );
+                                                p.rect_filled(
+                                                    btn,
+                                                    4.0,
+                                                    egui::Color32::from_rgb(94, 129, 172),
+                                                );
+                                                p.rect_filled(
+                                                    egui::Rect::from_center_size(
+                                                        r.center()
+                                                            - egui::vec2(0.0, r.height() * 0.12),
+                                                        egui::vec2(
+                                                            r.width() * 0.6,
+                                                            r.height() * 0.1,
+                                                        ),
+                                                    ),
+                                                    3.0,
+                                                    egui::Color32::from_rgb(76, 86, 106),
+                                                );
+                                            },
+                                        );
+                                        ui.ctx().request_repaint();
+                                    }
+                                }
+                            }
+                        }
+
+                        // Background image (the button row + shown path is the "value")
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_background).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button(tr.settings_bg_browse).clicked() {
+                                        action.browse_bg = true;
+                                    }
+                                    let shown = if self.draft.bg_image.is_empty() {
+                                        tr.settings_bg_none.to_owned()
+                                    } else {
+                                        self.draft.bg_image.clone()
+                                    };
+                                    ui.label(RichText::new(shown).small().monospace());
+                                    if !self.draft.bg_image.is_empty()
+                                        && ui.button(tr.settings_bg_clear).clicked()
+                                    {
+                                        self.draft.bg_image.clear();
+                                    }
+                                });
+                            });
+                        });
+
+                        // Background opacity (slider row)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_bg_opacity).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let mut o = self.draft.bg_opacity as i32;
+                                if ui
+                                    .add(egui::Slider::new(&mut o, 0..=100).suffix("%"))
+                                    .changed()
+                                {
+                                    self.draft.bg_opacity = o.clamp(0, 100) as u8;
+                                }
+                            });
+                        });
+
+                        // Project icon (used by Run Form / packaged app windows)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new("Project icon").truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("Select image...").clicked() {
+                                        action.browse_project_icon = true;
+                                    }
+                                    let shown = if self.draft.project_icon.is_empty() {
+                                        "No icon".to_owned()
+                                    } else {
+                                        self.draft.project_icon.clone()
+                                    };
+                                    ui.label(RichText::new(shown).small().monospace());
+                                    if !self.draft.project_icon.is_empty()
+                                        && ui.button(tr.settings_bg_clear).clicked()
+                                    {
+                                        self.draft.project_icon.clear();
+                                    }
+                                });
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
+                        // --- License section header (left only)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                section(ui, tr.set_sec_license, &theme);
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
+                        });
+
+                        // License model
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.lbl_license_model).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                egui::ComboBox::from_id_salt("license_model")
+                                    .selected_text(if self.draft.license_model.is_empty() {
+                                        "Proprietary".to_owned()
+                                    } else {
+                                        self.draft.license_model.clone()
+                                    })
+                                    .width(w)
+                                    .show_ui(ui, |ui| {
+                                        // Route the pick through set_license_model
+                                        // so choosing a license also loads its text.
+                                        let mut picked: Option<&str> = None;
+                                        for &lic in LICENSES {
+                                            if ui
+                                                .selectable_label(
+                                                    self.draft.license_model == lic,
+                                                    lic,
+                                                )
+                                                .clicked()
+                                            {
+                                                picked = Some(lic);
+                                            }
+                                        }
+                                        if let Some(lic) = picked {
+                                            self.draft.set_license_model(lic);
+                                        }
+                                    });
+                            });
+                        });
+
+                        // License text (multiline on right determines row height; label is top-aligned to it)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.lbl_license_text).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                // A stock license runs to tens of thousands of
+                                // lines (GPL-3.0), and a multiline TextEdit grows
+                                // to its content — so it scrolls inside a box of
+                                // fixed height (a constant, never derived from the
+                                // available space, which would inflate the form).
+                                egui::ScrollArea::vertical()
+                                    .id_salt("license_text")
+                                    .max_height(LICENSE_BOX_HEIGHT)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::multiline(
+                                                &mut self.draft.license_text,
+                                            )
+                                            .desired_rows(5)
+                                            .desired_width(w)
+                                            .font(egui::TextStyle::Monospace),
+                                        );
+                                    });
                             });
                         });
 

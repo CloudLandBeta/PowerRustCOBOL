@@ -121,9 +121,11 @@ fn request_tile(ctx: &egui::Context, key: TileKey) {
     let ctx = ctx.clone();
     std::thread::spawn(move || {
         let url = format!("https://tile.openstreetmap.org/{zoom}/{x}/{y}.png");
-        let result = ureq::get(&url)
+        let result = agent()
+            .get(&url)
             .set("User-Agent", USER_AGENT)
             .call()
+            .map_err(|e| report_tile_failure(&e))
             .ok()
             .and_then(|resp| {
                 let mut bytes = Vec::new();
@@ -134,6 +136,53 @@ fn request_tile(ctx: &egui::Context, key: TileKey) {
         ctx.request_repaint();
     });
     map.insert(key, TileSlot::Loading(rx));
+}
+
+/// One shared OS-TLS connector for the tile fetch.
+///
+/// `ureq`'s `native-tls` feature is an **adapter only**: the crate-level
+/// helpers (`ureq::get`, …) and a bare `AgentBuilder` never pick it up, so
+/// every HTTPS call has to go through an agent carrying this connector or it
+/// fails with "no TLS backend". This file used `ureq::get` directly, so every
+/// tile request failed before it left the machine and the map drew as a grey
+/// square with nothing on it but the markers (operator, 2026-08-20).
+///
+/// The same rule, and the same reason for choosing native-tls over rustls, as
+/// `cobolt_runtime::http_runtime` — which documented it and was the only place
+/// obeying it.
+fn tls_connector() -> Option<std::sync::Arc<native_tls::TlsConnector>> {
+    static CONNECTOR: OnceLock<Option<std::sync::Arc<native_tls::TlsConnector>>> = OnceLock::new();
+    CONNECTOR
+        .get_or_init(|| native_tls::TlsConnector::new().ok().map(std::sync::Arc::new))
+        .clone()
+}
+
+/// The agent every tile request runs through.
+fn agent() -> ureq::Agent {
+    let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(15));
+    if let Some(connector) = tls_connector() {
+        builder = builder.tls_connector(connector);
+    }
+    builder.build()
+}
+
+/// Say — **once** — why the basemap is not appearing.
+///
+/// A tile that cannot be fetched is indistinguishable from a map centred on
+/// open water: both are a flat grey square. That silence is what made a
+/// misconfigured HTTP client look like a working control with nothing to show,
+/// so the first failure of a session is reported. Once, because a map covers
+/// its viewport in tiles and every one of them fails together — a line each
+/// would be a flood saying one thing.
+fn report_tile_failure(err: &ureq::Error) {
+    static SAID: OnceLock<()> = OnceLock::new();
+    if SAID.set(()).is_ok() {
+        eprintln!(
+            "[prc] map basemap unavailable: {err}\n\
+             [prc]   tiles come from tile.openstreetmap.org over HTTPS and need no API key;\n\
+             [prc]   markers and the centre still work, but the map draws blank without them."
+        );
+    }
 }
 
 /// Poll every in-flight download, decoding+uploading any that finished this

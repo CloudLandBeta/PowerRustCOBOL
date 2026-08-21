@@ -7332,6 +7332,61 @@ mod tests {
         c
     }
 
+    /// Reads visibility straight off the designed control — the same thing the
+    /// preview and every running host ultimately answer with.
+    struct DesignedVisibility;
+    impl FormState for DesignedVisibility {
+        fn visible(&self, base: &Control) -> bool {
+            base.visible
+        }
+    }
+
+    /// **`Visible` hides a Label** — reported as doing nothing at all
+    /// (operator, 2026-08-20). A control the engine skips leaves no rect
+    /// behind, so `control_rects` is the honest witness: it is what the
+    /// designer positions selection handles from, and an absent id means
+    /// nothing was drawn. Checked against a visible sibling of the same type
+    /// so a broken harness cannot pass this by drawing nothing at all.
+    #[test]
+    fn an_invisible_label_is_not_drawn() {
+        let shown = ctrl("Lbl-Shown", ControlType::Label, 10, 10, 120, 20);
+        let mut hidden = ctrl("Lbl-Hidden", ControlType::Label, 10, 50, 120, 20);
+        hidden.visible = false;
+        let controls = vec![shown, hidden];
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut rects: HashMap<String, Rect> = HashMap::new();
+        ctx.run_ui(Default::default(), |root_ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(400.0, 300.0));
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &DesignedVisibility,
+                    form_size: Vec2::new(400.0, 300.0),
+                    glass: true,
+                    mode: RenderMode::Interactive,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                rects = render_form(ui, &input).control_rects;
+            });
+        })
+        .textures_delta
+        .clear();
+
+        assert!(
+            rects.contains_key("Lbl-Shown"),
+            "the visible label must be drawn — otherwise this test proves nothing: {:?}",
+            rects.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !rects.contains_key("Lbl-Hidden"),
+            "a Label with Visible=false must not be drawn, but it left a rect: {:?}",
+            rects.get("Lbl-Hidden")
+        );
+    }
+
     // ââ CORNER GUARDIAN regression tests âââââââââââââââââââââââââââââââââââââ
     // These pin the rule that the notch mask must only touch corners a child
     // actually reaches; if they fail, a clean container corner is being masked

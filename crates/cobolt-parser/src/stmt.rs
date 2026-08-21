@@ -670,6 +670,22 @@ fn parse_when_value(p: &mut Parser) -> WhenValue {
         let inner = parse_when_value(p);
         return WhenValue::Not(Box::new(inner));
     }
+    // `WHEN TRUE` / `WHEN FALSE` against a VALUE subject — the sugar for
+    // `WHEN 1` / `WHEN 0`. Taken before `parse_literal`, which does not know
+    // these keywords, and which is what left the WHEN half-parsed so the next
+    // statement was read as a condition.
+    //
+    // `EVALUATE TRUE` is a different construct and does not come through here:
+    // its WHENs carry conditions (`WHEN x < y`), which is what the subject is
+    // matched against.
+    if p.at(&Token::True_) {
+        p.advance();
+        return WhenValue::Literal(Literal::Integer(1));
+    }
+    if p.at(&Token::False_) {
+        p.advance();
+        return WhenValue::Literal(Literal::Integer(0));
+    }
     if let Some((lit, _)) = parse_literal(p) {
         if p.at(&Token::Through) {
             p.advance();

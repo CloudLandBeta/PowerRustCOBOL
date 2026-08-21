@@ -407,6 +407,16 @@ pub struct ChatCall {
     pub user_prompt: String,
     pub temperature: f32,
     pub max_tokens: u32,
+    /// Treat a stream that produced ONLY hidden reasoning as a reply instead
+    /// of an error.
+    ///
+    /// The refusal below exists for the agent path, which parses the reply
+    /// into form operations and cannot do that with thinking it never sees.
+    /// A connection test asks a different question — *is this model reachable
+    /// and answering?* — and a model that spent its whole budget thinking has
+    /// answered it: the endpoint resolved, the credential was accepted and the
+    /// stream produced tokens. Callers that only need reachability set this.
+    pub reasoning_counts_as_reply: bool,
 }
 
 /// Invoke one streamed chat synchronously (worker-thread callers).
@@ -515,6 +525,21 @@ where
     let usage = stream.response.token_usage();
 
     if text.trim().is_empty() && reasoning_chars > 0 {
+        // Reachability was the whole question (see `reasoning_counts_as_reply`)
+        // — the model resolved, authenticated and streamed. Say what it did
+        // rather than failing a model that works.
+        if call.reasoning_counts_as_reply {
+            return Ok(AgentReply {
+                text: format!(
+                    "OK (the model replied with {reasoning_chars} character(s) of hidden \
+                     reasoning and no visible text)"
+                ),
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                truncated: false,
+                continuation_pages: 0,
+            });
+        }
         return Err(format!(
             "The model returned {reasoning_chars} reasoning character(s) but no assistant \
              message content. PowerRustCOBOL cannot apply hidden reasoning as form \

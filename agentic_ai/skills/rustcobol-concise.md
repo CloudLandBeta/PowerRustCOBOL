@@ -69,10 +69,11 @@ expression):
 
 ```cobol
            IF Slider-1::Value > 50
-               MOVE "#FF0000" TO Label-1::ForegroundColor.
-           COMPUTE Total-Lbl::Value = Qty-Box::Value * Price-Box::Value.
-           SET   OK-Btn::Enabled TO Name-Box::Text NOT = SPACES.
-           DISPLAY "score=" Score-Box::Value.
+               MOVE "#FF0000" TO Label-1::ForegroundColor
+           END-IF
+           COMPUTE Total-Lbl::Value = Qty-Box::Value * Price-Box::Value
+           SET   OK-Btn::Enabled TO Name-Box::Text NOT = SPACES
+           DISPLAY "score=" Score-Box::Value 
 ```
 
 Only introduce a `WORKING-STORAGE` item when you genuinely need it (see §5).
@@ -83,8 +84,8 @@ Use parentheses for grouping/clarity; RustCOBOL honours standard arithmetic
 precedence (`*` `/` before `+` `-`, left-to-right, `**` for power):
 
 ```cobol
-           SET     Bar-1::Value TO (Done-Box::Value / Total-Box::Value) * 100.
-           COMPUTE Area-Lbl::Value = 3.14159 * (R-Box::Value ** 2).
+           SET     Bar-1::Value TO (Done-Box::Value / Total-Box::Value) * 100 
+           COMPUTE Area-Lbl::Value = 3.14159 * (R-Box::Value ** 2) END-COMPUTE
 ```
 
 ## 4. Reference modification — concise substrings of STRING values
@@ -98,7 +99,8 @@ numeric result to "convert" it.)
            MOVE Name-Box::Text(1:3)  TO Area-Code.        *> first 3 chars
            MOVE Path-Box::Text(5:)   TO WS-TAIL.          *> char 5 → end
            IF   Code-Box::Text(1:1) = "A"
-               CONTINUE.
+               CONTINUE
+           END-IF
 ```
 
 ## 4b. Comments — ALWAYS `*>` (never a bare `*`)
@@ -118,7 +120,8 @@ Never a fixed-format `*`.
            *> continua na próxima linha com o mesmo recuo e um novo *> até
            *> terminar o comentário.
            IF Name-Box::Text = SPACES         *> nada foi digitado
-               CONTINUE.
+               CONTINUE
+           END-IF
 ```
 
 Never write `      * text` (a lone `*` comment); the `*` must be immediately followed
@@ -144,6 +147,71 @@ Otherwise, prefer the inline expression.
   directly in the `IF`.
 - Repeating the same sub-expression → factor it with parentheses or a single
   local item if reused many times.
+
+## 7. Scope delimiters in PROCEDURE DIVISION
+Implicit Scope DelimiterPeriod (.) closes the current statement and every other open/unterminated nested statement preceding it. Using explicit END-XXX terminators is preferred in modern COBOL standards to avoid unintended scope closures.
+
+Explicit Scope Terminators in COBOL:
+END-ACCEPT
+END-ADD
+END-CALL
+END-COMPUTE
+END-DELETE
+END-DISPLAY
+END-DIVIDE
+END-EVALUATE
+END-IF
+END-INVOKE
+END-JSON
+END-MULTIPLY
+END-PERFORM
+END-READ
+END-RETURN
+END-REWRITE
+END-SEARCH
+END-START
+END-STRING
+END-SUBTRACT
+END-UNSTRING
+END-XML
+END-WRITE
+
+- Periods (".") are required only at:
+  1. Before a SECTION 
+     ```cobol
+     IF a <op> b 
+        MOVE x to y
+     END-IF.*> This period is required
+
+  SHOW-MORTGAGE SECTION.
+     DISPLAY x.
+
+  2. Before a PARAGRAPH
+  ```cobol
+     MOVE 1 TO x. *> This period is required
+
+  EXPORT-MORTGAGE. *>  Paragraph
+     WRITE RECORD-MORTGAGE INVALID KEY DISPLAY END-WRITE.
+  ```
+
+
+  2. Never use periods inside the scope of a COBOL verb:
+     ```cobol
+     PERFORM 10 TIMES
+        IF a <op> b 
+            MOVE x to y. *> This period is not allowed here: it ends the PERFORM block early, so the next line is not included in the loop.
+     END-PERFORM
+    ```
+    For cases as the above use the defined COBOL-85 standard verb scope delimiter (END-IF, END-COMPUTE, END-READ, END-WRITE etc)
+     ```cobol
+     PERFORM 10 TIMES
+        IF a <op> b 
+            MOVE x to y
+        END-IF
+     END-PERFORM
+    ```
+- 
+
 
 ## Checklist before you emit a handler body
 1. Did I declare a `WORKING-STORAGE` item that is used exactly once as a

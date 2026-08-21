@@ -34,6 +34,9 @@ fn main() {
         user_prompt: "Say the word COBOL and nothing else.".into(),
         temperature: 0.0,
         max_tokens: 30,
+        // The probe checks that a provider answers at all, so hidden reasoning
+        // and no visible text is a reachable model, not a failure.
+        reasoning_counts_as_reply: true,
     };
 
     let on_chunk = |chunk: &str| {

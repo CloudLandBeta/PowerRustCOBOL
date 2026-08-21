@@ -55,6 +55,7 @@ use thiserror::Error;
 
 pub mod exec_rust;
 pub mod external_crates;
+pub mod main_form_guard;
 
 pub use external_crates::ExternalCrate;
 
@@ -188,6 +189,12 @@ pub enum CompilerError {
 
     #[error("No main COBOL source specified in cobolt.toml")]
     NoMain,
+
+    /// The project cannot say which form its application starts at. Only the
+    /// main form starts an application, so a build that had to guess would
+    /// ship a door nobody chose.
+    #[error("this project's main form is ambiguous: {0}")]
+    AmbiguousMainForm(String),
 
     #[error("could not locate the PowerRustCOBOL workspace crates: {0}")]
     Workspace(String),
@@ -990,15 +997,27 @@ fn build_core(
     // on the wrong window, while the IDE's own Run, which resolves the main form
     // properly, showed the right one. The build and the IDE disagreed about what
     // the application *is*.
-    if let Some(main_at) = forms.iter().position(|(_, raw)| {
-        cobolt_forms::load_form_from_str(&String::from_utf8_lossy(raw))
-            .map(|f| f.main_form)
-            .unwrap_or(false)
-    }) {
+    //
+    // The designation is read the same way `rcrun` reads it before starting a
+    // form, so the build and the runtime cannot disagree about which form the
+    // application is. A project where two forms claim the mark has no answer
+    // to give, and the build says so rather than picking one.
+    let designation = main_form_guard::read_designation(&project_dir, &proj.files.forms)
+        .map_err(CompilerError::AmbiguousMainForm)?;
+    let designated = designation.map(|d| d.main_form_id).unwrap_or_default();
+    if let Some(main_at) = forms.iter().position(|(id, _)| *id == designated) {
         let main = forms.remove(main_at);
         log(&format!("   main form: {}", main.0));
         forms.insert(0, main);
     }
+    // Baked in beside the table below: at startup the application checks that
+    // the form it is about to open is still this one, so an executable whose
+    // embedded form table has been reordered refuses to run instead of opening
+    // a door the developer never put there.
+    let main_form_id = forms
+        .first()
+        .map(|(id, _)| id.clone())
+        .unwrap_or_default();
 
     log(&format!("   {} form(s)", forms.len()));
 
@@ -1240,6 +1259,7 @@ fn build_core(
         &proj.project.version,
         has_forms,
         &form_ids,
+        &main_form_id,
         &program_ids,
         &menu_ids,
         &staged_themes,
@@ -1798,6 +1818,7 @@ fn generate_main_rs(
     version: &str,
     has_forms: bool,
     form_ids: &[&str],
+    main_form_id: &str,
     program_ids: &[&str],
     menu_ids: &[&str],
     themes: &[StagedTheme],
@@ -1817,6 +1838,18 @@ fn generate_main_rs(
     } else {
         format!("static FORMS: &[(&str, &[u8])] = &[\n{forms_entries}];\n")
     };
+    // Always emitted, even beside an empty table: the form runtime below is
+    // generated from `has_forms`, which is not the same question as "did any
+    // `.cfrm` survive staging". A const that is sometimes there is a generated
+    // program that sometimes does not compile.
+    let forms_const = format!(
+        "{forms_const}\
+         /// The form this application starts at, decided when it was built.\n\
+         /// Only the main form starts an application: the window opens\n\
+         /// `FORMS[0]`, and this is what `FORMS[0]` must be.\n\
+         #[allow(dead_code)]\nconst MAIN_FORM: &str = \"{}\";\n",
+        main_form_id.escape_default()
+    );
 
     // 051 R1 — one program per openable non-main form, gz bincode exactly
     // like `PROGRAM_AST`. `#[allow(dead_code)]`: a single-form application
@@ -1966,7 +1999,23 @@ fn run_form_app(program: cobolt_ast::program::Program) {
 
     // Load the MAIN embedded form (the build embeds it first) — defines the
     // window size + initial layout.
-    let first_form = if let Some(&(_, bytes)) = FORMS.first() {
+    //
+    // Only the main form starts an application. Which form that is was decided
+    // when this executable was built, and MAIN_FORM records it independently of
+    // the table: if the two no longer agree, this copy has been altered and the
+    // honest thing is to stop rather than open a door the developer never put
+    // there. There is nothing on disk to edit — the forms live inside this
+    // binary — so reaching here means the binary itself was patched.
+    let first_form = if let Some(&(id, bytes)) = FORMS.first() {
+        if !id.eq_ignore_ascii_case(MAIN_FORM) {
+            eprintln!(
+                "CORRUPTED APPLICATION — this application starts at form {}, but its form \
+                 table now begins with {}. It will not run. Reinstall it from its original \
+                 distribution.",
+                MAIN_FORM, id
+            );
+            std::process::exit(3);
+        }
         let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
         load_form_from_str(xml).expect("parse embedded form")
     } else {
@@ -3781,7 +3830,12 @@ fn controls_reference_doc() -> String {
     doc.push_str(
         "Window-lifecycle designer attributes on every form: `MainForm` (Boolean — exactly ONE \
          form per project holds it; the first form created is the default; the Forms tree marks \
-         it with a crown), `TaskbarIcon` (image path — main form only: the single taskbar/dock \
+         it with a crown. It is also the only form a RUNTIME starts: a built binary and `rcrun \
+         run-form` open the main form and nothing else, so a sign-on main form cannot be \
+         stepped over. The IDE's Run Form still runs any form. A project whose designation has \
+         been edited by hand — the mark moved, `[forms] main-form` pointed elsewhere, the seal \
+         removed — reports a corrupted application and exits without opening a window), \
+         `TaskbarIcon` (image path — main form only: the single taskbar/dock \
          entry uses it; non-main windows create no taskbar entries), `CanMinimize` / \
          `CanMaximize` (Boolean, default true — native title-bar buttons), `WindowState` \
          (`\"Normal\"` | `\"Minimized\"` | `\"Maximized\"` — the state the window opens in, \
@@ -4515,6 +4569,7 @@ mod resolve_main_tests {
             "1.0.0",
             true,
             &["MAIN", "CRM", "REPORT"],
+            "MAIN",
             &["CRM", "REPORT"],
             &[],
             &[],
@@ -4548,6 +4603,7 @@ mod resolve_main_tests {
             "1.0.0",
             true,
             &["MAIN"],
+            "MAIN",
             &[],
             &[],
             &[],
@@ -4781,7 +4837,7 @@ mod resolve_main_tests {
     /// for free by going through the same `FormHost` as Run Form.
     #[test]
     fn elegance_generated_binary_publishes_its_surface_theme() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("fn resolve_surface_theme("));
         assert!(src.contains("None => resolve_surface_theme(&first_form),"));
         assert!(src.contains("surface_theme,"));
@@ -4812,6 +4868,7 @@ mod resolve_main_tests {
             "1.0.0",
             true,
             &["MAIN"],
+            "MAIN",
             &[],
             &["SIDE-1"],
             &[],
@@ -4850,7 +4907,7 @@ mod resolve_main_tests {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
@@ -4886,6 +4943,7 @@ mod resolve_main_tests {
             "1.2.3",
             true,
             &["MAIN"],
+            "MAIN",
             &[],
             &[],
             &[],
@@ -4920,7 +4978,7 @@ mod resolve_main_tests {
         // A project with no effects bakes inert triples — `none` parses to
         // WindowEffect::None, so nothing plays.
         let quiet = generate_main_rs(
-            "Demo", "1.2.3", true, &["MAIN"], &[], &[], &[], "",
+            "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &[], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
         );
         assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
@@ -4939,7 +4997,7 @@ mod resolve_main_tests {
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false);
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -4985,6 +5043,7 @@ mod resolve_main_tests {
             "0.1.0",
             true,
             &[],
+            "",
             &[],
             &[],
             &[],
@@ -5090,7 +5149,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(
@@ -5268,7 +5327,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
         )
         .unwrap();
         fs::write(
@@ -5346,7 +5405,13 @@ mod resolve_main_tests {
             cobolt_forms::save_form(&form, &forms_dir.join(format!("{stem}.cfrm"))).unwrap();
         }
 
-        // Reproduce the collection step's ordering decision.
+        // Reproduce the collection step's ordering decision — through the same
+        // resolver the build and `rcrun` both use, so this test cannot pass on a
+        // rule the shipped code no longer follows.
+        let rels: Vec<String> = ["buttons", "checkboxes", "labels"]
+            .iter()
+            .map(|s| format!("forms/{s}.cfrm"))
+            .collect();
         let mut forms: Vec<(String, Vec<u8>)> = Vec::new();
         for stem in ["buttons", "checkboxes", "labels"] {
             let raw = fs::read(forms_dir.join(format!("{stem}.cfrm"))).unwrap();
@@ -5354,11 +5419,11 @@ mod resolve_main_tests {
         }
         assert_eq!(forms[0].0, "BUTTONS", "precondition: main is not first yet");
 
-        if let Some(at) = forms.iter().position(|(_, raw)| {
-            cobolt_forms::load_form_from_str(&String::from_utf8_lossy(raw))
-                .map(|f| f.main_form)
-                .unwrap_or(false)
-        }) {
+        let designated = main_form_guard::read_designation(&dir, &rels)
+            .unwrap()
+            .unwrap()
+            .main_form_id;
+        if let Some(at) = forms.iter().position(|(id, _)| *id == designated) {
             let main = forms.remove(at);
             forms.insert(0, main);
         }
@@ -5369,6 +5434,60 @@ mod resolve_main_tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **A built application checks at startup that it is still opening the
+    /// form it was built to open.**
+    ///
+    /// Only the main form starts an application, and in a binary there is no
+    /// project file left to consult — so the designation is baked in beside the
+    /// form table, and the two are compared before the window opens. A table
+    /// patched to begin somewhere else stops the application instead of opening
+    /// a door the developer never put there.
+    #[test]
+    fn the_built_application_verifies_the_form_it_opens() {
+        let src = generate_main_rs(
+            "Demo",
+            "1.0.0",
+            true,
+            &["SIGNON", "MENU"],
+            "SIGNON",
+            &[],
+            &[],
+            &[],
+            "",
+            "none:600:ease-out",
+            "none:600:ease-out",
+            false,
+        );
+        assert!(
+            src.contains(r#"const MAIN_FORM: &str = "SIGNON";"#),
+            "the designation is baked in, not read back off the table it guards"
+        );
+        assert!(
+            src.contains("CORRUPTED APPLICATION"),
+            "and it is checked before the window opens"
+        );
+
+        // The const exists even beside an empty table: the form runtime that
+        // reads it is generated from `has_forms`, which is a different question
+        // from whether any `.cfrm` survived staging. (A generated program that
+        // compiles only sometimes is not a generated program.)
+        let empty = generate_main_rs(
+            "Demo",
+            "1.0.0",
+            true,
+            &[],
+            "",
+            &[],
+            &[],
+            &[],
+            "",
+            "none:600:ease-out",
+            "none:600:ease-out",
+            false,
+        );
+        assert!(empty.contains("const MAIN_FORM"));
     }
 
     // ── Rebuild economy (spec 041 T14) ────────────────────────────────────────

@@ -39,6 +39,11 @@ egui-elegance = { version = "0.15.0", optional = true }
 # ring compiles C) for one HTTP-client shape across the workspace, though
 # this crate's usage (OSM tile fetch, spec 039) is independent of it.
 ureq = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }
+# ureq's `native-tls` feature is an ADAPTER only: it does not give the crate a
+# TLS backend of its own, so the connector has to be built here and handed to an
+# agent. Without it every `https://` tile fetch fails with "no TLS backend" and
+# the map draws as a grey square. Same edge, same reason, as cobolt-runtime's.
+native-tls  = { version = "0.2", optional = true }
 # A toolbar button's Copy/Cut/Paste and its window capture need the real OS
 # clipboard — text BOTH ways and an image out, which egui's own `copy_text` does
 # not cover. Already in the lock file: `egui-winit` depends on it, so this is a
@@ -46,7 +51,7 @@ ureq = { version = "2", default-features = false, features = ["json", "gzip", "n
 arboard     = { version = "3.6", optional = true }
 
 [features]
-render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:arboard"]
+render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:native-tls", "dep:arboard"]
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

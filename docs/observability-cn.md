@@ -16,6 +16,7 @@ See the LICENSE file in the project root for full license information.
 |---------|--------|-------|
 | **INDEXED 文件事务日志** | ✅ 可用 | 本文档 §1 |
 | 运行时跟踪（`COBOLT_LOG`） | ✅ 可用 | §2 |
+| **崩溃日志与工作恢复** | ✅ 可用 | §5 |
 | SQL 数据库运行时 | 🔭 计划中 | — |
 | HTTP / REST 客户端 | 🔭 计划中 | — |
 
@@ -283,6 +284,38 @@ sequenceDiagram
     Child-->>IDE: Done
     Note over IDE: inspector shows CPU/RSS tree + anomalies
 ```
+
+---
+
+## 5. 崩溃日志与工作恢复
+
+带窗口的应用程序没有附着的终端，因此当 IDE 死掉时，它的 panic 消息、`file:line`
+以及回溯全都流向了没人在读的 stderr——窗口就这么消失，什么也没留下。下面两种机制
+取代了这一点，因为它们解决的是两个不同的问题。
+
+**崩溃日志——让事后有东西可查。** 一个 panic 钩子会写出
+`<data>/cobolt/crash/crash-<秒>.log`，其中包含 panic 消息、它的
+`file:line:column`、一份强制抓取的回溯、IDE 版本、操作系统、线程，以及当时打开的
+文件。请把它附在缺陷报告里。
+
+**自动保存——让工作活下来。** 每 **20 秒**，每个未保存的编辑器缓冲区和每个被修改
+过的 form 都会被复制到 `<data>/cobolt/recovery/`，同时附上一份 `manifest.toml`，
+把每份副本对应回它的原文件。一个标记文件记录着会话正在运行，并在干净退出时被删除；
+下次启动时若发现它还在，正是「上一次会话没有正常结束」的含义，此时 IDE 就会提出
+恢复。
+
+**恢复绝不覆盖。** 接受提议后，每份副本会以 `<名称>.recovered.<扩展名>` 的形式
+写在其原文件旁边，路径列在 Output 面板中。这份副本来自一个当时已经失足的进程，
+所以究竟哪个版本胜出，由你决定，而不是由 IDE 决定。
+
+> ⚠️ **panic 钩子并不能捕获一切。** 栈溢出会在保护页上触发错误并以 `SIGSEGV` 的
+> 形式送达；内存不足杀手发送 `SIGKILL`；在展开过程中再次 panic 会直接 abort。这
+> 三种情况下钩子都不会运行，**也不会写出任何崩溃日志**。覆盖这些情况的是自动保存，
+> 因为等到出问题的时候它早已完成——这也正是为什么真正的保证就是这个间隔本身：最多
+> 损失 20 秒的工作。
+
+`<data>` 是操作系统的数据目录——macOS 上是 `~/Library/Application Support`，
+Windows 上是 `%APPDATA%`，Linux 上是 `~/.local/share`。
 
 ---
 

@@ -17,6 +17,7 @@ crescer para cobrir outras superfícies do runtime.
 |---------|--------|-------|
 | **Log de transações de arquivos INDEXED** | ✅ disponível | este documento, §1 |
 | Rastreamento do runtime (`COBOLT_LOG`) | ✅ disponível | §2 |
+| **Logs de queda e recuperação do trabalho** | ✅ disponível | §5 |
 | Runtime de bancos de dados SQL | 🔭 planejado | — |
 | Cliente HTTP / REST | 🔭 planejado | — |
 
@@ -308,6 +309,46 @@ sequenceDiagram
     Child-->>IDE: Done
     Note over IDE: inspector shows CPU/RSS tree + anomalies
 ```
+
+---
+
+## 5. Logs de queda e recuperação do trabalho
+
+Uma aplicação com janela não tem terminal associado, portanto quando a IDE morre
+a sua mensagem de pânico, o seu `file:line` e o seu backtrace vão todos para um
+stderr que ninguém está lendo — a janela simplesmente desaparece e não deixa
+nada para trás. Dois mecanismos distintos substituem isso, porque resolvem dois
+problemas distintos.
+
+**Logs de queda — para que haja algo a diagnosticar.** Um tratador de pânico
+escreve `<data>/cobolt/crash/crash-<segundos>.log` com a mensagem do pânico, o
+seu `file:line:column`, um backtrace forçado, a versão da IDE, o sistema
+operacional, a thread e os arquivos que estavam abertos no momento. Anexe-o a um
+relatório de erro.
+
+**Autossalvamento — para que o trabalho sobreviva.** A cada **20 segundos**, cada
+buffer não salvo do editor e cada form modificado é copiado para
+`<data>/cobolt/recovery/`, junto de um `manifest.toml` que liga cada cópia ao seu
+original. Um arquivo marcador registra que há uma sessão em execução e é apagado
+na saída limpa; encontrar um no arranque seguinte é exatamente o que significa
+"a última sessão terminou mal", e então a IDE oferece restaurar.
+
+**Restaurar nunca sobrescreve.** Ao aceitar a oferta, cada cópia é gravada ao
+lado do seu original como `<nome>.recovered.<ext>` e os caminhos são listados no
+painel Output. A cópia veio de um processo que já havia perdido o pé, então qual
+versão vence é decisão sua, não da IDE.
+
+> ⚠️ **Um tratador de pânico não consegue capturar tudo.** Um estouro de pilha
+> falha na página de guarda e chega como `SIGSEGV`; o matador por falta de
+> memória envia `SIGKILL`; um segundo pânico durante o desenrolamento aborta. Nos
+> três casos o tratador nunca roda e **nenhum log de queda é escrito**. O
+> autossalvamento é o que cobre esses casos, porque já aconteceu quando algo dá
+> errado — e é também por isso que o intervalo é a garantia real: no máximo 20
+> segundos de trabalho.
+
+`<data>` é o diretório de dados do sistema operacional:
+`~/Library/Application Support` no macOS, `%APPDATA%` no Windows,
+`~/.local/share` no Linux.
 
 ---
 

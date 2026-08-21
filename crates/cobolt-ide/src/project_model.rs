@@ -298,6 +298,22 @@ pub struct FormsConfig {
     /// Replay the entrance when a window is restored after minimize (038 R2).
     #[serde(default, rename = "entrance-on-restore")]
     pub entrance_on_restore: bool,
+
+    // ── The main-form designation, and its seal ────────────────────────────
+    // Only the main form starts an application: `rcrun` and a built binary
+    // open the form the project designates, never one a caller names. These
+    // two fields are the manifest's half of that record — the other half is
+    // the `main-form="true"` attribute inside the `.cfrm` itself — and
+    // [`save_project`] rewrites both on every save. A runtime that finds them
+    // disagreeing reports a corrupted application and stops.
+    /// Id (uppercased `.cfrm` stem) of the form that carries the mark.
+    #[serde(default, rename = "main-form")]
+    pub main_form: String,
+    /// Keyed digest over the designation and the project's form list, so a
+    /// designation moved by hand does not still verify. Empty in a project
+    /// that predates the seal; it gains one on its next save.
+    #[serde(default, rename = "main-form-seal")]
+    pub main_form_seal: String,
 }
 
 impl FormsConfig {
@@ -335,6 +351,9 @@ impl Default for FormsConfig {
             exit_ms: Self::default_exit_ms(),
             exit_easing: String::new(),
             entrance_on_restore: false,
+            // No designation until a save records one from the form files.
+            main_form: String::new(),
+            main_form_seal: String::new(),
         }
     }
 }
@@ -457,6 +476,16 @@ impl Default for IdeSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMeta {
     pub name: String,
+    /// Which shape of project file this is — see
+    /// [`crate::project_upgrade`], which owns the number and the upgrades
+    /// that raise it.
+    ///
+    /// **0 means "older than the first numbered structure"**, which is every
+    /// project written before this field existed. The IDE never rewrites an
+    /// older project's shape behind the developer's back: it offers the
+    /// upgrade and leaves the file alone until they accept.
+    #[serde(default)]
+    pub structure: u32,
     /// Semantic version `major.minor.fix` (the three parts are edited
     /// separately in the Settings form and recomposed here).
     pub version: String,
@@ -624,6 +653,8 @@ impl CoboltProject {
         Self {
             project: ProjectMeta {
                 name: name_str,
+                // Born current: a new project needs no upgrade, ever.
+                structure: crate::project_upgrade::CURRENT_STRUCTURE,
                 version: "1.0.0".into(),
                 main: main.into(),
                 copyright: String::new(),
@@ -1248,9 +1279,89 @@ pub fn load_project(path: &Path) -> Result<CoboltProject, ProjectError> {
 }
 
 pub fn save_project(project: &CoboltProject, path: &Path) -> Result<(), ProjectError> {
-    let text = toml::to_string_pretty(project).map_err(|e| ProjectError::Toml(e.to_string()))?;
+    // Re-seal the main-form designation on the way out. The IDE is the only
+    // writer of this record, so every save restates it from what the `.cfrm`
+    // files actually say — no shadow copy to drift, and no way for a seal to
+    // go stale behind an ordinary edit.
+    //
+    // Two forms claiming the mark is a state the IDE repairs elsewhere
+    // (spec 037 R3); until it does, the manifest carries NO designation
+    // rather than an arbitrary one, because a wrong seal that verifies is
+    // worse than no seal at all.
+    //
+    // A project of an OLDER structure is left as it is. Sealing it would be a
+    // change to its shape that the developer never asked for; the IDE offers
+    // that upgrade instead ([`crate::project_upgrade`]).
+    let mut project = project.clone();
+    if project.project.structure < crate::project_upgrade::STRUCTURE_MAIN_FORM_SEAL {
+        let text = toml::to_string_pretty(&project).map_err(|e| ProjectError::Toml(e.to_string()))?;
+        std::fs::write(path, text)?;
+        return Ok(());
+    }
+    match path
+        .parent()
+        .map(|dir| cobolt_compiler::main_form_guard::read_designation(dir, &project.files.forms))
+    {
+        Some(Ok(Some(d))) => {
+            project.forms.main_form_seal = cobolt_compiler::main_form_guard::seal(
+                &project.project.name,
+                &d.main_form_id,
+                &d.form_ids,
+            );
+            project.forms.main_form = d.main_form_id;
+        }
+        _ => {
+            project.forms.main_form.clear();
+            project.forms.main_form_seal.clear();
+        }
+    }
+    let text = toml::to_string_pretty(&project).map_err(|e| ProjectError::Toml(e.to_string()))?;
     std::fs::write(path, text)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod main_form_seal_tests {
+    use super::*;
+    use cobolt_compiler::main_form_guard::{authorize_form_start, StartVerdict};
+
+    /// Saving a project records which form is main and seals it, so `rcrun`
+    /// can tell the IDE's designation from a hand-edited one. The seal a save
+    /// writes is a seal a runtime accepts — this test is that contract.
+    #[test]
+    fn saving_seals_the_designation() {
+        let dir = std::env::temp_dir().join("prc-ide-seal");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("forms")).unwrap();
+
+        for (id, main) in [("SIGNON", true), ("MENU", false)] {
+            let mut form = cobolt_forms::Form::new(id, id, 800, 600);
+            form.main_form = main;
+            cobolt_forms::save_form(&form, &dir.join(format!("forms/{id}.cfrm"))).unwrap();
+        }
+
+        let mut proj = CoboltProject::new("Demo", "src/main.cbl");
+        proj.files.forms = vec!["forms/SIGNON.cfrm".into(), "forms/MENU.cfrm".into()];
+        let manifest = dir.join("cobolt.toml");
+        save_project(&proj, &manifest).unwrap();
+
+        let saved = load_project(&manifest).unwrap();
+        assert_eq!(saved.forms.main_form, "SIGNON", "the marked form is recorded");
+        assert!(!saved.forms.main_form_seal.is_empty(), "and sealed");
+
+        assert_eq!(
+            authorize_form_start(&dir.join("forms/SIGNON.cfrm"), None),
+            StartVerdict::Allowed,
+            "a saved project's own main form starts with no complaint"
+        );
+        assert!(
+            matches!(
+                authorize_form_start(&dir.join("forms/MENU.cfrm"), None),
+                StartVerdict::Refused { .. }
+            ),
+            "and no other form does"
+        );
+    }
 }
 
 // ── Package (zip) ─────────────────────────────────────────────────────────────

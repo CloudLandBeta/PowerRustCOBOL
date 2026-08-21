@@ -18,6 +18,7 @@ surfaces du runtime.
 |---------|--------|-------|
 | **Journal de transactions des fichiers INDEXED** | ✅ disponible | ce document, §1 |
 | Traçage du runtime (`COBOLT_LOG`) | ✅ disponible | §2 |
+| **Journaux de plantage et récupération du travail** | ✅ disponible | §5 |
 | Runtime de bases de données SQL | 🔭 prévu | — |
 | Client HTTP / REST | 🔭 prévu | — |
 
@@ -314,6 +315,48 @@ sequenceDiagram
     Child-->>IDE: Done
     Note over IDE: inspector shows CPU/RSS tree + anomalies
 ```
+
+---
+
+## 5. Journaux de plantage et récupération du travail
+
+Une application fenêtrée n'a aucun terminal attaché : lorsque l'IDE meurt, son
+message de panique, son `file:line` et sa trace partent tous vers une sortie
+d'erreur que personne ne lit — la fenêtre disparaît, sans rien laisser derrière
+elle. Deux mécanismes distincts remplacent cela, car ils résolvent deux problèmes
+distincts.
+
+**Journaux de plantage — pour qu'il reste quelque chose à diagnostiquer.** Un
+gestionnaire de panique écrit `<data>/cobolt/crash/crash-<secondes>.log`
+contenant le message de panique, son `file:line:column`, une trace forcée, la
+version de l'IDE, le système, le thread et les fichiers qui étaient ouverts.
+Joignez-le à un rapport de bogue.
+
+**Sauvegarde automatique — pour que le travail survive.** Toutes les
+**20 secondes**, chaque tampon d'éditeur non enregistré et chaque form modifié
+est copié dans `<data>/cobolt/recovery/`, avec un `manifest.toml` qui relie
+chaque copie à son original. Un fichier témoin indique qu'une session est en
+cours et il est supprimé lors d'une sortie propre ; en trouver un au démarrage
+suivant est précisément ce que veut dire « la session précédente s'est mal
+terminée », et l'IDE propose alors de restaurer.
+
+**Restaurer n'écrase jamais.** En acceptant, chaque copie est écrite à côté de
+son original sous la forme `<nom>.recovered.<ext>` et les chemins sont listés
+dans le panneau Output. La copie provient d'un processus qui avait déjà perdu
+pied : quelle version l'emporte est votre décision, pas celle de l'IDE.
+
+> ⚠️ **Un gestionnaire de panique ne peut pas tout intercepter.** Un débordement
+> de pile fait faute sur la page de garde et arrive sous forme de `SIGSEGV` ; le
+> tueur de mémoire envoie `SIGKILL` ; une seconde panique pendant le déroulement
+> avorte. Dans les trois cas le gestionnaire ne s'exécute jamais et **aucun
+> journal de plantage n'est écrit**. C'est la sauvegarde automatique qui couvre
+> ces cas, parce qu'elle a déjà eu lieu au moment où quelque chose tourne mal —
+> et c'est aussi pourquoi l'intervalle est la vraie garantie : au plus
+> 20 secondes de travail.
+
+`<data>` est le répertoire de données du système :
+`~/Library/Application Support` sous macOS, `%APPDATA%` sous Windows,
+`~/.local/share` sous Linux.
 
 ---
 
