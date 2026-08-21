@@ -66,7 +66,12 @@ fn tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
 }
 
 /// The agent every request runs through. `timeout_ms` of 0 keeps ureq's defaults.
-fn agent(timeout_ms: u64) -> ureq::Agent {
+///
+/// `pub(crate)` so `ors_bridge` reuses this one TLS setup rather than building a
+/// second: the connector is the whole reason HTTPS works here at all, and a
+/// module that quietly forgot it would fail with "no TLS backend" only in
+/// production, only over HTTPS.
+pub(crate) fn agent(timeout_ms: u64) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
     if timeout_ms > 0 {
         builder = builder.timeout(std::time::Duration::from_millis(timeout_ms));

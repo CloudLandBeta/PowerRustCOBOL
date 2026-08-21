@@ -60,12 +60,40 @@ fn the_maps_example_form_loads_and_is_embeddable() {
         "BTN-ROUTE",
         "BTN-DRIVE",
         "BTN-CLEAR",
+        // The keyless road route, and the field its credential is typed into.
+        "BTN-ROAD",
+        "TXT-ORS-KEY",
     ] {
         assert!(
             form.controls.iter().any(|c| c.id == id),
-            "the example lost its {id} button"
+            "the example lost its {id} control"
         );
     }
+
+    // The OpenRouteService key is asked for, never kept: it is typed into a
+    // masked field at run time and must not be sitting in the form file — which
+    // is exactly what a well-meaning "just fill in the default" edit would do.
+    let key_box = form
+        .controls
+        .iter()
+        .find(|c| c.id == "TXT-ORS-KEY")
+        .expect("checked above");
+    assert_eq!(
+        key_box
+            .get_prop("Text")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default(),
+        "",
+        "a credential must never be saved in the example form"
+    );
+    assert_ne!(
+        key_box
+            .get_prop("PasswordCharacter")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default(),
+        "",
+        "the key field must be masked"
+    );
 }
 
 /// The regions it draws are real geometry, and — the whole reason the fill is

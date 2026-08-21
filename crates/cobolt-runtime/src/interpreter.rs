@@ -1646,6 +1646,67 @@ impl Interpreter {
         CobolValue::from_str("", 0)
     }
 
+    /// `TraceRoad(key, fromLat, fromLng, toLat, toLng)` — a road route from
+    /// OpenRouteService, on the same async lifecycle as every other Maps
+    /// operation (spec 032): returns an empty string at once, sets `Busy`, and
+    /// delivers `metres⇥seconds⇥polyline` in `ResponseBody` on `onComplete`.
+    ///
+    /// The key is `args[0]`, not `_ResolvedMapsApiKey`: this provider's
+    /// credential is supplied by the running program, typically from a field
+    /// the operator typed it into, and is never written to the project.
+    fn spawn_ors_op(&mut self, obj: &str, args: Vec<String>) -> CobolValue {
+        if self.async_pending.contains_key(obj) {
+            return CobolValue::from_str("", 0); // one in-flight op per control
+        }
+        if args.first().map(|k| k.trim().is_empty()).unwrap_or(true) {
+            // Same shape as a missing Maps key: fail without a worker thread
+            // and without a request that would certainly be refused.
+            self.obj_set(
+                obj,
+                "LastError",
+                "TraceRoad: no OpenRouteService key was supplied".into(),
+            );
+            self.async_dispatch_queue
+                .push_back((obj.to_string(), "onError".to_string()));
+            return CobolValue::from_str("", 0);
+        }
+        let timeout_ms = self.rest_timeout_ms(obj);
+        let generation = {
+            let gen = self
+                .async_generations
+                .entry(obj.to_string())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        self.obj_set(obj, "Busy", "1".into());
+        self.async_pending.insert(
+            obj.to_string(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms,
+            },
+        );
+
+        let tx = self.async_result_tx.clone();
+        let ctrl_id = obj.to_string();
+        std::thread::spawn(move || {
+            let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
+            let outcome =
+                match crate::ors_bridge::trace_road(a(0), a(1), a(2), a(3), a(4), timeout_ms) {
+                    Ok(body) => crate::async_op::AsyncOutcome::HttpSuccess { body, status: 200 },
+                    Err(message) => crate::async_op::AsyncOutcome::HttpError { message },
+                };
+            let _ = tx.send(crate::async_op::AsyncOpResult {
+                ctrl_id,
+                generation,
+                outcome,
+            });
+        });
+
+        CobolValue::from_str("", 0)
+    }
+
     /// Parse a WebSearch control's `ResponseBody` (the raw Google Custom
     /// Search JSON API response) into `(title, snippet, link)` tuples, one
     /// per result item (spec 039 T15/R29). An empty or malformed body (not
@@ -7626,6 +7687,12 @@ impl Interpreter {
                 self.spawn_maps_op(obj, "DISTANCEMATRIX", vec![arg(0), arg(1)])
             }
             "PLACESSEARCH" => self.spawn_maps_op(obj, "PLACESSEARCH", vec![arg(0), arg(1)]),
+            // The other door to a road route: OpenRouteService, whose key is
+            // the FIRST ARGUMENT rather than a project setting — the program
+            // asks its operator for it and the platform never stores it.
+            "TRACEROAD" => {
+                self.spawn_ors_op(obj, vec![arg(0), arg(1), arg(2), arg(3), arg(4)])
+            }
             // Markers accessors (R18) — the property write path
             // (`SET <mapid>::Markers TO ...`) already works generically
             // (Markers is a plain string property like any other), these
