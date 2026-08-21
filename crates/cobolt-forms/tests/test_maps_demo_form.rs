@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 fn demo_form() -> Option<PathBuf> {
     let p = PathBuf::from(std::env::var("HOME").ok()?)
-        .join("Documents/PowerDemo3/forms/maps/maps-demo.cfrm");
+        .join("Documents/PowerDemo3/forms/Inner-Forms/maps-demo.cfrm");
     p.exists().then_some(p)
 }
 

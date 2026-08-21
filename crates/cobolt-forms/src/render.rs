@@ -4044,6 +4044,8 @@ fn render_interactive(
                     lat: m.lat,
                     lng: m.lng,
                     label: &m.label,
+                    id: &m.id,
+                    info: &m.info,
                 })
                 .collect();
             let click_pos = if resp.clicked() {
@@ -4053,6 +4055,56 @@ fn render_interactive(
             };
             let routes = crate::model::parse_map_routes(&sv(ctrl, "Routes"));
             let regions = crate::model::parse_map_regions(&sv(ctrl, "Regions"));
+            // The info window follows the FORM's colours by default and takes
+            // an override per part, so a map matches the form it sits on
+            // without being told to, and can still be restyled when it must be.
+            let base = map_tiles::InfoStyle::default();
+            // An EMPTY property means "follow the theme" — which is why each is
+            // tested for emptiness rather than parsed straight through:
+            // `parse_color` has no way to say "nothing was set".
+            let styled = |key: &str| {
+                let raw = sv(ctrl, key);
+                (!raw.trim().is_empty()).then(|| paint::parse_color(&raw))
+            };
+            let mut info_style = map_tiles::InfoStyle {
+                bg: styled("BackgroundColor").unwrap_or(base.bg),
+                fg: styled("ForegroundColor").unwrap_or(base.fg),
+                ..base
+            };
+            if let Some(c) = styled("InfoBackgroundColor") {
+                info_style.bg = c;
+            }
+            if let Some(c) = styled("InfoForegroundColor") {
+                info_style.fg = c;
+            }
+            if let Some(c) = styled("InfoBorderColor") {
+                info_style.border = c;
+            }
+            if let Ok(r) = sv(ctrl, "InfoCornerRadius").trim().parse::<f32>() {
+                info_style.corner = r.clamp(0.0, 32.0);
+            }
+            let shadow_raw = sv(ctrl, "InfoShadow");
+            if !shadow_raw.trim().is_empty() {
+                info_style.shadow =
+                    shadow_raw != "0" && !shadow_raw.eq_ignore_ascii_case("false");
+            }
+            let fs = sv(ctrl, "FontSize").trim().parse::<f32>().unwrap_or(0.0);
+            if fs > 0.0 {
+                info_style.font_size = fs.clamp(8.0, 28.0);
+            }
+
+            let pointer = map_tiles::MapPointer {
+                // Only while the pointer is genuinely over THIS map: a card
+                // that lingers after the pointer has left is worse than none.
+                hover: if resp.hovered() && enabled {
+                    ui.ctx().pointer_latest_pos().filter(|p| screen.contains(*p))
+                } else {
+                    None
+                },
+                click: click_pos,
+            };
+            let open_marker = sv(ctrl, "SelectedMarkerId");
+            let open_region = sv(ctrl, "SelectedRegionId");
             let hit = map_tiles::paint_map(
                 &painter,
                 screen,
@@ -4062,9 +4114,59 @@ fn render_interactive(
                 &markers,
                 &routes,
                 &regions,
-                click_pos,
+                pointer,
+                &open_marker,
+                &open_region,
+                &info_style,
             );
-            if let Some(idx) = hit {
+
+            // Hover events fire BESIDE the native window, so a form can build
+            // its own panel without giving up the default one. Only on the
+            // frame the hovered item CHANGES: an event every frame would run
+            // the handler hundreds of times a second over one marker.
+            let hover_id = hit
+                .hovered_marker
+                .and_then(|i| records.get(i))
+                .map(|m| m.id.clone())
+                .or_else(|| {
+                    hit.hovered_region
+                        .and_then(|i| regions.get(i))
+                        .map(|r| r.id.clone())
+                })
+                .unwrap_or_default();
+            let hover_mem = ctrl_id.with("map-hover");
+            let last_hover = ui
+                .ctx()
+                .data(|d| d.get_temp::<String>(hover_mem))
+                .unwrap_or_default();
+            if hover_id != last_hover {
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(hover_mem, hover_id.clone()));
+                if !hover_id.is_empty() && enabled {
+                    let (prop, event) = if hit.hovered_marker.is_some() {
+                        ("HoveredMarkerId", "onMarkerHover")
+                    } else {
+                        ("HoveredRegionId", "onRegionHover")
+                    };
+                    out.prop_updates
+                        .push((id.to_owned(), prop.to_owned(), hover_id.clone()));
+                    out.events.push(UiEvent::ev(id, event));
+                }
+            }
+
+            if let Some(idx) = hit.clicked_region {
+                if let Some(r) = regions.get(idx) {
+                    out.prop_updates.push((
+                        id.to_owned(),
+                        "SelectedRegionId".to_owned(),
+                        r.id.clone(),
+                    ));
+                }
+                out.prop_updates
+                    .push((id.to_owned(), "SelectedMarkerId".to_owned(), String::new()));
+                out.events.push(UiEvent::ev(id, "onRegionClick"));
+            }
+            if let Some(idx) = hit.clicked_marker {
                 // Marker identity is exposed via a property, the same way
                 // repeating-group instance data reaches COBOL through
                 // CONTROL-ARRAY-INDEX rather than the event's own target id
@@ -4077,8 +4179,16 @@ fn render_interactive(
                         m.id.clone(),
                     ));
                 }
+                out.prop_updates
+                    .push((id.to_owned(), "SelectedRegionId".to_owned(), String::new()));
                 out.events.push(UiEvent::ev(id, "onMarkerClick"));
-            } else if resp.clicked() && enabled {
+            } else if hit.clicked_region.is_none() && resp.clicked() && enabled {
+                // Clicking bare map dismisses whatever card was open — how
+                // every map behaves, and the only way to shut one.
+                out.prop_updates
+                    .push((id.to_owned(), "SelectedMarkerId".to_owned(), String::new()));
+                out.prop_updates
+                    .push((id.to_owned(), "SelectedRegionId".to_owned(), String::new()));
                 out.events.push(UiEvent::ev(id, "onMapClick"));
             }
         }

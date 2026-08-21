@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.126] — 2026-08-21
+
+### Fixed — a marker's label and info now appear somewhere
+
+Every marker has carried a `label` and an `info` field since the control
+shipped, and nothing ever drew either of them: `label` appeared exactly once in
+the renderer — in a struct definition — and was never read. Regions had neither.
+The result was two fields that stored text nothing displayed.
+
+**Hover shows the name, clicking opens the card**, the way Google's own map
+behaves. Clicking bare map closes it. Regions take part on the same terms and
+gained the two fields, appended after their geometry so records written before
+this still parse. Hit-testing a territory costs nothing extra — a region is
+already triangulated to fill it, so "is the pointer inside" is "is it in any of
+its triangles".
+
+**Both native and event-driven, not a choice between them.** The window draws
+itself from `label`/`info` with no code at all; `onMarkerHover`, `onRegionHover`
+and `onRegionClick` fire beside it, carrying `HoveredMarkerId` /
+`HoveredRegionId` / `SelectedRegionId`, so a form that wants to build its own
+panel — or fetch something on hover — can, without giving up the default. Hover
+events fire only when the item under the pointer *changes*, not every frame.
+
+**It follows the form, and can be overridden.** Colours come from the control's
+own background and foreground by default, so a map matches the form it sits on
+without being configured. `InfoBackgroundColor`, `InfoForegroundColor`,
+`InfoBorderColor`, `InfoCornerRadius` and `InfoShadow` each override one part;
+left empty they defer to the theme.
+
+### Added — a Maps skill for Grace and the specialists
+
+The property reference already reaches the agents through the Knowledge Base,
+but a reference cannot teach the *shape* of a working solution — and every agent
+that got maps wrong got it wrong the same three ways: assuming a data method
+returns its answer, assuming the drawing half needs an API key, and parsing a
+distance back out of `"72,4 km"` when the metres were in the next field. That
+recipe is now a skill seeded into both the Form Designer and Event Handler
+agents, with a checklist they can hold a finished map up against.
+
 ## [PowerRustCOBOL 1.61.125] — 2026-08-21
 
 ### Fixed — selecting a control no longer moves it, and a selection drags as one

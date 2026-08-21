@@ -214,7 +214,12 @@ fn is_ear(pts: &[(f32, f32)], remaining: &[usize], ia: usize, ib: usize, ic: usi
     true
 }
 
-fn point_in_triangle(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
+/// Is `p` inside triangle `abc` (edges included)?
+///
+/// Public because hit-testing a filled region is the same question the ear
+/// test asks: a region is its triangles, so "is the pointer in this territory"
+/// costs nothing beyond the fill that is already computed.
+pub fn point_in_triangle(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
     let d1 = cross(a, b, p);
     let d2 = cross(b, c, p);
     let d3 = cross(c, a, p);

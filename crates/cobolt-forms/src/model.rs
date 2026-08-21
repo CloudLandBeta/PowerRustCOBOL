@@ -1970,6 +1970,10 @@ pub struct MapRegionRecord {
     pub stroke: String,
     pub width: f32,
     pub geometry: String,
+    /// Shown in the hover tooltip. Empty = no tooltip for this region.
+    pub label: String,
+    /// The body of the click card, under the label.
+    pub info: String,
 }
 
 /// Parse a `Routes` property. A malformed line is skipped, not fatal — the
@@ -1994,22 +1998,30 @@ pub fn parse_map_routes(raw: &str) -> Vec<MapRouteRecord> {
 }
 
 /// Parse a `Regions` property. Malformed lines are skipped.
+///
+/// `label` and `info` come AFTER the geometry, not before it, so a record
+/// written before they existed still parses with both empty. Geometry never
+/// contains a TAB, so widening the split cannot corrupt it.
 pub fn parse_map_regions(raw: &str) -> Vec<MapRegionRecord> {
     raw.lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|line| {
-            let mut parts = line.splitn(5, '\t');
+            let mut parts = line.splitn(7, '\t');
             let id = parts.next()?.trim().to_owned();
             let fill = parts.next().unwrap_or("").trim().to_owned();
             let stroke = parts.next().unwrap_or("").trim().to_owned();
             let width = parts.next().unwrap_or("").trim().parse().unwrap_or(0.0);
             let geometry = parts.next().unwrap_or("").trim().to_owned();
+            let label = parts.next().unwrap_or("").trim().to_owned();
+            let info = parts.next().unwrap_or("").trim().to_owned();
             (!geometry.is_empty()).then_some(MapRegionRecord {
                 id,
                 fill,
                 stroke,
                 width,
                 geometry,
+                label,
+                info,
             })
         })
         .collect()
@@ -2686,6 +2698,13 @@ impl ControlType {
                 "onCancelled",
                 "onMapClick",
                 "onMarkerClick",
+                // Hover and region events (2026-08-21). The native info window
+                // draws itself from each item's own label/info; these fire
+                // BESIDE it, so a form that wants to compose its own panel — or
+                // fetch something on hover — can, without giving up the default.
+                "onMarkerHover",
+                "onRegionHover",
+                "onRegionClick",
                 "onBoundsChanged",
                 "onDblClick",
                 "onDoubleClick",
@@ -4266,6 +4285,15 @@ impl Control {
                 // drawn on top of the basemap from geometry the program holds.
                 props.insert("Routes".into(), PropValue::String("".into()));
                 props.insert("Regions".into(), PropValue::String("".into()));
+                // The info window drawn on hover and click. Empty colours mean
+                // "follow the form's theme" — the default — and any one of them
+                // overrides just that part, so a map can match the form without
+                // being told to and still be restyled when it has to be.
+                props.insert("InfoBackgroundColor".into(), PropValue::String("".into()));
+                props.insert("InfoForegroundColor".into(), PropValue::String("".into()));
+                props.insert("InfoBorderColor".into(), PropValue::String("".into()));
+                props.insert("InfoCornerRadius".into(), PropValue::Int(8));
+                props.insert("InfoShadow".into(), PropValue::Bool(true));
                 props.insert("ApiKeySource".into(), PropValue::String("".into()));
             }
             ControlType::RestClient => {
