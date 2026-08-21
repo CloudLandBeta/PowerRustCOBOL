@@ -94,9 +94,22 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
                 .legs
                 .first()
                 .ok_or_else(|| "Directions: route has no legs".to_owned())?;
+            // Six fields, and the first three are the ones this always
+            // returned — appended to, never reordered, so COBOL that already
+            // UNSTRINGs three keeps working.
+            //
+            // The numbers matter as much as the text: `72,4 km` is something to
+            // display, `72400` is something to COMPUTE with, and a business
+            // language that can only print a distance cannot charge for it. The
+            // encoded polyline is the route itself, for `AddRoute` to trace.
             Ok(format!(
-                "{}\t{}\t{}",
-                leg.distance.text, leg.duration.text, route.summary
+                "{}\t{}\t{}\t{}\t{}\t{}",
+                leg.distance.text,
+                leg.duration.text,
+                route.summary,
+                leg.distance.value,
+                leg.duration.value.num_seconds(),
+                route.overview_polyline.points,
             ))
         }
         "DISTANCEMATRIX" => {
@@ -129,7 +142,15 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
                 .as_ref()
                 .map(|d| d.text.clone())
                 .unwrap_or_default();
-            Ok(format!("{distance}\t{duration}"))
+            // Metres and seconds appended after the two display strings — see
+            // DIRECTIONS above for why the numbers are the useful half.
+            let meters = element.distance.as_ref().map(|d| d.value).unwrap_or(0);
+            let seconds = element
+                .duration
+                .as_ref()
+                .map(|d| d.value.num_seconds())
+                .unwrap_or(0);
+            Ok(format!("{distance}\t{duration}\t{meters}\t{seconds}"))
         }
         "PLACESSEARCH" => {
             let query = arg(0);

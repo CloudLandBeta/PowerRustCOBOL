@@ -7660,6 +7660,47 @@ impl Interpreter {
                 self.obj_set(obj, "Markers", updated);
                 none
             }
+            // Routes and regions, the same collection shape as markers: one
+            // TAB-separated line each, appended to a plain string property.
+            //
+            // `geometry` is either an encoded polyline — exactly what
+            // DIRECTIONS returns in its sixth field, so a route can be traced
+            // straight from the answer — or an explicit `lat,lng;lat,lng;…`
+            // list for geometry the program computed itself. Nothing here has
+            // to know which: the renderer tells them apart.
+            "ADDROUTE" => {
+                let (id, color, width, geometry) = (arg(0), arg(1), arg(2), arg(3));
+                let line = format!("{id}\t{color}\t{width}\t{geometry}");
+                let updated = append_collection_line(&self.obj_get(obj, "Routes"), &line);
+                self.obj_set(obj, "Routes", updated);
+                none
+            }
+            "REMOVEROUTE" => {
+                let updated = remove_collection_line(&self.obj_get(obj, "Routes"), &arg(0));
+                self.obj_set(obj, "Routes", updated);
+                none
+            }
+            "CLEARROUTES" => {
+                self.obj_set(obj, "Routes", String::new());
+                none
+            }
+            "ADDREGION" => {
+                let (id, fill, stroke, width, geometry) =
+                    (arg(0), arg(1), arg(2), arg(3), arg(4));
+                let line = format!("{id}\t{fill}\t{stroke}\t{width}\t{geometry}");
+                let updated = append_collection_line(&self.obj_get(obj, "Regions"), &line);
+                self.obj_set(obj, "Regions", updated);
+                none
+            }
+            "REMOVEREGION" => {
+                let updated = remove_collection_line(&self.obj_get(obj, "Regions"), &arg(0));
+                self.obj_set(obj, "Regions", updated);
+                none
+            }
+            "CLEARREGIONS" => {
+                self.obj_set(obj, "Regions", String::new());
+                none
+            }
             "CALL" => {
                 let verb = arg(0).to_ascii_uppercase();
                 if self.rest_is_async(obj) {
@@ -8761,6 +8802,31 @@ fn build_para_map(body: &ProcedureBody) -> (IndexMap<String, Vec<Stmt>>, Vec<Str
 // ── Free functions ────────────────────────────────────────────────────────────
 
 /// Convert an AST literal to a runtime `CobolValue`.
+/// Append one record to a newline-separated collection property, replacing any
+/// existing record with the same id (the first TAB-separated field).
+///
+/// Re-adding an id UPDATES it rather than stacking a second copy: a program
+/// that redraws a route as its data changes would otherwise pile duplicates on
+/// the map, each drawn over the last, and never be able to move one.
+fn append_collection_line(existing: &str, line: &str) -> String {
+    let id = line.split('\t').next().unwrap_or("");
+    let mut out: Vec<&str> = existing
+        .lines()
+        .filter(|l| !l.trim().is_empty() && l.split('\t').next().unwrap_or("") != id)
+        .collect();
+    out.push(line);
+    out.join("\n")
+}
+
+/// Drop the record with this id from a newline-separated collection property.
+fn remove_collection_line(existing: &str, id: &str) -> String {
+    existing
+        .lines()
+        .filter(|l| !l.trim().is_empty() && l.split('\t').next().unwrap_or("") != id)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn literal_to_value(lit: &Literal) -> CobolValue {
     match lit {
         Literal::Integer(n) => CobolValue::from_i64(*n),

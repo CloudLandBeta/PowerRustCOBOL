@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.124] — 2026-08-20
+
+### Fixed — the Maps control does the things a map control is for
+
+Plotting a point was all it could do. Planning a route, drawing one, shading a
+territory, or getting a drive time you could calculate with were all missing —
+so a control that shipped in the toolbox could not be used for the work maps are
+put on forms to do.
+
+**Drive time arrives as numbers, not just words.** `Directions` returned
+`72,4 km` and `1 hour 5 mins` — fine to print, impossible to charge for. It now
+also returns the distance in **metres** and the duration in **seconds**, so
+`COMPUTE` works, plus the route's encoded polyline. Six TAB-separated fields, and
+the first three are the ones it always returned, so existing handlers are
+unaffected. `DistanceMatrix` gained the same two numbers.
+
+**Routes can be traced.** A new `Routes` property and `AddRoute` /
+`RemoveRoute` / `ClearRoutes` draw lines over the basemap, with a colour and
+width each and a white casing underneath so they stay readable over mixed
+terrain. The geometry is either the encoded polyline `Directions` just returned —
+so Google's own route traces with no conversion — or an explicit
+`lat,lng;lat,lng;…` list for a route your program worked out. **Neither needs an
+API key**: the basemap is OpenStreetMap and the geometry is yours.
+
+**Regions can be filled.** A `Regions` property and `AddRegion` /
+`RemoveRegion` / `ClearRegions` shade areas — sales territories, delivery zones —
+with a translucent fill and an outline each. A region **may be concave**, which
+is the whole point: a territory follows coastlines and borders, and the drawing
+engine fills a polygon by assuming it is convex, which floods the notches. The
+fill is triangulated instead, so any simple polygon renders correctly.
+
+Re-using an id **replaces** that route or region rather than stacking a second
+copy over it — a map that redraws itself as its data changes would otherwise
+accumulate invisible duplicates it could never move.
+
+**And there is a worked example**: `forms/maps/maps-demo.cfrm` in the demo
+project — five salesmen as markers, five coloured territories, Madrid → Granada
+traced, and the drive time in kilometres, minutes and cost. Everything in it
+works with no credential configured except the one button that says it calls
+Google.
+
 ## [PowerRustCOBOL 1.61.123] — 2026-08-20
 
 ### Fixed — the map moves the way you move it

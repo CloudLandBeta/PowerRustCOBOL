@@ -4051,6 +4051,8 @@ fn render_interactive(
             } else {
                 None
             };
+            let routes = crate::model::parse_map_routes(&sv(ctrl, "Routes"));
+            let regions = crate::model::parse_map_regions(&sv(ctrl, "Regions"));
             let hit = map_tiles::paint_map(
                 &painter,
                 screen,
@@ -4058,6 +4060,8 @@ fn render_interactive(
                 new_center.1,
                 new_zoom,
                 &markers,
+                &routes,
+                &regions,
                 click_pos,
             );
             if let Some(idx) = hit {
