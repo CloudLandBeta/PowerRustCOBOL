@@ -52,6 +52,7 @@ pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
 pub mod maps_bridge;
+pub mod ors_bridge;
 pub mod numedit;
 pub mod objects;
 pub mod rust_bridge;
