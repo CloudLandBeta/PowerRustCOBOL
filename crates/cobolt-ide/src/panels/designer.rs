@@ -367,6 +367,51 @@ fn snap(v: i32, grid_px: i32, enabled: bool) -> i32 {
     }
 }
 
+/// How far the pointer must travel before a press counts as a DRAG.
+///
+/// Without it, the smallest tremor between press and release is a one-pixel
+/// drag — and with snapping on, a one-pixel drag moves the control as far as
+/// the nearest grid line. Selecting something must not move it.
+const DRAG_THRESHOLD_PX: i32 = 3;
+
+/// The single offset every control in a selection moves by, or `None` while
+/// the gesture is still a click rather than a drag.
+///
+/// Both of the designer's drag complaints came from snapping each control's own
+/// `origin + delta` (operator, 2026-08-20):
+///
+/// * a **click** has a zero delta, but `snap(origin)` is not the identity — a
+///   control that was not already on a grid line jumped onto one just for being
+///   selected;
+/// * in a **multi-selection** each control rounded independently, so controls
+///   sitting at different sub-grid offsets moved by different amounts and the
+///   group visibly deformed as it travelled.
+///
+/// Snapping the delta once, from the control actually under the pointer, fixes
+/// both: no movement means no delta, and one delta applied to captured origins
+/// is rigid motion. The dragged control is the one that lines up with the grid,
+/// which is the one the developer is watching.
+fn group_move_delta(
+    primary_origin: Option<(i32, i32)>,
+    dx: i32,
+    dy: i32,
+    grid_px: i32,
+    snap_on: bool,
+) -> Option<(i32, i32)> {
+    if dx.abs() < DRAG_THRESHOLD_PX && dy.abs() < DRAG_THRESHOLD_PX {
+        return None;
+    }
+    // No primary (the dragged control vanished mid-gesture): move by the raw
+    // delta rather than refusing to move at all.
+    let Some((ox, oy)) = primary_origin else {
+        return Some((dx, dy));
+    };
+    Some((
+        snap(ox + dx, grid_px, snap_on) - ox,
+        snap(oy + dy, grid_px, snap_on) - oy,
+    ))
+}
+
 // ── Animation preview state ───────────────────────────────────────────────────
 
 /// Live animation state used for designer preview only.
@@ -10468,29 +10513,53 @@ impl DesignerPanel {
         if resp.dragged() || (primary_held && !matches!(&self.drag, DragState::None)) {
             match self.drag.clone() {
                 DragState::MovingControls {
+                    primary_id,
                     origins,
                     start_x,
                     start_y,
-                    ..
                 } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
                     let gp = self.form.grid_size as i32;
                     let sn = self.form.snap_to_grid;
-                    for (id, ox, oy) in &origins {
-                        if let Some(ctrl) = self.form.find_control_mut(id) {
-                            // Anchored controls are locked against mouse dragging;
-                            // X/Y can still be set via the property pane (keyboard).
-                            //
-                            // 049 — so is a SideMenu's footer Panel: the sidebar
-                            // owns where it sits. It is a normal container in
-                            // every other way, and it is the drop target the
-                            // footer band offers.
-                            if ctrl.is_anchored() || ctrl.is_side_menu_footer() {
-                                continue;
+                    // ONE delta for the whole selection, decided by the control
+                    // actually under the pointer.
+                    //
+                    // Each control used to snap its own `origin + delta`, which
+                    // caused both of the things the operator reported
+                    // (2026-08-20). A *click* — zero delta — still evaluated
+                    // `snap(origin)`, so merely selecting a control that was not
+                    // already on a grid line jumped it onto one. And in a
+                    // multi-selection every control rounded independently, so
+                    // controls at different sub-grid offsets moved by different
+                    // amounts and the group deformed as it travelled.
+                    //
+                    // Snapping the DELTA fixes both by construction: no movement
+                    // means no delta means nothing moves, and one delta applied
+                    // to captured origins is rigid motion — the selection keeps
+                    // its shape exactly, however many controls are in it.
+                    let primary_origin = origins
+                        .iter()
+                        .find(|(id, _, _)| *id == primary_id)
+                        .map(|(_, ox, oy)| (*ox, *oy));
+                    if let Some((mdx, mdy)) =
+                        group_move_delta(primary_origin, dx, dy, gp, sn)
+                    {
+                        for (id, ox, oy) in &origins {
+                            if let Some(ctrl) = self.form.find_control_mut(id) {
+                                // Anchored controls are locked against mouse dragging;
+                                // X/Y can still be set via the property pane (keyboard).
+                                //
+                                // 049 — so is a SideMenu's footer Panel: the sidebar
+                                // owns where it sits. It is a normal container in
+                                // every other way, and it is the drop target the
+                                // footer band offers.
+                                if ctrl.is_anchored() || ctrl.is_side_menu_footer() {
+                                    continue;
+                                }
+                                ctrl.rect.x = ox + mdx;
+                                ctrl.rect.y = oy + mdy;
                             }
-                            ctrl.rect.x = snap(ox + dx, gp, sn);
-                            ctrl.rect.y = snap(oy + dy, gp, sn);
                         }
                     }
                     // Show where the drop will land. `reparent_to_drop` decides
@@ -13193,6 +13262,94 @@ mod shell_prop_tests {
              round-trip + clear back to None",
             cases.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod drag_move_tests {
+    use super::*;
+
+    const GRID: i32 = 16;
+
+    /// **Selecting must not move anything.** A click has a zero delta, and the
+    /// old code still evaluated `snap(origin)` — so a control not already on a
+    /// grid line jumped onto one just for being selected (operator,
+    /// 2026-08-20). The off-grid origin here is the whole point: with an
+    /// on-grid one the bug is invisible.
+    #[test]
+    fn a_click_that_does_not_move_leaves_the_control_alone() {
+        assert_eq!(group_move_delta(Some((37, 91)), 0, 0, GRID, true), None);
+    }
+
+    /// …and neither does the tremor between press and release.
+    #[test]
+    fn a_tremor_below_the_threshold_is_still_a_click() {
+        for (dx, dy) in [(1, 0), (0, 1), (2, 2), (-2, 1)] {
+            assert_eq!(
+                group_move_delta(Some((37, 91)), dx, dy, GRID, true),
+                None,
+                "({dx},{dy}) should not have moved anything"
+            );
+        }
+    }
+
+    /// A real drag snaps the control under the pointer onto the grid.
+    #[test]
+    fn a_real_drag_snaps_the_dragged_control_to_the_grid() {
+        // From x=37, dragged +20 → 57, which snaps down to 48: a delta of +11.
+        let (mdx, _) = group_move_delta(Some((37, 91)), 20, 0, GRID, true).expect("a drag");
+        assert_eq!(37 + mdx, 48, "the dragged control lands on a grid line");
+        assert_eq!(mdx, 11);
+    }
+
+    /// **The group keeps its shape.** Every control moves by the SAME delta, so
+    /// relative spacing survives the trip. Each used to snap its own position,
+    /// so controls at different sub-grid offsets moved by different amounts and
+    /// the selection deformed as it travelled — the "out of sync" report.
+    #[test]
+    fn every_control_in_a_selection_moves_by_the_same_delta() {
+        // Deliberately awkward origins: none on a grid line, all different
+        // offsets within their cell.
+        let origins = [(37, 91), (100, 7), (213, 155), (5, 64)];
+        let (mdx, mdy) =
+            group_move_delta(Some(origins[0]), 40, 40, GRID, true).expect("a drag");
+
+        let moved: Vec<(i32, i32)> =
+            origins.iter().map(|(x, y)| (x + mdx, y + mdy)).collect();
+
+        // Relative geometry is preserved exactly.
+        for i in 1..origins.len() {
+            assert_eq!(
+                moved[i].0 - moved[0].0,
+                origins[i].0 - origins[0].0,
+                "control {i} drifted horizontally"
+            );
+            assert_eq!(
+                moved[i].1 - moved[0].1,
+                origins[i].1 - origins[0].1,
+                "control {i} drifted vertically"
+            );
+        }
+    }
+
+    /// With snapping OFF the delta is exactly the pointer's, once it is a drag.
+    #[test]
+    fn without_snapping_the_delta_is_the_raw_movement() {
+        assert_eq!(
+            group_move_delta(Some((37, 91)), 20, -13, GRID, false),
+            Some((20, -13))
+        );
+    }
+
+    /// A gesture that starts as a click and becomes a drag must not accumulate
+    /// the click portion twice — the delta is always measured from the origin,
+    /// never from the previous frame.
+    #[test]
+    fn the_delta_is_absolute_not_incremental() {
+        let o = Some((37, 91));
+        let a = group_move_delta(o, 40, 0, GRID, true).expect("a drag");
+        let b = group_move_delta(o, 40, 0, GRID, true).expect("same gesture again");
+        assert_eq!(a, b, "re-evaluating the same pointer position must not drift");
     }
 }
 

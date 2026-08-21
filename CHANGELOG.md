@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.125] — 2026-08-21
+
+### Fixed — selecting a control no longer moves it, and a selection drags as one
+
+Two complaints about the Form Designer, one cause.
+
+**Clicking a control jumped it onto the grid.** Selecting is not moving, but a
+click was being treated as a zero-distance drag — and snapping a position to the
+grid is not the identity, so any control that was not already on a grid line
+moved the moment you touched it. A press now has to travel a few pixels before it
+counts as a drag at all; below that, nothing moves.
+
+**A multi-selection came apart while being dragged.** Each control was snapping
+its *own* position independently, so controls sitting at different offsets within
+their grid cell rounded by different amounts and the group visibly deformed as it
+travelled — some pieces arriving before others.
+
+Both came from snapping each control's absolute position. The whole selection now
+moves by a single offset, worked out once from the control actually under the
+pointer: no movement means no offset means nothing moves, and one offset applied
+to every captured origin is rigid motion — the selection keeps its shape exactly,
+whatever its controls' original alignment. The control you are dragging is still
+the one that lines up with the grid, which is the one you are watching.
+
 ## [PowerRustCOBOL 1.61.124] — 2026-08-20
 
 ### Fixed — the Maps control does the things a map control is for
