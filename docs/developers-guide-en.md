@@ -4119,6 +4119,26 @@ independent halves with different credential needs:
   no network or a proxy in the way. The first failure of a session says so on
   the console; centring and markers keep working regardless, which is why an
   empty basemap can otherwise pass for a map of open water.
+- **Routes** trace lines over the map — a planned round, a driven route. One
+  line per route in the `Routes` property (`id`⇥`colour`⇥`width`⇥`geometry`), or
+  `AddRoute(id, colour, width, geometry)` / `RemoveRoute(id)` / `ClearRoutes()`.
+  The geometry is either an **encoded polyline** — the sixth field of a
+  `Directions` answer, so Google's own route traces with no conversion — or an
+  explicit `lat,lng;lat,lng;…` list you worked out yourself. **No API key**: the
+  basemap is OpenStreetMap and the geometry is yours.
+- **Regions** fill areas — sales territories, delivery zones, coverage. One line
+  per region (`id`⇥`fill`⇥`stroke`⇥`width`⇥`geometry`), or `AddRegion` /
+  `RemoveRegion` / `ClearRegions`. Give the fill an alpha (`#RRGGBBAA`) so the
+  streets stay readable under it. A region **may be concave** — a territory that
+  follows a coastline fills correctly. No API key either.
+
+  Re-using an id **replaces** that route or region. A map that redraws itself as
+  its data changes would otherwise stack duplicates it could never move again.
+
+  📄 **Worked example** — `forms/maps/maps-demo.cfrm` in the demo project: five
+  salesmen as markers, five coloured territories, Madrid → Granada traced, and
+  the drive time in kilometres, minutes and cost. Every button works with no
+  credential configured except the one that says it calls Google.
 - **Markers** are pins on the map: one line per marker in the `Markers`
   property, TAB-separated (`id`⇥`lat`⇥`lng`⇥`label`⇥`info`). Prefer
   `AddMarker(id, lat, lng, label, info)` / `RemoveMarker(id)` over

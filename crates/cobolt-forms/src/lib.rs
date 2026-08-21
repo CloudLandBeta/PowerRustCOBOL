@@ -98,5 +98,9 @@ pub mod toolbar_actions;
 pub mod window_fx;
 
 // Hand-rolled OpenStreetMap tile rendering for the Maps control (spec 039).
+// Route/region geometry: polyline decoding, point parsing, triangulation.
+// Pure math with no egui in it, so it builds and is tested without `render`.
+pub mod map_geometry;
+
 #[cfg(feature = "render")]
 pub mod map_tiles;

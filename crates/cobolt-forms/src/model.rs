@@ -1938,6 +1938,83 @@ pub fn parse_map_markers(raw: &str) -> Vec<MapMarkerRecord> {
         .collect()
 }
 
+/// One traced route in a `Maps` control's `Routes` property.
+///
+/// Stored one per line, TAB-separated, the same shape `Markers` uses:
+/// `id ⇥ colour ⇥ width ⇥ geometry`. `geometry` is either an encoded polyline
+/// (what Directions returns) or an explicit `lat,lng;lat,lng;…` list — see
+/// [`crate::map_geometry::parse_geometry`], which tells them apart without a
+/// mode flag.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapRouteRecord {
+    pub id: String,
+    /// `#RRGGBB`; empty means the control's default route colour.
+    pub color: String,
+    /// Stroke width in pixels; 0 means the default.
+    pub width: f32,
+    pub geometry: String,
+}
+
+/// One filled area in a `Maps` control's `Regions` property.
+///
+/// `id ⇥ fill ⇥ stroke ⇥ width ⇥ geometry`. A region may be **concave** — the
+/// fill is triangulated rather than assumed convex (see
+/// [`crate::map_geometry::triangulate`]), because a sales territory or a
+/// delivery zone almost never is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapRegionRecord {
+    pub id: String,
+    /// `#RRGGBB` or `#RRGGBBAA`; empty means the default translucent fill.
+    pub fill: String,
+    /// Outline colour; empty means no outline.
+    pub stroke: String,
+    pub width: f32,
+    pub geometry: String,
+}
+
+/// Parse a `Routes` property. A malformed line is skipped, not fatal — the
+/// same rule [`parse_map_markers`] follows and for the same reason.
+pub fn parse_map_routes(raw: &str) -> Vec<MapRouteRecord> {
+    raw.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            let mut parts = line.splitn(4, '\t');
+            let id = parts.next()?.trim().to_owned();
+            let color = parts.next().unwrap_or("").trim().to_owned();
+            let width = parts.next().unwrap_or("").trim().parse().unwrap_or(0.0);
+            let geometry = parts.next().unwrap_or("").trim().to_owned();
+            (!geometry.is_empty()).then_some(MapRouteRecord {
+                id,
+                color,
+                width,
+                geometry,
+            })
+        })
+        .collect()
+}
+
+/// Parse a `Regions` property. Malformed lines are skipped.
+pub fn parse_map_regions(raw: &str) -> Vec<MapRegionRecord> {
+    raw.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            let mut parts = line.splitn(5, '\t');
+            let id = parts.next()?.trim().to_owned();
+            let fill = parts.next().unwrap_or("").trim().to_owned();
+            let stroke = parts.next().unwrap_or("").trim().to_owned();
+            let width = parts.next().unwrap_or("").trim().parse().unwrap_or(0.0);
+            let geometry = parts.next().unwrap_or("").trim().to_owned();
+            (!geometry.is_empty()).then_some(MapRegionRecord {
+                id,
+                fill,
+                stroke,
+                width,
+                geometry,
+            })
+        })
+        .collect()
+}
+
 /// The inverse of [`parse_map_markers`].
 pub fn serialize_map_markers(markers: &[MapMarkerRecord]) -> String {
     markers
@@ -4184,6 +4261,11 @@ impl Control {
                 props.insert("CenterLng".into(), PropValue::String("0".into()));
                 props.insert("Zoom".into(), PropValue::Int(2));
                 props.insert("Markers".into(), PropValue::String("".into()));
+                // Traced routes and filled areas, stored like `Markers`: one
+                // line each, TAB-separated. Both need no API key — they are
+                // drawn on top of the basemap from geometry the program holds.
+                props.insert("Routes".into(), PropValue::String("".into()));
+                props.insert("Regions".into(), PropValue::String("".into()));
                 props.insert("ApiKeySource".into(), PropValue::String("".into()));
             }
             ControlType::RestClient => {

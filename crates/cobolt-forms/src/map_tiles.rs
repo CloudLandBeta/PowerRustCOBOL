@@ -305,6 +305,39 @@ pub struct MapMarker<'a> {
     pub label: &'a str,
 }
 
+/// Route colour when the `Routes` line does not name one.
+const DEFAULT_ROUTE_COLOR: egui::Color32 = egui::Color32::from_rgb(30, 110, 220);
+/// Region fill when the `Regions` line does not name one — translucent on
+/// purpose, so the streets underneath stay readable through a territory.
+const DEFAULT_REGION_FILL: egui::Color32 =
+    egui::Color32::from_rgba_premultiplied(60, 120, 200, 70);
+
+/// `#RGB`, `#RRGGBB` or `#RRGGBBAA` → a colour. `None` for empty or malformed
+/// text, which is how a caller says "use the default" without a sentinel.
+///
+/// A region fill given without alpha is made translucent rather than opaque:
+/// an area that hides the map under it is not what anybody drawing a sales
+/// territory wants, and requiring eight digits to discover that would be a
+/// poor default.
+fn parse_hex_color(text: &str) -> Option<egui::Color32> {
+    let h = text.trim().trim_start_matches('#');
+    let val = |i: usize, n: usize| u8::from_str_radix(&h[i..i + n], 16).ok();
+    match h.len() {
+        3 => {
+            let c = |i: usize| val(i, 1).map(|v| v * 17);
+            Some(egui::Color32::from_rgb(c(0)?, c(1)?, c(2)?))
+        }
+        6 => Some(egui::Color32::from_rgb(val(0, 2)?, val(2, 2)?, val(4, 2)?)),
+        8 => Some(egui::Color32::from_rgba_unmultiplied(
+            val(0, 2)?,
+            val(2, 2)?,
+            val(4, 2)?,
+            val(6, 2)?,
+        )),
+        _ => None,
+    }
+}
+
 /// Paint the OpenStreetMap basemap plus a marker overlay into `rect`,
 /// clipped to it. Pure rendering — no interaction, no `Ui`; a `Painter`
 /// (which carries its own `Context` — `Painter::ctx()`) is all texture
@@ -323,6 +356,8 @@ pub fn paint_map(
     center_lng: f64,
     zoom: u8,
     markers: &[MapMarker],
+    routes: &[crate::model::MapRouteRecord],
+    regions: &[crate::model::MapRegionRecord],
     hit_test: Option<egui::Pos2>,
 ) -> Option<usize> {
     let ctx = painter.ctx();
@@ -402,6 +437,61 @@ pub fn paint_map(
                 }
             }
         }
+    }
+
+    // Regions first, then routes, then markers — an area is a backdrop for the
+    // line crossing it, and a pin belongs on top of both.
+    for region in regions {
+        let pts: Vec<(f32, f32)> = crate::map_geometry::parse_geometry(&region.geometry)
+            .iter()
+            .map(|p| {
+                let (dx, dy) = lat_lng_to_offset(p.lat, p.lng, center_lat, center_lng, zoom);
+                (rect.center().x + dx, rect.center().y + dy)
+            })
+            .collect();
+        if pts.len() < 3 {
+            continue;
+        }
+        let fill = parse_hex_color(&region.fill).unwrap_or(DEFAULT_REGION_FILL);
+        // Triangulated, never `convex_polygon`: a sales territory or a delivery
+        // zone is nearly always concave, and a convex fill floods its notches.
+        for tri in crate::map_geometry::triangulate(&pts) {
+            painter.add(egui::Shape::convex_polygon(
+                tri.iter()
+                    .map(|&i| egui::pos2(pts[i].0, pts[i].1))
+                    .collect(),
+                fill,
+                egui::Stroke::NONE,
+            ));
+        }
+        if let Some(stroke) = parse_hex_color(&region.stroke) {
+            let mut ring: Vec<egui::Pos2> =
+                pts.iter().map(|&(x, y)| egui::pos2(x, y)).collect();
+            ring.push(ring[0]);
+            let w = if region.width > 0.0 { region.width } else { 2.0 };
+            painter.add(egui::Shape::line(ring, egui::Stroke::new(w, stroke)));
+        }
+    }
+    for route in routes {
+        let pts: Vec<egui::Pos2> = crate::map_geometry::parse_geometry(&route.geometry)
+            .iter()
+            .map(|p| {
+                let (dx, dy) = lat_lng_to_offset(p.lat, p.lng, center_lat, center_lng, zoom);
+                rect.center() + egui::vec2(dx, dy)
+            })
+            .collect();
+        if pts.len() < 2 {
+            continue;
+        }
+        let color = parse_hex_color(&route.color).unwrap_or(DEFAULT_ROUTE_COLOR);
+        let width = if route.width > 0.0 { route.width } else { 4.0 };
+        // A casing under the line, the way every map draws a road: a thin
+        // bright route over mixed terrain is unreadable without one.
+        painter.add(egui::Shape::line(
+            pts.clone(),
+            egui::Stroke::new(width + 2.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)),
+        ));
+        painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
     }
 
     let mut nearest: Option<(usize, f32)> = None;

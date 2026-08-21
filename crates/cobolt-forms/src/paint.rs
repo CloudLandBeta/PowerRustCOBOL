@@ -3265,7 +3265,23 @@ fn draw_control_body(
                 label: &m.label,
             })
             .collect();
-        crate::map_tiles::paint_map(painter, rect, center_lat, center_lng, zoom, &markers, None);
+        // The designer face draws routes and regions too — a territory map you
+        // cannot see while laying it out is not a design surface.
+        let routes = crate::model::parse_map_routes(
+            &ctrl
+                .get_prop("Routes")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default(),
+        );
+        let regions = crate::model::parse_map_regions(
+            &ctrl
+                .get_prop("Regions")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default(),
+        );
+        crate::map_tiles::paint_map(
+            painter, rect, center_lat, center_lng, zoom, &markers, &routes, &regions, None,
+        );
         return;
     }
 

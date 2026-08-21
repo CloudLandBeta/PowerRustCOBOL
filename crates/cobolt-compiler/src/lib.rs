@@ -3268,6 +3268,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "one marker per line, TAB-separated: `id\\tlat\\tlng\\tlabel\\tinfo`",
             "Pins drawn on the map. Prefer the AddMarker/RemoveMarker methods over hand-formatting this.",
         ),
+        "Routes" => (
+            "one route per line, TAB-separated: `id\\tcolour\\twidth\\tgeometry`",
+            "Lines traced over the basemap — a planned delivery run, a driven route. `colour` is `#RRGGBB` (empty = the default blue), `width` is pixels (0 = default). `geometry` is either an encoded polyline — exactly what the sixth field of a Directions ResponseBody carries, so a route can be traced straight from the answer — or an explicit `lat,lng;lat,lng;…` list for geometry the program worked out itself. Prefer AddRoute/RemoveRoute/ClearRoutes over hand-formatting this. Needs no API key: the geometry comes from your program.",
+        ),
+        "Regions" => (
+            "one region per line, TAB-separated: `id\\tfill\\tstroke\\twidth\\tgeometry`",
+            "Filled areas over the basemap — sales territories, delivery zones, coverage. `fill` is `#RRGGBB` or `#RRGGBBAA` (give it an alpha so the streets stay readable underneath); `stroke` is the outline, empty for none. `geometry` is the same as Routes and the ring is closed for you. A region MAY be concave — the fill is triangulated rather than assumed convex, so a territory that follows a coastline or a border fills correctly. Prefer AddRegion/RemoveRegion/ClearRegions. Needs no API key.",
+        ),
         "ApiKeySource" => (
             "reserved — currently unused",
             "Declared but not read by any runtime or codegen path today. The google_maps API key is resolved entirely from the project's Google Maps credential slot (Settings → Integrations), never from a control property — do not rely on this property for anything.",
@@ -3549,14 +3557,26 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         "Maps" => vec![
             ("Geocode(address: String)", "**Async** — starts the lookup and returns an EMPTY string at once. `onComplete` delivers `lat\\tlng\\tformatted_address` in `ResponseBody`. Fails \"not configured\" with no google_maps key set (R33)."),
             ("ReverseGeocode(lat: String, lng: String)", "**Async** — `onComplete` delivers the formatted address in `ResponseBody`."),
-            ("Directions(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text\\troute_summary` in `ResponseBody`."),
-            ("DistanceMatrix(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text` in `ResponseBody`."),
+            ("Directions(origin: String, destination: String)", "**Async** — `onComplete` delivers SIX TAB-separated fields in `ResponseBody`: `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline`. The first three read; the numbers are what you COMPUTE with; the polyline goes straight into `AddRoute` to trace the route on the map."),
+            ("DistanceMatrix(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text\\tdistance_METRES\\tduration_SECONDS` in `ResponseBody`."),
             ("PlacesSearch(query: String, radiusMeters: String)", "**Async** — `onComplete` delivers one `place_id\\tname\\taddress\\tlat\\tlng` line per result in `ResponseBody`."),
             (
                 "AddMarker(id: String, lat: String, lng: String, label: String, info: String)",
                 "Append one pin to Markers (ergonomic alternative to hand-formatting the TAB-separated property)."
             ),
             ("RemoveMarker(id: String)", "Remove the marker whose id matches, if any."),
+            (
+                "AddRoute(id: String, colour: String, width: String, geometry: String)",
+                "Trace a line over the basemap. `geometry` is an encoded polyline (Directions' sixth field) or `lat,lng;lat,lng;…`. Re-using an id REPLACES that route rather than stacking a second copy. Needs no API key."
+            ),
+            ("RemoveRoute(id: String)", "Remove the route with that id."),
+            ("ClearRoutes()", "Remove every route."),
+            (
+                "AddRegion(id: String, fill: String, stroke: String, width: String, geometry: String)",
+                "Fill an area over the basemap — a sales territory, a delivery zone. `fill` takes an alpha (`#RRGGBBAA`) so the map stays readable underneath. The ring closes itself and MAY be concave. Re-using an id replaces it. Needs no API key."
+            ),
+            ("RemoveRegion(id: String)", "Remove the region with that id."),
+            ("ClearRegions()", "Remove every region."),
         ],
         "WebSearch" => vec![
             ("Search()", "Run a Custom Search using the current SearchEngineId/Query/NumResults/SafeSearch. Async mode: returns immediately, raw JSON lands in ResponseBody + onComplete. Sync mode: returns the raw JSON body. Fails \"not configured\" with no Custom Search key set (R33)."),
@@ -4429,11 +4449,17 @@ fn methods_reference_doc() -> String {
             &[
                 ("Geocode(address: String)", "Async. `onComplete`: `ResponseBody` = `lat\\tlng\\tformatted_address`."),
                 ("ReverseGeocode(lat: String, lng: String)", "Async. `onComplete`: `ResponseBody` = the formatted address."),
-                ("Directions(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\troute_summary`."),
-                ("DistanceMatrix(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text`."),
+                ("Directions(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline` — the numbers to COMPUTE with, the polyline for `AddRoute`."),
+                ("DistanceMatrix(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\tdistance_METRES\\tduration_SECONDS`."),
                 ("PlacesSearch(query: String, radiusMeters: String)", "Async. `onComplete`: `ResponseBody` = one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
                 ("AddMarker(id, lat, lng, label, info: String)", "Append one pin to `Markers`."),
                 ("RemoveMarker(id: String)", "Remove the marker with that id."),
+                ("AddRoute(id, colour, width, geometry: String)", "Trace a line: an encoded polyline or `lat,lng;lat,lng;…`. Re-using an id replaces it. No API key needed."),
+                ("RemoveRoute(id: String)", "Remove that route."),
+                ("ClearRoutes()", "Remove every route."),
+                ("AddRegion(id, fill, stroke, width, geometry: String)", "Fill an area — a sales territory. `fill` takes an alpha; the ring may be concave. No API key needed."),
+                ("RemoveRegion(id: String)", "Remove that region."),
+                ("ClearRegions()", "Remove every region."),
             ],
         ),
         (
