@@ -4119,6 +4119,17 @@ independent halves with different credential needs:
   no network or a proxy in the way. The first failure of a session says so on
   the console; centring and markers keep working regardless, which is why an
   empty basemap can otherwise pass for a map of open water.
+- **Drive time comes back as numbers**, not just words. `Directions` answers on
+  `onComplete` with seven TAB-separated fields: the distance and duration as
+  text, the route summary, then the distance in **metres**, the duration in
+  **seconds**, the route's encoded polyline, and the duration **with current
+  traffic** in seconds (0 when Google supplied none). Compute from the numbers;
+  never parse a figure back out of `"72,4 km"`.
+
+  ⚠️ Traffic is available as a **number only**. Google exposes its traffic
+  *layer* through its own JavaScript and mobile SDKs, never as map tiles, so
+  there is no coloured overlay to draw — but "how long will this take, leaving
+  now" is answered by that last field.
 - **Routes** trace lines over the map — a planned round, a driven route. One
   line per route in the `Routes` property (`id`⇥`colour`⇥`width`⇥`geometry`), or
   `AddRoute(id, colour, width, geometry)` / `RemoveRoute(id)` / `ClearRoutes()`.

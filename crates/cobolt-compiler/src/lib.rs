@@ -3277,8 +3277,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "Background of the info window shown when a marker or region is hovered or clicked. Empty — the default — takes the control's own BackgroundColor, so the window matches the form without being configured.",
         ),
         "InfoForegroundColor" => (
-            "`#RRGGBB`, or empty to follow the form",
-            "Text colour of the info window. The body text is drawn slightly softer than the title from this one colour, so only one value has to be chosen.",
+            "`#RRGGBB`, or empty for automatic high contrast",
+            "Text colour of the info window. Left EMPTY — the default — it is DERIVED from whichever background the window ended up with, choosing black or white for the higher contrast, so the window is legible on any card (at least 4.5:1, WCAG's floor for body text). Set this only when a specific colour is required: an explicit value is used as given and its contrast is the caller's business.",
         ),
         "InfoBorderColor" => (
             "`#RRGGBB`, or empty for the default",
@@ -3574,7 +3574,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         "Maps" => vec![
             ("Geocode(address: String)", "**Async** — starts the lookup and returns an EMPTY string at once. `onComplete` delivers `lat\\tlng\\tformatted_address` in `ResponseBody`. Fails \"not configured\" with no google_maps key set (R33)."),
             ("ReverseGeocode(lat: String, lng: String)", "**Async** — `onComplete` delivers the formatted address in `ResponseBody`."),
-            ("Directions(origin: String, destination: String)", "**Async** — `onComplete` delivers SIX TAB-separated fields in `ResponseBody`: `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline`. The first three read; the numbers are what you COMPUTE with; the polyline goes straight into `AddRoute` to trace the route on the map."),
+            ("Directions(origin: String, destination: String)", "**Async** — `onComplete` delivers SEVEN TAB-separated fields in `ResponseBody`: `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline\\ttraffic_SECONDS`. The first three read; the numbers are what you COMPUTE with; the polyline goes straight into `AddRoute` to trace the route. The LAST field is the drive time with CURRENT TRAFFIC (0 when Google supplied none) — the traffic-aware answer to \"how long, leaving now\"."),
             ("DistanceMatrix(origin: String, destination: String)", "**Async** — `onComplete` delivers `distance_text\\tduration_text\\tdistance_METRES\\tduration_SECONDS` in `ResponseBody`."),
             ("PlacesSearch(query: String, radiusMeters: String)", "**Async** — `onComplete` delivers one `place_id\\tname\\taddress\\tlat\\tlng` line per result in `ResponseBody`."),
             (
@@ -4466,7 +4466,7 @@ fn methods_reference_doc() -> String {
             &[
                 ("Geocode(address: String)", "Async. `onComplete`: `ResponseBody` = `lat\\tlng\\tformatted_address`."),
                 ("ReverseGeocode(lat: String, lng: String)", "Async. `onComplete`: `ResponseBody` = the formatted address."),
-                ("Directions(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline` — the numbers to COMPUTE with, the polyline for `AddRoute`."),
+                ("Directions(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\troute_summary\\tdistance_METRES\\tduration_SECONDS\\tencoded_polyline\\ttraffic_SECONDS` — the numbers to COMPUTE with, the polyline for `AddRoute`, and the last field the drive time with current traffic (0 if none was supplied)."),
                 ("DistanceMatrix(origin: String, destination: String)", "Async. `onComplete`: `ResponseBody` = `distance_text\\tduration_text\\tdistance_METRES\\tduration_SECONDS`."),
                 ("PlacesSearch(query: String, radiusMeters: String)", "Async. `onComplete`: `ResponseBody` = one `place_id\\tname\\taddress\\tlat\\tlng` line per result."),
                 ("AddMarker(id, lat, lng, label, info: String)", "Append one pin to `Markers`."),

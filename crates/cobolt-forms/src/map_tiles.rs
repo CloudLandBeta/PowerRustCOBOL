@@ -358,6 +358,39 @@ impl Default for InfoStyle {
     }
 }
 
+/// Ink that is readable ON `bg` — near-black over a light card, near-white over
+/// a dark one.
+///
+/// The info window used to take its text colour from the control's
+/// ForegroundColor and its background from the control's BackgroundColor,
+/// INDEPENDENTLY — so nothing made the two contrast. On a dark-themed form
+/// whose map carried a white foreground, the card came out white-on-light and
+/// could not be read at all (operator, 2026-08-21).
+///
+/// Deriving the ink from the background that was actually chosen makes the
+/// window legible whatever that background turns out to be, which no amount of
+/// inheriting two colours separately can promise. An explicit
+/// `InfoForegroundColor` still wins — this is the DEFAULT, not a clamp.
+pub fn readable_ink(bg: egui::Color32) -> egui::Color32 {
+    // PURE black and white, not a softened near-black and near-white.
+    //
+    // Softened ink cannot keep the promise. The hardest background to write on
+    // is the one where black and white are equally bad, at luminance ≈ 0.179;
+    // with pure ink both sit at 4.58:1 there, clearing WCAG's 4.5:1 floor for
+    // body text by a hair. Backing the ink off even to #181A1E drops that worst
+    // case to 4.41:1 — below the floor, which the mid-grey case in the tests
+    // caught. Legibility over a map earns the harder tone.
+    const DARK: egui::Color32 = egui::Color32::BLACK;
+    const LIGHT: egui::Color32 = egui::Color32::WHITE;
+    // Compare the candidates properly rather than guessing from a threshold:
+    // mid-tones are exactly where a fixed cut-off picks the worse one.
+    if crate::paint::contrast_ratio(DARK, bg) >= crate::paint::contrast_ratio(LIGHT, bg) {
+        DARK
+    } else {
+        LIGHT
+    }
+}
+
 /// Draw the info window near `anchor`, kept inside `bounds`.
 ///
 /// `title` alone is the hover tooltip; `title` + `body` is the click card. The
@@ -383,14 +416,12 @@ fn draw_info_window(
     let body_font = egui::FontId::proportional(style.font_size);
     let title_galley = (!title.trim().is_empty())
         .then(|| painter.layout(title.to_owned(), title_font, style.fg, max_w));
-    let body_galley = (!body.trim().is_empty()).then(|| {
-        painter.layout(
-            body.to_owned(),
-            body_font,
-            style.fg.gamma_multiply(0.75),
-            max_w,
-        )
-    });
+    // The body carries the SAME ink as the title, and is told apart by size
+    // alone. It used to be dimmed toward the background, which spends the very
+    // contrast this window exists to have — and the smaller text is the part
+    // that can least afford it.
+    let body_galley = (!body.trim().is_empty())
+        .then(|| painter.layout(body.to_owned(), body_font, style.fg, max_w));
 
     let w = title_galley
         .as_ref()
@@ -825,6 +856,48 @@ mod tests {
     /// **One notch, one level.** Zoom used to move a level per scroll EVENT,
     /// and a trackpad flick is dozens of events — so a single gesture crossed
     /// five or six levels and the map could not be aimed.
+    #[test]
+    /// **The info window is always readable.** Its ink used to be inherited
+    /// from the control's ForegroundColor while its card came from the
+    /// control's BackgroundColor — two colours from two places, with nothing
+    /// making them contrast. On a dark-themed form carrying a white
+    /// foreground, the card came out white-on-light and could not be read
+    /// (operator, 2026-08-21).
+    ///
+    /// WCAG calls 4.5:1 the floor for body text. Deriving the ink from the
+    /// background clears that for any background at all, which is the only way
+    /// to promise it — a threshold guess fails exactly at the mid-tones.
+    #[test]
+    fn the_info_window_ink_always_contrasts_with_its_card() {
+        let cases = [
+            ("white card", egui::Color32::WHITE),
+            ("black card", egui::Color32::BLACK),
+            ("the light grey that broke", egui::Color32::from_rgb(210, 212, 215)),
+            ("dark navy form", egui::Color32::from_rgb(16, 24, 38)),
+            ("mid grey", egui::Color32::from_gray(128)),
+            ("mid-tone teal", egui::Color32::from_rgb(70, 130, 130)),
+            ("warm sand", egui::Color32::from_rgb(200, 180, 140)),
+        ];
+        for (name, bg) in cases {
+            let ink = readable_ink(bg);
+            let ratio = crate::paint::contrast_ratio(ink, bg);
+            assert!(
+                ratio >= 4.5,
+                "{name}: ink {ink:?} on {bg:?} is {ratio:.2}:1 — below the 4.5:1 floor"
+            );
+        }
+    }
+
+    /// …and every grey in between, so no mid-tone slips through.
+    #[test]
+    fn no_shade_of_grey_produces_an_unreadable_window() {
+        for v in 0..=255u8 {
+            let bg = egui::Color32::from_gray(v);
+            let ratio = crate::paint::contrast_ratio(readable_ink(bg), bg);
+            assert!(ratio >= 4.5, "gray {v} gave only {ratio:.2}:1");
+        }
+    }
+
     #[test]
     fn a_trackpad_flick_does_not_cross_six_zoom_levels() {
         // Twelve small deltas, the shape a flick arrives in.

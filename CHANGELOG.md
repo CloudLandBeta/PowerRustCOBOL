@@ -23,11 +23,19 @@ and `onRegionClick` fire beside it, carrying `HoveredMarkerId` /
 panel — or fetch something on hover — can, without giving up the default. Hover
 events fire only when the item under the pointer *changes*, not every frame.
 
-**It follows the form, and can be overridden.** Colours come from the control's
-own background and foreground by default, so a map matches the form it sits on
-without being configured. `InfoBackgroundColor`, `InfoForegroundColor`,
-`InfoBorderColor`, `InfoCornerRadius` and `InfoShadow` each override one part;
-left empty they defer to the theme.
+**It follows the form, and it is always readable.** The card takes the control's
+background so a map matches the form it sits on without being configured — but
+the **text colour is derived from that card**, black or white, whichever
+contrasts more. Inheriting the two independently is what made the first cut
+unreadable: a dark-themed form with a white foreground produced white text on a
+light card. Deriving one from the other clears WCAG's 4.5:1 floor on any
+background, which a threshold guess cannot promise — mid-tones are exactly where
+it fails. The body text is told apart from the title by size, no longer by being
+dimmed toward the background it has to stand out from.
+
+`InfoBackgroundColor`, `InfoForegroundColor`, `InfoBorderColor`,
+`InfoCornerRadius` and `InfoShadow` each override one part; left empty they
+defer to the theme and to that contrast rule.
 
 ### Added — a Maps skill for Grace and the specialists
 

@@ -1159,14 +1159,29 @@ Write the call in one handler and the answer in `onComplete`:
       *> In the button's onClick:
            INVOKE MAP-1 "Directions" USING "Madrid, Spain" "Granada, Spain"
 
-      *> In the map's onComplete — SIX tab-separated fields:
-      *>   text distance, text duration, summary, METRES, SECONDS, polyline
+      *> In the map's onComplete — SEVEN tab-separated fields:
+      *>   text distance, text duration, summary, METRES, SECONDS, polyline,
+      *>   and SECONDS WITH CURRENT TRAFFIC (0 when Google supplied none).
            UNSTRING MAP-1::ResponseBody DELIMITED BY X"09"
                INTO WS-DIST-TEXT WS-TIME-TEXT WS-SUMMARY
-                    WS-METERS WS-SECONDS WS-POLYLINE
+                    WS-METERS WS-SECONDS WS-POLYLINE WS-TRAFFIC-SECS
            COMPUTE WS-KM   = WS-METERS / 1000
            COMPUTE WS-COST = WS-KM * 0.62
+
+      *> Prefer the traffic figure when there is one: it is the honest answer
+      *> to "how long will this take, leaving now".
+           IF WS-TRAFFIC-SECS > 0
+               COMPUTE WS-MINUTES = WS-TRAFFIC-SECS / 60
+           ELSE
+               COMPUTE WS-MINUTES = WS-SECONDS / 60
+           END-IF
 ```
+
+Traffic is available as a NUMBER only. Google exposes its traffic *layer* through
+its own JavaScript and mobile SDKs, never as map tiles, so there is no coloured
+overlay to draw and asking for one is a dead end — but the drive time with
+current traffic is right there in the last field, and a number is what a business
+program can act on anyway.
 
 `WS-METERS` and `WS-SECONDS` are the point. The text fields are for showing; the
 numbers are what a business program computes with. Never parse `"72,4 km"` to
@@ -1235,6 +1250,12 @@ Restyle it with `InfoBackgroundColor`, `InfoForegroundColor`,
 `InfoBorderColor`, `InfoCornerRadius`, `InfoShadow`. Leave them EMPTY and the
 window follows the form — which is the right default; do not set them unless
 the developer asked for a specific look.
+
+**Do not set `InfoForegroundColor` to "make it readable".** Left empty, the text
+colour is derived from whichever background the window ended up with — black or
+white, whichever contrasts more — so it is legible on any card. Setting it by
+hand REPLACES that guarantee with your guess, which is how the window ended up
+white-on-light in the first place.
 
 ## Checklist before claiming a map solution is done
 
