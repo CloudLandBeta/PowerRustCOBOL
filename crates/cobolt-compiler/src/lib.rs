@@ -3272,8 +3272,25 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "one route per line, TAB-separated: `id\\tcolour\\twidth\\tgeometry`",
             "Lines traced over the basemap — a planned delivery run, a driven route. `colour` is `#RRGGBB` (empty = the default blue), `width` is pixels (0 = default). `geometry` is either an encoded polyline — exactly what the sixth field of a Directions ResponseBody carries, so a route can be traced straight from the answer — or an explicit `lat,lng;lat,lng;…` list for geometry the program worked out itself. Prefer AddRoute/RemoveRoute/ClearRoutes over hand-formatting this. Needs no API key: the geometry comes from your program.",
         ),
+        "InfoBackgroundColor" => (
+            "`#RRGGBB`, or empty to follow the form",
+            "Background of the info window shown when a marker or region is hovered or clicked. Empty — the default — takes the control's own BackgroundColor, so the window matches the form without being configured.",
+        ),
+        "InfoForegroundColor" => (
+            "`#RRGGBB`, or empty to follow the form",
+            "Text colour of the info window. The body text is drawn slightly softer than the title from this one colour, so only one value has to be chosen.",
+        ),
+        "InfoBorderColor" => (
+            "`#RRGGBB`, or empty for the default",
+            "Outline of the info window.",
+        ),
+        "InfoCornerRadius" => ("integer 0-32 (default 8)", "Corner rounding of the info window; 0 is square."),
+        "InfoShadow" => ("`1`/`0` (default 1)", "Drop shadow under the info window. Turn it off on a flat or high-contrast form."),
+        "SelectedRegionId" => ("region id string or empty (runtime-only)", "Id of the region whose info card is OPEN — set by a click, cleared by clicking bare map. Writing it opens or closes a card from COBOL."),
+        "HoveredMarkerId" => ("marker id string (runtime-only)", "Id of the marker the pointer is over, delivered with onMarkerHover."),
+        "HoveredRegionId" => ("region id string (runtime-only)", "Id of the region the pointer is over, delivered with onRegionHover."),
         "Regions" => (
-            "one region per line, TAB-separated: `id\\tfill\\tstroke\\twidth\\tgeometry`",
+            "one region per line, TAB-separated: `id\\tfill\\tstroke\\twidth\\tgeometry\\tlabel\\tinfo`",
             "Filled areas over the basemap — sales territories, delivery zones, coverage. `fill` is `#RRGGBB` or `#RRGGBBAA` (give it an alpha so the streets stay readable underneath); `stroke` is the outline, empty for none. `geometry` is the same as Routes and the ring is closed for you. A region MAY be concave — the fill is triangulated rather than assumed convex, so a territory that follows a coastline or a border fills correctly. Prefer AddRegion/RemoveRegion/ClearRegions. Needs no API key.",
         ),
         "ApiKeySource" => (
@@ -3572,7 +3589,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("RemoveRoute(id: String)", "Remove the route with that id."),
             ("ClearRoutes()", "Remove every route."),
             (
-                "AddRegion(id: String, fill: String, stroke: String, width: String, geometry: String)",
+                "AddRegion(id: String, fill: String, stroke: String, width: String, geometry: String [, label: String, info: String])",
                 "Fill an area over the basemap — a sales territory, a delivery zone. `fill` takes an alpha (`#RRGGBBAA`) so the map stays readable underneath. The ring closes itself and MAY be concave. Re-using an id replaces it. Needs no API key."
             ),
             ("RemoveRegion(id: String)", "Remove the region with that id."),
@@ -4457,7 +4474,7 @@ fn methods_reference_doc() -> String {
                 ("AddRoute(id, colour, width, geometry: String)", "Trace a line: an encoded polyline or `lat,lng;lat,lng;…`. Re-using an id replaces it. No API key needed."),
                 ("RemoveRoute(id: String)", "Remove that route."),
                 ("ClearRoutes()", "Remove every route."),
-                ("AddRegion(id, fill, stroke, width, geometry: String)", "Fill an area — a sales territory. `fill` takes an alpha; the ring may be concave. No API key needed."),
+                ("AddRegion(id, fill, stroke, width, geometry [, label, info]: String)", "Fill an area — a sales territory. `fill` takes an alpha; the ring may be concave. `label`/`info` drive the info window on hover and click. No API key needed."),
                 ("RemoveRegion(id: String)", "Remove that region."),
                 ("ClearRegions()", "Remove every region."),
             ],

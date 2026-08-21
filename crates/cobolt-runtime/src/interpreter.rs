@@ -7687,7 +7687,12 @@ impl Interpreter {
             "ADDREGION" => {
                 let (id, fill, stroke, width, geometry) =
                     (arg(0), arg(1), arg(2), arg(3), arg(4));
-                let line = format!("{id}\t{fill}\t{stroke}\t{width}\t{geometry}");
+                // Label and info come AFTER the geometry and are optional, so
+                // the five-argument call that shipped first still works and
+                // simply has no info window.
+                let (label, info) = (arg(5), arg(6));
+                let line =
+                    format!("{id}\t{fill}\t{stroke}\t{width}\t{geometry}\t{label}\t{info}");
                 let updated = append_collection_line(&self.obj_get(obj, "Regions"), &line);
                 self.obj_set(obj, "Regions", updated);
                 none

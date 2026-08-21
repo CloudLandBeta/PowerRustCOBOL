@@ -3263,6 +3263,8 @@ fn draw_control_body(
                 lat: m.lat,
                 lng: m.lng,
                 label: &m.label,
+                id: &m.id,
+                info: &m.info,
             })
             .collect();
         // The designer face draws routes and regions too — a territory map you
@@ -3279,8 +3281,21 @@ fn draw_control_body(
                 .map(|v| v.as_str().to_owned())
                 .unwrap_or_default(),
         );
+        // The designer face has no pointer of its own and no open card: the
+        // canvas is for laying a map out, not for driving it.
         crate::map_tiles::paint_map(
-            painter, rect, center_lat, center_lng, zoom, &markers, &routes, &regions, None,
+            painter,
+            rect,
+            center_lat,
+            center_lng,
+            zoom,
+            &markers,
+            &routes,
+            &regions,
+            crate::map_tiles::MapPointer::default(),
+            "",
+            "",
+            &crate::map_tiles::InfoStyle::default(),
         );
         return;
     }

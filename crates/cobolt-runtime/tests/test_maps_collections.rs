@@ -124,6 +124,40 @@ fn regions_carry_a_fill_and_a_stroke_per_territory() {
     );
 }
 
+/// **Label and info reach the record.** They are what the info window draws on
+/// hover and click — the fields `Markers` always carried and nothing displayed
+/// until the window existed (operator, 2026-08-21).
+#[test]
+fn a_region_carries_its_label_and_info_for_the_info_window() {
+    let regions = run_map(
+        r##"    INVOKE MAP-1 "AddRegion" USING "NORTE" "#E5484D55" "#E5484D" "2"
+        "43.4,-8.4;43.5,-5.7;42.6,-5.6" "Norte - Elena" "18 accounts, 1.2M EUR YTD""##,
+        "Regions",
+    );
+    let fields: Vec<&str> = regions.split('\t').collect();
+    assert_eq!(fields.len(), 7, "id/fill/stroke/width/geometry/label/info: {regions:?}");
+    assert_eq!(fields[5], "Norte - Elena");
+    assert_eq!(fields[6], "18 accounts, 1.2M EUR YTD");
+}
+
+/// The five-argument call that shipped first still works and simply has no
+/// info window — the two new fields are appended, never inserted.
+#[test]
+fn a_region_without_a_label_still_parses() {
+    let regions = run_map(
+        r##"    INVOKE MAP-1 "AddRegion" USING "Z1" "#00000040" "#000000" "1" "40.0,-3.0;41.0,-3.0;41.0,-2.0""##,
+        "Regions",
+    );
+    let parsed = cobolt_forms::model::parse_map_regions(&regions);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].id, "Z1");
+    assert!(parsed[0].label.is_empty() && parsed[0].info.is_empty());
+    assert!(
+        !parsed[0].geometry.is_empty(),
+        "the geometry must not have swallowed the empty trailing fields"
+    );
+}
+
 #[test]
 fn clearing_empties_the_collection() {
     let routes = run_map(

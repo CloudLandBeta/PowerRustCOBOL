@@ -303,6 +303,143 @@ pub struct MapMarker<'a> {
     pub lat: f64,
     pub lng: f64,
     pub label: &'a str,
+    /// Which marker this is — needed to keep a card open across frames, since
+    /// the open one is remembered by id (`SelectedMarkerId`), not by index.
+    pub id: &'a str,
+    /// The body of the click card. Carried in the `Markers` property since it
+    /// was written and, until the info window existed, never displayed.
+    pub info: &'a str,
+}
+
+/// Where the pointer is over the map this frame.
+#[derive(Clone, Copy, Default)]
+pub struct MapPointer {
+    /// The pointer's position while it is over the map, for the hover tooltip.
+    pub hover: Option<egui::Pos2>,
+    /// Where a click landed this frame, if one did.
+    pub click: Option<egui::Pos2>,
+}
+
+/// What the pointer was over. Markers win ties with regions — a pin is small,
+/// deliberately aimed at, and usually sits inside a territory.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct MapHit {
+    pub hovered_marker: Option<usize>,
+    pub hovered_region: Option<usize>,
+    pub clicked_marker: Option<usize>,
+    pub clicked_region: Option<usize>,
+}
+
+/// How the info window is painted.
+///
+/// Every colour defaults to the form's own theme and each can be overridden on
+/// its own (`InfoBackgroundColor` and friends), so a map matches the form it
+/// sits on without being told to, and can still be restyled when it has to be.
+#[derive(Clone, Copy)]
+pub struct InfoStyle {
+    pub bg: egui::Color32,
+    pub fg: egui::Color32,
+    pub border: egui::Color32,
+    pub corner: f32,
+    pub shadow: bool,
+    pub font_size: f32,
+}
+
+impl Default for InfoStyle {
+    fn default() -> Self {
+        Self {
+            bg: egui::Color32::from_rgb(252, 252, 253),
+            fg: egui::Color32::from_rgb(28, 30, 34),
+            border: egui::Color32::from_rgb(206, 210, 218),
+            corner: 8.0,
+            shadow: true,
+            font_size: 13.0,
+        }
+    }
+}
+
+/// Draw the info window near `anchor`, kept inside `bounds`.
+///
+/// `title` alone is the hover tooltip; `title` + `body` is the click card. The
+/// card is nudged back inside the viewport and flipped above the anchor when it
+/// would hang off the bottom, so a marker near an edge is still readable —
+/// which is exactly where a naive popup becomes useless.
+fn draw_info_window(
+    painter: &egui::Painter,
+    bounds: egui::Rect,
+    anchor: egui::Pos2,
+    title: &str,
+    body: &str,
+    style: &InfoStyle,
+) {
+    if title.trim().is_empty() && body.trim().is_empty() {
+        return;
+    }
+    const PAD: f32 = 8.0;
+    const GAP: f32 = 12.0; // clear of the marker itself
+    let max_w = (bounds.width() * 0.6).clamp(120.0, 320.0);
+
+    let title_font = egui::FontId::proportional(style.font_size + 1.0);
+    let body_font = egui::FontId::proportional(style.font_size);
+    let title_galley = (!title.trim().is_empty())
+        .then(|| painter.layout(title.to_owned(), title_font, style.fg, max_w));
+    let body_galley = (!body.trim().is_empty()).then(|| {
+        painter.layout(
+            body.to_owned(),
+            body_font,
+            style.fg.gamma_multiply(0.75),
+            max_w,
+        )
+    });
+
+    let w = title_galley
+        .as_ref()
+        .map(|g| g.size().x)
+        .unwrap_or(0.0)
+        .max(body_galley.as_ref().map(|g| g.size().x).unwrap_or(0.0))
+        + PAD * 2.0;
+    let inner_h = title_galley.as_ref().map(|g| g.size().y).unwrap_or(0.0)
+        + body_galley.as_ref().map(|g| g.size().y + 4.0).unwrap_or(0.0);
+    let h = inner_h + PAD * 2.0;
+
+    // Prefer above the anchor, the way a map pin's callout sits; flip below
+    // when there is no room up there.
+    let mut min = egui::pos2(anchor.x - w * 0.5, anchor.y - GAP - h);
+    if min.y < bounds.top() + 2.0 {
+        min.y = anchor.y + GAP;
+    }
+    min.x = min
+        .x
+        .clamp(bounds.left() + 2.0, (bounds.right() - w - 2.0).max(bounds.left() + 2.0));
+    min.y = min
+        .y
+        .clamp(bounds.top() + 2.0, (bounds.bottom() - h - 2.0).max(bounds.top() + 2.0));
+    let card = egui::Rect::from_min_size(min, egui::vec2(w, h));
+
+    if style.shadow {
+        painter.rect_filled(
+            card.translate(egui::vec2(0.0, 2.0)),
+            style.corner,
+            egui::Color32::from_black_alpha(40),
+        );
+    }
+    painter.rect_filled(card, style.corner, style.bg);
+    painter.rect_stroke(
+        card,
+        style.corner,
+        egui::Stroke::new(1.0, style.border),
+        egui::StrokeKind::Inside,
+    );
+
+    let mut y = card.top() + PAD;
+    if let Some(g) = title_galley {
+        let size = g.size();
+        painter.galley(egui::pos2(card.left() + PAD, y), g, style.fg);
+        y += size.y + 4.0;
+    }
+    if let Some(g) = body_galley {
+        painter.galley(egui::pos2(card.left() + PAD, y), g, style.fg);
+    }
 }
 
 /// Route colour when the `Routes` line does not name one.
@@ -358,8 +495,14 @@ pub fn paint_map(
     markers: &[MapMarker],
     routes: &[crate::model::MapRouteRecord],
     regions: &[crate::model::MapRegionRecord],
-    hit_test: Option<egui::Pos2>,
-) -> Option<usize> {
+    pointer: MapPointer,
+    // `open_marker_id` / `open_region_id`: whose CLICK card is open, by id —
+    // empty for none. By id rather than index because the open one has to
+    // survive the collection changing between frames.
+    open_marker_id: &str,
+    open_region_id: &str,
+    info_style: &InfoStyle,
+) -> MapHit {
     let ctx = painter.ctx();
     poll_tiles(ctx);
 
@@ -439,9 +582,14 @@ pub fn paint_map(
         }
     }
 
+    let mut hit = MapHit::default();
+    // Where each region's card would point, kept for the draw pass at the end
+    // (the window goes on top of everything, so it cannot be drawn inline).
+    let mut region_anchor: Vec<egui::Pos2> = vec![egui::Pos2::ZERO; regions.len()];
+
     // Regions first, then routes, then markers — an area is a backdrop for the
     // line crossing it, and a pin belongs on top of both.
-    for region in regions {
+    for (ri, region) in regions.iter().enumerate() {
         let pts: Vec<(f32, f32)> = crate::map_geometry::parse_geometry(&region.geometry)
             .iter()
             .map(|p| {
@@ -451,6 +599,36 @@ pub fn paint_map(
             .collect();
         if pts.len() < 3 {
             continue;
+        }
+        // Hit-testing a filled area is free once it is triangulated: the
+        // question "is the pointer in this region" is "is it in any of its
+        // triangles", and the triangles already exist to draw the fill.
+        let tris = crate::map_geometry::triangulate(&pts);
+        let inside = |p: egui::Pos2| {
+            tris.iter().any(|t| {
+                crate::map_geometry::point_in_triangle(
+                    (p.x, p.y),
+                    pts[t[0]],
+                    pts[t[1]],
+                    pts[t[2]],
+                )
+            })
+        };
+        // The card points at the region's centroid, not the cursor: an area's
+        // callout belongs to the area, and a card chasing the pointer across a
+        // territory is hard to read.
+        let cx = pts.iter().map(|p| p.0).sum::<f32>() / pts.len() as f32;
+        let cy = pts.iter().map(|p| p.1).sum::<f32>() / pts.len() as f32;
+        region_anchor[ri] = egui::pos2(cx, cy);
+        if let Some(p) = pointer.hover {
+            if inside(p) {
+                hit.hovered_region = Some(ri);
+            }
+        }
+        if let Some(p) = pointer.click {
+            if inside(p) {
+                hit.clicked_region = Some(ri);
+            }
         }
         let fill = parse_hex_color(&region.fill).unwrap_or(DEFAULT_REGION_FILL);
         // Triangulated, never `convex_polygon`: a sales territory or a delivery
@@ -494,10 +672,13 @@ pub fn paint_map(
         painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
     }
 
-    let mut nearest: Option<(usize, f32)> = None;
+    let mut nearest_click: Option<(usize, f32)> = None;
+    let mut nearest_hover: Option<(usize, f32)> = None;
+    let mut marker_pos: Vec<egui::Pos2> = vec![egui::Pos2::ZERO; markers.len()];
     for (i, m) in markers.iter().enumerate() {
         let (dx, dy) = lat_lng_to_offset(m.lat, m.lng, center_lat, center_lng, zoom);
         let pos = rect.center() + egui::vec2(dx, dy);
+        marker_pos[i] = pos;
         if !rect.contains(pos) {
             continue;
         }
@@ -508,14 +689,80 @@ pub fn paint_map(
             radius,
             egui::Stroke::new(1.5, egui::Color32::WHITE),
         );
-        if let Some(hp) = hit_test {
+        // A little slack around the pin: a 6px dot is hard to hit exactly, and
+        // the same slack for hover and click keeps the tooltip honest about
+        // what a click would select.
+        let slack = radius + 4.0;
+        if let Some(cp) = pointer.click {
+            let d = pos.distance(cp);
+            if d <= slack && nearest_click.map(|(_, best)| d < best).unwrap_or(true) {
+                nearest_click = Some((i, d));
+            }
+        }
+        if let Some(hp) = pointer.hover {
             let d = pos.distance(hp);
-            if d <= radius + 3.0 && nearest.map(|(_, best)| d < best).unwrap_or(true) {
-                nearest = Some((i, d));
+            if d <= slack && nearest_hover.map(|(_, best)| d < best).unwrap_or(true) {
+                nearest_hover = Some((i, d));
             }
         }
     }
-    nearest.map(|(i, _)| i)
+    hit.clicked_marker = nearest_click.map(|(i, _)| i);
+    hit.hovered_marker = nearest_hover.map(|(i, _)| i);
+    // A pin sits inside its territory, and is the smaller, deliberately aimed
+    // target — so it takes the hover and the click from the region under it.
+    if hit.hovered_marker.is_some() {
+        hit.hovered_region = None;
+    }
+    if hit.clicked_marker.is_some() {
+        hit.clicked_region = None;
+    }
+
+    // ── The info window, last, over everything ──────────────────────────────
+    //
+    // Google's own behaviour, which is what the operator asked for: hovering
+    // gives you the name, clicking opens the card. Both draw from the item's
+    // own label/info — the fields the `Markers` and `Regions` properties have
+    // always carried and which, until now, nothing ever displayed.
+    let open_marker = (!open_marker_id.is_empty())
+        .then(|| markers.iter().position(|m| m.id == open_marker_id))
+        .flatten();
+    let open_region = (!open_region_id.is_empty())
+        .then(|| regions.iter().position(|r| r.id == open_region_id))
+        .flatten();
+
+    if let Some(i) = open_marker {
+        draw_info_window(
+            painter,
+            rect,
+            marker_pos[i],
+            markers[i].label,
+            markers[i].info,
+            info_style,
+        );
+    } else if let Some(i) = open_region {
+        draw_info_window(
+            painter,
+            rect,
+            region_anchor[i],
+            &regions[i].label,
+            &regions[i].info,
+            info_style,
+        );
+    } else if let Some(i) = hit.hovered_marker {
+        // Hover shows the name only — the card is what a click is for.
+        draw_info_window(painter, rect, marker_pos[i], markers[i].label, "", info_style);
+    } else if let Some(i) = hit.hovered_region {
+        draw_info_window(
+            painter,
+            rect,
+            region_anchor[i],
+            &regions[i].label,
+            "",
+            info_style,
+        );
+    }
+
+    hit
 }
 
 #[cfg(test)]
