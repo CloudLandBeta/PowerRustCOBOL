@@ -4068,15 +4068,18 @@ fn render_interactive(
             };
             let mut info_style = map_tiles::InfoStyle {
                 bg: styled("BackgroundColor").unwrap_or(base.bg),
-                fg: styled("ForegroundColor").unwrap_or(base.fg),
                 ..base
             };
             if let Some(c) = styled("InfoBackgroundColor") {
                 info_style.bg = c;
             }
-            if let Some(c) = styled("InfoForegroundColor") {
-                info_style.fg = c;
-            }
+            // The ink is DERIVED from whichever background won, not inherited
+            // beside it. Taking fg from ForegroundColor and bg from
+            // BackgroundColor independently is what produced white text on a
+            // light card — two colours from two places with nothing making them
+            // contrast. An explicit InfoForegroundColor still overrides.
+            info_style.fg = styled("InfoForegroundColor")
+                .unwrap_or_else(|| map_tiles::readable_ink(info_style.bg));
             if let Some(c) = styled("InfoBorderColor") {
                 info_style.border = c;
             }

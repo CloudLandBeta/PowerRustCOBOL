@@ -76,6 +76,14 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
         "DIRECTIONS" => {
             let origin = arg(0);
             let destination = arg(1);
+            // `departure_time: now` is what makes Google answer with CURRENT
+            // TRAFFIC as well as free-flow. Without it there is no
+            // `duration_in_traffic` at all — the field simply does not come
+            // back — so "how long will this delivery take, leaving now" was
+            // unanswerable. Traffic is not available to us as a map overlay
+            // (Google exposes that only through its own JS/mobile SDKs, never
+            // as tiles), but as a NUMBER it is, and a number is what a business
+            // program can act on anyway.
             let response = client
                 .directions(
                     google_maps::directions::request::location::Location::from_address(origin),
@@ -83,6 +91,7 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
                         destination,
                     ),
                 )
+                .with_departure_time(google_maps::directions::request::departure_time::DepartureTime::Now)
                 .execute()
                 .await
                 .map_err(|e| format!("Directions: {e}"))?;
@@ -102,14 +111,24 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
             // display, `72400` is something to COMPUTE with, and a business
             // language that can only print a distance cannot charge for it. The
             // encoded polyline is the route itself, for `AddRoute` to trace.
+            // Field 7 is the drive time WITH current traffic, in seconds — 0
+            // when Google did not supply one (some routes and modes have no
+            // traffic model). Appended, like the others, so nothing that reads
+            // the earlier fields has to change.
+            let traffic_seconds = leg
+                .duration_in_traffic
+                .as_ref()
+                .map(|d| d.value.num_seconds())
+                .unwrap_or(0);
             Ok(format!(
-                "{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 leg.distance.text,
                 leg.duration.text,
                 route.summary,
                 leg.distance.value,
                 leg.duration.value.num_seconds(),
                 route.overview_polyline.points,
+                traffic_seconds,
             ))
         }
         "DISTANCEMATRIX" => {
