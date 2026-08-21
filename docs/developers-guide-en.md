@@ -146,6 +146,35 @@ file or create a full **project** (recommended — see §6).
 From a terminal you can also drive everything headlessly with `rcrun` (see §17),
 which is what continuous-integration pipelines use.
 
+### The first-run Rust check
+
+The IDE designs forms and *runs* programs on its own. **Build** is the
+exception: it compiles your project into a native application through the
+**Rust toolchain** (§18), and so does any Run of a program containing an
+`EXEC RUST` block. So on its first run PowerRustCOBOL looks for Rust — and when
+it finds a usable one, says nothing at all.
+
+When it does not, it tells you which case you are in — Rust absent, or a version
+older than the **1.92** PowerRustCOBOL requires — shows the official
+[rustup.rs](https://rustup.rs) command, and offers to run it for you. Decline
+and you are asked once more, because declining has a price worth stating:
+
+| Without Rust you lose | You keep |
+|---|---|
+| **Build** — no native executable, nothing to package | The Form Designer |
+| Running any program that contains an `EXEC RUST` block | The code editor and the COBOL tooling |
+| | **Run** (interpreted) and the debugger |
+
+Declining a second time settles it and the question is not asked again. Install
+Rust later from [rustup.rs](https://rustup.rs) and **Build** simply starts
+working — nothing in the IDE has to be told.
+
+> **Note** — rustup puts Rust in `~/.cargo/bin`, which your *shell profile* adds
+> to `PATH`. An application started from the Finder or the Windows desktop never
+> reads that profile, so PowerRustCOBOL looks in that location itself and uses
+> what it finds there. You do not have to launch the IDE from a terminal for
+> **Build** to work.
+
 ---
 
 ## 4. Your first application: Hello, Form
@@ -1188,6 +1217,41 @@ The runtime surfaces only add live behaviour (press feedback, focus, text input,
 slider drag), and the designer adds its editor overlay (selection handles,
 badges, drop hints) on top.
 
+#### Selecting more than one control
+
+Two ways, and they combine:
+
+- **Drag a lasso** on empty canvas — every control the rectangle touches is
+  selected.
+- **Hold Command (macOS) or Control (Windows/Linux) and click** — adds a control
+  to the selection, or removes it if it was already in. Modifier-dragging a
+  control that is not yet selected adds it and moves the whole selection in one
+  gesture.
+
+Selecting a **container** selects its children with it for the purposes of
+moving, so a GroupBox drags its whole subtree and keeps its layout rigid. The
+first control selected is the **primary** one: alignment and sizing commands
+measure against it, and the properties pane reads its values.
+
+**Dragging a selection is rigid.** The whole group moves by one offset, taken
+from the control under the pointer, so the spacing you arranged survives the
+move — including when the controls do not sit on grid lines.
+
+**The properties pane edits the whole selection.** With more than one control
+selected it shows what they have in common and applies each change to all of
+them:
+
+- **Same type** — the full pane. Every property a Button has, five selected
+  Buttons have.
+- **Different types** — only the properties their types genuinely share, because
+  a row only some of them carry would appear to work and change nothing on the
+  rest.
+
+One edit is **one undo step**, however many controls it touched. Controls
+without the property are left alone rather than given it, and identity — the
+control ID, tab order and parent — is never shared, since two controls cannot
+have the same one.
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile
@@ -1366,6 +1430,12 @@ charts, and the containers — has a **Corner radius** property:
 - **Corner radius = 0** means square corners and **no clipping** — the default,
   so existing forms look exactly as before. The value is clamped so it never
   exceeds half the control's smaller side (a fully rounded "pill"/circle).
+- **The control's own drop shadow shows through the rounded corner.** The area a
+  radius carves away is not part of the control any more, so what is behind it
+  there — the form's surface *and* the shadow the control casts on it — is what
+  you see. That continuity is what makes a rounded control look like it is
+  sitting on the form rather than cut out of it, and it is most visible with a
+  generous **Shadow distance** and **Shadow blur**.
 
 The same radius and clipping apply identically on the design canvas, the live
 preview, and the running form. *Limitation:* the editable text/scroll layer of
@@ -4126,6 +4196,13 @@ independent halves with different credential needs:
   traffic** in seconds (0 when Google supplied none). Compute from the numbers;
   never parse a figure back out of `"72,4 km"`.
 
+  The polyline is the road itself, **step by step** — not the thumbnail-grade
+  summary Google also publishes — so a trace drawn from it sits on the motorway
+  rather than near it. It never exceeds **4,000 characters**: declare
+  `PIC X(4096)` for it. A route long enough to need more than that gives up its
+  redundant points on the straight runs and keeps its bends, which is why the
+  shape survives the trim.
+
   ⚠️ Traffic is available as a **number only**. Google exposes its traffic
   *layer* through its own JavaScript and mobile SDKs, never as map tiles, so
   there is no coloured overlay to draw — but "how long will this take, leaving
@@ -4137,6 +4214,45 @@ independent halves with different credential needs:
   `Directions` answer, so Google's own route traces with no conversion — or an
   explicit `lat,lng;lat,lng;…` list you worked out yourself. **No API key**: the
   basemap is OpenStreetMap and the geometry is yours.
+
+  ⚠️ **A route is exactly as close to the road as the points you give it.** The
+  map draws every point and invents none, so a hand-written list of a dozen
+  waypoints is a *planned corridor*, not a road — it cuts every curve between
+  them, and the more you zoom in the more plainly it leaves the tarmac. Road
+  geometry has to come from a routing service: field 6 of a `Directions` answer
+  carries the road **step by step**, which is what makes a trace sit on the
+  motorway instead of near it. There is no setting that makes a short waypoint
+  list follow a road; either add points or ask a routing service.
+
+- **A road route without a Google key** — `TraceRoad(apiKey, fromLat, fromLng,
+  toLat, toLng)` asks **OpenRouteService** instead, and answers on `onComplete`
+  with three TAB-separated fields: the distance in **metres**, the duration in
+  **seconds**, and the encoded polyline for `AddRoute`. Same 4,000-character
+  bound as `Directions`, so one `PIC X(4096)` holds either answer.
+
+  **The key is an argument, not a setting.** Ask your operator for it — a
+  `TextBox` with `PasswordCharacter` set — and pass what they typed:
+
+  ```cobol
+       MOVE TXT-ORS-KEY::Text TO WS-ORS-KEY
+       IF WS-ORS-KEY = SPACES
+           MOVE "Enter your OpenRouteService key first." TO LBL-STATUS::Caption
+       ELSE
+           INVOKE MAP-1 "TraceRoad" USING
+               WS-ORS-KEY "40.4168" "-3.7038" "37.1773" "-3.5986"
+       END-IF
+  ```
+
+  PowerRustCOBOL never stores that key: not in the form, not in the project
+  manifest, not in any file. A key written into a project file travels to
+  everyone the project is shared with, which is the reason. A blank key fails on
+  `onError` without a network call.
+
+  > **Note.** `Directions` and `TraceRoad` both answer on the same `onComplete`
+  > event and **do not answer in the same shape** — seven fields against three.
+  > Record which one you called (a one-character flag in WORKING-STORAGE is
+  > enough) and branch on it, or the handler will read metres as a distance
+  > *text* and the polyline as a route summary.
 - **Regions** fill areas — sales territories, delivery zones, coverage. One line
   per region (`id`⇥`fill`⇥`stroke`⇥`width`⇥`geometry`), or `AddRegion` /
   `RemoveRegion` / `ClearRegions`. Give the fill an alpha (`#RRGGBBAA`) so the
@@ -4167,6 +4283,13 @@ starts the lookup, sets `Busy` to `1` and comes straight back with an **empty
 string**; the result arrives later on the `onComplete` event, in the
 `ResponseBody` property. There is no synchronous mode. So this does *not*
 work, however much it reads like it should:
+
+> **Note — `ResponseBody`, `StatusCode`, `LastError` and `Busy` are read-only
+> runtime properties.** Do not look for them in the property inspector: the
+> runtime writes them when it has something to report, so they have no
+> design-time value, no default, and are not stored in the form. They are read
+> exactly like any other property, and only reading them makes sense — an
+> answer is not a setting.
 
 ```cobol
       *> WRONG — Geocode returns immediately, before any answer exists,

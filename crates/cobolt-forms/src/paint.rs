@@ -1138,24 +1138,222 @@ pub fn draw_neumorphic_shadow_only(
     rounding: impl Into<egui::CornerRadius>,
     alpha_mul: f32,
 ) {
-    if alpha_mul <= 0.0 {
-        return;
-    }
-    let am = alpha_mul.clamp(0.0, 1.0);
-    let rnd0: egui::CornerRadius = rounding.into();
-    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
-    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
-
     let params = painter
         .ctx()
         .data(|d| d.get_temp::<NeumorphicShadowParams>(neumorphic_params_id()))
         .unwrap_or_default();
-    if !params.shadow_on {
-        return;
+    neumorphic_shadow_stack(&params, rect, rounding.into(), alpha_mul).paint(painter);
+}
+
+/// One layer of a soft shadow: a rounded rect filled with a premultiplied colour.
+#[derive(Debug, Clone, Copy)]
+pub struct ShadowLayer {
+    pub rect: egui::Rect,
+    pub rounding: egui::CornerRadius,
+    pub color: Color32,
+}
+
+/// The whole soft-shadow stack a control paints BEHIND its face — built once,
+/// then either painted or sampled.
+///
+/// The corner-notch mask repaints the form backdrop over a rounded control's
+/// notches, and that also erases the shadow which legitimately showed there: a
+/// flat wedge bitten out of the halo at every corner (operator, 2026-08-21 — a
+/// Maps control with an exaggerated shadow). Putting the shadow back means
+/// knowing what colour it left at a point, and the only safe way to know is to
+/// ask the SAME stack the painter drew. Deriving the geometry a second time is
+/// exactly how this project keeps ending up with two painters that quietly
+/// disagree.
+#[derive(Debug, Clone, Default)]
+pub struct ShadowStack {
+    layers: Vec<ShadowLayer>,
+    /// Sunken relief is clipped inside the control; a raised halo is not.
+    clip: Option<egui::Rect>,
+}
+
+impl ShadowStack {
+    pub fn is_empty(&self) -> bool {
+        self.layers.is_empty()
     }
-    if neumorphic_shadow_overlays(&params) {
-        return;
+
+    /// Draw the stack back to front, exactly as the hand-rolled loops did.
+    pub fn paint(&self, painter: &egui::Painter) {
+        let clipped;
+        let p: &egui::Painter = match self.clip {
+            Some(c) => {
+                clipped = painter.with_clip_rect(painter.clip_rect().intersect(c));
+                &clipped
+            }
+            None => painter,
+        };
+        for l in &self.layers {
+            p.rect_filled(l.rect, l.rounding, l.color);
+        }
     }
+
+    /// The premultiplied colour this stack leaves at `p` over a transparent base
+    /// — i.e. what has to be re-composited on top of a repainted backdrop for the
+    /// pixel to look the way it did before the repaint.
+    pub fn sample(&self, p: Pos2) -> Color32 {
+        if self.clip.is_some_and(|c| !c.contains(p)) {
+            return Color32::TRANSPARENT;
+        }
+        let mut acc = Color32::TRANSPARENT;
+        for l in &self.layers {
+            if rounded_rect_contains(l.rect, l.rounding, p) {
+                acc = composite_premultiplied_over(l.color, acc);
+            }
+        }
+        acc
+    }
+}
+
+/// Is `p` inside `rect` with `rounding`, as egui's tessellator would draw it?
+///
+/// Each corner radius is clamped to half the shorter side the way the tessellator
+/// clamps it, so this answers about the shape that is actually drawn rather than
+/// the one that was requested (CORNER-BLEED-PLAYBOOK §1.1: the stored radius lies).
+pub fn rounded_rect_contains(rect: egui::Rect, rounding: egui::CornerRadius, p: Pos2) -> bool {
+    if !rect.contains(p) {
+        return false;
+    }
+    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+    let corners = [
+        (rounding.nw, rect.left_top(), -1.0_f32, -1.0_f32),
+        (rounding.ne, rect.right_top(), 1.0, -1.0),
+        (rounding.se, rect.right_bottom(), 1.0, 1.0),
+        (rounding.sw, rect.left_bottom(), -1.0, 1.0),
+    ];
+    for (stored, apex, sx, sy) in corners {
+        let r = f32::from(stored).min(cap);
+        if r <= 0.0 {
+            continue;
+        }
+        let c = egui::pos2(apex.x - sx * r, apex.y - sy * r);
+        if (p.x - c.x) * sx > 0.0 && (p.y - c.y) * sy > 0.0 && (p - c).length() > r {
+            return false; // carved away by this corner's arc
+        }
+    }
+    true
+}
+
+/// A control's Neumorphic shadow settings, read off its properties.
+///
+/// `draw_control` publishes these into the egui temp store for the branch
+/// painters to pick up. The notch mask runs AFTER the whole control loop, when
+/// that store holds whatever the last control published — so it reads the
+/// control's own properties here instead of the store, and this is the function
+/// that keeps the two answers the same.
+pub(crate) fn neumorphic_shadow_params(ctrl: &Control) -> NeumorphicShadowParams {
+    let shadow_on = ctrl
+        .get_prop("ShadowEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(true); // Neumorphic default: ON
+    let shadow_color = ctrl
+        .get_prop("ShadowColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::BLACK);
+    let light_color = ctrl
+        .get_prop("ShadowLightColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::WHITE);
+    let shadow_opac = ctrl
+        .get_prop("ShadowOpacity")
+        .map(|v| v.as_i64())
+        .unwrap_or(6)
+        .clamp(0, 100) as f32
+        / 100.0;
+    let shadow_dir = ctrl
+        .get_prop("ShadowDirection")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "SouthEast".into()); // Neumorphic default: SE
+    let distance = ctrl
+        .get_prop("ShadowDistance")
+        .map(|v| v.as_i64())
+        .unwrap_or(7)
+        .clamp(0, 60) as f32;
+    let blur_enabled = ctrl
+        .get_prop("ShadowBlur")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
+    let blur_strength = if blur_enabled {
+        ctrl.get_prop("ShadowBlurStrength")
+            .map(|v| v.as_i64())
+            .unwrap_or(8)
+            .clamp(-20, 20) as f32 // negative → sunken / inset
+    } else {
+        0.0
+    };
+
+    // Direction → unit vector (ux, uy)
+    let (ux, uy): (f32, f32) = match shadow_dir.as_str() {
+        "North" => (0.0, -1.0),
+        "NorthEast" => (0.707, -0.707),
+        "East" => (1.0, 0.0),
+        "SouthEast" => (0.707, 0.707),
+        "South" => (0.0, 1.0),
+        "SouthWest" => (-0.707, 0.707),
+        "West" => (-1.0, 0.0),
+        "NorthWest" => (-0.707, -0.707),
+        _ => (0.0, 1.0),
+    };
+
+    NeumorphicShadowParams {
+        shadow_on,
+        shadow_color,
+        light_color,
+        shadow_opac,
+        shadow_dir: [ux, uy],
+        distance,
+        blur_strength,
+    }
+}
+
+/// The soft-shadow stack `ctrl` paints behind its face at `rect`, for the
+/// corner-notch mask to re-composite after it repaints the backdrop.
+///
+/// Mirrors what `draw_control` actually draws: the Neumorphic dual halo while
+/// that register is on (`drop_shadow_spec` returns `None` for every control
+/// then — the relief IS the shadow), and otherwise the ordinary drop shadow.
+/// An OVERLAY shadow is excluded because it is painted on top of the face, not
+/// behind it, so the mask never erased it.
+pub fn control_shadow_stack(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    rect: egui::Rect,
+    alpha_mul: f32,
+) -> ShadowStack {
+    let is_neumorphic = glass_config_applies(ctx) && active_glass_style(ctx).is_neumorphic();
+    if is_neumorphic {
+        return neumorphic_shadow_stack(
+            &neumorphic_shadow_params(ctrl),
+            rect,
+            themed_corner_radius(ctx, ctrl).into(),
+            alpha_mul,
+        );
+    }
+    match regular_drop_shadow(ctrl, rect, false).filter(|s| !s.overlay) {
+        Some(shadow) => regular_shadow_stack(&shadow, alpha_mul),
+        None => ShadowStack::default(),
+    }
+}
+
+/// The dual-halo stack that `draw_glass_neumorphic` and
+/// [`draw_neumorphic_shadow_only`] both paint. One definition, so the sampler the
+/// notch mask uses cannot drift from what was drawn.
+fn neumorphic_shadow_stack(
+    params: &NeumorphicShadowParams,
+    rect: egui::Rect,
+    rounding: egui::CornerRadius,
+    alpha_mul: f32,
+) -> ShadowStack {
+    let mut stack = ShadowStack::default();
+    if alpha_mul <= 0.0 || !params.shadow_on || neumorphic_shadow_overlays(params) {
+        return stack;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+    let rnd = round_map(rounding, |c| c.max(0.0).min(cap));
 
     let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
     let layers = 10_usize;
@@ -1163,69 +1361,46 @@ pub fn draw_neumorphic_shadow_only(
     let uy = params.shadow_dir[1];
     let distance = params.distance;
     let sunken = params.blur_strength < 0.0;
+    // Clip inside rect for sunken; let the halo bleed outside for raised.
+    stack.clip = sunken.then_some(rect);
 
-    // Clip inside rect for sunken; let halo bleed outside for raised.
-    let clipped_inset;
-    let sp: &egui::Painter = if sunken {
-        clipped_inset = painter.with_clip_rect(painter.clip_rect().intersect(rect));
-        &clipped_inset
-    } else {
-        painter
+    let mut push = |sign: f32, colour: Color32, opac: f32| {
+        let offset = Vec2::new(sign * ux * distance, sign * uy * distance);
+        for i in 0..=layers {
+            let t = 1.0 - (i as f32 / layers as f32);
+            let expand = t * spread;
+            let falloff = (-3.0 * t * t).exp();
+            let a_val = (opac * am * falloff * 255.0) as u8;
+            if a_val == 0 {
+                continue;
+            }
+            let f = a_val as f32 / 255.0;
+            stack.layers.push(ShadowLayer {
+                rect: rect.translate(offset).expand(expand),
+                rounding: round_map(rnd, |c| c + expand),
+                color: Color32::from_rgba_premultiplied(
+                    (colour.r() as f32 * f) as u8,
+                    (colour.g() as f32 * f) as u8,
+                    (colour.b() as f32 * f) as u8,
+                    a_val,
+                ),
+            });
+        }
     };
 
     // Light side: NW-outside when raised; SE-inside when sunken.
-    let light_sign = if sunken { 1.0_f32 } else { -1.0_f32 };
-    let light_offset = Vec2::new(light_sign * ux * distance, light_sign * uy * distance);
-    let light_opac = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
-    for i in 0..=layers {
-        let t = 1.0 - (i as f32 / layers as f32);
-        let expand = t * spread;
-        let falloff = (-3.0 * t * t).exp();
-        let a_val = (light_opac * am * falloff * 255.0) as u8;
-        if a_val == 0 {
-            continue;
-        }
-        let layer_rect = rect.translate(light_offset).expand(expand);
-        let layer_round = round_map(rnd, |c| c + expand);
-        let lc = params.light_color;
-        sp.rect_filled(
-            layer_rect,
-            layer_round,
-            Color32::from_rgba_premultiplied(
-                (lc.r() as f32 * (a_val as f32 / 255.0)) as u8,
-                (lc.g() as f32 * (a_val as f32 / 255.0)) as u8,
-                (lc.b() as f32 * (a_val as f32 / 255.0)) as u8,
-                a_val,
-            ),
-        );
-    }
-
+    push(
+        if sunken { 1.0 } else { -1.0 },
+        params.light_color,
+        (params.shadow_opac * 3.25).clamp(0.0, 1.0),
+    );
     // Dark (user colour): SE-outside when raised; NW-inside when sunken.
-    let dark_sign = if sunken { -1.0_f32 } else { 1.0_f32 };
-    let dark_offset = Vec2::new(dark_sign * ux * distance, dark_sign * uy * distance);
-    let sc = params.shadow_color;
-    let dark_max_opac = params.shadow_opac;
-    for i in 0..=layers {
-        let t = 1.0 - (i as f32 / layers as f32);
-        let expand = t * spread;
-        let falloff = (-3.0 * t * t).exp();
-        let a_val = (dark_max_opac * am * falloff * 255.0) as u8;
-        if a_val == 0 {
-            continue;
-        }
-        let layer_rect = rect.translate(dark_offset).expand(expand);
-        let layer_round = round_map(rnd, |c| c + expand);
-        sp.rect_filled(
-            layer_rect,
-            layer_round,
-            Color32::from_rgba_premultiplied(
-                (sc.r() as f32 * (a_val as f32 / 255.0)) as u8,
-                (sc.g() as f32 * (a_val as f32 / 255.0)) as u8,
-                (sc.b() as f32 * (a_val as f32 / 255.0)) as u8,
-                a_val,
-            ),
-        );
-    }
+    push(
+        if sunken { -1.0 } else { 1.0 },
+        params.shadow_color,
+        params.shadow_opac,
+    );
+    stack
 }
 
 fn neumorphic_shadow_overlays(params: &NeumorphicShadowParams) -> bool {
@@ -1772,68 +1947,7 @@ fn draw_control_body(
         glass_config_applies(painter.ctx()) && active_glass_style(painter.ctx()).is_neumorphic();
 
     if is_neumorphic {
-        let shadow_on = ctrl
-            .get_prop("ShadowEnabled")
-            .map(|v| v.as_bool())
-            .unwrap_or(true); // Neumorphic default: ON
-        let shadow_color = ctrl
-            .get_prop("ShadowColor")
-            .map(|v| parse_color(v.as_str()))
-            .unwrap_or(Color32::BLACK);
-        let light_color = ctrl
-            .get_prop("ShadowLightColor")
-            .map(|v| parse_color(v.as_str()))
-            .unwrap_or(Color32::WHITE);
-        let shadow_opac = ctrl
-            .get_prop("ShadowOpacity")
-            .map(|v| v.as_i64())
-            .unwrap_or(6)
-            .clamp(0, 100) as f32
-            / 100.0;
-        let shadow_dir = ctrl
-            .get_prop("ShadowDirection")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "SouthEast".into()); // Neumorphic default: SE
-        let distance = ctrl
-            .get_prop("ShadowDistance")
-            .map(|v| v.as_i64())
-            .unwrap_or(7)
-            .clamp(0, 60) as f32;
-        let blur_enabled = ctrl
-            .get_prop("ShadowBlur")
-            .map(|v| v.as_bool())
-            .unwrap_or(true);
-        let blur_strength = if blur_enabled {
-            ctrl.get_prop("ShadowBlurStrength")
-                .map(|v| v.as_i64())
-                .unwrap_or(8)
-                .clamp(-20, 20) as f32 // negative → sunken / inset
-        } else {
-            0.0
-        };
-
-        // Direction → unit vector (ux, uy)
-        let (ux, uy): (f32, f32) = match shadow_dir.as_str() {
-            "North" => (0.0, -1.0),
-            "NorthEast" => (0.707, -0.707),
-            "East" => (1.0, 0.0),
-            "SouthEast" => (0.707, 0.707),
-            "South" => (0.0, 1.0),
-            "SouthWest" => (-0.707, 0.707),
-            "West" => (-1.0, 0.0),
-            "NorthWest" => (-0.707, -0.707),
-            _ => (0.0, 1.0),
-        };
-
-        let params = NeumorphicShadowParams {
-            shadow_on,
-            shadow_color,
-            light_color,
-            shadow_opac,
-            shadow_dir: [ux, uy],
-            distance,
-            blur_strength,
-        };
+        let params = neumorphic_shadow_params(ctrl);
         painter
             .ctx()
             .data_mut(|d| d.insert_temp(neumorphic_params_id(), params));
@@ -3225,6 +3339,23 @@ fn draw_control_body(
     // stand in for a live *widget*; a basemap has no such off-the-shelf
     // widget to substitute for in the first place).
     if matches!(ctrl.control_type, CT::Maps) {
+        // Under the Neumorphic register the relief IS the drop shadow —
+        // `drop_shadow_spec` returns `None` for every control while it is on,
+        // and each branch draws the halo instead. This branch drew neither and
+        // returned, so a Maps control with `ShadowEnabled` ticked, a distance
+        // and a blur set had no shadow of any kind: the one control on the form
+        // sitting flat on the surface (operator, 2026-08-21).
+        //
+        // Before the tiles, like ProgressBar's: a basemap is opaque, so a halo
+        // painted afterwards would be buried under it.
+        if is_neumorphic {
+            draw_neumorphic_shadow_only(
+                painter,
+                rect,
+                themed_corner_radius(painter.ctx(), ctrl),
+                alpha_mul,
+            );
+        }
         // The designed background gradient, under the tiles — it is what shows
         // while they load, and on the surfaces that draw no tiles at all.
         paint_background_gradient(
@@ -3234,6 +3365,17 @@ fn draw_control_body(
             ctrl,
             alpha_mul,
         );
+        // A caller drawing the LIVE map (the run form, which pans, zooms and
+        // shows its own info window) wants this face and not the canvas's
+        // stand-in basemap — the same contract `with_label` carries for a
+        // caption. Without it the run path could not draw the face at all, so a
+        // map at run time had no shadow and no gradient, however they were set
+        // (operator, 2026-08-21: "the dropshadow disappears when running the
+        // form"). The tiles below are the stand-in; everything above is the
+        // face, and both callers want the face.
+        if !with_label {
+            return;
+        }
         let center_lat: f64 = ctrl
             .get_prop("CenterLat")
             .map(|v| v.as_str().to_owned())
@@ -3525,12 +3667,14 @@ fn draw_control_body(
                 ))
         })
         .map(|v| parse_color(v.as_str()))
-        .unwrap_or(if is_neumorphic {
-            Color32::BLACK // Neumorphic default: black text on light surface
-        } else if let Some(c) = theme_text {
-            c
-        } else {
-            default_text
+        .unwrap_or_else(|| {
+            if is_neumorphic {
+                neumorphic_default_ink(painter.ctx(), ctrl, fill)
+            } else if let Some(c) = theme_text {
+                c
+            } else {
+                default_text
+            }
         });
     let stroke_color = ctrl
         .get_prop("BorderColor")
@@ -8706,42 +8850,50 @@ pub(crate) fn draw_loose_drop_shadow(
 }
 
 fn draw_regular_drop_shadow(painter: &egui::Painter, shadow: &RegularDropShadow, alpha_mul: f32) {
+    regular_shadow_stack(shadow, alpha_mul).paint(painter);
+}
+
+/// The layers [`draw_regular_drop_shadow`] paints — same reason as
+/// [`neumorphic_shadow_stack`]: the notch mask has to be able to ask what colour
+/// this shadow left at a point, and one definition is what keeps the answer true.
+fn regular_shadow_stack(shadow: &RegularDropShadow, alpha_mul: f32) -> ShadowStack {
     let sc = shadow.color;
+    let mut stack = ShadowStack::default();
     if shadow.blur_strength == 0 {
         let alpha = (shadow.opacity * alpha_mul * 255.0) as u8;
-        painter.rect_filled(
-            shadow.rect,
-            shadow.corner_radius,
-            Color32::from_rgba_premultiplied(
+        stack.layers.push(ShadowLayer {
+            rect: shadow.rect,
+            rounding: shadow.corner_radius.into(),
+            color: Color32::from_rgba_premultiplied(
                 (sc.r() as f32 * shadow.opacity * alpha_mul) as u8,
                 (sc.g() as f32 * shadow.opacity * alpha_mul) as u8,
                 (sc.b() as f32 * shadow.opacity * alpha_mul) as u8,
                 alpha,
             ),
-        );
-        return;
+        });
+        return stack;
     }
 
-    // Draw from outermost (faintest) to innermost (darkest), so the painter's
-    // back-to-front order gives the shadow a denser core.
+    // Outermost (faintest) first, so the painter's back-to-front order gives the
+    // shadow a denser core.
     let layers = shadow.blur_strength;
     for i in 0..=layers {
         let t = 1.0 - (i as f32 / layers as f32);
         let expand = t * shadow.blur_strength as f32;
         let falloff = (-3.0 * t * t).exp();
         let alpha = (shadow.opacity * alpha_mul * falloff * 255.0) as u8;
-        let layer_rect = shadow.rect.expand(expand);
-        painter.rect_filled(
-            layer_rect,
-            shadow.corner_radius + expand,
-            Color32::from_rgba_premultiplied(
+        stack.layers.push(ShadowLayer {
+            rect: shadow.rect.expand(expand),
+            rounding: (shadow.corner_radius + expand).into(),
+            color: Color32::from_rgba_premultiplied(
                 (sc.r() as f32 * (alpha as f32 / 255.0)) as u8,
                 (sc.g() as f32 * (alpha as f32 / 255.0)) as u8,
                 (sc.b() as f32 * (alpha as f32 / 255.0)) as u8,
                 alpha,
             ),
-        );
+        });
     }
+    stack
 }
 
 /// Composite premultiplied `fg` over premultiplied `bg`.
@@ -8837,6 +8989,48 @@ pub fn control_surface_tone(ctx: &egui::Context, ctrl: &Control, under: Color32)
             composite_premultiplied_over(Color32::from_white_alpha(38), opaque_under)
         }
     }
+}
+
+/// The default ink for a control under the **Neumorphic** register, derived
+/// from the surface its text will actually land on.
+///
+/// This used to be a flat `Color32::BLACK`, commented "black text on light
+/// surface" — an assumption about a surface the code never looked at. It holds
+/// for a control that paints the register's own light face, and fails for the
+/// one that paints no face at all: a Label is frameless, so its text lands on
+/// the **form's backdrop**. Selecting an asset-pack theme on a dark form
+/// therefore opened the neumorphic register over a dark ground and put black
+/// ink on it — every caption on the form unreadable at once (operator,
+/// 2026-08-21, switching Elegance → Neumorphic Light).
+///
+/// Elegance hid the bug rather than lacking it: it is self-contained, so the
+/// glass register never applied and the ink came from its own palette.
+///
+/// Same rule as the map's info window (`map_tiles::readable_ink`): **derive the
+/// ink from the resolved background, never inherit it from somewhere else.** An
+/// explicit `ForegroundColor` still wins — this is the DEFAULT, not a clamp.
+fn neumorphic_default_ink(ctx: &egui::Context, ctrl: &Control, fill: Color32) -> Color32 {
+    // A Label with no background of its own paints nothing behind its text.
+    // Everything else in this register paints `fill`.
+    let paints_its_own_face =
+        !matches!(ctrl.control_type, crate::model::ControlType::Label)
+            || user_background_color(ctrl).is_some();
+    let backdrop = form_backdrop_of(ctx);
+    let ground = if paints_its_own_face {
+        composite_premultiplied_over(
+            fill,
+            Color32::from_rgb(backdrop.r(), backdrop.g(), backdrop.b()),
+        )
+    } else {
+        backdrop
+    };
+    if ground.a() == 0 {
+        // Nothing published a backdrop (a bare painter, a preview surface):
+        // keep the historical light-surface assumption rather than reading a
+        // transparent ground as black and flipping every label to white.
+        return Color32::BLACK;
+    }
+    crate::map_tiles::readable_ink(ground)
 }
 
 /// A text caret colour that is always legible in a field whose background is
@@ -9506,6 +9700,105 @@ fn push_notch_fan(
     }
 }
 
+/// Tessellate ONE corner notch as a radial grid instead of a fan.
+///
+/// `push_notch_fan` has the right silhouette but every triangle shares the bbox
+/// corner, so a per-vertex colour gets exactly two samples along the radius.
+/// That is enough for a flat repaint and not nearly enough for a drop shadow,
+/// which falls off across the notch — the whole reason the mask has to repaint
+/// one at all. The grid runs from the arc (ring 0) out to the two square edges
+/// (ring `rings`), so the silhouette is identical to the fan's: the outer
+/// boundary is where the ray from the arc centre leaves the corner square, which
+/// traces those two edges through the bbox corner exactly.
+#[allow(clippy::too_many_arguments)]
+fn push_notch_rings(
+    m: &mut egui::epaint::Mesh,
+    center: egui::Pos2,
+    r: f32,
+    t0: f32,
+    t1: f32,
+    sx: f32, // outward sign toward the bbox corner, x
+    sy: f32, // …and y
+    rings: usize,
+    uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
+    color_fn: &dyn Fn(egui::Pos2) -> Color32,
+) {
+    if r < 0.5 {
+        return;
+    }
+    // Finer than the fan's `r/2`: the outer boundary reaches `r·√2` at the bbox
+    // corner, where the fan's angular step would put samples ~4px apart —
+    // coarser than the gap between shadow layers, which is what the grid exists
+    // to resolve. One sample per radius-pixel keeps the tangential step near a
+    // pixel all the way out to the apex.
+    let segs = (r as usize).clamp(12, 120);
+    let rings = rings.max(1);
+    let base = m.vertices.len() as u32;
+    for i in 0..=segs {
+        let t = t0 + (t1 - t0) * (i as f32 / segs as f32);
+        let (dx, dy) = (t.cos(), t.sin());
+        // Where this ray leaves the corner square: the nearer of the two edges.
+        let hit = |d: f32, s: f32| if d.abs() < 1e-4 { f32::MAX } else { s * r / d };
+        let outer = hit(dx, sx).min(hit(dy, sy)).max(r);
+        for k in 0..=rings {
+            let rho = r + (outer - r) * (k as f32 / rings as f32);
+            let p = egui::pos2(center.x + rho * dx, center.y + rho * dy);
+            m.vertices.push(egui::epaint::Vertex {
+                pos: p,
+                uv: uv_fn(p),
+                color: color_fn(p),
+            });
+        }
+    }
+    let stride = (rings + 1) as u32;
+    for i in 0..segs as u32 {
+        for k in 0..rings as u32 {
+            let a = base + i * stride + k;
+            let b = a + 1;
+            let c = base + (i + 1) * stride + k;
+            let d = c + 1;
+            m.indices.extend([a, b, d, a, d, c]);
+        }
+    }
+}
+
+/// Build the four corner notches of `rect`/`rounding` into one mesh, colouring
+/// each vertex via `uv_fn` (texture) + `color_fn` (tint), with `rings` steps from
+/// the arc out to the bbox edges (1 = the flat fan the backdrop repaint uses).
+fn notch_mesh_ringed(
+    rect: egui::Rect,
+    rounding: egui::CornerRadius,
+    rings: usize,
+    uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
+    color_fn: &dyn Fn(egui::Pos2) -> Color32,
+) -> egui::epaint::Mesh {
+    use std::f32::consts::PI;
+    let mut m = egui::epaint::Mesh::default();
+    let cap = 0.5 * rect.width().min(rect.height());
+    let cl = |v: f32| v.max(0.0).min(cap);
+    let (x0, y0, x1, y1) = (rect.min.x, rect.min.y, rect.max.x, rect.max.y);
+    for (radius, cx, cy, t0, t1, sx, sy) in [
+        (cl(f32::from(rounding.nw)), x0, y0, PI, 1.5 * PI, -1.0, -1.0),
+        (cl(f32::from(rounding.ne)), x1, y0, 1.5 * PI, 2.0 * PI, 1.0, -1.0),
+        (cl(f32::from(rounding.se)), x1, y1, 0.0, 0.5 * PI, 1.0, 1.0),
+        (cl(f32::from(rounding.sw)), x0, y1, 0.5 * PI, PI, -1.0, 1.0),
+    ] {
+        push_notch_rings(
+            &mut m,
+            egui::pos2(cx - sx * radius, cy - sy * radius),
+            radius,
+            t0,
+            t1,
+            sx,
+            sy,
+            rings,
+            uv_fn,
+            color_fn,
+        );
+    }
+    m
+}
+
 /// Build the four corner-notch fans of `rect`/`rounding` into one mesh, colouring
 /// each vertex via `uv_fn` (texture) + `color` (tint).
 fn notch_mesh(
@@ -9576,6 +9869,15 @@ fn notch_mesh(
 /// Pass an already-composited opaque `fill` when the underlying canvas/background
 /// is translucent; otherwise repainting the translucent colour would double the
 /// tint into a darker wedge.
+///
+/// `shadow` is the control's OWN soft-shadow stack ([`control_shadow_stack`]).
+/// The backdrop is not the whole truth about what sits behind a rounded control:
+/// its drop shadow (or Neumorphic halo) is painted there too, and shows through
+/// the notch, which is what makes a rounded corner look attached to the surface.
+/// Repainting the flat backdrop erased it inside the bbox while it survived just
+/// outside, leaving a hard-edged wedge at every corner. Pass the stack and it is
+/// re-composited on top; pass `None` for a control that paints no shadow.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_container_notch_mask(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -9584,6 +9886,7 @@ pub fn draw_container_notch_mask(
     gradient: Option<(egui::Rect, Color32, Color32, &str)>,
     image: Option<(egui::TextureId, egui::Rect)>,
     img_alpha: u8,
+    shadow: Option<&ShadowStack>,
 ) {
     if rounding.nw < crate::paint::cr8(0.5)
         && rounding.ne < crate::paint::cr8(0.5)
@@ -9625,7 +9928,34 @@ pub fn draw_container_notch_mask(
             }
         }
     }
+    // The control's own shadow, back on top of the repainted backdrop. Ringed,
+    // because the falloff is the whole point and a fan would interpolate it
+    // between the arc and the bbox corner in one step.
+    if let Some(stack) = shadow.filter(|s| !s.is_empty()) {
+        let m = notch_mesh_ringed(
+            rect,
+            rounding,
+            NOTCH_SHADOW_RINGS,
+            &|_p| egui::epaint::WHITE_UV,
+            &|p| stack.sample(p),
+        );
+        if !m.indices.is_empty() {
+            painter.add(egui::Shape::mesh(m));
+        }
+    }
 }
+
+/// Steps from the arc to the bbox edge when re-compositing a shadow into a corner
+/// notch.
+///
+/// The notch is at most `r·(√2−1)` deep, so 24 rings sample it under a pixel
+/// apart at any radius a form uses. That matters because a soft shadow is a
+/// STACK of layers — a staircase, not a ramp — and a vertex colour interpolated
+/// across a cell cuts the corner off each step. Twelve rings left ~24 levels of
+/// error at the dense core of a strong halo, which is small but measurable;
+/// halving the cell halves it. (The whole notch is a few thousand vertices for
+/// one mesh per masked control, so the resolution is cheap.)
+const NOTCH_SHADOW_RINGS: usize = 24;
 
 /// Restore a rounded container's own outline on its four corner arcs after
 /// [`draw_container_notch_mask`] repainted the backdrop over them. The notch mask
@@ -9635,6 +9965,15 @@ pub fn draw_container_notch_mask(
 /// redraws the same outline `draw_control` paints for a container — the glass rim
 /// plus any explicit BorderColor/BorderWidth/BorderStyle border — clipped to each
 /// corner square so the straight edges are not double-stroked.
+///
+/// **Restore means restore.** A control whose face draws no outline has none to
+/// put back, and drawing one here does not repair anything — it invents an edge
+/// that exists on the four corner arcs and nowhere else. `draw_control`'s Maps
+/// branch paints its halo, its background gradient and its tiles and returns
+/// before any rim or border, so a map has no edge line at all; restoring one gave
+/// it a hard 1px border on each corner — a dark hair at the corners of a running
+/// map (operator, 2026-08-21). It showed in the run form only because the
+/// designer canvas never calls this function.
 pub fn restore_container_outline(
     painter: &egui::Painter,
     ctrl: &Control,
@@ -9643,6 +9982,14 @@ pub fn restore_container_outline(
     glass: bool,
     masked: egui::CornerRadius,
 ) {
+    // Stated positively, so a control type that later joins the notch mask has to
+    // opt in deliberately rather than inherit an outline it never draws.
+    if !matches!(
+        ctrl.control_type,
+        crate::ControlType::Panel | crate::ControlType::GroupBox
+    ) {
+        return;
+    }
     if radius < 0.5 {
         return;
     }
@@ -11058,6 +11405,221 @@ mod theme_render_tests {
     /// Operator rule (2026-07-30): the TextBox caret must ALWAYS read against
     /// the field it sits in. It keeps the text colour while that already
     /// clears WCAG AA, and flips to near-black / near-white when it would not.
+    /// The canvas face previews a TextBox's `HintText` **only while its `Text`
+    /// is empty** — and a caller drawing the live content gets neither.
+    ///
+    /// The run path used to blank `Text` on a clone to silence the static
+    /// caption, which switched the placeholder ON instead: it was painted under
+    /// the live editor and stayed there however much was typed, crossed through
+    /// the real characters (operator, 2026-08-21). `draw_control_face` is the
+    /// right tool — it silences caption and hint together — and the editor
+    /// supplies the placeholder itself, where egui hides it once the buffer has
+    /// content.
+    ///
+    /// Shapes are counted rather than inspected: the face of an empty box draws
+    /// strictly more than the face of a filled one (the hint galley), and a
+    /// live-content face draws no text at all.
+    #[test]
+    fn a_textbox_face_previews_its_hint_only_while_it_is_empty() {
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 28.0));
+
+        // Count the TEXT shapes: the hint and the value are galleys, and every
+        // other layer (face, border, shadow) is identical between the two
+        // calls, so text is exactly the difference under test.
+        let text_shapes = |ctrl: &Control, with_label: bool| -> usize {
+            let mut out = ctx.run_ui(Default::default(), |root_ui| {
+                let painter = root_ui.painter_at(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(600.0, 400.0),
+                ));
+                if with_label {
+                    draw_control(&painter, rect.min, ctrl, false, false, 1.0, 1.0, None);
+                } else {
+                    draw_control_face(&painter, rect.min, ctrl, false, false, 1.0, 1.0, None);
+                }
+            });
+            // Font atlas deltas panic on drop if nobody applies them.
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter(|cs| matches!(cs.shape, egui::Shape::Text(_)))
+                .count()
+        };
+        let count = text_shapes;
+
+        let mut empty = Control::new("T", crate::model::ControlType::TextBox, 0, 0);
+        empty.set_prop("Text", crate::model::PropValue::String(String::new()));
+        empty.set_prop(
+            "HintText",
+            crate::model::PropValue::String("paste it here".into()),
+        );
+        let mut filled = empty.clone();
+        filled.set_prop(
+            "Text",
+            crate::model::PropValue::String("ACME Ltd".into()),
+        );
+
+        let empty_face = count(&empty, true);
+        let filled_face = count(&filled, true);
+        let live_face = count(&empty, false);
+        assert!(
+            empty_face > live_face,
+            "an empty box previews its hint ({empty_face} vs {live_face} shapes)"
+        );
+        assert!(
+            filled_face > live_face,
+            "a filled box draws its text ({filled_face} vs {live_face} shapes)"
+        );
+        assert_eq!(
+            live_face,
+            count(&filled, false),
+            "a face drawn for live content carries no text either way — which is \
+             what stops the placeholder surviving underneath the editor"
+        );
+    }
+
+    /// A Maps face carries the developer's appearance; the basemap is the
+    /// canvas's stand-in for live content and is left to the caller.
+    ///
+    /// The run path draws the live, pannable map itself, so it could never call
+    /// the face renderer — `draw_control` would have painted a second, static
+    /// basemap underneath. It therefore drew no face at all, and everything
+    /// set in Appearance and Drop Shadow applied on the canvas and vanished
+    /// when the form ran (operator, 2026-08-21). `draw_control_face` now stops
+    /// before the tiles, exactly as it stops before a caption, so both callers
+    /// get the face and only the canvas gets the stand-in.
+    #[test]
+    fn a_maps_face_stops_before_the_basemap_so_the_run_path_can_use_it() {
+        let ctx = egui::Context::default();
+        let mut map = Control::new("MAP-1", crate::model::ControlType::Maps, 0, 0);
+        map.rect.w = 300;
+        map.rect.h = 200;
+        map.set_prop("BackgroundGradientEnabled", crate::model::PropValue::Bool(true));
+
+        let shapes = |with_label: bool| -> usize {
+            let mut out = ctx.run_ui(Default::default(), |root_ui| {
+                let painter = root_ui.painter_at(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(600.0, 400.0),
+                ));
+                if with_label {
+                    draw_control(&painter, egui::Pos2::ZERO, &map, false, false, 1.0, 1.0, None);
+                } else {
+                    draw_control_face(&painter, egui::Pos2::ZERO, &map, false, false, 1.0, 1.0, None);
+                }
+            });
+            out.textures_delta.clear();
+            out.shapes.len()
+        };
+
+        let face_only = shapes(false);
+        let with_basemap = shapes(true);
+        assert!(
+            face_only > 0,
+            "the face must still paint the developer's appearance"
+        );
+        assert!(
+            with_basemap > face_only,
+            "the canvas draws the stand-in basemap on top of the face \
+             ({with_basemap} vs {face_only} shapes)"
+        );
+    }
+
+    /// A Maps control is shadow-eligible like any other visual control.
+    ///
+    /// Its own branch in `draw_control` returned before any shadow was drawn,
+    /// so with the Neumorphic register on it got neither the relief every other
+    /// control gets nor a drop shadow, and sat flat however its Drop Shadow
+    /// section was filled in (operator, 2026-08-21). The branch now draws the
+    /// halo; this pins the other half — that nothing excludes Maps from the
+    /// shadow spec in the first place, which is what a future "non-visual
+    /// controls have no shadow" list would quietly do.
+    #[test]
+    fn a_maps_control_is_not_excluded_from_drop_shadows() {
+        let mut map = Control::new("MAP-1", crate::model::ControlType::Maps, 0, 0);
+        map.set_prop("ShadowEnabled", crate::model::PropValue::Bool(true));
+        map.set_prop("ShadowDistance", crate::model::PropValue::Int(7));
+        assert!(
+            drop_shadow_spec(&map, false).is_some(),
+            "Maps must take a drop shadow like any other visual control"
+        );
+        // With the register on, NO control takes the rectangular shadow — the
+        // relief replaces it. That is the design, and it is why the branch has
+        // to draw the halo itself rather than rely on the shared path.
+        assert!(
+            drop_shadow_spec(&map, true).is_none(),
+            "the neumorphic register replaces the drop shadow with its relief"
+        );
+        // Unticked stays unticked, whatever the register.
+        map.set_prop("ShadowEnabled", crate::model::PropValue::Bool(false));
+        assert!(drop_shadow_spec(&map, false).is_none());
+    }
+
+    /// Switching a dark form from Elegance to an asset-pack theme with the
+    /// Neumorphic Light glass style turned every caption black on a dark
+    /// ground — the whole panel unreadable at once (operator, 2026-08-21).
+    ///
+    /// The register's default ink was a flat `BLACK` justified as "on light
+    /// surface", which is true of the face it paints and false of the Label
+    /// that paints none: a Label's text lands on the FORM's backdrop.
+    #[test]
+    fn the_neumorphic_default_ink_reads_against_the_ground_it_lands_on() {
+        let ctx = egui::Context::default();
+        let label = Control::new("L", crate::model::ControlType::Label, 0, 0);
+        let button = Control::new("B", crate::model::ControlType::Button, 0, 0);
+        let light_face = Color32::from_rgb(232, 237, 254); // the register's own
+        let dark_form = Color32::from_rgb(26, 31, 53); // what the operator had
+
+        // A frameless Label over a DARK form: the case that was black-on-dark.
+        set_form_backdrop(&ctx, dark_form);
+        let ink = neumorphic_default_ink(&ctx, &label, light_face);
+        assert!(
+            contrast_ratio(ink, dark_form) >= 4.5,
+            "label ink {ink:?} unreadable on {dark_form:?}"
+        );
+        assert!(relative_luminance(ink) > 0.5, "dark form ⇒ light ink");
+
+        // The same Label over a LIGHT form keeps the historical dark ink, so
+        // this is a repair and not a reversal.
+        let light_form = Color32::from_rgb(240, 240, 240);
+        set_form_backdrop(&ctx, light_form);
+        let ink = neumorphic_default_ink(&ctx, &label, light_face);
+        assert!(contrast_ratio(ink, light_form) >= 4.5);
+        assert!(relative_luminance(ink) < 0.5, "light form ⇒ dark ink");
+
+        // A control that DOES paint the register's light face keeps dark ink
+        // even on a dark form — the face is what its text sits on, not the
+        // backdrop.
+        set_form_backdrop(&ctx, dark_form);
+        let ink = neumorphic_default_ink(&ctx, &button, light_face);
+        assert!(
+            contrast_ratio(ink, light_face) >= 4.5,
+            "button ink {ink:?} unreadable on its own face"
+        );
+        assert!(relative_luminance(ink) < 0.5, "light face ⇒ dark ink");
+
+        // Whatever the ground, the answer clears AA — mid-tones included,
+        // which is exactly where a fixed threshold picks the worse colour.
+        for tone in [0u8, 40, 90, 128, 150, 200, 255] {
+            let ground = Color32::from_gray(tone);
+            set_form_backdrop(&ctx, ground);
+            let ink = neumorphic_default_ink(&ctx, &label, light_face);
+            assert!(
+                contrast_ratio(ink, ground) >= 4.5,
+                "ink {ink:?} fails AA on grey {tone}"
+            );
+        }
+
+        // With no backdrop published at all nothing is known about the ground,
+        // so the historical assumption stands rather than a guess from black.
+        let bare = egui::Context::default();
+        assert_eq!(
+            neumorphic_default_ink(&bare, &label, light_face),
+            Color32::BLACK
+        );
+    }
+
     #[test]
     fn caret_always_contrasts_with_the_field() {
         let dark_field = Color32::from_rgb(24, 26, 40);

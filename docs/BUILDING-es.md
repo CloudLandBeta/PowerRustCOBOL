@@ -25,6 +25,13 @@ sistema operativo.
 | **Un compilador de C y un enlazador** | el enlazador que Rust necesita para *cualquier* binario, más dos dependencias en C |
 | **Bibliotecas GUI nativas** (sólo Linux) | creación de ventanas y diálogos de fichero nativos |
 
+> **La IDE empaquetada comprueba por sí misma el requisito de Rust.** Quien
+> *usa* PowerRustCOBOL en vez de compilarlo nunca lee esta página, así que la
+> IDE busca Rust en su primer arranque y se ofrece a instalarlo cuando no se
+> cumple este mismo mínimo de **1.92**. Lee el número del propio manifiesto de
+> este workspace, de modo que ambos no pueden discrepar. Ver §3 de la Guía del
+> desarrollador.
+
 ### Sobre el compilador de C
 
 Dos crates del árbol compilan código C, así que un compilador de C es realmente

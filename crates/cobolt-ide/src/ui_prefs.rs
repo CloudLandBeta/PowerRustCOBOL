@@ -30,6 +30,11 @@ pub struct UiPrefs {
     pub beautify_verbs: String,
     /// Beautify: align `*>` comments with the surrounding code (rule 10b).
     pub beautify_align_comments: bool,
+    /// The first-run Rust question has been settled — a usable toolchain was
+    /// found, one was installed, or the developer declined twice. False (the
+    /// default, and what an older `ui.toml` reads as) means "not asked yet",
+    /// which is what makes the *first* run the first run.
+    pub rust_check_done: bool,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -100,6 +105,18 @@ pub fn save_beautify(verbs: crate::panels::beautify::VerbCase, align_comments: b
     prefs.save();
 }
 
+/// Has the first-run Rust toolchain question already been settled?
+pub fn rust_check_done() -> bool {
+    UiPrefs::load().rust_check_done
+}
+
+/// Settle it, so it is never asked again (load-then-save, like [`save_language`]).
+pub fn mark_rust_check_done() {
+    let mut prefs = UiPrefs::load();
+    prefs.rust_check_done = true;
+    prefs.save();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,8 +149,19 @@ mod tests {
             language: "pt".into(),
             beautify_verbs: "capitalize".into(),
             beautify_align_comments: true,
+            rust_check_done: true,
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);
+    }
+
+    /// A `ui.toml` written before the Rust check existed must read as
+    /// "not asked yet" — otherwise upgrading the IDE would silently skip the
+    /// one run the check gets.
+    #[test]
+    fn an_older_prefs_file_has_not_been_asked_yet() {
+        let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
+        assert!(!older.rust_check_done);
+        assert_eq!(older.language, "fr");
     }
 }

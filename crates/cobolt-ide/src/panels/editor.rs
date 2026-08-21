@@ -957,7 +957,18 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
                     extra_methods.push("RefreshBinding".to_string());
                 }
             }
-            let props = cobolt_forms::model::property_names_for(&type_name);
+            // Design-time properties plus the ones the runtime delivers
+            // (`ResponseBody` and friends). Both are readable from a handler,
+            // so both belong in IntelliSense and in the save-time gate —
+            // leaving the runtime half out rejected the only correct way to
+            // read an async answer.
+            let mut props = cobolt_forms::model::property_names_for(&type_name);
+            for extra in cobolt_forms::model::runtime_property_names_for(&type_name) {
+                if !props.iter().any(|p| p.eq_ignore_ascii_case(extra)) {
+                    props.push((*extra).to_owned());
+                }
+            }
+            props.sort_unstable();
             KnownControl {
                 id: c.id.clone(),
                 ctrl_type: type_name,

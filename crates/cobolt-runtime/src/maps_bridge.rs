@@ -127,7 +127,7 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
                 route.summary,
                 leg.distance.value,
                 leg.duration.value.num_seconds(),
-                route.overview_polyline.points,
+                road_polyline(route),
                 traffic_seconds,
             ))
         }
@@ -197,5 +197,135 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
             Ok(lines.join("\n"))
         }
         other => Err(format!("Maps: unknown verb '{other}'")),
+    }
+}
+
+/// The route geometry that actually follows the road.
+///
+/// `route.overview_polyline` is Google's **simplified** line: it is meant for a
+/// thumbnail, and over a few hundred kilometres it cuts corners the road does
+/// not — a trace drawn from it visibly leaves the motorway, which is exactly
+/// what "a lousy approximation" looks like on screen.
+///
+/// The shape that follows the road is per navigation **step**. Each step is
+/// delta-encoded from its own origin, so the encoded strings cannot be joined
+/// as text: they are decoded, joined, and encoded once. Consecutive steps share
+/// an endpoint — the end of one is the start of the next — and that duplicate
+/// is dropped, because a repeated point is a zero-length segment that widens
+/// the join under a thick stroke.
+///
+/// The geometry is then fitted to [`GEOMETRY_BUDGET`] — full detail when it
+/// fits, and otherwise simplified to the closest line that does, because this
+/// field lands in a COBOL item of a size the developer declared and a line that
+/// overflows it is truncated into a route that stops halfway.
+///
+/// Falls back to the overview line when a response carries no steps at all: a
+/// coarse route still beats no route.
+fn road_polyline(route: &google_maps::directions::response::route::Route) -> String {
+    let points = join_steps(
+        route
+            .legs
+            .iter()
+            .flat_map(|leg| leg.steps.iter().map(|step| step.polyline.points.as_str())),
+    );
+    if points.len() < 2 {
+        return route.overview_polyline.points.clone();
+    }
+    cobolt_forms::map_geometry::encode_polyline_within(&points, GEOMETRY_BUDGET)
+}
+
+/// Decode each step's polyline and join them into one path, dropping the point
+/// a step shares with the one before it.
+///
+/// Split out from [`road_polyline`] so the joining rule can be tested: the rest
+/// of that function needs a live `Directions` response, and a rule only
+/// exercised by a credentialed network call is a rule nothing checks.
+fn join_steps<'a>(steps: impl Iterator<Item = &'a str>) -> Vec<cobolt_forms::map_geometry::LatLng> {
+    let mut points: Vec<cobolt_forms::map_geometry::LatLng> = Vec::new();
+    for step in steps {
+        for p in cobolt_forms::map_geometry::decode_polyline(step) {
+            let repeats_previous = points
+                .last()
+                .map(|last: &cobolt_forms::map_geometry::LatLng| {
+                    (last.lat - p.lat).abs() < 1e-7 && (last.lng - p.lng).abs() < 1e-7
+                })
+                .unwrap_or(false);
+            if !repeats_previous {
+                points.push(p);
+            }
+        }
+    }
+    points
+}
+
+/// How many characters of route geometry a `Directions` answer may carry.
+///
+/// Field 6 is UNSTRINGed into a COBOL item, so its size is a contract, not an
+/// implementation detail: 4,000 characters fit the `PIC X(4096)` the guide's
+/// worked example declares, with room for the field's own trailing spaces.
+/// Before this cap existed the field carried `overview_polyline`, whose length
+/// is bounded by nothing at all — so a long enough route could already
+/// overflow whatever the developer declared and truncate silently.
+const GEOMETRY_BUDGET: usize = 4_000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cobolt_forms::map_geometry::{decode_polyline, encode_polyline, LatLng};
+
+    fn pt(lat: f64, lng: f64) -> LatLng {
+        LatLng { lat, lng }
+    }
+
+    /// Google ends each step where the next one begins. Keeping both copies
+    /// puts a zero-length segment at every turn, which a thick stroke draws as
+    /// a blob — so the shared point is dropped exactly once per join.
+    #[test]
+    fn the_point_two_steps_share_is_kept_once() {
+        let a = encode_polyline(&[pt(40.4168, -3.7038), pt(40.3000, -3.6800)]);
+        let b = encode_polyline(&[pt(40.3000, -3.6800), pt(40.0300, -3.6000)]);
+        let joined = join_steps([a.as_str(), b.as_str()].into_iter());
+        assert_eq!(joined.len(), 3, "four points, one shared: {joined:?}");
+        let near = |x: f64, y: f64| (x - y).abs() < 1e-5;
+        assert!(near(joined[1].lat, 40.3000) && near(joined[1].lng, -3.6800));
+        assert!(near(joined[2].lat, 40.0300) && near(joined[2].lng, -3.6000));
+    }
+
+    /// Two *different* points that merely sit close together are both kept —
+    /// the rule is "the same point twice in a row", not "points near each
+    /// other", or a hairpin bend would lose its apex.
+    #[test]
+    fn distinct_neighbouring_points_both_survive() {
+        let steps = encode_polyline(&[pt(37.1773, -3.5986), pt(37.1774, -3.5987)]);
+        assert_eq!(join_steps([steps.as_str()].into_iter()).len(), 2);
+    }
+
+    /// No steps at all yields nothing, which is what makes `road_polyline`
+    /// fall back to the overview line instead of returning an empty route.
+    #[test]
+    fn no_steps_means_no_points() {
+        assert!(join_steps(std::iter::empty()).is_empty());
+        assert!(join_steps(["".as_ref()].into_iter()).is_empty());
+    }
+
+    /// The whole point of joining: the result is one line through every step's
+    /// geometry, in order, and it survives the encode the caller performs.
+    #[test]
+    fn the_joined_route_is_one_line_in_step_order() {
+        let steps: Vec<String> = vec![
+            encode_polyline(&[pt(40.4168, -3.7038), pt(40.2000, -3.6500)]),
+            encode_polyline(&[pt(40.2000, -3.6500), pt(38.7600, -3.3800)]),
+            encode_polyline(&[pt(38.7600, -3.3800), pt(37.1773, -3.5986)]),
+        ];
+        let joined = join_steps(steps.iter().map(String::as_str));
+        assert_eq!(joined.len(), 4);
+        let back = decode_polyline(&cobolt_forms::map_geometry::encode_polyline_within(
+            &joined,
+            GEOMETRY_BUDGET,
+        ));
+        assert_eq!(back.len(), 4, "well under the budget, so nothing is dropped");
+        let near = |x: f64, y: f64| (x - y).abs() < 1e-5;
+        assert!(near(back[0].lat, 40.4168), "starts in Madrid: {:?}", back[0]);
+        assert!(near(back[3].lat, 37.1773), "ends in Granada: {:?}", back[3]);
     }
 }

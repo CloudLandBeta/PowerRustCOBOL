@@ -474,6 +474,9 @@ pub struct CoboltApp {
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
+    /// The first-run Rust question, present only while it is unanswered. A
+    /// machine that can already build never raises it — see [`crate::toolchain`].
+    toolchain_prompt: Option<crate::toolchain::FirstRunPrompt>,
     /// Project-structure upgrades due on the open project, offered once per
     /// open. Empty = the project is current (or the developer said Not now).
     project_upgrades: Vec<&'static dyn crate::project_upgrade::ProjectUpgrade>,
@@ -1267,6 +1270,7 @@ impl CoboltApp {
             main_form_prev: Vec::new(),
             about_open: false,
             ai_setup_modal: false,
+            toolchain_prompt: None,
             project_upgrades: Vec::new(),
             doc_viewer: Default::default(),
             debug: crate::debug_settings::DebugSettings::load(),
@@ -1316,6 +1320,21 @@ impl CoboltApp {
             Err(e) => {
                 app.output
                     .push_status(format!("Agent access endpoint failed to start: {e}"));
+            }
+        }
+
+        // Can this machine Build? Probed on every start — it is one cheap
+        // process — because a `rustc` that lives outside the desktop session's
+        // PATH has to be put back on it for the `cargo` that Build spawns.
+        // Only the *first* run turns a "no" into a question.
+        let toolchain = crate::toolchain::detect();
+        if let crate::toolchain::Status::Ok { path, .. } = &toolchain {
+            crate::toolchain::ensure_on_path(path);
+        }
+        if !crate::ui_prefs::rust_check_done() {
+            match crate::toolchain::FirstRunPrompt::for_status(toolchain) {
+                Some(prompt) => app.toolchain_prompt = Some(prompt),
+                None => crate::ui_prefs::mark_rust_check_done(),
             }
         }
         app
@@ -9390,6 +9409,129 @@ impl CoboltApp {
         }
     }
 
+    /// The first-run Rust question (see [`crate::toolchain`]).
+    ///
+    /// There is no ✕: the only ways out are Install and a refusal, because a
+    /// window closed by its corner would skip the second ask the operator
+    /// asked for — and skipping it is exactly how somebody ends up discovering
+    /// at Build time what declining cost them.
+    fn show_toolchain_prompt(&mut self, ctx: &Context, tr: &Tr) {
+        use crate::toolchain::{Decision, Install, Stage, Status};
+
+        if self.toolchain_prompt.is_none() {
+            return;
+        }
+        // Read the palette before borrowing the prompt: both come from `self`.
+        let dim = self.current_theme().text_dim;
+        let minimum = crate::toolchain::minimum().to_string();
+        let command = crate::toolchain::install_command();
+        let prompt = self
+            .toolchain_prompt
+            .as_mut()
+            .expect("presence checked above");
+        prompt.poll_install();
+
+        let mut install = false;
+        let mut decline = false;
+        let mut settle = false;
+
+        let title = match prompt.stage {
+            Stage::Offer => tr.rust_check_title,
+            Stage::LastChance => tr.rust_check_last_title,
+        };
+        egui::Window::new(title)
+            .id(egui::Id::new("rust_first_run"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_max_width(520.0);
+                match &prompt.install {
+                    // Under way: the installer owns the dialog until it answers.
+                    Some(Install::Running(_)) => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(tr.rust_check_installing);
+                        });
+                        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                    }
+                    Some(Install::Finished(outcome)) => {
+                        let text = match (outcome.ok, outcome.version) {
+                            (true, Some(v)) => {
+                                tr.rust_check_installed.replacen("{}", &v.to_string(), 1)
+                            }
+                            _ => tr.rust_check_failed.to_owned(),
+                        };
+                        ui.label(text);
+                        if !outcome.ok && !outcome.detail.is_empty() {
+                            ui.add_space(6.0);
+                            ui.label(
+                                egui::RichText::new(&outcome.detail)
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(dim),
+                            );
+                        }
+                        ui.add_space(12.0);
+                        if ui.button(tr.rust_check_close).clicked() {
+                            settle = true;
+                        }
+                    }
+                    None => {
+                        match prompt.stage {
+                            Stage::Offer => {
+                                ui.label(match &prompt.status {
+                                    Status::TooOld { version, .. } => tr
+                                        .rust_check_too_old
+                                        .replacen("{}", &version.to_string(), 1)
+                                        .replacen("{}", &minimum, 1),
+                                    _ => tr.rust_check_missing.to_owned(),
+                                });
+                                ui.add_space(6.0);
+                                ui.label(tr.rust_check_why);
+                            }
+                            Stage::LastChance => {
+                                ui.label(egui::RichText::new(tr.rust_check_lost).size(13.0));
+                            }
+                        }
+                        ui.add_space(12.0);
+                        // The command is shown before it is approved, and it is
+                        // the string `install_argv` runs — never a paraphrase.
+                        ui.label(egui::RichText::new(tr.rust_check_command).size(11.0).color(dim));
+                        ui.add_space(2.0);
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(command).monospace().size(11.0))
+                                .selectable(true)
+                                .wrap(),
+                        );
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            if ui.button(tr.rust_check_install).clicked() {
+                                install = true;
+                            }
+                            let refuse = match prompt.stage {
+                                Stage::Offer => tr.rust_check_later,
+                                Stage::LastChance => tr.rust_check_continue,
+                            };
+                            if ui.button(refuse).clicked() {
+                                decline = true;
+                            }
+                        });
+                    }
+                }
+            });
+
+        if install {
+            prompt.start_install();
+        } else if decline && prompt.decline() == Decision::Accepted {
+            settle = true;
+        }
+        if settle {
+            self.toolchain_prompt = None;
+            crate::ui_prefs::mark_rust_check_done();
+        }
+    }
+
     /// Is the Building dialog on screen? It is modal, so the rest of the IDE
     /// has to keep out of the way while it is up — the keyboard included,
     /// because egui's modal layer blocks the pointer, not key events.
@@ -11398,6 +11540,7 @@ impl eframe::App for CoboltApp {
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
         self.show_project_upgrade_modal(ctx, &tr);
+        self.show_toolchain_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
         // External Crates (spec 044): the service mutates `cobolt.toml` on
         // disk; when an action finished, reload so the tree shows the pins
@@ -14523,11 +14666,26 @@ impl CoboltApp {
                     // Sole vertical child of the pane (full width for its ScrollArea).
                     let d = &mut self.designers[idx].1;
                     let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
+                    // With several controls selected the pane speaks for all of
+                    // them: the primary supplies the values, the caller fans the
+                    // edits out (operator, 2026-08-21).
+                    let selection = crate::panels::properties::MultiSelection {
+                        count: d.selected_ids.len(),
+                        uniform: d.selection_is_uniform(),
+                        common_keys: d.common_property_keys(),
+                    };
                     // SAFETY: form and properties are different fields — field-level split.
                     let form = &d.form as *const cobolt_forms::Form;
                     let props = &mut d.properties;
                     // SAFETY: we only read *form; no aliased write exists.
-                    props.show(ui, unsafe { &*form }, sel_ctrl, &indexed_files, tr)
+                    props.show_multi(
+                        ui,
+                        unsafe { &*form },
+                        sel_ctrl,
+                        &indexed_files,
+                        tr,
+                        selection,
+                    )
                 })
                 .inner
         } else {
@@ -14594,7 +14752,17 @@ impl CoboltApp {
                 d.style_break_pending.push((ctrl_id, key, value));
                 continue;
             }
-            d.set_property(&ctrl_id, &key, value);
+            // With several controls selected, the pane is showing what they have
+            // in COMMON and an edit belongs to all of them — one undoable step,
+            // not one per control (operator, 2026-08-21). The id the pane
+            // reports is the primary's; `set_property_multi` fans the change out
+            // to every selected control that carries the property and leaves the
+            // rest alone.
+            if d.selected_ids.len() > 1 && d.is_selected(&ctrl_id) {
+                d.set_property_multi(&key, value);
+            } else {
+                d.set_property(&ctrl_id, &key, value);
+            }
         }
         // The style-unit confirmation for the held background edits.
         if !self.designers[idx].1.style_break_pending.is_empty() {

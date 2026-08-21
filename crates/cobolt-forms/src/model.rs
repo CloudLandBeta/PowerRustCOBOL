@@ -1110,6 +1110,48 @@ pub fn property_names_for(type_name: &str) -> Vec<String> {
     names
 }
 
+/// Properties a control does **not** carry at design time but does at run time.
+///
+/// [`property_names_for`] is built from `Control::new`, which seeds what the
+/// designer can set and the `.cfrm` stores. An async answer is neither: the
+/// runtime writes it onto the live control when it arrives, so it has no
+/// default, never appears in the property pane and is never saved.
+///
+/// It is still a property a handler reads — the *only* way to read one, in
+/// fact. `Geocode`, `Directions`, `PlacesSearch`, every `RestClient` verb and
+/// `WebSearch::Search` all return an empty string immediately and deliver
+/// through `ResponseBody` on `onComplete`. A validator that knows only the seed
+/// map therefore rejects the one correct way to write those handlers, which is
+/// what it did until this existed.
+///
+/// Names are compared case-insensitively by the callers, as everywhere else in
+/// RustCOBOL.
+pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
+    // The uniform async lifecycle (spec 032): the answer, the HTTP status, the
+    // in-flight flag, the failure text. `Busy` is seeded at design time for
+    // RestClient and WebSearch but not for Maps, and listing it twice is
+    // harmless — the callers union the two lists.
+    const ASYNC: &[&str] = &["ResponseBody", "StatusCode", "Busy", "LastError"];
+    const MAPS: &[&str] = &[
+        "ResponseBody",
+        "StatusCode",
+        "Busy",
+        "LastError",
+        // What the pointer is over and what the info window has open. Written
+        // by the renderer, read by handlers bound to onMarkerClick /
+        // onMarkerHover / onRegionClick / onRegionHover.
+        "SelectedMarkerId",
+        "SelectedRegionId",
+        "HoveredMarkerId",
+        "HoveredRegionId",
+    ];
+    match ControlType::from_str(type_name) {
+        ControlType::Maps => MAPS,
+        ControlType::RestClient | ControlType::WebSearch => ASYNC,
+        _ => &[],
+    }
+}
+
 /// The LINKAGE-SECTION data items and the matching `PROCEDURE DIVISION USING`
 /// names for one event — i.e. the data the runtime delivers to the handler.
 ///
@@ -3461,6 +3503,48 @@ pub fn side_menu_footer_id(side_id: &str) -> String {
 /// renderer's gate can never drift apart.
 pub const DEFAULT_SHAPE_FILL_COLOR: &str = "#C0C0C0";
 
+/// Are these the same property value?
+///
+/// Compared as [`PropValue`]s rather than through `as_str`, which returns `""`
+/// for `Int` and `Bool` — so every numeric property looks equal to every other
+/// through it, and a switch that used it wiped the developer's `CornerRadius`
+/// believing the previous theme had written it. Colours are compared without
+/// case, since `#E1E6F8FF` and `#e1e6f8ff` are one value.
+fn prop_values_match(a: &PropValue, b: &PropValue) -> bool {
+    match (a, b) {
+        (PropValue::String(x), PropValue::String(y)) => x.eq_ignore_ascii_case(y),
+        _ => a == b,
+    }
+}
+
+/// The appearance properties a theme or glass style owns — and therefore the
+/// only ones a theme switch may rewrite.
+///
+/// This is exactly the set the style appliers *write*, which is what makes
+/// "no property left behind" true rather than aspirational: anything a switch
+/// can stamp, a switch can un-stamp. Everything outside this list belongs to
+/// the developer and a theme never touches it — captions and `Text`, `Items`
+/// and `Value`, geometry and tab order, `Enabled`/`Visible`, event bindings,
+/// data bindings, fonts. Appearance is the theme's; behaviour and content are
+/// not (operator rule, 2026-08-21).
+pub const THEME_OWNED_PROPS: &[&str] = &[
+    "BackgroundColor",
+    "ForegroundColor",
+    "CornerRadius",
+    "ShadowEnabled",
+    "ShadowColor",
+    "ShadowLightColor",
+    "ShadowOpacity",
+    "ShadowDirection",
+    "ShadowDistance",
+    "ShadowBlur",
+    "ShadowBlurStrength",
+    "BackgroundGradientEnabled",
+    "BackgroundGradientStartColor",
+    "BackgroundGradientEndColor",
+    "BackgroundGradientDirection",
+];
+
 pub const NEUMORPHIC_SURFACE_COLOR: &str = "#E1E6F8FF";
 /// Form-level colours are stored **without** the leading `#`; control-level
 /// ones keep it. Both spellings below are deliberate.
@@ -4950,7 +5034,96 @@ impl Control {
         );
     }
 
+    /// Put every [`THEME_OWNED_PROPS`] entry back to what a **new** control of
+    /// this type carries, so a style switch starts from a clean surface rather
+    /// than the previous style's stamps.
+    ///
+    /// Operator rule, 2026-08-21: *"No property is left behind if the new form
+    /// default property for a control or the form is different from the one
+    /// already applied for the old theme."* Without this, switching Neumorphic
+    /// → Classic kept the neumorphic surface colour, black ink, 15 px corners
+    /// and the whole shadow set on every control — a form that had visibly
+    /// changed theme and had not.
+    ///
+    /// A property the fresh control does not carry at all is **removed**, not
+    /// blanked: that is what "as new" means, and a leftover `ShadowColor` from
+    /// Neumorphic Dark is exactly the kind of residue this exists to clear.
+    ///
+    /// # What is NOT reset, and why
+    ///
+    /// A value the **developer chose** is left exactly as it is. That is an
+    /// older operator rule (2026-07-28: *"a developer-chosen foreground
+    /// survives the switch"*) and it does not contradict the newer one — the
+    /// newer rule is about the *previous theme's* leftovers, not about the
+    /// developer's work. The two are told apart by asking whether the current
+    /// value is one a theme could have written: [`Self::theme_stamped_values`]
+    /// runs the appliers on a fresh control of this type and collects what each
+    /// one produces. Anything else was typed by a human and is theirs.
+    pub fn reset_theme_owned_props(&mut self) {
+        let fresh = Control::new(&self.id, self.control_type.clone(), 0, 0);
+        let stamped = self.theme_stamped_values();
+        for key in THEME_OWNED_PROPS {
+            // Only the previous theme's own marks are wiped.
+            let current = self.get_prop(key).cloned();
+            let is_theme_mark = match &current {
+                Some(v) => stamped
+                    .get(*key)
+                    .map(|values| values.iter().any(|s| prop_values_match(s, v)))
+                    .unwrap_or(false),
+                None => true,
+            };
+            if !is_theme_mark {
+                continue;
+            }
+            match fresh.get_prop(key) {
+                Some(v) => {
+                    let v = v.clone();
+                    self.set_prop(*key, v);
+                }
+                None => {
+                    self.properties.shift_remove(*key);
+                }
+            }
+        }
+    }
+
+    /// Every value a theme or glass style could have written into each
+    /// [`THEME_OWNED_PROPS`] entry for a control of this type.
+    ///
+    /// Derived by running the appliers rather than listed by hand, so a style
+    /// that starts stamping a new colour is covered the day it does — a
+    /// hand-written table would silently stop recognising its own marks.
+    fn theme_stamped_values(&self) -> std::collections::HashMap<&'static str, Vec<PropValue>> {
+        let mut out: std::collections::HashMap<&'static str, Vec<PropValue>> =
+            std::collections::HashMap::new();
+        let fresh = Control::new(&self.id, self.control_type.clone(), 0, 0);
+        let mut candidates = vec![fresh.clone()];
+        for style in [GlassStyle::Neumorphic, GlassStyle::NeumorphicDark] {
+            // From a FRESH control, so what is collected is what the style
+            // writes rather than what it happens to leave from a former one.
+            let mut c = fresh.clone();
+            match style {
+                GlassStyle::Neumorphic => c.apply_neumorphic_defaults(),
+                GlassStyle::NeumorphicDark => c.apply_neumorphic_dark_defaults(),
+                _ => {}
+            }
+            candidates.push(c);
+        }
+        for key in THEME_OWNED_PROPS {
+            let values: Vec<PropValue> = candidates
+                .iter()
+                .filter_map(|c| c.get_prop(key).cloned())
+                .collect();
+            out.insert(*key, values);
+        }
+        out
+    }
+
     pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        // Reset first, then stamp: the target's defaults are what a NEW control
+        // would carry, which is not the same as "the old values plus whatever
+        // the new style happens to write".
+        self.reset_theme_owned_props();
         match style {
             GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
             GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
@@ -5680,12 +5853,51 @@ impl Form {
         }
     }
 
+    /// The form's own appearance, back to what a **new** form carries — the
+    /// form-level half of [`Control::reset_theme_owned_props`].
+    ///
+    /// These live as struct fields rather than in a property map, so they need
+    /// their own reset; without it, switching away from Neumorphic Dark left
+    /// the form wearing that style's gradient while every control had moved on.
+    /// Only appearance is touched: the title, size, events, main-form
+    /// designation, hosting and COBOL structure are the developer's.
+    pub fn reset_theme_owned_appearance(&mut self) {
+        let fresh = Form::new("_", "_", self.width, self.height);
+        self.background_color = fresh.background_color;
+        self.background_gradient_enabled = fresh.background_gradient_enabled;
+        self.background_gradient_start_color = fresh.background_gradient_start_color;
+        self.background_gradient_end_color = fresh.background_gradient_end_color;
+        self.background_gradient_direction = fresh.background_gradient_direction;
+    }
+
+    /// Apply the defaults a **new** form would carry under `style`, to the form
+    /// and to every control — clearing whatever the previous style stamped
+    /// (operator rule, 2026-08-21).
     pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        self.reset_theme_owned_appearance();
+        for ctrl in &mut self.controls {
+            ctrl.reset_theme_owned_props();
+        }
         match style {
             GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
             GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
             GlassStyle::Classic | GlassStyle::Enhanced => self.glass_style = style,
         }
+    }
+
+    /// Re-apply the defaults a new form would carry, after the **Theme** was
+    /// changed (spec 007 / 050) — the theme's own half of the same rule.
+    ///
+    /// A procedural or asset-pack theme stamps no properties: it paints at
+    /// render time. So "the defaults for the target theme" are the base ones
+    /// plus whatever the glass style contributes — which is precisely
+    /// [`Self::apply_glass_style_defaults`] with the style already in force.
+    /// Switching theme therefore *clears* the outgoing theme's residue instead
+    /// of leaving a form half dressed in each.
+    pub fn apply_theme_defaults(&mut self, theme: Option<String>) {
+        self.theme = theme.filter(|t| !t.trim().is_empty());
+        let style = self.glass_style;
+        self.apply_glass_style_defaults(style);
     }
 
     /// Fill the `REPOSITORY` block with the curated Rust-FFI type bridge
@@ -6867,6 +7079,44 @@ mod tests {
         }
     }
 
+    /// An async answer is a property a handler READS and nothing SETS, so it is
+    /// absent from `Control::new` — and a save-time gate built only from that
+    /// seed map rejected `Maps-1::ResponseBody`, which is the sole way to read
+    /// what `Directions` returned (operator, 2026-08-21).
+    #[test]
+    fn the_runtime_delivers_properties_the_designer_never_seeds() {
+        for t in ["Maps", "RestClient", "WebSearch"] {
+            let runtime = runtime_property_names_for(t);
+            assert!(
+                runtime.contains(&"ResponseBody"),
+                "{t} must expose ResponseBody at run time"
+            );
+            assert!(runtime.contains(&"LastError"), "{t} must expose LastError");
+            // And they really are absent from the design-time list, which is
+            // the whole reason this function exists.
+            let design = property_names_for(t);
+            assert!(
+                !design.iter().any(|p| p == "ResponseBody"),
+                "{t} unexpectedly seeds ResponseBody — collapse the two lists"
+            );
+        }
+        // The map's interaction state, read by the click/hover handlers.
+        for name in [
+            "SelectedMarkerId",
+            "SelectedRegionId",
+            "HoveredMarkerId",
+            "HoveredRegionId",
+        ] {
+            assert!(
+                runtime_property_names_for("Maps").contains(&name),
+                "Maps must expose {name} at run time"
+            );
+        }
+        // A control with no async surface gains nothing.
+        assert!(runtime_property_names_for("Button").is_empty());
+        assert!(runtime_property_names_for("Label").is_empty());
+    }
+
     /// `draw_control` falls back to `"Single"`/1px when a control carries no
     /// `BorderStyle`, and CheckBox is not in the frameless skip-list — so with
     /// no border keys of its own every checkbox was boxed in a grey rectangle
@@ -6918,6 +7168,170 @@ mod tests {
             // The check glyph keeps its own, separate colour.
             assert_eq!(ctrl.get_prop("CheckColor").unwrap().as_str(), "#0078D7");
         }
+    }
+
+    /// Switching theme applies the target's defaults to the form and every
+    /// control, and leaves **nothing** behind from the theme being left
+    /// (operator rule, 2026-08-21).
+    ///
+    /// Before this, only the Neumorphic styles wrote anything and nothing ever
+    /// un-wrote it: switching Neumorphic → Classic kept the neumorphic surface,
+    /// black ink, 15 px corners and the whole shadow set, so a form that had
+    /// visibly changed theme had not actually changed.
+    #[test]
+    fn switching_theme_leaves_no_property_behind() {
+        let mut form = Form::new("F", "F", 640, 480);
+        form.controls
+            .push(Control::new("BTN", ControlType::Button, 10, 10));
+        let fresh = Control::new("BTN", ControlType::Button, 10, 10);
+
+        form.apply_glass_style_defaults(GlassStyle::Neumorphic);
+        let stamped = &form.controls[0];
+        assert_eq!(
+            stamped.get_prop("BackgroundColor").unwrap().as_str(),
+            NEUMORPHIC_SURFACE_COLOR,
+            "the switch must actually apply the style"
+        );
+        assert_eq!(stamped.get_prop("CornerRadius").unwrap().as_i64(), 15);
+
+        // …and switching away puts every one of them back as new.
+        form.apply_glass_style_defaults(GlassStyle::Classic);
+        let after = &form.controls[0];
+        for key in THEME_OWNED_PROPS {
+            let expected = fresh.get_prop(key).cloned();
+            let actual = after.get_prop(key).cloned();
+            assert_eq!(
+                actual.as_ref().map(|v| v.as_str().to_owned()),
+                expected.as_ref().map(|v| v.as_str().to_owned()),
+                "`{key}` was left behind by the outgoing style"
+            );
+        }
+        // The form's own appearance too — it is fields, not properties, so it
+        // needs its own reset and used to keep the old gradient.
+        form.apply_glass_style_defaults(GlassStyle::NeumorphicDark);
+        assert!(form.background_gradient_enabled);
+        form.apply_glass_style_defaults(GlassStyle::Classic);
+        let new_form = Form::new("F", "F", 640, 480);
+        assert_eq!(
+            form.background_gradient_enabled,
+            new_form.background_gradient_enabled
+        );
+        assert_eq!(form.background_color, new_form.background_color);
+    }
+
+    /// Two operator rules that look opposed, holding at once.
+    ///
+    /// 2026-07-28: *"a developer-chosen foreground survives the switch"*.
+    /// 2026-08-21: *"no property is left behind"*. Both are true because they
+    /// speak about different values: the second is about the previous THEME's
+    /// marks, the first about the developer's. A switch clears the one and
+    /// keeps the other, and this pins the line between them — a reset written
+    /// as "wipe everything" passes the newer rule and destroys the older one,
+    /// which is exactly what the first cut of it did.
+    #[test]
+    fn a_switch_clears_the_old_themes_marks_and_keeps_the_developers() {
+        let mut form = Form::new("F", "T", 400, 300);
+        form.controls
+            .push(Control::new("STAMPED", ControlType::Label, 0, 0));
+        form.controls
+            .push(Control::new("CHOSEN", ControlType::Label, 0, 40));
+        form.apply_glass_style_defaults(GlassStyle::Neumorphic);
+
+        // One control keeps what the style stamped; on the other the developer
+        // picks colours of their own afterwards.
+        let chosen = form.find_control_mut("CHOSEN").unwrap();
+        chosen.set_prop("BackgroundColor", PropValue::String("#204060".into()));
+        chosen.set_prop("CornerRadius", PropValue::Int(3));
+        chosen.set_prop("ShadowDistance", PropValue::Int(22));
+
+        form.apply_glass_style_defaults(GlassStyle::Classic);
+
+        let fresh = Control::new("X", ControlType::Label, 0, 0);
+        let stamped = form.find_control("STAMPED").unwrap();
+        // Compared as `Option`, because "as new" includes being ABSENT: a
+        // fresh Label carries no CornerRadius at all, so the style's 15 px is
+        // removed rather than blanked to some other number.
+        let as_text = |c: &Control, k: &str| c.get_prop(k).map(|v| v.as_str().to_owned());
+        for key in THEME_OWNED_PROPS {
+            assert_eq!(
+                as_text(stamped, key),
+                as_text(&fresh, key),
+                "`{key}`: the style's own mark must go"
+            );
+        }
+
+        let chosen = form.find_control("CHOSEN").unwrap();
+        assert_eq!(
+            chosen.get_prop("BackgroundColor").unwrap().as_str(),
+            "#204060",
+            "a colour the developer picked is not the old theme's residue"
+        );
+        assert_eq!(chosen.get_prop("CornerRadius").unwrap().as_i64(), 3);
+        assert_eq!(chosen.get_prop("ShadowDistance").unwrap().as_i64(), 22);
+    }
+
+    /// Appearance is the theme's; content and behaviour are the developer's.
+    /// A theme switch that ate a caption, a tab order or an event binding
+    /// would be destroying work, not restyling it.
+    #[test]
+    fn switching_theme_never_touches_content_or_behaviour() {
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut btn = Control::new("BTN", ControlType::Button, 10, 10);
+        btn.set_prop("Caption", PropValue::String("Save invoice".into()));
+        btn.set_prop("Tooltip", PropValue::String("Writes the record".into()));
+        btn.tab_order = 7;
+        btn.enabled = false;
+        btn.ensure_event("onClick").code = "           CONTINUE.".to_owned();
+        let mut box_ = Control::new("TXT", ControlType::TextBox, 10, 60);
+        box_.set_prop("Text", PropValue::String("ACME Ltd".into()));
+        box_.set_prop("MaximumLength", PropValue::Int(40));
+        box_.set_prop("PasswordCharacter", PropValue::String("*".into()));
+        form.controls.push(btn);
+        form.controls.push(box_);
+
+        for style in [
+            GlassStyle::Neumorphic,
+            GlassStyle::NeumorphicDark,
+            GlassStyle::Classic,
+        ] {
+            form.apply_glass_style_defaults(style);
+            let btn = &form.controls[0];
+            assert_eq!(btn.get_prop("Caption").unwrap().as_str(), "Save invoice");
+            assert_eq!(btn.get_prop("Tooltip").unwrap().as_str(), "Writes the record");
+            assert_eq!(btn.tab_order, 7, "{style:?} moved the tab order");
+            assert!(!btn.enabled, "{style:?} re-enabled the control");
+            assert_eq!(btn.rect.x, 10, "{style:?} moved the control");
+            assert_eq!(btn.events.len(), 1, "{style:?} lost the handler");
+            assert!(btn.events[0].code.contains("CONTINUE"));
+            let box_ = &form.controls[1];
+            assert_eq!(box_.get_prop("Text").unwrap().as_str(), "ACME Ltd");
+            assert_eq!(box_.get_prop("MaximumLength").unwrap().as_i64(), 40);
+            assert_eq!(box_.get_prop("PasswordCharacter").unwrap().as_str(), "*");
+        }
+    }
+
+    /// The Theme dropdown goes through the same rule: a pack stamps nothing at
+    /// design time, so the defaults for the target are the base ones plus the
+    /// glass style in force — and the outgoing theme's residue is cleared.
+    #[test]
+    fn changing_the_theme_reapplies_defaults_and_records_the_choice() {
+        let mut form = Form::new("F", "F", 640, 480);
+        form.controls
+            .push(Control::new("BTN", ControlType::Button, 10, 10));
+        form.apply_glass_style_defaults(GlassStyle::Neumorphic);
+
+        form.apply_theme_defaults(Some("elegance".to_owned()));
+        assert_eq!(form.theme.as_deref(), Some("elegance"));
+        // The glass style survives a theme change — it is a separate setting —
+        // so its defaults are re-applied, not dropped.
+        assert_eq!(form.glass_style, GlassStyle::Neumorphic);
+        assert_eq!(
+            form.controls[0].get_prop("BackgroundColor").unwrap().as_str(),
+            NEUMORPHIC_SURFACE_COLOR
+        );
+        // An empty id means "no per-form override", not a theme called "".
+        form.apply_theme_defaults(Some("   ".to_owned()));
+        assert_eq!(form.theme, None);
     }
 
     #[test]
