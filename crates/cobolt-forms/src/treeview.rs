@@ -69,11 +69,31 @@ pub struct TreeMetrics {
 
 impl TreeMetrics {
     pub fn of(ctrl: &Control) -> Self {
+        let icon = num(ctrl, "IconSize", ICON, 6.0, 64.0);
+        let check = num(ctrl, "CheckBoxSize", CHECK, 6.0, 64.0);
+        // `NodeSpacing` is the GAP between one node and the next, on top of
+        // whatever the row itself needs — the property a developer reaches for
+        // when the rows read as a wall of text.
+        let spacing = ctrl
+            .get_prop("NodeSpacing")
+            .map(|v| match v {
+                crate::PropValue::String(s) => s.trim().parse::<f32>().unwrap_or(0.0),
+                other => other.as_i64() as f32,
+            })
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .unwrap_or(0.0)
+            .clamp(0.0, 100.0);
+        // A row is never shorter than what it must hold. Growing the icon used
+        // to leave the pitch alone, so a big icon painted over the node above
+        // and below it (operator, 2026-08-22) — the row now grows with whatever
+        // is tallest on it, and `RowHeight` sets the FLOOR rather than the
+        // ceiling.
+        let content = icon.max(check) + 4.0;
         Self {
-            row_h: num(ctrl, "RowHeight", ROW_H, 8.0, 200.0),
+            row_h: num(ctrl, "RowHeight", ROW_H, 8.0, 200.0).max(content) + spacing,
             indent: num(ctrl, "IndentWidth", INDENT, 0.0, 200.0),
-            check: num(ctrl, "CheckBoxSize", CHECK, 6.0, 64.0),
-            icon: num(ctrl, "IconSize", ICON, 6.0, 64.0),
+            check,
+            icon,
         }
     }
 }
@@ -171,6 +191,22 @@ fn sort_siblings(nodes: Vec<ParsedNode>) -> Vec<ParsedNode> {
 
 fn flag(ctrl: &Control, key: &str, default: bool) -> bool {
     ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(default)
+}
+
+/// Where a row's own drawing starts — its arrow, its tick box or its icon,
+/// whichever is leftmost, falling back to the label.
+///
+/// What the connector lines must stop at. They used to stop at the LABEL, which
+/// put the elbow straight through the icon between them.
+fn row_left_edge(row: &TreeRow) -> f32 {
+    [
+        row.expander.map(|r| r.min.x),
+        row.check.map(|r| r.min.x),
+        row.icon_rect.map(|r| r.min.x),
+    ]
+    .into_iter()
+    .flatten()
+    .fold(row.label_x, f32::min)
 }
 
 /// A band colour the developer named, used EXACTLY as given — alpha included,
@@ -365,7 +401,12 @@ pub fn paint(
             }
             let x = rect.min.x + 8.0 + (row.depth - 1) as f32 * m.indent + m.indent * 0.5;
             let y = row.rect.center().y;
-            let left = row.check.map(|c| c.min.x).unwrap_or(row.label_x) - 4.0;
+            // Stop at whatever the row starts WITH — its arrow, its tick box or
+            // its icon, whichever comes first. Running to `label_x` drew the
+            // elbow straight THROUGH the icon (operator, 2026-08-22): the icon
+            // sits between the connector and the label, and a line crossing it
+            // reads as a scribble over the picture.
+            let left = row_left_edge(row) - 4.0;
             painter.line_segment([Pos2::new(x, y), Pos2::new(left, y)], stroke);
             // The vertical to the previous sibling (or the parent) at this
             // depth — walk back until something at this depth or shallower.
@@ -398,7 +439,7 @@ pub fn paint(
                 painter.line_segment(
                     [
                         Pos2::new(x, r.rect.center().y),
-                        Pos2::new(r.check.map(|c| c.min.x).unwrap_or(r.label_x) - 4.0, r.rect.center().y),
+                        Pos2::new(row_left_edge(r) - 4.0, r.rect.center().y),
                     ],
                     stroke,
                 );
@@ -675,6 +716,48 @@ mod tests {
         assert!(
             (big[1].label_x - big[0].label_x) > (base[1].label_x - base[0].label_x),
             "IndentWidth must reach the indent"
+        );
+    }
+
+    /// **A connector never crosses what the row draws.** The elbow used to run
+    /// to the LABEL, and the icon sits between the two — so every line was
+    /// drawn straight through its own node's picture (operator, 2026-08-22).
+    #[test]
+    fn a_connector_stops_before_the_rows_own_drawing() {
+        let rows = layout(&tree("Root\n  Child"), rect());
+        let child = &rows[1];
+        let edge = row_left_edge(child);
+        for part in [child.expander, child.check, child.icon_rect]
+            .into_iter()
+            .flatten()
+        {
+            assert!(
+                edge <= part.min.x,
+                "the line must stop left of everything the row draws: {edge} vs {part:?}"
+            );
+        }
+        assert!(edge < child.label_x, "…and left of the label");
+    }
+
+    /// **A row is never shorter than what it holds.** Growing the icon used to
+    /// leave the pitch alone, so a big icon painted over the nodes above and
+    /// below it. `NodeSpacing` then adds a gap on top of that.
+    #[test]
+    fn a_bigger_icon_makes_a_taller_row_and_spacing_adds_more() {
+        let base = TreeMetrics::of(&tree("A")).row_h;
+        let mut c = tree("A");
+        c.set_prop("IconSize", PropValue::Int(48));
+        let tall = TreeMetrics::of(&c).row_h;
+        assert!(
+            tall >= 48.0,
+            "a 48pt icon cannot live in a {tall}pt row without spilling"
+        );
+        assert!(tall > base);
+
+        c.set_prop("NodeSpacing", PropValue::Int(10));
+        assert!(
+            (TreeMetrics::of(&c).row_h - (tall + 10.0)).abs() < 0.01,
+            "NodeSpacing is a gap ON TOP of what the row needs"
         );
     }
 

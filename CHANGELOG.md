@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.158] — 2026-08-22
+
+### Added — a node event tells the handler which node fired
+
+Operator: "how am I supposed to know which node was clicked?" The renderer had
+always attached the node to the event, and the host **threw it away** —
+`FormEvent` carried only an id, a name and an array index. So `onNodeClick`
+could be answered by reading `SelectedNode`, but `onNodeCheck`,
+`onNodeCollapse` and `onNodeExpand` could not be answered at all: they write no
+`SelectedNode`, and nothing else carried the node.
+
+`event_linkage()` had been in the codebase unused since it was written, with
+"the clicked node index" as its own doc example. It is used now:
+
+```cobol
+       LINKAGE SECTION.
+       01 CONTROL-NODE-DATA.
+          05 CONTROL-NODE                 PIC X(256).
+          05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
+          05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
+          05 CONTROL-NODE-CHECKED         PIC 9.
+
+       PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+```
+
+- `FormEvent` gained `value`, the host passes it, and the interpreter unpacks it
+  into those four names beside `CONTROL-ARRAY-INDEX` — the same delivery the one
+  existing payload uses. An event carrying no node CLEARS them, so a Button's
+  `onClick` can never read whatever node a tree left behind.
+- Index and level are 1-based, as COBOL counts, and the index is the line in
+  `Items` **as written**, so `Sorted` cannot renumber anyone's handler.
+- Not an `OBJECT REFERENCE`, deliberately: there are no node objects here. A
+  node's identity is its label, which is what every TreeView property keys on.
+
+### Fixed — connectors drew straight through their own node's icon
+
+Introduced by 1.61.157: the elbow ran to the LABEL, and the icon sits between
+the two. It stops at `row_left_edge` now — the leftmost of the arrow, the box
+and the icon — on both the child elbows and the root spine.
+
+### Fixed — a big icon painted over the nodes above and below it
+
+`RowHeight` is a FLOOR now, not the pitch: a row is never shorter than what it
+holds, so growing `IconSize` or `CheckBoxSize` grows the row with it. The new
+`NodeSpacing` adds a gap on top of that.
+
 ## [PowerRustCOBOL 1.61.157] — 2026-08-22
 
 ### Added — the TreeView folds, carries icons, and has no fixed numbers left

@@ -1257,10 +1257,41 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
 ///
 /// which the template renders as a LINKAGE SECTION block plus
 /// `PROCEDURE DIVISION USING COBOL-ARRAY-INDEX.`
-pub fn event_linkage(_event: &str) -> (String, Vec<String>) {
-    // No event delivers data to its handler yet; the mechanism is in place so
-    // events can declare their payload here as the runtime gains support.
+pub fn event_linkage(event: &str) -> (String, Vec<String>) {
+    // A TreeView's node events hand the handler the NODE they fired on.
+    // Without it, `onNodeCheck`, `onNodeCollapse` and `onNodeExpand` could not
+    // say which node had moved — they write no `SelectedNode`, and nothing else
+    // carried the answer (operator, 2026-08-22: "how am I supposed to know
+    // which node was clicked?").
+    //
+    // A GROUP, so one USING operand carries all four parts and a handler that
+    // only wants the text still reads `CONTROL-NODE` on its own.
+    //
+    // `CONTROL-NODE-CHECKED` is `0` on a tree with no boxes — the honest answer
+    // to "is it ticked" for a node that cannot be.
+    if is_node_event(event) {
+        let items = "       01 CONTROL-NODE-DATA.\n\
+             \x20          05 CONTROL-NODE                 PIC X(256).\n\
+             \x20          05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.\n\
+             \x20          05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.\n\
+             \x20          05 CONTROL-NODE-CHECKED         PIC 9.\n";
+        return (items.to_string(), vec!["CONTROL-NODE-DATA".to_string()]);
+    }
     (String::new(), Vec::new())
+}
+
+/// Does this event fire ON A NODE, and so carry one?
+pub fn is_node_event(event: &str) -> bool {
+    matches!(
+        event.trim(),
+        "onNodeClick"
+            | "onNodeSelect"
+            | "onNodeDblClick"
+            | "onNodeDoubleClick"
+            | "onNodeCheck"
+            | "onNodeCollapse"
+            | "onNodeExpand"
+    )
 }
 
 /// Build the first-time handler skeleton shown in the editor (and emitted as the
@@ -4383,6 +4414,10 @@ impl Control {
                 // The metrics, so nothing about a row is a number the developer
                 // cannot reach.
                 props.insert("RowHeight".into(), PropValue::Int(18));
+                // The gap BETWEEN nodes, on top of whatever a row needs for its
+                // icon and its box. `RowHeight` is the floor, not the ceiling:
+                // a row never shrinks below what it holds.
+                props.insert("NodeSpacing".into(), PropValue::Int(0));
                 props.insert("IndentWidth".into(), PropValue::Int(16));
                 props.insert("CheckBoxSize".into(), PropValue::Int(12));
                 // Empty = the theme's focus colour at the weight a band has

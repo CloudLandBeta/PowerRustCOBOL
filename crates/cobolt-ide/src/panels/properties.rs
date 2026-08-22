@@ -7006,6 +7006,17 @@ impl PropertiesPanel {
                 int_prop_row(
                     ui,
                     id,
+                    "NodeSpacing",
+                    "Gap between nodes",
+                    ctrl,
+                    action,
+                    0..=100,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
                     "IndentWidth",
                     "Indent per level",
                     ctrl,

@@ -786,7 +786,16 @@ impl FormBody {
             } else {
                 (ev.ctrl_id.clone(), 0)
             };
-            self.send_event(FormEvent::new(dispatch_id, ev.event).with_index(inst));
+            // The event's VALUE travels with it. It was dropped here, so a
+            // TreeView handler for onNodeCheck/onNodeCollapse/onNodeExpand
+            // could not tell which node had moved — those events write no
+            // SelectedNode, and nothing else carried the answer (operator,
+            // 2026-08-22).
+            let mut fe = FormEvent::new(dispatch_id, ev.event).with_index(inst);
+            if let Some(v) = ev.value {
+                fe = fe.with_value(v);
+            }
+            self.send_event(fe);
             sent = true;
         }
         sent

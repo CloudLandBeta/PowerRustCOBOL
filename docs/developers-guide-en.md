@@ -1824,6 +1824,34 @@ designer canvas, the preview, Run Form and the compiled binary.
 > **High-contrast text** off for the theme's own text colour; an explicit
 > **Foreground color** outranks both.
 >
+> **Which node fired?** Every node event hands its handler the node, in a
+> LINKAGE group the designer generates for you:
+>
+> ```cobol
+>        LINKAGE SECTION.
+>        01 CONTROL-NODE-DATA.
+>           05 CONTROL-NODE                 PIC X(256).
+>           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
+>           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
+>           05 CONTROL-NODE-CHECKED         PIC 9.
+>
+>        PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+> ```
+>
+> `CONTROL-NODE` is the label — the key `SelectedNode`, `CheckedNodes` and
+> `CollapsedNodes` all use. `CONTROL-NODE-INDEX` is its 1-based line in `Items`
+> **as you wrote it**, so `Sorted` can reorder the display without renumbering
+> your handler; `CONTROL-NODE-LEVEL` is its 1-based depth; `CONTROL-NODE-CHECKED`
+> is `1` when its box is ticked and `0` when it is not (or the tree has no
+> boxes). This is the platform's second event payload, alongside
+> `CONTROL-ARRAY-INDEX` — before 1.61.158 a handler for `onNodeCheck`,
+> `onNodeCollapse` or `onNodeExpand` had no way to tell which node had moved.
+>
+> **A row never shrinks below what it holds.** `RowHeight` is a floor, so
+> growing **Icon size** or **Checkbox size** grows the row with it instead of
+> letting a big icon paint over its neighbours; **Gap between nodes**
+> (`NodeSpacing`) adds space on top of that.
+>
 > ⚠️ **One thing it still does not do:** **AllowEdit** renames nothing, because
 > no surface offers an in-place edit yet. To change a tree's text while the form
 > runs, write `Items`.
