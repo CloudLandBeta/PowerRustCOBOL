@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.150] — 2026-08-22
+
+### Fixed — a ToolBar's BackgroundColor did nothing
+
+Reported by the operator. The property was in the inspector, it saved to the
+`.cfrm`, and it never reached the screen — voided twice over:
+
+- **The seeded transparency skipped the face entirely.** A toolbar ships at
+  `Transparency = 100` so a bare one reads as buttons on the form, and the face
+  was gated on `transparency < 100`. The colour never got as far as the painter,
+  and nothing said why. That seeded 100 is what *every* toolbar carries, not
+  something anyone chose, so **choosing a colour now turns the frame on** — the
+  same "still on the default means the user has not picked" rule
+  `user_background_color` already applies to the colour itself. A `Transparency`
+  the developer actually moved still fades the face; a toolbar whose colour was
+  never touched stays invisible, exactly as before.
+- **The theme then discarded the colour anyway.** The face was drawn through
+  `SurfaceRole::Card`, which answers with the theme's own fill and never reaches
+  the caller's — so even lowering `Transparency` by hand did not show the colour
+  that had been picked. It now goes through `draw_surface_auto_bg` with the
+  chosen colour, which paints it as the surface. Same defect, same fix and the
+  same reason as the CheckBox box colour in 1.61.146.
+
+`opacity_of` grew a sibling, `face_opacity_of`, so the designer canvas and the
+running form answer this from one place rather than two.
+
+**`BorderStyle` was already working** — verified by painting a bar and reading
+the shapes back — so nothing there changed.
+
+Tested in `render`: a toolbar given a colour paints it at the shipped defaults,
+and one nobody coloured still has no frame.
+
 ## [PowerRustCOBOL 1.61.149] — 2026-08-22
 
 ### Added — every colour a Maps control paints is now a property

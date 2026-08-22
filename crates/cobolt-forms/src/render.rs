@@ -7225,22 +7225,29 @@ fn render_interactive(
             // reproduce nothing at all â radius 10, no border, fully transparent
             // â so a toolbar reads as buttons on the form until asked otherwise.
             let radius = paint::corner_radius(ctrl);
-            let transparency = sv(ctrl, "Transparency")
-                .parse::<i64>()
-                .unwrap_or(0)
-                .clamp(0, 100);
-            if transparency < 100 {
-                let face = paint::parse_color(&sv(ctrl, "BackgroundColor"));
-                let face = if face.a() > 0 {
-                    face
-                } else {
-                    Color32::from_rgb(40, 46, 76)
-                };
-                let opacity = 1.0 - (transparency as f32 / 100.0);
-                paint::draw_surface_auto(
+            // The colour the developer actually chose, if any — the seeded
+            // `#F0F0F0` and the Neumorphic stamps all mean "not chosen", the
+            // renderer-wide convention.
+            let user_bg = paint::user_background_color(ctrl);
+            // `face_opacity_of`, not the raw Transparency: a toolbar ships
+            // fully transparent, and reading that seeded 100 literally is what
+            // made a chosen BackgroundColor do nothing at all (operator,
+            // 2026-08-22). Choosing a colour turns the frame on; a Transparency
+            // the developer moved still fades it.
+            let opacity = paint::face_opacity_of(ctrl);
+            if opacity > 0.0 {
+                let face = user_bg.unwrap_or(Color32::from_rgb(40, 46, 76));
+                // `_bg` with the chosen colour, so THAT colour is the surface
+                // rather than a hint the active theme is free to ignore — the
+                // Card role answers with the theme's own fill and never reaches
+                // the caller's, which is why lowering Transparency still did not
+                // show the colour that had been picked. Same fix, and the same
+                // reason, as the CheckBox box colour.
+                paint::draw_surface_auto_bg(
                     &painter,
                     screen,
                     face,
+                    user_bg,
                     radius,
                     false,
                     alpha * opacity,
@@ -7813,6 +7820,89 @@ mod tests {
             !rects.contains_key("Lbl-Hidden"),
             "a Label with Visible=false must not be drawn, but it left a rect: {:?}",
             rects.get("Lbl-Hidden")
+        );
+    }
+
+    /// Every rect fill painted in one frame, flattened out of the shape tree.
+    fn painted_fills(out: &egui::FullOutput) -> Vec<egui::Color32> {
+        fn walk(s: &egui::Shape, into: &mut Vec<egui::Color32>) {
+            match s {
+                egui::Shape::Rect(r) if r.fill.a() > 0 => into.push(r.fill),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                _ => {}
+            }
+        }
+        let mut fills = Vec::new();
+        for cs in &out.shapes {
+            walk(&cs.shape, &mut fills);
+        }
+        fills
+    }
+
+    /// Render one control in Interactive mode and hand back the frame.
+    fn render_one(ctrl: Control) -> egui::FullOutput {
+        let controls = vec![ctrl];
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut out = ctx.run_ui(Default::default(), |root_ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(400.0, 200.0));
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &DesignedVisibility,
+                    form_size: Vec2::new(400.0, 200.0),
+                    glass: false,
+                    mode: RenderMode::Interactive,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                render_form(ui, &input);
+            });
+        });
+        out.textures_delta.clear();
+        out
+    }
+
+    /// **A ToolBar's BackgroundColor is painted** — operator, 2026-08-22:
+    /// "Toolbar, background color … does not work".
+    ///
+    /// It was voided twice over. A toolbar ships at `Transparency = 100`, and
+    /// the face was gated on `transparency < 100`, so the colour never got as
+    /// far as the painter; and when it did, `SurfaceRole::Card` answered with
+    /// the theme's own fill and never reached the caller's colour at all. The
+    /// operator picked a colour, nothing happened, and nothing said why.
+    #[test]
+    fn a_toolbar_paints_the_background_colour_it_was_given() {
+        let mut bar = ctrl("TB", ControlType::ToolBar, 10, 10, 300, 44);
+        bar.set_prop("BackgroundColor", crate::PropValue::String("#FF0000".into()));
+        let fills = painted_fills(&render_one(bar));
+        assert!(
+            fills.iter().any(|c| (c.r(), c.g(), c.b()) == (255, 0, 0)),
+            "the chosen colour must be painted at the shipped defaults; got {fills:?}"
+        );
+    }
+
+    /// …and a toolbar nobody coloured still paints no frame. The fix must not
+    /// hand every existing bare toolbar a card it never had.
+    #[test]
+    fn an_uncoloured_toolbar_still_has_no_frame() {
+        let bar = ctrl("TB", ControlType::ToolBar, 10, 10, 300, 44);
+        let seeded = bar
+            .get_prop("BackgroundColor")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        assert_eq!(
+            seeded,
+            crate::model::DEFAULT_BACKGROUND_COLOR,
+            "a fresh ToolBar must still carry the seeded sentinel"
+        );
+        let target = crate::paint::parse_color(&seeded);
+        let fills = painted_fills(&render_one(bar));
+        assert!(
+            !fills
+                .iter()
+                .any(|c| (c.r(), c.g(), c.b()) == (target.r(), target.g(), target.b())),
+            "an untouched toolbar must stay frameless; got {fills:?}"
         );
     }
 
