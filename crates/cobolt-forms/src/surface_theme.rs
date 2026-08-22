@@ -748,16 +748,21 @@ mod tests {
         );
     }
 
-    /// Liquid Glass paints no toggles, so a RadioButton keeps its `(●)`/`( )`
-    /// caption glyph and a slider rail keeps its frost — the whole of R21 for
-    /// this change in one assertion.
+    /// Liquid Glass describes no toggle and no slider colours, so the built-in
+    /// painting is what answers for both — R21 in one assertion.
+    ///
+    /// Since 1.61.152 "no Toggle surface" no longer means "no radio indicator":
+    /// the circle is the platform's shape on every theme and this silence only
+    /// decides its COLOURS (see `paint::radio_indicator_colors`). What it still
+    /// governs untouched is the CheckBox's well and the slider's frosted rail.
     #[test]
-    fn liquid_glass_keeps_its_glyph_radio_and_frosted_rail() {
+    fn liquid_glass_describes_no_toggle_and_no_slider_colours() {
         let g = LiquidGlassTheme;
         assert!(
             g.surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: true })
                 .is_none(),
-            "no Toggle surface ⇒ the radio glyph and the Input well are untouched"
+            "no Toggle surface ⇒ the Input well is untouched and the radio takes \
+             its colours from CheckColor"
         );
         assert!(
             g.token(ColorToken::SliderFill).is_none(),

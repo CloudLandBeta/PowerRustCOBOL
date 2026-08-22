@@ -1703,8 +1703,13 @@ from the critical one. While zones are on they own the fill colour, so
 > ⚠️ **Caveat.** The thresholds are fractions of the span, not readings on
 > it. On a `0..250` gauge, `0.8` is the warning mark at 200 — not `200`.
 
-**Switch** is a boolean on/off toggle: `Checked` (Boolean) and `Accent`
-(one of `Blue` / `Green` / `Red` / `Purple` / `Amber` / `Sky`). Its primary
+**Switch** is a boolean on/off toggle: `Checked` (Boolean) and the colour of
+its ON track, which the inspector calls **Checked color** — any colour, from
+the same picker (and the same colour memory) every other colour row uses. The
+stored property is still `Accent`, and the six names `Blue` / `Green` / `Red` /
+`Purple` / `Amber` / `Sky` still resolve, so a form saved with one keeps it;
+before 1.61.152 those six were all a Switch would take, under a caption
+borrowed from one theme's palette. Its primary
 event is `onClick`; methods are
 `IsChecked()` / `SetChecked()` / `Toggle()` — the same check-control
 contract as `CheckBox`, minus `Select()` (there is no radio-group concept
@@ -2493,6 +2498,24 @@ abbreviations). A few you will use constantly:
 >
 > A CheckBox's caption sits to the right of its box, and a RadioButton's to the
 > right of its selection circle, at the same distance in both.
+
+> **A radio button is a circle on every theme** — filled when it is the chosen
+> one, an empty rim when it is not. It is drawn, not typed: earlier builds put
+> `(●)` or `( )` in the caption on every theme but Elegance, which is why there
+> was nothing to colour.
+>
+> Where a theme describes its own toggle look, that theme colours it — Elegance
+> paints the green you see in its own forms. Everywhere else the circle takes
+> the control's **`CheckColor`** (the same property that colours a CheckBox's
+> tick; a radio's dot is that tick), and **`CheckBoxColor`** sets the circle's
+> face if you want one. The unchosen circle's rim is chosen for **contrast**
+> against whatever you dropped the control onto, so it is visible on a dark form
+> and on a pale card without being told.
+>
+> ⚠️ **Caveat.** A radio now needs room for that circle, so a **newly dropped**
+> one is 140 points wide instead of 120 — enough to hold its own caption at the
+> seeded font. Forms you have already saved keep the width they were given;
+> nothing moves under you.
 
 > **A CheckBox has two surfaces, and each has its own properties.** Coming from
 > PowerCOBOL or isCOBOL you will expect one background and one border; here the

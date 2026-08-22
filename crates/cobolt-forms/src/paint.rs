@@ -3018,6 +3018,18 @@ fn draw_control_body(
         // existing forms are untouched (AC8).
         use crate::surface_theme::{AccentName, ColorToken as Tok};
         let accent_color = |name: &str| -> Color32 {
+            // A COLOUR, not just one of six names. The property is edited with a
+            // colour picker now (the Switch's "Checked color" row), which writes
+            // `#RRGGBB[AA]` — and a hex string used to fall through this whole
+            // table to plain blue, so every colour the operator chose but the
+            // six painted the same (operator, 2026-08-22). Read exactly as
+            // `knob_accent` reads it, so the two cannot disagree about the same
+            // property.
+            if let Some(hex) = name.strip_prefix('#') {
+                if matches!(hex.len(), 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return parse_color(name);
+                }
+            }
             if let Some(c) =
                 theme_token(painter.ctx(), Tok::Accent(AccentName::parse(name)))
             {
@@ -4362,14 +4374,10 @@ fn draw_control_body(
                 .unwrap_or_else(|| ctrl.id.clone());
             // 050 — a radio's state was a CHARACTER in its caption, `(●)`/`( )`,
             // so there was no indicator to colour and a theme could not style it
-            // at all. A theme that paints toggles gets a real drawn dot (below);
-            // its caption then carries no glyph. Liquid Glass keeps the glyph
-            // exactly as it always drew it.
-            if theme_paints_toggles(painter.ctx()) {
-                cap
-            } else {
-                format!("{} {cap}", if checked { "(●)" } else { "( )" })
-            }
+            // at all. Every theme now draws the real circle (below), so no
+            // caption anywhere carries a glyph.
+            let _ = checked;
+            cap
         }
         CT::ComboBox => {
             // What the RUNNING header shows: the chosen `Value`, or the first
@@ -4720,51 +4728,47 @@ fn draw_control_body(
         };
     }
 
-    // 050 — the RadioButton's real indicator, for a theme that paints toggles.
+    // 050 / 2026-08-22 — the RadioButton's real indicator, on EVERY theme.
     //
     // Its state used to be a character in the caption (`(●)` / `( )`), which no
-    // theme could style — the operator asked for a green ON and an outlined OFF
-    // and there was simply nothing there to colour. Drawn only when the theme
-    // supplies a Toggle surface, so Liquid Glass keeps its glyph untouched (R21).
+    // theme could style. Elegance was then given a real drawn circle, and it was
+    // drawn ONLY where a theme described a Toggle surface — so the same control
+    // was a proper indicator on one theme and a pair of parentheses on all the
+    // others (operator, 2026-08-22: "use Elegance's radio button on all themes,
+    // circle empty/filled").
+    //
+    // The SHAPE is the platform's now, not a theme's: filled when on, an empty
+    // rim when off, everywhere. A theme that describes a Toggle still supplies
+    // the COLOURS (Elegance is unchanged, to the pixel); one that does not gets
+    // the control's own `CheckColor` — the property that already colours a
+    // CheckBox's tick, and a radio's dot is that tick.
     if matches!(ctrl.control_type, CT::RadioButton) {
         let checked = ctrl
             .get_prop("Checked")
             .map(|v| v.as_bool())
             .unwrap_or(false);
-        if let Some(spec) = active_surface_theme(painter.ctx())
-            .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked })
-        {
-            let (d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
-            let c = Pos2::new(rect.left() + pad + d * 0.5, rect.center().y);
-            // A radio is round: the same fill and rim the theme gave, as a
-            // circle rather than a rounded square — and the same two properties
-            // the CheckBox's box carries, since the circle IS the radio's box.
-            // `CheckBoxColor` leads over the theme's fill; the box border rides
-            // on top of the theme's rim, as a circle.
-            painter.circle_filled(
-                c,
-                d * 0.5,
-                match user_checkbox_color(ctrl) {
-                    Some(bg) => alpha_color(bg),
-                    None => theme_alpha(spec.fill.unwrap_or(Color32::TRANSPARENT), alpha_mul),
-                },
-            );
-            painter.circle_stroke(
-                c,
-                d * 0.5,
-                Stroke::new(spec.border_width, theme_alpha(spec.border, alpha_mul)),
-            );
-            let (box_style, box_bw, box_bc) = checkbox_box_border(ctrl);
-            if box_style != "None" && box_bw > 0.5 {
-                painter.circle_stroke(
-                    c,
-                    d * 0.5,
-                    Stroke::new(box_bw, alpha_color(box_bc)),
-                );
-            }
-            checkbox_text_rect =
-                egui::Rect::from_min_max(egui::pos2(c.x + d * 0.5 + gap, rect.min.y), rect.max);
+        let (d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
+        let c = Pos2::new(rect.left() + pad + d * 0.5, rect.center().y);
+        let (fill, rim, rim_w) = radio_indicator_colors(painter.ctx(), ctrl, checked);
+        // A radio is round: the same fill and rim, as a circle rather than a
+        // rounded square — and the same two properties the CheckBox's box
+        // carries, since the circle IS the radio's box. `CheckBoxColor` leads
+        // over the fill; the box border rides on top of the rim, as a circle.
+        painter.circle_filled(
+            c,
+            d * 0.5,
+            match user_checkbox_color(ctrl) {
+                Some(bg) => alpha_color(bg),
+                None => theme_alpha(fill, alpha_mul),
+            },
+        );
+        painter.circle_stroke(c, d * 0.5, Stroke::new(rim_w, theme_alpha(rim, alpha_mul)));
+        let (box_style, box_bw, box_bc) = checkbox_box_border(ctrl);
+        if box_style != "None" && box_bw > 0.5 {
+            painter.circle_stroke(c, d * 0.5, Stroke::new(box_bw, alpha_color(box_bc)));
         }
+        checkbox_text_rect =
+            egui::Rect::from_min_max(egui::pos2(c.x + d * 0.5 + gap, rect.min.y), rect.max);
     }
 
     if !label.is_empty() {
@@ -10724,6 +10728,54 @@ pub(crate) fn theme_paints_toggles(ctx: &egui::Context) -> bool {
     theme_has_surface(ctx, SurfaceRole::Toggle)
 }
 
+/// A RadioButton's circle: `(fill, rim, rim width)` — **filled when on, an empty
+/// rim when off**, on every theme.
+///
+/// The shape is the platform's and the colours are the theme's. A theme that
+/// describes a `Toggle` surface answers with it, so Elegance paints exactly what
+/// it always painted. A theme that describes none — Liquid Glass, and therefore
+/// Classic, Enhanced and both Neumorphic styles — used to get no indicator at
+/// all, only `(●)`/`( )` typed into the caption; it now gets the same circle,
+/// coloured by the control's own `CheckColor`.
+///
+/// The OFF rim is picked by CONTRAST rather than fixed. An empty circle has to
+/// be visible on whatever the control was dropped on — a dark form, a pale card,
+/// a Neumorphic surface — and a fixed grey is exactly the thing that disappears
+/// on half of them. This is the rule the caption beside it already follows.
+pub(crate) fn radio_indicator_colors(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    checked: bool,
+) -> (Color32, Color32, f32) {
+    if let Some(spec) = active_surface_theme(ctx).surface(
+        SurfaceRole::Toggle,
+        SurfaceState {
+            selected: false,
+            on: checked,
+        },
+    ) {
+        return (
+            spec.fill.unwrap_or(Color32::TRANSPARENT),
+            spec.border,
+            spec.border_width,
+        );
+    }
+    // `CheckColor` is seeded `#0078D7` on every CheckBox and RadioButton, so
+    // there is always an answer here and a developer who wants another one
+    // already has the property to say so.
+    let on = ctrl
+        .get_prop("CheckColor")
+        .map(|v| parse_color(v.as_str()))
+        .filter(|c| c.a() > 0)
+        .unwrap_or(Color32::from_rgb(0, 120, 215));
+    if checked {
+        return (on, on, 1.0);
+    }
+    let behind = caption_surface_tone(ctx, ctrl, parse_color(crate::model::DEFAULT_BACKGROUND_COLOR))
+        .unwrap_or_else(|| parse_color(crate::model::DEFAULT_BACKGROUND_COLOR));
+    (Color32::TRANSPARENT, caret_color(behind, on), 1.0)
+}
+
 /// Set the glass style for the current frame. Call once before the control-draw
 /// loop on every rendering surface.
 pub fn set_glass_style(ctx: &egui::Context, style: crate::model::GlassStyle) {
@@ -11194,6 +11246,79 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
 mod checkbox_face_tests {
     use super::*;
     use crate::model::{transparency_of, Control, ControlType};
+
+    /// **A radio is a circle — empty or filled — on every theme.**
+    ///
+    /// Operator, 2026-08-22: "use Elegance's radio button on all themes (circle
+    /// empty/filled)". Elegance was the only theme describing a Toggle surface,
+    /// and the indicator was drawn only where one existed, so everywhere else a
+    /// radio was `(●)`/`( )` typed into its caption — nothing to colour and
+    /// nothing that looked like a radio button.
+    ///
+    /// The two states must be told apart by the FILL, since that is the whole
+    /// of what "empty or filled" means: a rim on both, a face on the chosen one
+    /// only.
+    #[test]
+    fn a_radio_is_an_empty_or_filled_circle_on_every_theme() {
+        let ctx = egui::Context::default();
+        for (name, theme) in [
+            ("liquid-glass", crate::surface_theme::liquid_glass()),
+            ("elegance", crate::surface_theme::elegance()),
+        ] {
+            set_surface_theme(&ctx, theme);
+            let radio = Control::new("RB-1", ControlType::RadioButton, 0, 0);
+            let mut on = radio.clone();
+            on.set_prop("Checked", crate::PropValue::Bool(true));
+
+            let (off_fill, off_rim, off_w) = radio_indicator_colors(&ctx, &radio, false);
+            let (on_fill, on_rim, on_w) = radio_indicator_colors(&ctx, &on, true);
+
+            assert_eq!(
+                off_fill,
+                Color32::TRANSPARENT,
+                "{name}: an unchosen radio must be an EMPTY circle"
+            );
+            assert!(
+                on_fill.a() > 0,
+                "{name}: the chosen radio must be FILLED, got {on_fill:?}"
+            );
+            assert!(
+                off_rim.a() > 0 && on_rim.a() > 0,
+                "{name}: both states need a visible rim ({off_rim:?} / {on_rim:?})"
+            );
+            assert!(
+                off_w > 0.0 && on_w > 0.0,
+                "{name}: a rim of zero width is no rim"
+            );
+        }
+    }
+
+    /// The theme LEADS where it speaks, and the control's own `CheckColor`
+    /// answers where it does not — so Elegance keeps its green to the pixel
+    /// while a glass form gets a radio it can colour.
+    #[test]
+    fn a_radios_fill_is_the_themes_where_it_has_one_and_check_colour_otherwise() {
+        let ctx = egui::Context::default();
+        let mut on = Control::new("RB-1", ControlType::RadioButton, 0, 0);
+        on.set_prop("Checked", crate::PropValue::Bool(true));
+        on.set_prop("CheckColor", crate::PropValue::String("#FF00FF".into()));
+
+        set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+        assert_eq!(
+            radio_indicator_colors(&ctx, &on, true).0,
+            Color32::from_rgb(255, 0, 255),
+            "a theme with no Toggle surface must let CheckColor fill the circle"
+        );
+
+        set_surface_theme(&ctx, crate::surface_theme::elegance());
+        let themed = radio_indicator_colors(&ctx, &on, true).0;
+        assert_ne!(
+            themed,
+            Color32::from_rgb(255, 0, 255),
+            "a theme that describes a Toggle still leads — Elegance is unchanged"
+        );
+        assert!(themed.a() > 0, "and it is a real colour: {themed:?}");
+    }
 
     /// Where a CheckBox's drop shadow belongs follows its transparency. The
     /// threshold is the rule as specified: under 30 % there is a face solid
@@ -15496,15 +15621,29 @@ mod elegance_baseline_tests {
         //     on each slice (4)                                2 x 12 = +24
         // Identical in every style and both themes, which is what says the
         // charts moved rather than the seam: no pack here skins a chart.
+        // Re-blessed in 1.61.152: the RadioButton's circle, on every theme.
+        // It was drawn only where a theme described a Toggle surface, so on
+        // every theme here the radio was a pair of parentheses typed into its
+        // caption instead of an indicator (operator, 2026-08-22). The shape is
+        // the platform's now.
+        //
+        // Every row moved by exactly +2 — one circle fill and one circle
+        // stroke — in both themes and all four styles. The fixture holds
+        // exactly one radio, and +2 is what that one control started drawing;
+        // both themes moving by the SAME amount is what says one control moved
+        // rather than the seam, and it also says the asset-pack theme describes
+        // no Toggle either, so it gains the same circle. The caption it stopped
+        // typing was never a shape of its own — it was characters inside a
+        // galley that is still one leaf.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1352),
-            ("asset-pack", GS::Classic, 1174),
-            ("liquid-glass", GS::Enhanced, 1452),
-            ("asset-pack", GS::Enhanced, 1248),
-            ("liquid-glass", GS::Neumorphic, 547),
-            ("asset-pack", GS::Neumorphic, 563),
-            ("liquid-glass", GS::NeumorphicDark, 547),
-            ("asset-pack", GS::NeumorphicDark, 563),
+            ("liquid-glass", GS::Classic, 1354),
+            ("asset-pack", GS::Classic, 1176),
+            ("liquid-glass", GS::Enhanced, 1454),
+            ("asset-pack", GS::Enhanced, 1250),
+            ("liquid-glass", GS::Neumorphic, 549),
+            ("asset-pack", GS::Neumorphic, 565),
+            ("liquid-glass", GS::NeumorphicDark, 549),
+            ("asset-pack", GS::NeumorphicDark, 565),
         ];
         for (theme, gs, want) in expected {
             let got = rows

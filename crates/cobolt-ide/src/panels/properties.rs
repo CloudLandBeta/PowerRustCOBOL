@@ -6115,7 +6115,7 @@ impl PropertiesPanel {
                     None,
                     0,
                 );
-                accent_row(ui, id, ctrl, action);
+                accent_row(ui, id, ctrl, action, "Accent");
                 // Accent paints the arc and the indicator; these three are the
                 // dial itself, which used to be the theme's alone.
                 color_row_labeled(ui, id, "FaceColor", "Dial face", ctrl, action);
@@ -6286,14 +6286,11 @@ impl PropertiesPanel {
             ControlType::Switch if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "Checked", "Checked", ctrl, action);
-                combo_row_inline(
-                    ui,
-                    id,
-                    "Accent",
-                    ctrl,
-                    action,
-                    &["Blue", "Green", "Red", "Purple", "Amber", "Sky"],
-                );
+                // ANY colour, from the picker that carries the shared colour
+                // memory — not the six names this row offered before, which
+                // were a palette word from one theme ("Accent") and six of the
+                // sixteen million colours the switch can actually paint.
+                accent_row(ui, id, ctrl, action, tr.lbl_switch_checked_color);
                 ui.add_space(4.0);
             }
 
@@ -9631,19 +9628,26 @@ fn color_row_effective(
     });
 }
 
-/// The `Accent` row — any colour, straight from the picker.
+/// The `Accent` row — any colour, straight from the picker (with the shared
+/// colour memory), under whatever name that control calls it.
 ///
 /// The property was limited to six names before it grew this row, and forms
 /// saved back then still hold one, so the swatch resolves whatever is stored
 /// through the painter's own table: it opens showing the colour the control
 /// actually draws. Picking one writes it back as hex.
-fn accent_row(ui: &mut Ui, id: &str, ctrl: &Control, action: &mut InspectorAction) {
+///
+/// `label` is the row's caption, NOT the property key: a Switch calls this
+/// colour "Checked color", because that is what it does there, while "Accent"
+/// is a palette word from one theme and told the operator nothing (operator,
+/// 2026-08-22). The stored key stays `Accent` on every control — renaming it
+/// would silently drop the colour out of every form already saved.
+fn accent_row(ui: &mut Ui, id: &str, ctrl: &Control, action: &mut InspectorAction, label: &str) {
     let stored = ctrl
         .get_prop("Accent")
         .map(|v| v.as_str().to_owned())
         .unwrap_or_default();
     let mut color = cobolt_forms::paint::knob_accent(&stored);
-    property_row(ui, "Accent", |ui| {
+    property_row(ui, label, |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             action.set_props.push((
                 id.to_owned(),

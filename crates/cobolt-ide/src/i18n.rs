@@ -1139,6 +1139,9 @@ pub struct Tr {
     pub lbl_back_color: &'static str,
     // Maps colours — every colour the map paints that its overlay data does
     // not carry itself.
+    /// The Switch's checked colour — the row was captioned "Accent", a
+    /// palette word from one theme.
+    pub lbl_switch_checked_color: &'static str,
     pub lbl_map_marker_color: &'static str,
     pub lbl_map_marker_border: &'static str,
     pub lbl_map_route_color: &'static str,
@@ -2340,6 +2343,7 @@ const EN: Tr = Tr {
     lbl_underline:     "Underline:",
     lbl_strikethrough: "Strikethrough:",
     lbl_back_color:    "Back color:",
+    lbl_switch_checked_color: "Checked color:",
     lbl_map_marker_color:  "Marker fill:",
     lbl_map_marker_border: "Marker ring:",
     lbl_map_route_color:   "Route color:",
@@ -3487,6 +3491,7 @@ const ES: Tr = Tr {
     lbl_underline:     "Subrayado:",
     lbl_strikethrough: "Tachado:",
     lbl_back_color:    "Color de fondo:",
+    lbl_switch_checked_color: "Color de marcado:",
     lbl_map_marker_color:  "Relleno del marcador:",
     lbl_map_marker_border: "Borde del marcador:",
     lbl_map_route_color:   "Color de la ruta:",
@@ -4634,6 +4639,7 @@ const PT: Tr = Tr {
     lbl_underline:     "Sublinhado:",
     lbl_strikethrough: "Tachado:",
     lbl_back_color:    "Cor de fundo:",
+    lbl_switch_checked_color: "Cor de marcado:",
     lbl_map_marker_color:  "Preenchimento do marcador:",
     lbl_map_marker_border: "Contorno do marcador:",
     lbl_map_route_color:   "Cor da rota:",
@@ -5780,6 +5786,7 @@ const JA: Tr = Tr {
     lbl_underline:     "下線:",
     lbl_strikethrough: "取り消し線:",
     lbl_back_color:    "背景色:",
+    lbl_switch_checked_color: "オンの色:",
     lbl_map_marker_color:  "マーカーの塗り:",
     lbl_map_marker_border: "マーカーの縁:",
     lbl_map_route_color:   "ルートの色:",
@@ -6933,6 +6940,7 @@ const ZH: Tr = Tr {
     lbl_underline: "下划线：",
     lbl_strikethrough: "删除线：",
     lbl_back_color: "背景色：",
+    lbl_switch_checked_color: "选中颜色：",
     lbl_map_marker_color: "标记填充：",
     lbl_map_marker_border: "标记描边：",
     lbl_map_route_color: "路线颜色：",
@@ -8081,6 +8089,7 @@ const FR: Tr = Tr {
     lbl_underline:     "Souligné :",
     lbl_strikethrough: "Barré :",
     lbl_back_color:    "Couleur de fond :",
+    lbl_switch_checked_color: "Couleur cochée :",
     lbl_map_marker_color:  "Remplissage du marqueur :",
     lbl_map_marker_border: "Contour du marqueur :",
     lbl_map_route_color:   "Couleur de l'itinéraire :",
