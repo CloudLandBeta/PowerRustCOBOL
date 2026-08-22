@@ -2205,6 +2205,22 @@ pub fn merge_props<'a>(
                     c.rect.h = n.round() as i32;
                 }
             }
+            // Struct-backed, like the geometry above it. Writing these into the
+            // property map instead left the field — which is what every renderer
+            // actually reads — untouched, so a `SET CTL::Visible TO FALSE` was
+            // recorded and had no effect on screen. Every accepted spelling maps
+            // here; an unrecognisable value leaves the field alone rather than
+            // guessing a control into hiding.
+            "VISIBLE" => {
+                if let Some(b) = crate::model::parse_bool_text(v) {
+                    c.visible = b;
+                }
+            }
+            "ENABLED" => {
+                if let Some(b) = crate::model::parse_bool_text(v) {
+                    c.enabled = b;
+                }
+            }
             _ => c.set_prop(k.clone(), crate::PropValue::String(v.clone())),
         }
     }
@@ -2247,20 +2263,11 @@ pub fn control_property_string(ctrl: &Control, key: &str) -> String {
         "Y" => ctrl.rect.y.to_string(),
         "WIDTH" => ctrl.rect.w.to_string(),
         "HEIGHT" => ctrl.rect.h.to_string(),
-        "VISIBLE" => {
-            if ctrl.visible {
-                "1".to_owned()
-            } else {
-                "0".to_owned()
-            }
-        }
-        "ENABLED" => {
-            if ctrl.enabled {
-                "1".to_owned()
-            } else {
-                "0".to_owned()
-            }
-        }
+        // The same spelling the runtime registry uses. These read back as the
+        // digits 1/0 while every other boolean read back as a word, so no single
+        // comparison a developer wrote could be right for both.
+        "VISIBLE" => crate::model::bool_text(ctrl.visible).to_owned(),
+        "ENABLED" => crate::model::bool_text(ctrl.enabled).to_owned(),
         "TABORDER" => ctrl.tab_order.to_string(),
         "ZORDER" => ctrl.z_order.to_string(),
         _ => sv(ctrl, key),
@@ -2693,13 +2700,28 @@ fn control_pointer_events(
         if wheel_scrolled && want("onMouseWheel") {
             out.events.push(UiEvent::ev(id, "onMouseWheel"));
         }
-        if clicked
-            && want("onClick")
-            && ui
+        // One press, one click — the flag is CONSUMED as it is spent.
+        //
+        // This block reads raw pointer state (`primary_clicked`) rather than a
+        // widget `Response`, deliberately: adding an interactable here would
+        // steal the control's own interaction. But egui runs several PASSES per
+        // frame (sizing passes, since 0.31), and raw input reads the same in
+        // every one of them, while a widget's `Response` reports its click in
+        // only one. So this pushed `onClick` once per pass: a Switch with a
+        // bound handler ran it twice for one press, and the operator's handler
+        // printed its DISPLAY twice (2026-08-21).
+        //
+        // Taking the flag rather than peeking at it makes the emission
+        // once-per-press by construction — no dependence on how many passes a
+        // frame happens to need, or on spotting a discard that may be requested
+        // after this runs. The next press sets it again.
+        if clicked && want("onClick") {
+            let began_over = ui
                 .ctx()
-                .memory(|m| m.data.get_temp::<bool>(press_mem).unwrap_or(false))
-        {
-            out.events.push(UiEvent::click(id));
+                .memory_mut(|m| m.data.remove_temp::<bool>(press_mem).unwrap_or(false));
+            if began_over {
+                out.events.push(UiEvent::click(id));
+            }
         }
     }
     let mem_id = ctrl_id.with("ptr-over");
@@ -3886,7 +3908,16 @@ fn render_interactive(
                     "Checked".to_owned(),
                     now.to_string(),
                 ));
-                out.events.push(UiEvent::ev(id, "onClick"));
+                // NO `onClick` here. `control_pointer_events` already emits it
+                // for every control that binds a handler — which is how Button
+                // and the rest get theirs, and this arm pushing a second one
+                // meant a Switch with a bound onClick ran its handler TWICE per
+                // click (operator, 2026-08-21). The fault was invisible to a
+                // Switch with no handler bound, because the universal emitter
+                // stays quiet then and only this push remained.
+                //
+                // The toggle events below are this arm's own: they carry the
+                // new checked state and nothing else emits them.
                 push_toggle_events(out, id, now);
             }
         }
@@ -11213,9 +11244,21 @@ mod tests {
 
     // ââ Spec 039 T3: Knob/Gauge/Switch/FileDropZone interactive render âââââ
 
+    /// One click on a Switch emits exactly ONE `onClick`.
+    ///
+    /// `control_pointer_events` emits `onClick` for every control that binds a
+    /// handler — that is how Button and the rest get theirs. The Switch arm
+    /// pushed a second one of its own, so a Switch with a bound handler ran it
+    /// TWICE per click: the operator's handler printed its DISPLAY twice, and an
+    /// event trace showed two `send` lines for one press (2026-08-21).
+    ///
+    /// The binding is the whole point of this test. Without it the universal
+    /// emitter stays quiet, only the duplicate push remained, and the count came
+    /// out as one — which is exactly why an unbound reproduction looked healthy
+    /// while the real form was broken.
     #[test]
-    fn engine_switch_click_toggles_checked() {
-        let c = [ctrlp(
+    fn a_switch_click_emits_exactly_one_onclick() {
+        let c = [ctrlp_events(
             "Swt",
             ControlType::Switch,
             0,
@@ -11223,6 +11266,52 @@ mod tests {
             52,
             28,
             &[("Checked", "false")],
+            &["onClick"],
+        )];
+        let p = pos2(26.0, 14.0);
+        let (evs, _map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+            ],
+        );
+        let clicks = evs
+            .iter()
+            .filter(|e| e.ctrl_id == "Swt" && e.event == "onClick")
+            .count();
+        assert_eq!(
+            clicks, 1,
+            "one press must emit one onClick; got {:?}",
+            names(&evs)
+        );
+        // The toggle events are this arm's own and must survive: they are the
+        // only place the new checked state is reported.
+        let n = names(&evs);
+        assert!(n.contains(&"onCheck"), "the toggle events stay: {n:?}");
+        assert_eq!(
+            n.iter().filter(|e| **e == "onCheck").count(),
+            1,
+            "...and they are not doubled either: {n:?}"
+        );
+    }
+
+    #[test]
+    fn engine_switch_click_toggles_checked() {
+        // The handler must be BOUND for `onClick` to be emitted at all — that is
+        // the universal rule for every control, and the Switch used to be the
+        // one exception because it pushed its own. See
+        // `a_switch_click_emits_exactly_one_onclick` for why that mattered.
+        let c = [ctrlp_events(
+            "Swt",
+            ControlType::Switch,
+            0,
+            0,
+            52,
+            28,
+            &[("Checked", "false")],
+            &["onClick"],
         )];
         let p = pos2(26.0, 14.0);
         let (evs, map) = drive(

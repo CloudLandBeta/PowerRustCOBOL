@@ -558,6 +558,33 @@ impl ProjectMeta {
         Self::version_triple(current) != Self::version_triple(&self.built_with_version)
     }
 
+    /// Has this project ever recorded a full build?
+    ///
+    /// Only a full build stamps the version, so an empty stamp means no build
+    /// of this project has ever finished — which is the state every project is
+    /// in the moment it is created.
+    pub fn has_recorded_build(&self) -> bool {
+        !self.built_with_version.trim().is_empty()
+    }
+
+    /// Was this project last fully built by a **different** PowerRustCOBOL —
+    /// as opposed to never having been built at all?
+    ///
+    /// [`Self::build_is_stale_for`] answers "does this need a full build", and
+    /// a never-built project does. That is the right answer for the Build
+    /// button and the wrong one for the Run prompt, which says the output came
+    /// from an older version: a project created seconds ago by the running IDE
+    /// has no output at all, so telling its author it "was built by an older
+    /// PowerRustCOBOL" is simply false — and it said so on every single Run,
+    /// which is the first thing a new user saw (user report, 2026-08-21).
+    ///
+    /// The prompt exists because an incremental build can link objects an older
+    /// version produced. Nothing was ever produced here, so there is nothing to
+    /// warn about.
+    pub fn built_by_a_different_version(&self, current: &str) -> bool {
+        self.has_recorded_build() && self.build_is_stale_for(current)
+    }
+
     /// What to show for "last built with" — never blank.
     pub fn built_with_display(&self) -> &str {
         let v = self.built_with_version.trim();
@@ -2149,6 +2176,44 @@ mod build_stamp_tests {
         assert_eq!(p.project.built_with_version, "");
         assert!(p.project.build_is_stale_for("1.60.29"));
         assert_eq!(p.project.built_with_display(), "never fully built");
+    }
+
+    /// …but it was NOT built by an older PowerRustCOBOL, because it was never
+    /// built by anything.
+    ///
+    /// The two questions had one answer, so a project created seconds ago was
+    /// told on every Run that it "was built by an older PowerRustCOBOL" — untrue,
+    /// and the first thing a new user saw (user report, 2026-08-21). The Build
+    /// button still needs its full build; only the Run prompt changes.
+    #[test]
+    fn a_brand_new_project_is_not_accused_of_an_older_build() {
+        let p = CoboltProject::new("Demo.project", "main.cbl");
+        assert!(
+            !p.project.has_recorded_build(),
+            "nothing has built it yet"
+        );
+        assert!(
+            !p.project.built_by_a_different_version("1.61.140"),
+            "a project with no output cannot have output from another version"
+        );
+        assert!(
+            p.project.build_is_stale_for("1.61.140"),
+            "the BUILD button must still discard the cache - that half was right"
+        );
+
+        // A project that really was built by another version still warns, at
+        // every level of the version triple and in both directions.
+        for stamped in ["1.61.139", "1.60.0", "2.0.0"] {
+            let older = proj(stamped);
+            assert!(
+                older.project.built_by_a_different_version("1.61.140"),
+                "{stamped} differs from the running version, so the prompt stands"
+            );
+        }
+        // And the version that built it is never warned about.
+        assert!(!proj("1.61.140")
+            .project
+            .built_by_a_different_version("1.61.140"));
     }
 
     /// Newer IDE than the stamp → stale, at every level of the version.

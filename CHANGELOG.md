@@ -1,5 +1,150 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.144] — 2026-08-21
+
+### Fixed — one click ran a handler twice
+
+A Switch with a bound `onClick` ran its handler **twice** for every click. An
+event trace showed two `send` lines for one press, while the toggle events that
+accompany them (`onCheck` / `onCheckedChanged`) were sent once each — which is
+what named the two independent causes.
+
+**`onClick` was emitted from two places.** `control_pointer_events` emits it for
+every control that binds a handler, which is how Button and the rest get theirs;
+the Switch arm pushed a second one of its own. Only the universal emitter does
+so now.
+
+**And that universal emitter could fire more than once per frame.** It reads raw
+pointer state rather than a widget `Response` — deliberately, so it never steals
+the control's own interaction — but egui runs several **passes** per frame, and
+raw input reads the same in every one of them while a `Response` reports its
+click in only one. The "press began over this control" flag is now **consumed**
+when the click is spent, making the emission once-per-press by construction,
+independent of how many passes a frame needs.
+
+Either fault alone was invisible in the obvious test: a Switch with no handler
+bound gets nothing from the universal emitter, so only the duplicate push
+remained and the count came out as one. The guards therefore bind a handler, and
+the reproduction that first looked healthy is now the one that goes red.
+
+> **Note.** `onClick` reaches a control only when it binds a handler — the rule
+> every other control already followed. A Switch used to emit one regardless;
+> nothing consumed it, so nothing observable changes.
+
+## [PowerRustCOBOL 1.61.143] — 2026-08-21
+
+### Fixed — `SET control::Property TO` wrote booleans in the old spelling
+
+1.61.142 gave booleans one spelling but canonicalised only one of the two write
+paths, and `SET CTL::Prop TO value` takes the other. A handler could therefore
+read a seeded `true` and, one statement later, read back `0` from its own write:
+
+```
+false - true
+false - 0
+```
+
+Both paths now go through one `canonical_prop_value`, so neither can spell a
+boolean differently from the other again.
+
+### Added — `COBOLT_EVENT_TRACE`, for a handler that runs twice
+
+A handler running twice for one interaction is either an event **sent** twice or
+one event **dispatched** twice, and from outside the process those are
+indistinguishable — the program just prints its `DISPLAY` twice.
+
+`COBOLT_EVENT_TRACE=1` puts one line on stderr at each end of the event channel:
+the host logs `send`, the interpreter logs `dispatch`. Two `send` lines means the
+host is duplicating; one `send` with two `dispatch` lines means the interpreter
+is. Off by default and never touches the `DISPLAY` channel, so it cannot be
+mistaken for program output. The switch lives in `cobolt-forms`, the crate the
+host and the runtime both depend on, so the two ends cannot disagree about
+whether it is on.
+
+## [PowerRustCOBOL 1.61.142] — 2026-08-21
+
+### Fixed — `IF control::BooleanProperty = FALSE` was always true
+
+A handler that tested a Switch could not tell it apart from itself:
+
+```cobol
+           IF Switch-1::Checked = FALSE
+              SET Label-7::Visible TO FALSE
+           ELSE
+              SET Label-7::Visible TO TRUE
+           END-IF
+```
+
+took the IF branch every time, so the label went away and never came back.
+
+Two faults met. **First**, booleans had no single spelling. `Checked` read back
+as the word `false` while `Visible` read back as the digit `0`, and the same
+property could be either depending on which code path last wrote it — the
+designer stores a real boolean, the `.cfrm` reader and every runtime write store
+text. No comparison a developer wrote could be right for all of them.
+
+**Second**, `TRUE`/`FALSE` are the integers 1 and 0, so comparing them against a
+property's *text* went through a numeric conversion that answers `0.0` for
+anything it cannot parse. `"false"` became 0 — and so did `"true"`. Both
+equalled `FALSE`, which is why the condition was always true and the ELSE branch
+never ran.
+
+Booleans now have **one spelling, `true`/`false`**, applied where every write
+passes rather than at each call site, and seeded that way from the form. On
+input and in comparisons, `TRUE`, `FALSE`, `1` and `0` are all accepted in any
+case, so `= 1`, `= TRUE`, `IS TRUE` and `EVALUATE … WHEN TRUE` agree with each
+other. A comparison only switches to boolean rules when one side is written as
+the **word** `TRUE`/`FALSE`; a bare 1 or 0 stays an ordinary COBOL number, so
+`IF WS-COUNT = 1` is untouched. Ordering operators are left alone — booleans
+have equality, not magnitude.
+
+Also fixed on the way: `SET control::Visible TO FALSE` was recorded in the
+property map while every renderer reads the struct field, so it could be stored
+and have no effect on screen.
+
+## [PowerRustCOBOL 1.61.141] — 2026-08-21
+
+### Fixed — a new project was told it had been built by an older version
+
+Creating a project and pressing Run announced *"This project was built by an
+older PowerRustCOBOL — last full build: never fully built"*, on every Run. For a
+project created seconds earlier by the running IDE that is simply untrue, and it
+was the first thing a new user saw.
+
+Two different questions had one answer. *"Must a build discard its cache?"* —
+yes, a never-built project qualifies, and the Build button is right to full-build
+it. *"Was this output produced by a version I am not?"* — no: there is no output
+at all. The Run prompt now asks the second question, which is the one it is
+worded for. The Build button is unchanged.
+
+## [PowerRustCOBOL 1.61.140] — 2026-08-21
+
+### Fixed — the IDE would not start on a clean Windows 11
+
+On a freshly installed Windows 11 the IDE died immediately with
+`STATUS_ACCESS_VIOLATION` (`0xc0000005`) and printed nothing; the packaged
+executable simply never opened a window. The same build ran fine on the same
+user's previous machine.
+
+eframe renders through **wgpu**, whose default backend set includes Vulkan and
+reaches for it first on Windows. A clean Windows 11 install has no vendor GPU
+driver and therefore no working Vulkan ICD — the loader fails its registry
+lookup for layer manifests and the process is then killed inside driver code,
+before anything can be reported. That is why there was no message: an access
+violation is not an error the program gets to see.
+
+Windows now asks for **DX12**, with GL behind it — DX12 is the native Windows
+API and is present on Windows 11 even with only Microsoft's inbox driver. A
+backend that crashes while being created cannot be caught and recovered from, so
+the cure is not to attempt it. `WGPU_BACKEND` still overrides the choice, so a
+machine with a working Vulkan driver can ask for it back, and that variable
+remains the one-line way to identify a driver problem on a machine we cannot
+reach.
+
+The rule covers every window the product opens — the IDE, Run Form's child
+process, and the shell — and a test pins the IDE's copy equal to the form
+host's, since the two crates deliberately share no runtime dependency.
+
 ## [PowerRustCOBOL 1.61.139] — 2026-08-21
 
 ### Fixed — a dropped selection lost its spacing

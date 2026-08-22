@@ -4066,6 +4066,11 @@ impl Interpreter {
         // GUI mode: send through the display channel so the IDE output panel
         // receives the text (cursor positioning is meaningless there).
         if let Some(tx) = &self.display_tx {
+            // With the event trace on, the program's own output joins the same
+            // timeline as `send`/`dispatch`. Their ORDER is what separates "the
+            // queue delivered twice" from "the handler body ran twice", and two
+            // streams stitched together afterwards cannot show it.
+            cobolt_forms::diagnostics::trace_display(&out);
             let _ = tx.send(out.clone());
             return Ok(());
         }
@@ -5283,6 +5288,12 @@ impl Interpreter {
                     // surface even with no UI activity in flight.
                     match self.next_wait_outcome() {
                         WaitOutcome::Ui(ev) => {
+                            cobolt_forms::diagnostics::trace_event(
+                                "dispatch",
+                                &ev.ctrl_id,
+                                &ev.event_id,
+                                ev.instance_index,
+                            );
                             // One event left the queue — let the host coalesce
                             // timer ticks against the now-shallower backlog.
                             //
@@ -6477,6 +6488,7 @@ impl Interpreter {
         if !self.objects.contains(obj) {
             self.objects.register(obj, "Control");
         }
+        let val = self.canonical_prop_value(obj, prop, val);
         self.objects.set_property(obj, prop, val.clone());
         if let Some(tx) = &self.state_tx {
             let _ = tx.send(StateUpdate::new(
@@ -7019,6 +7031,25 @@ impl Interpreter {
     /// Write a string value to a member place and notify the UI. A flat
     /// `[Prop(name)]` path emits `StateUpdate(control, name, value)` so existing
     /// UI bindings update; a deeper path emits a best-effort joined key.
+    /// One spelling for booleans, whatever wrote them.
+    ///
+    /// There are two ways a control property gets written — [`Self::obj_set`],
+    /// which the built-in methods and the async lifecycle use, and
+    /// [`Self::set_member_indexed`], which is what COBOL's
+    /// `SET CTL::Prop TO value` goes through. Canonicalising in only the first
+    /// left `SET LABEL-7::Visible TO FALSE` storing the digit `0` while the
+    /// seeded value was the word `true`, so the same property read back two
+    /// different ways within one handler (operator, 2026-08-21). Both call
+    /// here now, which is the only way the two cannot drift apart again.
+    fn canonical_prop_value(&self, obj: &str, prop: &str, val: String) -> String {
+        let class = self
+            .objects
+            .get(obj)
+            .map(|o| o.class.clone())
+            .unwrap_or_default();
+        cobolt_forms::model::property_runtime_text(&class, prop, &val)
+    }
+
     fn set_member(&mut self, root: &str, path: &[PathSeg], val: String) {
         self.set_member_indexed(root, path, val, 0);
     }
@@ -7027,6 +7058,13 @@ impl Interpreter {
     /// `instance` (1-based) so the host routes `Member(idx)::Prop` writes to the
     /// right cloned card. `instance == 0` is a scalar control (unchanged).
     fn set_member_indexed(&mut self, root: &str, path: &[PathSeg], val: String, instance: usize) {
+        // Only a plain `obj::Prop` is canonicalised. A nested path
+        // (`Grid.Rows[2].Value`) addresses content, not a control property, and
+        // must be stored exactly as written.
+        let val = match single_prop_key(path) {
+            Some(key) => self.canonical_prop_value(root, &key, val),
+            None => val,
+        };
         self.objects
             .set_path(root, path, PropertyValue::String(val.clone()));
         if let Some(tx) = &self.state_tx {
@@ -8945,6 +8983,42 @@ fn cob_ordering(a: &CobolValue, b: &CobolValue) -> std::cmp::Ordering {
 }
 
 pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
+    // Booleans, before anything coerces them to numbers.
+    //
+    // `TRUE`/`FALSE` parse to the integers 1 and 0, and a control property
+    // reads back as text. So `IF SWITCH-1::Checked = FALSE` used to land in the
+    // numeric-vs-string branch below, where `as_f64("false")` is 0.0 because the
+    // parse fails and falls back to zero — and `as_f64("true")` is 0.0 for
+    // exactly the same reason. Both spellings therefore equalled FALSE, so that
+    // condition was **always true** whatever the switch was set to, the ELSE
+    // branch never ran, and a label hidden by the IF branch could never come
+    // back (operator, 2026-08-21).
+    //
+    // The gate is a boolean WORD on at least one side. A bare 1 or 0 is an
+    // ordinary COBOL number and keeps comparing as one; only `TRUE`/`FALSE`
+    // spelled out marks a value as meant to be a boolean. Ordering operators
+    // fall through untouched — booleans have equality, not magnitude.
+    if matches!(op, CmpOp::Eq | CmpOp::Ne) {
+        let as_bool = |v: &CobolValue| -> Option<bool> {
+            if v.is_numeric() {
+                // Only the two values a boolean can hold; 7 is not a boolean.
+                let n = v.as_f64();
+                return (n == 0.0 || n == 1.0).then_some(n == 1.0);
+            }
+            cobolt_forms::model::parse_bool_text(&v.as_display_string())
+        };
+        let word_side = !l.is_numeric()
+            && cobolt_forms::model::is_bool_word(&l.as_display_string())
+            || !r.is_numeric() && cobolt_forms::model::is_bool_word(&r.as_display_string());
+        if word_side {
+            if let (Some(a), Some(b)) = (as_bool(l), as_bool(r)) {
+                return match op {
+                    CmpOp::Eq => a == b,
+                    _ => a != b,
+                };
+            }
+        }
+    }
     // Numeric comparison when both sides are numeric.
     if l.is_numeric() && r.is_numeric() {
         // Exact integer comparison when both are fixed-point decimals.
@@ -9628,8 +9702,12 @@ MAIN.
             .try_iter()
             .filter(|update| update.ctrl_id == "AlarmSwitch")
             .collect();
+        // `true`, not `1`: booleans have one spelling now, whichever code path
+        // wrote them (operator, 2026-08-21).
         assert!(
-            updates.iter().any(|u| u.prop == "Checked" && u.value == "1"),
+            updates
+                .iter()
+                .any(|u| u.prop == "Checked" && u.value == "true"),
             "expected a Checked update, got {updates:?}"
         );
         assert!(
@@ -9993,7 +10071,7 @@ MAIN.
             interp.async_pending.contains_key("Search1"),
             "SEARCH under Async mode should record a pending op"
         );
-        assert_eq!(interp.obj_get("Search1", "Busy"), "1");
+        assert_eq!(interp.obj_get("Search1", "Busy"), "true");
     }
 
     #[test]
@@ -10418,5 +10496,104 @@ MAIN.
 
         let updates: Vec<_> = state_rx.try_iter().collect();
         println!("UPDATES: {:?}", updates);
+    }
+}
+
+#[cfg(test)]
+mod boolean_comparison_tests {
+    use super::*;
+
+    fn text(s: &str) -> CobolValue {
+        CobolValue::from_str(s, s.len())
+    }
+    fn num(n: i64) -> CobolValue {
+        CobolValue::from_i64(n)
+    }
+
+    /// The bug the operator hit: `IF SWITCH-1::Checked = FALSE` was true no
+    /// matter what the switch said.
+    ///
+    /// `TRUE`/`FALSE` parse to the integers 1 and 0, a control property reads
+    /// back as text, and the numeric-vs-string branch resolved that text with
+    /// `as_f64` — which returns 0.0 for anything unparsable. So BOTH "true" and
+    /// "false" equalled FALSE, the ELSE branch never ran, and a label the IF
+    /// branch hid could never be shown again (2026-08-21).
+    #[test]
+    fn a_boolean_word_compares_as_a_boolean_not_as_a_failed_number() {
+        // The exact condition from the operator's handler, both ways round.
+        assert!(compare_values(&text("false"), &num(0), CmpOp::Eq));
+        assert!(
+            !compare_values(&text("true"), &num(0), CmpOp::Eq),
+            "this is the bug: \"true\" must not equal FALSE"
+        );
+        assert!(compare_values(&text("true"), &num(1), CmpOp::Eq));
+        assert!(!compare_values(&text("false"), &num(1), CmpOp::Eq));
+
+        // NOT EQUAL is the mirror of it, not a separate rule.
+        assert!(compare_values(&text("true"), &num(0), CmpOp::Ne));
+        assert!(!compare_values(&text("true"), &num(1), CmpOp::Ne));
+    }
+
+    /// Every accepted spelling means the same thing, in any case, and against
+    /// each other — the operator's rule: TRUE/FALSE/1/0 all accepted on input
+    /// and in comparisons.
+    #[test]
+    fn every_accepted_spelling_agrees() {
+        for t in ["true", "TRUE", "True", " true ", "1"] {
+            for f in ["false", "FALSE", "False", " false ", "0"] {
+                assert!(
+                    !compare_values(&text(t), &text(f), CmpOp::Eq),
+                    "{t:?} must not equal {f:?}"
+                );
+            }
+        }
+        for a in ["true", "TRUE", "1"] {
+            for b in ["true", "True", "1"] {
+                assert!(
+                    compare_values(&text(a), &text(b), CmpOp::Eq),
+                    "{a:?} must equal {b:?}"
+                );
+            }
+        }
+    }
+
+    /// Ordinary numbers keep comparing as numbers.
+    ///
+    /// The boolean rule is gated on a spelled-out TRUE/FALSE appearing on one
+    /// side. A bare 1 or 0 is just a COBOL number, and `IF WS-COUNT = 1` must
+    /// not quietly become a truth test.
+    #[test]
+    fn plain_numbers_are_untouched() {
+        assert!(compare_values(&num(1), &num(1), CmpOp::Eq));
+        assert!(!compare_values(&num(1), &num(0), CmpOp::Eq));
+        assert!(compare_values(&num(7), &num(7), CmpOp::Eq));
+        assert!(compare_values(&num(2), &num(7), CmpOp::Lt));
+        // A numeric field holding 1 against the digit-string "1" — the existing
+        // cross-type rule, unchanged.
+        assert!(compare_values(&num(1), &text("1"), CmpOp::Eq));
+    }
+
+    /// Ordinary text keeps comparing as text, including text that merely fails
+    /// to parse as a number. Only the two boolean words change behaviour.
+    #[test]
+    fn ordinary_text_is_not_dragged_into_boolean_rules() {
+        assert!(compare_values(&text("BTN-OK"), &text("BTN-OK"), CmpOp::Eq));
+        assert!(!compare_values(&text("BTN-OK"), &text("BTN-NO"), CmpOp::Eq));
+        // Unchanged pre-existing behaviour: a non-numeric string against a
+        // number still goes through `as_f64`. Not endorsed, just not touched —
+        // widening that would be a different change with a different blast
+        // radius.
+        assert!(compare_values(&text("banana"), &num(0), CmpOp::Eq));
+    }
+
+    /// Ordering operators are left alone: booleans have equality, not
+    /// magnitude, so `>` on a boolean word keeps whatever it did before rather
+    /// than acquiring an invented ordering.
+    #[test]
+    fn ordering_operators_are_not_given_boolean_meaning() {
+        // Falls through to the old numeric-vs-string path; the point is only
+        // that the boolean branch did not claim it.
+        let before = text("true").as_f64() > num(0).as_f64();
+        assert_eq!(compare_values(&text("true"), &num(0), CmpOp::Gt), before);
     }
 }

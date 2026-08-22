@@ -1247,10 +1247,7 @@ pub fn run_shell(
         .with_resizable(true)
         // R43 — the shell window carries alpha; the chrome paints itself.
         .with_transparent(true);
-    let native_options = eframe::NativeOptions {
-        viewport,
-        ..Default::default()
-    };
+    let native_options = crate::native_options(viewport);
     let app = ShellApp {
         shell,
         chain,
@@ -3907,6 +3904,147 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             open.menu_rect.width(),
             collapsed.menu_rect.width(),
             gained
+        );
+    }
+}
+
+#[cfg(test)]
+mod shell_event_tests {
+    use super::*;
+    use crate::host::{FormHostConfig, NoHooks, Surface};
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::{mpsc, Arc};
+
+    fn raw(size: Vec2) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, size)),
+            ..Default::default()
+        }
+    }
+
+    /// One click on a control inside a SHELL-hosted form must fire ONE event.
+    ///
+    /// The operator's `sidebar-form.cfrm` is a main form with a **SideMenu**, so
+    /// it runs on the shell path — the form is the ContentPane occupant, not a
+    /// plain window. Its `Switch-1` has exactly one `onClick` binding, and a
+    /// single click ran the handler twice (2026-08-21). The equivalent scene on
+    /// the plain window path fires once, so the shell is where this has to be
+    /// measured.
+    #[test]
+    fn a_click_in_a_shell_hosted_form_fires_one_event() {
+        let mut form = cobolt_forms::Form::new("SIDEBAR-FORM", "Main Menu", 900, 600);
+        form.main_form = true;
+        let mut rail =
+            cobolt_forms::Control::new("SIDE-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        rail.rect = cobolt_forms::model::Rect::new(0, 0, 200, 600);
+        let mut panel =
+            cobolt_forms::Control::new("Panel-8", cobolt_forms::ControlType::Panel, 0, 0);
+        panel.rect = cobolt_forms::model::Rect::new(0, 0, 300, 200);
+        let mut sw =
+            cobolt_forms::Control::new("Switch-1", cobolt_forms::ControlType::Switch, 10, 10);
+        sw.rect = cobolt_forms::model::Rect::new(10, 10, 48, 28);
+        sw.parent = Some("Panel-8".into());
+        // BOUND, like the operator's Switch-1 — `onClick` is emitted only for a
+        // control that binds a handler.
+        sw.ensure_event("onClick");
+        let flat = vec![rail, panel, sw];
+
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        let size = Vec2::new(1000.0, 700.0);
+        let mut run = |ctx: &egui::Context,
+                       shell: &mut Shell,
+                       host: &mut crate::FormHost,
+                       input: egui::RawInput| {
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let _ = shell.show_with_host(root_ui, |_ui| {}, host);
+            });
+            full.textures_delta.clear();
+        };
+
+        // Past the host's 450 ms arming window.
+        run(&ctx, &mut shell, &mut host, raw(size));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        for _ in 0..2 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        while ev_rx.try_recv().is_ok() {}
+
+        // Where the switch landed: the form anchors at the pane's top-left, so
+        // the designed offset plus the pane origin is the control's centre.
+        let pane = host.pane_backdrop_rect().expect("the pane was painted");
+        let at = pane.min + Vec2::new(10.0 + 24.0, 10.0 + 14.0);
+
+        let mut down = raw(size);
+        down.events = vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ];
+        run(&ctx, &mut shell, &mut host, down);
+        let mut up = raw(size);
+        up.events = vec![egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }];
+        run(&ctx, &mut shell, &mut host, up);
+        for _ in 0..3 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+
+        let evs: Vec<(String, String)> = ev_rx
+            .try_iter()
+            .map(|e| (e.ctrl_id, e.event_id))
+            .collect();
+        let clicks: Vec<_> = evs
+            .iter()
+            .filter(|(c, e)| c == "Switch-1" && e.eq_ignore_ascii_case("onClick"))
+            .collect();
+        assert_eq!(
+            clicks.len(),
+            1,
+            "one click on a shell-hosted control must fire one onClick; got {evs:?}"
         );
     }
 }

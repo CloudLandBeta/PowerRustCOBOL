@@ -22,6 +22,103 @@ use std::fmt::Write as _;
 use crate::model::{DataGridAdvanced, DATAGRID_ADVANCED_PROP};
 use crate::{Control, Form};
 
+/// `COBOLT_EVENT_TRACE` — one line per event, at BOTH ends of the channel.
+///
+/// A handler that runs twice for one click is either an event SENT twice or one
+/// event DISPATCHED twice, and from outside the process those look identical:
+/// the program simply prints its `DISPLAY` twice (operator, 2026-08-21). The
+/// host logs `send`, the interpreter logs `dispatch`, and pairing them tells the
+/// two apart in a single run — two `send` lines means the host is duplicating;
+/// one `send` with two `dispatch` lines means the interpreter is.
+///
+/// It lives here, in the crate the host and the runtime BOTH depend on, because
+/// the runtime cannot see the host crate and a second copy would be free to
+/// disagree with the first about when it is on.
+pub fn event_trace_enabled() -> bool {
+    std::env::var("COBOLT_EVENT_TRACE")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+/// Where the event trace is also written, so it survives the terminal.
+///
+/// stderr alone means the evidence lives in whichever console the developer
+/// launched from — which is exactly where it is least reachable when the person
+/// diagnosing the fault is not sitting at that machine. Overridable with
+/// `COBOLT_EVENT_TRACE_FILE`.
+pub fn event_trace_path() -> std::path::PathBuf {
+    std::env::var_os("COBOLT_EVENT_TRACE_FILE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("prc-event-trace.log"))
+}
+
+/// One event-trace line. `stage` is `send` (host) or `dispatch` (interpreter).
+///
+/// Goes to stderr AND to [`event_trace_path`]. Both ends of the channel call
+/// this, and the host and the interpreter are different threads, so the file is
+/// opened in append mode per line: ordering between the two stages is the whole
+/// point of the trace, and a buffered writer per thread would reorder it.
+pub fn trace_event(stage: &str, ctrl_id: &str, event_id: &str, instance: usize) {
+    if !event_trace_enabled() {
+        return;
+    }
+    let line =
+        format!("[prc][event] {stage:<8} ctrl={ctrl_id:?} event={event_id:?} instance={instance}");
+    // stderr, never the DISPLAY channel: instrumentation must not be mistakable
+    // for the program's own output.
+    eprintln!("{line}");
+    append_trace_line(&line);
+}
+
+/// Append one line to the trace file, with a header on the first write of the
+/// process so consecutive runs are told apart.
+fn append_trace_line(line: &str) {
+    static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    let path = event_trace_path();
+    STARTED.get_or_init(|| {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        write_trace_line(
+            &path,
+            &format!(
+                "\n[prc][event] ---- run start (pid {}, t={secs}) ----",
+                std::process::id()
+            ),
+        );
+    });
+    write_trace_line(&path, line);
+}
+
+/// Append one line to `path`. Split from the gate so it is testable without
+/// mutating process environment — which is `unsafe` in Rust 2024 and racy
+/// across parallel tests either way.
+fn write_trace_line(path: &std::path::Path, line: &str) {
+    use std::io::Write;
+    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) else {
+        // A diagnostic that cannot write must not take the program with it.
+        return;
+    };
+    let _ = writeln!(file, "{line}");
+}
+
+/// A DISPLAY line, interleaved into the same trace.
+///
+/// The order of `send`/`dispatch` against the program's own output is what
+/// distinguishes "the queue delivered twice" from "the handler body ran twice",
+/// and two streams reconstructed after the fact cannot show it. Routing DISPLAY
+/// through the same file puts them on one timeline.
+pub fn trace_display(text: &str) {
+    if !event_trace_enabled() {
+        return;
+    }
+    append_trace_line(&format!("[prc][event] {:<8} {text}", "DISPLAY"));
+}
+
 /// Build the full diagnostics dump for `form`. `project` names the project (used
 /// in the header); `enabled` lists each diagnostic flag and whether it is on, so
 /// the reader knows which overlays were active for this run.
@@ -230,5 +327,59 @@ mod tests {
         assert!(dump.contains("parent : PNL"));
         assert!(dump.contains("frame_diagnostics=on"));
         assert!(dump.contains("datagrid_diagnostics=off"));
+    }
+}
+
+#[cfg(test)]
+mod event_trace_tests {
+    use super::*;
+
+    /// The trace must reach a FILE, not just the console.
+    ///
+    /// stderr alone puts the evidence in whichever terminal the developer
+    /// launched from — the one place it is unreachable when the person
+    /// diagnosing the fault is not at that machine. A whole round trip was
+    /// spent discovering that (2026-08-21).
+    #[test]
+    fn a_trace_line_is_appended_to_the_file() {
+        let dir = std::env::temp_dir().join(format!("prc-trace-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("trace.log");
+        let _ = std::fs::remove_file(&path);
+
+        write_trace_line(&path, "[prc][event] send     ctrl=\"Switch-1\"");
+        write_trace_line(&path, "[prc][event] dispatch ctrl=\"Switch-1\"");
+        let body = std::fs::read_to_string(&path).expect("the trace file was written");
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2, "both lines appended, in order: {body:?}");
+        assert!(lines[0].contains("send"), "{body:?}");
+        assert!(lines[1].contains("dispatch"), "{body:?}");
+
+        // Appending, never truncating: the second end of the channel writes
+        // from a different thread and must not erase the first.
+        write_trace_line(&path, "third");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap().lines().count(),
+            3,
+            "append, not truncate"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An unwritable path is a no-op, not a crash: instrumentation must never
+    /// be the reason a developer's form dies.
+    #[test]
+    fn an_unwritable_trace_path_is_silent() {
+        write_trace_line(std::path::Path::new("/definitely/not/a/dir/x.log"), "x");
+    }
+
+    /// The switch is off unless explicitly turned on, and accepts the same
+    /// truthy spellings as every other diagnostic here.
+    #[test]
+    fn the_trace_is_off_by_default() {
+        assert!(
+            !event_trace_enabled(),
+            "COBOLT_EVENT_TRACE must be opt-in; it writes to stderr and a file"
+        );
     }
 }

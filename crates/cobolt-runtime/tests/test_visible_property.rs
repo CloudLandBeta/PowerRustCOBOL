@@ -73,18 +73,23 @@ PROCEDURE DIVISION.
         2,
         "both SETs must reach the UI, got {sent:?}"
     );
+    // The point was never the literal characters — it is that what reaches the
+    // UI can be READ as hidden or visible. Asserting the exact string "0" was a
+    // proxy for that, and it went red the moment booleans got one canonical
+    // spelling (`false`/`true`, 2026-08-21) even though the behaviour was
+    // right. Ask the question the consumer asks instead, through the same
+    // parser `merge_props` uses, so this stays true whichever accepted spelling
+    // is published.
     assert_eq!(
-        visible[0].2, "0",
-        "hiding must publish exactly \"0\" — anything else reads as visible"
+        cobolt_forms::model::parse_bool_text(&visible[0].2),
+        Some(false),
+        "hiding must publish something that reads as FALSE, got {:?}",
+        visible[0].2
     );
-    assert_ne!(
-        visible[1].2, "0",
-        "showing must publish a truthy value, got {:?}",
-        visible[1].2
-    );
-    assert_ne!(
-        visible[1].2, "false",
-        "showing must publish a truthy value, got {:?}",
+    assert_eq!(
+        cobolt_forms::model::parse_bool_text(&visible[1].2),
+        Some(true),
+        "showing must publish something that reads as TRUE, got {:?}",
         visible[1].2
     );
 }
