@@ -556,6 +556,28 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **始终可读的文字。** form 并不知道它的 theme 会画成什么样，因此那些承载含义
+> 的颜色都会与文字真正落在的表面作对照：CheckBox 或 RadioButton 的 caption、
+> CheckBox 的 `CheckColor` 勾选标记、ListBox 的 items，以及文本光标。只要在那
+> 个表面上仍然可读，你设定的颜色就会被原样使用；读不出来时，painter 才改用黑
+> 色或白色中更清楚的那一个。若要把颜色完全钉死，请挑一个在你所发布的 theme 上
+> 读得清楚的颜色。
+>
+> **各自与哪个表面对照。** 与文字真正落在的那个表面。CheckBox 的
+> `BackgroundColor` 画的是它的**方框**，RadioButton 的画的是它的**圆圈** —
+> caption 在旁边，落在控件的**外框**上 — 所以 caption 与外框对照，而
+> `CheckColor` 勾选标记与方框对照。给 check box 设一个深色背景，不会再把它的
+> caption 翻成白色。
+>
+> **透明的外框交给你自己决定。** 一旦 `Transparency` 超过 70，外框画出的东西
+> 太少而无从判读，而 caption 真正落在的东西 — form、GroupBox、背景图 — 控件
+> 是看不到的。那里不作任何对照，你的 `ForegroundColor` 就按设定原样使用。
+> CheckBox 默认是 100 % 透明，所以这才是常态：请挑一个在你所放置的 form 上读
+> 得清楚的 caption 颜色。
+>
+> CheckBox 的 caption 在方框右侧，RadioButton 的 caption 在选择圆圈右侧，两者
+> 距离相同。
+
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
 > data-name (`WS-BUTTON-1`) and the base of its handler paragraph

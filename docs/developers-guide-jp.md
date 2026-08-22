@@ -566,6 +566,31 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **いつでも読めるテキスト。** form は自分の theme が何を描くかを知りません。
+> そのため意味を担う色は、実際に載る面と照らして確認されます — CheckBox や
+> RadioButton の caption、CheckBox の `CheckColor` のチェック、ListBox の
+> items、そしてテキストのキャレットです。その面で読める限り、指定した色はその
+> まま使われます。読めない場合だけ、painter は黒か白の読めるほうに切り替えま
+> す。色を完全に固定したいときは、配布する theme の上で読める色を選んでくださ
+> い。
+>
+> **どの面と照らすのか。** テキストが実際に載る面です。CheckBox の
+> `BackgroundColor` は**チェックボックスの枡**を塗り、RadioButton のそれは
+> **円**を塗ります。caption はその横、control の**フレーム**の上にあります。
+> したがって caption はフレームと、`CheckColor` のチェックは枡と照らされます。
+> check box に濃い背景色を与えても、caption が白へ反転することはもうありませ
+> ん。
+>
+> **透けたフレームは開発者に任されます。** `Transparency` が 70 を超えると、
+> フレームはほとんど何も塗らず、caption が本当に載っているもの — form、
+> GroupBox、背景画像 — は control からは見えません。そこでは何も測らず、
+> `ForegroundColor` は指定どおりに使われます。CheckBox の既定は 100 %
+> 透明なので、これが通常の状態です。置く form の上で読める caption 色を選んで
+> ください。
+>
+> CheckBox の caption は枡の右側に、RadioButton の caption は選択円の右側に、
+> どちらも同じ距離で置かれます。
+
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
 > data-name (`WS-BUTTON-1`) and the base of its handler paragraph

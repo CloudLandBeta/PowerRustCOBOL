@@ -569,6 +569,32 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **Texto sempre legível.** Um form não sabe o que o seu theme pinta, por isso
+> as cores que carregam significado são conferidas contra a superfície em que
+> caem: o caption de um CheckBox ou de um RadioButton, a marca `CheckColor` de
+> um CheckBox, os items de um ListBox e o cursor de texto. A sua cor é usada
+> exatamente como definida enquanto continuar legível ali; onde não ficaria, o
+> painter recorre a preto ou branco — o que se ler. Para fixar uma cor de forma
+> absoluta, escolha uma que se leia no theme que você distribui.
+>
+> **Contra qual superfície cada uma é medida.** Contra aquela em que o texto
+> realmente cai. O `BackgroundColor` de um CheckBox pinta a sua **caixinha**, e
+> o de um RadioButton o seu **círculo** — o caption fica ao lado, sobre a
+> **moldura** do control —, de modo que o caption é conferido contra a moldura e
+> a marca `CheckColor` contra a caixinha. Dar um fundo escuro a um check box já
+> não deixa o caption branco.
+>
+> **Uma moldura transparente fica por sua conta.** Assim que `Transparency`
+> passa de 70, a moldura pinta pouco demais para ser lida, e aquilo sobre o que
+> o caption realmente cai — o form, um GroupBox, uma imagem de fundo — não é
+> algo que o control consiga ver. Ali nada é medido e o seu `ForegroundColor` é
+> usado exatamente como definido. Um CheckBox é 100 % transparente por padrão,
+> portanto esse é o caso normal: escolha uma cor de caption que se leia sobre o
+> form onde você o coloca.
+>
+> O caption de um CheckBox fica à direita da sua caixinha, e o de um
+> RadioButton à direita do seu círculo de seleção, à mesma distância.
+
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
 > data-name (`WS-BUTTON-1`) and the base of its handler paragraph

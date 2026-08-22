@@ -4580,12 +4580,19 @@ fn draw_control_body(
             // Enhanced, where the frost composites what is behind; the
             // Neumorphic surfaces are solid and answer exactly, which is the
             // case that was actually unreadable — black-on-dark.
-            let behind = control_surface_tone(
+            //
+            // `caption_surface_tone`, not `control_surface_tone`: the caption
+            // sits on the FRAME, and a toggle's BackgroundColor is its box. A
+            // frame too transparent to read (a CheckBox at its 100 % default)
+            // answers `None`, and the developer's colour is left alone.
+            match caption_surface_tone(
                 painter.ctx(),
                 ctrl,
                 parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
-            );
-            caret_color(behind, label_color)
+            ) {
+                Some(behind) => caret_color(behind, label_color),
+                None => label_color,
+            }
         } else {
             label_color
         };
@@ -8991,6 +8998,62 @@ pub fn control_surface_tone(ctx: &egui::Context, ctrl: &Control, under: Color32)
     }
 }
 
+/// Above this `Transparency` a control's frame is too see-through to measure a
+/// caption against: what the text really sits on is the form, a container, or a
+/// background image — none of which the painter can read. The developer's own
+/// foreground colour stands.
+const CAPTION_RESCUE_MAX_TRANSPARENCY: i64 = 70;
+
+/// The tone a control's **caption** sits on — the background of its *frame*,
+/// not of its indicator.
+///
+/// A CheckBox paints its BackgroundColor into the tick box; a RadioButton into
+/// its circle. The caption is beside that, on the frame. Measuring the caption
+/// against `control_surface_tone` therefore asked the wrong surface: giving a
+/// check box a dark BackgroundColor flipped its caption to white, and on a pale
+/// form the caption vanished — the colour it was rescued from was the box's,
+/// three pixels away, not the one under the text (operator, 2026-08-22).
+///
+/// So the frame's own transparency decides:
+/// * more than `CAPTION_RESCUE_MAX_TRANSPARENCY` % see-through → `None`. There
+///   is no frame background to read, so nothing is rescued and the developer's
+///   colour is used exactly as given. (A CheckBox defaults to 100 %, which is
+///   how the wrong rescue was reaching every default check box.)
+/// * otherwise → the frame's face blended toward what is behind it by the same
+///   alpha the frame is painted with, so a half-transparent frame is judged on
+///   the half-transparent colour the eye actually sees.
+///
+/// A fully opaque control (a DateTimePicker, a check box the developer made
+/// solid) returns exactly `control_surface_tone` — its face IS its frame.
+pub fn caption_surface_tone(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    under: Color32,
+) -> Option<Color32> {
+    if crate::model::transparency_of(ctrl) > CAPTION_RESCUE_MAX_TRANSPARENCY {
+        return None;
+    }
+    let face = control_surface_tone(ctx, ctrl, under);
+    let alpha = crate::model::alpha_multiplier(ctrl).clamp(0.0, 1.0);
+    if alpha >= 1.0 {
+        return Some(face);
+    }
+    // What the frame lets through: the form's own backdrop when the render walk
+    // published one, and otherwise the neutral stand-in the caller passed.
+    let published = form_backdrop_of(ctx);
+    let behind = if published.a() > 0 {
+        Color32::from_rgb(published.r(), published.g(), published.b())
+    } else {
+        Color32::from_rgb(under.r(), under.g(), under.b())
+    };
+    let mix = |f: u8, b: u8| (f as f32 * alpha + b as f32 * (1.0 - alpha)).round() as u8;
+    Some(Color32::from_rgb(
+        mix(face.r(), behind.r()),
+        mix(face.g(), behind.g()),
+        mix(face.b(), behind.b()),
+    ))
+}
+
 /// The default ink for a control under the **Neumorphic** register, derived
 /// from the surface its text will actually land on.
 ///
@@ -10991,6 +11054,92 @@ mod checkbox_face_tests {
                 contrast_ratio(chosen, surface)
             );
         }
+    }
+
+    /// A check box's BackgroundColor paints its TICK BOX. The caption is beside
+    /// the box, on the frame — and at the 100 % default the frame paints
+    /// nothing at all. Rescuing the caption against the box therefore read the
+    /// wrong surface: a dark BackgroundColor turned the caption white, and on a
+    /// pale form it disappeared (operator, 2026-08-22).
+    ///
+    /// Over 70 % see-through there is no frame background to measure, so
+    /// nothing is rescued and the developer's colour stands exactly as given.
+    #[test]
+    fn a_see_through_frame_leaves_the_developers_caption_colour_alone() {
+        let ctx = egui::Context::default();
+        let under = parse_color(crate::model::DEFAULT_BACKGROUND_COLOR);
+        let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        cb.set_prop("BackgroundColor", crate::PropValue::String("#101018".into()));
+        assert_eq!(transparency_of(&cb), 100, "the default this bug rode in on");
+
+        assert!(
+            caption_surface_tone(&ctx, &cb, under).is_none(),
+            "a frame painting nothing cannot answer what the caption sits on"
+        );
+
+        // 71 % is still nothing to measure; 70 % is the last that answers.
+        for t in [71_i64, 80, 99, 100] {
+            cb.set_prop("Transparency", crate::PropValue::Int(t));
+            assert!(
+                caption_surface_tone(&ctx, &cb, under).is_none(),
+                "{t} % transparent must leave the caption colour alone"
+            );
+        }
+        cb.set_prop("Transparency", crate::PropValue::Int(70));
+        assert!(
+            caption_surface_tone(&ctx, &cb, under).is_some(),
+            "70 % is the boundary and still has a frame to read"
+        );
+    }
+
+    /// A frame solid enough to read IS what the caption sits on, so the rescue
+    /// keeps working there: an opaque dark background still flips the seeded
+    /// black caption to white.
+    #[test]
+    fn an_opaque_frame_still_rescues_the_caption() {
+        let ctx = egui::Context::default();
+        let under = parse_color(crate::model::DEFAULT_BACKGROUND_COLOR);
+        let dark = Color32::from_rgb(16, 16, 24);
+        let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        cb.set_prop("BackgroundColor", crate::PropValue::String("#101018".into()));
+        cb.set_prop("Transparency", crate::PropValue::Int(0));
+
+        let tone = caption_surface_tone(&ctx, &cb, under).expect("an opaque frame answers");
+        assert_eq!(tone, dark, "an opaque frame IS its own background");
+        let ink = caret_color(tone, Color32::BLACK);
+        assert!(
+            contrast_ratio(ink, dark) >= 4.5,
+            "black on a dark frame must still be rescued, got {ink:?}"
+        );
+    }
+
+    /// Between the two, the frame lets part of the form through — so that is
+    /// what the caption is judged on, blended by the frame's own alpha. A dark
+    /// background at 50 % over a pale form is a mid tone, not the dark colour
+    /// three pixels away in the tick box.
+    #[test]
+    fn a_half_transparent_frame_is_judged_on_what_shows_through() {
+        let ctx = egui::Context::default();
+        let under = parse_color(crate::model::DEFAULT_BACKGROUND_COLOR);
+        let pale = Color32::from_rgb(240, 240, 240);
+        set_form_backdrop(&ctx, pale);
+
+        let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        cb.set_prop("BackgroundColor", crate::PropValue::String("#000000".into()));
+        cb.set_prop("Transparency", crate::PropValue::Int(50));
+
+        let tone = caption_surface_tone(&ctx, &cb, under).expect("50 % still answers");
+        let opaque = control_surface_tone(&ctx, &cb, under);
+        assert_eq!(opaque, Color32::BLACK, "the box itself is the chosen black");
+        assert!(
+            relative_luminance(tone) > relative_luminance(opaque),
+            "half a pale form showing through must lighten the frame: \
+             tone {tone:?} vs box {opaque:?}"
+        );
+        assert!(
+            relative_luminance(tone) < relative_luminance(pale),
+            "and it must not read as the bare form either"
+        );
     }
 }
 

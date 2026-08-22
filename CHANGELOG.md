@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.145] — 2026-08-22
+
+### Fixed — a CheckBox's caption was made to contrast with its tick box
+
+Giving a CheckBox a dark `BackgroundColor` turned its **caption** white, and on
+a pale form the caption then disappeared.
+
+A CheckBox's `BackgroundColor` paints its **tick box**. The caption stands
+beside that box, on the control's **frame** — which at the CheckBox's default
+`Transparency` of 100 paints nothing at all. The legibility rescue was asking
+`control_surface_tone`, which answers with the control's own background: the
+colour of a square three pixels away from the text, not the one under it. So it
+rescued the caption *from* a surface the caption never touched, and *onto* one
+it did.
+
+The caption is now measured by `caption_surface_tone`, which answers for the
+frame:
+
+- **Over 70 % transparent → nothing is measured.** The frame paints too little
+  to read, and what the caption really sits on — the form, a GroupBox, a
+  background image — is not something the control can see. The developer's
+  `ForegroundColor` is used exactly as set. A CheckBox is 100 % transparent by
+  default, so this is the normal case.
+- **Partly transparent → the frame blended with what shows through**, by the
+  same alpha the frame is painted with, so a half-transparent frame is judged on
+  the half-transparent colour the eye actually sees.
+- **Opaque → unchanged.** The face IS the frame, so a solid dark background
+  still flips a black caption to white, exactly as before.
+
+The `CheckColor` tick is untouched: it is drawn *inside* the box, so measuring
+it against the box was always right.
+
+Same rule reaches the RadioButton (its caption sits beside its circle) and the
+DateTimePicker (opaque by default, so nothing changes unless the developer makes
+one see-through).
+
 ## [PowerRustCOBOL 1.61.144] — 2026-08-21
 
 ### Fixed — one click ran a handler twice

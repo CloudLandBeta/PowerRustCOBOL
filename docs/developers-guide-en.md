@@ -2447,6 +2447,20 @@ abbreviations). A few you will use constantly:
 > you switch a dark theme for a light one without touching a property. To pin a
 > colour absolutely, choose one that reads on the theme you ship.
 >
+> **Which surface each one is measured against.** The one the text really lands
+> on. A CheckBox's `BackgroundColor` paints its **tick box**, and a
+> RadioButton's paints its **circle** — the caption stands beside them, on the
+> control's **frame** — so the caption is checked against the frame, and the
+> `CheckColor` tick against the box. Giving a check box a dark background
+> therefore no longer turns its caption white.
+>
+> **A see-through frame is left to you.** Once `Transparency` is above 70 the
+> frame paints too little to read, and what the caption really sits on — the
+> form, a GroupBox, a background image — is not something the control can see.
+> Nothing is measured there and your `ForegroundColor` is used exactly as set.
+> A CheckBox is 100 % transparent by default, so this is the normal case: pick a
+> caption colour that reads on the form you put it on.
+>
 > A CheckBox's caption sits to the right of its box, and a RadioButton's to the
 > right of its selection circle, at the same distance in both.
 
