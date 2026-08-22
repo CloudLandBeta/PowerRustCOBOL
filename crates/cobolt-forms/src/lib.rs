@@ -85,6 +85,12 @@ pub mod toolbar;
 #[cfg(feature = "render")]
 pub mod toolbar_paint;
 
+/// The TreeView's layout and paint, shared by the canvas and the running form
+/// for the same reason the toolbar's is: a tree that looks different where you
+/// design it is a tree you cannot design against.
+#[cfg(feature = "render")]
+pub mod treeview;
+
 // Carrying out a toolbar button's PLATFORM action: printing, sharing, the
 // clipboard, a window capture, another process. Beside `toolbar_paint` for the
 // same reason — every surface that DRAWS a toolbar must also be able to PRESS

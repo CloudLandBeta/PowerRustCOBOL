@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.153] — 2026-08-22
+
+### Fixed — the TreeView drew no tree, and none of its properties did anything
+
+Reported by the operator: "treeview not working / miss border style property /
+content not rendered". An audit of the control found all three, and worse — the
+inspector offered **eight** TreeView rows and **not one of them reached a
+pixel**. `LineColor`'s only readers were the Line control's; `Sorted`'s were the
+ComboBox's and the ListBox's.
+
+- **The canvas drew `🌲 [TreeView]` and no nodes at all**, while the running
+  form drew a flat bulleted list in a fixed 12pt font. Both now go through one
+  renderer — the new `treeview` module — the way the toolbar's two surfaces
+  already do. `Items` is the tree: one node per line, two spaces (or one tab)
+  per level.
+- **`BorderStyle` and `BorderWidth` are seeded.** A TreeView had `BorderColor`
+  and neither of the two properties that decide the border it colours — and the
+  inspector shows a border row only when the property exists, so there was no
+  way to change or remove it. Seeded with what the painter already fell back to,
+  so no existing tree changes.
+- **The dead properties are alive**: `ShowLines` and `ShowRootLines` draw the
+  connectors and the root spine in `LineColor`; `CheckBoxes` draws a tick box
+  per node and a click on one writes `CheckedNodes` (new) and fires
+  `onNodeCheck`; `HotTracking` lifts the row under the pointer at half the
+  selection's weight; `Sorted` orders **siblings** while leaving every child
+  under its own parent.
+- **The nodes are written in the control's own font and colour** —
+  `FontName`/`FontSize`/`ForegroundColor` were all ignored before.
+- A row's id is its line in `Items` **as written**, so an event names the node
+  the developer wrote and `Sorted` cannot renumber anyone's handler.
+
+**Still not implemented, and now said so plainly** in the guide and the KB
+rather than implied by a property: there is **no expand/collapse** (every node
+is shown), and **`AllowEdit`** renames nothing.
+
+The Elegance baseline is re-blessed: every row moved by exactly +6, and the
+fixture's one TreeView accounts for all of it — 5 leaves before (a placeholder
+caption and 4 bullets), 11 after (4 labels, 2 children × elbow+vertical, and a
+root spine of 1 vertical + 2 elbows).
+
 ## [PowerRustCOBOL 1.61.152] — 2026-08-22
 
 ### Fixed — a radio button was a pair of parentheses on every theme but one

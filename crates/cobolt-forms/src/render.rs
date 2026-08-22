@@ -6852,66 +6852,95 @@ fn render_interactive(
         }
         CT::TreeView => {
             // Same rule as the ListBox above: the designed face, not a
-            // hardcoded one.
+            // hardcoded one — and then the tree itself, through the SHARED
+            // renderer the designer canvas calls. The two used to disagree
+            // completely: a flat bulleted list at a fixed 12pt here, and the
+            // caption "[TreeView]" and nothing else on the canvas (operator,
+            // 2026-08-22: "treeview not working / content not rendered").
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let fg = paint::theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text)
-                .unwrap_or(Color32::from_rgb(220, 226, 250));
+            let rows = crate::treeview::layout(ctrl, screen);
             let selected = sv(ctrl, "SelectedNode");
-            let mut y = screen.min.y + 12.0;
-            for (line_index, line) in sv(ctrl, "Items").lines().enumerate() {
-                if y > screen.max.y {
-                    break;
-                }
-                let depth = (line.len() - line.trim_start().len()) / 2;
-                let text = line.trim();
-                if text.is_empty() {
-                    continue;
-                }
-                let row = Rect::from_min_max(
-                    pos2(screen.min.x + 2.0, y - 9.0),
-                    pos2(screen.max.x - 2.0, y + 9.0),
+            let checked: Vec<String> = sv(ctrl, "CheckedNodes")
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect();
+
+            // Interaction first, so the paint below shows what THIS frame's
+            // pointer is doing rather than what the last one did.
+            let hot = ctrl
+                .get_prop("HotTracking")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let mut hovered = None;
+            let mut checked_after = checked.clone();
+            for row in &rows {
+                let resp = ui.interact(
+                    row.rect,
+                    ctrl_id.with(("tv-node", row.index)),
+                    Sense::click(),
                 );
-                // spec 021 T12: node selection. Rows are click targets; the
-                // picked node lands in SelectedNode and fires the node events.
-                let resp = ui.interact(row, ctrl_id.with(("tv-node", line_index)), Sense::click());
-                let is_selected = !selected.is_empty() && selected == text;
-                if is_selected {
-                    painter.rect_filled(
-                        row,
-                        3.0,
-                        match paint::theme_token(
-                            painter.ctx(),
-                            crate::surface_theme::ColorToken::Focus,
-                        ) {
-                            Some(c) => Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 70),
-                            None => Color32::from_rgba_premultiplied(70, 110, 200, 70),
-                        },
-                    );
+                if hot && resp.hovered() {
+                    hovered = Some(row.index);
                 }
+                let is_selected = !selected.is_empty() && selected == row.text;
                 if resp.clicked() && enabled {
-                    out.prop_updates
-                        .push((id.to_owned(), "SelectedNode".to_owned(), text.to_owned()));
-                    out.events.push(UiEvent::with_value(id, "onNodeClick", text));
-                    if !is_selected {
+                    // A click ON THE BOX ticks it; anywhere else on the row
+                    // selects the node. Both were dead before: `CheckBoxes`
+                    // drew nothing and so had nothing to tick.
+                    let on_box = row
+                        .check
+                        .zip(ui.ctx().pointer_interact_pos())
+                        .map(|(b, p)| b.expand(2.0).contains(p))
+                        .unwrap_or(false);
+                    if on_box {
+                        match checked_after.iter().position(|c| *c == row.text) {
+                            Some(i) => {
+                                checked_after.remove(i);
+                            }
+                            None => checked_after.push(row.text.clone()),
+                        }
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "CheckedNodes".to_owned(),
+                            checked_after.join("\n"),
+                        ));
                         out.events
-                            .push(UiEvent::with_value(id, "onNodeSelect", text));
+                            .push(UiEvent::with_value(id, "onNodeCheck", &row.text));
+                    } else {
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "SelectedNode".to_owned(),
+                            row.text.clone(),
+                        ));
+                        out.events
+                            .push(UiEvent::with_value(id, "onNodeClick", &row.text));
+                        if !is_selected {
+                            out.events
+                                .push(UiEvent::with_value(id, "onNodeSelect", &row.text));
+                        }
                     }
                 }
                 if resp.double_clicked() && enabled {
                     out.events
-                        .push(UiEvent::with_value(id, "onNodeDblClick", text));
+                        .push(UiEvent::with_value(id, "onNodeDblClick", &row.text));
                     out.events
-                        .push(UiEvent::with_value(id, "onNodeDoubleClick", text));
+                        .push(UiEvent::with_value(id, "onNodeDoubleClick", &row.text));
                 }
-                painter.text(
-                    pos2(screen.min.x + 8.0 + depth as f32 * 16.0, y),
-                    Align2::LEFT_CENTER,
-                    format!("â¢ {text}"),
-                    FontId::proportional(12.0),
-                    fg,
-                );
-                y += 18.0;
             }
+            crate::treeview::paint(
+                &painter,
+                ctrl,
+                screen,
+                &rows,
+                crate::treeview::TreeState {
+                    selected: &selected,
+                    checked: &checked_after,
+                    hovered,
+                    alpha,
+                },
+            );
         }
         CT::Splitter => {
             let horiz = !sv(ctrl, "Orientation").starts_with('V');

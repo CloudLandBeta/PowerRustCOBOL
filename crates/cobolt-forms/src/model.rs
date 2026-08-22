@@ -4344,6 +4344,19 @@ impl Control {
                 props.insert("HotTracking".into(), PropValue::Bool(false));
                 props.insert("LineColor".into(), PropValue::String("#AAAAAA".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
+                // The frame's own two properties. `BorderColor` was seeded
+                // without them, and the inspector shows a border row only when
+                // the property EXISTS — so a TreeView offered a border colour
+                // and no way to choose the border it colours (operator,
+                // 2026-08-22: "treeview miss border style property"). Seeded
+                // with what the painter already fell back to when the key was
+                // absent, so no existing tree changes.
+                props.insert("BorderStyle".into(), PropValue::String("Single".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
+                // Which nodes are ticked, one per line — the other half of
+                // `CheckBoxes`, which drew nothing and had nowhere to record a
+                // tick. Read and written like `SelectedNode`.
+                props.insert("CheckedNodes".into(), PropValue::String("".into()));
             }
             ControlType::Splitter => {
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into()));

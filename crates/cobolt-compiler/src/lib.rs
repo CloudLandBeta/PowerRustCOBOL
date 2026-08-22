@@ -3440,11 +3440,12 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo. It does not change what the arrow keys do: those always walk the list."),
 
         // ── TreeView ──
-        "AllowEdit" => (BOOL_DOMAIN, "In-place node label editing."),
-        "CheckBoxes" => (BOOL_DOMAIN, "Shows a checkbox on every node."),
-        "ShowLines" => (BOOL_DOMAIN, "Draws connector lines between nodes."),
-        "ShowRootLines" => (BOOL_DOMAIN, "Draws connector lines at the root level."),
-        "HotTracking" => (BOOL_DOMAIN, "Highlights the node under the pointer."),
+        "AllowEdit" => (BOOL_DOMAIN, "In-place node label editing. **NOT IMPLEMENTED** — the property is seeded and shown in the inspector, but no surface lets the operator rename a node yet. Do not tell a developer this works; to edit a tree at run time, write the new `Items` from COBOL."),
+        "CheckBoxes" => (BOOL_DOMAIN, "Draws a tick box on every node. A click ON THE BOX ticks it (a click anywhere else on the row selects the node) and the ticked nodes land in `CheckedNodes`, one per line, with `onNodeCheck` carrying the node."),
+        "CheckedNodes" => ("newline-separated node labels", "Which boxes are ticked, one node per line — the `CheckBoxes` companion, read and written exactly like `SelectedNode`. Writing it from COBOL ticks those nodes."),
+        "ShowLines" => (BOOL_DOMAIN, "Draws the connector lines between a node and its parent, in `LineColor`. On by default."),
+        "ShowRootLines" => (BOOL_DOMAIN, "Draws the spine joining the TOP-LEVEL nodes, in `LineColor` — separate from `ShowLines`, which joins children to parents. On by default."),
+        "HotTracking" => (BOOL_DOMAIN, "Lifts the node under the pointer, faintly — half the weight of the selection band, so the two are never confused. Off by default."),
         "LineColor" => (COLOR_DOMAIN, "Connector/line color (TreeView, Line, Shape)."),
 
         // ── Containers ──
@@ -3878,7 +3879,7 @@ fn control_purpose(name: &str) -> &'static str {
         "Line" => "Decorative straight line.",
         "DateTimePicker" => "Date/time input with calendar or spinner.",
         "NumericUpDown" => "Integer input with spinner arrows.",
-        "TreeView" => "Hierarchical node list.",
+        "TreeView" => "Hierarchical node list. `Items` IS the tree: one node per line, TWO SPACES (or one tab) of indent per level. It is drawn by one renderer on the designer canvas and in the running form, so what you lay out is what runs — before 1.61.153 the canvas showed only a `[TreeView]` placeholder and the running form a flat bulleted list. The tree writes its nodes in the control's own FontName/FontSize/ForegroundColor, draws its connector lines per `ShowLines`/`ShowRootLines` in `LineColor`, ticks per `CheckBoxes`/`CheckedNodes`, and highlights per `HotTracking`. A click selects (`SelectedNode`, `onNodeClick`/`onNodeSelect`); a click on a tick box checks (`CheckedNodes`, `onNodeCheck`). NOT YET: expand/collapse (every node is always shown) and `AllowEdit` (no in-place rename surface) — never tell a developer either one works.",
         "Splitter" => "Draggable divider between two areas.",
         "Timer" => "Non-visual: fires `onTick` every Interval ms. Steady cadence — each tick schedules the next ONE INTERVAL on, so the rate does not drift with frame timing — and it never repays missed time: a handler slower than the interval, or a stalled form, gets ONE tick on return, not a burst. A handler eight events behind has its ticks coalesced until it catches up; a click, an edit or a focus change is never coalesced.",
         "Shape" => "Decorative rectangle / circle / triangle.",
