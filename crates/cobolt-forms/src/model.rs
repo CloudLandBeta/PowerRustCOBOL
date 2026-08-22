@@ -3582,6 +3582,48 @@ pub fn side_menu_footer_id(side_id: &str) -> String {
     format!("{side_id}-Footer")
 }
 
+/// The footer Panel of every SideMenu in `controls`, and everything the
+/// developer dropped into it, by id.
+///
+/// A footer Panel belongs to the RAIL, not to the form's content area — which
+/// is a distinction only the shell has to make, and it did not: in a shell the
+/// rail is chrome drawn outside the ContentPane, so a footer control left in
+/// the pane's list was slid over with the rest of the form and surfaced beside
+/// the rail instead of inside it (operator, 2026-08-22, with the clock in his
+/// footer landing on the content).
+///
+/// Membership is by ANCESTRY, not by one level of `parent`: a Panel inside the
+/// footer Panel takes its children with it, however deep.
+pub fn side_menu_footer_subtree(controls: &[Control]) -> Vec<String> {
+    let mut ids: Vec<String> = controls
+        .iter()
+        .filter(|c| c.is_side_menu_footer())
+        .map(|c| c.id.clone())
+        .collect();
+    if ids.is_empty() {
+        return ids;
+    }
+    // Walk outward until nothing new joins. A `parent` chain is shallow, and a
+    // single pass over a list that is not ordered parent-first would miss a
+    // grandchild listed before its parent.
+    loop {
+        let before = ids.len();
+        for c in controls {
+            let claimed = c
+                .parent
+                .as_deref()
+                .map(|p| ids.iter().any(|id| id == p))
+                .unwrap_or(false);
+            if claimed && !ids.iter().any(|id| *id == c.id) {
+                ids.push(c.id.clone());
+            }
+        }
+        if ids.len() == before {
+            return ids;
+        }
+    }
+}
+
 /// Default `FillColor` assigned to every new Shape — the legacy silver face. A
 /// Shape still on this value takes its face from the Appearance **Back colour**
 /// instead, so that section is not dead for Shapes; any other `FillColor` is an

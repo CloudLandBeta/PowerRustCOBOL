@@ -5033,6 +5033,25 @@ where the logo goes and how big it will be before you have one.
 A **collapsed** rail does not show the logo at all: it shows **HeaderIcon**, a
 purpose-made 45 x 45 mark, because an image drawn for a 270-point header cannot
 be read at rail width.
+
+**The footer panel is yours.** Every SideMenu owns a Panel in its footer band,
+and it is an ordinary container: drop controls into it, style it through the
+inspector, bind and handle events on what you put there. A clock, a user badge,
+a version string and a Log-out button are the usual tenants.
+
+What you do *not* own is where the Panel sits. Its rectangle is re-pinned to the
+footer band on every change, so it follows a form resize, a **FooterHeight**
+edit and a collapse without you moving it — dragging it is not how you position
+it, and **FooterHeight** is.
+
+> **Note.** In a shell the rail is chrome painted beside the ContentPane, so the
+> footer Panel and its contents are drawn by the **rail**, not with the rest of
+> the form. That is invisible to you — a control sits where the designer showed
+> it, and its events fire as they always did — but it is the reason a control
+> in the footer is the one place where a control's designed X is not measured
+> from the form's left edge. (Before 1.61.151 the footer's contents were drawn
+> with the form's content instead, so they surfaced *beside* the rail at run
+> time while looking correct in the designer.)
 **Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
 renders beside its label on every surface — the designer canvas, the preview,
 the Run Form pane and the running shell's MenuPane. The SideMenu's
