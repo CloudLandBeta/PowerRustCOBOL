@@ -1789,10 +1789,44 @@ designer canvas, the preview, Run Form and the compiled binary.
 > `onNodeCheck` naming the node. It also gained **Border style** and **Border
 > width**: it had `BorderColor` and no way to choose the border being coloured.
 >
-> ⚠️ **Two things it still does not do**, and neither is hidden behind a
-> property you can switch: there is **no expand/collapse** — every node you
-> write is shown — and **AllowEdit** renames nothing, because no surface offers
-> an in-place edit yet. To change a tree while the form runs, write `Items`.
+> **It folds, since 1.61.157.** A node with anything under it draws a
+> disclosure arrow — right when shut, down when open. Clicking it writes
+> **`CollapsedNodes`** (a list of what is *shut*, so empty means the whole tree
+> is open) and fires `onNodeCollapse` / `onNodeExpand` naming that node, which
+> is how a handler loads children on first open without tracking the state
+> itself. Writing `CollapsedNodes` from COBOL folds a tree to any shape without
+> touching `Items`.
+>
+> **And it has icons** — from the platform's own catalogue, the same 660+ icons
+> menus and toolbars draw from. A node names its own after a **TAB** in its
+> `Items` line, the way Markers and Routes name theirs:
+>
+> ```text
+> Warehouse	box
+>   Bolts	wrench
+> ```
+>
+> Nodes that name none take **Folder icon (shut)** / **(open)** / **Leaf icon**
+> — `folder`, `folder-open` and `doc-text` by default, so a tree looks like a
+> tree untouched. **Show icons** turns the column off and the labels reclaim the
+> room.
+>
+> **Nothing about a row is fixed any more:** **Row height**, **Indent per
+> level**, **Icon size** and **Checkbox size** are properties, as are **Icon
+> color**, **Selected row** and **Hot-track row**. The arrow's slot is reserved
+> on *every* row whether or not a node folds, so labels line up in a column —
+> reserving it only for parents let a leaf's label slide left of its own
+> parent's.
+>
+> **High-contrast text is on by default.** Node ink is picked by contrast ratio
+> against the face the tree is actually painted on, so it stays readable on a
+> white face, a dark card or a glass surface without being told. Turn
+> **High-contrast text** off for the theme's own text colour; an explicit
+> **Foreground color** outranks both.
+>
+> ⚠️ **One thing it still does not do:** **AllowEdit** renames nothing, because
+> no surface offers an in-place edit yet. To change a tree's text while the form
+> runs, write `Items`.
 
 **So are the highlights.** The colour behind a highlighted row is a property
 like any other, and there are two of them because a list highlights two

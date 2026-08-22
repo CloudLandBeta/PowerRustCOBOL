@@ -6932,6 +6932,99 @@ impl PropertiesPanel {
                 bool_row_inline(ui, id, "HotTracking", "Hot tracking", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
                 color_row(ui, id, "BorderColor", ctrl, action);
+                // ── Icons ──────────────────────────────────────────────────
+                // From the platform's own catalogue, the same one the menu and
+                // toolbar editors draw from. A node names its own after a TAB
+                // in its Items line; these are what the rest fall back to.
+                ui.add_space(4.0);
+                bool_row_inline(ui, id, "ShowIcons", "Show icons", ctrl, action);
+                for (key, label, built_in) in [
+                    ("ParentIcon", "Folder icon (shut)", "folder"),
+                    ("ParentIconOpen", "Folder icon (open)", "folder-open"),
+                    ("LeafIcon", "Leaf icon", "doc-text"),
+                ] {
+                    let cur = ctrl
+                        .get_prop(key)
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    // The name is typed, and DRAWN beside the field — a name
+                    // the catalogue does not have shows as an empty preview
+                    // rather than as a surprise at run time.
+                    icon_preview(ui, &cur, built_in);
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        key,
+                        &cur,
+                        label,
+                        built_in,
+                        action,
+                    );
+                }
+                int_prop_row(ui, id, "IconSize", "Icon size", ctrl, action, 6..=64, None, 14);
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "IconColor",
+                    "Icon color",
+                    ctrl,
+                    action,
+                    "#DCE2FA",
+                );
+                // ── Text and bands ─────────────────────────────────────────
+                ui.add_space(4.0);
+                bool_row_inline(
+                    ui,
+                    id,
+                    "HighContrastText",
+                    "High-contrast text",
+                    ctrl,
+                    action,
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "SelectionColor",
+                    "Selected row",
+                    ctrl,
+                    action,
+                    "#466EC846",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "HotTrackColor",
+                    "Hot-track row",
+                    ctrl,
+                    action,
+                    "#FFFFFF12",
+                );
+                // ── Metrics ────────────────────────────────────────────────
+                ui.add_space(4.0);
+                int_prop_row(ui, id, "RowHeight", "Row height", ctrl, action, 8..=200, None, 18);
+                int_prop_row(
+                    ui,
+                    id,
+                    "IndentWidth",
+                    "Indent per level",
+                    ctrl,
+                    action,
+                    0..=200,
+                    None,
+                    16,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "CheckBoxSize",
+                    "Checkbox size",
+                    ctrl,
+                    action,
+                    6..=64,
+                    None,
+                    12,
+                );
                 ui.add_space(4.0);
             }
 
@@ -9716,6 +9809,49 @@ fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut Insp
                 .color(Color32::GRAY),
         );
     });
+}
+
+/// Draw the icon a name resolves to, small, above the field that names it.
+///
+/// The catalogue is 660+ icons and no combo can hold it, so the name is typed —
+/// and a typed name is exactly the thing that silently resolves to nothing. The
+/// preview is how a typo shows up while the developer is still looking at it,
+/// instead of as a blank column when the form runs.
+fn icon_preview(ui: &mut Ui, current: &str, built_in: &str) {
+    let name = {
+        let n = current.trim();
+        if n.is_empty() {
+            built_in
+        } else {
+            n
+        }
+    };
+    let known = cobolt_forms::icons::menu_icon_names().any(|n| n == name);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), egui::Sense::hover());
+    let box_rect = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 2.0), egui::Vec2::splat(16.0));
+    if known {
+        cobolt_forms::icons::draw_menu_icon(
+            ui.painter(),
+            box_rect,
+            name,
+            ui.visuals().text_color(),
+        );
+    }
+    ui.painter().text(
+        egui::pos2(box_rect.max.x + 8.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        if known {
+            name.to_owned()
+        } else {
+            format!("{name} — not in the catalogue")
+        },
+        egui::FontId::proportional(10.0),
+        if known {
+            Color32::GRAY
+        } else {
+            Color32::from_rgb(200, 120, 120)
+        },
+    );
 }
 
 fn text_row_hint(
