@@ -112,9 +112,17 @@ pub struct MapView {
     pub lat: f64,
     pub lng: f64,
     pub zoom: u8,
-    /// Scroll pixels not yet worth a whole zoom level (see
-    /// [`crate::map_tiles::zoom_steps`]).
+    /// Zoom asked for but not yet applied, in levels — released a slice per
+    /// frame by [`crate::map_tiles::zoom_glide`]. What makes one flick of the
+    /// wheel glide to a stop instead of landing in a jump.
     pub zoom_accum: f32,
+    /// How far the map is drawn from the whole level in `zoom`, in levels
+    /// (`-0.5..=0.5`). The tiles come from `zoom`; this scales them, so the map
+    /// can sit between levels rather than doubling in one frame.
+    ///
+    /// View state, not a property: `Zoom` stays the whole number a form stores
+    /// and a handler reads.
+    pub zoom_frac: f32,
     /// `(CenterLat, CenterLng, Zoom)` exactly as last published.
     pub published: (String, String, u8),
 }
@@ -126,8 +134,15 @@ impl MapView {
             lng,
             zoom,
             zoom_accum: 0.0,
+            zoom_frac: 0.0,
             published: (lat.to_string(), lng.to_string(), zoom),
         }
+    }
+
+    /// The zoom the map is DRAWN at — the whole level plus how far past it the
+    /// glide has carried.
+    pub fn zoom_at(&self) -> f32 {
+        self.zoom as f32 + self.zoom_frac
     }
 
     /// Adopt the properties when they differ from what we last published —
@@ -4050,8 +4065,16 @@ fn render_interactive(
             if resp.dragged() && enabled {
                 let delta = resp.drag_delta();
                 if delta != egui::Vec2::ZERO {
-                    let (lat, lng) = map_tiles::offset_to_lat_lng(
-                        -delta.x, -delta.y, view.lat, view.lng, view.zoom,
+                    // At the zoom the map is DRAWN at: mid-glide a pixel of drag
+                    // covers less ground than the whole level would say, and
+                    // resolving against the level alone made the map slip under
+                    // the pointer while it was still scaling.
+                    let (lat, lng) = map_tiles::offset_to_lat_lng_at(
+                        -delta.x,
+                        -delta.y,
+                        view.lat,
+                        view.lng,
+                        view.zoom_at() as f64,
                     );
                     view.lat = lat;
                     view.lng = lng;
@@ -4083,27 +4106,47 @@ fn render_interactive(
                         })
                         .sum::<f32>()
                 });
-                let (levels, accum) = map_tiles::zoom_steps(view.zoom_accum, scroll);
-                view.zoom_accum = accum;
-                if levels != 0 {
-                    let target = (view.zoom as i32 + levels)
-                        .clamp(map_tiles::MIN_ZOOM as i32, map_tiles::MAX_ZOOM as i32)
-                        as u8;
-                    if target != view.zoom {
-                        // Keep whatever is under the cursor under the cursor.
+                // A SLICE of the pending zoom per frame, not whole levels.
+                //
+                // A whole level is a factor of two, so `zoom_steps` could only
+                // ever replace the picture: the map went from 12 to 13 between
+                // two frames with nothing in between. The glide hands back
+                // fractions, the painter can hold the map at 12.4, and the eye
+                // follows the scale (operator, 2026-08-22).
+                let (step, pending) = map_tiles::zoom_glide(view.zoom_accum, scroll);
+                view.zoom_accum = pending;
+                if step != 0.0 {
+                    let from = view.zoom_at();
+                    let to = (from + step)
+                        .clamp(map_tiles::MIN_ZOOM as f32, map_tiles::MAX_ZOOM as f32);
+                    if to != from {
+                        // Keep whatever is under the cursor under the cursor —
+                        // at the CONTINUOUS zoom, or the anchor would drift by
+                        // whatever fraction of a level the glide is holding.
                         let anchor = ui
                             .ctx()
                             .pointer_latest_pos()
                             .map(|p| p - screen.center())
                             .unwrap_or(egui::Vec2::ZERO);
-                        let (lat, lng) = map_tiles::zoom_about(
-                            view.lat, view.lng, view.zoom, target, anchor.x, anchor.y,
+                        let (lat, lng) = map_tiles::zoom_about_at(
+                            view.lat, view.lng, from as f64, to as f64, anchor.x, anchor.y,
                         );
+                        let (level, frac) = map_tiles::split_zoom(to);
                         view.lat = lat;
                         view.lng = lng;
-                        view.zoom = target;
+                        view.zoom = level;
+                        view.zoom_frac = frac;
                         bounds_changed = true;
+                    } else {
+                        // Held at an end stop: spend the rest rather than
+                        // repainting forever against a clamp.
+                        view.zoom_accum = 0.0;
                     }
+                }
+                if view.zoom_accum != 0.0 {
+                    // The glide only continues if something asks for the next
+                    // frame — the wheel has already stopped sending events.
+                    ui.ctx().request_repaint();
                 }
             }
             let mut new_center = (view.lat, view.lng);
@@ -4214,12 +4257,21 @@ fn render_interactive(
             };
             let open_marker = sv(ctrl, "SelectedMarkerId");
             let open_region = sv(ctrl, "SelectedRegionId");
-            let hit = map_tiles::paint_map(
+            // The fraction the glide is holding rides with the level. A
+            // double-click zoom (`new_zoom` above) lands on a whole level, so
+            // the fraction only applies while `new_zoom` is still the view's.
+            let draw_frac = if new_zoom == view.zoom {
+                view.zoom_frac
+            } else {
+                0.0
+            };
+            let hit = map_tiles::paint_map_at(
                 &painter,
                 screen,
                 new_center.0,
                 new_center.1,
                 new_zoom,
+                draw_frac,
                 &markers,
                 &routes,
                 &regions,
@@ -11468,7 +11520,8 @@ mod tests {
         assert!(new_lat > 40.0, "dragging down must increase latitude (north), got {new_lat}");
     }
 
-    /// Scrolling zooms — but by **scroll distance**, not by scroll event.
+    /// Scrolling zooms — but by **scroll distance**, not by scroll event, and
+    /// it **glides** there rather than arriving in one frame.
     ///
     /// This test used to send 40 px and expect a whole level, which is the
     /// behaviour the operator reported as unusable: one level per EVENT meant a
@@ -11476,6 +11529,12 @@ mod tests {
     /// could not be aimed (2026-08-20). It now sends more than
     /// `SCROLL_PER_ZOOM` for the level it expects, and the companion test below
     /// pins the other half — that a small scroll moves nothing at all.
+    ///
+    /// The idle frames after the wheel event are the smooth-zoom change
+    /// (2026-08-22): a whole level is a factor of two, so it is now released a
+    /// slice per frame and the map is drawn between levels on the way. The
+    /// destination is unchanged — one notch is still one level — so this asserts
+    /// where the glide LANDS, and `map_tiles`'s own tests pin the slicing.
     #[test]
     fn engine_maps_scroll_changes_zoom_only_while_hovered() {
         let c = [ctrlp(
@@ -11492,30 +11551,36 @@ mod tests {
             ],
         )];
         let p = pos2(160.0, 120.0);
-        let (_, map) = drive(
-            &c,
-            vec![
-                (0.0, vec![]),
-                (
-                    1.0,
-                    vec![
-                        Event::PointerMoved(p),
-                        Event::MouseWheel {
-                            unit: egui::MouseWheelUnit::Point,
-                            delta: egui::vec2(0.0, crate::map_tiles::SCROLL_PER_ZOOM + 10.0),
-                            modifiers: Modifiers::default(),
-                            phase: egui::TouchPhase::Move,
-                        },
-                    ],
-                ),
-            ],
-        );
+        let mut frames = vec![
+            (0.0, vec![]),
+            (
+                1.0,
+                vec![
+                    Event::PointerMoved(p),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, crate::map_tiles::SCROLL_PER_ZOOM + 10.0),
+                        modifiers: Modifiers::default(),
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            ),
+        ];
+        // Let the glide run out. The pointer has to stay over the map, since
+        // that is the condition the zoom is gated on.
+        for _ in 0..30 {
+            frames.push((1.0, vec![Event::PointerMoved(p)]));
+        }
+        let (_, map) = drive(&c, frames);
         let zoom: i64 = map
             .get("Map1")
             .and_then(|m| m.get("Zoom"))
             .and_then(|v| v.parse().ok())
             .expect("Zoom should have been updated while hovered");
-        assert_eq!(zoom, 11, "scrolling up while hovered must zoom in by one level");
+        assert_eq!(
+            zoom, 11,
+            "scrolling up while hovered must glide to exactly one level in"
+        );
     }
 
     /// The other half of the fix: a scroll that has not travelled a whole

@@ -3711,7 +3711,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── Maps (spec 039) ──
         "CenterLat" => ("decimal degrees as a string, e.g. `\"48.8566\"`", "Map center latitude."),
         "CenterLng" => ("decimal degrees as a string, e.g. `\"2.3522\"`", "Map center longitude."),
-        "Zoom" => ("integer, typically 0-20", "OpenStreetMap zoom level (higher = closer)."),
+        "Zoom" => ("integer, typically 0-20", "OpenStreetMap zoom level (higher = closer). Always a WHOLE level — the one whose tiles are fetched, and the value a handler reads, writes and receives on onBoundsChanged. Wheel zooming glides between levels by drawing the map at a fractional scale, but that fraction is view state and is never published, so this property never carries one."),
         "Markers" => (
             "one marker per line, TAB-separated: `id\\tlat\\tlng\\tlabel\\tinfo`",
             "Pins drawn on the map. Prefer the AddMarker/RemoveMarker methods over hand-formatting this.",
@@ -3866,7 +3866,7 @@ fn control_purpose(name: &str) -> &'static str {
         "Gauge" => "Read-only KPI display (Radial | Linear | Donut) — never changed by user interaction.",
         "Switch" => "Boolean on/off visual toggle.",
         "FileDropZone" => "Non-visual: accepts files via drag-and-drop or a native file-picker click.",
-        "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix).",
+        "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix). Wheel zoom is continuous: one notch is one level, released a slice per frame, and while it travels the map is drawn BETWEEN levels by scaling the tiles it already has, with the point under the pointer held fixed and markers/routes/regions scaling along with the basemap.",
         "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient).",
         _ => "",
     }

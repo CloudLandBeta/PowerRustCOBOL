@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.147] — 2026-08-22
+
+### Fixed — map zoom jumped a whole level at a time
+
+Zoom was integer-only, and a whole level is a **factor of two**: every notch of
+the wheel replaced the picture rather than growing it. Nothing was ever drawn
+between level 12 and level 13, so the map could only ever cut between scales.
+
+Zoom is now continuous:
+
+- **`zoom_glide`** releases the pending zoom a slice per frame
+  (`MAX_ZOOM_PER_FRAME`, ~8 frames to a level) instead of `zoom_steps`'s whole
+  levels, and the map keeps requesting repaints until the glide settles — so one
+  flick of the wheel coasts to a stop. A notch still buys exactly one level, and
+  the reversal rule is unchanged: pushing back answers at once rather than
+  spending the old direction's credit first.
+- **The geometry became continuous.** `lat_lng_to_tile_frac_at`,
+  `lat_lng_to_offset_at`, `offset_to_lat_lng_at` and `zoom_about_at` take a
+  fractional zoom, and every whole-level helper is now a thin wrapper over its
+  continuous twin — so a fractional viewport and a whole one cannot drift apart.
+- **`paint_map_at`** draws level `zoom`'s tiles at `2^zoom_frac` of their
+  natural 256 px and places every overlay at the same continuous zoom, so
+  markers, routes and regions stay pinned to the ground while the basemap scales
+  under them. `split_zoom` always borrows from the **nearest** level, so nothing
+  on screen is ever stretched by more than √2.
+- **The cursor stays the fixed point mid-glide**, not only when it lands, and
+  dragging resolves against the drawn scale — resolving against the level alone
+  made the map slip under the pointer while it was still scaling.
+
+Tiles are still fetched by whole level, so nothing about the cache or OSM's tile
+protocol changes. `Zoom` stays a whole number: the fraction is view state and is
+never published, so `onBoundsChanged` still reports whole levels and
+`MOVE 16 TO MAP-1::Zoom` still lands exactly on 16.
+
 ## [PowerRustCOBOL 1.61.146] — 2026-08-22
 
 ### Fixed — a CheckBox has two surfaces, and neither could be styled

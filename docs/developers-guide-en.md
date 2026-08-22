@@ -4228,6 +4228,18 @@ independent halves with different credential needs:
   MOVE 16         TO MAP-1::Zoom
   ```
 
+  **Zooming is continuous.** One notch of the wheel is one level, as it always
+  was, but the map *glides* there over a handful of frames instead of arriving
+  in one: while it travels it is drawn **between** levels, scaling the tiles it
+  already has, and whatever is under the pointer stays under the pointer the
+  whole way. Markers, routes and regions scale with the basemap, so nothing
+  drifts mid-glide.
+
+  `Zoom` stays a whole number — the level whose tiles are fetched, and the value
+  a handler reads or writes. The fraction the map is holding mid-glide is view
+  state and is never published, so `onBoundsChanged` still reports whole levels
+  and a `MOVE 16 TO MAP-1::Zoom` still lands exactly on 16.
+
   ⚠️ **A grey map with only its markers on it** means the tiles are not
   arriving — the control is fine, the download is not. Tiles come from
   `tile.openstreetmap.org` over HTTPS and need no key, so the usual causes are

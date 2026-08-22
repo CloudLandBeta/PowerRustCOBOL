@@ -40,9 +40,19 @@ const USER_AGENT: &str = "PowerRustCOBOL-IDE/1.0 (+https://github.com/CloudLandB
 /// is the tile index; the fractional part is the pixel offset within it —
 /// both are needed to place a marker or a viewport with sub-tile precision.
 pub fn lat_lng_to_tile_frac(lat: f64, lng: f64, zoom: u8) -> (f64, f64) {
+    lat_lng_to_tile_frac_at(lat, lng, zoom as f64)
+}
+
+/// The same projection at a **continuous** zoom.
+///
+/// Smooth zooming lives between whole levels, so the geometry has to: at
+/// zoom 12.4 the world is `2^12.4` tiles across, not 2^12. Every integer-zoom
+/// helper is a thin wrapper over this one, so a fractional viewport and a whole
+/// one cannot drift apart.
+pub fn lat_lng_to_tile_frac_at(lat: f64, lng: f64, zoom: f64) -> (f64, f64) {
     let lat = lat.clamp(-85.051_128, 85.051_128); // Web Mercator's own valid range
     let lat_rad = lat.to_radians();
-    let n = 2f64.powi(zoom as i32);
+    let n = 2f64.powf(zoom);
     let x = (lng + 180.0) / 360.0 * n;
     let y = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI) / 2.0 * n;
     (x, y)
@@ -52,7 +62,12 @@ pub fn lat_lng_to_tile_frac(lat: f64, lng: f64, zoom: u8) -> (f64, f64) {
 /// back to lat/lng. Used to turn a drag delta (in tiles) back into a new
 /// `Center`.
 pub fn tile_frac_to_lat_lng(x: f64, y: f64, zoom: u8) -> (f64, f64) {
-    let n = 2f64.powi(zoom as i32);
+    tile_frac_to_lat_lng_at(x, y, zoom as f64)
+}
+
+/// [`tile_frac_to_lat_lng`] at a continuous zoom.
+pub fn tile_frac_to_lat_lng_at(x: f64, y: f64, zoom: f64) -> (f64, f64) {
+    let n = 2f64.powf(zoom);
     let lng = x / n * 360.0 - 180.0;
     let lat_rad = (std::f64::consts::PI * (1.0 - 2.0 * y / n)).sinh().atan();
     (lat_rad.to_degrees(), lng)
@@ -69,8 +84,21 @@ pub fn lat_lng_to_offset(
     center_lng: f64,
     zoom: u8,
 ) -> (f32, f32) {
-    let (tx, ty) = lat_lng_to_tile_frac(lat, lng, zoom);
-    let (ctx, cty) = lat_lng_to_tile_frac(center_lat, center_lng, zoom);
+    lat_lng_to_offset_at(lat, lng, center_lat, center_lng, zoom as f64)
+}
+
+/// [`lat_lng_to_offset`] at a continuous zoom — what a marker, a route vertex
+/// or a region outline needs while the map is between levels, so the overlay
+/// stays pinned to the ground as the tiles scale under it.
+pub fn lat_lng_to_offset_at(
+    lat: f64,
+    lng: f64,
+    center_lat: f64,
+    center_lng: f64,
+    zoom: f64,
+) -> (f32, f32) {
+    let (tx, ty) = lat_lng_to_tile_frac_at(lat, lng, zoom);
+    let (ctx, cty) = lat_lng_to_tile_frac_at(center_lat, center_lng, zoom);
     (
         ((tx - ctx) * TILE_SIZE) as f32,
         ((ty - cty) * TILE_SIZE) as f32,
@@ -118,6 +146,68 @@ pub fn zoom_steps(accumulated: f32, scroll: f32) -> (i32, f32) {
     (levels, acc)
 }
 
+/// The most zoom, in whole levels, one frame may apply while gliding.
+///
+/// At 60 fps this crosses a level in about eight frames (~0.13 s) — fast enough
+/// to feel immediate, slow enough that the eye follows the scale instead of
+/// being handed a new picture.
+pub const MAX_ZOOM_PER_FRAME: f32 = 0.125;
+
+/// Below this the pending zoom is spent: a remainder too small to see would
+/// otherwise keep requesting repaints forever.
+const ZOOM_GLIDE_EPSILON: f32 = 0.0005;
+
+/// Fold this frame's scroll into the pending zoom and release a slice of it.
+///
+/// Returns `(levels to apply now, still pending)`, both **fractional**. This is
+/// the continuous counterpart of [`zoom_steps`], which could only ever hand back
+/// whole levels — and a whole level is a factor of two, so every notch of the
+/// wheel replaced the picture rather than growing it. Nothing about the input
+/// changes: the same `SCROLL_PER_ZOOM` pixels still buy the same one level, and
+/// the same reversal rule still applies. What changes is that the level arrives
+/// in slices the eye can follow.
+///
+/// The caller keeps repainting while the returned remainder is non-zero; that
+/// is what makes a single flick glide to a stop instead of landing in one jump.
+pub fn zoom_glide(pending: f32, scroll: f32) -> (f32, f32) {
+    if !pending.is_finite() || !scroll.is_finite() {
+        return (0.0, 0.0);
+    }
+    // Same rule as `zoom_steps`: pushing the other way answers immediately
+    // rather than first spending credit built up in the first direction.
+    let base = if scroll != 0.0 && pending != 0.0 && pending.signum() != scroll.signum() {
+        0.0
+    } else {
+        pending
+    };
+    let want = base + scroll / SCROLL_PER_ZOOM;
+    if want.abs() < ZOOM_GLIDE_EPSILON {
+        return (0.0, 0.0);
+    }
+    let step = want.clamp(-MAX_ZOOM_PER_FRAME, MAX_ZOOM_PER_FRAME);
+    let left = want - step;
+    (
+        step,
+        if left.abs() < ZOOM_GLIDE_EPSILON {
+            0.0
+        } else {
+            left
+        },
+    )
+}
+
+/// Split a continuous zoom into the level whose TILES are fetched and the
+/// fractional offset the painter scales them by.
+///
+/// The nearest whole level, so the tiles on screen are never scaled by more
+/// than √2 in either direction and stay sharp: at 12.4 the map draws level 12's
+/// tiles 32 % larger, and at 12.6 it draws level 13's 30 % smaller.
+pub fn split_zoom(zoom: f32) -> (u8, f32) {
+    let z = zoom.clamp(MIN_ZOOM as f32, MAX_ZOOM as f32);
+    let level = z.round().clamp(MIN_ZOOM as f32, MAX_ZOOM as f32) as u8;
+    (level, z - level as f32)
+}
+
 /// Re-centre so the coordinate under `anchor` (a pixel offset from the
 /// viewport centre) stays under it across a zoom change.
 ///
@@ -133,17 +223,37 @@ pub fn zoom_about(
     anchor_dx: f32,
     anchor_dy: f32,
 ) -> (f64, f64) {
+    zoom_about_at(
+        center_lat,
+        center_lng,
+        from_zoom as f64,
+        to_zoom as f64,
+        anchor_dx,
+        anchor_dy,
+    )
+}
+
+/// [`zoom_about`] between continuous zooms — the one a glide actually uses,
+/// since every frame of it lands between levels.
+pub fn zoom_about_at(
+    center_lat: f64,
+    center_lng: f64,
+    from_zoom: f64,
+    to_zoom: f64,
+    anchor_dx: f32,
+    anchor_dy: f32,
+) -> (f64, f64) {
     if from_zoom == to_zoom {
         return (center_lat, center_lng);
     }
     // What is under the cursor now…
     let (anchor_lat, anchor_lng) =
-        offset_to_lat_lng(anchor_dx, anchor_dy, center_lat, center_lng, from_zoom);
+        offset_to_lat_lng_at(anchor_dx, anchor_dy, center_lat, center_lng, from_zoom);
     // …and the centre that keeps it there at the new scale.
-    let (ax, ay) = lat_lng_to_tile_frac(anchor_lat, anchor_lng, to_zoom);
+    let (ax, ay) = lat_lng_to_tile_frac_at(anchor_lat, anchor_lng, to_zoom);
     let cx = ax - anchor_dx as f64 / TILE_SIZE;
     let cy = ay - anchor_dy as f64 / TILE_SIZE;
-    tile_frac_to_lat_lng(cx, cy, to_zoom)
+    tile_frac_to_lat_lng_at(cx, cy, to_zoom)
 }
 
 /// The inverse of [`lat_lng_to_offset`] — a screen-pixel offset from the
@@ -156,10 +266,23 @@ pub fn offset_to_lat_lng(
     center_lng: f64,
     zoom: u8,
 ) -> (f64, f64) {
-    let (ctx, cty) = lat_lng_to_tile_frac(center_lat, center_lng, zoom);
+    offset_to_lat_lng_at(dx, dy, center_lat, center_lng, zoom as f64)
+}
+
+/// [`offset_to_lat_lng`] at a continuous zoom, so a drag or a click resolves
+/// against the scale the map is actually drawn at rather than the level whose
+/// tiles it borrowed.
+pub fn offset_to_lat_lng_at(
+    dx: f32,
+    dy: f32,
+    center_lat: f64,
+    center_lng: f64,
+    zoom: f64,
+) -> (f64, f64) {
+    let (ctx, cty) = lat_lng_to_tile_frac_at(center_lat, center_lng, zoom);
     let tx = ctx + dx as f64 / TILE_SIZE;
     let ty = cty + dy as f64 / TILE_SIZE;
-    tile_frac_to_lat_lng(tx, ty, zoom)
+    tile_frac_to_lat_lng_at(tx, ty, zoom)
 }
 
 type TileKey = (u8, i64, i64);
@@ -534,10 +657,69 @@ pub fn paint_map(
     open_region_id: &str,
     info_style: &InfoStyle,
 ) -> MapHit {
+    paint_map_at(
+        painter,
+        rect,
+        center_lat,
+        center_lng,
+        zoom,
+        0.0,
+        markers,
+        routes,
+        regions,
+        pointer,
+        open_marker_id,
+        open_region_id,
+        info_style,
+    )
+}
+
+/// [`paint_map`] with the map held **between** whole zoom levels.
+///
+/// `zoom_frac` is the offset from `zoom`, normally in `-0.5..=0.5`: the tiles of
+/// level `zoom` are drawn `2^zoom_frac` times their natural 256 px, and every
+/// overlay is placed at the same continuous zoom, so markers, routes and
+/// regions stay pinned to the ground while the basemap scales under them.
+///
+/// This is what makes zooming smooth. A whole level is a factor of two, so
+/// stepping one at a time replaced the picture rather than growing it; holding
+/// the map at 12.4 for a few frames on the way from 12 to 13 lets the eye follow
+/// the scale instead (operator, 2026-08-22). Tiles are still fetched by whole
+/// level — `zoom` is the one asked for — so nothing about the cache or OSM's
+/// tile protocol changes.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_map_at(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    center_lat: f64,
+    center_lng: f64,
+    zoom: u8,
+    zoom_frac: f32,
+    markers: &[MapMarker],
+    routes: &[crate::model::MapRouteRecord],
+    regions: &[crate::model::MapRegionRecord],
+    pointer: MapPointer,
+    open_marker_id: &str,
+    open_region_id: &str,
+    info_style: &InfoStyle,
+) -> MapHit {
     let ctx = painter.ctx();
     poll_tiles(ctx);
 
     let zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+    // Clamped, not trusted: a caller that lets the fraction run past a whole
+    // level would have the map borrow tiles from two levels away and scale them
+    // to blur. Half a level in each direction is the most any tile is stretched.
+    let zoom_frac = if zoom_frac.is_finite() {
+        zoom_frac.clamp(-0.5, 0.5)
+    } else {
+        0.0
+    };
+    // The zoom the map is actually DRAWN at — what every overlay is placed by.
+    let zoom_at = zoom as f64 + zoom_frac as f64;
+    // …and what that does to a tile: 256 px at the level itself, larger while
+    // the map is on its way up, smaller on its way down.
+    let tile_px = TILE_SIZE * 2f64.powf(zoom_frac as f64);
     painter.rect_filled(rect, 0.0, egui::Color32::from_gray(200)); // pre-tile backdrop
     // Tiles are drawn whole and let the painter cut them at the viewport edge —
     // see the `TileSlot::Ready` arm for why cutting the DESTINATION instead is
@@ -550,14 +732,16 @@ pub fn paint_map(
     let frac_x = center_tx - center_tile_x as f64;
     let frac_y = center_ty - center_tile_y as f64;
 
-    // Screen position of tile (center_tile_x, center_tile_y)'s top-left.
-    let origin_x = rect.center().x - (frac_x * TILE_SIZE) as f32;
-    let origin_y = rect.center().y - (frac_y * TILE_SIZE) as f32;
+    // Screen position of tile (center_tile_x, center_tile_y)'s top-left. All of
+    // this is in `tile_px`, the tile's DRAWN size, so a fractional zoom moves
+    // the grid and its origin together and the seams stay closed.
+    let origin_x = rect.center().x - (frac_x * tile_px) as f32;
+    let origin_y = rect.center().y - (frac_y * tile_px) as f32;
 
-    let tiles_left = ((rect.center().x - rect.left()) / TILE_SIZE as f32).ceil() as i64 + 1;
-    let tiles_right = ((rect.right() - rect.center().x) / TILE_SIZE as f32).ceil() as i64 + 1;
-    let tiles_up = ((rect.center().y - rect.top()) / TILE_SIZE as f32).ceil() as i64 + 1;
-    let tiles_down = ((rect.bottom() - rect.center().y) / TILE_SIZE as f32).ceil() as i64 + 1;
+    let tiles_left = ((rect.center().x - rect.left()) / tile_px as f32).ceil() as i64 + 1;
+    let tiles_right = ((rect.right() - rect.center().x) / tile_px as f32).ceil() as i64 + 1;
+    let tiles_up = ((rect.center().y - rect.top()) / tile_px as f32).ceil() as i64 + 1;
+    let tiles_down = ((rect.bottom() - rect.center().y) / tile_px as f32).ceil() as i64 + 1;
 
     let n_tiles = 1i64 << zoom;
 
@@ -574,10 +758,10 @@ pub fn paint_map(
 
             let dest = egui::Rect::from_min_size(
                 egui::pos2(
-                    origin_x + (dx as f64 * TILE_SIZE) as f32,
-                    origin_y + (dy as f64 * TILE_SIZE) as f32,
+                    origin_x + (dx as f64 * tile_px) as f32,
+                    origin_y + (dy as f64 * tile_px) as f32,
                 ),
-                egui::vec2(TILE_SIZE as f32, TILE_SIZE as f32),
+                egui::vec2(tile_px as f32, tile_px as f32),
             );
             if !rect.intersects(dest) {
                 continue;
@@ -624,7 +808,8 @@ pub fn paint_map(
         let pts: Vec<(f32, f32)> = crate::map_geometry::parse_geometry(&region.geometry)
             .iter()
             .map(|p| {
-                let (dx, dy) = lat_lng_to_offset(p.lat, p.lng, center_lat, center_lng, zoom);
+                let (dx, dy) =
+                    lat_lng_to_offset_at(p.lat, p.lng, center_lat, center_lng, zoom_at);
                 (rect.center().x + dx, rect.center().y + dy)
             })
             .collect();
@@ -685,7 +870,8 @@ pub fn paint_map(
         let pts: Vec<egui::Pos2> = crate::map_geometry::parse_geometry(&route.geometry)
             .iter()
             .map(|p| {
-                let (dx, dy) = lat_lng_to_offset(p.lat, p.lng, center_lat, center_lng, zoom);
+                let (dx, dy) =
+                    lat_lng_to_offset_at(p.lat, p.lng, center_lat, center_lng, zoom_at);
                 rect.center() + egui::vec2(dx, dy)
             })
             .collect();
@@ -707,7 +893,7 @@ pub fn paint_map(
     let mut nearest_hover: Option<(usize, f32)> = None;
     let mut marker_pos: Vec<egui::Pos2> = vec![egui::Pos2::ZERO; markers.len()];
     for (i, m) in markers.iter().enumerate() {
-        let (dx, dy) = lat_lng_to_offset(m.lat, m.lng, center_lat, center_lng, zoom);
+        let (dx, dy) = lat_lng_to_offset_at(m.lat, m.lng, center_lat, center_lng, zoom_at);
         let pos = rect.center() + egui::vec2(dx, dy);
         marker_pos[i] = pos;
         if !rect.contains(pos) {
@@ -949,6 +1135,157 @@ mod tests {
         let (_, accum) = zoom_steps(0.0, SCROLL_PER_ZOOM * 0.9);
         let (levels, _) = zoom_steps(accum, -SCROLL_PER_ZOOM * 1.1);
         assert_eq!(levels, -1, "one push the other way zooms out");
+    }
+
+    // ── Smooth zoom ──────────────────────────────────────────────────────────
+    //
+    // A whole level is a factor of two, so stepping one at a time REPLACED the
+    // picture: nothing was ever drawn between 12 and 13. The glide releases a
+    // fraction per frame and the painter holds the map at 12.4 on the way
+    // (operator, 2026-08-22).
+
+    /// One notch of the wheel now arrives over several frames instead of one,
+    /// and adds up to exactly the same amount of zoom it always did.
+    #[test]
+    fn one_notch_arrives_in_slices_and_still_totals_one_level() {
+        let (mut pending, mut total, mut frames) = (0.0f32, 0.0f32, 0);
+        // The whole notch in a single frame's scroll, then let it glide out.
+        let (step, next) = zoom_glide(pending, SCROLL_PER_ZOOM);
+        total += step;
+        pending = next;
+        frames += 1;
+        while pending != 0.0 && frames < 200 {
+            let (step, next) = zoom_glide(pending, 0.0);
+            total += step;
+            pending = next;
+            frames += 1;
+        }
+        assert!(
+            (total - 1.0).abs() < 1e-3,
+            "a notch must still buy exactly one level, got {total}"
+        );
+        assert!(
+            frames >= 4,
+            "and it must take several frames to get there, took {frames}"
+        );
+        assert!(frames < 30, "but not so many it feels sluggish: {frames}");
+    }
+
+    /// No frame may move more than a slice, however hard the wheel is spun —
+    /// that cap is the whole difference between gliding and jumping.
+    #[test]
+    fn no_single_frame_leaps() {
+        let (step, pending) = zoom_glide(0.0, 10_000.0);
+        assert!(
+            step.abs() <= MAX_ZOOM_PER_FRAME + 1e-6,
+            "one frame moved {step} levels"
+        );
+        assert!(pending > 0.0, "the surplus is carried, not discarded");
+    }
+
+    /// The glide ends. A remainder that never reached zero would keep asking
+    /// for repaints for as long as the form was open.
+    #[test]
+    fn the_glide_settles() {
+        let mut pending = zoom_glide(0.0, SCROLL_PER_ZOOM * 3.0).1;
+        let mut frames = 0;
+        while pending != 0.0 {
+            pending = zoom_glide(pending, 0.0).1;
+            frames += 1;
+            assert!(frames < 500, "the glide never settled");
+        }
+    }
+
+    /// Reversing still answers at once — the rule `zoom_steps` had, kept.
+    #[test]
+    fn the_glide_reverses_without_paying_off_the_old_direction() {
+        let (_, pending) = zoom_glide(0.0, SCROLL_PER_ZOOM * 3.0); // a lot queued in
+        let (step, _) = zoom_glide(pending, -SCROLL_PER_ZOOM);
+        assert!(step < 0.0, "pushing back must zoom back, got {step}");
+    }
+
+    /// The tiles fetched are always the NEAREST whole level, so nothing on
+    /// screen is ever stretched by more than √2 and the map stays sharp.
+    #[test]
+    fn the_fraction_always_borrows_from_the_nearest_level() {
+        for (zoom, level, frac) in [
+            (12.0f32, 12u8, 0.0f32),
+            (12.4, 12, 0.4),
+            (12.6, 13, -0.4),
+            (0.0, 0, 0.0),
+            (19.0, 19, 0.0),
+        ] {
+            let (l, f) = split_zoom(zoom);
+            assert_eq!(l, level, "{zoom} should draw level {level}");
+            assert!((f - frac).abs() < 1e-5, "{zoom} frac {f} != {frac}");
+            assert!(f.abs() <= 0.5 + 1e-6, "{zoom} stretches too far: {f}");
+        }
+    }
+
+    /// Past the ends the split stays inside the tile range rather than asking
+    /// for a level OSM does not serve.
+    #[test]
+    fn the_split_never_leaves_the_tile_range() {
+        for zoom in [-5.0f32, -0.4, 19.4, 40.0] {
+            let (level, frac) = split_zoom(zoom);
+            assert!((MIN_ZOOM..=MAX_ZOOM).contains(&level), "level {level}");
+            assert!(frac.abs() <= 0.5 + 1e-6, "frac {frac}");
+        }
+    }
+
+    /// A fractional zoom is a real scale, not a rounding: halfway between two
+    /// levels the world is √2 times wider than at the lower one.
+    #[test]
+    fn a_fractional_zoom_scales_between_the_levels_it_sits_between() {
+        let (lat, lng) = (48.8566, 2.3522);
+        let at12 = lat_lng_to_offset_at(lat + 0.05, lng, lat, lng, 12.0).1.abs();
+        let at12_5 = lat_lng_to_offset_at(lat + 0.05, lng, lat, lng, 12.5).1.abs();
+        let at13 = lat_lng_to_offset_at(lat + 0.05, lng, lat, lng, 13.0).1.abs();
+        assert!(
+            at12 < at12_5 && at12_5 < at13,
+            "12 < 12.5 < 13 in screen distance: {at12} {at12_5} {at13}"
+        );
+        assert!(
+            (at12_5 / at12 - 2f32.sqrt()).abs() < 1e-3,
+            "half a level is a factor of √2, got {}",
+            at12_5 / at12
+        );
+    }
+
+    /// The cursor stays the fixed point BETWEEN levels too — the anchor rule
+    /// has to hold on every frame of a glide, not only when it lands.
+    #[test]
+    fn the_cursor_stays_fixed_across_a_fractional_zoom() {
+        let (lat, lng) = (-23.5614, -46.6558);
+        let (dx, dy) = (120.0f32, -80.0f32);
+        let before = offset_to_lat_lng_at(dx, dy, lat, lng, 12.0);
+        let (nlat, nlng) = zoom_about_at(lat, lng, 12.0, 12.375, dx, dy);
+        let after = offset_to_lat_lng_at(dx, dy, nlat, nlng, 12.375);
+        assert!(
+            (before.0 - after.0).abs() < 1e-9 && (before.1 - after.1).abs() < 1e-9,
+            "the anchored coordinate moved mid-glide: {before:?} -> {after:?}"
+        );
+    }
+
+    /// The whole-level helpers are the continuous ones at a whole level, so a
+    /// map that never zooms fractionally is untouched by any of this.
+    #[test]
+    fn the_whole_level_helpers_are_unchanged() {
+        let (lat, lng) = (35.6762, 139.6503);
+        for zoom in [0u8, 5, 12, 19] {
+            assert_eq!(
+                lat_lng_to_tile_frac(lat, lng, zoom),
+                lat_lng_to_tile_frac_at(lat, lng, zoom as f64)
+            );
+            assert_eq!(
+                lat_lng_to_offset(lat + 0.1, lng, lat, lng, zoom),
+                lat_lng_to_offset_at(lat + 0.1, lng, lat, lng, zoom as f64)
+            );
+            assert_eq!(
+                offset_to_lat_lng(30.0, -40.0, lat, lng, zoom),
+                offset_to_lat_lng_at(30.0, -40.0, lat, lng, zoom as f64)
+            );
+        }
     }
 
     /// **The cursor is the fixed point.** Zooming used to leave the centre
