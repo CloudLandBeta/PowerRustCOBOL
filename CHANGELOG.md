@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.156] — 2026-08-22
+
+### Fixed — a transparent SideMenu footer Panel showed a black block
+
+Reported by the operator, and introduced by 1.61.151: the footer band drew its
+Panel through `render_form`, which always paints a form backdrop first — and an
+unset backdrop colour is **not** "nothing". `backdrop_color` floors an unset one
+at alpha 200 on purpose, so a form with no background set is still a visible
+window; over the rail that is a black band, and a Panel at 100 % transparency
+had it painted right over the rail it was meant to reveal.
+
+- **`Backdrop::behind(colour)`** says what the footer pass actually means:
+  paint nothing, because somebody else already painted this rectangle — and
+  here is what they put there, so a translucent control still has something to
+  resolve against. `Backdrop` gained `paint: bool` (true for a form).
+- The shell passes the rail's own painted fill, so a translucent footer Panel
+  now resolves against the rail rather than against a colour nobody drew.
+
+The ContentPane reaches the same trap through a `transparency: 100` trick and is
+deliberately left on it: it works, and switching it would also change the
+backdrop *published* to that pane's translucent controls — a visible change
+nobody asked for. The comment there now points at the new API.
+
 ## [PowerRustCOBOL 1.61.155] — 2026-08-22
 
 ### Fixed — a zoom blanked to grey instead of showing the ground it already had

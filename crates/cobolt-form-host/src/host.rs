@@ -642,7 +642,12 @@ impl FormBody {
     /// Nothing here is a second copy of the render: it is the same engine, the
     /// same live state and the same event forwarding as the content pass —
     /// only the `Ui` it draws into is different.
-    pub(crate) fn draw_side_menu_footer(&mut self, ui: &mut egui::Ui, band: egui::Rect) {
+    pub(crate) fn draw_side_menu_footer(
+        &mut self,
+        ui: &mut egui::Ui,
+        band: egui::Rect,
+        behind: egui::Color32,
+    ) {
         if self.footer_ids.is_empty() || band.width() < 1.0 || band.height() < 1.0 {
             return;
         }
@@ -684,9 +689,13 @@ impl FormBody {
             glass: true,
             mode: cobolt_forms::render::RenderMode::Interactive,
             active_tabs: &active_tabs,
-            // The rail paints its own footer band; the panel draws its face
-            // over it, so this pass contributes no backdrop of its own.
-            backdrop: cobolt_forms::render::Backdrop::default(),
+            // The RAIL painted this band. This pass adds the Panel and its
+            // contents ON it and paints no background of its own — a default
+            // Backdrop paints the form's own navy, which is what turned a
+            // 100 %-transparent footer Panel into a black block over the rail
+            // (operator, 2026-08-22). `behind` is the rail's own fill, so a
+            // translucent Panel still has something to resolve against.
+            backdrop: cobolt_forms::render::Backdrop::behind(behind),
         };
         let out = cobolt_forms::render::render_form(&mut child, &input);
         self.forward_interaction(&out.prop_updates, out.events);
@@ -1156,6 +1165,7 @@ impl FormBody {
             tex.map(|t| (t.id(), t.size_vec2()))
         };
         cobolt_forms::render::Backdrop {
+            paint: true,
             color_hex: self.bg_hex.clone(),
             transparency: self.transparency,
             gradient_enabled: self.bg_gradient_enabled,
@@ -1905,8 +1915,13 @@ impl FormHost {
     /// band. The SHELL owns the band (it lays the rail out); the HOST owns the
     /// controls, their live state and their events, so neither has to learn the
     /// other's half.
-    pub fn draw_side_menu_footer(&mut self, ui: &mut egui::Ui, band: egui::Rect) {
-        self.root.draw_side_menu_footer(ui, band);
+    pub fn draw_side_menu_footer(
+        &mut self,
+        ui: &mut egui::Ui,
+        band: egui::Rect,
+        behind: egui::Color32,
+    ) {
+        self.root.draw_side_menu_footer(ui, band, behind);
     }
 
     pub fn show_occupant(&mut self, form_object: Option<&str>) {
@@ -2960,6 +2975,15 @@ impl FormHost {
                             // correctly two lines above, which is why the
                             // ContentPane ignored the background set in the RAD
                             // while the rail and the breadcrumb honoured it.
+                            //
+                            // `Backdrop::behind` (1.61.156) says this outright
+                            // rather than by arithmetic, and is what the footer
+                            // band uses. This site is deliberately left on the
+                            // transparency trick: it works, and switching it
+                            // would also change the backdrop PUBLISHED to the
+                            // pane's translucent controls — a visible change
+                            // nobody asked for.
+                            paint: true,
                             color_hex: "#00000000".into(),
                             transparency: 100,
                             gradient_enabled: false,
