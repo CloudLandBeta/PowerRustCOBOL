@@ -4534,7 +4534,9 @@ fn draw_control_body(
             }
             return;
         }
-        CT::TreeView => "🌲 [TreeView]".into(),
+        // The canvas draws the REAL tree (below), like every other control that
+        // carries content — a placeholder here would be painted underneath it.
+        CT::TreeView => String::new(),
         CT::DataGrid => {
             let cols = ctrl
                 .get_prop("Columns")
@@ -5191,6 +5193,39 @@ fn draw_control_body(
                 crate::toolbar_paint::Interaction::inert(),
             );
         }
+    }
+
+    // ── TreeView: the real nodes, by the SHARED renderer ─────────────────────
+    //
+    // The canvas used to draw `🌲 [TreeView]` and nothing else, so a developer
+    // laying out a tree could not see the tree (operator, 2026-08-22: "content
+    // not rendered"). It draws what the running form draws now, through the one
+    // implementation both call — the same rule the toolbar above follows.
+    //
+    // No pointer here, so nothing is hot-tracked: a design surface is for
+    // laying a tree out, not for driving it.
+    if matches!(ctrl.control_type, CT::TreeView) {
+        let rows = crate::treeview::layout(ctrl, rect);
+        let selected = ctrl
+            .get_prop("SelectedNode")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let checked: Vec<String> = ctrl
+            .get_prop("CheckedNodes")
+            .map(|v| v.as_str().lines().map(str::trim).map(str::to_owned).collect())
+            .unwrap_or_default();
+        crate::treeview::paint(
+            painter,
+            ctrl,
+            rect,
+            &rows,
+            crate::treeview::TreeState {
+                selected: &selected,
+                checked: &checked,
+                hovered: None,
+                alpha: alpha_mul,
+            },
+        );
     }
 
     // ── MenuBar: render top-level labels horizontally ────────────────────────
@@ -10728,6 +10763,30 @@ pub(crate) fn theme_paints_toggles(ctx: &egui::Context) -> bool {
     theme_has_surface(ctx, SurfaceRole::Toggle)
 }
 
+/// The colour a TreeView writes its nodes in.
+///
+/// The developer's `ForegroundColor` when they chose one — the run form used to
+/// ignore it entirely and write every tree in the theme's own text colour, so
+/// the property was in the inspector and reached nothing. Otherwise the theme's
+/// text token, and failing that a light ink for the dark face a tree has by
+/// default.
+pub fn treeview_ink(ctx: &egui::Context, ctrl: &Control) -> Color32 {
+    if let Some(c) = ctrl
+        .get_prop("ForegroundColor")
+        .map(|v| v.as_str().to_owned())
+        .filter(|s| {
+            !s.trim().is_empty()
+                && !s.trim().eq_ignore_ascii_case(crate::model::DEFAULT_FOREGROUND_COLOR)
+        })
+        .map(|s| parse_color(&s))
+        .filter(|c| c.a() > 0)
+    {
+        return c;
+    }
+    theme_token(ctx, crate::surface_theme::ColorToken::Text)
+        .unwrap_or(Color32::from_rgb(220, 226, 250))
+}
+
 /// A RadioButton's circle: `(fill, rim, rim width)` — **filled when on, an empty
 /// rim when off**, on every theme.
 ///
@@ -15635,15 +15694,29 @@ mod elegance_baseline_tests {
         // no Toggle either, so it gains the same circle. The caption it stopped
         // typing was never a shape of its own — it was characters inside a
         // galley that is still one leaf.
+        // Re-blessed again in 1.61.153: the TreeView draws its TREE. The canvas
+        // drew the caption `[TreeView]` and no nodes at all, and the running
+        // form drew a flat bulleted list; both now go through one renderer that
+        // also honours `ShowLines`/`ShowRootLines` (operator, 2026-08-22).
+        //
+        // Every row moved by exactly +6, and the fixture's one TreeView (seeded
+        // `Node 1 / Child 1 / Child 2 / Node 2`) accounts for all of it:
+        //   was  1 placeholder caption + 4 bulleted labels            =  5
+        //   now  4 labels
+        //        + 2 children x (elbow + vertical)                    = +4
+        //        + the root spine: 1 vertical + 2 elbows              = +3
+        //                                                              = 11
+        // 11 − 5 = +6, in both themes and all four styles — one control moved,
+        // not the seam.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1354),
-            ("asset-pack", GS::Classic, 1176),
-            ("liquid-glass", GS::Enhanced, 1454),
-            ("asset-pack", GS::Enhanced, 1250),
-            ("liquid-glass", GS::Neumorphic, 549),
-            ("asset-pack", GS::Neumorphic, 565),
-            ("liquid-glass", GS::NeumorphicDark, 549),
-            ("asset-pack", GS::NeumorphicDark, 565),
+            ("liquid-glass", GS::Classic, 1360),
+            ("asset-pack", GS::Classic, 1182),
+            ("liquid-glass", GS::Enhanced, 1460),
+            ("asset-pack", GS::Enhanced, 1256),
+            ("liquid-glass", GS::Neumorphic, 555),
+            ("asset-pack", GS::Neumorphic, 571),
+            ("liquid-glass", GS::NeumorphicDark, 555),
+            ("asset-pack", GS::NeumorphicDark, 571),
         ];
         for (theme, gs, want) in expected {
             let got = rows

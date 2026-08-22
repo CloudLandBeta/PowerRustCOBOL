@@ -1765,6 +1765,26 @@ designed — **Background color**, or **Background gradient** with its start, en
 and direction — along with its border and corner radius, on every surface: the
 designer canvas, the preview, Run Form and the compiled binary.
 
+> **The TreeView, since 1.61.153.** `Items` **is** the tree: one node per line,
+> **two spaces** (or one tab) of indent per level. It is drawn by one renderer
+> on the canvas and in the running form, so what you lay out is what runs —
+> before this the canvas showed a `[TreeView]` placeholder with no nodes at all,
+> and the running form a flat bulleted list in a fixed 12pt font.
+>
+> The tree writes its nodes in the control's own **FontName / FontSize /
+> Foreground color**, draws its connector lines per **Show lines** / **Root
+> lines** in **LineColor**, gives every node a tick box under **Checkboxes**,
+> and lifts the row under the pointer under **Hot tracking**. A click selects
+> (`SelectedNode`, `onNodeClick` / `onNodeSelect`); a click **on a tick box**
+> checks instead, and the ticked nodes are in `CheckedNodes`, one per line, with
+> `onNodeCheck` naming the node. It also gained **Border style** and **Border
+> width**: it had `BorderColor` and no way to choose the border being coloured.
+>
+> ⚠️ **Two things it still does not do**, and neither is hidden behind a
+> property you can switch: there is **no expand/collapse** — every node you
+> write is shown — and **AllowEdit** renames nothing, because no surface offers
+> an in-place edit yet. To change a tree while the form runs, write `Items`.
+
 **So are the highlights.** The colour behind a highlighted row is a property
 like any other, and there are two of them because a list highlights two
 different things:
@@ -1846,10 +1866,11 @@ alphabetical order. Three things worth knowing:
 - `SelectedIndex` is the index of the item **as displayed**, so it matches what
   the operator picked. `Value` is the item's text and is the same either way.
 
-> ⚠️ A **TreeView** carries `Sorted` as well and does not yet act on it: its
-> items are a hierarchy, and ordering siblings while keeping each child with its
-> own parent is a different operation. Its nodes show in the order you wrote
-> them.
+> A **TreeView** carries `Sorted` too, and since 1.61.153 it acts on it — by
+> ordering **siblings**, leaving every child under the parent you wrote it
+> under. (A flat sort would put the nodes in order and the tree in ruins.) The
+> node an event names is still the line you wrote, whatever the sort did with
+> it.
 
 **How tall the list is.** As tall as its items need — plus the small margin it
 keeps off its own border — up to `DropDownHeight` (the **DropDownHeight** row in
