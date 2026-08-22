@@ -1839,6 +1839,32 @@ pub fn opacity_of(ctrl: &Control) -> f32 {
     crate::model::alpha_multiplier(ctrl)
 }
 
+/// How opaque a control's own FACE is painted — [`opacity_of`], except that a
+/// ToolBar the developer has given a colour is not left invisible.
+///
+/// A ToolBar ships at `Transparency = 100` so a bare one reads as buttons on
+/// the form rather than a card. That default silently voided `BackgroundColor`:
+/// the operator picked a colour in the inspector, nothing whatever happened,
+/// and nothing said why (operator, 2026-08-22: "Toolbar, background color …
+/// does not work"). Two properties, one quietly cancelling the other.
+///
+/// The seeded 100 is what EVERY toolbar carries, not something anyone chose —
+/// the same "still on the default means the user has not picked" convention
+/// [`user_background_color`] already applies to the colour itself. So choosing
+/// a colour is what turns the frame on. A `Transparency` the developer actually
+/// moved (anything but that seeded 100) still fades the face exactly as before,
+/// and a toolbar whose colour is untouched stays invisible, as it always was.
+pub fn face_opacity_of(ctrl: &Control) -> f32 {
+    let seeded_transparent = matches!(ctrl.control_type, crate::ControlType::ToolBar)
+        && crate::model::transparency_of(ctrl) == 100
+        && user_background_color(ctrl).is_some();
+    if seeded_transparent {
+        1.0
+    } else {
+        opacity_of(ctrl)
+    }
+}
+
 /// A caption already laid out, ready to be drawn — the galley, where its draw
 /// origin sits, and the colour it falls back to.
 ///
@@ -2001,7 +2027,7 @@ fn draw_control_body(
     // Ancestor *container* transparencies are still folded into the incoming
     // `alpha_mul` by the render walk, so a faded container dims its whole
     // subtree (spec 012) exactly as before.
-    let face_alpha = alpha_mul * opacity_of(ctrl);
+    let face_alpha = alpha_mul * face_opacity_of(ctrl);
 
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     let c_scale = |c: u8| -> u8 { ((c as f32) * alpha_mul) as u8 };

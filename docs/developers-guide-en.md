@@ -1967,6 +1967,17 @@ A new toolbar is **rounded at 10, has no border, and is 100 % transparent** — 
 it reads as buttons sitting on your form rather than as a panel laid over it.
 Turn the border on when you want the strip to be visible in its own right.
 
+> **Giving the bar a `BackgroundColor` turns its frame on.** You do not also
+> have to find `Transparency` and lower it: that 100 is what every toolbar ships
+> with, not something you chose, so choosing a colour is taken as the decision.
+> A `Transparency` you *do* move still fades the face as it does on any other
+> control, and a toolbar whose colour you never touched stays invisible.
+>
+> The colour you name is the colour painted — the active theme does not get to
+> substitute its own card fill for it. (Before 1.61.150 a chosen background did
+> nothing at all: the seeded transparency skipped the face entirely, and on the
+> way past that, the theme answered with its own fill and never reached yours.)
+
 A new toolbar also arrives holding **one group with one folder-open button**, so
 a ToolBar you have just dropped shows what a toolbar is instead of an empty
 strip. Delete it, rename it, or build around it.
