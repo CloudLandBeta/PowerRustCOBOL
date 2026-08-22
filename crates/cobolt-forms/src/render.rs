@@ -170,6 +170,17 @@ pub enum RenderMode {
 
 /// Form background, owned by the engine so every surface shares the same rule.
 pub struct Backdrop {
+    /// Whether this surface paints a background AT ALL.
+    ///
+    /// `true` for a form, which owns its whole rectangle. `false` for a pass
+    /// that draws controls into a rectangle **somebody else already painted** —
+    /// the SideMenu's footer band, drawn on the rail. Such a pass painted the
+    /// default navy over the rail, so a footer Panel at 100 % transparency
+    /// showed a black block instead of the rail behind it (operator,
+    /// 2026-08-22). `color_hex`/`transparency` are then not what to paint but
+    /// what IS behind, so a translucent control still has something to resolve
+    /// against. Use [`Backdrop::behind`].
+    pub paint: bool,
     /// Form background colour as `#RRGGBB[AA]` (or empty/unset).
     pub color_hex: String,
     /// Form transparency 0â100 (0 = opaque).
@@ -197,9 +208,28 @@ pub struct Backdrop {
     pub window_size: Option<Vec2>,
 }
 
+impl Backdrop {
+    /// A surface that paints NOTHING because something else already painted it
+    /// — `behind` being what that something put there, for controls whose own
+    /// colour is translucent and cannot be resolved without it.
+    pub fn behind(behind: Color32) -> Self {
+        Backdrop {
+            paint: false,
+            color_hex: format!(
+                "#{:02X}{:02X}{:02X}",
+                behind.r(),
+                behind.g(),
+                behind.b()
+            ),
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for Backdrop {
     fn default() -> Self {
         Backdrop {
+            paint: true,
             color_hex: String::new(),
             transparency: 0,
             gradient_enabled: false,
@@ -337,6 +367,20 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
         &backdrop.color_hex,
         backdrop.transparency,
     );
+    // Somebody else owns this rectangle (see `Backdrop::behind`). Report what
+    // is behind so a translucent control can resolve against it, and paint
+    // nothing over it — not even "transparent", which an unset colour is NOT:
+    // `backdrop_color` floors an unset one at alpha 200 by design, which is how
+    // a footer band came out black.
+    if !backdrop.paint {
+        return BackdropPaint {
+            bg,
+            gradient: None,
+            themed: false,
+            image: None,
+            image_alpha: 0,
+        };
+    }
     painter.rect_filled(rect, 0.0, bg);
 
     let gradient = if backdrop.gradient_enabled {
@@ -7892,6 +7936,53 @@ mod tests {
         out
     }
 
+    /// **A surface somebody else painted must not be painted over.**
+    ///
+    /// Operator, 2026-08-22: the SideMenu's footer Panel, set to 100 %
+    /// transparent, showed a BLACK block instead of the rail behind it. The
+    /// footer pass handed the engine a default `Backdrop`, and an unset
+    /// backdrop colour is not "nothing" — `backdrop_color` floors it at alpha
+    /// 200 on purpose, so that a form with no background set is still a visible
+    /// window. Over the rail, that is a black band.
+    #[test]
+    fn a_backdrop_that_paints_nothing_paints_nothing() {
+        let ctx = egui::Context::default();
+        let rail = Color32::from_rgb(0x3A, 0x74, 0x94);
+
+        let count = |backdrop: &Backdrop| -> usize {
+            let mut fills = Vec::new();
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(100.0, 40.0));
+                let painter = ui.painter().clone();
+                let paint = paint_backdrop(&painter, rect, backdrop);
+                assert_eq!(
+                    paint.bg,
+                    crate::render::backdrop_color(&backdrop.color_hex, backdrop.transparency),
+                    "what is BEHIND must still be reported, painted or not"
+                );
+            });
+            out.textures_delta.clear();
+            for cs in &out.shapes {
+                if let egui::Shape::Rect(r) = &cs.shape {
+                    if r.fill.a() > 0 {
+                        fills.push(r.fill);
+                    }
+                }
+            }
+            fills.len()
+        };
+
+        assert_eq!(
+            count(&Backdrop::behind(rail)),
+            0,
+            "a band the rail already painted must take no second background"
+        );
+        assert!(
+            count(&Backdrop::default()) > 0,
+            "…while a FORM still paints its own, or this test proves nothing"
+        );
+    }
+
     /// **A ToolBar's BackgroundColor is painted** — operator, 2026-08-22:
     /// "Toolbar, background color … does not work".
     ///
@@ -8890,6 +8981,7 @@ mod tests {
                         mode: RenderMode::Static,
                         active_tabs: &active,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: backdrop_hex.into(),
                             ..Default::default()
                         },
@@ -10841,6 +10933,7 @@ mod tests {
                     mode: RenderMode::Static,
                     active_tabs: &active,
                     backdrop: Backdrop {
+                        paint: true,
                         color_hex: "#00000000".into(),
                         ..Default::default()
                     },
@@ -14163,6 +14256,7 @@ mod shape_dump {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: String::new(),
                             transparency: 0,
                             gradient_enabled: false,
@@ -14232,6 +14326,7 @@ mod shape_dump {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
                             gradient_enabled: false,
@@ -14305,6 +14400,7 @@ mod shape_dump {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
                             gradient_enabled: false,
@@ -14378,6 +14474,7 @@ mod shape_dump {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
                             gradient_enabled: false,
@@ -14599,6 +14696,7 @@ mod shape_dump {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
                             gradient_enabled: false,
@@ -14779,6 +14877,7 @@ mod shape_dump {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: String::new(),
                             transparency: 0,
                             gradient_enabled: false,
@@ -15067,6 +15166,7 @@ mod maps_corner_tests {
                         mode: RenderMode::Interactive,
                         active_tabs: &active_tabs,
                         backdrop: Backdrop {
+                            paint: true,
                             color_hex: BACKDROP_HEX.into(),
                             transparency: 0,
                             gradient_enabled: false,

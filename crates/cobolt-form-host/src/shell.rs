@@ -564,6 +564,7 @@ impl Shell {
             return;
         };
         let backdrop = cobolt_forms::render::Backdrop {
+            paint: true,
             color_hex: mp.color.clone(),
             transparency: mp.transparency,
             gradient_enabled: mp.gradient_enabled,
@@ -1104,7 +1105,11 @@ impl Shell {
                 // footer does not move when the menu scrolls, so neither may
                 // what sits in it.
                 if let Some(band) = self.last_footer_rect {
-                    host.draw_side_menu_footer(ui, band);
+                    // What the rail actually painted under the band, so a
+                    // Panel the developer left translucent resolves against the
+                    // rail — and so nothing paints a background over it.
+                    let behind = self.last_menu_fill.unwrap_or(CHROME_FILL);
+                    host.draw_side_menu_footer(ui, band, behind);
                 }
             });
         let menu_rect = panel.response.rect;

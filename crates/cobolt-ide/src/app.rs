@@ -12758,6 +12758,7 @@ impl CoboltApp {
                     .map(|t| (t.id(), t.size_vec2()))
             };
             cobolt_forms::render::Backdrop {
+                paint: true,
                 color_hex: d.form.background_color.clone(),
                 transparency: d.form.transparency.min(100) as u8,
                 gradient_enabled: d.form.background_gradient_enabled,
