@@ -7697,6 +7697,52 @@ fn render_interactive(
             }
         }
 
+        CT::Label => {
+            // A Label IS text, and text a reader cannot select is text they
+            // cannot copy — into a ticket, a mail, the next field. Every other
+            // painted control stands for something (a face, a glyph, a chart);
+            // a caption stands for nothing but itself, so it is hosted through
+            // egui's label-selection machinery: drag to select, Cmd/Ctrl+C to
+            // copy, and a selection that carries across neighbouring labels.
+            //
+            // The galley is the PAINTER'S own, captured rather than laid out a
+            // second time here. A second layout drifts from the canvas the
+            // moment either side changes — and a caption that moves a pixel
+            // between the designer and the running form is a bug report.
+            let caption = paint::draw_control_capturing_label(
+                &painter, screen.min, ctrl, false, glass, alpha, 1.0, None,
+            );
+            if let Some(cap) = caption {
+                // Bold is a second stamp at a half-pixel offset (egui has no
+                // guaranteed bold face for an arbitrary system font). It goes
+                // UNDER the selectable copy, which paints last and carries the
+                // selection highlight over the glyphs.
+                if ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false) {
+                    painter.galley(cap.pos + vec2(0.5, 0.0), cap.galley.clone(), cap.color);
+                }
+                ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+                    ui.set_clip_rect(clip);
+                    // Drag selects. FOCUSABLE is removed deliberately: a
+                    // caption is not a tab stop, it is text that happens to be
+                    // selectable, and TAB must keep walking the form's own
+                    // controls in their designed order.
+                    let resp = ui.interact(
+                        screen,
+                        ctrl_id.with("caption"),
+                        Sense::click_and_drag() - Sense::FOCUSABLE,
+                    );
+                    egui::text_selection::LabelSelectionState::label_text_selection(
+                        ui,
+                        &resp,
+                        cap.pos,
+                        cap.galley,
+                        cap.color,
+                        Stroke::NONE,
+                    );
+                });
+            }
+        }
+
         _ => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
         }
@@ -7766,6 +7812,108 @@ mod tests {
             !rects.contains_key("Lbl-Hidden"),
             "a Label with Visible=false must not be drawn, but it left a rect: {:?}",
             rects.get("Lbl-Hidden")
+        );
+    }
+
+    /// **A Label's text selects and copies** — operator, 2026-08-22: a caption
+    /// could be read but never quoted, because a painted galley is pixels and
+    /// pixels have no selection.
+    ///
+    /// Driven the whole way through rather than asserted on a flag: press on
+    /// the caption, drag across it, press Copy, and read what the platform was
+    /// actually asked to put on the clipboard. A `CopyText` carrying part of
+    /// the caption is the only evidence that all three — the response, the
+    /// selection and the clipboard — are wired to each other.
+    #[test]
+    fn label_text_selects_and_copies_to_the_clipboard() {
+        const CAPTION: &str = "Totals as at 22 August";
+        let mut label = ctrl("LBL", ControlType::Label, 10, 10, 260, 24);
+        label.set_prop("Caption", crate::PropValue::String(CAPTION.into()));
+        let controls = vec![label];
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut rects: HashMap<String, Rect> = HashMap::new();
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0));
+
+        let mut frame = |events: Vec<egui::Event>, rects: &mut HashMap<String, Rect>| {
+            let raw = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(raw, |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let input = RenderInput {
+                        controls: &controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    *rects = render_form(ui, &input).control_rects;
+                });
+            });
+            // A dropped TexturesDelta panics if it still carries work; nothing
+            // here uploads textures, so hand it back cleared.
+            out.textures_delta.clear();
+            out
+        };
+
+        // One frame to learn where the caption actually landed — egui resolves
+        // interaction against the PREVIOUS frame's widgets, so the press below
+        // needs this one to have registered the label first.
+        frame(Vec::new(), &mut rects);
+        let rect = *rects.get("LBL").expect("the label must be drawn");
+        let press = rect.left_center() + Vec2::new(4.0, 0.0);
+        let release = rect.left_center() + Vec2::new(rect.width() - 8.0, 0.0);
+        let button = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+
+        frame(
+            vec![egui::Event::PointerMoved(press), button(press, true)],
+            &mut rects,
+        );
+        // Two moves: the first begins the drag, the second is where egui
+        // extends the selection to.
+        frame(vec![egui::Event::PointerMoved(release)], &mut rects);
+        frame(vec![egui::Event::PointerMoved(release)], &mut rects);
+
+        let selecting = ctx
+            .plugin::<egui::text_selection::LabelSelectionState>()
+            .lock()
+            .has_selection();
+        assert!(
+            selecting,
+            "dragging across a Label's caption must select it — nothing was selected"
+        );
+
+        let out = frame(vec![egui::Event::Copy], &mut rects);
+        let copied: Vec<String> = out
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !copied.is_empty(),
+            "Copy over a selected caption must reach the clipboard; commands were {:?}",
+            out.platform_output.commands
+        );
+        let text = copied.join("");
+        assert!(
+            !text.trim().is_empty() && CAPTION.contains(text.trim()),
+            "the clipboard must carry the caption's own text, got {text:?}"
         );
     }
 

@@ -556,6 +556,20 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **Label 的文字可以选中并复制。** 运行时 Label 的 `Caption` 是活的文字，而不是
+> 文字的图片：操作员拖动即可选中，`Cmd`/`Ctrl`+`C` 把选区放进剪贴板。从一个 Label
+> 开始、在另一个 Label 结束的拖动会同时选中两者，因此可以把一个数值连同为它命名的
+> caption 一起复制。没有需要打开的开关：既没有 property，也不用写 COBOL。
+>
+> 从 PowerCOBOL 或 isCOBOL 过来的开发者会认为静态文字控件是惰性的，而这里是
+> PowerRustCOBOL 少数几处遵循现代桌面习惯的地方之一。Label 的其他行为都没有变：
+> 绑定了 `onClick` 的 Label 依然会触发，`TAB` 依然越过 label 走向你设计的控件，
+> 在 designer 画布上拖动依然是移动控件，而不是选中它的文字。
+>
+> 注意。在此之前，要有可复制的文字就得用带 `ReadOnly` 的 TextBox。那种做法仍然
+> 有效，当文字是操作员之后可能要更正的 *值* 时，它依然是正确的控件——只是不再需要
+> 仅仅为了让别人复制一个 caption 而使用它了。
+
 > **始终可读的文字。** form 并不知道它的 theme 会画成什么样，因此那些承载含义
 > 的颜色都会与文字真正落在的表面作对照：CheckBox 或 RadioButton 的 caption、
 > CheckBox 的 `CheckColor` 勾选标记、ListBox 的 items，以及文本光标。只要在那

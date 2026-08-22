@@ -1839,6 +1839,31 @@ pub fn opacity_of(ctrl: &Control) -> f32 {
     crate::model::alpha_multiplier(ctrl)
 }
 
+/// A caption already laid out, ready to be drawn — the galley, where its draw
+/// origin sits, and the colour it falls back to.
+///
+/// Handed to a caller that wants to paint the text ITSELF (the run form, whose
+/// Label text is selectable) instead of having it stamped on the canvas. It is
+/// the painter's own layout, not a second one: two layouts of the same caption
+/// drift the moment either side changes, and a Label that moves a pixel between
+/// the designer and the running form is a bug report.
+pub struct CaptionLayout {
+    pub galley: std::sync::Arc<egui::Galley>,
+    pub pos: Pos2,
+    pub color: Color32,
+}
+
+/// What [`draw_control_body`] does with the control's caption.
+enum CaptionMode<'a> {
+    /// Stamp it — the designer canvas and every non-interactive surface.
+    Paint,
+    /// Draw the face only; the caller paints the live content itself.
+    Skip,
+    /// Hand a Label's caption back INSTEAD of stamping it, so the caller can
+    /// host the very same galley as selectable text.
+    Capture(&'a mut Option<CaptionLayout>),
+}
+
 /// Paint a control exactly as the designer canvas does — its face, its border
 /// and the placeholder text the canvas stands in with for content the running
 /// control supplies itself.
@@ -1854,8 +1879,50 @@ pub fn draw_control(
     pic_tex: Option<egui::TextureId>,
 ) {
     draw_control_body(
-        painter, origin, ctrl, selected, glass, alpha_mul, scale, pic_tex, true,
+        painter,
+        origin,
+        ctrl,
+        selected,
+        glass,
+        alpha_mul,
+        scale,
+        pic_tex,
+        &mut CaptionMode::Paint,
     );
+}
+
+/// [`draw_control`], except a **Label's caption is returned rather than
+/// painted** — face, border and shadow are drawn as usual.
+///
+/// This is how the running form gives label text a selection: it takes the
+/// caption the painter laid out and hosts it through egui's label-selection
+/// machinery, which needs to own the draw call to paint the highlight under the
+/// glyphs. Every other control type paints exactly as [`draw_control`] does and
+/// returns `None`.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_control_capturing_label(
+    painter: &egui::Painter,
+    origin: Pos2,
+    ctrl: &Control,
+    selected: bool,
+    glass: bool,
+    alpha_mul: f32,
+    scale: f32,
+    pic_tex: Option<egui::TextureId>,
+) -> Option<CaptionLayout> {
+    let mut caption = None;
+    draw_control_body(
+        painter,
+        origin,
+        ctrl,
+        selected,
+        glass,
+        alpha_mul,
+        scale,
+        pic_tex,
+        &mut CaptionMode::Capture(&mut caption),
+    );
+    caption
 }
 
 /// [`draw_control`] **without** the canvas placeholder text.
@@ -1882,7 +1949,15 @@ pub fn draw_control_face(
     pic_tex: Option<egui::TextureId>,
 ) {
     draw_control_body(
-        painter, origin, ctrl, selected, glass, alpha_mul, scale, pic_tex, false,
+        painter,
+        origin,
+        ctrl,
+        selected,
+        glass,
+        alpha_mul,
+        scale,
+        pic_tex,
+        &mut CaptionMode::Skip,
     );
 }
 
@@ -1896,8 +1971,9 @@ fn draw_control_body(
     alpha_mul: f32,
     scale: f32,                       // animation scale factor (1.0 = normal)
     pic_tex: Option<egui::TextureId>, // pre-loaded texture for PictureBox
-    // Whether the canvas placeholder caption is drawn — see `draw_control_face`.
-    with_label: bool,
+    // What becomes of the canvas placeholder caption — see `draw_control_face`
+    // and `draw_control_capturing_label`.
+    caption_mode: &mut CaptionMode<'_>,
 ) {
     use crate::ControlType as CT;
 
@@ -3367,13 +3443,13 @@ fn draw_control_body(
         );
         // A caller drawing the LIVE map (the run form, which pans, zooms and
         // shows its own info window) wants this face and not the canvas's
-        // stand-in basemap — the same contract `with_label` carries for a
+        // stand-in basemap — the same contract `CaptionMode` carries for a
         // caption. Without it the run path could not draw the face at all, so a
         // map at run time had no shadow and no gradient, however they were set
         // (operator, 2026-08-21: "the dropshadow disappears when running the
         // form"). The tiles below are the stand-in; everything above is the
         // face, and both callers want the face.
-        if !with_label {
+        if matches!(*caption_mode, CaptionMode::Skip) {
             return;
         }
         let center_lat: f64 = ctrl
@@ -4495,7 +4571,11 @@ fn draw_control_body(
     // A caller drawing the control's own live content wants the face and not
     // the canvas's stand-in for it (`draw_control_face`). Dropped here, after
     // both branches, so the hint and the caption are silenced by one rule.
-    let label = if with_label { label } else { String::new() };
+    let label = if matches!(*caption_mode, CaptionMode::Skip) {
+        String::new()
+    } else {
+        label
+    };
 
     // ── CheckBox: a real drawn box + checkmark, not "[ ]"/"[✓]" bracket text.
     // Runs OUTSIDE the `!label.is_empty()` gate below because the box must
@@ -4836,7 +4916,19 @@ fn draw_control_body(
                 _ => rect.center().y - galley.size().y / 2.0,
             };
             let text_pos = egui::pos2(anchor_x, anchor_y);
-            paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
+            // The run form takes the caption from here and draws it itself, so
+            // the reader can select and copy it. Same galley, same position,
+            // same colour — the only difference is who calls the painter.
+            match caption_mode {
+                CaptionMode::Capture(out) => {
+                    **out = Some(CaptionLayout {
+                        galley,
+                        pos: text_pos,
+                        color: txt_color,
+                    });
+                }
+                _ => paint_styled_galley(painter, ctrl, text_pos, galley, txt_color),
+            }
         } else if matches!(ctrl.control_type, CT::TextBox) {
             // Inset by at least the corner radius so text stays inside the rounded
             // arc and never bleeds past the box's own rounded corners.

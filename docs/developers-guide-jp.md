@@ -566,6 +566,25 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **Label のテキストは選択してコピーできます。** 実行時の Label の `Caption` は
+> 文字の絵ではなく生きたテキストです。オペレーターがドラッグして選択し、
+> `Cmd`/`Ctrl`+`C` で選択範囲がクリップボードに入ります。ある Label で始まり別の
+> Label で終わるドラッグは両方を含むため、数値とそれに名前を与える caption を
+> まとめてコピーできます。有効にするものは何もありません。property も、書くべき
+> COBOL もありません。
+>
+> PowerCOBOL や isCOBOL から来た方は、静的なテキストコントロールは不活性だと
+> 考えるでしょう。ここは PowerRustCOBOL が現代のデスクトップに従う数少ない場所の
+> ひとつです。Label のそれ以外は変わりません。`onClick` を結び付けた Label は
+> これまでどおり発火し、`TAB` は label を飛ばして設計したコントロールへ進み、
+> designer のキャンバスではドラッグがテキスト選択ではなくコントロールの移動の
+> ままです。
+>
+> 注記。これ以前は、コピーできるテキストといえば `ReadOnly` を設定した TextBox の
+> ことでした。それは今も有効で、オペレーターが後で訂正するかもしれない *値* を
+> 表示する場合には今も正しいコントロールです。ただし、caption をコピーさせたい
+> というだけの理由で選ぶものではなくなりました。
+
 > **いつでも読めるテキスト。** form は自分の theme が何を描くかを知りません。
 > そのため意味を担う色は、実際に載る面と照らして確認されます — CheckBox や
 > RadioButton の caption、CheckBox の `CheckColor` のチェック、ListBox の

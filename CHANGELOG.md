@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.148] — 2026-08-22
+
+### Fixed — a Label's text could not be selected or copied
+
+Reported by the operator: reading a caption was all anyone could do with it.
+A Label had no arm in the interactive renderer, so it fell to the painter's
+fallback and its caption was stamped on the canvas with `painter.galley` —
+pixels, and pixels have no selection. Every other painted control stands in for
+something (a face, a glyph, a chart); a caption stands for nothing but itself.
+
+At run time (and in Preview) a Label's caption is now live text: drag to select,
+`Cmd`/`Ctrl`+`C` to copy, and a drag that starts on one Label and ends on
+another takes in both — so a figure copies together with the caption naming it.
+
+- **`paint::draw_control_capturing_label`** hands the caption back instead of
+  stamping it, so the running form hosts **the painter's own galley** rather
+  than laying the text out a second time. Two layouts of one caption drift the
+  moment either side changes, and a label that moves a pixel between the
+  designer and the running form is the next bug report. `with_label: bool`
+  became `CaptionMode { Paint, Skip, Capture }`.
+- **The Label arm in `render.rs`** paints the face, re-stamps the half-pixel
+  bold offset underneath, and hands the galley to egui's
+  `LabelSelectionState`, which owns the highlight and the clipboard.
+- **`Sense::FOCUSABLE` is removed** from the selection response: a caption is
+  not a tab stop, so `TAB` still walks the form's own controls in their designed
+  order. A Label with a bound `onClick` still fires it (control events are read
+  from raw pointer state, not from a widget response), and the designer canvas
+  is untouched — a drag there still positions the control.
+
+Tested end to end in `label_text_selects_and_copies_to_the_clipboard`: press,
+drag, Copy, and assert on the `CopyText` the platform was handed.
+
 ## [PowerRustCOBOL 1.61.147] — 2026-08-22
 
 ### Fixed — map zoom jumped a whole level at a time

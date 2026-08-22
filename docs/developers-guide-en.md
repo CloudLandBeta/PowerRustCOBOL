@@ -2438,6 +2438,25 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **A Label's text can be selected and copied.** At run time a Label's `Caption`
+> is live text, not a picture of text: the operator drags across it to select,
+> and `Cmd`/`Ctrl`+`C` puts the selection on the clipboard. A drag that begins on
+> one Label and ends on another takes in both, so a figure can be copied together
+> with the caption that names it. There is nothing to switch on — no property,
+> and no COBOL to write.
+>
+> Coming from PowerCOBOL or isCOBOL you will expect a static text control to be
+> inert, and this is one of the places PowerRustCOBOL follows the modern desktop
+> instead. Everything else about a Label is unchanged: one with a bound `onClick`
+> still fires it, `TAB` still walks past labels to the controls you designed, and
+> on the designer canvas a drag still moves the control rather than selecting its
+> text.
+>
+> Note. Before this, copyable text meant a TextBox with `ReadOnly` set. That
+> still works and is still the right control when the text is a *value* the
+> operator may want to correct later — but it is no longer what you reach for
+> merely to let someone copy a caption.
+
 > **Text you can always read.** A form does not know what its theme paints, so
 > the colours that carry meaning are checked against the surface they land on: a
 > CheckBox or RadioButton caption, a CheckBox's `CheckColor` tick, a ListBox's
