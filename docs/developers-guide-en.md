@@ -2448,11 +2448,11 @@ abbreviations). A few you will use constantly:
 > colour absolutely, choose one that reads on the theme you ship.
 >
 > **Which surface each one is measured against.** The one the text really lands
-> on. A CheckBox's `BackgroundColor` paints its **tick box**, and a
-> RadioButton's paints its **circle** — the caption stands beside them, on the
-> control's **frame** — so the caption is checked against the frame, and the
-> `CheckColor` tick against the box. Giving a check box a dark background
-> therefore no longer turns its caption white.
+> on. A CheckBox has two surfaces (see below): the caption sits on the **frame**
+> and is checked against `BackgroundColor`, while the `CheckColor` tick sits
+> inside the **box** and is checked against `CheckBoxColor`. Giving a check box
+> a dark frame colour therefore no longer turns its tick white, and colouring
+> the box no longer turns the caption white.
 >
 > **A see-through frame is left to you.** Once `Transparency` is above 70 the
 > frame paints too little to read, and what the caption really sits on — the
@@ -2463,6 +2463,37 @@ abbreviations). A few you will use constantly:
 >
 > A CheckBox's caption sits to the right of its box, and a RadioButton's to the
 > right of its selection circle, at the same distance in both.
+
+> **A CheckBox has two surfaces, and each has its own properties.** Coming from
+> PowerCOBOL or isCOBOL you will expect one background and one border; here the
+> tick box is a surface in its own right, so there are two of each. Which one a
+> property means never depends on the control:
+>
+> | Surface | What it is | Its properties |
+> |---------|-----------|----------------|
+> | **Frame** | The card behind the caption *and* the box — the whole control rectangle | `BackgroundColor` (or the gradient pair), `BorderStyle`, `BorderColor`, `BorderWidth` |
+> | **Box** | The tick square itself — a RadioButton's selection circle | `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth` |
+>
+> `CheckColor` and `CheckSize` stay what they always were: the tick drawn
+> *inside* the box, and how much of the box it fills.
+>
+> `BackgroundColor` therefore means on a CheckBox exactly what it means on a
+> Label, a TextBox or a Panel — the control's own face. A check box starts
+> 100 % transparent and its `BorderStyle` starts `None`, so the frame shows
+> nothing at all until you ask for it; the box, meanwhile, starts with
+> `CheckBoxColor` empty, which leaves it wearing whatever the active theme
+> paints. Name a colour and yours leads.
+>
+> ```cobol
+>     MOVE "#1E3A5F" TO CHK-AGREE::BackgroundColor
+>     MOVE "Single"  TO CHK-AGREE::BorderStyle
+>     MOVE "#FFFFFF" TO CHK-AGREE::CheckBoxColor
+> ```
+>
+> ⚠️ **Caveat.** A border and a face are separate decisions. A frameless control
+> — a CheckBox left transparent, a Label with no background — still draws a
+> border you asked for, over nothing. That is deliberate: `BorderStyle` had no
+> effect at all on those two before, which is the more surprising behaviour.
 
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL

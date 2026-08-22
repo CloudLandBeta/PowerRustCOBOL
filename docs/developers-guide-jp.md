@@ -574,12 +574,11 @@ abbreviations). A few you will use constantly:
 > す。色を完全に固定したいときは、配布する theme の上で読める色を選んでくださ
 > い。
 >
-> **どの面と照らすのか。** テキストが実際に載る面です。CheckBox の
-> `BackgroundColor` は**チェックボックスの枡**を塗り、RadioButton のそれは
-> **円**を塗ります。caption はその横、control の**フレーム**の上にあります。
-> したがって caption はフレームと、`CheckColor` のチェックは枡と照らされます。
-> check box に濃い背景色を与えても、caption が白へ反転することはもうありませ
-> ん。
+> **どの面と照らすのか。** テキストが実際に載る面です。CheckBox には二つの面が
+> あります（下記）。caption は**フレーム**の上にあるので `BackgroundColor` と
+> 照らされ、`CheckColor` のチェックは**枡**の中にあるので `CheckBoxColor` と
+> 照らされます。check box のフレーム色を濃くしてもチェックが白へ反転すること
+> はなく、枡を塗っても caption が白へ反転することはありません。
 >
 > **透けたフレームは開発者に任されます。** `Transparency` が 70 を超えると、
 > フレームはほとんど何も塗らず、caption が本当に載っているもの — form、
@@ -590,6 +589,36 @@ abbreviations). A few you will use constantly:
 >
 > CheckBox の caption は枡の右側に、RadioButton の caption は選択円の右側に、
 > どちらも同じ距離で置かれます。
+
+> **CheckBox には二つの面があり、それぞれに専用の properties があります。**
+> PowerCOBOL や isCOBOL から来ると background も border も一つずつだと思うはず
+> ですが、ここでは枡そのものが独立した面なので、どちらも二つあります。どの
+> property がどちらの面を指すかは、control によって変わることはありません。
+>
+> | 面 | 何を指すか | その properties |
+> |----|-----------|-----------------|
+> | **フレーム** | caption と枡の**両方**の背後にあるカード — control の矩形全体 | `BackgroundColor`（またはグラデーションの組）、`BorderStyle`、`BorderColor`、`BorderWidth` |
+> | **枡** | チェックの枡そのもの — RadioButton では選択円 | `CheckBoxColor`、`CheckBoxBorderStyle`、`CheckBoxBorderColor`、`CheckBoxBorderWidth` |
+>
+> `CheckColor` と `CheckSize` は従来どおりです。枡の**中**に描かれるチェック
+> と、それが枡をどれだけ埋めるかを指します。
+>
+> つまり `BackgroundColor` は CheckBox でも、Label や TextBox や Panel と
+> まったく同じ意味 — control 自身の面 — を持ちます。check box は 100 % 透明で
+> `BorderStyle` は `None` から始まるので、指定するまでフレームには何も現れま
+> せん。一方の枡は `CheckBoxColor` が空の状態から始まり、有効な theme が塗った
+> ままになります。色を指定すれば、そちらが優先されます。
+>
+> ```cobol
+>     MOVE "#1E3A5F" TO CHK-AGREE::BackgroundColor
+>     MOVE "Single"  TO CHK-AGREE::BorderStyle
+>     MOVE "#FFFFFF" TO CHK-AGREE::CheckBoxColor
+> ```
+>
+> ⚠️ **注意。** border と面は別々の判断です。フレームを持たない control —
+> 透明のままの CheckBox、background のない Label — でも、指定した border は
+> 何もない上に描かれます。これは意図的です。以前はその二つで `BorderStyle` が
+> まったく効かず、そちらのほうが分かりにくい挙動でした。
 
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL

@@ -3787,7 +3787,9 @@ fn draw_control_body(
     // transparency.)
     let radio_frameless = matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
 
-    if (is_label && !background_gradient && user_bg.is_none())
+    let label_frameless = is_label && !background_gradient && user_bg.is_none();
+
+    if label_frameless
         || pic_frameless
         || chart_frameless
         || container_frameless
@@ -3806,7 +3808,42 @@ fn draw_control_body(
                 container_diag,
             );
         }
-        if selected {
+        // A border is not a face. "Frameless" here means the control paints no
+        // CARD — a Label has no background, a CheckBox is see-through — and that
+        // said nothing about the rim, yet the branch returned before any border
+        // was drawn. So `BorderStyle`, `BorderColor` and `BorderWidth` sat in the
+        // properties pane doing nothing at all on the two controls whose frame is
+        // frameless by default (operator, 2026-08-22). An explicitly asked-for
+        // border is now drawn on the frame, over no face, exactly where the pane
+        // says it will be.
+        //
+        // Only for those two. The others are frameless because a property SAYS
+        // no border — a PictureBox's `ShowFrame`, a container's `HideBackground`
+        // — or because the control paints its own whole face (charts, SideMenu);
+        // drawing a second rim there would overrule the property that asked for
+        // none. A RadioButton needs no entry: its framelessness IS
+        // `BorderStyle == "None"`, so it never reaches here with a border to draw.
+        if (label_frameless || checkbox_frameless)
+            && border_style != "None"
+            && user_border_width > 0.5
+        {
+            draw_control_border(
+                painter,
+                frame_rect,
+                frame_round,
+                &border_style,
+                if selected {
+                    2.0_f32.max(user_border_width)
+                } else {
+                    user_border_width
+                },
+                if selected {
+                    Color32::from_rgba_premultiplied(60, 120, 230, a)
+                } else {
+                    alpha_color(stroke_color)
+                },
+            );
+        } else if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
             painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c), egui::StrokeKind::Middle);
         }
@@ -3862,12 +3899,29 @@ fn draw_control_body(
                 "CONTROL_GRADIENT_BORDER",
                 container_diag,
             );
-            painter.rect_stroke(
-                border_rect,
-                frame_round,
-                Stroke::new(if selected { 2.0 } else { user_border_width }, bc),
-                egui::StrokeKind::Middle,
-            );
+            // Through `draw_control_border`, like every other frame branch. This
+            // was a bare `rect_stroke`, which draws ONE flat line whatever the
+            // style says — so Fixed3D, Raised and Sunken all collapsed to Single
+            // the moment a background gradient was switched on, and switching it
+            // back restored them. That read exactly as the border style being
+            // reset by the gradient (operator, 2026-08-22).
+            if selected {
+                painter.rect_stroke(
+                    border_rect,
+                    frame_round,
+                    Stroke::new(2.0, bc),
+                    egui::StrokeKind::Middle,
+                );
+            } else {
+                draw_control_border(
+                    painter,
+                    border_rect,
+                    frame_round,
+                    &border_style,
+                    user_border_width,
+                    bc,
+                );
+            }
         }
     } else if let Some((pack, skin)) = &theme_skin {
         let state = if selected {
@@ -4478,9 +4532,30 @@ fn draw_control_body(
         // recessed Input well it has always drawn.
         let toggle_spec = active_surface_theme(painter.ctx())
             .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked });
-        match &toggle_spec {
-            Some(spec) => draw_theme_surface(painter, box_rect, fill, box_round, alpha_mul, spec),
-            None => draw_surface_auto(
+        // `CheckBoxColor` is the BOX's own colour, and when the developer names
+        // one it LEADS — the theme's toggle fill is a default, not a clamp.
+        //
+        // The box used to be painted from `fill`, the control's BackgroundColor,
+        // which is the FRAME's colour and reached here only as a hint the
+        // painters were free to ignore: a theme answered `spec.fill.unwrap_or
+        // (base)` and never reached `base`, and Liquid Glass turned it into a
+        // ~3.5 % frost tint. So one property drove two surfaces and was visible
+        // on neither (operator, 2026-08-22).
+        match (&toggle_spec, user_checkbox_color(ctrl)) {
+            (_, Some(bg)) => draw_surface_auto_bg(
+                painter,
+                box_rect,
+                bg,
+                Some(bg),
+                box_round,
+                false,
+                alpha_mul,
+                SurfaceRole::Toggle,
+            ),
+            (Some(spec), None) => {
+                draw_theme_surface(painter, box_rect, fill, box_round, alpha_mul, spec)
+            }
+            (None, None) => draw_surface_auto(
                 painter,
                 box_rect,
                 fill,
@@ -4490,6 +4565,19 @@ fn draw_control_body(
                 SurfaceRole::Input,
             ),
         }
+        // The box's own border, separate from the frame's: a tick box is a
+        // surface in its own right, and the frame's `BorderStyle` is the rim
+        // around the whole control. Seeded `None`, so the theme's own rim is
+        // what an untouched check box shows.
+        let (box_style, box_bw, box_bc) = checkbox_box_border(ctrl);
+        draw_control_border(
+            painter,
+            box_rect,
+            egui::CornerRadius::same(cr8(box_round)),
+            &box_style,
+            box_bw,
+            alpha_color(box_bc),
+        );
         if checked {
             let cc = alpha_color(toggle_mark_color(
                 painter,
@@ -4538,17 +4626,31 @@ fn draw_control_body(
             let (d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
             let c = Pos2::new(rect.left() + pad + d * 0.5, rect.center().y);
             // A radio is round: the same fill and rim the theme gave, as a
-            // circle rather than a rounded square.
+            // circle rather than a rounded square — and the same two properties
+            // the CheckBox's box carries, since the circle IS the radio's box.
+            // `CheckBoxColor` leads over the theme's fill; the box border rides
+            // on top of the theme's rim, as a circle.
             painter.circle_filled(
                 c,
                 d * 0.5,
-                theme_alpha(spec.fill.unwrap_or(Color32::TRANSPARENT), alpha_mul),
+                match user_checkbox_color(ctrl) {
+                    Some(bg) => alpha_color(bg),
+                    None => theme_alpha(spec.fill.unwrap_or(Color32::TRANSPARENT), alpha_mul),
+                },
             );
             painter.circle_stroke(
                 c,
                 d * 0.5,
                 Stroke::new(spec.border_width, theme_alpha(spec.border, alpha_mul)),
             );
+            let (box_style, box_bw, box_bc) = checkbox_box_border(ctrl);
+            if box_style != "None" && box_bw > 0.5 {
+                painter.circle_stroke(
+                    c,
+                    d * 0.5,
+                    Stroke::new(box_bw, alpha_color(box_bc)),
+                );
+            }
             checkbox_text_rect =
                 egui::Rect::from_min_max(egui::pos2(c.x + d * 0.5 + gap, rect.min.y), rect.max);
         }
@@ -9384,6 +9486,60 @@ fn toggle_indicator_metrics(rect: egui::Rect, ctrl: &Control) -> (f32, f32, f32)
     (d, pad, gap)
 }
 
+/// The colour the developer chose for a toggle's INDICATOR — the CheckBox's
+/// tick box, the RadioButton's circle — or `None` while they have not chosen
+/// one and the theme's own toggle surface leads.
+///
+/// Empty means "not chosen" here rather than the renderer-wide "still on the
+/// seeded default" convention: the property is seeded empty precisely so the
+/// theme keeps the box until someone names a colour, and so that naming white
+/// stays possible.
+pub fn user_checkbox_color(ctrl: &Control) -> Option<Color32> {
+    ctrl.get_prop("CheckBoxColor")
+        .map(|v| v.as_str().trim().to_owned())
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| parse_color(&raw))
+        .filter(|c| c.a() > 0)
+}
+
+/// The colour a toggle's indicator is actually painted with, resolved the same
+/// way the painter resolves it. The inspector's swatch reads this, so what it
+/// shows and what the canvas draws cannot disagree.
+///
+/// `under` stands in for the surface behind the control, used only when nothing
+/// else answers.
+pub fn checkbox_box_fill(ctx: &egui::Context, ctrl: &Control, under: Color32) -> Color32 {
+    if let Some(c) = user_checkbox_color(ctrl) {
+        return c;
+    }
+    let checked = ctrl
+        .get_prop("Checked")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    active_surface_theme(ctx)
+        .surface(SurfaceRole::Toggle, SurfaceState { selected: false, on: checked })
+        .and_then(|spec| spec.fill)
+        .unwrap_or(under)
+}
+
+/// The indicator's own border — `(style, width, colour)`, seeded `None` so an
+/// untouched toggle keeps whatever rim its theme draws.
+pub fn checkbox_box_border(ctrl: &Control) -> (String, f32, Color32) {
+    let style = ctrl
+        .get_prop("CheckBoxBorderStyle")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "None".into());
+    let width = ctrl
+        .get_prop("CheckBoxBorderWidth")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(1.0);
+    let colour = ctrl
+        .get_prop("CheckBoxBorderColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::from_rgb(140, 140, 160));
+    (style, width, colour)
+}
+
 /// The colour a toggle's mark is drawn in — the CheckBox's tick, the
 /// RadioButton's dot.
 ///
@@ -9402,7 +9558,11 @@ fn toggle_mark_color(painter: &egui::Painter, ctrl: &Control, box_fill: Option<C
         ctrl,
         parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
     );
-    let tone = box_fill
+    // The developer's own box colour outranks the theme's fill here exactly as
+    // it does when the box is painted — otherwise the tick would be rescued
+    // against a colour the box no longer wears.
+    let tone = user_checkbox_color(ctrl)
+        .or(box_fill)
         .map(|f| composite_premultiplied_over(f, behind))
         .unwrap_or(behind);
     let chosen = ctrl
@@ -11139,6 +11299,299 @@ mod checkbox_face_tests {
         assert!(
             relative_luminance(tone) < relative_luminance(pale),
             "and it must not read as the bare form either"
+        );
+    }
+}
+
+/// The two surfaces a toggle has, and the properties that reach each of them.
+///
+/// A CheckBox is a FRAME (the card behind caption and box, with its own
+/// background and rim) and a BOX (the tick square, with its own). One
+/// `BackgroundColor` used to answer for both and was visible on neither, and
+/// `BorderStyle`/`BorderColor`/`BorderWidth` reached nothing at all, because a
+/// see-through CheckBox took the frameless branch and returned before any
+/// border was drawn (operator, 2026-08-22 — seven reports, of which these are
+/// the paintable ones).
+#[cfg(test)]
+mod toggle_surface_tests {
+    use super::*;
+    use crate::model::{Control, ControlType};
+
+    /// Everything one `draw_control` pass put on the screen, flattened.
+    #[derive(Default)]
+    struct Painted {
+        fills: Vec<(Color32, egui::Rect)>,
+        rect_strokes: Vec<(Color32, f32, egui::Rect)>,
+        segments: Vec<(Color32, f32)>,
+        circles: Vec<(Color32, f32)>,
+    }
+
+    impl Painted {
+        fn has_rect_stroke(&self, rgb: (u8, u8, u8), width: f32) -> bool {
+            self.rect_strokes.iter().any(|(c, w, _)| {
+                (c.r(), c.g(), c.b()) == rgb && (*w - width).abs() < 0.01
+            })
+        }
+        fn has_segment(&self, width: f32) -> bool {
+            self.segments.iter().any(|(_, w)| (*w - width).abs() < 0.01)
+        }
+        fn fill_near(&self, rgb: (u8, u8, u8), tol: i32) -> Option<egui::Rect> {
+            self.fills
+                .iter()
+                .find(|(c, _)| {
+                    (c.r() as i32 - rgb.0 as i32).abs() <= tol
+                        && (c.g() as i32 - rgb.1 as i32).abs() <= tol
+                        && (c.b() as i32 - rgb.2 as i32).abs() <= tol
+                })
+                .map(|(_, r)| *r)
+        }
+    }
+
+    fn paint(ctrl: &Control) -> Painted {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::new(600.0, 400.0),
+        ));
+        let mut full = ctx.run_ui(input, |ui| {
+            draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
+        });
+        full.textures_delta.clear();
+        fn walk(s: &egui::Shape, out: &mut Painted) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Rect(r) => {
+                    if r.fill.a() > 0 {
+                        out.fills.push((r.fill, r.rect));
+                    }
+                    if r.stroke.width > 0.0 && r.stroke.color.a() > 0 {
+                        out.rect_strokes
+                            .push((r.stroke.color, r.stroke.width, r.rect));
+                    }
+                }
+                egui::Shape::LineSegment { stroke, .. } if stroke.width > 0.0 => {
+                    out.segments.push((stroke.color, stroke.width));
+                }
+                egui::Shape::Circle(c) => {
+                    if c.stroke.width > 0.0 && c.stroke.color.a() > 0 {
+                        out.circles.push((c.stroke.color, c.stroke.width));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut seen = Painted::default();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut seen);
+        }
+        seen
+    }
+
+    fn checkbox() -> Control {
+        let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
+        cb.rect = crate::model::Rect { x: 0, y: 0, w: 160, h: 24 };
+        cb
+    }
+
+    /// Reports 3, 5 and 6. A CheckBox is 100 % transparent by default, which
+    /// sent it down the frameless branch — and that branch drew no border, so
+    /// all three border properties were inert on the one control whose frame is
+    /// see-through by design.
+    #[test]
+    fn the_frame_border_reaches_a_see_through_checkbox() {
+        let mut cb = checkbox();
+        cb.set_prop("BorderStyle", crate::PropValue::String("Single".into()));
+        cb.set_prop("BorderColor", crate::PropValue::String("#FF00FF".into()));
+        cb.set_prop("BorderWidth", crate::PropValue::Int(3));
+        assert_eq!(crate::model::transparency_of(&cb), 100, "still see-through");
+
+        let painted = paint(&cb);
+        assert!(
+            painted.has_rect_stroke((255, 0, 255), 3.0),
+            "BorderStyle/Color/Width must paint the frame, got {:?}",
+            painted.rect_strokes
+        );
+    }
+
+    /// And the border is the FRAME's, not the box's (report 6): it rims the
+    /// whole 160×24 control, not the ~17 px square the tick lives in.
+    #[test]
+    fn that_border_rims_the_frame_and_not_the_tick_box() {
+        let mut cb = checkbox();
+        cb.set_prop("BorderStyle", crate::PropValue::String("Single".into()));
+        cb.set_prop("BorderColor", crate::PropValue::String("#FF00FF".into()));
+
+        let painted = paint(&cb);
+        let rimmed = painted
+            .rect_strokes
+            .iter()
+            .find(|(c, _, _)| (c.r(), c.g(), c.b()) == (255, 0, 255))
+            .map(|(_, _, r)| *r)
+            .expect("the frame border must be painted");
+        assert!(
+            rimmed.width() > 100.0,
+            "the frame is the whole control, got {rimmed:?}"
+        );
+    }
+
+    /// Left alone, a CheckBox still paints no frame — the fix restores the
+    /// border the developer asked for, it does not box every check box.
+    #[test]
+    fn an_untouched_checkbox_still_paints_no_frame() {
+        let painted = paint(&checkbox());
+        assert!(
+            !painted.has_rect_stroke((140, 140, 160), 1.0)
+                && !painted.has_rect_stroke((0x8C, 0x8C, 0xA0), 1.0),
+            "a default CheckBox must stay frameless, got {:?}",
+            painted.rect_strokes
+        );
+    }
+
+    /// Report 4. The gradient branch stroked one flat rectangle whatever the
+    /// style said, so turning a background gradient on flattened Fixed3D,
+    /// Raised and Sunken to Single — and turning it off brought them back,
+    /// which read as the gradient resetting the border style.
+    #[test]
+    fn a_three_d_border_survives_a_background_gradient() {
+        let mut cb = checkbox();
+        cb.set_prop("BorderStyle", crate::PropValue::String("Fixed3D".into()));
+        cb.set_prop("BorderWidth", crate::PropValue::Int(2));
+        cb.set_prop("Transparency", crate::PropValue::Int(0));
+
+        // Fixed3D is four shaded edges, never a single rect stroke.
+        let flat = paint(&cb);
+        assert!(
+            flat.has_segment(2.0),
+            "Fixed3D must draw shaded edges, got {:?}",
+            flat.segments
+        );
+
+        cb.set_prop("BackgroundGradientEnabled", crate::PropValue::Bool(true));
+        cb.set_prop(
+            "BackgroundGradientStartColor",
+            crate::PropValue::String("#FFFFFF".into()),
+        );
+        cb.set_prop(
+            "BackgroundGradientEndColor",
+            crate::PropValue::String("#C0C0C0".into()),
+        );
+        let gradient = paint(&cb);
+        assert!(
+            gradient.has_segment(2.0),
+            "the gradient must not flatten Fixed3D to one stroke, got {:?}",
+            gradient.segments
+        );
+    }
+
+    /// Report 2. `CheckBoxColor` paints the tick box. The box used to be drawn
+    /// from `BackgroundColor`, which every painter was free to ignore — a theme
+    /// answered with its own fill and Liquid Glass used it as a ~3.5 % tint, so
+    /// the colour never actually landed.
+    #[test]
+    fn the_box_wears_the_colour_chosen_for_it() {
+        let mut cb = checkbox();
+        cb.set_prop("CheckBoxColor", crate::PropValue::String("#C81E1E".into()));
+
+        let painted = paint(&cb);
+        let box_rect = painted
+            .fill_near((0xC8, 0x1E, 0x1E), 6)
+            .expect("CheckBoxColor must paint the tick box");
+        assert!(
+            box_rect.width() < 40.0,
+            "and it is the BOX that wears it, not the frame: {box_rect:?}"
+        );
+    }
+
+    /// Report 7. The box carries its own border — style, width and colour —
+    /// independent of the frame's.
+    #[test]
+    fn the_box_carries_its_own_border() {
+        let mut cb = checkbox();
+        cb.set_prop(
+            "CheckBoxBorderStyle",
+            crate::PropValue::String("Single".into()),
+        );
+        cb.set_prop(
+            "CheckBoxBorderColor",
+            crate::PropValue::String("#00A000".into()),
+        );
+        cb.set_prop("CheckBoxBorderWidth", crate::PropValue::Int(2));
+
+        let painted = paint(&cb);
+        let rimmed = painted
+            .rect_strokes
+            .iter()
+            .find(|(c, w, _)| (c.r(), c.g(), c.b()) == (0, 0xA0, 0) && (*w - 2.0).abs() < 0.01)
+            .map(|(_, _, r)| *r)
+            .expect("the box border must be painted");
+        assert!(
+            rimmed.width() < 40.0,
+            "the box border rims the BOX, got {rimmed:?}"
+        );
+    }
+
+    /// The two borders are independent: setting one must not draw the other.
+    #[test]
+    fn the_two_borders_do_not_borrow_from_each_other() {
+        let mut cb = checkbox();
+        cb.set_prop(
+            "CheckBoxBorderStyle",
+            crate::PropValue::String("Single".into()),
+        );
+        cb.set_prop(
+            "CheckBoxBorderColor",
+            crate::PropValue::String("#00A000".into()),
+        );
+        let painted = paint(&cb);
+        assert!(
+            !painted
+                .rect_strokes
+                .iter()
+                .any(|(_, _, r)| r.width() > 100.0),
+            "a box border must not rim the frame, got {:?}",
+            painted.rect_strokes
+        );
+    }
+
+    /// The Label half of the operator's second list: frameless for the same
+    /// reason (no background of its own), so its `BorderStyle` reached nothing
+    /// either — and a Label with a border must gain a rim, not a glass card.
+    #[test]
+    fn a_labels_border_is_drawn_without_giving_it_a_face() {
+        let mut label = Control::new("L", ControlType::Label, 0, 0);
+        label.rect = crate::model::Rect { x: 0, y: 0, w: 120, h: 24 };
+        label.set_prop("BorderStyle", crate::PropValue::String("Single".into()));
+        label.set_prop("BorderColor", crate::PropValue::String("#FF00FF".into()));
+        label.set_prop("BorderWidth", crate::PropValue::Int(2));
+
+        let painted = paint(&label);
+        assert!(
+            painted.has_rect_stroke((255, 0, 255), 2.0),
+            "a Label's BorderStyle must paint its frame, got {:?}",
+            painted.rect_strokes
+        );
+        assert!(
+            painted
+                .fills
+                .iter()
+                .all(|(_, r)| r.width() < 119.0 || r.height() < 23.0),
+            "and it must stay frameless — no full-size face, got {:?}",
+            painted.fills
+        );
+    }
+
+    /// A Label with no border keeps painting nothing, so this restores what the
+    /// property promises without giving every Label a rim.
+    #[test]
+    fn an_untouched_label_still_paints_nothing() {
+        let mut label = Control::new("L", ControlType::Label, 0, 0);
+        label.rect = crate::model::Rect { x: 0, y: 0, w: 120, h: 24 };
+        let painted = paint(&label);
+        assert!(
+            painted.rect_strokes.is_empty(),
+            "a plain Label must paint no frame, got {:?}",
+            painted.rect_strokes
         );
     }
 }

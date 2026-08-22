@@ -572,11 +572,11 @@ Algunas que usarás constantemente:
 > absoluta, elige uno que se lea en el theme que distribuyes.
 >
 > **Contra qué superficie se mide cada uno.** Contra aquella sobre la que el
-> texto cae realmente. El `BackgroundColor` de un CheckBox pinta su **casilla**,
-> y el de un RadioButton su **círculo** — el caption queda al lado, sobre el
-> **marco** del control —, de modo que el caption se comprueba contra el marco y
-> la marca `CheckColor` contra la casilla. Dar un fondo oscuro a un check box ya
-> no vuelve blanco su caption.
+> texto cae realmente. Un CheckBox tiene dos superficies (ver abajo): el caption
+> se apoya en el **marco** y se comprueba contra `BackgroundColor`, mientras que
+> la marca `CheckColor` va dentro de la **casilla** y se comprueba contra
+> `CheckBoxColor`. Dar un color de marco oscuro a un check box ya no vuelve
+> blanca su marca, y colorear la casilla ya no vuelve blanco el caption.
 >
 > **Un marco transparente queda en tus manos.** En cuanto `Transparency` pasa de
 > 70, el marco pinta demasiado poco para leerlo, y aquello sobre lo que el
@@ -588,6 +588,37 @@ Algunas que usarás constantemente:
 >
 > El caption de un CheckBox va a la derecha de su casilla, y el de un
 > RadioButton a la derecha de su círculo de selección, a la misma distancia.
+
+> **Un CheckBox tiene dos superficies, y cada una tiene sus properties.** Si
+> vienes de PowerCOBOL o isCOBOL esperarás un solo background y un solo border;
+> aquí la casilla es una superficie por derecho propio, así que hay dos de cada.
+> Qué superficie nombra cada property nunca depende del control:
+>
+> | Superficie | Qué es | Sus properties |
+> |------------|--------|----------------|
+> | **Marco** | La tarjeta detrás del caption *y* de la casilla — todo el rectángulo del control | `BackgroundColor` (o el par de gradiente), `BorderStyle`, `BorderColor`, `BorderWidth` |
+> | **Casilla** | La casilla de marcado en sí — el círculo de selección de un RadioButton | `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth` |
+>
+> `CheckColor` y `CheckSize` siguen siendo lo que siempre fueron: la marca
+> dibujada *dentro* de la casilla, y cuánto de la casilla ocupa.
+>
+> Por tanto `BackgroundColor` significa en un CheckBox exactamente lo mismo que
+> en un Label, un TextBox o un Panel: la cara del propio control. Un check box
+> empieza 100 % transparente y con `BorderStyle` en `None`, así que el marco no
+> muestra nada hasta que lo pidas; la casilla, en cambio, empieza con
+> `CheckBoxColor` vacío, lo que la deja con lo que pinte el theme activo. Nombra
+> un color y manda el tuyo.
+>
+> ```cobol
+>     MOVE "#1E3A5F" TO CHK-AGREE::BackgroundColor
+>     MOVE "Single"  TO CHK-AGREE::BorderStyle
+>     MOVE "#FFFFFF" TO CHK-AGREE::CheckBoxColor
+> ```
+>
+> ⚠️ **Advertencia.** Un border y una cara son decisiones distintas. Un control
+> sin marco — un CheckBox dejado transparente, un Label sin background — dibuja
+> igualmente el border que hayas pedido, sobre nada. Es deliberado: antes
+> `BorderStyle` no tenía ningún efecto en esos dos, que es lo más sorprendente.
 
 > **Control IDs.** Cuando colocas un control, recibe un ID legible, por type —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — que se convierte en su COBOL

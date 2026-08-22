@@ -3875,6 +3875,21 @@ impl Control {
                 props.insert("BorderStyle".into(), PropValue::String("None".into()));
                 props.insert("BorderColor".into(), PropValue::String("#8C8CA0".into()));
                 props.insert("BorderWidth".into(), PropValue::Int(1));
+                // The tick box / selection circle is a surface of its own, with
+                // its own colour and its own rim. `BackgroundColor` is the
+                // FRAME's, as on every other control; before these existed one
+                // property had to answer for both surfaces and was visible on
+                // neither (operator, 2026-08-22).
+                //
+                // `CheckBoxColor` is seeded EMPTY — "not chosen", so the active
+                // theme keeps painting the box — rather than carrying a sentinel
+                // colour, which would make white unpickable. The border is seeded
+                // `None` for the same reason: the theme's own rim stands until
+                // the developer asks for one.
+                props.insert("CheckBoxColor".into(), PropValue::String("".into()));
+                props.insert("CheckBoxBorderStyle".into(), PropValue::String("None".into()));
+                props.insert("CheckBoxBorderColor".into(), PropValue::String("#8C8CA0".into()));
+                props.insert("CheckBoxBorderWidth".into(), PropValue::Int(1));
             }
             ControlType::PictureBox => {
                 props.insert("ImagePath".into(), PropValue::String("".into()));
@@ -7253,6 +7268,29 @@ mod tests {
             );
             // The check glyph keeps its own, separate colour.
             assert_eq!(ctrl.get_prop("CheckColor").unwrap().as_str(), "#0078D7");
+
+            // …and the BOX is a surface of its own, with its own four. The
+            // frame's `BorderStyle` above rims the whole control; these rim the
+            // tick square. One `BackgroundColor` used to answer for both
+            // surfaces and was visible on neither (operator, 2026-08-22).
+            for key in [
+                "CheckBoxColor",
+                "CheckBoxBorderStyle",
+                "CheckBoxBorderColor",
+                "CheckBoxBorderWidth",
+            ] {
+                assert!(names.contains(&key.to_string()), "{t} is missing {key}");
+            }
+            assert_eq!(
+                ctrl.get_prop("CheckBoxColor").unwrap().as_str(),
+                "",
+                "{t}: the box starts unnamed, so the theme keeps painting it"
+            );
+            assert_eq!(
+                ctrl.get_prop("CheckBoxBorderStyle").unwrap().as_str(),
+                "None",
+                "{t}: the box keeps the theme's own rim until asked otherwise"
+            );
         }
     }
 

@@ -5674,6 +5674,42 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // The BOX's own surface — the tick box, or the radio's circle.
+                // Separate from the Appearance pair above, which is the FRAME's:
+                // `BackgroundColor` paints the card behind caption and box, and
+                // `BorderStyle` rims the whole control. Both start unset, so the
+                // swatch opens on the colour the theme is painting right now
+                // (resolved through the painter's own rule, so the pane and the
+                // canvas cannot disagree).
+                ui.add_space(4.0);
+                section_header(ui, "Check box");
+                let eff_box = cobolt_forms::paint::checkbox_box_fill(
+                    ui.ctx(),
+                    ctrl,
+                    Color32::from_rgb(240, 240, 240),
+                );
+                color_row_effective(ui, id, "CheckBoxColor", "Box colour", ctrl, action, eff_box);
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "CheckBoxBorderStyle",
+                    "Box border",
+                    ctrl,
+                    action,
+                    &["None", "Single", "Fixed3D", "Raised", "Sunken"],
+                    "None",
+                );
+                color_row_labeled(ui, id, "CheckBoxBorderColor", "Box border colour", ctrl, action);
+                int_row_inline(
+                    ui,
+                    id,
+                    "CheckBoxBorderWidth",
+                    "Box border width",
+                    ctrl,
+                    action,
+                    0..=10,
+                );
+                ui.add_space(4.0);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }

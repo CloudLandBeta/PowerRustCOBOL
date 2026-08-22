@@ -1,5 +1,61 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.146] — 2026-08-22
+
+### Fixed — a CheckBox has two surfaces, and neither could be styled
+
+Seven reports, one shape: a CheckBox is a **frame** (the card behind caption and
+box) and a **box** (the tick square), and the properties for them were either
+missing, pointed at the wrong surface, or painted nothing at all.
+
+**The frame's border reached nothing.** A CheckBox is 100 % transparent by
+default, which sent it down the frameless branch — and that branch returned
+before any border was drawn. "Frameless" means the control paints no *card*; it
+said nothing about the rim, yet `BorderStyle`, `BorderColor` and `BorderWidth`
+sat in the properties pane doing nothing. A border asked for is now drawn on the
+frame, over no face. **Label had the identical bug** (frameless whenever it has
+no background) and is fixed by the same rule. The other frameless controls are
+untouched: a PictureBox's `ShowFrame` and a container's `HideBackground` are
+properties that *say* no border, and charts and the SideMenu paint their own
+whole face.
+
+**A background gradient flattened every 3D border style.** The gradient branch
+stroked one plain rectangle whatever the style said, so switching a gradient on
+collapsed Fixed3D, Raised and Sunken to Single — and switching it off brought
+them back, which read as the gradient resetting the border style. It now goes
+through `draw_control_border` like every other branch. This also covers the
+TextBox half of the report.
+
+**The box ignored the colour chosen for it.** The tick box was painted from
+`BackgroundColor`, which reached the painters only as a hint they were free to
+drop: a theme answered `spec.fill.unwrap_or(base)` and never reached `base`,
+and Liquid Glass turned it into a ~3.5 % frost tint. So one property drove two
+surfaces and was visible on neither.
+
+### Added — the properties each surface was missing
+
+`BackgroundColor` keeps its universal meaning on a CheckBox — the control's own
+face — exactly as on Label, TextBox and Panel. The box gained its own four:
+
+| Surface | Properties |
+|---------|-----------|
+| **Frame** | `BackgroundColor` (or the gradient pair), `BorderStyle`, `BorderColor`, `BorderWidth` |
+| **Box** | `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth` |
+
+`CheckBoxColor` is seeded **empty** — "not chosen", so the active theme keeps
+painting the box — rather than a sentinel colour, which would make white
+unpickable. The box border is seeded `None` for the same reason. The inspector's
+swatch opens on the colour the box is drawing right now, resolved through the
+painter's own rule, so the pane and the canvas cannot disagree.
+
+The RadioButton's selection circle is the same surface and carries the same four
+properties; it is drawn only under themes that paint toggles, so Liquid Glass
+keeps its `(●)` glyph unchanged.
+
+`CheckColor`'s legibility rescue now measures against `CheckBoxColor` rather
+than the frame's background, so the tick is judged against the box it is
+actually drawn in.
+
 ## [PowerRustCOBOL 1.61.145] — 2026-08-22
 
 ### Fixed — a CheckBox's caption was made to contrast with its tick box

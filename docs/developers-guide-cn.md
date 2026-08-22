@@ -563,11 +563,10 @@ abbreviations). A few you will use constantly:
 > 色或白色中更清楚的那一个。若要把颜色完全钉死，请挑一个在你所发布的 theme 上
 > 读得清楚的颜色。
 >
-> **各自与哪个表面对照。** 与文字真正落在的那个表面。CheckBox 的
-> `BackgroundColor` 画的是它的**方框**，RadioButton 的画的是它的**圆圈** —
-> caption 在旁边，落在控件的**外框**上 — 所以 caption 与外框对照，而
-> `CheckColor` 勾选标记与方框对照。给 check box 设一个深色背景，不会再把它的
-> caption 翻成白色。
+> **各自与哪个表面对照。** 与文字真正落在的那个表面。CheckBox 有两个表面（见
+> 下文）：caption 落在**外框**上，与 `BackgroundColor` 对照；而 `CheckColor`
+> 勾选标记在**方框**里面，与 `CheckBoxColor` 对照。给 check box 设一个深色外框
+> 不会再把勾选标记翻成白色，给方框上色也不会再把 caption 翻成白色。
 >
 > **透明的外框交给你自己决定。** 一旦 `Transparency` 超过 70，外框画出的东西
 > 太少而无从判读，而 caption 真正落在的东西 — form、GroupBox、背景图 — 控件
@@ -577,6 +576,33 @@ abbreviations). A few you will use constantly:
 >
 > CheckBox 的 caption 在方框右侧，RadioButton 的 caption 在选择圆圈右侧，两者
 > 距离相同。
+
+> **CheckBox 有两个表面，各有各的 properties。** 从 PowerCOBOL 或 isCOBOL 过来
+> 的人会以为只有一个 background、一个 border；在这里方框本身就是一个独立的表
+> 面，所以两者各有一套。哪个 property 指哪个表面，从不因控件而异：
+>
+> | 表面 | 是什么 | 它的 properties |
+> |------|--------|-----------------|
+> | **外框** | caption **和**方框背后的那块底 — 整个控件矩形 | `BackgroundColor`（或那对渐变），`BorderStyle`，`BorderColor`，`BorderWidth` |
+> | **方框** | 勾选方框本身 — RadioButton 中即选择圆圈 | `CheckBoxColor`，`CheckBoxBorderStyle`，`CheckBoxBorderColor`，`CheckBoxBorderWidth` |
+>
+> `CheckColor` 和 `CheckSize` 含义不变：画在方框**里面**的勾选标记，以及它占方
+> 框的比例。
+>
+> 因此 `BackgroundColor` 在 CheckBox 上的含义，与它在 Label、TextBox 或 Panel
+> 上完全一致 — 控件自身的面。check box 初始为 100 % 透明且 `BorderStyle` 为
+> `None`，所以在你明确设定之前外框什么也不显示；而方框初始时 `CheckBoxColor`
+> 为空，保持当前 theme 所绘制的样子。一旦你指定颜色，就以你的为准。
+>
+> ```cobol
+>     MOVE "#1E3A5F" TO CHK-AGREE::BackgroundColor
+>     MOVE "Single"  TO CHK-AGREE::BorderStyle
+>     MOVE "#FFFFFF" TO CHK-AGREE::CheckBoxColor
+> ```
+>
+> ⚠️ **注意。** border 和面是两个独立的决定。没有外框的控件 — 保持透明的
+> CheckBox、没有 background 的 Label — 仍会把你要求的 border 画出来，画在空处。
+> 这是有意为之：以前 `BorderStyle` 在这两者上完全无效，那才更令人费解。
 
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
