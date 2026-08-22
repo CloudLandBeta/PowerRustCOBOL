@@ -3767,7 +3767,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "TileLoadingColor" => (
             "`#RRGGBB[AA]`, or empty for the built-in `#D2D2D2`",
-            "One tile that has not arrived yet, in its own square. Set this and TileBackgroundColor to the same value for a map that fills in without a visible grid.",
+            "One tile that has not arrived yet, in its own square — seen only when there is NOTHING to borrow from. A missing tile normally shows the ground rescaled instead: zooming in, the nearest loaded lower level magnified and cropped to that tile's own quadrant; zooming out, the four tiles of the level just left, shrunk into their quarters. So this colour appears on the first view of a place and on a tile that failed, not on every zoom. Set it and TileBackgroundColor to the same value for a map that fills in without a visible grid.",
         ),
         "InfoShadow" => ("`1`/`0` (default 1)", "Drop shadow under the info window. Turn it off on a flat or high-contrast form."),
         "SelectedRegionId" => ("region id string or empty (runtime-only)", "Id of the region whose info card is OPEN — set by a click, cleared by clicking bare map. Writing it opens or closes a card from COBOL."),

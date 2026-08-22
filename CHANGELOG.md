@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.155] — 2026-08-22
+
+### Fixed — a zoom blanked to grey instead of showing the ground it already had
+
+Reported by the operator. A tile that had not arrived was a flat block — so
+every zoom went picture → grey → picture, when the map already holds an image of
+that same ground at another scale, which is what every map client draws
+meanwhile.
+
+`draw_tile_stand_in` fills the gap out of the cache:
+
+- **Zooming in**, the nearest loaded ANCESTOR is magnified and cropped to the
+  quadrant this tile covers (`ancestor_uv`), so the ground stays where the eye
+  left it and simply sharpens when the real tile lands. Up to five levels up —
+  past that it is a 32× smear and the honest backdrop reads better.
+- **Zooming out**, the four CHILDREN are drawn shrunk into their quarters. The
+  level just left is still in the cache, so the new one fills in over a picture.
+  Whichever children are ready are drawn: partial cover beats none.
+
+Ancestors are tried first — one draw, and one level up is only 2× — then
+children. `TileLoadingColor` is now seen only when there is nothing to borrow:
+the first view of a place, or a tile that failed.
+
+Tested on the part that can be silently wrong: which piece of the ancestor a
+tile covers. A wrong UV shows ground from somewhere else, which is worse than
+grey because it looks correct. The four children of a tile are also checked to
+cover their parent exactly — no overlap, no gap.
+
 ## [PowerRustCOBOL 1.61.154] — 2026-08-22
 
 ### Added — a Gauge's three zone colours are properties

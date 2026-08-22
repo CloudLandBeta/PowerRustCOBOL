@@ -4323,6 +4323,16 @@ independent halves with different credential needs:
   state and is never published, so `onBoundsChanged` still reports whole levels
   and a `MOVE 16 TO MAP-1::Zoom` still lands exactly on 16.
 
+  **A tile that has not arrived shows the ground, not a hole.** The new level's
+  images take a moment to come down, and the map already has a picture of that
+  same ground at another scale — so it uses it, the way every map client does:
+  zooming **in**, the nearest loaded tile from a lower level is magnified and
+  cropped to the piece you are looking at; zooming **out**, the four tiles of
+  the level you just left are drawn shrunk into their quarters. The real image
+  then arrives *over a picture* and simply sharpens, instead of replacing a grey
+  block. `TileLoadingColor` is what you see only when there is nothing to borrow
+  — the very first view of a place, or a tile that failed.
+
   ⚠️ **A grey map with only its markers on it** means the tiles are not
   arriving — the control is fine, the download is not. Tiles come from
   `tile.openstreetmap.org` over HTTPS and need no key, so the usual causes are
