@@ -3334,6 +3334,28 @@ fn draw_datagrid_line(
     }
 }
 
+/// What a TreeView node event carries: `text⇥index⇥level⇥checked`.
+///
+/// The four things a handler needs to act on the node that fired — which one it
+/// was, where it is in `Items` (so a handler can find it in its own table
+/// without searching, and `Sorted` cannot renumber it), how deep, and whether
+/// its box is ticked. `checked` is `0` when the tree has no boxes at all, which
+/// is the honest answer to "is it ticked" for a node that cannot be.
+///
+/// Both are 1-BASED, as COBOL counts: the first node is index 1 at level 1.
+///
+/// A label can never contain a TAB — `Items` splits label from icon on one — so
+/// the encoding is unambiguous.
+pub(crate) fn node_payload(row: &crate::treeview::TreeRow, checked: &[String]) -> String {
+    format!(
+        "{}\t{}\t{}\t{}",
+        row.text,
+        row.index + 1,
+        row.depth + 1,
+        u8::from(checked.iter().any(|c| *c == row.text)),
+    )
+}
+
 /// Render one control as a live, interactive egui widget (Interactive mode),
 /// accumulating events + property updates. Faces reuse `draw_control` /
 /// `draw_animator` / `draw_picturebox` so the running widget matches the designer
@@ -6966,7 +6988,7 @@ fn render_interactive(
                             } else {
                                 "onNodeCollapse"
                             },
-                            &row.text,
+                            &node_payload(row, &checked_after),
                         ));
                     } else if on_box {
                         match checked_after.iter().position(|c| *c == row.text) {
@@ -6981,7 +7003,7 @@ fn render_interactive(
                             checked_after.join("\n"),
                         ));
                         out.events
-                            .push(UiEvent::with_value(id, "onNodeCheck", &row.text));
+                            .push(UiEvent::with_value(id, "onNodeCheck", &node_payload(row, &checked_after)));
                     } else {
                         out.prop_updates.push((
                             id.to_owned(),
@@ -6989,18 +7011,18 @@ fn render_interactive(
                             row.text.clone(),
                         ));
                         out.events
-                            .push(UiEvent::with_value(id, "onNodeClick", &row.text));
+                            .push(UiEvent::with_value(id, "onNodeClick", &node_payload(row, &checked_after)));
                         if !is_selected {
                             out.events
-                                .push(UiEvent::with_value(id, "onNodeSelect", &row.text));
+                                .push(UiEvent::with_value(id, "onNodeSelect", &node_payload(row, &checked_after)));
                         }
                     }
                 }
                 if resp.double_clicked() && enabled {
                     out.events
-                        .push(UiEvent::with_value(id, "onNodeDblClick", &row.text));
+                        .push(UiEvent::with_value(id, "onNodeDblClick", &node_payload(row, &checked_after)));
                     out.events
-                        .push(UiEvent::with_value(id, "onNodeDoubleClick", &row.text));
+                        .push(UiEvent::with_value(id, "onNodeDoubleClick", &node_payload(row, &checked_after)));
                 }
             }
             crate::treeview::paint(

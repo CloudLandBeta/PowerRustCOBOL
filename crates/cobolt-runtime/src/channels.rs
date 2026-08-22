@@ -39,6 +39,19 @@ pub struct FormEvent {
     /// 1-based instance index when the control is inside a repeating GroupBox
     /// (ControlArray). 0 means scalar (not array member).
     pub instance_index: usize,
+    /// What the event is ABOUT, when it is about something — the node a
+    /// TreeView event fired on, TAB-separated as `text⇥index⇥level⇥checked`.
+    ///
+    /// The renderer always knew this and the host threw it away, so a handler
+    /// for `onNodeCheck` or `onNodeCollapse` could not tell WHICH node had
+    /// moved: those events do not touch `SelectedNode`, and nothing else
+    /// carried the answer (operator, 2026-08-22: "how am I supposed to know
+    /// which node was clicked?"). The interpreter unpacks it into the LINKAGE
+    /// group the handler is generated with.
+    ///
+    /// A node label can never contain a TAB — `Items` splits the label from its
+    /// icon on one — so the encoding cannot be ambiguous.
+    pub value: String,
 }
 
 impl FormEvent {
@@ -47,7 +60,14 @@ impl FormEvent {
             ctrl_id: ctrl_id.into(),
             event_id: event_id.into(),
             instance_index: 0,
+            value: String::new(),
         }
+    }
+
+    /// What the event is about — see [`FormEvent::value`].
+    pub fn with_value(mut self, value: impl Into<String>) -> Self {
+        self.value = value.into();
+        self
     }
 
     pub fn with_index(mut self, idx: usize) -> Self {

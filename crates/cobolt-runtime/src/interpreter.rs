@@ -1475,6 +1475,34 @@ impl Interpreter {
             .unwrap_or(false)
     }
 
+    /// Unpack a node event's payload into the names its handler is generated
+    /// with: `CONTROL-NODE`, `CONTROL-NODE-INDEX`, `CONTROL-NODE-LEVEL` and
+    /// `CONTROL-NODE-CHECKED`.
+    ///
+    /// Bound the same way `CONTROL-ARRAY-INDEX` is — written into the
+    /// environment just before the handler runs, where the generated
+    /// `PROCEDURE DIVISION USING CONTROL-NODE-DATA` reads them.
+    ///
+    /// An event with NO payload clears all four rather than leaving them.
+    /// Otherwise a Button's `onClick` would read whatever node the last tree
+    /// event happened to leave behind, which is worse than reading spaces —
+    /// it looks like an answer.
+    fn bind_node_payload(&mut self, value: &str) {
+        let mut parts = value.split('\t');
+        let text = parts.next().unwrap_or("");
+        // A payload is the whole group or nothing: a value that is not a node
+        // payload (any other event's value) must not half-fill the group.
+        let (index, level, checked) = match (parts.next(), parts.next(), parts.next()) {
+            (Some(i), Some(l), Some(c)) => (i, l, c),
+            _ => ("0", "0", "0"),
+        };
+        let node = if index == "0" { "" } else { text };
+        self.env.set_str("CONTROL-NODE", node);
+        self.env.set_str("CONTROL-NODE-INDEX", index);
+        self.env.set_str("CONTROL-NODE-LEVEL", level);
+        self.env.set_str("CONTROL-NODE-CHECKED", checked);
+    }
+
     /// Drain any pending UI-driven property updates into the object registry.
     /// Called just before an event handler runs so getters see the live value.
     fn drain_input(&mut self) {
@@ -5318,6 +5346,12 @@ impl Interpreter {
                             // in LINKAGE for array-member event handlers).
                             self.env
                                 .set_str("CONTROL-ARRAY-INDEX", &ev.instance_index.to_string());
+                            // The node a TreeView event fired on, unpacked into
+                            // the LINKAGE group its handler is generated with.
+                            // Always set — an event that carries no node clears
+                            // them, so a handler can never read the last node
+                            // some other event happened to leave behind.
+                            self.bind_node_payload(&ev.value);
                             // Populate COBOL-EVENT-ID and COBOL-CONTROL-ID (args 0 and 1).
                             if using.len() >= 1 {
                                 let n = self.expr_to_name(call_arg_expr(&using[0]));

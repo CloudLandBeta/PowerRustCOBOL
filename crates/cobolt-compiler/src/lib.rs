@@ -2465,7 +2465,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 
 Almost every event delivers **nothing**. The generated dispatcher calls a handler as `CALL "<handler-program>"` with no arguments, so the handler's `LINKAGE SECTION` is empty and its header is a plain `PROCEDURE DIVISION.` with no `USING`.
 
-- **There is exactly ONE event payload in the platform**: `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the card that fired, and ONLY for a control inside a repeating group. That handler is called `USING CONTROL-ARRAY-INDEX` and writes `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.`.
+- **There are exactly TWO event payloads in the platform.** The second is `CONTROL-NODE-DATA`, on every TreeView node event (`onNodeClick`, `onNodeSelect`, `onNodeDblClick`/`onNodeDoubleClick`, `onNodeCheck`, `onNodeCollapse`, `onNodeExpand`) — a LINKAGE group of `05 CONTROL-NODE PIC X(256)` (the node's label, the key every TreeView property uses), `05 CONTROL-NODE-INDEX PIC S9(4) COMP-5` (its 1-based line in `Items` as WRITTEN, so `Sorted` cannot renumber it), `05 CONTROL-NODE-LEVEL PIC S9(4) COMP-5` (1-based depth) and `05 CONTROL-NODE-CHECKED PIC 9` (`1` when its box is ticked, `0` when it is not or the tree has no boxes). Such a handler is written `PROCEDURE DIVISION USING CONTROL-NODE-DATA.` and the designer generates it that way. Before 1.61.158 a handler for `onNodeCheck`/`onNodeCollapse`/`onNodeExpand` could not tell WHICH node had moved: those events write no `SelectedNode` and the value was dropped. The first is `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the card that fired, and ONLY for a control inside a repeating group. That handler is called `USING CONTROL-ARRAY-INDEX` and writes `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.`.
 - **No event carries a key code, a mouse button, a coordinate, a modifier or a character.** Do NOT declare an item such as `KEY-CODE` and do NOT write `PROCEDURE DIVISION USING KEY-CODE.` — nothing populates it, and the dispatcher passes no argument to bind it to.
 - **A specific key has its own event.** For "do X when the user presses ENTER" bind `onEnterPressed`; for ESC bind `onEscapePressed`. `onKeyDown` / `onKeyUp` / `onKeyPress` fire for ANY key and tell you nothing about which one, so testing a key inside them is impossible.
 - To know what the user typed, read the control's own text: `MOVE MY-BOX::Text TO WS-VALUE`. `onTextChanged` (alias `onChange`) fires after each edit.
@@ -3451,7 +3451,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "IconSize" => ("integer 6-64 (default 14)", "Icon and disclosure-arrow size in points. The arrow's slot is reserved on EVERY row whether or not the node has children, so labels line up in a column."),
         "IconColor" => (COLOR_DOMAIN, "Icons and disclosure arrows. Empty — the default — follows the node ink, so legible text means legible icons."),
         "HighContrastText" => (BOOL_DOMAIN, "ON by default: node ink is picked by CONTRAST RATIO against the face the tree is actually painted on, so it clears WCAG AA on a white face, a dark card or a glass surface alike. Off falls back to the theme's own text colour, for a developer who wants the tree to match the theme even where that costs legibility. An explicit `ForegroundColor` outranks both."),
-        "RowHeight" => ("integer 8-200 (default 18)", "Row pitch in points. A tree on a large font needs taller rows; this is how to ask."),
+        "RowHeight" => ("integer 8-200 (default 18)", "The row's MINIMUM height in points — a floor, not a ceiling. A row is never shorter than what it holds, so growing `IconSize` or `CheckBoxSize` grows the row with it rather than letting a big icon paint over the nodes above and below."),
+        "NodeSpacing" => ("integer 0-100 (default 0)", "Extra gap BETWEEN nodes, on top of whatever the row needs for its icon and box. Reach for this when the rows read as a wall of text."),
         "IndentWidth" => ("integer 0-200 (default 16)", "How far one level of the tree steps right."),
         "CheckBoxSize" => ("integer 6-64 (default 12)", "The tick box's size, when `CheckBoxes` is on."),
         "SelectionColor" => (COLOR_DOMAIN, "The band behind the selected node, used EXACTLY as given — alpha included, since a selection band is mostly alpha. Empty is the theme's focus colour at the weight a band has always had."),
@@ -4323,6 +4324,10 @@ fn controls_reference_doc() -> String {
          REPEATING GROUP, which is called `USING CONTROL-ARRAY-INDEX` (`PIC S9(4) COMP-5`, the \
          1-based index of the card that fired) and writes \
          `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.`.\n\n\
+         The OTHER is a TreeView NODE event, called `USING CONTROL-NODE-DATA` — a group of \
+         `CONTROL-NODE` (the label), `CONTROL-NODE-INDEX` and `CONTROL-NODE-LEVEL` (both \
+         1-based) and `CONTROL-NODE-CHECKED` (`1`/`0`). It is how a handler knows which node \
+         was clicked, checked, folded or unfolded.\n\n\
          In particular **no event delivers a key code**: never declare `KEY-CODE` or write \
          `PROCEDURE DIVISION USING KEY-CODE.` — nothing populates it. `onKeyDown`, `onKeyUp` \
          and `onKeyPress` fire for ANY key and say nothing about which one, so a specific key \
