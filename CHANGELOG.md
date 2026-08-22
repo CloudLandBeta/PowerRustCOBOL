@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.151] — 2026-08-22
+
+### Fixed — controls in a SideMenu's footer landed beside the rail when the form ran
+
+Reported by the operator, with screenshots: a clock designed into the sidebar's
+footer panel sat in the footer in the RAD and surfaced over the *content*, at
+the bottom, in the running shell.
+
+The footer Panel belongs to the rail, and the shell did not know it. In shell
+mode the host drops the SideMenu (the rail is chrome the shell paints) and
+slides every remaining control left by the rail's width, clamping at zero — but
+the footer Panel sits at `x = 0` **inside** the rail's column, so `0 - rail`
+clamped to the pane's left edge and the whole subtree was drawn there.
+
+- **`side_menu_footer_subtree`** names the Panel and everything inside it, by
+  ancestry — a Panel dropped into the footer takes its own children with it.
+- **The pane exempts that subtree from the slide**: it is rail, not content, and
+  its designed rect is what the band is laid out from.
+- **`FormBody::draw_side_menu_footer`** draws it into the live footer band from
+  `sidebar::layout` — so it follows a form resize, a `FooterHeight` edit and a
+  collapse — and forwards its events through the same `forward_interaction` the
+  content pass uses. Same engine, same live state, same event path; only the
+  `Ui` differs.
+- **Withheld from the content pass through `LiveState::hidden`** rather than by
+  filtering the control list, so each control keeps one state entry and one
+  animation, and only *who draws it* changes.
+
+A window host is untouched: there is no rail chrome there, the SideMenu is an
+ordinary control, and its footer already sits on it.
+
+Tested in `cobolt-form-host` (the subtree keeps its designed rect, the content
+pass withholds it, ordinary content still slides, a window host withholds
+nothing) and in `cobolt-forms` (the subtree is everything inside the footer,
+however deep, and nothing else).
+
 ## [PowerRustCOBOL 1.61.150] — 2026-08-22
 
 ### Fixed — a ToolBar's BackgroundColor did nothing

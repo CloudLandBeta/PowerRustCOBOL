@@ -2167,6 +2167,59 @@ mod tests {
     /// The rail owns where the Panel sits and nothing else — `paint_footer` is
     /// deliberately empty. Operator report: its background and border style
     /// could not be changed.
+    /// **What belongs to the footer, by ancestry.** The shell has to hand the
+    /// rail everything the developer put in the footer Panel, and a control two
+    /// levels down is no less in the footer than a direct child — a Panel
+    /// dropped into the footer takes its own contents with it.
+    ///
+    /// Nothing outside that subtree may be claimed: a control claimed here
+    /// disappears from the ContentPane and reappears in a 144pt band.
+    #[test]
+    fn the_footer_subtree_is_everything_inside_it_and_nothing_else() {
+        use crate::model::{side_menu_footer_subtree, Form, Rect as MRect};
+
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 200, 744);
+        side.set_prop("FooterHeight", 144i64);
+        form.controls.push(side);
+        form.sync_side_menu_footer_panels();
+
+        let footer_id = crate::model::side_menu_footer_id("SideMenu-1");
+        // A clock in the footer, a Panel in the footer, and a label in THAT
+        // panel — listed child-before-parent on purpose, since a form's control
+        // list is z-ordered and owes nobody a parents-first order.
+        let mut deep = Control::new("LBL-DEEP", crate::ControlType::Label, 0, 0);
+        deep.parent = Some("PNL-INNER".into());
+        let mut inner = Control::new("PNL-INNER", crate::ControlType::Panel, 0, 0);
+        inner.parent = Some(footer_id.clone());
+        let mut clock = Control::new("LBL-CLOCK", crate::ControlType::Label, 0, 0);
+        clock.parent = Some(footer_id.clone());
+        // Content, and a control parented to the SIDEBAR itself rather than to
+        // its footer — neither is the footer's.
+        let content = Control::new("BTN-1", crate::ControlType::Button, 300, 40);
+        let mut on_rail = Control::new("LBL-RAIL", crate::ControlType::Label, 10, 10);
+        on_rail.parent = Some("SideMenu-1".into());
+        form.controls.extend([deep, inner, clock, content, on_rail]);
+
+        let mut ids = side_menu_footer_subtree(&form.controls);
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec![
+                "LBL-CLOCK".to_string(),
+                "LBL-DEEP".to_string(),
+                "PNL-INNER".to_string(),
+                footer_id,
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>(),
+            "the Panel, both its levels of children, and nothing else"
+        );
+    }
+
     #[test]
     fn the_footer_panel_takes_the_developers_background_and_border() {
         use crate::model::{Form, PropValue, Rect as MRect};

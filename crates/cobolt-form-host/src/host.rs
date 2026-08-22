@@ -401,6 +401,21 @@ impl FormHost {
         // and `FullHeight` makes that second copy as tall as the whole form.
         // Only its PAINT is dropped — the control keeps its state entry below,
         // so `SelectedItemId` and its event handlers still work.
+        // 049 — the SideMenu's FOOTER PANEL and whatever the developer dropped
+        // into it are part of the RAIL, not of the form's content. They were
+        // slid over with everything else and clamped at the pane's left edge,
+        // so a clock designed into the footer surfaced BESIDE the rail at the
+        // bottom of the content (operator, 2026-08-22). They keep their
+        // designed rects here and are drawn by `draw_side_menu_footer` into the
+        // rail's own footer band.
+        let footer_ids: std::collections::HashSet<String> = if surface == Surface::Pane {
+            cobolt_forms::model::side_menu_footer_subtree(&flat)
+                .into_iter()
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
         let flat: Vec<cobolt_forms::Control> = if surface == Surface::Pane {
             flat.into_iter()
                 .filter(|c| c.control_type != cobolt_forms::ControlType::SideMenu)
@@ -410,7 +425,13 @@ impl FormHost {
                     // to the rail rather than offset from it twice. A control
                     // the developer parked UNDER the rail clamps to the edge
                     // instead of disappearing off the left of the pane.
-                    c.rect.x = (c.rect.x - side_dx).max(0);
+                    //
+                    // The footer subtree is exempt: it is not content, it is
+                    // rail, and its designed rect is what the footer band is
+                    // laid out from.
+                    if !footer_ids.contains(&c.id) {
+                        c.rect.x = (c.rect.x - side_dx).max(0);
+                    }
                     c
                 })
                 .collect()
@@ -441,6 +462,7 @@ impl FormHost {
         let host = FormHost {
             root: FormBody {
                 form_name: form.name.clone(),
+                footer_ids: footer_ids.clone(),
                 theme_pack,
                 surface_theme,
                 glass_style,
@@ -482,6 +504,7 @@ impl FormHost {
             child_interpreter_setup,
             shared_rust_bridge,
             surface,
+            footer_ids,
             visuals_set: false,
             quit_sent: false,
             diagnostics,
@@ -539,6 +562,10 @@ impl FormHost {
 /// all rendered through the same frame path — one renderer, N forms.
 pub(crate) struct FormBody {
     pub(crate) form_name: String,
+    /// 049 — ids the CONTENT pass must not draw because the RAIL draws them:
+    /// the SideMenu footer Panel and whatever was dropped into it. Empty in a
+    /// window host, where the rail is an ordinary control.
+    pub(crate) footer_ids: std::collections::HashSet<String>,
     /// Resolved asset-pack theme (None = built-in Liquid Glass) + the form's
     /// glass style — pushed into the egui context so the unified painter reads
     /// the same theme state as under the IDE (spec 017 parity).
@@ -595,6 +622,76 @@ pub(crate) struct FormBody {
 }
 
 impl FormBody {
+    /// Draw the SideMenu's footer Panel — and whatever the developer dropped
+    /// into it — inside the rail's own footer band, and forward what the
+    /// operator does there to the interpreter.
+    ///
+    /// The footer Panel is the developer's: they drop controls into it in the
+    /// designer and style it through the ordinary inspector. In a SHELL the
+    /// rail is chrome drawn outside the ContentPane, so those controls have no
+    /// business in the pane's list — left there they were slid over with the
+    /// rest of the form and clamped to the pane's left edge, surfacing BESIDE
+    /// the rail instead of on it (operator, 2026-08-22).
+    ///
+    /// `band` is the live footer row from `sidebar::layout`, so the panel
+    /// follows the rail's height, the operator's `FooterHeight` and a collapsed
+    /// rail without any of those knowing about this. The subtree is REBASED on
+    /// the panel's designed origin, which is what keeps a control's position
+    /// inside the footer exactly what the designer showed.
+    ///
+    /// Nothing here is a second copy of the render: it is the same engine, the
+    /// same live state and the same event forwarding as the content pass —
+    /// only the `Ui` it draws into is different.
+    pub(crate) fn draw_side_menu_footer(&mut self, ui: &mut egui::Ui, band: egui::Rect) {
+        if self.footer_ids.is_empty() || band.width() < 1.0 || band.height() < 1.0 {
+            return;
+        }
+        // The panel's designed origin — everything in the band is placed
+        // relative to it.
+        let Some(origin) = self
+            .controls
+            .iter()
+            .find(|c| c.is_side_menu_footer() && self.footer_ids.contains(&c.id))
+            .map(|c| (c.rect.x, c.rect.y))
+        else {
+            return;
+        };
+        let subtree: Vec<cobolt_forms::Control> = self
+            .controls
+            .iter()
+            .filter(|c| self.footer_ids.contains(&c.id))
+            .map(|c| {
+                let mut c = c.clone();
+                c.rect.x -= origin.0;
+                c.rect.y -= origin.1;
+                c
+            })
+            .collect();
+
+        // `hidden: None` — this IS the pass that owns them.
+        let st = LiveState {
+            state: &self.state,
+            anim: &self.anim,
+            hidden: None,
+        };
+        let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
+        child.set_clip_rect(band.intersect(ui.clip_rect()));
+        let input = cobolt_forms::render::RenderInput {
+            controls: &subtree,
+            state: &st,
+            form_size: band.size(),
+            glass: true,
+            mode: cobolt_forms::render::RenderMode::Interactive,
+            active_tabs: &active_tabs,
+            // The rail paints its own footer band; the panel draws its face
+            // over it, so this pass contributes no backdrop of its own.
+            backdrop: cobolt_forms::render::Backdrop::default(),
+        };
+        let out = cobolt_forms::render::render_form(&mut child, &input);
+        self.forward_interaction(&out.prop_updates, out.events);
+    }
+
     pub(crate) fn send_event(&mut self, ev: FormEvent) {
         crate::diagnostics::trace_event("send", &ev.ctrl_id, &ev.event_id, ev.instance_index);
         if self.ev_tx.send(ev).is_ok() {
@@ -1199,6 +1296,7 @@ impl FormBody {
             let st = LiveState {
                 state: &self.state,
                 anim: &self.anim,
+                hidden: Some(&self.footer_ids),
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = self.backdrop(ctx);
@@ -1415,6 +1513,11 @@ pub struct FormHost {
         Option<std::sync::Arc<std::sync::Mutex<cobolt_runtime::rust_bridge::RustBridge>>>,
     /// 049 — own window, or the shell's ContentPane (see [`Surface`]).
     surface: Surface,
+    /// 049 — the SideMenu footer Panel and its contents, which the RAIL draws
+    /// (`draw_side_menu_footer`) rather than the ContentPane. Empty in a window
+    /// host, where the rail is an ordinary control and its footer sits on it
+    /// already.
+    footer_ids: std::collections::HashSet<String>,
     /// Carries out a toolbar button's platform action, and finishes the window
     /// captures that cannot complete on the frame that asked for them.
     visuals_set: bool,
@@ -1798,6 +1901,14 @@ impl FormHost {
     /// already fired gets its `onActivate` here (a fresh instance fires
     /// onShow/onActivate through its own warm-up instead). The leaving
     /// side's `onDeactivate`/`onDestroy` is the NavChain's `Resident` job.
+    /// 049 — draw the main form's SideMenu footer Panel into the rail's footer
+    /// band. The SHELL owns the band (it lays the rail out); the HOST owns the
+    /// controls, their live state and their events, so neither has to learn the
+    /// other's half.
+    pub fn draw_side_menu_footer(&mut self, ui: &mut egui::Ui, band: egui::Rect) {
+        self.root.draw_side_menu_footer(ui, band);
+    }
+
     pub fn show_occupant(&mut self, form_object: Option<&str>) {
         let key = form_object.map(|f| f.trim().to_ascii_uppercase());
         if key == self.active_occupant {
@@ -2077,6 +2188,10 @@ impl FormHost {
         let (fw, fh) = (form.width as f32, form.height as f32);
         let body = FormBody {
             form_name: form.name.clone(),
+            // An occupant is a form INSIDE the pane; the rail belongs to the
+            // shell's main form, so an occupant has no footer band of its own
+            // and nothing is withheld from its content pass.
+            footer_ids: std::collections::HashSet::new(),
             theme_pack,
             surface_theme,
             glass_style: form.glass_style,
@@ -2791,6 +2906,7 @@ impl FormHost {
             let st = LiveState {
                 state: &self.root.state,
                 anim: &self.root.anim,
+                hidden: Some(&self.root.footer_ids),
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = self.root.backdrop(ctx);
@@ -3317,6 +3433,7 @@ mod parity {
             let st = crate::state::LiveState {
                 state: &h.root.state,
                 anim: &h.root.anim,
+                hidden: None,
             };
             st.visible(&sw)
         };
@@ -3573,6 +3690,134 @@ mod parity {
             "049 pane juxtaposition — 960px form, 200px rail: BTN-1 210→10, \
              BTN-2 20→0 (clamped), pane content width 960→760; a window host \
              unchanged at 210/20/960"
+        );
+    }
+
+    /// **The SideMenu's footer Panel belongs to the RAIL, not to the content.**
+    ///
+    /// Operator, 2026-08-22: a clock designed into the footer sat in the footer
+    /// in the RAD and surfaced beside the rail, over the content, when the form
+    /// ran. The panel sits at `x = 0` INSIDE the rail's column, so the pane's
+    /// "slide the form over the rail" step drove it to `0 - rail`, clamped it
+    /// at the pane's left edge, and drew it there — with its children.
+    ///
+    /// Two things are asserted, because either alone would hide the bug: the
+    /// subtree keeps its DESIGNED rect (it is not content and must not slide),
+    /// and the content pass WITHHOLDS it (the rail's own pass draws it, and
+    /// drawing it twice would be its own bug).
+    #[test]
+    fn a_side_menu_footer_panel_is_the_rails_business_not_the_panes_049() {
+        use cobolt_forms::render::FormState;
+
+        fn host_for(surface: Surface) -> FormHost {
+            let form = cobolt_forms::Form::new("MAIN", "Main", 960, 744);
+            let mut side =
+                cobolt_forms::Control::new("SIDE-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+            side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 744);
+            // The footer Panel the SideMenu owns, pinned to the bottom of the
+            // rail's column exactly as `sync_side_menu_footer_panels` pins it.
+            let mut footer =
+                cobolt_forms::Control::new("SIDE-1-Footer", cobolt_forms::ControlType::Panel, 0, 600);
+            footer.rect = cobolt_forms::model::Rect::new(0, 600, 200, 144);
+            footer.parent = Some("SIDE-1".into());
+            footer.set_prop(cobolt_forms::model::SIDE_MENU_FOOTER_PROP, true);
+            // The operator's clock, dropped into that Panel.
+            let mut clock =
+                cobolt_forms::Control::new("LBL-CLOCK", cobolt_forms::ControlType::Label, 20, 640);
+            clock.rect = cobolt_forms::model::Rect::new(20, 640, 160, 40);
+            clock.parent = Some("SIDE-1-Footer".into());
+            // Ordinary content, to prove the slide still happens for everything
+            // that is NOT the footer.
+            let mut beside =
+                cobolt_forms::Control::new("BTN-1", cobolt_forms::ControlType::Button, 210, 40);
+            beside.rect = cobolt_forms::model::Rect::new(210, 40, 100, 30);
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (_form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (host, _form) = FormHost::new(FormHostConfig {
+                form,
+                flat: vec![side, footer, clock, beside],
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx: _form_req_tx.clone(),
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: FxSpec::default(),
+                fx_exit: FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface,
+            });
+            host
+        }
+
+        let ctrl_of = |h: &FormHost, id: &str| -> cobolt_forms::Control {
+            h.root
+                .controls
+                .iter()
+                .find(|c| c.id == id)
+                .expect("control")
+                .clone()
+        };
+
+        let pane = host_for(Surface::Pane);
+        // Designed rects, untouched by the pane slide.
+        assert_eq!(
+            (ctrl_of(&pane, "SIDE-1-Footer").rect.x, ctrl_of(&pane, "LBL-CLOCK").rect.x),
+            (0, 20),
+            "the footer subtree is rail, not content — it must not slide"
+        );
+        assert_eq!(
+            ctrl_of(&pane, "BTN-1").rect.x,
+            10,
+            "…while ordinary content still slides over the rail's column"
+        );
+
+        // And the content pass does not draw them.
+        let st = crate::state::LiveState {
+            state: &pane.root.state,
+            anim: &pane.root.anim,
+            hidden: Some(&pane.root.footer_ids),
+        };
+        assert!(
+            !st.visible(&ctrl_of(&pane, "SIDE-1-Footer"))
+                && !st.visible(&ctrl_of(&pane, "LBL-CLOCK")),
+            "the ContentPane must withhold the footer subtree — the rail draws it"
+        );
+        assert!(
+            st.visible(&ctrl_of(&pane, "BTN-1")),
+            "…and withhold nothing else"
+        );
+
+        // A WINDOW host is untouched: there is no rail chrome there, the
+        // SideMenu is an ordinary control and its footer already sits on it.
+        let window = host_for(Surface::Window);
+        assert!(
+            window.root.footer_ids.is_empty(),
+            "a window host has no footer band to hand anything to"
+        );
+        assert_eq!(ctrl_of(&window, "LBL-CLOCK").rect.x, 20);
+
+        println!(
+            "049 footer — pane: SIDE-1-Footer/LBL-CLOCK keep x=0/20 and are \
+             withheld from the content pass; BTN-1 still slides 210→10; a \
+             window host withholds nothing"
         );
     }
 
@@ -4079,6 +4324,7 @@ mod parity {
         let timer = cobolt_forms::Control::new("TMR-1", cobolt_forms::ControlType::Timer, 0, 0);
         FormBody {
             form_name: "TIMER-FORM".to_owned(),
+            footer_ids: std::collections::HashSet::new(),
             theme_pack: None,
             surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             glass_style: cobolt_forms::model::GlassStyle::default(),

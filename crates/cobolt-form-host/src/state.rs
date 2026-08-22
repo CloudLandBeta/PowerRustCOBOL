@@ -102,6 +102,15 @@ pub fn state_entry_mut<'a>(
 pub struct LiveState<'a> {
     pub state: &'a HashMap<String, CtrlState>,
     pub anim: &'a cobolt_forms::anim::AnimRuntime,
+    /// Ids this pass must NOT draw because another pass owns them — the
+    /// SideMenu footer Panel and its contents, which belong to the rail rather
+    /// than to the form's content area.
+    ///
+    /// Withheld through `visible` rather than by filtering the control list:
+    /// the controls stay in one list, with one state entry and one animation
+    /// each, so only WHO DRAWS THEM changes. The renderer skips an invisible
+    /// control outright, leaving no rect behind.
+    pub hidden: Option<&'a std::collections::HashSet<String>>,
 }
 
 impl<'a> LiveState<'a> {
@@ -128,6 +137,11 @@ impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
         }
     }
     fn visible(&self, base: &cobolt_forms::Control) -> bool {
+        if let Some(hidden) = self.hidden {
+            if hidden.contains(&base.id) {
+                return false;
+            }
+        }
         self.entry(base).map(|s| s.visible).unwrap_or(true)
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
@@ -197,6 +211,7 @@ mod tests {
         let live = LiveState {
             state: &state,
             anim: &anim,
+            hidden: None,
         };
         assert!(live.entry(&ctrl).is_some(), "LABEL-1 must resolve for Label-1");
     }

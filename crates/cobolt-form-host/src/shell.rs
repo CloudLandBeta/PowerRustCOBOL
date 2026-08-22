@@ -489,6 +489,10 @@ pub struct Shell {
     last_menu_fill: Option<egui::Color32>,
     /// Where the Open/Collapsed toggle landed last frame (tests/parity).
     last_toggle_rect: Option<Rect>,
+    /// Where the rail's FOOTER BAND landed last frame — the band the SideMenu's
+    /// footer Panel and its controls are drawn into. Recorded while the rail is
+    /// laid out, spent once the pane's `Ui` is in hand.
+    last_footer_rect: Option<Rect>,
     /// Where each drawn menu item landed last frame, by item id. Lets a test
     /// click the item it means instead of a magic coordinate that shifts
     /// whenever the pane gains chrome.
@@ -521,6 +525,7 @@ impl Default for Shell {
             last_crumb_layout: None,
             last_menu_fill: None,
             last_toggle_rect: None,
+            last_footer_rect: None,
             last_item_rects: Vec::new(),
         }
     }
@@ -866,6 +871,14 @@ impl Shell {
         let rows = sidebar::layout(rect, &state);
         state.hovered = pointer.and_then(|p| sidebar::row_at(&rows, p));
         sidebar::paint(ui.painter(), rect, &rows, &state);
+        // Where the footer Panel and its controls go. Taken from the SAME
+        // layout the rail was painted from, so the panel cannot land anywhere
+        // but on the band under it — through a form resize, a `FooterHeight`
+        // edit or a collapse.
+        self.last_footer_rect = rows
+            .iter()
+            .find(|r| matches!(r.kind, RowKind::Footer))
+            .map(|r| r.rect);
 
         let mut clicks = Vec::new();
         let mut rects: Vec<(String, Rect)> = Vec::new();
@@ -1086,6 +1099,13 @@ impl Shell {
                         menu(ui)
                     });
                 menu_scroll = out.state.offset;
+                // The developer's footer Panel, on the band the rail just laid
+                // out. Drawn OUTSIDE the scroll area, like the band itself: the
+                // footer does not move when the menu scrolls, so neither may
+                // what sits in it.
+                if let Some(band) = self.last_footer_rect {
+                    host.draw_side_menu_footer(ui, band);
+                }
             });
         let menu_rect = panel.response.rect;
 
