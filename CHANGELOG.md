@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.149] — 2026-08-22
+
+### Added — every colour a Maps control paints is now a property
+
+Reported by the operator: the map's colours were literals in the painting code,
+so a pin was red on a form whose every other colour the developer had chosen,
+and no property could say otherwise. Eight of them, all in the inspector's new
+**Basic properties** section for Maps — which had no inspector section at all
+until now — and all writable from COBOL:
+
+| Property | Was |
+|----------|-----|
+| `MarkerColor` | `#C82828` — the red pin |
+| `MarkerBorderColor` | `#FFFFFF` |
+| `RouteColor` | `#1E6EDC` (a route naming no colour) |
+| `RouteCasingColor` | `#FFFFFFB4` (the halo under **every** route) |
+| `RegionFillColor` | translucent blue (a region naming no fill) |
+| `RegionBorderColor` | no border at all |
+| `TileBackgroundColor` | `#C8C8C8` |
+| `TileLoadingColor` | `#D2D2D2` |
+
+- **Colour carried by the DATA still wins.** `AddRoute`'s colour and
+  `AddRegion`'s fill/stroke keep theirs; these are the fallback for a line that
+  names none. The three exceptions are the ones whose data has no colour field:
+  the two marker colours (`AddMarker` takes none) and the route casing.
+- **Each starts EMPTY, meaning the built-in**, so no existing map changes. That
+  is not a stylistic choice: the region fill is a *premultiplied* colour no
+  `#RRGGBBAA` can express, so seeding hex defaults would have quietly restyled
+  maps nobody touched. The inspector shows each built-in as the swatch's
+  fallback (`color_prop_row_default`), so an unset colour still tells the truth.
+- **`MapColors::from_control` is the one reader**, used by both painting paths —
+  a pin that is one colour while you lay the form out and another while it runs
+  is not a design surface. A malformed hex costs only its own colour.
+
+Tested in `map_tiles`: an unset map still carries every built-in, each property
+moves only its own colour, a region border appears only when asked for, and a
+bad hex string falls back alone.
+
 ## [PowerRustCOBOL 1.61.148] — 2026-08-22
 
 ### Fixed — a Label's text could not be selected or copied

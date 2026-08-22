@@ -603,6 +603,98 @@ const DEFAULT_ROUTE_COLOR: egui::Color32 = egui::Color32::from_rgb(30, 110, 220)
 const DEFAULT_REGION_FILL: egui::Color32 =
     egui::Color32::from_rgba_premultiplied(60, 120, 200, 70);
 
+/// Every colour the map paints that the overlay data does not carry itself.
+///
+/// These were literals in the painting code, so a pin was red on a form whose
+/// every other colour the developer had chosen, and no property could say
+/// otherwise (operator, 2026-08-22). Each is now a property on the Maps
+/// control, and each **defaults to exactly what was painted before**, so a form
+/// that sets none of them looks as it always did.
+///
+/// Where the data DOES carry a colour — `AddRoute`'s colour argument,
+/// `AddRegion`'s fill and stroke — that colour still wins. These are the
+/// defaults it falls back to, not a clamp over it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MapColors {
+    /// The pin itself. Was `#C82828` in the code and nowhere else.
+    pub marker: egui::Color32,
+    /// The ring drawn around a pin so it reads on a busy basemap.
+    pub marker_border: egui::Color32,
+    /// A route whose `Routes` line names no colour.
+    pub route: egui::Color32,
+    /// The casing under every route — the bright halo that makes a thin line
+    /// readable over mixed terrain, the way every road map draws one.
+    pub route_casing: egui::Color32,
+    /// A region whose `Regions` line names no fill.
+    pub region_fill: egui::Color32,
+    /// A region whose `Regions` line names no stroke. `None` — the default —
+    /// draws no border at all, which is what such a region has always done;
+    /// naming a colour gives every unstyled region an outline.
+    pub region_border: Option<egui::Color32>,
+    /// Painted under the whole map before any tile has arrived.
+    pub tile_backdrop: egui::Color32,
+    /// A tile that has not arrived yet, in its own place.
+    pub tile_loading: egui::Color32,
+}
+
+impl Default for MapColors {
+    fn default() -> Self {
+        Self {
+            marker: egui::Color32::from_rgb(200, 40, 40),
+            marker_border: egui::Color32::WHITE,
+            route: DEFAULT_ROUTE_COLOR,
+            route_casing: egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180),
+            region_fill: DEFAULT_REGION_FILL,
+            region_border: None,
+            tile_backdrop: egui::Color32::from_gray(200),
+            tile_loading: egui::Color32::from_gray(210),
+        }
+    }
+}
+
+impl MapColors {
+    /// Read the colour properties off a Maps control. An empty or malformed
+    /// value leaves that colour at its default, so one bad hex string costs
+    /// only its own colour.
+    ///
+    /// ONE reader, called by both painting paths: the designer canvas draws
+    /// markers, routes and regions too, and a pin that is one colour while you
+    /// lay the form out and another while it runs is not a design surface.
+    pub fn from_control(ctrl: &crate::model::Control) -> Self {
+        let mut c = Self::default();
+        let prop = |key: &str| -> Option<egui::Color32> {
+            ctrl.get_prop(key)
+                .map(|v| v.as_str().to_owned())
+                .filter(|s| !s.trim().is_empty())
+                .and_then(|s| parse_hex_color(&s))
+        };
+        if let Some(v) = prop("MarkerColor") {
+            c.marker = v;
+        }
+        if let Some(v) = prop("MarkerBorderColor") {
+            c.marker_border = v;
+        }
+        if let Some(v) = prop("RouteColor") {
+            c.route = v;
+        }
+        if let Some(v) = prop("RouteCasingColor") {
+            c.route_casing = v;
+        }
+        if let Some(v) = prop("RegionFillColor") {
+            c.region_fill = v;
+        }
+        // The one colour whose absence MEANS something: no border.
+        c.region_border = prop("RegionBorderColor");
+        if let Some(v) = prop("TileBackgroundColor") {
+            c.tile_backdrop = v;
+        }
+        if let Some(v) = prop("TileLoadingColor") {
+            c.tile_loading = v;
+        }
+        c
+    }
+}
+
 /// `#RGB`, `#RRGGBB` or `#RRGGBBAA` → a colour. `None` for empty or malformed
 /// text, which is how a caller says "use the default" without a sentinel.
 ///
@@ -656,6 +748,7 @@ pub fn paint_map(
     open_marker_id: &str,
     open_region_id: &str,
     info_style: &InfoStyle,
+    colors: &MapColors,
 ) -> MapHit {
     paint_map_at(
         painter,
@@ -671,6 +764,7 @@ pub fn paint_map(
         open_marker_id,
         open_region_id,
         info_style,
+        colors,
     )
 }
 
@@ -702,6 +796,7 @@ pub fn paint_map_at(
     open_marker_id: &str,
     open_region_id: &str,
     info_style: &InfoStyle,
+    colors: &MapColors,
 ) -> MapHit {
     let ctx = painter.ctx();
     poll_tiles(ctx);
@@ -720,7 +815,7 @@ pub fn paint_map_at(
     // …and what that does to a tile: 256 px at the level itself, larger while
     // the map is on its way up, smaller on its way down.
     let tile_px = TILE_SIZE * 2f64.powf(zoom_frac as f64);
-    painter.rect_filled(rect, 0.0, egui::Color32::from_gray(200)); // pre-tile backdrop
+    painter.rect_filled(rect, 0.0, colors.tile_backdrop); // pre-tile backdrop
     // Tiles are drawn whole and let the painter cut them at the viewport edge —
     // see the `TileSlot::Ready` arm for why cutting the DESTINATION instead is
     // what made the map ripple while it was dragged.
@@ -784,7 +879,7 @@ pub fn paint_map_at(
                     painter.image(tex.id(), dest, uv, egui::Color32::WHITE);
                 }
                 Some(TileSlot::Failed) => {
-                    painter.rect_filled(dest, 0.0, egui::Color32::from_gray(210));
+                    painter.rect_filled(dest, 0.0, colors.tile_loading);
                 }
                 Some(TileSlot::Loading(_)) => {
                     // Left at the pre-tile backdrop colour; nothing to draw.
@@ -846,7 +941,7 @@ pub fn paint_map_at(
                 hit.clicked_region = Some(ri);
             }
         }
-        let fill = parse_hex_color(&region.fill).unwrap_or(DEFAULT_REGION_FILL);
+        let fill = parse_hex_color(&region.fill).unwrap_or(colors.region_fill);
         // Triangulated, never `convex_polygon`: a sales territory or a delivery
         // zone is nearly always concave, and a convex fill floods its notches.
         for tri in crate::map_geometry::triangulate(&pts) {
@@ -878,13 +973,13 @@ pub fn paint_map_at(
         if pts.len() < 2 {
             continue;
         }
-        let color = parse_hex_color(&route.color).unwrap_or(DEFAULT_ROUTE_COLOR);
+        let color = parse_hex_color(&route.color).unwrap_or(colors.route);
         let width = if route.width > 0.0 { route.width } else { 4.0 };
         // A casing under the line, the way every map draws a road: a thin
         // bright route over mixed terrain is unreadable without one.
         painter.add(egui::Shape::line(
             pts.clone(),
-            egui::Stroke::new(width + 2.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)),
+            egui::Stroke::new(width + 2.0, colors.route_casing),
         ));
         painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
     }
@@ -900,11 +995,11 @@ pub fn paint_map_at(
             continue;
         }
         let radius = 6.0;
-        painter.circle_filled(pos, radius, egui::Color32::from_rgb(200, 40, 40));
+        painter.circle_filled(pos, radius, colors.marker);
         painter.circle_stroke(
             pos,
             radius,
-            egui::Stroke::new(1.5, egui::Color32::WHITE),
+            egui::Stroke::new(1.5, colors.marker_border),
         );
         // A little slack around the pin: a 6px dot is hard to hit exactly, and
         // the same slack for hover and click keeps the tooltip honest about
@@ -1325,5 +1420,92 @@ mod tests {
     fn an_unchanged_zoom_never_moves_the_centre() {
         let (lat, lng) = (10.0, 20.0);
         assert_eq!(zoom_about(lat, lng, 8, 8, 300.0, -50.0), (lat, lng));
+    }
+
+    /// **A map nobody restyled paints exactly what it always did.** The colours
+    /// became properties (operator, 2026-08-22: "all Map's colors are hard
+    /// coded"), and the whole promise of seeding them EMPTY is that an existing
+    /// form is untouched — so the built-ins are pinned here against the literals
+    /// they replaced.
+    #[test]
+    fn an_unset_map_keeps_every_built_in_colour() {
+        let map = crate::model::Control::new("MAP-1", crate::ControlType::Maps, 0, 0);
+        let c = MapColors::from_control(&map);
+        assert_eq!(c, MapColors::default(), "a seeded Maps control must not restyle itself");
+        assert_eq!(c.marker, egui::Color32::from_rgb(200, 40, 40));
+        assert_eq!(c.marker_border, egui::Color32::WHITE);
+        assert_eq!(c.route, egui::Color32::from_rgb(30, 110, 220));
+        assert_eq!(
+            c.route_casing,
+            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)
+        );
+        assert_eq!(
+            c.region_fill,
+            egui::Color32::from_rgba_premultiplied(60, 120, 200, 70)
+        );
+        assert_eq!(c.region_border, None, "an unstyled region has never had a border");
+        assert_eq!(c.tile_backdrop, egui::Color32::from_gray(200));
+        assert_eq!(c.tile_loading, egui::Color32::from_gray(210));
+    }
+
+    /// Every property is read, and each one moves ONLY its own colour — a
+    /// blanket "colours come from properties now" is worth nothing if two of
+    /// them share a code path.
+    #[test]
+    fn each_map_colour_property_moves_only_its_own_colour() {
+        let cases: [(&str, &str, fn(&MapColors) -> egui::Color32); 7] = [
+            ("MarkerColor", "#112233", |c| c.marker),
+            ("MarkerBorderColor", "#445566", |c| c.marker_border),
+            ("RouteColor", "#778899", |c| c.route),
+            ("RouteCasingColor", "#AABBCC", |c| c.route_casing),
+            ("RegionFillColor", "#DDEEFF", |c| c.region_fill),
+            ("TileBackgroundColor", "#010203", |c| c.tile_backdrop),
+            ("TileLoadingColor", "#040506", |c| c.tile_loading),
+        ];
+        for (key, hex, read) in cases {
+            let mut map = crate::model::Control::new("MAP-1", crate::ControlType::Maps, 0, 0);
+            map.set_prop(key, crate::PropValue::String(hex.into()));
+            let c = MapColors::from_control(&map);
+            assert_eq!(
+                read(&c),
+                parse_hex_color(hex).expect("test hex parses"),
+                "{key} did not reach the painter"
+            );
+            // Nothing else moved.
+            let base = MapColors::default();
+            let moved = cases
+                .iter()
+                .filter(|(other, _, other_read)| *other != key && other_read(&c) != other_read(&base))
+                .map(|(other, _, _)| *other)
+                .collect::<Vec<_>>();
+            assert!(moved.is_empty(), "{key} also changed {moved:?}");
+        }
+    }
+
+    /// `RegionBorderColor` is the one whose EMPTY value means something: a
+    /// region whose own line names no stroke has never had a border, so
+    /// seeding one would draw an outline on every such region in every form
+    /// that already exists.
+    #[test]
+    fn a_region_border_appears_only_when_asked_for() {
+        let mut map = crate::model::Control::new("MAP-1", crate::ControlType::Maps, 0, 0);
+        assert_eq!(MapColors::from_control(&map).region_border, None);
+        map.set_prop("RegionBorderColor", crate::PropValue::String("#FF8800".into()));
+        assert_eq!(
+            MapColors::from_control(&map).region_border,
+            Some(egui::Color32::from_rgb(255, 136, 0))
+        );
+    }
+
+    /// A colour that cannot be parsed costs only itself. One typo in one hex
+    /// string must not drag a map back to stock.
+    #[test]
+    fn a_malformed_colour_leaves_the_others_alone() {
+        let mut map = crate::model::Control::new("MAP-1", crate::ControlType::Maps, 0, 0);
+        map.set_prop("MarkerColor", crate::PropValue::String("not a colour".into()));
+        map.set_prop("RouteColor", crate::PropValue::String("#00FF00".into()));
+        let c = MapColors::from_control(&map);
+        assert_eq!(c.marker, MapColors::default().marker, "a bad hex falls back");
+        assert_eq!(c.route, egui::Color32::from_rgb(0, 255, 0));
     }
 }
