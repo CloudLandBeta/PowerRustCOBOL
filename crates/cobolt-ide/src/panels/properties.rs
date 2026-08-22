@@ -6223,6 +6223,38 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // What each zone is PAINTED in. These were literals in the
+                // painter until 1.61.154 — a green, an amber and a red nobody
+                // could change — on a control whose every other colour is a
+                // property. Each swatch shows the built-in until the operator
+                // picks something, so an unset colour still tells the truth.
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "NormalColor",
+                    tr.lbl_gauge_normal_color,
+                    ctrl,
+                    action,
+                    "#2E7D32",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "WarningColor",
+                    tr.lbl_gauge_warning_color,
+                    ctrl,
+                    action,
+                    "#F57C00",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "CriticalColor",
+                    tr.lbl_gauge_critical_color,
+                    ctrl,
+                    action,
+                    "#C62828",
+                );
                 {
                     let cur = ctrl
                         .get_prop("Unit")

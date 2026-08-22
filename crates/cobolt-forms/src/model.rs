@@ -4466,6 +4466,14 @@ impl Control {
                 props.insert("Color".into(), PropValue::String("".into())); // empty = theme accent
                 props.insert("WarningThreshold".into(), PropValue::String("".into())); // empty = zones off
                 props.insert("CriticalThreshold".into(), PropValue::String("".into()));
+                // What each zone is painted in once BOTH thresholds are set.
+                // These were literals in the painter — a green, an amber and a
+                // red nobody could change, on a control whose every other
+                // colour is a property (operator, 2026-08-22). Empty means the
+                // built-in, so a gauge that sets none of them is unchanged.
+                props.insert("NormalColor".into(), PropValue::String("".into()));
+                props.insert("WarningColor".into(), PropValue::String("".into()));
+                props.insert("CriticalColor".into(), PropValue::String("".into()));
                 props.insert("Unit".into(), PropValue::String("".into()));
                 props.insert("Text".into(), PropValue::String("".into())); // empty = widget's own readout
                 // Radial + Donut (the needle); the scale is Radial-only

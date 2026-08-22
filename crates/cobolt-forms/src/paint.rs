@@ -9434,19 +9434,41 @@ fn unit_gap(unit: &str) -> &'static str {
     }
 }
 
+/// The built-in colour of each Gauge zone — what the meter painted before the
+/// three became properties, and what an empty property still means.
+pub const GAUGE_NORMAL_COLOR: Color32 = Color32::from_rgb(46, 125, 50);
+pub const GAUGE_WARNING_COLOR: Color32 = Color32::from_rgb(245, 124, 0);
+pub const GAUGE_CRITICAL_COLOR: Color32 = Color32::from_rgb(198, 40, 40);
+
+/// Which colour a Gauge's fill takes at `frac`, once the developer has asked
+/// for zones by setting BOTH thresholds.
+///
+/// The three colours were literals here — a green, an amber and a red nobody
+/// could change, on a control whose every other colour is a property (operator,
+/// 2026-08-22). Each is `NormalColor` / `WarningColor` / `CriticalColor` now,
+/// and each defaults to exactly what was painted before, so a gauge that sets
+/// none of them is unchanged.
 pub fn gauge_zone_color(ctrl: &Control, frac: f32) -> Option<Color32> {
     let threshold = |key: &str| -> Option<f32> {
         let raw = ctrl.get_prop(key)?.as_str().trim().to_owned();
         raw.parse::<f32>().ok()
     };
+    let zone = |key: &str, built_in: Color32| -> Color32 {
+        ctrl.get_prop(key)
+            .map(|v| v.as_str().to_owned())
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| parse_color(&s))
+            .filter(|c| c.a() > 0)
+            .unwrap_or(built_in)
+    };
     let warn = threshold("WarningThreshold")?;
     let crit = threshold("CriticalThreshold")?;
     Some(if frac >= crit {
-        Color32::from_rgb(198, 40, 40)
+        zone("CriticalColor", GAUGE_CRITICAL_COLOR)
     } else if frac >= warn {
-        Color32::from_rgb(245, 124, 0)
+        zone("WarningColor", GAUGE_WARNING_COLOR)
     } else {
-        Color32::from_rgb(46, 125, 50)
+        zone("NormalColor", GAUGE_NORMAL_COLOR)
     })
 }
 
@@ -14559,6 +14581,53 @@ slice = [4, 4, 4, 4]
         println!(
             "\n  Gauge zones — off until both marks are set; then 0.00/0.59 green, \
              0.60/0.84 amber, 0.85/1.00 red\n"
+        );
+    }
+
+    /// **Each zone is a colour the developer picks**, and each defaults to the
+    /// literal it replaced.
+    ///
+    /// Operator, 2026-08-22: "gauge is using hard coded colors for gauge's
+    /// value, warning and critical thresholds". They were three literals in
+    /// `gauge_zone_color` on a control whose every other colour is a property.
+    #[test]
+    fn each_gauge_zone_takes_its_own_colour_and_defaults_to_the_old_one() {
+        use crate::model::PropValue;
+
+        let mut g = Control::new("G-1", crate::ControlType::Gauge, 0, 0);
+        g.set_prop("WarningThreshold", PropValue::String("0.6".into()));
+        g.set_prop("CriticalThreshold", PropValue::String("0.85".into()));
+
+        // Untouched: exactly the greens, ambers and reds that were hard-coded.
+        assert_eq!(gauge_zone_color(&g, 0.1), Some(GAUGE_NORMAL_COLOR));
+        assert_eq!(gauge_zone_color(&g, 0.7), Some(GAUGE_WARNING_COLOR));
+        assert_eq!(gauge_zone_color(&g, 0.9), Some(GAUGE_CRITICAL_COLOR));
+
+        // …and each property moves only its own zone.
+        g.set_prop("NormalColor", PropValue::String("#112233".into()));
+        g.set_prop("WarningColor", PropValue::String("#445566".into()));
+        g.set_prop("CriticalColor", PropValue::String("#778899".into()));
+        assert_eq!(
+            gauge_zone_color(&g, 0.1),
+            Some(Color32::from_rgb(0x11, 0x22, 0x33))
+        );
+        assert_eq!(
+            gauge_zone_color(&g, 0.7),
+            Some(Color32::from_rgb(0x44, 0x55, 0x66))
+        );
+        assert_eq!(
+            gauge_zone_color(&g, 0.9),
+            Some(Color32::from_rgb(0x77, 0x88, 0x99))
+        );
+
+        // A malformed colour costs only itself — one typo must not drag the
+        // whole meter back to stock.
+        g.set_prop("WarningColor", PropValue::String("not a colour".into()));
+        assert_eq!(gauge_zone_color(&g, 0.7), Some(GAUGE_WARNING_COLOR));
+        assert_eq!(
+            gauge_zone_color(&g, 0.9),
+            Some(Color32::from_rgb(0x77, 0x88, 0x99)),
+            "the critical zone is untouched by the warning zone's typo"
         );
     }
 

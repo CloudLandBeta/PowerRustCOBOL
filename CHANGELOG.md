@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.154] — 2026-08-22
+
+### Added — a Gauge's three zone colours are properties
+
+Reported by the operator. `gauge_zone_color` held three literals — a green, an
+amber and a red nobody could change — on a control whose every other colour is
+a property. They are **Normal zone**, **Warning zone** and **Critical zone** in
+the inspector (`NormalColor`, `WarningColor`, `CriticalColor`), from the same
+picker and the same colour memory as every other colour row.
+
+Each starts empty, meaning the built-in `#2E7D32` / `#F57C00` / `#C62828` the
+meter has always painted, so a gauge nobody restyled is unchanged; the inspector
+shows each built-in as the swatch's fallback. A malformed hex costs only its own
+zone.
+
+### Audited — every colour row in the IDE already uses the picker with memory
+
+The report also said some rows still used "the vanilla color picker with no
+memory". They do not: there are exactly **21** colour-picker call sites in the
+IDE — 18 in the properties inspector and 3 in the toolbar editor — and **all 21**
+go through `color_edit_button_closing`, the one picker that carries the theme
+swatches, the operator's remembered colours and the hex field. No egui
+`color_edit_button_*` call exists anywhere in the workspace.
+
+What did not exist was a row for the Gauge's zones, which is what this release
+adds. If a plain picker turns up somewhere, it is not in a colour ROW — say
+where and it gets the same treatment.
+
 ## [PowerRustCOBOL 1.61.153] — 2026-08-22
 
 ### Fixed — the TreeView drew no tree, and none of its properties did anything

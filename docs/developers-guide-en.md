@@ -1700,6 +1700,15 @@ from the critical one. While zones are on they own the fill colour, so
 `Color` is ignored; leave either threshold empty to keep zones off and
 `Color` in charge.
 
+**Those three colours are yours** — **Normal zone**, **Warning zone** and
+**Critical zone** in the inspector (`NormalColor`, `WarningColor`,
+`CriticalColor`), each from the same colour picker, with the same colour memory,
+as every other colour row in the IDE. Each starts empty, meaning the built-in
+green `#2E7D32`, amber `#F57C00` and red `#C62828` the meter has always painted,
+so a gauge you never restyled looks exactly as it did. Before 1.61.154 those
+three were fixed in the platform, on a control whose every other colour was a
+property.
+
 > ⚠️ **Caveat.** The thresholds are fractions of the span, not readings on
 > it. On a `0..250` gauge, `0.8` is the warning mark at 200 — not `200`.
 
