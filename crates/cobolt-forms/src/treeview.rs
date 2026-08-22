@@ -108,6 +108,14 @@ pub struct TreeRow {
     pub text: String,
     /// The icon this node draws, from the platform's own catalogue.
     pub icon: Option<String>,
+    /// This node's OWN label colour, when it named one. `None` follows the
+    /// tree's ink, which is what every node did before a node could speak for
+    /// itself.
+    pub color: Option<String>,
+    /// This node's OWN row colour, when it named one — painted under the
+    /// selection and hot-track bands, so a coloured row still shows which row
+    /// is selected.
+    pub background: Option<String>,
     /// Whether anything is written under it — what earns a disclosure arrow.
     pub has_children: bool,
     /// Whether its own children are hidden right now.
@@ -124,70 +132,12 @@ pub struct TreeRow {
     pub check: Option<Rect>,
 }
 
-/// One parsed line: `(index, depth, label, icon)`.
-type ParsedNode = (usize, usize, String, Option<String>);
-
-/// `Items` parsed, blank lines dropped.
-///
-/// A line is `label`, optionally followed by a TAB and the name of an icon from
-/// the platform's catalogue — the same TAB-separated shape the Markers, Routes
-/// and Regions collections use, so a developer meets one convention rather than
-/// four. `Warehouse\tfolder` is a node with a folder on it.
-fn parse(items: &str) -> Vec<ParsedNode> {
-    items
-        .lines()
-        .enumerate()
-        .filter_map(|(i, line)| {
-            // Two spaces per level, the shape the inspector's own hint teaches.
-            // A LEADING tab counts as one level so a developer who typed one is
-            // not punished for it; a tab after the label names the icon.
-            let lead_tabs = line.chars().take_while(|c| *c == '\t').count();
-            let body = &line[lead_tabs..];
-            let indent = body.len() - body.trim_start().len();
-            let depth = if lead_tabs > 0 { lead_tabs } else { indent / 2 };
-            let mut parts = body.trim_start().splitn(2, '\t');
-            let text = parts.next().unwrap_or("").trim();
-            if text.is_empty() {
-                return None;
-            }
-            let icon = parts
-                .next()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned);
-            Some((i, depth, text.to_owned(), icon))
-        })
-        .collect()
-}
-
-/// Sort SIBLINGS, leaving every node under the parent it was written under.
-///
-/// A flat `sort_by` would tear children away from their parents — the nodes
-/// would be in order and the tree would be nonsense.
-fn sort_siblings(nodes: Vec<ParsedNode>) -> Vec<ParsedNode> {
-    // Each node's own subtree is the run of following nodes deeper than it.
-    fn walk(nodes: &[ParsedNode], depth: usize) -> Vec<ParsedNode> {
-        let mut groups: Vec<Vec<ParsedNode>> = Vec::new();
-        for node in nodes {
-            if node.1 <= depth || groups.is_empty() {
-                groups.push(vec![node.clone()]);
-            } else {
-                groups.last_mut().expect("just pushed").push(node.clone());
-            }
-        }
-        groups.sort_by(|a, b| a[0].2.to_lowercase().cmp(&b[0].2.to_lowercase()));
-        let mut out = Vec::new();
-        for g in groups {
-            out.push(g[0].clone());
-            if g.len() > 1 {
-                out.extend(walk(&g[1..], depth + 1));
-            }
-        }
-        out
-    }
-    let base = nodes.first().map(|n| n.1).unwrap_or(0);
-    walk(&nodes, base)
-}
+/// The tree ITSELF lives in [`crate::treenodes`], outside the `render` feature,
+/// so the interpreter can answer a handler's `NodeParent` without egui — and
+/// answer it from the same parse the canvas draws from. Re-exported here
+/// because this is where a reader looks for it.
+pub use crate::treenodes::{index_of, node_at, nodes, NodeInfo};
+use crate::treenodes::{parse, sort_siblings};
 
 fn flag(ctrl: &Control, key: &str, default: bool) -> bool {
     ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(default)
@@ -209,14 +159,33 @@ fn row_left_edge(row: &TreeRow) -> f32 {
     .fold(row.label_x, f32::min)
 }
 
-/// A band colour the developer named, used EXACTLY as given — alpha included,
-/// since a selection band is mostly alpha. `None` when they named none.
-fn band_color(ctrl: &Control, key: &str) -> Option<Color32> {
+/// A colour the developer named, used EXACTLY as given — alpha included, since
+/// a selection band is mostly alpha. `None` when they named none, which is what
+/// lets every colour property here mean "leave it to the tree" while empty.
+fn named_color(ctrl: &Control, key: &str) -> Option<Color32> {
     ctrl.get_prop(key)
         .map(|v| v.as_str().trim().to_owned())
         .filter(|s| !s.is_empty())
         .map(|s| crate::paint::parse_color(&s))
         .filter(|c| c.a() > 0)
+}
+
+/// The tick box's rim — `(style, width, colour)` — read from the same three
+/// keys a CheckBox uses, with the TREE's defaults rather than the CheckBox's.
+///
+/// The box has always been drawn with a 1px rim in the node ink, so that is
+/// what an untouched tree keeps; an empty colour follows the ink, which is the
+/// rule `IconColor` already set here. Only the DEFAULTS differ from a check
+/// box's — the property names, and what each one means, are identical.
+fn check_box_border(ctrl: &Control, ink: Color32) -> (String, f32, Color32) {
+    let style = ctrl
+        .get_prop("CheckBoxBorderStyle")
+        .map(|v| v.as_str().trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Single".into());
+    let width = num(ctrl, "CheckBoxBorderWidth", 1.0, 0.0, 20.0);
+    let colour = named_color(ctrl, "CheckBoxBorderColor").unwrap_or(ink);
+    (style, width, colour)
 }
 
 /// Lay the tree out inside `rect`. Rows past the bottom edge are dropped: a
@@ -252,8 +221,9 @@ pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
     let mut rows = Vec::new();
     // Everything deeper than this is inside something folded shut.
     let mut hide_below: Option<usize> = None;
-    for (n, (index, depth, text, icon)) in nodes.iter().enumerate() {
-        let (index, depth, text) = (*index, *depth, text.clone());
+    for (n, node) in nodes.iter().enumerate() {
+        let (index, depth, text) = (node.index, node.depth, node.text.clone());
+        let icon = &node.icon;
         match hide_below {
             Some(d) if depth > d => continue,
             Some(_) => hide_below = None,
@@ -261,7 +231,10 @@ pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
         }
         // A node HAS children when the next line is deeper than it — the only
         // thing that earns a disclosure arrow.
-        let has_children = nodes.get(n + 1).map(|next| next.1 > depth).unwrap_or(false);
+        let has_children = nodes
+            .get(n + 1)
+            .map(|next| next.depth > depth)
+            .unwrap_or(false);
         let is_collapsed = has_children && collapsed.iter().any(|c| *c == text);
         if is_collapsed {
             hide_below = Some(depth);
@@ -320,6 +293,8 @@ pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
             depth,
             text,
             icon: icon_name,
+            color: node.color.clone(),
+            background: node.background.clone(),
             has_children,
             collapsed: is_collapsed,
             rect: band,
@@ -459,11 +434,23 @@ pub fn paint(
     );
     for row in rows {
         let selected = !state.selected.is_empty() && state.selected == row.text;
+        // The node's OWN row colour, UNDER the bands rather than instead of
+        // them: a row a handler painted red must still show that it is the
+        // selected row, and a selection band is mostly alpha, so the two layer
+        // the way they read.
+        if let Some(bg) = row
+            .background
+            .as_deref()
+            .map(crate::paint::parse_color)
+            .filter(|c| c.a() > 0)
+        {
+            painter.rect_filled(row.rect, 3.0, fade(bg));
+        }
         if selected {
             // `SelectionColor` when the developer named one — used exactly as
             // given, alpha and all. Empty keeps the theme's focus colour at the
             // weight a selection band has always had.
-            let band = band_color(ctrl, "SelectionColor").unwrap_or_else(|| {
+            let band = named_color(ctrl, "SelectionColor").unwrap_or_else(|| {
                 let c = focus.unwrap_or(Color32::from_rgb(70, 110, 200));
                 Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 70)
             });
@@ -471,31 +458,51 @@ pub fn paint(
         } else if state.hovered == Some(row.index) {
             // HotTracking: the row under the pointer lifts, faintly — half the
             // selection's weight by default, so the two are never confused.
-            let band = band_color(ctrl, "HotTrackColor")
+            let band = named_color(ctrl, "HotTrackColor")
                 .unwrap_or(Color32::from_white_alpha(18));
             painter.rect_filled(row.rect, 3.0, fade(band));
         }
+        // The tick box wears the CheckBox's own five properties — its fill, its
+        // rim's style, width and colour, and the tick's colour and size. Before
+        // this the box was three hard numbers: a black-alpha well, a 1px rim in
+        // the node ink and a tick at 28 % of the box, none of them reachable.
         if let Some(box_rect) = row.check {
             let ticked = state.checked.iter().any(|c| c == &row.text);
-            painter.rect_filled(box_rect, 2.0, fade(Color32::from_black_alpha(40)));
-            painter.rect_stroke(
+            // Empty means "not chosen" — the same convention the CheckBox uses,
+            // and why the shared reader is called rather than copied. Nothing
+            // chosen keeps the recessed well the tree has always drawn.
+            let fill = crate::paint::user_checkbox_color(ctrl)
+                .unwrap_or(Color32::from_black_alpha(40));
+            painter.rect_filled(box_rect, 2.0, fade(fill));
+            // The rim through the shared border painter, so Single, Double and
+            // Dashed mean here exactly what they mean on every other control —
+            // and so `None` can now switch it off.
+            let (style, width, colour) = check_box_border(ctrl, ink);
+            crate::paint::draw_control_border(
+                painter,
                 box_rect,
-                2.0,
-                Stroke::new(1.0, fade(ink)),
-                egui::StrokeKind::Inside,
+                egui::CornerRadius::same(2),
+                &style,
+                width,
+                fade(colour),
             );
             if ticked {
-                let c = box_rect.center();
-                let s = box_rect.width() * 0.28;
-                let stroke = Stroke::new(2.0, fade(ink));
-                painter.line_segment(
-                    [Pos2::new(c.x - s, c.y), Pos2::new(c.x - s * 0.2, c.y + s)],
-                    stroke,
-                );
-                painter.line_segment(
-                    [Pos2::new(c.x - s * 0.2, c.y + s), Pos2::new(c.x + s, c.y - s)],
-                    stroke,
-                );
+                // The CheckBox's own tick geometry, to the coefficient: two
+                // segments through a box scaled by `CheckSize`. Shared shape,
+                // not a lookalike — a tick in a tree and a tick in a check box
+                // are the same mark.
+                let mark = named_color(ctrl, "CheckColor").unwrap_or(ink);
+                let d = box_rect.width();
+                let pct = num(ctrl, "CheckSize", 70.0, 10.0, 100.0) / 100.0;
+                let stroke = Stroke::new((d * 0.16 * pct).clamp(1.5, 6.0), fade(mark));
+                let pt = |ux: f32, uy: f32| {
+                    Pos2::new(
+                        box_rect.center().x + (ux - 0.5) * d * pct,
+                        box_rect.center().y + (uy - 0.5) * d * pct,
+                    )
+                };
+                painter.line_segment([pt(0.18, 0.52), pt(0.42, 0.76)], stroke);
+                painter.line_segment([pt(0.42, 0.76), pt(0.84, 0.22)], stroke);
             }
         }
         // The disclosure arrow: the platform's own chevron, pointing right when
@@ -519,12 +526,20 @@ pub fn paint(
         if let (Some(r), Some(name)) = (row.icon_rect, row.icon.as_deref()) {
             crate::icons::draw_menu_icon(painter, r, name, fade(icon_color));
         }
+        // A node that named its own colour is written in it; the rest follow
+        // the tree's ink, which is already picked for contrast against the face.
+        let node_ink = row
+            .color
+            .as_deref()
+            .map(crate::paint::parse_color)
+            .filter(|c| c.a() > 0)
+            .unwrap_or(ink);
         painter.text(
             Pos2::new(row.label_x, row.rect.center().y),
             egui::Align2::LEFT_CENTER,
             &row.text,
             font.clone(),
-            fade(ink),
+            fade(node_ink),
         );
     }
 }
@@ -774,6 +789,164 @@ mod tests {
         assert!(
             rows.iter().all(|r| r.rect.max.y <= rect().max.y + ROW_H),
             "no row may hang below the control"
+        );
+    }
+
+    /// Everything one `paint` pass put on the screen, flattened — the same
+    /// shape-walk the CheckBox's own surface tests use.
+    #[derive(Default)]
+    struct Painted {
+        fills: Vec<(Color32, Rect)>,
+        strokes: Vec<(Color32, f32)>,
+    }
+
+    impl Painted {
+        fn fill_near(&self, rgb: (u8, u8, u8), tol: i32) -> Option<Rect> {
+            self.fills
+                .iter()
+                .find(|(c, _)| {
+                    (c.r() as i32 - rgb.0 as i32).abs() <= tol
+                        && (c.g() as i32 - rgb.1 as i32).abs() <= tol
+                        && (c.b() as i32 - rgb.2 as i32).abs() <= tol
+                })
+                .map(|(_, r)| *r)
+        }
+        fn has_stroke(&self, rgb: (u8, u8, u8)) -> bool {
+            self.strokes
+                .iter()
+                .any(|(c, _)| (c.r(), c.g(), c.b()) == rgb)
+        }
+        fn widest_stroke(&self, rgb: (u8, u8, u8)) -> f32 {
+            self.strokes
+                .iter()
+                .filter(|(c, _)| (c.r(), c.g(), c.b()) == rgb)
+                .map(|(_, w)| *w)
+                .fold(0.0, f32::max)
+        }
+    }
+
+    fn painted(ctrl: &Control, checked: &[String]) -> Painted {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+        let rows = layout(ctrl, rect());
+        let mut full = ctx.run_ui(input, |ui| {
+            paint(
+                ui.painter(),
+                ctrl,
+                rect(),
+                &rows,
+                TreeState {
+                    selected: "",
+                    checked,
+                    hovered: None,
+                    alpha: 1.0,
+                },
+            );
+        });
+        full.textures_delta.clear();
+        fn walk(s: &egui::Shape, out: &mut Painted) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Rect(r) => {
+                    if r.fill.a() > 0 {
+                        out.fills.push((r.fill, r.rect));
+                    }
+                    if r.stroke.width > 0.0 && r.stroke.color.a() > 0 {
+                        out.strokes.push((r.stroke.color, r.stroke.width));
+                    }
+                }
+                egui::Shape::LineSegment { stroke, .. } if stroke.width > 0.0 => {
+                    out.strokes.push((stroke.color, stroke.width));
+                }
+                _ => {}
+            }
+        }
+        let mut seen = Painted::default();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut seen);
+        }
+        seen
+    }
+
+    fn checkable() -> Control {
+        let mut c = tree("Alpha\nBeta");
+        c.set_prop("CheckBoxes", PropValue::Bool(true));
+        // Off, so the tree's own lines cannot be mistaken for the box's rim.
+        c.set_prop("ShowLines", PropValue::Bool(false));
+        c.set_prop("ShowRootLines", PropValue::Bool(false));
+        c.set_prop("ShowIcons", PropValue::Bool(false));
+        c
+    }
+
+    /// The tick box wears the five properties a CheckBox wears. Before this the
+    /// box was a black-alpha well, a 1px rim in the node ink and a tick at 28 %
+    /// of the box — three numbers nailed into the painter, none reachable.
+    #[test]
+    fn the_tick_box_wears_the_checkbox_family() {
+        let mut c = checkable();
+        c.set_prop("CheckBoxColor", PropValue::String("#C81E1E".into()));
+        c.set_prop("CheckBoxBorderColor", PropValue::String("#00A000".into()));
+        c.set_prop("CheckBoxBorderWidth", PropValue::Int(3));
+        c.set_prop("CheckColor", PropValue::String("#1E3CC8".into()));
+
+        let seen = painted(&c, &["Alpha".to_string()]);
+        let box_rect = seen
+            .fill_near((0xC8, 0x1E, 0x1E), 6)
+            .expect("CheckBoxColor must paint the tick box");
+        assert!(
+            box_rect.width() < 40.0,
+            "and it is the BOX that wears it, not the band: {box_rect:?}"
+        );
+        assert!(
+            seen.has_stroke((0x00, 0xA0, 0x00)),
+            "CheckBoxBorderColor must rim the box"
+        );
+        assert!(
+            seen.has_stroke((0x1E, 0x3C, 0xC8)),
+            "CheckColor must draw the tick of a ticked node"
+        );
+    }
+
+    /// `None` switches the rim off — the reason a style property was added
+    /// beside the colour, exactly as the frame's own `BorderStyle` was.
+    #[test]
+    fn a_none_border_leaves_the_box_unrimmed() {
+        let mut c = checkable();
+        c.set_prop("CheckBoxBorderColor", PropValue::String("#00A000".into()));
+        assert!(
+            painted(&c, &[]).has_stroke((0x00, 0xA0, 0x00)),
+            "seeded Single: the box is rimmed"
+        );
+        c.set_prop("CheckBoxBorderStyle", PropValue::String("None".into()));
+        assert!(
+            !painted(&c, &[]).has_stroke((0x00, 0xA0, 0x00)),
+            "None must leave the box unrimmed"
+        );
+    }
+
+    /// `CheckSize` is the TICK's share of the box, `CheckBoxSize` is the box —
+    /// the same split a CheckBox makes. A bigger share draws a heavier mark.
+    #[test]
+    fn check_size_scales_the_tick_not_the_box() {
+        let mut c = checkable();
+        c.set_prop("CheckColor", PropValue::String("#1E3CC8".into()));
+        c.set_prop("CheckBoxSize", PropValue::Int(32));
+        c.set_prop("CheckSize", PropValue::Int(20));
+        let small = painted(&c, &["Alpha".to_string()]).widest_stroke((0x1E, 0x3C, 0xC8));
+        c.set_prop("CheckSize", PropValue::Int(100));
+        let big = painted(&c, &["Alpha".to_string()]).widest_stroke((0x1E, 0x3C, 0xC8));
+        assert!(
+            big > small,
+            "a fuller tick draws a heavier mark: {small} → {big}"
+        );
+
+        // And the BOX is unmoved by it — that is `CheckBoxSize`'s job.
+        let rows = layout(&c, rect());
+        let box_w = rows[0].check.expect("checkboxes are on").width();
+        assert!(
+            (box_w - 32.0).abs() < 0.01,
+            "CheckBoxSize sizes the box: {box_w}"
         );
     }
 }

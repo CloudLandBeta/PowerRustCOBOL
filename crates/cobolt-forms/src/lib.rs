@@ -85,6 +85,12 @@ pub mod toolbar;
 #[cfg(feature = "render")]
 pub mod toolbar_paint;
 
+/// The TREE itself — parsing `Items` into nodes, and walking them. Deliberately
+/// NOT behind `render`: the interpreter answers a handler's `NodeParent` while
+/// knowing nothing about egui, and it must read the same tree the canvas draws
+/// rather than a second parser that would drift from it.
+pub mod treenodes;
+
 /// The TreeView's layout and paint, shared by the canvas and the running form
 /// for the same reason the toolbar's is: a tree that looks different where you
 /// design it is a tree you cannot design against.

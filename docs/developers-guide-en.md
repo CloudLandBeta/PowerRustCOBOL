@@ -1847,6 +1847,85 @@ designer canvas, the preview, Run Form and the compiled binary.
 > `CONTROL-ARRAY-INDEX` — before 1.61.158 a handler for `onNodeCheck`,
 > `onNodeCollapse` or `onNodeExpand` had no way to tell which node had moved.
 >
+> **Walking the tree, since 1.61.159.** Knowing which node fired is half of it;
+> the other half is finding your way from there. `CONTROL-NODE-INDEX` **is the
+> node's handle** — every call below takes it, and the traversal calls *return*
+> one, so they chain:
+>
+> ```cobol
+>       *> Climb from the node that fired to the one it hangs under.
+>            MOVE TREE-1::NodeParent(CONTROL-NODE-INDEX) TO WS-IDX
+>            IF WS-IDX >= 0
+>                MOVE TREE-1::NodeText(WS-IDX) TO WS-PARENT-NAME
+>            END-IF
+>
+>       *> Run along everything under it — and no further.
+>            MOVE TREE-1::NodeFirstChild(CONTROL-NODE-INDEX) TO WS-IDX
+>            PERFORM UNTIL WS-IDX < 0
+>                MOVE TREE-1::NodeText(WS-IDX) TO WS-NAME
+>                DISPLAY "child: " WS-NAME
+>                MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
+>            END-PERFORM
+> ```
+>
+> **`-1` means there is no such node** — no parent above a root, no sibling past
+> the last one — which is what ends the loop. A sibling walk never descends into
+> children and never escapes into the next parent.
+>
+> | Call | Answers |
+> |---|---|
+> | `NodeParent(i)` | the node it hangs under, `-1` on a root |
+> | `NodeFirstChild(i)` / `NodeLastChild(i)` | its first / last direct child |
+> | `NodeNextSibling(i)` / `NodePrevSibling(i)` | the next / previous node at the same level, same parent |
+> | `NodeChildCount(i)` / `NodeHasChildren(i)` | direct children only — grandchildren are not children |
+> | `NodeText(i)` / `NodePath(i)` / `NodeLevel(i)` | its label, its `Root/Child/Leaf` path, its depth |
+> | `NodeIcon(i)` / `NodeColor(i)` / `NodeBackColor(i)` | what the node itself carries |
+> | `NodeChecked(i)` / `NodeCollapsed(i)` | `1`/`0`, read from the live `CheckedNodes` / `CollapsedNodes` |
+> | `NodeCount()` / `NodeIndexOf(text)` | how many nodes; the handle for a label you already know |
+>
+> There is deliberately **no node object to hold**. A handle you kept would go
+> stale the moment `Items` changed under it; an index is simply re-read against
+> whatever the tree holds now. For the same reason, asking about a node that is
+> not there answers *empty* rather than raising — a walk runs off the end of a
+> tree by design, and the `-1` is the guard, not an error every loop would have
+> to trap.
+>
+> **Building a tree from COBOL:** use `AddNode`, **not** `AddItem`.
+>
+> ```cobol
+>            TREE-1::AddNode(0, "Warehouse")
+>            TREE-1::AddNode(1, "Inbound")
+>            TREE-1::AddNode(2, "Dock A")
+> ```
+>
+> ⚠️ `AddItem` **trims its argument** — it has to, because a `PIC X` field
+> arrives padded with spaces — and a node's level *is* leading spaces, so an
+> indented literal could never have built a child. `AddNode` takes the level as
+> a number, which says what a pair of spaces only implies.
+>
+> **A node can dress itself, since 1.61.159.** An `Items` line is `label`, then
+> up to three TAB-separated fields of its own:
+>
+> ```text
+> label ⇥ icon ⇥ colour ⇥ background
+> ```
+>
+> So `Overdue⇥⇥#C81E1E` is a node written in red with its icon left to the tree
+> — every field is optional, and an empty one means "as the tree draws it". The
+> row colour paints **under** the selection band, so a coloured row still shows
+> when it is the selected one. `AddNode` writes these too:
+> `TREE-1::AddNode(1, "Overdue", "alert", "#C81E1E", " ")`.
+>
+> **The tick box is dressed like a CheckBox, since 1.61.159.** It wears the same
+> five properties, meaning the same things: **Box colour**, **Box border** (with
+> its colour and width), **Tick colour** and **Tick size %** — and it draws the
+> same tick mark. Before this it was a black well, a 1px rim and a tick at 28 %
+> of the box: three numbers in the painter, none of them reachable.
+>
+> > **Note.** **Checkbox size** is the box, in points; **Tick size %** is how
+> > much of that box the tick fills. That is the same split a CheckBox makes,
+> > where the box comes from the font and only the tick has a percentage.
+>
 > **A row never shrinks below what it holds.** `RowHeight` is a floor, so
 > growing **Icon size** or **Checkbox size** grows the row with it instead of
 > letting a big icon paint over its neighbours; **Gap between nodes**

@@ -1,5 +1,78 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.159] — 2026-08-22
+
+### Added — a handler can walk the tree, and a node can dress itself
+
+Operator: "node needs a way to access its parent and or sibling nodes so we can
+traverse the tree… how do I access the node properties?"
+
+1.61.158 told a handler **which** node fired. It could not tell it where that
+node sat. Every call below takes the node's **index** — the same
+`CONTROL-NODE-INDEX` the event already delivers — and the traversal calls
+*return* an index, so they chain:
+
+```cobol
+       MOVE TREE-1::NodeParent(CONTROL-NODE-INDEX) TO WS-IDX.
+       MOVE TREE-1::NodeFirstChild(CONTROL-NODE-INDEX) TO WS-IDX.
+       PERFORM UNTIL WS-IDX < 0
+           MOVE TREE-1::NodeText(WS-IDX) TO WS-NAME
+           MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
+       END-PERFORM.
+```
+
+- **Traversal:** `NodeParent`, `NodeFirstChild`/`NodeLastChild`,
+  `NodeNextSibling`/`NodePrevSibling`, `NodeChildCount`, `NodeHasChildren`.
+  `-1` = no such node, which is what ends a walk. A sibling walk never descends
+  into children and never escapes into the next parent.
+- **Reading a node:** `NodeText`/`NodeName`, `NodePath` (`Root/Child/Leaf`),
+  `NodeLevel`, `NodeIcon`, `NodeColor`, `NodeBackColor`, plus `NodeChecked` and
+  `NodeCollapsed`, which read the control's LIVE `CheckedNodes`/`CollapsedNodes`
+  rather than the node's line. `NodeCount` and `NodeIndexOf` get you a handle.
+- **No node object**, deliberately. A handle you kept would go stale the moment
+  `Items` changed under it; an index is re-read against whatever the tree holds
+  now. Asking about a node that is not there answers *empty* rather than
+  raising — a walk runs off the end of a tree by design, so the `-1` is the
+  guard, not an error every loop would have to trap.
+- **`AddNode(level, text [, icon, color, background])`** builds a tree from
+  COBOL. `AddItem` cannot: it trims its argument (a `PIC X` field arrives
+  space-padded) and a node's level IS leading spaces, so an indented literal
+  could never have made a child. A number says what two spaces only imply.
+- **A node dresses itself.** An `Items` line is now
+  `label ⇥ icon ⇥ colour ⇥ background`; every field is optional and an empty one
+  means "as the tree draws it". The row colour paints UNDER the selection band,
+  so a coloured row still shows when it is selected.
+- The tree's parse and its family links moved to `cobolt-forms::treenodes`,
+  outside the `render` feature, so the interpreter answers `NodeParent` without
+  egui — and answers it from the same parse the canvas draws from, rather than
+  from a second parser that would have drifted the first time either changed.
+
+⚠️ New method names must also be listed in `is_known_method`: an unlisted name
+parses its parentheses as a **collection subscript** instead of a call, so
+`TV::NodeParent(3)` would have silently meant "element 3 of NodeParent".
+
+### Added — the TreeView's tick box is dressed like a CheckBox
+
+The box was three numbers nailed into the painter — a black-alpha well, a 1px
+rim in the node ink, a tick at 28 % of the box — and the inspector offered only
+its *size*. It now wears the **same five properties a CheckBox wears**, reading
+the same keys and drawing the same tick mark: `CheckBoxColor`,
+`CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth`,
+`CheckColor`, `CheckSize`.
+
+- Borrowed, not invented: `paint::user_checkbox_color` is the shared reader, and
+  the rim goes through the shared `draw_control_border`, so `Single` / `Double` /
+  `Dashed` / `None` mean here exactly what they mean on every control frame —
+  and `None` is how the rim switches off.
+- Every default is chosen so an existing tree does not move: empty fill keeps
+  the recessed well, empty ink follows the node text (the rule `IconColor`
+  already set), and the rim is seeded to the `Single` 1px the box always had.
+- **`CheckBoxSize` is the box in points; `CheckSize` is the tick's share of that
+  box, 0-100** — the same split the CheckBox makes.
+
+Tests: `treenodes` (7), `treeview` tick-box paint (3), `test_treeview_nodes` (6,
+end-to-end from COBOL). System KB + Developer's Guide updated.
+
 ## [PowerRustCOBOL 1.61.158] — 2026-08-22
 
 ### Added — a node event tells the handler which node fired

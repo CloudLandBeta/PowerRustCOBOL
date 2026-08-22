@@ -7036,6 +7036,64 @@ impl PropertiesPanel {
                     None,
                     12,
                 );
+                // ── Check box ──────────────────────────────────────────────
+                // The SAME five rows a CheckBox shows, reading the same keys.
+                // The tick box used to be three numbers nailed into the painter
+                // — a black-alpha well, a 1px rim and a tick at 28 % — and the
+                // pane offered only its SIZE.
+                //
+                // "Checkbox size" above is the box; "Tick size" here is how
+                // much of that box the tick fills, the split a CheckBox already
+                // makes.
+                ui.add_space(4.0);
+                section_header(ui, "Check box");
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "CheckBoxColor",
+                    "Box colour",
+                    ctrl,
+                    action,
+                    "#00000028",
+                );
+                combo_row_inline_labeled(
+                    ui,
+                    id,
+                    "CheckBoxBorderStyle",
+                    "Box border",
+                    ctrl,
+                    action,
+                    &["None", "Single", "Fixed3D", "Raised", "Sunken"],
+                    "Single",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "CheckBoxBorderColor",
+                    "Box border colour",
+                    ctrl,
+                    action,
+                    "#DCE2FA",
+                );
+                int_row_inline(
+                    ui,
+                    id,
+                    "CheckBoxBorderWidth",
+                    "Box border width",
+                    ctrl,
+                    action,
+                    0..=10,
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "CheckColor",
+                    "Tick colour",
+                    ctrl,
+                    action,
+                    "#DCE2FA",
+                );
+                int_prop_row(ui, id, "CheckSize", "Tick size %", ctrl, action, 10..=100, None, 70);
                 ui.add_space(4.0);
             }
 

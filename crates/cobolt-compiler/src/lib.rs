@@ -2455,7 +2455,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.
 - **Colors** are hex strings: `"#RRGGBB"` or `"#RRGGBBAA"` (e.g. `"#FF0000"`, `"#00000000"` = transparent).
 - **Coordinates and sizes** (`X`, `Y`, `Width`, `Height`, paddings, radii) are integer pixels.
-- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level. Indexes (`SelectedIndex`, grid rows/columns) are 0-based; -1 = no selection.
+- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level, and a node may carry up to three TAB-separated fields of its own after its label (`label\\ticon\\tcolour\\tbackground`). Indexes (`SelectedIndex`, grid rows/columns) are 0-based; -1 = no selection. A TreeView node's index is its LINE in `Items` as written, and it is the handle every `Node…` method takes.
 - **DataGrid data**: `Columns` is one `Name:Type` per line (`Type` ∈ `string`|`number`|`datetime`); `Rows` separates rows with newlines and cells with TAB.
 - **Enumerated properties** accept only their listed values EXACTLY as spelled (e.g. `Orientation` is `Horizontal` or `Vertical`); an unrecognised value falls back to the default without an error.
 - **Property names**: setting a misspelled property silently creates a new, unused property — never guess names; use the ones in the Form Controls Reference.
@@ -3448,6 +3448,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ParentIcon" => ("icon name from the catalogue (default `folder`)", "The icon on a node that HOLDS other nodes while it is folded shut."),
         "ParentIconOpen" => ("icon name from the catalogue (default `folder-open`)", "The icon on a node that holds other nodes while it is open — a folded and an open folder are different pictures, which is how the state reads at a glance."),
         "LeafIcon" => ("icon name from the catalogue (default `doc-text`)", "The icon on a node with nothing under it."),
+        // The tick box's own dress — the SAME five keys a CheckBox carries, so
+        // a developer who has styled one has styled both. `CheckBoxSize` is the
+        // box in points; `CheckSize` is the tick's share of that box.
+        "CheckBoxColor" => (COLOR_DOMAIN, "The tick box's own fill (TreeView, CheckBox, RadioButton). Empty — the default — means 'not chosen', so the theme keeps painting the box; that is also why naming white is possible. On a TreeView, empty keeps the recessed well the box has always drawn."),
+        "CheckBoxBorderStyle" => ("`None` | `Single` | `Fixed3D` | `Raised` | `Sunken`", "The rim around the TICK BOX, separate from the frame's `BorderStyle`, which rims the whole control. On a TreeView it is seeded `Single` — what the box has always been drawn with — so `None` is how you switch it off."),
+        "CheckBoxBorderColor" => (COLOR_DOMAIN, "The tick box's rim colour. On a TreeView, empty follows the node ink, so legible text means a legible box."),
+        "CheckBoxBorderWidth" => ("integer 0-10 (default 1)", "The tick box's rim width."),
+        "CheckColor" => (COLOR_DOMAIN, "The colour of the TICK itself (TreeView, CheckBox, RadioButton). On a TreeView, empty follows the node ink."),
+        "CheckSize" => ("integer 10-100 (default 70)", "How much of the tick BOX the tick fills, as a percentage — not the box's size, which is `CheckBoxSize` on a TreeView and the font on a CheckBox. A fuller tick also draws a heavier stroke."),
         "IconSize" => ("integer 6-64 (default 14)", "Icon and disclosure-arrow size in points. The arrow's slot is reserved on EVERY row whether or not the node has children, so labels line up in a column."),
         "IconColor" => (COLOR_DOMAIN, "Icons and disclosure arrows. Empty — the default — follows the node ink, so legible text means legible icons."),
         "HighContrastText" => (BOOL_DOMAIN, "ON by default: node ink is picked by CONTRAST RATIO against the face the tree is actually painted on, so it clears WCAG AA on a white face, a dark card or a glass surface alike. Off falls back to the theme's own text colour, for a developer who wants the tree to match the theme even where that costs legibility. An explicit `ForegroundColor` outranks both."),
@@ -3896,7 +3905,7 @@ fn control_purpose(name: &str) -> &'static str {
         "Line" => "Decorative straight line.",
         "DateTimePicker" => "Date/time input with calendar or spinner.",
         "NumericUpDown" => "Integer input with spinner arrows.",
-        "TreeView" => "Hierarchical node list. `Items` IS the tree: one node per line, TWO SPACES (or one tab) of indent per level. It is drawn by one renderer on the designer canvas and in the running form, so what you lay out is what runs — before 1.61.153 the canvas showed only a `[TreeView]` placeholder and the running form a flat bulleted list. The tree writes its nodes in the control's own FontName/FontSize/ForegroundColor, draws its connector lines per `ShowLines`/`ShowRootLines` in `LineColor`, ticks per `CheckBoxes`/`CheckedNodes`, and highlights per `HotTracking`. A click selects (`SelectedNode`, `onNodeClick`/`onNodeSelect`); a click on a tick box checks (`CheckedNodes`, `onNodeCheck`). EXPAND/COLLAPSE (1.61.157): a node with children draws a disclosure arrow — right when shut, down when open — and clicking it writes `CollapsedNodes` and fires `onNodeCollapse`/`onNodeExpand`. The arrow's slot is reserved on every row, so labels line up whether or not a node folds. ICONS: on by default from the platform's catalogue, a node naming its own after a TAB in its `Items` line and the rest taking `ParentIcon`/`ParentIconOpen`/`LeafIcon`. Every metric is a property — `RowHeight`, `IndentWidth`, `IconSize`, `CheckBoxSize` — and so are `SelectionColor`, `HotTrackColor` and `IconColor`. STILL NOT: `AllowEdit` (no in-place rename surface) — never tell a developer it works.",
+        "TreeView" => "Hierarchical node list. `Items` IS the tree: one node per line, TWO SPACES (or one tab) of indent per level. It is drawn by one renderer on the designer canvas and in the running form, so what you lay out is what runs — before 1.61.153 the canvas showed only a `[TreeView]` placeholder and the running form a flat bulleted list. The tree writes its nodes in the control's own FontName/FontSize/ForegroundColor, draws its connector lines per `ShowLines`/`ShowRootLines` in `LineColor`, ticks per `CheckBoxes`/`CheckedNodes`, and highlights per `HotTracking`. A click selects (`SelectedNode`, `onNodeClick`/`onNodeSelect`); a click on a tick box checks (`CheckedNodes`, `onNodeCheck`). EXPAND/COLLAPSE (1.61.157): a node with children draws a disclosure arrow — right when shut, down when open — and clicking it writes `CollapsedNodes` and fires `onNodeCollapse`/`onNodeExpand`. The arrow's slot is reserved on every row, so labels line up whether or not a node folds. ICONS: on by default from the platform's catalogue, a node naming its own after a TAB in its `Items` line and the rest taking `ParentIcon`/`ParentIconOpen`/`LeafIcon`. Every metric is a property — `RowHeight`, `IndentWidth`, `IconSize`, `CheckBoxSize` — and so are `SelectionColor`, `HotTrackColor` and `IconColor`. A NODE'S OWN DRESS (1.61.159): an `Items` line is `label`, then up to three TAB-separated fields of its own — `label\\ticon\\tcolour\\tbackground` — so `Overdue\\t\\t#C81E1E` is a node written in red with its icon left to the tree; an empty field means 'as the tree draws it', and the row colour paints UNDER the selection band so a coloured row still shows that it is selected. TICK BOX (1.61.159): it wears the CheckBox's own five properties — `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth`, `CheckColor`, `CheckSize` — and draws the same tick mark; before that it was a black-alpha well, a 1px rim and a tick at 28 % of the box, none of them reachable. WALKING THE TREE (1.61.159): `NodeParent`, `NodeFirstChild`/`NodeLastChild`, `NodeNextSibling`/`NodePrevSibling`, `NodeChildCount`, plus `NodeText`/`NodePath`/`NodeLevel`/`NodeIcon`/`NodeColor`/`NodeBackColor`/`NodeChecked`/`NodeCollapsed` and `NodeCount`/`NodeIndexOf` — every one keyed by the node INDEX the event already hands the handler, and the traversal calls return an index so they chain. Build a tree from COBOL with `AddNode(level, text)`, NOT `AddItem` (which trims its argument, so an indented literal cannot make a child). STILL NOT: `AllowEdit` (no in-place rename surface) — never tell a developer it works.",
         "Splitter" => "Draggable divider between two areas.",
         "Timer" => "Non-visual: fires `onTick` every Interval ms. Steady cadence — each tick schedules the next ONE INTERVAL on, so the rate does not drift with frame timing — and it never repays missed time: a handler slower than the interval, or a stalled form, gets ONE tick on return, not a burst. A handler eight events behind has its ticks coalesced until it catches up; a click, an edit or a focus change is never coalesced.",
         "Shape" => "Decorative rectangle / circle / triangle.",
@@ -3957,6 +3966,30 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ("GetCount() → Integer", "Number of items."),
         ("Clear()", "Remove all items."),
     ];
+    // TreeView nodes. Every call takes the node's INDEX — the same number the
+    // node event hands the handler in `CONTROL-NODE-INDEX`. The traversal calls
+    // RETURN an index, so they chain; -1 means there is no such node.
+    let tree_node_methods: Vec<(&'static str, &'static str)> = vec![
+        (
+            "AddNode(level: Integer, text: String [, icon, color, background])",
+            "Append a node at `level` (0 = root). The level is a NUMBER because `AddItem` trims its argument and a node's level is leading spaces — an indented literal cannot build a child. The optional fields are the node's own icon, label colour and row colour.",
+        ),
+        ("NodeCount() → Integer", "How many nodes the tree holds."),
+        ("NodeIndexOf(text: String) → Integer", "The index of the first node with this label, -1 when there is none — how a handler holding only a name (from `SelectedNode`) gets a handle to walk from."),
+        ("NodeText(index) → String (alias NodeName)", "The node's label."),
+        ("NodePath(index) → String", "Root to node joined by `/` — what tells two nodes with the same label apart."),
+        ("NodeLevel(index) → Integer", "How deep it sits, 0 for a root."),
+        ("NodeIcon(index) → String", "The icon it names, empty when it names none."),
+        ("NodeColor(index) → String (alias NodeColour)", "Its own label colour, empty when it names none."),
+        ("NodeBackColor(index) → String (alias NodeBackground)", "Its own row colour, empty when it names none."),
+        ("NodeParent(index) → Integer", "The node it hangs under, -1 on a root."),
+        ("NodeFirstChild(index) / NodeLastChild(index) → Integer", "Its first/last direct child, -1 on a leaf."),
+        ("NodeNextSibling(index) / NodePrevSibling(index) → Integer", "The next/previous node at the SAME level under the same parent, -1 at the end of the run. A sibling walk never descends into children and never escapes into the next parent."),
+        ("NodeChildCount(index) → Integer", "How many nodes hang DIRECTLY under it — grandchildren not counted."),
+        ("NodeHasChildren(index) → 1/0", "Whether anything hangs under it."),
+        ("NodeChecked(index) → 1/0", "Whether its box is ticked — read from the control's live `CheckedNodes`, not from the node's line."),
+        ("NodeCollapsed(index) → 1/0", "Whether it is folded shut — read from the control's live `CollapsedNodes`."),
+    ];
     let chart_methods: Vec<(&'static str, &'static str)> = vec![
         (
             "AddPoint(label: String, value: Number)",
@@ -3983,6 +4016,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         }
         "TextBox" => text_methods,
         "ListBox" | "ComboBox" | "ToolBar" | "StatusBar" => items_methods,
+        "TreeView" => tree_node_methods,
         "ProgressBar" | "Slider" | "NumericUpDown" | "DateTimePicker" | "Knob" => value_methods,
         "Gauge" => vec![
             ("SetValue(value: Integer)", "Set the current value (Gauge is read-only via the UI, R10 — this is the only way to change it)."),
@@ -4881,6 +4915,25 @@ fn methods_reference_doc() -> String {
                 ("SetSelectedIndex(index: Integer) (alias SetIndex())", "Select by index."),
                 ("GetCount() → Integer", "Item count."),
                 ("Clear()", "Remove every item."),
+            ],
+        ),
+        (
+            "TreeView nodes",
+            "Every call takes the node's INDEX — the same number a node event hands the handler in `CONTROL-NODE-INDEX`. That index IS the node's handle: there is no node object to hold, because a held object would go stale the moment `Items` changed. The traversal calls RETURN an index, so they chain; -1 means there is no such node, and that is what ends a walk.",
+            &[
+                ("AddNode(level, text [, icon, color, background])", "Append a node at `level` (0 = root). The level is a number, not leading spaces — `AddItem` trims its argument."),
+                ("NodeCount() → Integer", "How many nodes the tree holds."),
+                ("NodeIndexOf(text) → Integer", "The index of the first node with that label, -1 when none."),
+                ("NodeText(index) → String (alias NodeName)", "Its label."),
+                ("NodePath(index) → String", "Root to node joined by `/`."),
+                ("NodeLevel(index) → Integer", "Its depth, 0 for a root."),
+                ("NodeIcon / NodeColor / NodeBackColor (index) → String", "What the node itself carries; empty when it carries none."),
+                ("NodeParent(index) → Integer", "The node it hangs under, -1 on a root."),
+                ("NodeFirstChild / NodeLastChild (index) → Integer", "Its first/last direct child, -1 on a leaf."),
+                ("NodeNextSibling / NodePrevSibling (index) → Integer", "The next/previous node at the same level under the same parent, -1 at the end."),
+                ("NodeChildCount(index) → Integer", "Direct children only."),
+                ("NodeHasChildren(index) → 1/0", "Whether anything hangs under it."),
+                ("NodeChecked / NodeCollapsed (index) → 1/0", "Live state, read from `CheckedNodes` / `CollapsedNodes`."),
             ],
         ),
         (

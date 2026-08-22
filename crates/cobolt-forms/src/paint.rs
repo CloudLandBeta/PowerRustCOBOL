@@ -414,7 +414,10 @@ fn button_content_layout(
     (text_pos, Some(image_rect))
 }
 
-fn draw_control_border(
+/// Shared so the TreeView's tick box gets the same rim vocabulary — Single,
+/// Double, Dashed, None — as every control frame, rather than a private stroke
+/// that only ever knew one style.
+pub(crate) fn draw_control_border(
     painter: &egui::Painter,
     rect: Rect,
     rounding: egui::CornerRadius,

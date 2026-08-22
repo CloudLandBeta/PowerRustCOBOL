@@ -6590,6 +6590,56 @@ impl Interpreter {
             .unwrap_or_default()
     }
 
+    /// Read one field off the TreeView node an argument names, by index.
+    ///
+    /// An index nothing is written at answers the EMPTY string rather than
+    /// raising: a handler walking a tree runs off the end of it by design, and
+    /// the walk is guarded by the `-1` its traversal calls return, not by an
+    /// error every loop would have to trap.
+    fn tree_node_field(
+        &self,
+        obj: &str,
+        index: &str,
+        field: impl Fn(&cobolt_forms::treenodes::NodeInfo) -> String,
+    ) -> String {
+        index
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .and_then(|i| cobolt_forms::treenodes::node_at(&self.obj_get(obj, "Items"), i))
+            .map(|n| field(&n))
+            .unwrap_or_default()
+    }
+
+    /// A traversal answer: the index of a relative, or `-1` when there is none.
+    fn tree_node_link(
+        &self,
+        obj: &str,
+        index: &str,
+        link: impl Fn(&cobolt_forms::treenodes::NodeInfo) -> Option<usize>,
+    ) -> String {
+        index
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .and_then(|i| cobolt_forms::treenodes::node_at(&self.obj_get(obj, "Items"), i))
+            .and_then(|n| link(&n))
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| "-1".into())
+    }
+
+    /// Whether a newline-separated node list (`CheckedNodes`, `CollapsedNodes`)
+    /// holds this label — answered as COBOL's own `1`/`0`.
+    fn tree_list_holds(list: &str, text: &str) -> String {
+        let needle = text.trim();
+        let held = !needle.is_empty()
+            && list
+                .lines()
+                .map(str::trim)
+                .any(|l| !l.is_empty() && l == needle);
+        if held { "1" } else { "0" }.to_string()
+    }
+
     /// `FDZ::CommitFiles()` — copy the files a `StageOnly` drop is holding into
     /// `DestinationFolder`, and say what happened.
     ///
@@ -7433,6 +7483,100 @@ impl Interpreter {
                     cur.lines().count()
                 };
                 val(n.to_string())
+            }
+            // ── TreeView: writing a node ──
+            //
+            // `AddItem` cannot build a tree: it trims its argument, which it
+            // must (a PIC X field arrives padded with spaces), and a node's
+            // LEVEL is leading spaces. So the level is given as a number here
+            // instead of being counted out of a literal — which is better COBOL
+            // anyway, since `AddNode(2, "Dock A")` says what a pair of spaces
+            // only implies.
+            //
+            // The optional fields are the node's own icon, label colour and row
+            // colour, in the order they appear on the line. Omitted is empty is
+            // "as the tree draws it".
+            "ADDNODE" => {
+                let level = arg(0).parse::<usize>().unwrap_or(0);
+                let text = arg(1);
+                if !text.is_empty() {
+                    // Trailing empty fields are dropped so a plain node stays a
+                    // plain line rather than a label with three bare tabs.
+                    let mut line = format!("{}{text}", "  ".repeat(level));
+                    let fields = [arg(2), arg(3), arg(4)];
+                    if let Some(last) = fields.iter().rposition(|f| !f.is_empty()) {
+                        for f in &fields[..=last] {
+                            line.push('\t');
+                            line.push_str(f);
+                        }
+                    }
+                    let cur = self.obj_get(obj, "Items");
+                    let nv = if cur.is_empty() {
+                        line
+                    } else {
+                        format!("{cur}\n{line}")
+                    };
+                    self.obj_set(obj, "Items", nv);
+                }
+                none
+            }
+            // ── TreeView: walking the tree, and reading a node ──
+            //
+            // Every one of these takes the node's INDEX — the same number the
+            // node event hands the handler in `CONTROL-NODE-INDEX`. That index
+            // is the node's handle: there is no node object to hold, because a
+            // held object would go stale the moment `Items` changed, while an
+            // index is simply re-read against whatever the tree holds now.
+            //
+            // The traversal calls RETURN an index, so they chain: the answer
+            // from `NodeParent` is what you hand to `NodeText`. `-1` means
+            // there is no such node — no parent above a root, no sibling past
+            // the last one — which is what a COBOL loop tests for.
+            "NODECOUNT" => val(
+                cobolt_forms::treenodes::nodes(&self.obj_get(obj, "Items"))
+                    .len()
+                    .to_string(),
+            ),
+            "NODEINDEXOF" => val(
+                cobolt_forms::treenodes::index_of(&self.obj_get(obj, "Items"), &arg(0))
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| "-1".into()),
+            ),
+            "NODETEXT" | "NODENAME" => val(self.tree_node_field(obj, &arg(0), |n| n.text.clone())),
+            "NODEPATH" => val(self.tree_node_field(obj, &arg(0), |n| n.path.clone())),
+            "NODELEVEL" => val(self.tree_node_field(obj, &arg(0), |n| n.level.to_string())),
+            "NODEICON" => {
+                val(self.tree_node_field(obj, &arg(0), |n| n.icon.clone().unwrap_or_default()))
+            }
+            "NODECOLOR" | "NODECOLOUR" => {
+                val(self.tree_node_field(obj, &arg(0), |n| n.color.clone().unwrap_or_default()))
+            }
+            "NODEBACKCOLOR" | "NODEBACKGROUND" => val(
+                self.tree_node_field(obj, &arg(0), |n| n.background.clone().unwrap_or_default()),
+            ),
+            "NODECHILDCOUNT" => {
+                val(self.tree_node_field(obj, &arg(0), |n| n.child_count.to_string()))
+            }
+            "NODEHASCHILDREN" => val(self.tree_node_field(obj, &arg(0), |n| {
+                if n.child_count > 0 { "1" } else { "0" }.to_string()
+            })),
+            "NODEPARENT" => val(self.tree_node_link(obj, &arg(0), |n| n.parent)),
+            "NODEFIRSTCHILD" => val(self.tree_node_link(obj, &arg(0), |n| n.first_child)),
+            "NODELASTCHILD" => val(self.tree_node_link(obj, &arg(0), |n| n.last_child)),
+            "NODENEXTSIBLING" => val(self.tree_node_link(obj, &arg(0), |n| n.next_sibling)),
+            "NODEPREVSIBLING" | "NODEPREVIOUSSIBLING" => {
+                val(self.tree_node_link(obj, &arg(0), |n| n.prev_sibling))
+            }
+            // Ticked and folded are LIVE state, held on the control by label —
+            // so they are answered from the control's own lists rather than
+            // from the node's line, which never carried them.
+            "NODECHECKED" => {
+                let text = self.tree_node_field(obj, &arg(0), |n| n.text.clone());
+                val(Self::tree_list_holds(&self.obj_get(obj, "CheckedNodes"), &text))
+            }
+            "NODECOLLAPSED" => {
+                let text = self.tree_node_field(obj, &arg(0), |n| n.text.clone());
+                val(Self::tree_list_holds(&self.obj_get(obj, "CollapsedNodes"), &text))
             }
             // ── FileDropZone: the confirmation half of a staged drop ──
             "COMMITFILES" => val(self.commit_staged_files(obj)),
@@ -9231,6 +9375,17 @@ fn is_known_method(name: &str) -> bool {
             | "DELETEROW" | "CLEARROWS" | "SORT" | "SETFILTER" | "CLEARFILTERS"
             | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH"
             | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV"
+        // TreeView — walking the tree, and reading a node. Every one takes the
+        // node's INDEX, so every one MUST be listed here: an unlisted name
+        // parses its parens as a collection subscript instead of as a call, and
+        // `TV::NodeParent(3)` would silently mean "element 3 of NodeParent".
+            | "ADDNODE"
+            | "NODECOUNT" | "NODEINDEXOF" | "NODETEXT" | "NODENAME" | "NODEPATH"
+            | "NODELEVEL" | "NODEICON" | "NODECOLOR" | "NODECOLOUR"
+            | "NODEBACKCOLOR" | "NODEBACKGROUND" | "NODECHILDCOUNT"
+            | "NODEHASCHILDREN" | "NODEPARENT" | "NODEFIRSTCHILD"
+            | "NODELASTCHILD" | "NODENEXTSIBLING" | "NODEPREVSIBLING"
+            | "NODEPREVIOUSSIBLING" | "NODECHECKED" | "NODECOLLAPSED"
         // FileDropZone
             | "COMMITFILES"
         // Databound controls (DataGrid + repeating GroupBox/ControlArray)
