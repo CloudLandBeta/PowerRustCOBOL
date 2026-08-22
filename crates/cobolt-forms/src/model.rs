@@ -2464,7 +2464,13 @@ impl ControlType {
             ControlType::TextBox => (160, 24),
             ControlType::Label => (120, 20),
             ControlType::CheckBox => (120, 22),
-            ControlType::RadioButton => (120, 22),
+            // Wider than a CheckBox because its default caption is longer
+            // ("RadioButton-1" against "CheckBox-1") and, since 1.61.152, every
+            // theme draws a real circle in front of it. At 120 the seeded 14pt
+            // caption no longer fitted and shrank to 13 — which
+            // `a_default_control_frame_fits_its_default_caption` exists to
+            // catch. Only NEW controls take this; a saved form keeps its own.
+            ControlType::RadioButton => (140, 22),
             ControlType::ListBox => (160, 100),
             ControlType::ComboBox => (160, 24),
             ControlType::GroupBox => (200, 120),

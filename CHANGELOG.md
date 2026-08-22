@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.152] — 2026-08-22
+
+### Fixed — a radio button was a pair of parentheses on every theme but one
+
+Elegance drew a real circle, green when chosen and an empty rim when not,
+because it was the only theme describing a `Toggle` surface — and the indicator
+was drawn ONLY where one existed. Everywhere else a RadioButton typed `(●)` or
+`( )` into its own caption: nothing to colour, and nothing that looks like a
+radio button. The operator asked for Elegance's circle on all themes.
+
+**The shape is the platform's now, the colours are the theme's.**
+
+- `radio_indicator_colors` answers for every theme: a theme describing a
+  `Toggle` supplies fill, rim and rim width (Elegance is unchanged, to the
+  pixel); one that does not gets the control's own **`CheckColor`** — the
+  property that already colours a CheckBox's tick, and a radio's dot is that
+  tick. `CheckBoxColor` still leads for the circle's face.
+- **The unchosen circle's rim is picked by contrast**, not fixed. An empty
+  circle has to be visible on a dark form and on a pale card alike, and a fixed
+  grey is exactly what disappears on half of them — the rule the caption beside
+  it already follows.
+- No caption anywhere carries a glyph now, so `theme_paints_toggles` no longer
+  gates the indicator.
+- **A newly dropped radio is 140pt wide, not 120.** With a permanent circle in
+  front of it, the seeded 14pt caption no longer fitted the old default and
+  shrank to 13 — which `a_default_control_frame_fits_its_default_caption` exists
+  to catch. Saved forms keep their own width.
+
+The Elegance baseline is re-blessed: every row moved by exactly +2 (one circle
+fill, one stroke) in both themes and all four styles — one control, not the
+seam.
+
+### Changed — a Switch's checked colour is a colour, not a list of six
+
+The row was captioned **Accent** — a palette word from one theme — and offered
+`Blue`/`Green`/`Red`/`Purple`/`Amber`/`Sky`. It is now **Checked color**, edited
+with the same picker and the same colour memory as every other colour row.
+
+- The painter's accent resolver **reads hex** (as `knob_accent` already did), so
+  a picked colour reaches the track instead of falling through the name table to
+  plain blue.
+- The stored property is still `Accent` and the six names still resolve, so no
+  saved form loses its colour. Only the caption and the editor changed.
+
 ## [PowerRustCOBOL 1.61.151] — 2026-08-22
 
 ### Fixed — controls in a SideMenu's footer landed beside the rail when the form ran
