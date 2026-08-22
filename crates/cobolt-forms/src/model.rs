@@ -4479,6 +4479,33 @@ impl Control {
                 props.insert("InfoBorderColor".into(), PropValue::String("".into()));
                 props.insert("InfoCornerRadius".into(), PropValue::Int(8));
                 props.insert("InfoShadow".into(), PropValue::Bool(true));
+                // Everything else the map paints that the overlay data does not
+                // carry itself. Each was a literal in the painting code — a pin
+                // was red on a form whose every other colour the developer had
+                // chosen, and no property could say otherwise.
+                //
+                // EMPTY MEANS "the built-in default", the same convention the
+                // Info colours above already use, and it is what keeps every
+                // existing form pixel-identical: the region fill in particular
+                // is a premultiplied colour that no `#RRGGBBAA` can express, so
+                // seeding hex here would quietly restyle maps nobody touched.
+                // The inspector shows each built-in as the swatch's fallback,
+                // so the operator sees the real colour before choosing another.
+                //
+                // `AddRoute`'s colour and `AddRegion`'s fill/stroke still win
+                // over these: a route that names its own colour keeps it, and
+                // `RouteColor` is only what a route naming none falls back to.
+                props.insert("MarkerColor".into(), PropValue::String("".into()));
+                props.insert("MarkerBorderColor".into(), PropValue::String("".into()));
+                props.insert("RouteColor".into(), PropValue::String("".into()));
+                props.insert("RouteCasingColor".into(), PropValue::String("".into()));
+                props.insert("RegionFillColor".into(), PropValue::String("".into()));
+                // A region whose line names no stroke has never had a border,
+                // so empty here draws none; naming a colour gives every
+                // unstyled region an outline.
+                props.insert("RegionBorderColor".into(), PropValue::String("".into()));
+                props.insert("TileBackgroundColor".into(), PropValue::String("".into()));
+                props.insert("TileLoadingColor".into(), PropValue::String("".into()));
                 props.insert("ApiKeySource".into(), PropValue::String("".into()));
             }
             ControlType::RestClient => {

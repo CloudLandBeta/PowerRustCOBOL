@@ -4279,6 +4279,7 @@ fn render_interactive(
                 &open_marker,
                 &open_region,
                 &info_style,
+                &map_tiles::MapColors::from_control(ctrl),
             );
 
             // Hover events fire BESIDE the native window, so a form can build

@@ -4337,6 +4337,41 @@ independent halves with different credential needs:
 
   Re-using an id **replaces** that route or region. A map that redraws itself as
   its data changes would otherwise stack duplicates it could never move again.
+- **Every colour the map paints is a property** — nothing on a map is fixed by
+  the platform. They sit in the inspector's **Basic properties** section for the
+  Maps control, and each can be written from COBOL like any other property:
+
+  | Property | What it colours |
+  |----------|-----------------|
+  | `MarkerColor` | The pin itself |
+  | `MarkerBorderColor` | The ring around a pin, so it reads on a busy basemap |
+  | `RouteColor` | A route whose own line names no colour |
+  | `RouteCasingColor` | The casing under **every** route — the bright halo that makes a thin line readable over mixed terrain |
+  | `RegionFillColor` | A region whose own line names no fill |
+  | `RegionBorderColor` | A region whose own line names no stroke |
+  | `TileBackgroundColor` | Under the whole map, before any tile has arrived |
+  | `TileLoadingColor` | A single tile that has not arrived yet |
+
+  Each starts **empty**, meaning the colour the map has always painted, so a
+  form that sets none of them looks exactly as it did. Colour carried by the
+  **data still wins**: a route drawn by `AddRoute` with its own colour keeps it,
+  and so do `AddRegion`'s fill and stroke — the three region/route properties
+  are only what a line naming none falls back to.
+
+  Three are the *only* way to set their colour, because the data has no field
+  for it: a marker has no colour argument, so `MarkerColor` and
+  `MarkerBorderColor` are it, and `RouteCasingColor` applies to every route
+  whatever colour the route itself names.
+
+  ```cobol
+           MOVE "#0F7B6C" TO MAP-1::MarkerColor
+           MOVE "#FFFFFF" TO MAP-1::MarkerBorderColor
+  ```
+
+  > ⚠️ **Caveat.** `RegionBorderColor` is the one where empty is not a colour
+  > but a decision: a region whose own line names no stroke is drawn **without a
+  > border**. Naming a colour here gives every such region an outline — which
+  > may be more than you wanted on a map of many small territories.
 
   📄 **Worked example** — `forms/maps/maps-demo.cfrm` in the demo project: five
   salesmen as markers, five coloured territories, Madrid → Granada traced, and

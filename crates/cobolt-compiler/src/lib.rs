@@ -3733,6 +3733,38 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "Outline of the info window.",
         ),
         "InfoCornerRadius" => ("integer 0-32 (default 8)", "Corner rounding of the info window; 0 is square."),
+        "MarkerColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in `#C82828`",
+            "Fill of every pin on this map. Pins used to be red with no way to say otherwise; this is that colour, now yours. `AddMarker` carries no colour of its own, so this is what sets it.",
+        ),
+        "MarkerBorderColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in `#FFFFFF`",
+            "The ring drawn around every pin so it reads against a busy basemap.",
+        ),
+        "RouteColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in `#1E6EDC`",
+            "Colour for a route whose own `Routes` line names none. A route drawn with a colour — `AddRoute` USING id colour width geometry — keeps that colour; this is only the fallback.",
+        ),
+        "RouteCasingColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in `#FFFFFFB4`",
+            "The casing under EVERY route: the bright halo that makes a thin line readable over mixed terrain, the way a road map draws one. Unlike RouteColor this applies to every route, whatever colour it names.",
+        ),
+        "RegionFillColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in translucent blue",
+            "Fill for a region whose own `Regions` line names none. Give any replacement an alpha, or the territory hides the streets under it.",
+        ),
+        "RegionBorderColor" => (
+            "`#RRGGBB[AA]`, or empty for NO border",
+            "Outline for a region whose own line names no stroke. Empty is not a colour here — it means such a region is drawn without a border at all, which is what it has always done; naming a colour gives every unstyled region an outline.",
+        ),
+        "TileBackgroundColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in `#C8C8C8`",
+            "Painted under the whole map before any tile has arrived — what the operator sees for the first instant, and behind the map wherever the world has no tiles.",
+        ),
+        "TileLoadingColor" => (
+            "`#RRGGBB[AA]`, or empty for the built-in `#D2D2D2`",
+            "One tile that has not arrived yet, in its own square. Set this and TileBackgroundColor to the same value for a map that fills in without a visible grid.",
+        ),
         "InfoShadow" => ("`1`/`0` (default 1)", "Drop shadow under the info window. Turn it off on a flat or high-contrast form."),
         "SelectedRegionId" => ("region id string or empty (runtime-only)", "Id of the region whose info card is OPEN — set by a click, cleared by clicking bare map. Writing it opens or closes a card from COBOL."),
         "HoveredMarkerId" => ("marker id string (runtime-only)", "Id of the marker the pointer is over, delivered with onMarkerHover."),
@@ -4173,7 +4205,12 @@ By default the copy happens the instant the file lands, which gives the operator
 A second drop adds to what is already staged rather than replacing it, and the same file dropped twice is held once. Calling `CommitFiles()` on a zone holding nothing is not an error — it reports `0 of 0 copied`. Megabytes count 1,000,000 bytes, matching the operator's own file browser.\n",
         "Maps" => "\
 ### Usage — basemap vs. data verbs, and the API key\n\
-The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) needs **no API key at all**. Only the five data methods (`Geocode`, `ReverseGeocode`, `Directions`, `DistanceMatrix`, `PlacesSearch`) call the real Google Maps API and need a project-level `google-maps` credential (Settings → Integrations) — with none configured they fail immediately with `LastError` = \"not configured\" and fire `onError`, never a crash, never a network call (R33). The key itself never appears in any property, generated `.cbl`, or the `.cfrm`.\n",
+The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) needs **no API key at all**. Only the five data methods (`Geocode`, `ReverseGeocode`, `Directions`, `DistanceMatrix`, `PlacesSearch`) call the real Google Maps API and need a project-level `google-maps` credential (Settings → Integrations) — with none configured they fail immediately with `LastError` = \"not configured\" and fire `onError`, never a crash, never a network call (R33). The key itself never appears in any property, generated `.cbl`, or the `.cfrm`.\n\
+\n\
+### Colours — nothing on a map is hard-coded\n\
+Every colour the map paints is a property, in the inspector's **Basic properties** section and writable from COBOL: `MarkerColor`, `MarkerBorderColor`, `RouteColor`, `RouteCasingColor`, `RegionFillColor`, `RegionBorderColor`, `TileBackgroundColor`, `TileLoadingColor`. Each starts EMPTY, meaning the built-in the map has always painted, so a form that sets none of them is unchanged.\n\
+\n\
+Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry keeps that route's own colour, and `AddRegion`'s fill and stroke keep theirs — `RouteColor`, `RegionFillColor` and `RegionBorderColor` are what a line naming none falls back to. Two exceptions, because their data carries no colour at all: `MarkerColor`/`MarkerBorderColor` (an `AddMarker` has no colour argument) and `RouteCasingColor` (the halo under EVERY route, whatever colour the route itself names). Never tell a developer a map colour cannot be changed, and never suggest editing the `.cfrm` by hand to change one.\n",
         "WebSearch" => "\
 ### Usage — the generated paragraph vs. `INVOKE 'Search'`\n\
 Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFORM SEARCH-1-SEARCH`) that builds a Custom Search URL and calls `COBOL-HTTP-GET` directly — but it does PLAIN, UNENCODED string concatenation: a multi-word `Query` truncates at its first space, and it never includes the API key (so it 401s against the real API on its own). **Use `INVOKE <id> 'Search'` instead** — it percent-encodes the query and resolves the credential-store key automatically; the paragraph exists only as a low-level fallback. Same \"not configured\" contract as Maps: no `google-custom-search` key configured (Settings → Integrations) fails immediately with `onError`, no request sent (R33).\n",

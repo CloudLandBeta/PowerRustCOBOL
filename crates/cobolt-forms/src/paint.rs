@@ -3514,6 +3514,11 @@ fn draw_control_body(
             "",
             "",
             &crate::map_tiles::InfoStyle::default(),
+            // The canvas draws pins, routes and territories, so it reads the
+            // map's colour properties too: a marker that is one colour while
+            // you lay the form out and another while it runs is not a design
+            // surface.
+            &crate::map_tiles::MapColors::from_control(ctrl),
         );
         return;
     }

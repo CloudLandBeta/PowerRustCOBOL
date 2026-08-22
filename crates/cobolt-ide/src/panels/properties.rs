@@ -5442,6 +5442,97 @@ impl PropertiesPanel {
         phase: TypeSection,
     ) {
         match ctrl.control_type {
+            // ── Maps ──────────────────────────────────────────────────────────
+            // Every colour the map paints that its overlay data does not carry
+            // itself. These were literals in the painting code, so a pin was
+            // red on a form whose every other colour the developer had chosen
+            // (operator, 2026-08-22).
+            //
+            // Each swatch shows the BUILT-IN until the operator picks something,
+            // because the stored value starts empty — the map's own convention
+            // for "whatever the painter draws when nobody has chosen", which is
+            // what keeps existing maps unchanged.
+            ControlType::Maps if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_basic);
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "MarkerColor",
+                    tr.lbl_map_marker_color,
+                    ctrl,
+                    action,
+                    "#C82828",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "MarkerBorderColor",
+                    tr.lbl_map_marker_border,
+                    ctrl,
+                    action,
+                    "#FFFFFF",
+                );
+                // Route and region colours are DEFAULTS: a route drawn by
+                // `AddRoute` with its own colour keeps it, and these are what a
+                // line naming none falls back to.
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "RouteColor",
+                    tr.lbl_map_route_color,
+                    ctrl,
+                    action,
+                    "#1E6EDC",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "RouteCasingColor",
+                    tr.lbl_map_route_casing,
+                    ctrl,
+                    action,
+                    "#FFFFFFB4",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "RegionFillColor",
+                    tr.lbl_map_region_fill,
+                    ctrl,
+                    action,
+                    "#3C78C846",
+                );
+                // The one whose absence means "no border at all", so its swatch
+                // stands for nothing until a colour is chosen.
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "RegionBorderColor",
+                    tr.lbl_map_region_border,
+                    ctrl,
+                    action,
+                    "#00000000",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "TileBackgroundColor",
+                    tr.lbl_map_tile_backdrop,
+                    ctrl,
+                    action,
+                    "#C8C8C8",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "TileLoadingColor",
+                    tr.lbl_map_tile_loading,
+                    ctrl,
+                    action,
+                    "#D2D2D2",
+                );
+            }
+
             // ── Button ────────────────────────────────────────────────────────
             ControlType::Button if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
@@ -9323,6 +9414,50 @@ fn color_prop_row_fallback(
     fallback: &str,
 ) {
     color_prop_row_inner(ui, ctrl_id, key, label, ctrl, action, fallback);
+}
+
+/// A colour row whose property is seeded EMPTY, meaning "whatever the painter
+/// draws when nobody has chosen" — the Maps colours, and the same convention
+/// the map's Info colours already follow.
+///
+/// The plain row falls back only when the property is ABSENT, so an empty one
+/// showed a black swatch for a pin that is actually red. Here the built-in is
+/// what the operator sees until they pick something, which is the only way the
+/// swatch can tell the truth about an unset colour.
+fn color_prop_row_default(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    builtin: &str,
+) {
+    let stored = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_default();
+    let hex = if stored.is_empty() {
+        builtin.to_owned()
+    } else {
+        stored
+    };
+    let mut color = hex_to_color32(&hex);
+    property_row(ui, label, |ui| {
+        if color_edit_button_closing(ui, &mut color).changed() {
+            action.set_props.push((
+                ctrl_id.to_owned(),
+                key.to_owned(),
+                PropValue::String(color32_to_hex(color)),
+            ));
+        }
+        ui.label(
+            RichText::new(color32_to_hex(color))
+                .monospace()
+                .small()
+                .color(Color32::GRAY),
+        );
+    });
 }
 
 fn color_prop_row_inner(
