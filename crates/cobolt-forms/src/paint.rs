@@ -10805,8 +10805,27 @@ pub fn treeview_ink(ctx: &egui::Context, ctrl: &Control) -> Color32 {
     {
         return c;
     }
-    theme_token(ctx, crate::surface_theme::ColorToken::Text)
-        .unwrap_or(Color32::from_rgb(220, 226, 250))
+    // `HighContrastText`, ON by default: pick the ink from what the tree is
+    // actually painted on rather than from the theme's idea of text, so a tree
+    // is readable on a white face, a dark card and a translucent glass surface
+    // alike (operator, 2026-08-22). `caret_color` chooses by CONTRAST RATIO, so
+    // it clears WCAG AA on any surface — where the theme's text token can be
+    // near-invisible on a face the developer chose themselves.
+    //
+    // Turning it off restores the theme's own text colour, for a developer who
+    // wants the tree to match the rest of the theme even where it costs
+    // legibility. An explicit ForegroundColor above outranks both.
+    let high_contrast = ctrl
+        .get_prop("HighContrastText")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
+    let themed = theme_token(ctx, crate::surface_theme::ColorToken::Text)
+        .unwrap_or(Color32::from_rgb(220, 226, 250));
+    if !high_contrast {
+        return themed;
+    }
+    let behind = control_surface_tone(ctx, ctrl, parse_color(crate::model::DEFAULT_BACKGROUND_COLOR));
+    caret_color(behind, themed)
 }
 
 /// A RadioButton's circle: `(fill, rim, rim width)` — **filled when on, an empty
@@ -15777,15 +15796,25 @@ mod elegance_baseline_tests {
         //                                                              = 11
         // 11 − 5 = +6, in both themes and all four styles — one control moved,
         // not the seam.
+        // Re-blessed in 1.61.157: the TreeView gained ICONS and disclosure
+        // ARROWS. The fixture's one tree (`Node 1 / Child 1 / Child 2 /
+        // Node 2`) draws four catalogue icons where it drew none — an open
+        // folder on `Node 1`, a document on each of the three leaves — plus one
+        // chevron on the only node that has children.
+        //
+        // Every row moved by exactly +54, which is those five drawings: a
+        // catalogue icon is a VECTOR, ten-odd shapes each, not one glyph. Both
+        // themes moved identically, which is what says one control moved rather
+        // than the seam — no pack here skins a tree.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1360),
-            ("asset-pack", GS::Classic, 1182),
-            ("liquid-glass", GS::Enhanced, 1460),
-            ("asset-pack", GS::Enhanced, 1256),
-            ("liquid-glass", GS::Neumorphic, 555),
-            ("asset-pack", GS::Neumorphic, 571),
-            ("liquid-glass", GS::NeumorphicDark, 555),
-            ("asset-pack", GS::NeumorphicDark, 571),
+            ("liquid-glass", GS::Classic, 1414),
+            ("asset-pack", GS::Classic, 1236),
+            ("liquid-glass", GS::Enhanced, 1514),
+            ("asset-pack", GS::Enhanced, 1310),
+            ("liquid-glass", GS::Neumorphic, 609),
+            ("asset-pack", GS::Neumorphic, 625),
+            ("liquid-glass", GS::NeumorphicDark, 609),
+            ("asset-pack", GS::NeumorphicDark, 625),
         ];
         for (theme, gs, want) in expected {
             let got = rows

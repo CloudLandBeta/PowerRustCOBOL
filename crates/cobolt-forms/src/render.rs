@@ -6919,6 +6919,12 @@ fn render_interactive(
                 .unwrap_or(false);
             let mut hovered = None;
             let mut checked_after = checked.clone();
+            let mut collapsed_after: Vec<String> = sv(ctrl, "CollapsedNodes")
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect();
             for row in &rows {
                 let resp = ui.interact(
                     row.rect,
@@ -6930,15 +6936,39 @@ fn render_interactive(
                 }
                 let is_selected = !selected.is_empty() && selected == row.text;
                 if resp.clicked() && enabled {
-                    // A click ON THE BOX ticks it; anywhere else on the row
-                    // selects the node. Both were dead before: `CheckBoxes`
-                    // drew nothing and so had nothing to tick.
-                    let on_box = row
-                        .check
-                        .zip(ui.ctx().pointer_interact_pos())
-                        .map(|(b, p)| b.expand(2.0).contains(p))
-                        .unwrap_or(false);
-                    if on_box {
+                    // Three things a row can be clicked ON, and they do not
+                    // overlap: the disclosure ARROW folds the node, the tick
+                    // BOX checks it, anywhere else selects it.
+                    let at = ui.ctx().pointer_interact_pos();
+                    let hit = |r: Option<Rect>| {
+                        r.zip(at).map(|(b, p)| b.expand(2.0).contains(p)).unwrap_or(false)
+                    };
+                    let on_arrow = hit(row.expander);
+                    let on_box = !on_arrow && hit(row.check);
+                    if on_arrow {
+                        match collapsed_after.iter().position(|c| *c == row.text) {
+                            Some(i) => {
+                                collapsed_after.remove(i);
+                            }
+                            None => collapsed_after.push(row.text.clone()),
+                        }
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "CollapsedNodes".to_owned(),
+                            collapsed_after.join("\n"),
+                        ));
+                        // Which way it went, so a handler can load children on
+                        // first open without tracking the state itself.
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            if row.collapsed {
+                                "onNodeExpand"
+                            } else {
+                                "onNodeCollapse"
+                            },
+                            &row.text,
+                        ));
+                    } else if on_box {
                         match checked_after.iter().position(|c| *c == row.text) {
                             Some(i) => {
                                 checked_after.remove(i);

@@ -4357,6 +4357,38 @@ impl Control {
                 // `CheckBoxes`, which drew nothing and had nowhere to record a
                 // tick. Read and written like `SelectedNode`.
                 props.insert("CheckedNodes".into(), PropValue::String("".into()));
+                // Which nodes are FOLDED SHUT, one per line. A collapsed list
+                // rather than an expanded one, so empty means the whole tree is
+                // open — what a tree has always shown, and what a developer who
+                // never touches the property still gets.
+                props.insert("CollapsedNodes".into(), PropValue::String("".into()));
+                // Icons, from the platform's own catalogue. A node names its
+                // own after a TAB in its `Items` line; these are what the rest
+                // fall back to, so a tree looks like a tree untouched.
+                props.insert("ShowIcons".into(), PropValue::Bool(true));
+                props.insert("ParentIcon".into(), PropValue::String("folder".into()));
+                props.insert(
+                    "ParentIconOpen".into(),
+                    PropValue::String("folder-open".into()),
+                );
+                props.insert("LeafIcon".into(), PropValue::String("doc-text".into()));
+                props.insert("IconSize".into(), PropValue::Int(14));
+                // Empty = the node ink, so legible text means legible icons.
+                props.insert("IconColor".into(), PropValue::String("".into()));
+                // Node ink picked by CONTRAST against the face the tree is
+                // painted on, rather than from the theme's text colour. Off
+                // restores the theme's own; an explicit ForegroundColor beats
+                // both.
+                props.insert("HighContrastText".into(), PropValue::Bool(true));
+                // The metrics, so nothing about a row is a number the developer
+                // cannot reach.
+                props.insert("RowHeight".into(), PropValue::Int(18));
+                props.insert("IndentWidth".into(), PropValue::Int(16));
+                props.insert("CheckBoxSize".into(), PropValue::Int(12));
+                // Empty = the theme's focus colour at the weight a band has
+                // always had, and half that for the hot-track.
+                props.insert("SelectionColor".into(), PropValue::String("".into()));
+                props.insert("HotTrackColor".into(), PropValue::String("".into()));
             }
             ControlType::Splitter => {
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into()));

@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.157] — 2026-08-22
+
+### Added — the TreeView folds, carries icons, and has no fixed numbers left
+
+The operator asked for `egui_ltreeview`'s capabilities. **That crate cannot be
+linked**: its latest release (0.8.0) requires egui 0.35 against this
+workspace's 0.36, and adding it pulls a second egui/epaint/ecolor stack — its
+`Ui` and `Response` are different types from ours, so its widget cannot be
+handed our frame. That was verified on a throwaway branch (`cargo tree` showed
+both stacks) and reverted; it is the same blocker recorded for `egui-map-view`
+at the top of `map_tiles.rs`. The operator chose to build the capabilities
+in-house instead.
+
+- **Expand/collapse.** A node with children draws a disclosure arrow — right
+  when shut, down when open. Clicking it writes `CollapsedNodes` and fires
+  `onNodeCollapse`/`onNodeExpand` naming that node. A COLLAPSED list, not an
+  expanded one, so empty means the whole tree is open: what a tree has always
+  shown, and what a developer who never touches it still gets.
+- **Icons from the platform's own catalogue** — no new artwork was needed:
+  `folder`, `folder-open`, `doc-text` and the chevrons all existed. A node names
+  its own after a TAB in its `Items` line (the same shape Markers and Routes
+  use); the rest take `ParentIcon`/`ParentIconOpen`/`LeafIcon`. `ShowIcons`
+  turns the column off and the labels reclaim the room.
+- **Every metric is a property**: `RowHeight`, `IndentWidth`, `IconSize`,
+  `CheckBoxSize`, plus `IconColor`, `SelectionColor` and `HotTrackColor`. The
+  inspector gained a row for each, and the three icon rows draw the icon they
+  name — a name the catalogue does not have shows as an empty preview rather
+  than as a blank column at run time.
+- **High-contrast node ink, on by default** (`HighContrastText`): picked by
+  contrast RATIO against the face the tree is painted on, so it clears WCAG AA
+  on a white face, a dark card or glass alike. Off falls back to the theme's
+  text colour; an explicit `ForegroundColor` outranks both.
+- **The arrow's slot is reserved on every row**, drawn only where something
+  folds. Reserving it only for parents let a leaf's label slide left of its own
+  parent's, which reads as the wrong depth — caught by the layout test.
+- **Numeric properties were read through `as_str`**, which a `PropValue::Int`
+  answers with the empty string — so every metric sat on its default however the
+  inspector was set. They read through `as_i64` now, which parses a `String`
+  too, so both spellings work.
+
+Elegance baseline re-blessed: every row moved by exactly +54 — four catalogue
+icons and one chevron the fixture's tree did not draw before, vector drawings of
+ten-odd shapes each. Both themes moved identically, which is what says one
+control moved rather than the seam.
+
 ## [PowerRustCOBOL 1.61.156] — 2026-08-22
 
 ### Fixed — a transparent SideMenu footer Panel showed a black block
