@@ -299,6 +299,79 @@ fn cache() -> &'static Mutex<HashMap<TileKey, TileSlot>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// How many levels up a missing tile may borrow from. Five is a 32× blow-up —
+/// past that the stand-in is a smear of four pixels and the honest backdrop
+/// reads better.
+const MAX_ANCESTOR_LEVELS: u8 = 5;
+
+/// Which part of an ancestor `n` levels up this tile covers, as UV.
+///
+/// Each level halves the square: one level up, a tile is one of the ancestor's
+/// four quadrants; two levels up, one of sixteen. Which one is written in the
+/// low bits of its own x/y — `x & (2^n − 1)` is its column inside the ancestor.
+fn ancestor_uv(x: i64, y: i64, n: u8) -> egui::Rect {
+    let span = 1i64 << n;
+    let step = 1.0 / span as f32;
+    let cx = x.rem_euclid(span) as f32 * step;
+    let cy = y.rem_euclid(span) as f32 * step;
+    egui::Rect::from_min_max(
+        egui::pos2(cx, cy),
+        egui::pos2(cx + step, cy + step),
+    )
+}
+
+/// Paint a stand-in for a tile that has not arrived, out of the tiles that
+/// **have** — the way every map client covers the same gap.
+///
+/// A zoom used to blank to a flat grey block and then snap to the new image.
+/// The map already holds a picture of that ground, at another scale (operator,
+/// 2026-08-22), so:
+///
+/// * **Zooming in**, the nearest loaded ANCESTOR is magnified and cropped to
+///   the quadrant this tile covers — the ground stays where the eye left it and
+///   simply sharpens when the real tile lands.
+/// * **Zooming out**, the four CHILDREN are drawn shrunk into their quarters —
+///   the level being left is still in the cache, so the new one fills in over a
+///   picture rather than over grey. Whichever children are ready are drawn;
+///   partial cover still beats none.
+///
+/// Ancestors are tried first: one draw, and one level up is only a 2× blow-up,
+/// while children cost four draws and are often only partly present.
+///
+/// Returns whether anything was painted.
+fn draw_tile_stand_in(
+    map: &HashMap<TileKey, TileSlot>,
+    painter: &egui::Painter,
+    dest: egui::Rect,
+    (z, x, y): TileKey,
+) -> bool {
+    let full = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    for n in 1..=MAX_ANCESTOR_LEVELS.min(z) {
+        let key = (z - n, x >> n, y >> n);
+        if let Some(TileSlot::Ready(tex)) = map.get(&key) {
+            painter.image(tex.id(), dest, ancestor_uv(x, y, n), egui::Color32::WHITE);
+            return true;
+        }
+    }
+    if z >= MAX_ZOOM {
+        return false;
+    }
+    let half = dest.size() * 0.5;
+    let mut drew = false;
+    for (i, j) in [(0i64, 0i64), (1, 0), (0, 1), (1, 1)] {
+        let key = (z + 1, x * 2 + i, y * 2 + j);
+        if let Some(TileSlot::Ready(tex)) = map.get(&key) {
+            let quarter = egui::Rect::from_min_size(
+                dest.min + egui::vec2(i as f32 * half.x, j as f32 * half.y),
+                half,
+            );
+            painter.image(tex.id(), quarter, full, egui::Color32::WHITE);
+            drew = true;
+        }
+    }
+    drew
+}
+
 /// Start a background fetch for one tile, unless one is already in flight
 /// or has already resolved. Mirrors `file_dialog.rs`'s `begin`/`take`
 /// shape: never blocks the calling (paint) frame, wakes the context when
@@ -878,13 +951,26 @@ pub fn paint_map_at(
                     // geometry stays undistorted.
                     painter.image(tex.id(), dest, uv, egui::Color32::WHITE);
                 }
+                // Not here yet — and a flat grey block is the worst thing to
+                // put in its place, because the map already holds a picture of
+                // this ground at another scale. `draw_tile_stand_in` magnifies
+                // the nearest loaded ancestor (zooming in) or shrinks the four
+                // children (zooming out), so the real tile arrives OVER a
+                // picture instead of over grey.
                 Some(TileSlot::Failed) => {
-                    painter.rect_filled(dest, 0.0, colors.tile_loading);
+                    if !draw_tile_stand_in(&map, painter, dest, key) {
+                        // Nothing to borrow from: a tile that will never come
+                        // still has to read as absent rather than as ground.
+                        painter.rect_filled(dest, 0.0, colors.tile_loading);
+                    }
                 }
                 Some(TileSlot::Loading(_)) => {
-                    // Left at the pre-tile backdrop colour; nothing to draw.
+                    // A stand-in while it travels; the backdrop when there is
+                    // none to borrow.
+                    draw_tile_stand_in(&map, painter, dest, key);
                 }
                 None => {
+                    draw_tile_stand_in(&map, painter, dest, key);
                     drop(map);
                     request_tile(ctx, key);
                 }
@@ -1420,6 +1506,60 @@ mod tests {
     fn an_unchanged_zoom_never_moves_the_centre() {
         let (lat, lng) = (10.0, 20.0);
         assert_eq!(zoom_about(lat, lng, 8, 8, 300.0, -50.0), (lat, lng));
+    }
+
+    /// **A missing tile borrows the right piece of ground.**
+    ///
+    /// Operator, 2026-08-22: a zoom blanked to a grey block and then snapped to
+    /// the new image, where every map client shows the ground it already has,
+    /// rescaled. Which PART of the ancestor a tile covers is the whole of that:
+    /// get it wrong and the stand-in shows ground from somewhere else, which is
+    /// worse than grey because it looks correct.
+    #[test]
+    fn a_tile_covers_its_own_quadrant_of_its_ancestor() {
+        // One level up: the low bit of each coordinate picks the quadrant.
+        assert_eq!(
+            ancestor_uv(2, 3, 1),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.5), egui::pos2(0.5, 1.0)),
+            "even x, odd y ⇒ bottom-left quarter"
+        );
+        assert_eq!(
+            ancestor_uv(3, 2, 1),
+            egui::Rect::from_min_max(egui::pos2(0.5, 0.0), egui::pos2(1.0, 0.5)),
+            "odd x, even y ⇒ top-right quarter"
+        );
+        // Two levels up: one of sixteen, from the low TWO bits.
+        assert_eq!(
+            ancestor_uv(5, 6, 2),
+            egui::Rect::from_min_max(egui::pos2(0.25, 0.5), egui::pos2(0.5, 0.75))
+        );
+    }
+
+    /// The four children of one tile tile it exactly — no overlap, no gap.
+    /// A stand-in that double-covers a strip would draw one band of ground
+    /// twice and leave another missing.
+    #[test]
+    fn the_four_children_cover_their_parent_exactly() {
+        let (px, py) = (11i64, 4i64);
+        let quads: Vec<egui::Rect> = [(0i64, 0i64), (1, 0), (0, 1), (1, 1)]
+            .iter()
+            .map(|(i, j)| ancestor_uv(px * 2 + i, py * 2 + j, 1))
+            .collect();
+        let mut area = 0.0;
+        for (n, a) in quads.iter().enumerate() {
+            area += a.width() * a.height();
+            for b in &quads[n + 1..] {
+                let hit = a.intersect(*b);
+                assert!(
+                    hit.width() <= 0.0 || hit.height() <= 0.0,
+                    "{a:?} and {b:?} overlap"
+                );
+            }
+        }
+        assert!(
+            (area - 1.0).abs() < 1e-6,
+            "the four must cover the whole parent, got {area}"
+        );
     }
 
     /// **A map nobody restyled paints exactly what it always did.** The colours
