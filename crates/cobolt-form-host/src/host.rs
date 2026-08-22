@@ -312,10 +312,7 @@ pub fn run(config: FormHostConfig) {
     if let Some(icon) = load_host_icon(taskbar_icon_path.as_deref().or(icon_path.as_deref())) {
         viewport = viewport.with_icon(icon);
     }
-    let native_options = eframe::NativeOptions {
-        viewport,
-        ..Default::default()
-    };
+    let native_options = crate::native_options(viewport);
     let _ = eframe::run_native(
         &title,
         native_options,
@@ -599,6 +596,7 @@ pub(crate) struct FormBody {
 
 impl FormBody {
     pub(crate) fn send_event(&mut self, ev: FormEvent) {
+        crate::diagnostics::trace_event("send", &ev.ctrl_id, &ev.event_id, ev.instance_index);
         if self.ev_tx.send(ev).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
         }
@@ -3741,6 +3739,121 @@ mod parity {
             .try_iter()
             .map(|e| (e.ctrl_id, e.event_id))
             .collect()
+    }
+
+    /// One click on a Switch must send exactly ONE `onClick`.
+    ///
+    /// The operator's handler DISPLAYed on entry and printed two lines per
+    /// click (2026-08-21). This drives a real press+release through the same
+    /// path a running form takes and counts what reaches the interpreter's
+    /// event channel.
+    #[test]
+    fn one_click_sends_one_onclick() {
+        let form = cobolt_forms::Form::new("MAIN", "Main", 320, 200);
+        // INSIDE a container, like the operator's Switch-1 (parent="Panel-8").
+        // A parentless control never showed the fault: it is drawn once, so it
+        // reports one click however many passes there are.
+        let mut panel =
+            cobolt_forms::Control::new("Panel-8", cobolt_forms::ControlType::Panel, 0, 0);
+        panel.rect = cobolt_forms::model::Rect::new(0, 0, 200, 100);
+        let mut sw =
+            cobolt_forms::Control::new("Switch-1", cobolt_forms::ControlType::Switch, 10, 10);
+        sw.rect = cobolt_forms::model::Rect::new(10, 10, 60, 24);
+        sw.parent = Some("Panel-8".into());
+        // BOUND, like the operator's Switch-1. `onClick` is emitted only for a
+        // control that binds a handler, so an unbound probe is blind to the
+        // double-fire this test exists for — which is precisely why the first
+        // version of it passed while the real form was broken.
+        sw.ensure_event("onClick");
+        let flat = vec![panel, sw];
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(),
+            fx_exit: FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        let pipes = Pipes {
+            ev_rx,
+            _input_rx,
+            _state_tx,
+            _display_tx,
+            finished: Arc::new(AtomicBool::new(false)),
+            _form_req_tx,
+            _closed_rx,
+        };
+        let ctx = egui::Context::default();
+
+        // The host ignores interaction for its first 450 ms (the entrance
+        // window), so a click before that forwards nothing at all.
+        let _ = frame(&mut host, &ctx, raw());
+        std::thread::sleep(Duration::from_millis(500));
+        for _ in 0..2 {
+            let _ = frame(&mut host, &ctx, raw());
+        }
+        let _ = drain_events(&pipes);
+
+        let at = egui::pos2(30.0, 30.0);
+        let mut down = raw();
+        down.events = vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ];
+        let _ = frame(&mut host, &ctx, down);
+        let mut up = raw();
+        up.events = vec![egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }];
+        let _ = frame(&mut host, &ctx, up);
+        // Quiet frames, in case a duplicate arrives one frame late.
+        for _ in 0..3 {
+            let _ = frame(&mut host, &ctx, raw());
+        }
+
+        let evs = drain_events(&pipes);
+        let clicks: Vec<_> = evs
+            .iter()
+            .filter(|(_, e)| e.eq_ignore_ascii_case("onClick"))
+            .collect();
+        assert_eq!(
+            clicks.len(),
+            1,
+            "one click must send exactly one onClick; got {evs:?}"
+        );
     }
 
     /// An OBSERVER event fires when the INTERPRETER changes a value, on the ROOT

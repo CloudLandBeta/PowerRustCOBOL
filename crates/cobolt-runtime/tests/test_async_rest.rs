@@ -271,14 +271,14 @@ fn async_get_stays_responsive_then_completes() {
     let updates = drain_state(&h.state_rx);
     assert_eq!(
         last_value(&updates, "REST-1", "Busy").as_deref(),
-        Some("0"),
-        "Busy must return to 0 on completion; updates: {updates:?}"
+        Some("false"),
+        "Busy must return to false on completion; updates: {updates:?}"
     );
     assert!(
         updates
             .iter()
-            .any(|(c, p, v)| c == "REST-1" && p == "Busy" && v == "1"),
-        "Busy must have been set to 1 while in flight; updates: {updates:?}"
+            .any(|(c, p, v)| c == "REST-1" && p == "Busy" && v == "true"),
+        "Busy must have been set to true while in flight; updates: {updates:?}"
     );
     assert_eq!(
         last_value(&updates, "REST-1", "ResponseBody").as_deref(),
@@ -315,7 +315,7 @@ fn async_get_transport_failure_fires_on_error() {
     let updates = drain_state(&h.state_rx);
     assert_eq!(
         last_value(&updates, "REST-1", "Busy").as_deref(),
-        Some("0"),
+        Some("false"),
         "Busy cleared after error; updates: {updates:?}"
     );
 }
@@ -343,7 +343,7 @@ fn async_get_times_out_without_cancel() {
     let updates = drain_state(&h.state_rx);
     assert_eq!(
         last_value(&updates, "REST-1", "Busy").as_deref(),
-        Some("0"),
+        Some("false"),
         "Busy cleared after timeout; updates: {updates:?}"
     );
 }
@@ -377,7 +377,7 @@ fn cancel_mid_flight_fires_on_cancelled_and_discards_late_result() {
     let updates = drain_state(&h.state_rx);
     assert_eq!(
         last_value(&updates, "REST-1", "Busy").as_deref(),
-        Some("0"),
+        Some("false"),
         "Busy cleared by cancel; updates: {updates:?}"
     );
     assert!(

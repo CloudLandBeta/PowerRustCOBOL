@@ -1087,6 +1087,92 @@ impl EventBinding {
     }
 }
 
+/// The text a boolean reads back as in COBOL.
+///
+/// One spelling, everywhere. Before this, a boolean property's text depended on
+/// which code path last wrote it: `Checked` came back as the word `false` while
+/// `Visible` came back as the digit `0`, and the same `.cfrm` could hold either
+/// form because a runtime write turns a `PropValue::Bool` into a
+/// `PropValue::String`. A developer cannot write one correct comparison against
+/// a value with four possible spellings (operator, 2026-08-21).
+pub const TRUE_TEXT: &str = "true";
+pub const FALSE_TEXT: &str = "false";
+
+/// `true`/`false` as RustCOBOL spells them.
+pub fn bool_text(v: bool) -> &'static str {
+    if v {
+        TRUE_TEXT
+    } else {
+        FALSE_TEXT
+    }
+}
+
+/// Read `s` as a boolean, accepting every form RustCOBOL takes on input:
+/// `TRUE`/`FALSE` in any case, and `1`/`0`. Anything else is not a boolean and
+/// gets `None` — this is deliberately narrow, because a value that merely
+/// *fails* to parse as a number is not thereby `false`.
+pub fn parse_bool_text(s: &str) -> Option<bool> {
+    let s = s.trim();
+    if s.eq_ignore_ascii_case(TRUE_TEXT) || s == "1" {
+        Some(true)
+    } else if s.eq_ignore_ascii_case(FALSE_TEXT) || s == "0" {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Is `s` written as a boolean **word** (`TRUE`/`FALSE`, any case)?
+///
+/// Narrower than [`parse_bool_text`] on purpose: a bare `1` or `0` is an
+/// ordinary COBOL number and must keep comparing as one. Only the words mark a
+/// value as intended-as-a-boolean, which is what lets a comparison switch to
+/// boolean rules without disturbing arithmetic.
+pub fn is_bool_word(s: &str) -> bool {
+    let s = s.trim();
+    s.eq_ignore_ascii_case(TRUE_TEXT) || s.eq_ignore_ascii_case(FALSE_TEXT)
+}
+
+/// Does `type_name` carry `prop` as a boolean?
+///
+/// Answered from [`Control::new`]'s own seed rather than a hand-kept list, so a
+/// control that gains a boolean property is covered the day it is added.
+/// `Visible` and `Enabled` are named explicitly because they live on the
+/// `Control` struct rather than the property map.
+pub fn is_boolean_property(type_name: &str, prop: &str) -> bool {
+    // Boolean on every control that has them, whatever the type — so they do
+    // not depend on the object having been registered under its real class.
+    // `Visible` and `Enabled` live on the `Control` struct rather than the
+    // property map; `Busy` is written by the runtime and never seeded at all,
+    // so a lookup in `Control::new` would miss it and the async flag would read
+    // back as `0` on one path and `false` on another.
+    for universal in ["Visible", "Enabled", "Busy"] {
+        if prop.eq_ignore_ascii_case(universal) {
+            return true;
+        }
+    }
+    let ct = ControlType::from_str(type_name);
+    Control::new("_", ct, 0, 0)
+        .properties
+        .iter()
+        .any(|(k, v)| k.eq_ignore_ascii_case(prop) && matches!(v, PropValue::Bool(_)))
+}
+
+/// The text a property should read back as in COBOL: booleans canonicalised,
+/// everything else exactly as stored.
+///
+/// A boolean whose stored text is not recognisable as one (a developer wrote
+/// something else into it) is passed through untouched rather than guessed at —
+/// reporting `false` for a value nobody can interpret would invent an answer.
+pub fn property_runtime_text(type_name: &str, key: &str, stored: &str) -> String {
+    if is_boolean_property(type_name, key) {
+        if let Some(b) = parse_bool_text(stored) {
+            return bool_text(b).to_owned();
+        }
+    }
+    stored.to_owned()
+}
+
 /// The canonical property names a control of `type_name` exposes — exactly the
 /// keys [`Control::new`] populates, so the editor's IntelliSense always reflects
 /// what the runtime can `SET`/`GET` with no separate catalogue to drift.

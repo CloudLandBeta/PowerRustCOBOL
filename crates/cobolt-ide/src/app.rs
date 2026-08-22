@@ -1690,17 +1690,28 @@ impl CoboltApp {
         build_needs_full(self.cobolt_project.as_ref(), crate::version::VERSION)
     }
 
-    /// Gate every Run path on the version stamp. See [`build_needs_full`] —
-    /// the Build button reads the same predicate, so a build it just performed
-    /// is one this gate accepts.
+    /// Gate every Run path on the version stamp.
     ///
     /// Returns `true` when the caller should stop and let the developer answer
     /// the prompt. The prompt reappears on every Run until a full build
     /// actually happens — which is the point: an incremental build cannot
     /// promise that nothing compiled by the older version survived, so nothing
     /// short of the full build clears it.
+    ///
+    /// It asks a NARROWER question than [`build_needs_full`], and must. That
+    /// one answers "does a build have to discard its cache", and a project that
+    /// has never been built qualifies. This one answers "was this output made
+    /// by a version I am not" — and a project created moments ago by the
+    /// running IDE has no output at all. Sharing the predicate meant every
+    /// brand-new project was told on every single Run that it "was built by an
+    /// older PowerRustCOBOL", which was both untrue and the first thing a new
+    /// user saw (user report, 2026-08-21).
     fn stale_build_blocks(&mut self, intent: StaleBuildIntent) -> bool {
-        if !self.build_is_stale() {
+        let built_elsewhere = self
+            .cobolt_project
+            .as_ref()
+            .is_some_and(|p| p.project.built_by_a_different_version(crate::version::VERSION));
+        if !built_elsewhere {
             return false;
         }
         self.stale_build_prompt = Some(StaleBuildPrompt { intent });

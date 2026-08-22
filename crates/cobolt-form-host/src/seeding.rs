@@ -54,7 +54,9 @@ pub fn build_object_seed(
     // universal form surface, so `me::Width` (and `<FORM-NAME>::Width`)
     // read the designed values from the first frame. Before this the form
     // had no registry entry at all and every form-property read was empty.
-    let b = |v: bool| if v { "1" } else { "0" }.to_string();
+    // Same one spelling the controls get — the form's own booleans are read by
+    // the same COBOL and must compare the same way.
+    let b = |v: bool| cobolt_forms::model::bool_text(v).to_string();
     let form_entry = (
         form.name.clone(),
         "Form".to_string(),
@@ -87,9 +89,21 @@ pub fn build_object_seed(
             let mut props: Vec<(String, String)> = c
                 .properties
                 .iter()
-                .map(|(k, v)| (k.clone(), v.to_xml_string()))
+                .map(|(k, v)| {
+                    // Booleans get ONE spelling on the way in. The stored value
+                    // may be a `Bool`, or the string "true", or "1", depending
+                    // on whether it came from the designer, the .cfrm reader or
+                    // a previous runtime write — and COBOL then had to compare
+                    // against whichever it happened to be.
+                    let text = cobolt_forms::model::property_runtime_text(
+                        c.control_type.as_str(),
+                        k,
+                        &v.to_xml_string(),
+                    );
+                    (k.clone(), text)
+                })
                 .collect();
-            let b = |v: bool| if v { "1" } else { "0" }.to_string();
+            let b = |v: bool| cobolt_forms::model::bool_text(v).to_string();
             props.push(("Name".into(), c.id.clone()));
             props.push(("Visible".into(), b(c.visible)));
             props.push(("Enabled".into(), b(c.enabled)));
@@ -343,8 +357,12 @@ mod tests {
         assert_eq!(get("Height"), Some("30"));
         assert_eq!(get("TabOrder"), Some("3"));
         assert_eq!(get("Name"), Some("Label-1"));
-        assert_eq!(get("Visible"), Some("1"));
-        assert_eq!(get("Enabled"), Some("1"));
+        // Booleans are seeded in the one spelling COBOL reads them in — `true`,
+        // not `1`. `Visible` used to arrive as a digit while `Checked` arrived
+        // as a word, so no single comparison could be right for both
+        // (operator, 2026-08-21).
+        assert_eq!(get("Visible"), Some("true"));
+        assert_eq!(get("Enabled"), Some("true"));
     }
 
     /// API-key seeds appear only on the matching control type and only when a

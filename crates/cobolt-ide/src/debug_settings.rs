@@ -50,6 +50,9 @@ pub struct DebugSettings {
     /// Run-form data-binding trace: `databinding.log` in the platform's
     /// diagnostics directory, plus the state-key mismatch dump.
     pub databind_trace: bool,
+    /// One line per UI event at BOTH ends of the channel, plus the program's
+    /// own DISPLAY output, on one timeline in `prc-event-trace.log`.
+    pub event_trace: bool,
     // ── Agentic AI ────────────────────────────────────────────────────────
     /// `[ai-pane]` sizing lines on stderr each frame.
     pub ai_pane_debug: bool,
@@ -80,6 +83,7 @@ impl Default for DebugSettings {
             datagrid_diagnostics: false,
             rounded_clip: false,
             databind_trace: false,
+            event_trace: false,
             ai_pane_debug: false,
             no_window_fx: false,
             doc_screenshots: false,
@@ -122,6 +126,7 @@ impl DebugSettings {
             || self.datagrid_diagnostics
             || self.rounded_clip
             || self.databind_trace
+            || self.event_trace
             || self.ai_pane_debug
             || !self.log_filter.trim().is_empty()
             || self.indexed_log != "off"
@@ -153,6 +158,7 @@ impl DebugSettings {
                 onoff(self.datagrid_diagnostics),
             ),
             ("COBOLT_DATABIND_TRACE", onoff(self.databind_trace)),
+            ("COBOLT_EVENT_TRACE", onoff(self.event_trace)),
             ("PRC_NO_WINDOW_FX", onoff(self.no_window_fx)),
             ("COBOL_INDEXED_LOG", self.indexed_log.clone()),
             ("COBOL_INDEXED_LOG_FORMAT", self.indexed_log_format.clone()),
@@ -266,6 +272,20 @@ static SECTIONS: &[Section] = &[
                    preview\".",
             env: "COBOLT_DATABIND_TRACE",
             get: |s| &mut s.databind_trace,
+        }],
+    },
+    Section {
+        tab: |tr| tr.debug_tab_events,
+        switches: &[Switch::Flag {
+            label: "Event trace",
+            hint: "One line per UI event at BOTH ends of the channel — the host's `send` and \
+                   the interpreter's `dispatch` — interleaved with the program's own DISPLAY \
+                   output in prc-event-trace.log (/tmp on Linux and macOS, %TEMP% on \
+                   Windows). Their ORDER is the point: it tells a handler that ran twice \
+                   because the queue delivered twice apart from one that ran twice from a \
+                   single delivery.",
+            env: "COBOLT_EVENT_TRACE",
+            get: |s| &mut s.event_trace,
         }],
     },
     Section {

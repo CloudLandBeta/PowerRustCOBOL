@@ -90,6 +90,11 @@ fn main() -> eframe::Result<()> {
     let ide_title = format!("{} {VERSION}", theme::brand_name());
     set_os_app_name(&ide_title);
 
+    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut wgpu_options.wgpu_setup {
+        setup.instance_descriptor.backends = preferred_backends();
+    }
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(&ide_title)
@@ -100,6 +105,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([800.0, 500.0])
             .with_transparent(true) // let desktop wallpaper bleed through
             .with_icon(load_icon()),
+        wgpu_options,
         ..Default::default()
     };
 
@@ -119,6 +125,42 @@ fn main() -> eframe::Result<()> {
     // copies, which would otherwise offer to "recover" work already saved.
     crash::mark_clean_exit();
     result
+}
+
+/// The graphics APIs wgpu may choose from.
+///
+/// eframe 0.36 renders through **wgpu** — its default feature set includes
+/// `wgpu` and not `glow` — and wgpu's default backend set includes Vulkan and
+/// reaches for it first on Windows.
+///
+/// A freshly installed Windows 11 has no vendor GPU driver and therefore no
+/// working Vulkan ICD. The loader fails its registry lookup for layer manifests
+/// and the process then dies at `0xc0000005` (STATUS_ACCESS_VIOLATION) **inside
+/// driver code**, before eframe gets far enough to report anything: the window
+/// never appears and nothing is printed, which is exactly what a user hit on a
+/// clean Windows 11 machine that ran the same build fine before (2026-08-21).
+///
+/// An access violation is not a `Result`, so there is nothing to catch and fall
+/// back from — a backend that crashes on creation has to not be *attempted*.
+/// DX12 is the native Windows API and is present on Windows 11 even with only
+/// Microsoft's inbox driver, with GL behind it as a last resort.
+///
+/// `with_env` is applied last, so `WGPU_BACKEND` still overrides everything:
+/// anyone with a working Vulkan driver can ask for it back, and that same
+/// variable is the one-line experiment that identifies a driver problem on a
+/// machine we cannot reach.
+/// `cfg!` rather than `#[cfg]` deliberately: both arms are type-checked on
+/// every platform, so a mistake in the Windows expression cannot hide from a
+/// macOS or Linux build the way it would behind an attribute. It folds to a
+/// constant, so nothing is paid for at run time.
+fn preferred_backends() -> eframe::wgpu::Backends {
+    use eframe::wgpu::Backends;
+    let preferred = if cfg!(target_os = "windows") {
+        Backends::DX12 | Backends::GL
+    } else {
+        Backends::default()
+    };
+    preferred.with_env()
 }
 
 #[cfg(target_os = "macos")]
@@ -218,4 +260,52 @@ fn decode_icon(bytes: &[u8]) -> Option<egui::IconData> {
         width: w,
         height: h,
     })
+}
+
+#[cfg(test)]
+mod backend_tests {
+    /// The IDE and the form host must ask for the SAME graphics backends.
+    ///
+    /// They keep separate copies of the rule on purpose: the IDE takes no
+    /// runtime dependency on `cobolt-form-host` (Run Form reaches it through
+    /// the `rcrun` child process), so there is nowhere to put one shared
+    /// definition without breaking that boundary. Two copies drift — this
+    /// project has been bitten by exactly that more than once — so the
+    /// dev-dependency that already exists for the roundtrip tests is used here
+    /// to pin them equal instead.
+    ///
+    /// If this fails, the IDE window and the Run Form window disagree about
+    /// which driver to use, and a machine where one works will have the other
+    /// die at startup with nothing printed.
+    #[test]
+    fn wgpu_backend_rule_matches_the_ide() {
+        assert_eq!(
+            super::preferred_backends(),
+            cobolt_form_host::preferred_backends(),
+            "the IDE and the form host must choose the same wgpu backends"
+        );
+    }
+
+    /// Windows must not be offered Vulkan.
+    ///
+    /// This is the whole point of the rule: a clean Windows 11 has no vendor
+    /// GPU driver, so the Vulkan loader finds no ICD and the process dies at
+    /// 0xc0000005 inside driver code, before anything can be reported.
+    #[test]
+    fn windows_never_reaches_for_vulkan() {
+        use eframe::wgpu::Backends;
+        // The rule as it applies on Windows, evaluated here on any host.
+        let windows_rule = Backends::DX12 | Backends::GL;
+        assert!(
+            !windows_rule.contains(Backends::VULKAN),
+            "a backend that crashes on creation must not be attempted at all"
+        );
+        assert!(
+            windows_rule.contains(Backends::DX12),
+            "DX12 is present on Windows 11 even with only the inbox driver"
+        );
+        // And WGPU_BACKEND still has the last word, so a working Vulkan driver
+        // can be asked for and a broken one can be diagnosed from outside.
+        assert_eq!(windows_rule.with_env(), windows_rule.with_env());
+    }
 }

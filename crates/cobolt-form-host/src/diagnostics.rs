@@ -44,6 +44,11 @@ pub fn databind_trace_enabled() -> bool {
     env_flag("COBOLT_DATABIND_TRACE")
 }
 
+/// `COBOLT_EVENT_TRACE`, from the crate the runtime shares — see
+/// [`cobolt_forms::diagnostics::trace_event`]. Re-exported so this module stays
+/// the one place a host looks for a diagnostic switch.
+pub use cobolt_forms::diagnostics::{event_trace_enabled, trace_event};
+
 /// With diagnostics on, say what this window IS before anything runs: which
 /// form, its controls and its background. The control roster is the useful
 /// part — it turns "the label never changed" into "that control id does not
