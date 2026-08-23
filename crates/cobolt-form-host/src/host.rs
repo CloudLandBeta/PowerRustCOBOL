@@ -1189,6 +1189,13 @@ impl FormBody {
             // and stays form-sized when the window is dragged smaller. The
             // controls keep their designed size either way.
             window_size: Some(ctx.content_rect().size()),
+            // A window form paints its OWN backdrop, so `bg` already answers
+            // "what is behind" for the corner-notch mask. The one case it does
+            // not — a see-through window, where the desktop is behind — has no
+            // honest colour to state, and the rounded-clip path is what fixes
+            // that properly. The pane is where this matters, and the pane sets
+            // it: see the `Surface::Pane` branch in `ui_impl`.
+            behind_fill: None,
         }
     }
 
@@ -3003,6 +3010,17 @@ impl FormHost {
                             image_mode: cobolt_forms::model::BgImageMode::Stretch,
                             use_theme_background: false,
                             window_size: None,
+                            // …but an inert backdrop leaves the engine with no
+                            // colour for the corner-notch mask, and it used to
+                            // fall back to the ambient `panel_fill` — which this
+                            // panel does NOT fill from (Pane fills TRANSPARENT),
+                            // and which a self-contained form theme installs
+                            // globally and never removes. So the next form's
+                            // rounded corners were repainted in the previous
+                            // form's palette: black wedges (operator,
+                            // 2026-08-23). We painted the pane backdrop two
+                            // lines above; tell the engine what it says.
+                            behind_fill: Some(painted.bg),
                         }
                     } else {
                         backdrop

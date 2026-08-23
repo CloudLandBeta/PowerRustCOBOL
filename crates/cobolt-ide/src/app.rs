@@ -12772,6 +12772,10 @@ impl CoboltApp {
                 // designed extent is still visible while editing. Only a real
                 // window (run form, compiled binary) stretches it.
                 window_size: None,
+                // The IDE owns its own ambient visuals and renders the preview
+                // into them, so the ambient panel fill really is what the form
+                // sits on here — the one surface where the fallback is right.
+                behind_fill: None,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls
