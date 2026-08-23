@@ -3726,7 +3726,14 @@ fn render_interactive(
                 // Host it in a scroll area clipped to the field so extra rows scroll
                 // instead of overflowing: the box keeps its designed height.
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
-                    ui.set_clip_rect(edit_rect);
+                    // …and to the CONTAINER as well. Clipping to the box alone
+                    // threw the ancestor clip away, so a TextBox reaching past
+                    // its Panel (or past a Splitter's division, which is where
+                    // the operator met it on 2026-08-23) had its frame cut at
+                    // the container edge — the face goes through a clipped
+                    // painter — while the typed text carried on over whatever
+                    // was beside it.
+                    ui.set_clip_rect(edit_rect.intersect(clip));
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
                     egui::ScrollArea::new(scroll_dirs)
                         .scroll_bar_visibility(bar_vis)
@@ -3768,7 +3775,10 @@ fn render_interactive(
                 // Clip to the box so an oversized font is cut at the border instead
                 // of spilling out, and vertically centre the single line of text.
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
-                    ui.set_clip_rect(screen.intersect(ui.clip_rect()));
+                    // The box, the Ui's own clip, AND the container's. The
+                    // container's was the one missing: `ui.clip_rect()` here is
+                    // the form-wide clip, not the Panel/pane the box sits in.
+                    ui.set_clip_rect(screen.intersect(clip).intersect(ui.clip_rect()));
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
                     let text: &mut dyn egui::TextBuffer =
                         if read_only { &mut read_view } else { &mut buf };
@@ -4059,6 +4069,10 @@ fn render_interactive(
                 zone = zone.hint(hint);
             }
             let drop_resp = ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+                // The zone is an egui widget: without the container clip it
+                // paints its frame, its hint and its staged list past whatever
+                // container it sits in.
+                ui.set_clip_rect(ui.clip_rect().intersect(clip));
                 zone.show(ui)
             });
             let fdz = drop_resp.inner;
@@ -4068,7 +4082,8 @@ fn render_interactive(
             // the zone still says it takes files.
             let summary = sv(ctrl, "CommitSummary");
             if !summary.trim().is_empty() {
-                ui.painter().text(
+                // Through the CLIPPED painter, like every other face here.
+                painter.text(
                     egui::pos2(screen.center().x, screen.bottom() - 4.0),
                     egui::Align2::CENTER_BOTTOM,
                     summary,
@@ -4965,6 +4980,12 @@ fn render_interactive(
             let mut first_row_top: Option<f32> = None;
 
             ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
+                // The rows are egui widgets, so they paint through the Ui's own
+                // clip — the whole form — not the painter clipped to the
+                // container. Without this a list in a Panel, a tab page or a
+                // Splitter pane keeps drawing its rows across whatever is
+                // beside it once the container no longer has room for them.
+                ui.set_clip_rect(ui.clip_rect().intersect(clip));
                 if !enabled {
                     ui.disable();
                 }
@@ -4989,7 +5010,9 @@ fn render_interactive(
                     })
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        let row_painter = ui.painter().with_clip_rect(screen);
+                        // …and the row painter with them: the control cuts its own
+                        // rows, and the CONTAINER cuts the control.
+                        let row_painter = ui.painter().with_clip_rect(screen.intersect(clip));
                         for (idx, item) in items.iter().enumerate() {
                             let (row, resp) = ui.allocate_exact_size(
                                 vec2(ui.available_width(), row_h),
@@ -6043,7 +6066,10 @@ fn render_interactive(
                     // column, restrict the ui clip to the region right of the frozen
                     // band so the input scrolls behind the frozen columns instead of
                     // drawing over them.
-                    let prev_clip = ui.clip_rect();
+                    // …and the container's clip, which the Ui's own does not carry:
+                    // a grid in a Panel or a Splitter pane must not paint its
+                    // filter inputs outside it.
+                    let prev_clip = ui.clip_rect().intersect(clip);
                     if !col.frozen {
                         let scrollable = Rect::from_min_max(
                             pos2(
@@ -9385,6 +9411,171 @@ mod tests {
     /// [`painted_text_layout_interactive`] with the host's own default chrome.
     fn painted_captions(controls: &[Control]) -> (Vec<PaintedText>, Map<String, Rect>) {
         painted_text_layout_interactive(controls, |_| {})
+    }
+
+    /// **A container clips the TEXT inside it, not just the box around it.**
+    ///
+    /// A TextBox reaching past its container had its FRAME clipped (the face
+    /// goes through a painter clipped to the container) while its typed text
+    /// carried on across whatever was next to it: the editor set its clip to
+    /// the box's own rect, throwing the container's away. The operator hit it
+    /// by dragging a Splitter over a TextBox (2026-08-23) — but the splitter is
+    /// incidental, and this covers the plain Panel it happens in too.
+    #[test]
+    fn a_container_clips_the_text_its_children_paint() {
+        // Panel 200 wide at x=40; the box starts inside it and runs 160pt past
+        // its right edge, so more than half the text has nowhere to be.
+        let mut panel = Control::new("Panel-1", ControlType::Panel, 40, 40);
+        panel.rect = crate::model::Rect::new(40, 40, 200, 420);
+        let mut multi = Control::new("TB-MULTI", ControlType::TextBox, 60, 60);
+        multi.rect = crate::model::Rect::new(60, 60, 320, 30);
+        multi.set_prop("Multiline", true);
+        multi.set_prop("Text", "MULTILINEOVERFLOWMULTILINEOVERFLOW");
+        multi.parent = Some("Panel-1".into());
+        let mut single = Control::new("TB-SINGLE", ControlType::TextBox, 60, 110);
+        single.rect = crate::model::Rect::new(60, 110, 320, 30);
+        single.set_prop("Text", "SINGLELINEOVERFLOWSINGLELINEOVERFLOW");
+        single.parent = Some("Panel-1".into());
+
+        // The other controls that put TEXT on screen through a live egui
+        // widget rather than the clipped painter — the same escape route.
+        //
+        // These are the ones an audit of every `ui.add`/`ui.put`/`ui.painter()`
+        // in the run renderer turned up (operator, 2026-08-23: "if you are
+        // guessing, don't — check the code"): the ListBox paints its rows as
+        // widgets, the DataGrid hosts a real `TextEdit` per filter cell, and
+        // the FileDropZone is a widget with a summary line drawn over it.
+        let mut list = Control::new("LST-1", ControlType::ListBox, 60, 210);
+        list.rect = crate::model::Rect::new(60, 210, 320, 60);
+        list.set_prop("Items", "LISTOVERFLOWLISTOVERFLOW\nSECONDROWSECONDROW");
+        list.parent = Some("Panel-1".into());
+        let mut grid = Control::new("GRD-1", ControlType::DataGrid, 60, 280);
+        grid.rect = crate::model::Rect::new(60, 280, 320, 80);
+        grid.set_prop("Columns", "GRIDOVERFLOWGRIDOVERFLOW:string");
+        grid.set_prop("Rows", "GRIDCELLOVERFLOWGRIDCELL");
+        // The filter row is where the grid hosts a real `TextEdit`, which is the
+        // part that escapes; without this the audit would not reach it.
+        grid.set_prop("ShowColumnFilters", true);
+        grid.set_prop(
+            "ColumnFilters",
+            "GRIDOVERFLOWGRIDOVERFLOW=GRIDFILTEROVERFLOWGRIDFILTER",
+        );
+        grid.parent = Some("Panel-1".into());
+        let mut zone = Control::new("FDZ-1", ControlType::FileDropZone, 60, 370);
+        zone.rect = crate::model::Rect::new(60, 370, 320, 60);
+        zone.set_prop("CommitSummary", "ZONEOVERFLOWZONEOVERFLOW");
+        zone.parent = Some("Panel-1".into());
+
+        let mut label = Control::new("LBL-1", ControlType::Label, 60, 150);
+        label.rect = crate::model::Rect::new(60, 150, 320, 24);
+        label.set_prop("Caption", "LABELOVERFLOWLABELOVERFLOW");
+        label.set_prop("SelectableText", true);
+        label.parent = Some("Panel-1".into());
+        let mut combo = Control::new("CMB-1", ControlType::ComboBox, 60, 180);
+        combo.rect = crate::model::Rect::new(60, 180, 320, 26);
+        combo.set_prop("Items", "COMBOOVERFLOWCOMBOOVERFLOW");
+        combo.set_prop("Value", "COMBOOVERFLOWCOMBOOVERFLOW");
+        combo.parent = Some("Panel-1".into());
+
+        let controls = vec![panel.clone(), multi, single, label, combo, list, grid, zone];
+        let (texts, placed) = painted_captions(&controls);
+        // The panel as DRAWN: the host lays the form out at its own origin, so a
+        // model-space edge would be off by the panel margin.
+        let panel_screen = *placed.get("Panel-1").expect("the panel is drawn");
+        let inset = (panel.rect.w - panel.content_rect().w) as f32 / 2.0;
+        let right_edge = panel_screen.right() - inset;
+
+        let mut offenders: Vec<String> = Vec::new();
+        for needle in [
+            "MULTILINE",
+            "SINGLELINE",
+            "LABELOVERFLOW",
+            "COMBOOVERFLOW",
+            "LISTOVERFLOW",
+            "GRIDOVERFLOW",
+            "GRIDCELLOVERFLOW",
+            // NOT "GRIDFILTEROVERFLOW": the grid renders its filter inputs only
+            // under conditions this fixture does not reproduce, so asserting on
+            // them here would pass for the wrong reason. The filter row's clip is
+            // fixed by inspection and is knowingly UNCOVERED — the properties
+            // above still drive that code path, so a panic in it would surface.
+            "ZONEOVERFLOW",
+        ] {
+            let drawn: Vec<Rect> = texts
+                .iter()
+                .filter(|t| t.text.contains(needle))
+                .map(|t| t.rect())
+                .collect();
+            // A control that paints NOTHING would pass the escape check for
+            // free, which would make this whole audit worthless.
+            assert!(
+                !drawn.is_empty(),
+                "{needle} must actually be painted, or this proves nothing"
+            );
+            let escaped: Vec<Rect> = drawn
+                .iter()
+                .copied()
+                .filter(|r| r.right() > right_edge + 0.5)
+                .collect();
+            // Collected, not asserted here: aborting on the first offender
+            // hides the rest, and the point of this test is to name EVERY
+            // control that escapes its container.
+            if !escaped.is_empty() {
+                offenders.push(format!(
+                    "{needle} reached x={:.0} (edge {right_edge:.0})",
+                    escaped.iter().map(|r| r.right()).fold(0.0_f32, f32::max)
+                ));
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these controls painted text outside their container: {offenders:#?}"
+        );
+        println!(
+            "\n  Containers — 320pt controls in a 200pt Panel: TextBox (single and \
+             multiline), ListBox, DataGrid, FileDropZone, Label and ComboBox all \
+             stop their text at the panel edge (x={right_edge:.0})\n"
+        );
+    }
+
+    /// …and the same for the Splitter pane the operator actually hit it in:
+    /// dragging the division over a TextBox must take its text with it.
+    #[test]
+    fn dragging_the_division_over_a_textbox_clips_its_text() {
+        let mut form = crate::model::Form::new("F", "F", 400, 300);
+        let mut sp = Control::new("SPLIT-1", ControlType::Splitter, 0, 0);
+        sp.rect = crate::model::Rect::new(0, 0, 320, 220);
+        // The division well to the left, so pane 2 holds most of the room and
+        // a box designed for the middle now straddles the line.
+        sp.set_prop("SplitPosition", 20i64);
+        form.controls.push(sp);
+        form.sync_splitter_panes();
+        let mut tb = Control::new("TB-1", ControlType::TextBox, 10, 80);
+        tb.rect = crate::model::Rect::new(10, 80, 200, 28);
+        tb.set_prop("Text", "PANEONETEXTPANEONETEXT");
+        tb.parent = Some(crate::splitter::pane_id("SPLIT-1", 1));
+        form.controls.push(tb);
+
+        let (texts, placed) = painted_captions(&form.controls);
+        // The pane as DRAWN, for the same reason as above.
+        let pane_screen = *placed
+            .get(&crate::splitter::pane_id("SPLIT-1", 1))
+            .expect("pane 1 is drawn");
+        let edge = pane_screen.right() - 2.0;
+        let escaped: Vec<Rect> = texts
+            .iter()
+            .filter(|t| t.text.contains("PANEONETEXT"))
+            .map(|t| t.rect())
+            .filter(|r| r.right() > edge + 0.5)
+            .collect();
+        assert!(
+            escaped.is_empty(),
+            "text in pane 1 must stop at the division ({edge}); it reached {escaped:?}"
+        );
+        println!(
+            "\n  Splitter — division at 20 %: a 200pt TextBox in pane 1 paints no \
+             text past x={edge:.0}\n"
+        );
     }
 
     /// A control you drop on the canvas must be big enough for the caption it

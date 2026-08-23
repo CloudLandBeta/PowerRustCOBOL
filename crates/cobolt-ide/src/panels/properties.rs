@@ -4127,12 +4127,17 @@ impl PropertiesPanel {
                 .unwrap_or(false);
             property_row(ui, cap_key, |ui| {
                 let resp = if wraps {
-                    ui.add(
-                        egui::TextEdit::multiline(buf)
-                            .id(wid)
-                            .desired_rows(CAPTION_WRAP_ROWS)
-                            .desired_width(ui.available_width()),
-                    )
+                    // A FIXED five-line window on the value, not a box that
+                    // grows a line for every line typed.
+                    //
+                    // `desired_rows` is a FLOOR, not a ceiling: a paragraph of
+                    // Lorem ipsum in a TextBox's `Text` stretched this row until
+                    // it owned the whole inspector and every property under it
+                    // was off the bottom (operator, 2026-08-23). This is the
+                    // same bounded editor the Items list uses, for the same
+                    // reason — the height comes from the row count and the
+                    // font, never from the content.
+                    bounded_multiline_editor(ui, wid, buf).response
                 } else {
                     ui.add(
                         egui::TextEdit::singleline(buf)
@@ -10655,8 +10660,9 @@ struct BoundedEditor {
     frame_rect: egui::Rect,
 }
 
-/// The list-item editor: [`ITEM_EDITOR_ROWS`] lines of text and no more, with
-/// the rest reachable by scrolling.
+/// A bounded multiline editor: [`ITEM_EDITOR_ROWS`] lines of text and no more,
+/// with the rest reachable by scrolling. Shared by every long-text row in the
+/// pane — the ListBox/ComboBox item list and a TextBox's wrapped `Text`.
 ///
 /// A bare `TextEdit::multiline` grows a line every time one is typed, which is
 /// what the inspector used to do — ten items made a ten-line box and pushed
@@ -10668,7 +10674,7 @@ struct BoundedEditor {
 /// was longer than the box its top and bottom edges scrolled out of the
 /// viewport and the border read as cut open (operator, 2026-08-17). Drawn by
 /// the container it is a fixed window on the list, whole at any scroll offset.
-fn bounded_items_editor(ui: &mut Ui, wid: egui::Id, buf: &mut String) -> BoundedEditor {
+fn bounded_multiline_editor(ui: &mut Ui, wid: egui::Id, buf: &mut String) -> BoundedEditor {
     let text_h = item_editor_text_height(ui, ITEM_EDITOR_ROWS);
     let box_h = text_h + ITEM_EDITOR_MARGIN_Y;
     let box_w = ui.available_width();
@@ -10769,7 +10775,7 @@ fn items_multiline(
         *buf = cur;
     }
     ui.label("Items (one per line):");
-    let resp = bounded_items_editor(ui, wid, buf).response;
+    let resp = bounded_multiline_editor(ui, wid, buf).response;
     if resp.lost_focus() {
         action.set_props.push((
             ctrl_id.to_owned(),
@@ -10829,6 +10835,90 @@ pub fn color32_to_hex(c: Color32) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A TextBox's wrapped `Text` row is a five-line window, not a panel that
+    /// grows.**
+    ///
+    /// `desired_rows` is a floor: a paragraph in `Text` stretched the row until
+    /// it owned the whole inspector and pushed every property under it off the
+    /// bottom (operator, 2026-08-23, with a screen of Lorem ipsum). Measured
+    /// the only way that means anything — the row's height must not change when
+    /// the value goes from three lines to three hundred.
+    #[test]
+    fn a_wrapped_text_row_stays_five_lines_however_long_the_value() {
+        let form = Form::new("F", "F", 800, 600);
+        let tr = &crate::i18n::Language::English.tr();
+
+        // Where the row AFTER the editor lands. If the Text box grows with its
+        // content, everything under it is pushed down — which is precisely the
+        // damage the operator reported, and the only measurement that shows it.
+        // (Measuring the pane's own height does not: it saturates at the
+        // viewport and the test passes with the bug still in.)
+        let tooltip_y_for = |lines: usize| -> f32 {
+            let mut tb = Control::new("TB-1", ControlType::TextBox, 10, 10);
+            tb.set_prop("Multiline", PropValue::Bool(true));
+            tb.set_prop("WordWrap", PropValue::Bool(true));
+            tb.set_prop(
+                "Text",
+                PropValue::String(
+                    (0..lines)
+                        .map(|n| format!("Lorem ipsum dolor sit amet line {n}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+            );
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            let mut found: Option<f32> = None;
+            // Two passes: the buffer seeds on the first, the box is laid out
+            // from it on the second.
+            for _ in 0..2 {
+                let mut full = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(420.0, 8000.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        egui::CentralPanel::default().show_inside(ui, |ui| {
+                            let _ = panel.show(ui, &form, Some(&tb), &[], tr);
+                        });
+                    },
+                );
+                fn walk(shape: &egui::Shape, needle: &str, out: &mut Option<f32>) {
+                    match shape {
+                        egui::Shape::Text(t) if t.galley.text().contains(needle) => {
+                            let y = t.visual_bounding_rect().top();
+                            *out = Some(out.map_or(y, |p: f32| p.min(y)));
+                        }
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, needle, out)),
+                        _ => {}
+                    }
+                }
+                found = None;
+                for cs in &full.shapes {
+                    walk(&cs.shape, tr.lbl_tooltip_lbl.trim_end_matches(':'), &mut found);
+                }
+                full.textures_delta.clear();
+            }
+            found.expect("the Tooltip row is drawn under the Text row")
+        };
+
+        let short = tooltip_y_for(3);
+        let long = tooltip_y_for(300);
+        assert!(
+            (long - short).abs() < 2.0,
+            "the row under the editor must not move: it sits at y={short:.0} with a \
+             3-line Text and y={long:.0} with 300 — the Text row is growing with its \
+             content instead of scrolling inside a {ITEM_EDITOR_ROWS}-line window"
+        );
+        println!(
+            "\n  Inspector — a TextBox `Text` of 3 lines and of 300 both leave the \
+             next row at y={short:.0} ({ITEM_EDITOR_ROWS}-line window, the rest scrolls)\n"
+        );
+    }
 
     /// **A property the runtime reads must be settable in the pane.**
     ///
@@ -10964,7 +11054,7 @@ mod tests {
                 }
                 let full = ctx.run_ui(input, |ui| {
                     out.five_rows = item_editor_text_height(ui, ITEM_EDITOR_ROWS);
-                    let drawn = bounded_items_editor(
+                    let drawn = bounded_multiline_editor(
                         ui,
                         ui.make_persistent_id("items_editor_height_test"),
                         &mut buf,
