@@ -516,6 +516,46 @@ non-visual ones are services.
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
 
+  **Splitter は 2 つに分割されたパネル**であり、上記 3 つと同じくコンテナです。
+  配置すると、ツリーには**3 つ**のコントロールが現れます。Splitter 本体と、
+  それが所有する 2 つのペイン `<id>-Pane1` と `<id>-Pane2` です。ペインは
+  通常の Panel（初期状態では枠なし・背景透明）なので、他の Panel とまったく
+  同じようにコントロールを配置し、スタイルを設定し、バインドできます。
+  ただし**位置と大きさだけは設定できません**。それは分割線が決めます。
+
+  - **Orientation** は線の向きではなく、**ペインの並び**を表します。
+    `Horizontal` は**ペイン 1 を左、ペイン 2 を右**に置き、垂直の線で分けます。
+    `Vertical` は**ペイン 1 を上、ペイン 2 を下**に置き、水平の線で分けます。
+  - **SplitPosition** は内側の幅（Horizontal）または高さ（Vertical）に対する
+    **0〜100 のパーセント**です。ピクセル位置ではなく割合なので、フォームや
+    Splitter の大きさを変えても分割位置は保たれます。COBOL から読み取ることも
+    （`MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N`）、設定することも
+    できます（`SET Splitter-1::SplitPosition TO 30`）。
+  - **線をドラッグ**すると（グリップの上だけでなく線上のどこでも）、2 つの
+    ペインがポインターに合わせて配分されます。線の上でカーソルは**つかむ手**に
+    変わり、**ダブルクリックで分割位置は 50 % に戻ります**。この操作はデザイナー
+    のキャンバスでも実行中のフォームでも同じように使えます。
+  - **0 % と 100 % も有効です。** 一方のペインが完全に閉じ、もう一方がすべてを
+    占めます。グリップは Splitter の縁で切り取られ、内側の半分が見えたまま残る
+    ので、そこをつかんで戻せます。
+  - **線の見た目**: 罫線は `LineColor` と `LineSize`、グリップは `GripStyle`
+    （`FilledPill`、`HollowPill`、`FilledCircle`、`HollowCircle`）、`GripSize`、
+    `GripColor` で設定します。色を空のままにするとフォームのテーマに従います。
+    パネル自体も、`BackgroundColor`・`BorderStyle`・`BorderColor` を設定するまで
+    はテーマに従います。
+
+  > **注記** — ペインの矩形は分割位置から導出されるため、手で移動したり
+  > サイズを変えたりしても元に戻ります。両方のペインを動かすには **Splitter**
+  > を移動し、配分を変えるには**線**をドラッグしてください。
+
+  > ⚠️ **1.61.164 での変更点。** 以前の Splitter は*隣り合う 2 つのコントロール
+  > の間に置くバー*で、`Orientation` はバー自身の向きを表していました
+  > （`Horizontal` は上下を分ける横長のバーで、現在の意味とは逆です）。それ以前
+  > に保存したフォームを開くとペインの並びが入れ替わり、`SplitPosition`
+  > （当時はピクセル値）は 50 % に戻ります。必要な向きを選び、線をドラッグして
+  > 位置を決め直してください。一度きりの修正で、フォームに配置したものが失われる
+  > ことはありません。
+
 **Data**
 : DataGrid, TreeView.
 
@@ -729,7 +769,13 @@ In words:
 >   (list / combo), and the combo's `onDropDown` on open.
 > - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
 >   `onKeyDown`/`onKeyUp`/`onKeyPress` while focused.
-> - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+> - **Timer** は有効な間、`Interval` ミリ秒ごとに `onTick` を発生させます
+>   （`Start`/`Stop`）。**`Enabled` はタイマー自身のスイッチ**であり、コントロール
+>   を淡色表示にするかどうかではなく、タイマーが動くかどうかを決めます。開始を
+>   待たせたい場合はプロパティ ペインの **Enabled at start** のチェックを外し、
+>   COBOL からは `SET Timer-1::Enabled TO 1` / `TO 0` で入り切りします。
+>   （1.61.164 より前はどちらも効きませんでした。いずれもコントロール共通の
+>   フラグに書き込んでおり、タイマーはそれを読まないため、停止できませんでした。）
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).

@@ -97,6 +97,12 @@ pub mod treenodes;
 #[cfg(feature = "render")]
 pub mod treeview;
 
+/// The Splitter's geometry — where its two panes, its division line and its
+/// grip sit — plus the paint the canvas and the running form share. The
+/// geometry is not gated: the model pins the pane Panels from it, and the model
+/// builds without `render`.
+pub mod splitter;
+
 // Carrying out a toolbar button's PLATFORM action: printing, sharing, the
 // clipboard, a window capture, another process. Beside `toolbar_paint` for the
 // same reason — every surface that DRAWS a toolbar must also be able to PRESS

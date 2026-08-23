@@ -860,6 +860,15 @@ enum DragState {
         orig_h: i32,
         start_y: i32,
     },
+    /// Dragging a Splitter's division line, which redistributes its two panes.
+    /// The developer does this at DESIGN time to lay the form out; the running
+    /// form offers the same gesture through the shared renderer.
+    MovingSplitterDivision {
+        id: String,
+        /// Where the division was when the press landed, so one undo entry
+        /// covers the whole gesture.
+        orig_percent: i32,
+    },
 }
 
 /// Which of a SideMenu's fixed panes a seam drag is sizing.
@@ -5468,6 +5477,11 @@ impl DesignerPanel {
         // footer band otherwise. Runs AFTER the height sync, because the band
         // is measured from the sidebar's bottom edge.
         self.form.sync_side_menu_footer_panels();
+        // …and every Splitter's two panes, for the same reason: they are
+        // derived from where the division line sits, so one call here is what
+        // makes them follow a `SplitPosition` drag, an `Orientation` flip and a
+        // resize of the splitter itself.
+        self.form.sync_splitter_panes();
         // An edit to `Collapsed` itself takes the canvas back from a toggle.
         self.sync_rail_view();
 
@@ -6813,6 +6827,35 @@ impl DesignerPanel {
                     let over_ctrl = self.form.controls.iter().any(|c| c.rect.contains(cx, cy));
                     if over_ctrl {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                }
+
+                // A Splitter's division line: the hand that says "grab me",
+                // closing while it is dragged. LAST, because the pointer is
+                // also "over a control" — the splitter — and the generic
+                // pointing hand above would otherwise win and hide the one
+                // affordance the control has.
+                if let Some((cx, cy)) = ptr_canvas {
+                    let dragging_division =
+                        matches!(self.drag, DragState::MovingSplitterDivision { .. });
+                    if dragging_division || self.splitter_division_at(cx, cy).is_some() {
+                        ui.ctx().set_cursor_icon(if dragging_division {
+                            egui::CursorIcon::Grabbing
+                        } else {
+                            egui::CursorIcon::Grab
+                        });
+                    }
+                }
+
+                // Double-clicking a Splitter's division line puts it back in
+                // the middle — before `handle_drag`, so the gesture is spent
+                // here rather than starting a division drag that ends where it
+                // began.
+                if resp.double_clicked() {
+                    if let Some((cx, cy)) = ptr_canvas {
+                        if let Some(id) = self.splitter_division_at(cx, cy) {
+                            self.centre_splitter_division(&id);
+                        }
                     }
                 }
 
@@ -10179,6 +10222,97 @@ impl DesignerPanel {
         None
     }
 
+    /// The Splitter whose division line is under `(px, py)`, if any.
+    ///
+    /// Offered on ANY splitter, selected or not: the line is the control's
+    /// whole point, and requiring a selection first would make a developer
+    /// click twice to do the one thing a splitter is for. The band is wider
+    /// than the drawn line (`splitter::GRAB_TOLERANCE`) so a 2pt rule is
+    /// something a pointer can actually catch.
+    ///
+    /// Topmost first, so a splitter dropped inside another splitter's pane
+    /// wins over the one behind it.
+    fn splitter_division_at(&self, px: i32, py: i32) -> Option<String> {
+        let mut hit = None;
+        for c in &self.form.controls {
+            if c.control_type != ControlType::Splitter || !c.visible {
+                continue;
+            }
+            let g = cobolt_forms::splitter::geometry(c, c.rect);
+            if g.band.contains(px, py) {
+                hit = Some(c.id.clone());
+            }
+        }
+        hit
+    }
+
+    /// One pointer move of a division drag: write `SplitPosition` live, so the
+    /// two panes re-lay out under the pointer.
+    ///
+    /// The percentage is not snapped to the grid — a division is a proportion
+    /// of the splitter, and snapping it would make the panes jump in steps
+    /// that have nothing to do with either pane's size.
+    fn apply_splitter_division_drag(&mut self, px: i32, py: i32) {
+        let DragState::MovingSplitterDivision { ref id, .. } = self.drag.clone() else {
+            return;
+        };
+        let Some(pct) = self
+            .form
+            .find_control(id)
+            .map(|c| cobolt_forms::splitter::percent_at(c, c.rect, px, py))
+        else {
+            return;
+        };
+        if let Some(c) = self.form.find_control_mut(id) {
+            c.set_prop("SplitPosition", pct as i64);
+        }
+        self.form.sync_splitter_panes();
+        self.dirty = true;
+    }
+
+    /// End a division drag: the percentage was written live, so this records
+    /// ONE undo entry for the whole gesture rather than one per pointer move.
+    fn finish_splitter_division_drag(&mut self) {
+        let DragState::MovingSplitterDivision { ref id, orig_percent } = self.drag.clone() else {
+            return;
+        };
+        let now = self
+            .form
+            .find_control(id)
+            .map(cobolt_forms::splitter::split_percent)
+            .unwrap_or(orig_percent);
+        if now != orig_percent {
+            self.apply(Cmd::SetProperty {
+                id: id.clone(),
+                key: "SplitPosition".to_owned(),
+                old: Some(PropValue::Int(orig_percent as i64)),
+                new: PropValue::Int(now as i64),
+            });
+        }
+        self.dirty = true;
+    }
+
+    /// Put a Splitter's division back in the middle — what a double-click on
+    /// the line does, on the canvas and in the running form alike.
+    fn centre_splitter_division(&mut self, id: &str) {
+        let old = self
+            .form
+            .find_control(id)
+            .map(cobolt_forms::splitter::split_percent);
+        let Some(old) = old else { return };
+        if old == cobolt_forms::splitter::CENTRE_PERCENT {
+            return;
+        }
+        self.apply(Cmd::SetProperty {
+            id: id.to_owned(),
+            key: "SplitPosition".to_owned(),
+            old: Some(PropValue::Int(old as i64)),
+            new: PropValue::Int(cobolt_forms::splitter::CENTRE_PERCENT as i64),
+        });
+        self.form.sync_splitter_panes();
+        self.dirty = true;
+    }
+
     /// One pointer move of a seam drag: write the pane's height live, so the
     /// rail re-lays out under the pointer.
     ///
@@ -10645,6 +10779,18 @@ impl DesignerPanel {
             match self.drag.clone() {
                 DragState::PlacingNew { .. } => {}
                 _ => {
+                    // A Splitter's division line outranks everything under it,
+                    // for the same reason a sidebar seam does: the press is ON
+                    // the line, and without this it would start moving the
+                    // splitter instead of dividing it.
+                    if let Some(id) = self.splitter_division_at(px, py) {
+                        let orig_percent = self
+                            .form
+                            .find_control(&id)
+                            .map(cobolt_forms::splitter::split_percent)
+                            .unwrap_or(cobolt_forms::splitter::CENTRE_PERCENT);
+                        self.drag = DragState::MovingSplitterDivision { id, orig_percent };
+                    } else
                     // 049 — a sidebar seam outranks everything: the pointer is
                     // on the rail, and without this the press would start
                     // moving the rail instead of sizing its pane.
@@ -10803,7 +10949,15 @@ impl DesignerPanel {
                                 // owns where it sits. It is a normal container in
                                 // every other way, and it is the drop target the
                                 // footer band offers.
-                                if ctrl.is_anchored() || ctrl.is_side_menu_footer() {
+                                // …and so is a Splitter's pane: the division
+                                // decides where it sits, and `sync_splitter_panes`
+                                // puts it straight back. It is a normal container
+                                // in every other way, and it is the drop target
+                                // each half of a splitter offers.
+                                if ctrl.is_anchored()
+                                    || ctrl.is_side_menu_footer()
+                                    || ctrl.is_splitter_pane()
+                                {
                                     continue;
                                 }
                                 ctrl.rect.x = ox + mdx;
@@ -10899,6 +11053,9 @@ impl DesignerPanel {
                 }
                 DragState::ResizingSidebarPane { .. } => {
                     self.apply_sidebar_seam_drag(py);
+                }
+                DragState::MovingSplitterDivision { .. } => {
+                    self.apply_splitter_division_drag(px, py);
                 }
                 DragState::None => {}
             }
@@ -11056,6 +11213,9 @@ impl DesignerPanel {
                 }
                 DragState::ResizingSidebarPane { .. } => {
                     self.finish_sidebar_seam_drag();
+                }
+                DragState::MovingSplitterDivision { .. } => {
+                    self.finish_splitter_division_drag();
                 }
                 DragState::None => {}
             }
@@ -11661,7 +11821,18 @@ fn structural_prop_value(ctrl: &Control, key: &str) -> Option<PropValue> {
         "width" => Some(PropValue::Int(ctrl.rect.w as i64)),
         "height" => Some(PropValue::Int(ctrl.rect.h as i64)),
         "visible" => Some(PropValue::Bool(ctrl.visible)),
-        "enabled" => Some(PropValue::Bool(ctrl.enabled)),
+        // A Timer's `Enabled` is a PROPERTY, not the chrome flag: it is the
+        // control's on/off switch, the runtime reads it, and codegen seeds
+        // `WS-<timer>-ENABLED` from it. Reading the chrome flag here made the
+        // "Enabled at start" checkbox unclickable — it displayed the property
+        // (still true) while the write went to the struct field, so the tick
+        // never turned off (operator, 2026-08-23: "timers do not allow to
+        // disable the property Enabled at start").
+        "enabled" => Some(
+            ctrl.get_prop("Enabled")
+                .cloned()
+                .unwrap_or(PropValue::Bool(ctrl.enabled)),
+        ),
         "taborder" => Some(PropValue::Int(ctrl.tab_order as i64)),
         "zorder" => Some(PropValue::Int(ctrl.z_order as i64)),
         // `get_prop` (not `properties.get`) so an agent-supplied spelling that
@@ -11834,7 +12005,16 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
     let lower_key = key.to_ascii_lowercase();
     match lower_key.as_str() {
         "visible" => ctrl.visible = value.as_bool(),
-        "enabled" => ctrl.enabled = value.as_bool(),
+        "enabled" => {
+            ctrl.enabled = value.as_bool();
+            // …and the property with it, on a control that owns one (the
+            // Timer). The two are the same switch to the developer — one
+            // checkbox in the inspector — so they are never left disagreeing
+            // about whether the timer is running.
+            if ctrl.get_prop("Enabled").is_some() {
+                ctrl.set_prop("Enabled", PropValue::Bool(value.as_bool()));
+            }
+        }
         "taborder" => ctrl.tab_order = value.as_i64() as u32,
         "zorder" => ctrl.z_order = value.as_i64() as i32,
         "x" => ctrl.rect.x = value.as_i64() as i32,
@@ -16917,6 +17097,149 @@ mod format_painter_scope_tests {
 #[cfg(test)]
 mod sidebar_seam_tests {
     use super::*;
+
+    // ── Splitter ─────────────────────────────────────────────────────────────
+
+    fn splitter_form() -> DesignerPanel {
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut sp = Control::new("Splitter-1", ControlType::Splitter, 40, 40);
+        sp.rect = cobolt_forms::model::Rect::new(40, 40, 320, 220);
+        form.controls.push(sp);
+        form.sync_splitter_panes();
+        DesignerPanel::new(form)
+    }
+
+    /// A Splitter owns two Panels, and they are ordinary containers: they carry
+    /// the pane marker, they are parented to the splitter, and they tile it.
+    #[test]
+    fn a_splitter_owns_two_pane_panels() {
+        let dp = splitter_form();
+        let p1 = dp.form.find_control("Splitter-1-Pane1").expect("pane 1");
+        let p2 = dp.form.find_control("Splitter-1-Pane2").expect("pane 2");
+        assert_eq!(p1.control_type, ControlType::Panel);
+        assert!(p1.is_splitter_pane() && p2.is_splitter_pane());
+        assert_eq!(p1.parent.as_deref(), Some("Splitter-1"));
+        assert!(p1.is_container(), "a pane is a drop target like any Panel");
+        assert!(p1.rect.x < p2.rect.x, "Horizontal ⇒ pane 1 is the left one");
+        println!(
+            "  Splitter — pane 1 {:?}, pane 2 {:?} (Horizontal: side by side)",
+            p1.rect, p2.rect
+        );
+    }
+
+    /// Dragging the division line writes `SplitPosition` live and undoes in ONE
+    /// step — the gesture the operator reported as missing twice over.
+    #[test]
+    fn dragging_the_division_moves_the_panes_and_undoes_in_one_step() {
+        let mut dp = splitter_form();
+        let pct = |dp: &DesignerPanel| {
+            cobolt_forms::splitter::split_percent(dp.form.find_control("Splitter-1").unwrap())
+        };
+        let pane_w = |dp: &DesignerPanel, id: &str| dp.form.find_control(id).unwrap().rect.w;
+        assert_eq!(pct(&dp), 50);
+
+        // The line at 50 % of a splitter starting at x = 40 sits at ~x = 200.
+        assert_eq!(
+            dp.splitter_division_at(200, 150).as_deref(),
+            Some("Splitter-1"),
+            "the pointer is on the division line"
+        );
+        assert_eq!(
+            dp.splitter_division_at(80, 150),
+            None,
+            "…and nowhere near it inside pane 1"
+        );
+
+        dp.drag = DragState::MovingSplitterDivision {
+            id: "Splitter-1".into(),
+            orig_percent: 50,
+        };
+        // A quarter across: inner x starts at 42, inner width 316 ⇒ 42 + 79.
+        dp.apply_splitter_division_drag(121, 150);
+        assert!((pct(&dp) - 25).abs() <= 2, "dragged to ~25 %, got {}", pct(&dp));
+        assert!(
+            pane_w(&dp, "Splitter-1-Pane1") < pane_w(&dp, "Splitter-1-Pane2"),
+            "and the panes followed the line"
+        );
+
+        dp.finish_splitter_division_drag();
+        dp.undo();
+        assert_eq!(pct(&dp), 50, "one undo restores the whole drag");
+    }
+
+    /// The extremes are legal: the division goes all the way to either end and
+    /// closes one pane, and nothing goes negative on the way.
+    #[test]
+    fn the_division_reaches_both_extremes() {
+        let mut dp = splitter_form();
+        dp.drag = DragState::MovingSplitterDivision {
+            id: "Splitter-1".into(),
+            orig_percent: 50,
+        };
+        dp.apply_splitter_division_drag(-5_000, 150);
+        assert_eq!(
+            dp.form.find_control("Splitter-1-Pane1").unwrap().rect.w,
+            0,
+            "dragged off the left edge ⇒ pane 1 closed"
+        );
+        dp.apply_splitter_division_drag(5_000, 150);
+        assert_eq!(
+            dp.form.find_control("Splitter-1-Pane2").unwrap().rect.w,
+            0,
+            "…and off the right ⇒ pane 2 closed"
+        );
+        assert!(dp.form.find_control("Splitter-1-Pane1").unwrap().rect.w > 0);
+    }
+
+    /// Double-clicking the line re-centres it.
+    #[test]
+    fn centring_the_division_puts_it_back_at_fifty() {
+        let mut dp = splitter_form();
+        dp.set_property("Splitter-1", "SplitPosition", PropValue::Int(12));
+        dp.centre_splitter_division("Splitter-1");
+        assert_eq!(
+            cobolt_forms::splitter::split_percent(dp.form.find_control("Splitter-1").unwrap()),
+            50
+        );
+        dp.undo();
+        assert_eq!(
+            cobolt_forms::splitter::split_percent(dp.form.find_control("Splitter-1").unwrap()),
+            12,
+            "and the re-centre is one undo step"
+        );
+    }
+
+    /// A Timer's `Enabled` is a PROPERTY — the runtime reads it and codegen
+    /// seeds `WS-<timer>-ENABLED` from it — but `set_property` routed the name
+    /// to the `Control::enabled` chrome flag. The inspector's "Enabled at
+    /// start" checkbox therefore wrote one field and read the other, so it
+    /// could never be turned off (operator, 2026-08-23).
+    #[test]
+    fn a_timer_can_be_disabled_at_start() {
+        let mut form = Form::new("F", "F", 800, 600);
+        form.controls
+            .push(Control::new("Timer-1", ControlType::Timer, 10, 10));
+        let mut dp = DesignerPanel::new(form);
+        let on = |dp: &DesignerPanel| {
+            dp.form
+                .find_control("Timer-1")
+                .and_then(|c| c.get_prop("Enabled"))
+                .map(|v| v.as_bool())
+                .unwrap_or(true)
+        };
+        assert!(on(&dp), "a fresh Timer starts enabled");
+
+        dp.set_property("Timer-1", "Enabled", PropValue::Bool(false));
+        assert!(!on(&dp), "unchecking `Enabled at start` must reach the PROPERTY");
+        assert!(
+            !dp.form.find_control("Timer-1").unwrap().enabled,
+            "…and the chrome flag with it, so the inspector cannot show two answers"
+        );
+
+        dp.undo();
+        assert!(on(&dp), "and it undoes in one step");
+        println!("  Timer — Enabled at start: true → false → undo → true");
+    }
 
     fn sidebar_form() -> DesignerPanel {
         let mut form = Form::new("F", "F", 960, 744);

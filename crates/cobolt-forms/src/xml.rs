@@ -555,6 +555,11 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // means every consumer (designer, preview, run, shell, codegen) reads one
     // truthful rect, instead of each render path re-deriving it.
     form.sync_side_menu_full_height();
+    // …and every Splitter's two pane Panels, for the same reason: they are
+    // derived geometry, so deriving them once on load means the designer, the
+    // preview, the running form, the shell and codegen all read the same two
+    // rects. A form saved before the Splitter owned panes gains them here.
+    form.sync_splitter_panes();
     Ok(form)
 }
 
@@ -643,6 +648,56 @@ fn seed_missing_props(form: &mut Form) {
                 for (key, value) in defaults {
                     if c.get_prop(key).is_none() {
                         c.set_prop(*key, value.clone());
+                    }
+                }
+            }
+            ControlType::Splitter => {
+                // A Splitter saved before it owned panes is a BAR: its
+                // `SplitPosition` is a pixel offset, not a percentage, and its
+                // `Orientation` named the bar's own direction rather than how
+                // the panes sit. `GripStyle` is the tell — it exists only on
+                // the panel-with-two-panes control — so its absence is what
+                // marks a form as needing the one-time repair.
+                let legacy = c.get_prop("GripStyle").is_none();
+                let defaults: &[(&str, PropValue)] = &[
+                    ("BorderStyle", PropValue::String("Single".into())),
+                    ("BorderColor", PropValue::String("#CCCCCC".into())),
+                    ("BorderWidth", PropValue::Int(1)),
+                    ("LineColor", PropValue::String(String::new())),
+                    (
+                        "LineSize",
+                        PropValue::Int(crate::splitter::DEFAULT_LINE_SIZE as i64),
+                    ),
+                    ("GripStyle", PropValue::String("FilledPill".into())),
+                    (
+                        "GripSize",
+                        PropValue::Int(crate::splitter::DEFAULT_GRIP_SIZE as i64),
+                    ),
+                    ("GripColor", PropValue::String(String::new())),
+                ];
+                for (key, value) in defaults {
+                    if c.get_prop(key).is_none() {
+                        c.set_prop(*key, value.clone());
+                    }
+                }
+                if legacy {
+                    // A pixel offset read as a percentage would open the form
+                    // with one pane shut; centre it instead and let the
+                    // developer place the division again.
+                    c.set_prop(
+                        "SplitPosition",
+                        PropValue::Int(crate::splitter::DEFAULT_SPLIT_PERCENT as i64),
+                    );
+                    // The old default was a 200×8 rule. Nothing fits in an 8pt
+                    // pane, so an axis too thin to hold a control at all is
+                    // opened out to the size a Splitter is dropped at now. A
+                    // splitter the developer had already sized is left alone.
+                    const USABLE: i32 = 40;
+                    if c.rect.w < USABLE {
+                        c.rect.w = 320;
+                    }
+                    if c.rect.h < USABLE {
+                        c.rect.h = 220;
                     }
                 }
             }

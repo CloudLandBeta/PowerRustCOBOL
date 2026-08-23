@@ -3757,7 +3757,12 @@ fn draw_control_body(
 
     let (default_fill, default_border, default_text) = control_colors(&ctrl.control_type, selected);
 
-    let is_container = matches!(ctrl.control_type, CT::GroupBox | CT::Panel);
+    // A Splitter is a PANEL that happens to be divided in two, so it takes the
+    // panel's face: the form theme's own surface, `HideBackground`, the pack
+    // skin, all of it. It drew an opaque `#F0F0F0` slab before this, because
+    // every control is seeded with that `BackgroundColor` and only containers
+    // ignore the seed in favour of the theme.
+    let is_container = matches!(ctrl.control_type, CT::GroupBox | CT::Panel | CT::Splitter);
     // In Neumorphic, the BackgroundColor IS the surface fill for ALL controls
     // including containers. In Classic/Enhanced, containers ignore it (their
     // content comes from children).
@@ -4548,17 +4553,10 @@ fn draw_control_body(
             let col_count = cols.lines().count().max(1);
             format!("⊞ DataGrid ({col_count} cols)")
         }
-        CT::Splitter => {
-            let dir = ctrl
-                .get_prop("Orientation")
-                .map(|v| v.as_str().to_owned())
-                .unwrap_or_else(|| "H".into());
-            if dir.starts_with('V') {
-                "║ Splitter".into()
-            } else {
-                "═ Splitter".into()
-            }
-        }
+        // A Splitter draws its two panes and the line between them (below), the
+        // way a container does. A centred caption would be painted across both
+        // panes and over whatever the developer put in them.
+        CT::Splitter => String::new(),
         // The tab strip is drawn above; no centered label.
         CT::TabControl => String::new(),
         CT::MenuBar => {
@@ -5241,6 +5239,31 @@ fn draw_control_body(
                 hovered: None,
                 alpha: alpha_mul,
             },
+        );
+    }
+
+    // ── Splitter: the division line and its grip, by the SHARED renderer ─────
+    //
+    // The panes themselves are real Panel controls the form draws in its own
+    // pass; what belongs to the splitter is the rule between them and the grip
+    // that moves it. Both surfaces paint it through this one call, so the line
+    // the developer drags on the canvas is the line they see in the running
+    // form.
+    //
+    // `_DeferSplitter` is how the RUNNING form opts out: it paints the grip
+    // itself, lit by this frame's hover and drag — state a face painter cannot
+    // see. Same idiom as `_DeferTree` above.
+    if matches!(ctrl.control_type, CT::Splitter)
+        && !ctrl
+            .get_prop("_DeferSplitter")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+    {
+        crate::splitter::paint(
+            painter,
+            ctrl,
+            rect,
+            crate::splitter::SplitState::still(alpha_mul),
         );
     }
 
@@ -10612,7 +10635,12 @@ pub fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Co
             (Color32::WHITE, border, Color32::DARK_GRAY)
         }
         ControlType::TreeView => (Color32::WHITE, border, Color32::DARK_GRAY),
-        ControlType::Splitter => (Color32::from_rgb(180, 180, 190), border, Color32::DARK_GRAY),
+        // The panel's face, because that is what a Splitter is.
+        ControlType::Splitter => (
+            Color32::from_rgba_premultiplied(200, 200, 210, 40),
+            border,
+            Color32::DARK_GRAY,
+        ),
         ControlType::ComboBox => (Color32::WHITE, border, Color32::DARK_GRAY),
         ControlType::TabControl => (
             Color32::from_rgba_premultiplied(210, 215, 230, 120),

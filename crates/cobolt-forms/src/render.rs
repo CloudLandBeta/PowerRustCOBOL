@@ -1323,6 +1323,41 @@ fn ancestor_auto_scroll_offset(
 /// shifted by the cumulative scroll so that children draw inside the moved card
 /// bounds. This fixes "frame transparency" / missing inners when scrolling
 /// repeating GroupBoxes (ControlArrays) that act as databound card lists.
+/// The control as it is THIS frame: the designed control with live overrides,
+/// plus the one piece of geometry no state map owns — a Splitter pane's rect.
+///
+/// A pane is derived, not designed: its rect comes from where the division
+/// line sits, so dragging the line has to move it. Deriving it here (rather
+/// than pushing four geometry updates per pointer move) means there is exactly
+/// ONE number behind a splitter's layout — `SplitPosition` — and no chance of
+/// the pane and the line disagreeing halfway through a drag.
+fn live_control(controls: &[Control], idx: usize, state: &dyn FormState) -> Control {
+    let base = &controls[idx];
+    let mut live = state.live(base);
+    if let Some(rect) = splitter_pane_rect(controls, base, state) {
+        live.rect = rect;
+    }
+    live
+}
+
+/// Where a Splitter pane sits this frame, or `None` when the control is not a
+/// pane (or its splitter has gone missing — an orphaned pane keeps the rect it
+/// was saved with rather than collapsing).
+fn splitter_pane_rect(
+    controls: &[Control],
+    ctrl: &Control,
+    state: &dyn FormState,
+) -> Option<crate::model::Rect> {
+    let n = crate::splitter::pane_index(ctrl)?;
+    let pid = ctrl.parent.as_deref()?;
+    let owner = controls
+        .iter()
+        .find(|c| c.id == pid && c.control_type == ControlType::Splitter)?;
+    let owner = state.live(owner);
+    let g = crate::splitter::geometry(&owner, owner.rect);
+    Some(if n == 1 { g.pane1 } else { g.pane2 })
+}
+
 fn ancestor_clip_rect(
     controls: &[Control],
     idx: usize,
@@ -1338,7 +1373,9 @@ fn ancestor_clip_rect(
     while let Some(pid) = controls.get(cur).and_then(|c| c.parent.clone()) {
         if let Some(p) = controls.iter().position(|c| c.id == pid) {
             let pctrl = &controls[p];
-            let plive = state.live(pctrl);
+            // …through `live_control`, so a child of a Splitter pane is clipped
+            // to where the pane IS after a drag, not where it was designed.
+            let plive = live_control(controls, p, state);
             let cr = plive.content_rect();
             let has_scroll = matches!(pctrl.control_type, ControlType::Panel)
                 && (plive.get_prop("HScroll").map_or(false, |v| v.as_bool())
@@ -1503,7 +1540,7 @@ pub fn render_form_with_chrome(
         }
 
         // Live control (designer source-of-truth face via draw_control).
-        let live = input.state.live(base);
+        let live = live_control(controls, idx, input.state);
         let r = live.rect;
 
         // Apply ancestor AutoScroll offsets (if any) so children of a Panel with
@@ -1694,8 +1731,6 @@ pub fn render_form_with_chrome(
                 input.glass,
                 alpha,
                 enabled,
-                live.rect,
-                controls,
                 notch_bg,
                 &mut out,
                 &mut open_combos,
@@ -2280,6 +2315,15 @@ pub fn merge_props<'a>(
             "ENABLED" => {
                 if let Some(b) = crate::model::parse_bool_text(v) {
                     c.enabled = b;
+                    // A Timer's on/off is its `Enabled` PROPERTY — the tick arm
+                    // reads that, not the chrome flag — so a control that owns
+                    // one has both written. Without this a COBOL handler could
+                    // `SET TIMER-1::Enabled TO 0` and the timer kept firing:
+                    // the write landed on the struct field nothing consults
+                    // (operator, 2026-08-23).
+                    if c.get_prop("Enabled").is_some() {
+                        c.set_prop("Enabled", crate::PropValue::Bool(b));
+                    }
                 }
             }
             _ => c.set_prop(k.clone(), crate::PropValue::String(v.clone())),
@@ -3368,51 +3412,6 @@ pub(crate) fn node_payload(row: &crate::treeview::TreeRow, checked: &[String]) -
 /// `(0,0,screen.w,screen.h)`, so faces draw at `screen.min` and any animation
 /// shift/scale baked into `screen` is honoured.
 #[allow(clippy::too_many_arguments)]
-/// The two controls a splitter sits between: on each side of the bar, the
-/// NEAREST control whose span across the bar overlaps the bar's own.
-///
-/// Overlap is what makes this a rule rather than a guess. A splitter in the
-/// left half of a form must not grab a control stacked above the right half
-/// just because it happens to be the closest thing upward — only something the
-/// bar actually runs across is a pane of that bar.
-///
-/// Everything here is in DESIGN coordinates, which is also what the geometry
-/// updates are written back in.
-fn splitter_neighbours(
-    siblings: &[Control],
-    me: &crate::model::Rect,
-    horiz: bool,
-) -> (Option<String>, Option<String>) {
-    let (mut before, mut after): (Option<(i32, String)>, Option<(i32, String)>) = (None, None);
-    for c in siblings {
-        let r = &c.rect;
-        // Across the bar: a horizontal bar must share columns with its panes,
-        // a vertical one must share rows.
-        let crosses = if horiz {
-            r.x < me.x + me.w && r.x + r.w > me.x
-        } else {
-            r.y < me.y + me.h && r.y + r.h > me.y
-        };
-        if !crosses || matches!(c.control_type, ControlType::Splitter) {
-            continue;
-        }
-        // How far each side's near edge sits from the bar. Negative would mean
-        // the control straddles the bar, which is not a pane of it.
-        let (gap_before, gap_after) = if horiz {
-            (me.y - (r.y + r.h), r.y - (me.y + me.h))
-        } else {
-            (me.x - (r.x + r.w), r.x - (me.x + me.w))
-        };
-        if gap_before >= 0 && before.as_ref().map(|(g, _)| gap_before < *g).unwrap_or(true) {
-            before = Some((gap_before, c.id.clone()));
-        }
-        if gap_after >= 0 && after.as_ref().map(|(g, _)| gap_after < *g).unwrap_or(true) {
-            after = Some((gap_after, c.id.clone()));
-        }
-    }
-    (before.map(|(_, id)| id), after.map(|(_, id)| id))
-}
-
 fn render_interactive(
     ui: &mut egui::Ui,
     ctrl: &Control,
@@ -3421,13 +3420,6 @@ fn render_interactive(
     glass: bool,
     alpha: f32,
     enabled: bool,
-    // This control's own DESIGN rect. `ctrl` is re-based to (0,0,w,h) for
-    // painting, so a control that has to reason about where it sits among its
-    // siblings — the Splitter — cannot get it from there.
-    design: crate::model::Rect,
-    // The other controls, in design coordinates. Only the Splitter uses them:
-    // it is the one control whose job is to move other controls.
-    siblings: &[Control],
     // The form's effective (opaque) backdrop colour â what a translucent glass
     // control shows through, so colours that must stay legible on the face can
     // be measured against what the eye actually sees.
@@ -7195,111 +7187,79 @@ fn render_interactive(
             );
         }
         CT::Splitter => {
-            // The DESIGNED face, through the shared painter — the same rule the
-            // ListBox and the TreeView follow here.
+            // A Splitter is a PANEL split in two. Its two panes are real Panel
+            // controls the form draws in its own pass — this arm owns the face,
+            // the division line, the grip, and the drag that moves them.
             //
-            // This arm hard-coded a slate-blue `rgb(60, 66, 96)` while the
-            // designer canvas drew the control's own light grey, so the same
-            // splitter was two different colours depending on where you looked
-            // at it — and neither of them was the one the developer chose:
-            // `BackgroundColor` reached the canvas and not the running form.
-            let horiz = !sv(ctrl, "Orientation").starts_with('V');
-            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            // ── The grip, which is the whole point of a splitter ─────────
+            // It used to be a BAR between two sibling controls: dragging it
+            // moved the bar and resized whatever it happened to sit across.
+            // That is not the control the audience knows from PowerCOBOL or
+            // isCOBOL, and it is not what the operator asked for (2026-08-23) —
+            // the panes belong to the splitter, so they are its children now
+            // and `splitter_neighbours` is gone with the model that needed it.
             //
-            // It painted a slab and did nothing else: there was no interaction
-            // on it at all, so the grip could not be grabbed and the panes
-            // could not be resized (operator, 2026-08-22: "Splitter does not
-            // work at all").
-            //
-            // A splitter is a BAR between two controls, not a container — the
-            // seeded 200x8 default is a rule, not a pane. Dragging it moves the
-            // bar and hands the room it gives up to the control on the other
-            // side, which is what the audience expects from PowerCOBOL and
-            // isCOBOL.
-            let (before, after) = splitter_neighbours(siblings, &design, horiz);
-            let grab = ui.interact(screen, ctrl_id.with("splitter"), Sense::click_and_drag());
-            if enabled && (grab.hovered() || grab.dragged()) {
-                ui.ctx().set_cursor_icon(if horiz {
-                    egui::CursorIcon::ResizeVertical
+            // The designed FACE only: the flag keeps `draw_control` from
+            // painting its own copy of the line, which this arm paints below
+            // carrying the hover and drag state a face painter cannot see.
+            let mut face = ctrl.clone();
+            face.set_prop("_DeferSplitter", crate::PropValue::Bool(true));
+            paint::draw_control(&painter, screen.min, &face, false, glass, alpha, 1.0, None);
+
+            let g = crate::splitter::screen_geometry(ctrl, screen);
+            // The whole line is grabbable, not just the grip: the grip says
+            // WHERE to grab, and a 2pt rule would be a dare otherwise.
+            let grab = ui.interact(g.band, ctrl_id.with("splitter"), Sense::click_and_drag());
+            let dragging = enabled && grab.dragged();
+            let hovered = enabled && grab.hovered();
+            if hovered || dragging {
+                ui.ctx().set_cursor_icon(if dragging {
+                    egui::CursorIcon::Grabbing
                 } else {
-                    egui::CursorIcon::ResizeHorizontal
+                    egui::CursorIcon::Grab
                 });
             }
-            if enabled && grab.dragged() {
-                let raw = if horiz {
-                    grab.drag_delta().y
-                } else {
-                    grab.drag_delta().x
-                };
-                // `MinimumSize` is how small either pane may get. Clamping the
-                // DELTA rather than fixing up afterwards keeps the bar and its
-                // panes on the same number, so nothing drifts apart over a long
-                // drag.
-                let min = ctrl
-                    .get_prop("MinimumSize")
-                    .map(|v| v.as_i64() as i32)
-                    .unwrap_or(25)
-                    .max(0);
-                let span = |id: &Option<String>| -> Option<i32> {
-                    let id = id.as_deref()?;
-                    let r = &siblings.iter().find(|c| c.id == id)?.rect;
-                    Some(if horiz { r.h } else { r.w })
-                };
-                let mut d = raw.round() as i32;
-                if let Some(b) = span(&before) {
-                    d = d.max(min - b);
-                }
-                if let Some(a) = span(&after) {
-                    d = d.min(a - min);
-                }
-                if d != 0 {
-                    let axis = if horiz { "Y" } else { "X" };
-                    let size = if horiz { "Height" } else { "Width" };
-                    let pos = if horiz { design.y } else { design.x };
-                    let push = |out: &mut RenderOutput, id: &str, k: &str, v: i32| {
-                        out.prop_updates
-                            .push((id.to_owned(), k.to_owned(), v.to_string()));
-                    };
-                    // The bar itself.
-                    push(out,id, axis, pos + d);
-                    // `SplitPosition` is kept in step so a handler can READ
-                    // where the operator put the bar, and act on it.
-                    push(out,id, "SplitPosition", pos + d);
-                    // The pane behind it grows into the space; the one ahead
-                    // gives it up and starts that much further along.
-                    if let Some(bid) = before.as_deref() {
-                        if let Some(r) = siblings.iter().find(|c| c.id == bid).map(|c| c.rect) {
-                            push(out,bid, size, if horiz { r.h } else { r.w } + d);
-                        }
-                    }
-                    if let Some(aid) = after.as_deref() {
-                        if let Some(r) = siblings.iter().find(|c| c.id == aid).map(|c| c.rect) {
-                            push(out,aid, axis, if horiz { r.y } else { r.x } + d);
-                            push(out,aid, size, if horiz { r.h } else { r.w } - d);
-                        }
-                    }
+            let mut moved_to: Option<i32> = None;
+            if dragging {
+                if let Some(pos) = grab.interact_pointer_pos() {
+                    moved_to = Some(crate::splitter::percent_at_screen(ctrl, screen, pos));
                 }
             }
-            // The grip, in the theme's own rule colour rather than a fixed pale
-            // blue that only ever suited the hard-coded face it sat on.
-            let c = screen.center();
-            let dot = paint::theme_token(ui.ctx(), crate::surface_theme::ColorToken::Border)
-                .unwrap_or(Color32::from_rgba_premultiplied(200, 210, 240, 160));
-            let dot = Color32::from_rgba_premultiplied(
-                dot.r(),
-                dot.g(),
-                dot.b(),
-                (dot.a() as f32 * alpha) as u8,
+            // Double-click puts the division back in the middle — the one
+            // gesture every splitter in every toolkit answers to.
+            if enabled && grab.double_clicked() {
+                moved_to = Some(crate::splitter::CENTRE_PERCENT);
+            }
+            if let Some(pct) = moved_to {
+                if pct != crate::splitter::split_percent(ctrl) {
+                    // The panes follow from this ONE number: the render loop
+                    // derives their rects from the live splitter, so there is
+                    // no second geometry to keep in step (and no chance of the
+                    // two disagreeing mid-drag).
+                    out.prop_updates.push((
+                        id.to_owned(),
+                        "SplitPosition".to_owned(),
+                        pct.to_string(),
+                    ));
+                }
+            }
+            // Live control + this frame's state, so the grip lights under the
+            // hand. `ctrl` still carries the OLD percentage while the update
+            // above is in flight; drawing at the new one keeps the line under
+            // the pointer instead of a frame behind it.
+            let mut lit = ctrl.clone();
+            if let Some(pct) = moved_to {
+                lit.set_prop("SplitPosition", crate::PropValue::Int(pct as i64));
+            }
+            crate::splitter::paint(
+                &painter,
+                &lit,
+                screen,
+                crate::splitter::SplitState {
+                    hovered,
+                    dragging,
+                    alpha,
+                },
             );
-            for k in -1..=1 {
-                let p = if horiz {
-                    pos2(c.x + k as f32 * 5.0, c.y)
-                } else {
-                    pos2(c.x, c.y + k as f32 * 5.0)
-                };
-                painter.circle_filled(p, 1.5, dot);
-            }
         }
         CT::MenuBar => {
             // A menu's `Cursor` belongs to the things you point at â the titles
@@ -11665,6 +11625,156 @@ mod tests {
         (all, overrides.into_inner())
     }
 
+
+    // ── Splitter ─────────────────────────────────────────────────────────────
+    //
+    // The control the operator asked for (2026-08-23): a themed panel divided
+    // in two by a line you drag, NOT a bar between two neighbouring controls.
+    // The bar could not be grabbed at all before 1.61.163 and was still the
+    // wrong control after it ("splitter still not working properly").
+
+    /// A splitter and the two Panels it owns, exactly as `sync_splitter_panes`
+    /// creates them.
+    fn splitter_with_panes(w: i32, h: i32) -> Vec<Control> {
+        let mut form = crate::model::Form::new("F", "F", 400, 300);
+        let mut sp = Control::new("SPLIT-1", ControlType::Splitter, 0, 0);
+        sp.rect = crate::model::Rect::new(0, 0, w, h);
+        form.controls.push(sp);
+        form.sync_splitter_panes();
+        form.controls
+    }
+
+    /// The panes are DERIVED: they follow `SplitPosition` at run time without
+    /// anybody writing their geometry. This is the whole reason the pane rect
+    /// is resolved in `live_control` rather than pushed as four prop updates.
+    #[test]
+    fn splitter_panes_follow_the_live_split_position() {
+        let controls = splitter_with_panes(300, 200);
+        assert_eq!(controls.len(), 3, "the splitter owns two Panels");
+
+        let mut overrides: Map<String, Map<String, String>> = Map::new();
+        overrides
+            .entry("SPLIT-1".into())
+            .or_default()
+            .insert("SplitPosition".into(), "25".into());
+        let cell = RefCell::new(overrides);
+        let st = MapState(&cell);
+
+        let p1 = live_control(&controls, 1, &st).rect;
+        let p2 = live_control(&controls, 2, &st).rect;
+        let inner = crate::splitter::content_rect(controls[0].rect);
+        assert!(
+            (p1.w as f32 - inner.w as f32 * 0.25).abs() <= 2.0,
+            "pane 1 holds a quarter after the drag: {p1:?} of {inner:?}"
+        );
+        assert_eq!(
+            p1.w + controls[0].get_prop("LineSize").unwrap().as_i64() as i32 + p2.w,
+            inner.w,
+            "and the two panes plus the line still tile the inner width"
+        );
+        println!(
+            "\n  Splitter — SplitPosition 25 % on a 300x200 splitter ⇒ pane 1 {}pt, \
+             pane 2 {}pt, derived with no geometry written\n",
+            p1.w, p2.w
+        );
+    }
+
+    /// Dragging the line moves the division — the gesture that did nothing at
+    /// all when the Splitter was a bar.
+    #[test]
+    fn dragging_the_division_line_writes_a_new_split_position() {
+        let controls = splitter_with_panes(300, 200);
+        let inner = crate::splitter::content_rect(controls[0].rect);
+        let centre = pos2((inner.x + inner.w / 2) as f32, (inner.y + inner.h / 2) as f32);
+        let target = pos2(inner.x as f32 + inner.w as f32 * 0.25, centre.y);
+
+        let (_, overrides) = drive(
+            &controls,
+            vec![
+                (0.0, vec![Event::PointerMoved(centre)]),
+                (0.05, vec![press(centre)]),
+                (0.10, vec![Event::PointerMoved(target)]),
+                (0.15, vec![Event::PointerMoved(target)]),
+                (0.20, vec![release(target)]),
+            ],
+        );
+        let pct = overrides
+            .get("SPLIT-1")
+            .and_then(|p| p.get("SplitPosition"))
+            .and_then(|v| v.parse::<i32>().ok())
+            .expect("the drag must write a SplitPosition");
+        assert!(
+            (pct - 25).abs() <= 2,
+            "dragging to a quarter across leaves the division at ~25 %, got {pct}"
+        );
+        println!("\n  Splitter — drag from 50 % to a quarter across ⇒ SplitPosition {pct}\n");
+    }
+
+    /// Double-clicking puts the division back in the middle.
+    #[test]
+    fn double_clicking_the_grip_centres_the_division() {
+        let mut controls = splitter_with_panes(300, 200);
+        controls[0].set_prop("SplitPosition", 20i64);
+        let inner = crate::splitter::content_rect(controls[0].rect);
+        // Where the line IS at 20 %, which is where the pointer has to be.
+        let g = crate::splitter::geometry(&controls[0], controls[0].rect);
+        let on_line = pos2(
+            (g.line.x + g.line.w / 2) as f32,
+            (inner.y + inner.h / 2) as f32,
+        );
+
+        let (_, overrides) = drive(
+            &controls,
+            vec![
+                (0.0, vec![Event::PointerMoved(on_line)]),
+                (0.05, vec![press(on_line)]),
+                (0.10, vec![release(on_line)]),
+                (0.15, vec![press(on_line)]),
+                (0.20, vec![release(on_line)]),
+            ],
+        );
+        assert_eq!(
+            overrides
+                .get("SPLIT-1")
+                .and_then(|p| p.get("SplitPosition"))
+                .map(String::as_str),
+            Some("50"),
+            "a double-click on the grip re-centres the division"
+        );
+        println!("\n  Splitter — double-click at 20 % ⇒ SplitPosition back to 50 %\n");
+    }
+
+    /// A pane is an ordinary container: what the developer drops into it is
+    /// clipped to the pane, and the pane moves with the line. A control in
+    /// pane 2 must therefore be clipped by where pane 2 IS, not where it was
+    /// designed — otherwise closing pane 2 would leave its contents on screen.
+    #[test]
+    fn a_panes_children_are_clipped_to_where_the_pane_ends_up() {
+        let mut controls = splitter_with_panes(300, 200);
+        let mut kid = Control::new("BTN-1", ControlType::Button, 160, 40);
+        kid.rect = crate::model::Rect::new(160, 40, 100, 30);
+        kid.parent = Some(crate::splitter::pane_id("SPLIT-1", 2));
+        controls.push(kid);
+
+        let mut overrides: Map<String, Map<String, String>> = Map::new();
+        overrides
+            .entry("SPLIT-1".into())
+            .or_default()
+            .insert("SplitPosition".into(), "100".into());
+        let cell = RefCell::new(overrides);
+        let st = MapState(&cell);
+
+        let clip = ancestor_clip_rect(&controls, 3, pos2(0.0, 0.0), Vec2::ZERO, &st)
+            .expect("a pane child is clipped by its pane");
+        assert!(
+            clip.width() <= 1.0,
+            "pane 2 is shut at 100 %, so its children are clipped away: {clip:?}"
+        );
+        println!(
+            "\n  Splitter — pane 2 closed at 100 % ⇒ its child clips to {:.0}pt wide\n",
+            clip.width()
+        );
+    }
     fn names(evs: &[UiEvent]) -> Vec<&str> {
         evs.iter().map(|e| e.event.as_str()).collect()
     }
@@ -15871,97 +15981,5 @@ mod maps_corner_tests {
         for (i, s) in painters_at(&shapes, p).iter().enumerate() {
             println!("    {i:2}. {s}");
         }
-    }
-}
-
-/// A splitter is a BAR between two controls, and dragging it hands the room one
-/// pane gives up to the other. It painted a slab and took no interaction at all
-/// until 1.61.163 — the grip could not be grabbed (operator, 2026-08-22:
-/// "Splitter does not work at all").
-///
-/// These cover the RULE that decides which controls are its panes, which is the
-/// part a drag test could not tell you was wrong.
-#[cfg(test)]
-mod splitter_pane_tests {
-    use super::*;
-    use crate::model::{Control, ControlType, Rect as MRect};
-
-    fn at(id: &str, t: ControlType, x: i32, y: i32, w: i32, h: i32) -> Control {
-        let mut c = Control::new(id, t, x, y);
-        c.rect = MRect::new(x, y, w, h);
-        c
-    }
-
-    /// A horizontal bar takes the control above it and the control below it.
-    #[test]
-    fn a_horizontal_bar_takes_the_pane_above_and_below() {
-        let bar = MRect::new(10, 100, 200, 8);
-        let sibs = vec![
-            at("TOP", ControlType::Panel, 10, 10, 200, 90),
-            at("BOTTOM", ControlType::Panel, 10, 108, 200, 90),
-            at("FAR", ControlType::Panel, 10, 400, 200, 50),
-        ];
-        let (before, after) = splitter_neighbours(&sibs, &bar, true);
-        assert_eq!(before.as_deref(), Some("TOP"));
-        assert_eq!(after.as_deref(), Some("BOTTOM"), "the NEAREST below, not FAR");
-    }
-
-    /// Overlap is what makes this a rule and not a guess: a bar must only take
-    /// controls it actually runs across. A splitter down the left of a form
-    /// cannot grab something stacked above the RIGHT half just because that is
-    /// the closest thing upward.
-    #[test]
-    fn a_control_the_bar_does_not_cross_is_not_its_pane() {
-        let bar = MRect::new(10, 100, 200, 8);
-        let sibs = vec![
-            at("ELSEWHERE", ControlType::Panel, 400, 10, 200, 90),
-            at("BELOW", ControlType::Panel, 10, 108, 200, 90),
-        ];
-        let (before, after) = splitter_neighbours(&sibs, &bar, true);
-        assert_eq!(before, None, "nothing above it that it crosses");
-        assert_eq!(after.as_deref(), Some("BELOW"));
-    }
-
-    /// A vertical bar splits left from right, and reads overlap on rows rather
-    /// than columns.
-    #[test]
-    fn a_vertical_bar_takes_the_pane_left_and_right() {
-        let bar = MRect::new(100, 10, 8, 200);
-        let sibs = vec![
-            at("LEFT", ControlType::Panel, 10, 10, 90, 200),
-            at("RIGHT", ControlType::Panel, 108, 10, 90, 200),
-            at("UNDER", ControlType::Panel, 10, 400, 90, 50),
-        ];
-        let (before, after) = splitter_neighbours(&sibs, &bar, false);
-        assert_eq!(before.as_deref(), Some("LEFT"));
-        assert_eq!(after.as_deref(), Some("RIGHT"));
-    }
-
-    /// Two splitters must not treat each other as panes, or a pair of them side
-    /// by side would resize one another instead of the panels between them.
-    #[test]
-    fn a_splitter_is_never_another_splitters_pane() {
-        let bar = MRect::new(10, 100, 200, 8);
-        let sibs = vec![
-            at("OTHER-BAR", ControlType::Splitter, 10, 90, 200, 8),
-            at("TOP", ControlType::Panel, 10, 10, 200, 78),
-        ];
-        let (before, _) = splitter_neighbours(&sibs, &bar, true);
-        assert_eq!(
-            before.as_deref(),
-            Some("TOP"),
-            "it must look past the other bar to the real pane"
-        );
-    }
-
-    /// A bar with nothing on one side still resizes the side it has, rather
-    /// than refusing to move.
-    #[test]
-    fn a_bar_with_one_pane_still_has_that_one() {
-        let bar = MRect::new(10, 100, 200, 8);
-        let sibs = vec![at("ONLY", ControlType::Panel, 10, 10, 200, 90)];
-        let (before, after) = splitter_neighbours(&sibs, &bar, true);
-        assert_eq!(before.as_deref(), Some("ONLY"));
-        assert_eq!(after, None);
     }
 }

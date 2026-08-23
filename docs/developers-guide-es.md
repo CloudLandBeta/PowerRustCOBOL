@@ -513,6 +513,53 @@ los non-visual son services.
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
 
+  Un **Splitter es un panel dividido en dos** — un contenedor, como los tres
+  anteriores. Al soltarlo aparecen **tres** controles en el árbol: el propio
+  splitter y los dos paneles que le pertenecen, `<id>-Pane1` y `<id>-Pane2`.
+  Los paneles son Panel normales — sin borde y transparentes de inicio — así
+  que se sueltan controles dentro, se les da estilo y se enlazan igual que a
+  cualquier Panel. Lo que usted **no** fija es dónde se sitúan: eso lo decide
+  la línea de división.
+
+  - **Orientation** describe cómo se disponen los **paneles**, no cómo corre la
+    línea. `Horizontal` coloca el **panel 1 a la izquierda y el panel 2 a la
+    derecha**, separados por una línea vertical; `Vertical` coloca el **panel 1
+    arriba y el panel 2 abajo**, separados por una línea horizontal.
+  - **SplitPosition** es un **porcentaje, 0–100**, del ancho interior
+    (Horizontal) o del alto interior (Vertical). Al ser una proporción y no un
+    desplazamiento en píxeles, la división se mantiene donde usted la puso
+    cuando se redimensiona el formulario o el splitter. Su COBOL puede leerla
+    — `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N` — o fijarla:
+    `SET Splitter-1::SplitPosition TO 30`.
+  - **Arrastre la línea** — en cualquier punto, no sólo en el tirador — y los
+    dos paneles se redistribuyen bajo el puntero. El cursor se convierte en una
+    **mano de agarre** sobre la línea, y **al hacer doble clic la división
+    vuelve al 50 %**. El mismo gesto funciona en el lienzo del diseñador y en
+    el formulario en ejecución.
+  - **0 % y 100 % son válidos.** Un panel se cierra por completo y el otro se
+    queda con todo; el tirador queda recortado por el propio borde del
+    splitter, de modo que sigue visible la mitad con la que arrastrarlo de
+    vuelta.
+  - **Estilo de la línea**: `LineColor` y `LineSize` para la regla; `GripStyle`
+    (`FilledPill`, `HollowPill`, `FilledCircle`, `HollowCircle`), `GripSize` y
+    `GripColor` para el tirador. Si deja un color vacío, sigue el tema del
+    formulario. El panel también sigue el tema mientras no fije
+    `BackgroundColor`, `BorderStyle` o `BorderColor`.
+
+  > **Nota** — el rectángulo de cada panel se deriva de la división, así que
+  > moverlo o redimensionarlo a mano no hace nada: vuelve solo a su sitio.
+  > Mueva el **splitter** para mover ambos paneles, y arrastre la **línea**
+  > para cambiar su reparto.
+
+  > ⚠️ **Cambio en 1.61.164.** Antes el Splitter era una *barra entre dos
+  > controles vecinos* y `Orientation` describía la dirección de la propia
+  > barra — `Horizontal` era una barra ancha que separaba arriba de abajo, lo
+  > contrario de lo que significa ahora. Un formulario guardado antes se abre
+  > con los paneles al revés, y su `SplitPosition` (que era un desplazamiento
+  > en píxeles) se restablece al 50 %. Elija la orientación que quiera y
+  > arrastre la línea a su sitio: es una corrección de una sola vez y no se
+  > pierde nada de lo que haya puesto en el formulario.
+
 **Data**
 : DataGrid, TreeView.
 

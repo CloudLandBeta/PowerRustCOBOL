@@ -1295,26 +1295,48 @@ non-visual ones are services.
   **SideMenu**.
   **GroupBox, Panel and TabControl are true containers** — see *Containers and
   nesting* below.
-  A **Splitter is a bar, not a container.** Nothing goes *inside* it; you put it
-  *between* two controls. Since 1.61.163 the operator can grab it and drag it
-  along its axis, and the room one side gives up goes to the other:
+  A **Splitter is a panel divided in two** — a container, like the three above
+  it. Drop one and you get **three** controls in the tree: the splitter itself,
+  and the two panes it owns, `<id>-Pane1` and `<id>-Pane2`. The panes are
+  ordinary Panels — borderless and transparent to start with — so you drop
+  controls into them, style them and bind them exactly as you would any Panel.
+  What you do **not** set is where they sit: the division line decides that.
 
-  - **Orientation** `Horizontal` is a wide bar splitting top from bottom;
-    `Vertical` is a tall one splitting left from right. The seeded size is
-    200×8 — a rule, not a pane.
-  - Its two panes are found by geometry: on each side of the bar, the nearest
-    control whose span **across** the bar overlaps the bar's own. So a splitter
-    only ever moves something it actually runs across, and never another
-    splitter. Lay the bar out so it spans the two controls it divides.
-  - **MinimumSize** (default 25) is how small either pane may get, and it stops
-    the drag at that point rather than letting a pane collapse.
-  - **SplitPosition** follows the bar, so your COBOL can read where the
-    operator left it — `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N`.
+  - **Orientation** names how the **panes** are arranged, not how the line
+    runs. `Horizontal` puts **pane 1 on the left and pane 2 on the right**,
+    divided by a vertical line; `Vertical` puts **pane 1 on top and pane 2
+    below**, divided by a horizontal one.
+  - **SplitPosition** is a **percentage, 0–100**, of the splitter's inner
+    width (Horizontal) or height (Vertical). Because it is a proportion and not
+    a pixel offset, the division stays where you put it when the form or the
+    splitter is resized. Your COBOL can read it —
+    `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N` — or set it:
+    `SET Splitter-1::SplitPosition TO 30`.
+  - **Drag the line** — anywhere along it, not only on the grip — and the two
+    panes redistribute under the pointer. The cursor becomes a **grab hand**
+    over the line, and **double-clicking it puts the division back at 50 %**.
+    The same gesture works on the designer canvas and in the running form.
+  - **0 % and 100 % are legal.** One pane closes completely and the other
+    holds everything; the grip is clipped by the splitter's own edge, so half
+    of it stays visible to drag back with.
+  - **Styling the line**: `LineColor` and `LineSize` for the rule, `GripStyle`
+    (`FilledPill`, `HollowPill`, `FilledCircle`, `HollowCircle`), `GripSize`
+    and `GripColor` for the handle. Leave a colour empty and it follows the
+    form theme. The panel itself follows the theme too, until you set
+    `BackgroundColor`, `BorderStyle` or `BorderColor`.
 
-  > ⚠️ A splitter with nothing overlapping it on either side has no panes to
-  > resize, and dragging it will appear to do nothing. That is a layout
-  > problem, not a fault: check that the bar really spans the controls it is
-  > meant to divide.
+  > **Note** — a pane's own rectangle is derived from the division, so moving
+  > or resizing a pane by hand does nothing: it snaps straight back. Move the
+  > **splitter** to move both panes, and drag the **line** to change their
+  > share.
+
+  > ⚠️ **Changed in 1.61.164.** Before this the Splitter was a *bar between two
+  > neighbouring controls*, and `Orientation` named the bar's own direction —
+  > `Horizontal` meant a wide bar splitting top from bottom, the opposite of
+  > what it means now. A form saved earlier opens with its panes the other way
+  > round, and its `SplitPosition` (which used to be a pixel offset) is reset
+  > to 50 %. Set the orientation you want and drag the line back into place —
+  > it is a one-time correction, and nothing you put on the form is lost.
   A **SideMenu** is the one control that changes how the whole application
   starts: put it on the main form and the application opens as a *shell* with a
   navigation sidebar instead of one window per form — see
@@ -3035,6 +3057,12 @@ In words:
 >   fires `onResponse` when `Ask` returns a reply. These dispatch on the next
 >   `COBOL-WAIT-EVENT` return.
 > - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+>   **`Enabled` is the timer's own switch** — it decides whether the timer runs,
+>   not whether a control is greyed out. Untick **Enabled at start** in the
+>   properties pane for a timer that waits to be started, and turn it on and off
+>   from COBOL with `SET Timer-1::Enabled TO 1` / `TO 0`. (Before 1.61.164
+>   neither did anything: both wrote the generic control flag, which the timer
+>   does not read, so a timer could not be stopped at all.)
 >   A Timer keeps a **steady cadence**: each tick schedules the next one interval
 >   on, so the rate does not drift with however the frames happen to land. It also
 >   never **repays** missed time — if your handler takes longer than the interval,

@@ -506,6 +506,40 @@ non-visual ones are services.
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
 
+  **Splitter 是一个被分成两半的面板**——和上面三个一样，它是容器。放置一个
+  Splitter 后，树中会出现**三个**控件：Splitter 本身，以及它拥有的两个窗格
+  `<id>-Pane1` 和 `<id>-Pane2`。窗格就是普通的 Panel（初始无边框、背景透明），
+  因此可以像对待任何 Panel 一样把控件放进去、设置样式和绑定数据。您**不能**
+  设置的只有它们的位置和大小：那由分隔线决定。
+
+  - **Orientation**描述的是**窗格的排列方式**，而不是分隔线的方向。
+    `Horizontal` 把**窗格 1 放在左边、窗格 2 放在右边**，用一条垂直线分开；
+    `Vertical` 把**窗格 1 放在上面、窗格 2 放在下面**，用一条水平线分开。
+  - **SplitPosition** 是内部宽度（Horizontal）或内部高度（Vertical）的
+    **百分比，0–100**。因为它是比例而不是像素偏移，所以在调整窗体或 Splitter
+    大小后，分隔位置仍保持不变。COBOL 可以读取它
+    （`MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N`），也可以设置它
+    （`SET Splitter-1::SplitPosition TO 30`）。
+  - **拖动分隔线**——线上任意位置皆可，不限于手柄——两个窗格就会随指针重新
+    分配空间。指针移到线上时会变成**抓取手形**，**双击可让分隔位置回到
+    50 %**。同样的操作在设计器画布和运行中的窗体上都有效。
+  - **0 % 与 100 % 都是合法的。** 一个窗格完全关闭，另一个占据全部空间；手柄会
+    被 Splitter 自身的边缘裁剪，内侧的一半仍然可见，可以抓住它拖回来。
+  - **分隔线的外观**：用 `LineColor` 和 `LineSize` 设置线条，用 `GripStyle`
+    （`FilledPill`、`HollowPill`、`FilledCircle`、`HollowCircle`）、`GripSize`
+    和 `GripColor` 设置手柄。颜色留空则跟随窗体主题。面板本身同样跟随主题，
+    直到您设置 `BackgroundColor`、`BorderStyle` 或 `BorderColor`。
+
+  > **注意** — 窗格的矩形由分隔位置推导而来，因此手动移动或调整窗格没有效果：
+  > 它会立即弹回原位。要移动两个窗格，请移动 **Splitter**；要改变它们各自的
+  > 占比，请拖动**分隔线**。
+
+  > ⚠️ **1.61.164 的变更。** 此前 Splitter 是*放在两个相邻控件之间的一根条*，
+  > `Orientation` 描述的是这根条自身的方向——`Horizontal` 指一条上下分隔的横
+  > 条，与现在的含义相反。更早保存的窗体打开后窗格左右（或上下）会对调，其
+  > `SplitPosition`（当时是像素偏移）会重置为 50 %。请选择所需的方向并把分隔线
+  > 拖到位：这是一次性的调整，窗体上放置的内容不会丢失。
+
 **Data**
 : DataGrid, TreeView.
 
@@ -705,7 +739,12 @@ In words:
 >   (list / combo), and the combo's `onDropDown` on open.
 > - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
 >   `onKeyDown`/`onKeyUp`/`onKeyPress` while focused.
-> - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+> - **Timer** 在启用期间每隔 `Interval` 毫秒触发一次 `onTick`（`Start`/`Stop`）。
+>   **`Enabled` 是定时器自己的开关**——它决定定时器是否运行，而不是控件是否变灰。
+>   若希望定时器等待手动启动，请在属性面板中取消勾选 **Enabled at start**；在
+>   COBOL 中用 `SET Timer-1::Enabled TO 1` / `TO 0` 开启或停止它。（在 1.61.164
+>   之前两者都无效：它们写入的是控件通用标志，而定时器并不读取该标志，因此定时器
+>   根本无法停止。）
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).
