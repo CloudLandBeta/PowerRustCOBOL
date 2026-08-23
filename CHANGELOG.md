@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.169] — 2026-08-23
+
+### Fixed — Grace could not reach the System Knowledge Base
+
+Asked for a message box, Grace searched `message box` seven times and died on
+"tool budget exhausted" without producing a plan. Two defects compounded:
+
+- **`knowledge.search` searched the PROJECT store only.** The platform
+  reference — controls with their properties, events and methods, the RustCOBOL
+  extensions, the layout and project models — lives in the System Knowledge
+  Base, and every prompt sends agents there for it. Searching the project store
+  alone made a platform-fact question structurally unanswerable. Both stores
+  are searched now, merged by score, each excerpt labelled with the store it
+  came from.
+- **A miss came back as the empty string**, which reads as a fluke worth
+  retrying. A miss now says so in words, and a query repeated inside one call
+  is answered from the first result rather than re-run — neither store moves
+  under a run.
+
+The developer's guide gains the distinction the tool now makes: the System
+Knowledge Base is the platform's own reference and lives outside every project;
+the project Knowledge Base is your own material under `Knowledge Base/`.
+
+
 ## [PowerRustCOBOL 1.61.168] — 2026-08-23
 
 ### Fixed — a container clipped the box but not the text inside it
