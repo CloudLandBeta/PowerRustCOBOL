@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.160] — 2026-08-22
+
+### Added — the TreeView scrolls instead of dropping what does not fit
+
+A tree taller than its control dropped the overflow on the floor. The nodes
+existed, `NodeCount` counted them, a handler could walk to them — and nothing
+on the screen could reach them. Three ways to move it, no property for any:
+
+- the **wheel**, while the pointer is over the tree — claimed only when the
+  tree can actually scroll, so a short tree inside a scrolling Panel does not
+  swallow the Panel's wheel;
+- a **drag** anywhere on it. The rows sense `click_and_drag`, so a click still
+  selects and egui tells the two apart — cheaper than a full-control drag layer
+  fighting the rows for the pointer;
+- **Up / Down / Home / End** once the tree has focus (a click gives it, through
+  the same after-the-rows `interact` the DataGrid uses so a row click stays the
+  row's). The selection steps through every row the tree SHOWS, including rows
+  scrolled out of sight — stepping through the laid-out rows would stop it dead
+  at the viewport edge, which is exactly when it needs to drag the view with it
+  — and `scroll_to_row` moves the view **only as far as it must**.
+
+- A row that straddles an edge is now **kept and clipped** rather than dropped
+  whole, so the tree slides instead of jumping a row at a time; `paint` clips to
+  the control, which is what keeps the other half off the form.
+- `max_scroll` is measured against the rows the tree SHOWS (`visible_nodes`, now
+  shared with the layout), so folding a branch shortens what there is to scroll.
+- The offset lives in egui's memory keyed by the control, **not** in a property:
+  where an operator scrolled to is view state and has no business in a saved
+  `.cfrm`.
+
+⚠️ **Baseline re-blessed** (`elegance_baseline_reports_untouched_paths`, +23 on
+all eight rows). The fixture tiles controls at 130×70 and its tree is four rows
+at 18pt from y=12, so `Node 2` sat at 57..75 and was thrown away for the 5pt
+that hung over. It is drawn now, and being the fixture's second root it also
+earns the root spine its `roots.len() > 1`. +23 = that row's label and
+`doc-text` icon (a vector, ten-odd leaves) plus the spine's vertical and two
+elbows. Both themes moved identically in every style — one control, not the seam.
+
 ## [PowerRustCOBOL 1.61.159] — 2026-08-22
 
 ### Added — a handler can walk the tree, and a node can dress itself

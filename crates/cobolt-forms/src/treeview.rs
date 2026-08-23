@@ -188,10 +188,21 @@ fn check_box_border(ctrl: &Control, ink: Color32) -> (String, f32, Color32) {
     (style, width, colour)
 }
 
-/// Lay the tree out inside `rect`. Rows past the bottom edge are dropped: a
-/// node drawn outside its own control is worse than one the operator scrolls
-/// to, and the control does not scroll yet.
-pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
+/// One node the tree actually SHOWS, with the two facts the walk worked out.
+struct VisibleNode {
+    node: crate::treenodes::ParsedNode,
+    has_children: bool,
+    collapsed: bool,
+}
+
+/// The nodes a tree shows: sorted if asked, with everything inside a folded
+/// node left out.
+///
+/// Shared by the layout and by [`content_height`], so how far a tree can scroll
+/// is measured against the rows it actually draws. Counting the raw lines
+/// instead would let a tree folded down to three rows still scroll as if it
+/// held three hundred.
+fn visible_nodes(ctrl: &Control) -> Vec<VisibleNode> {
     let items = ctrl
         .get_prop("Items")
         .map(|v| v.as_str().to_owned())
@@ -214,18 +225,12 @@ pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
                 .collect()
         })
         .unwrap_or_default();
-    let m = TreeMetrics::of(ctrl);
-    let checks = flag(ctrl, "CheckBoxes", false);
-    let icons = flag(ctrl, "ShowIcons", true);
-    let mut y = rect.min.y + FIRST_ROW_Y;
-    let mut rows = Vec::new();
+    let mut out = Vec::new();
     // Everything deeper than this is inside something folded shut.
     let mut hide_below: Option<usize> = None;
     for (n, node) in nodes.iter().enumerate() {
-        let (index, depth, text) = (node.index, node.depth, node.text.clone());
-        let icon = &node.icon;
         match hide_below {
-            Some(d) if depth > d => continue,
+            Some(d) if node.depth > d => continue,
             Some(_) => hide_below = None,
             None => {}
         }
@@ -233,13 +238,111 @@ pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
         // thing that earns a disclosure arrow.
         let has_children = nodes
             .get(n + 1)
-            .map(|next| next.depth > depth)
+            .map(|next| next.depth > node.depth)
             .unwrap_or(false);
-        let is_collapsed = has_children && collapsed.iter().any(|c| *c == text);
+        let is_collapsed = has_children && collapsed.iter().any(|c| *c == node.text);
         if is_collapsed {
-            hide_below = Some(depth);
+            hide_below = Some(node.depth);
         }
-        if y + m.row_h * 0.5 > rect.max.y {
+        out.push(VisibleNode {
+            node: node.clone(),
+            has_children,
+            collapsed: is_collapsed,
+        });
+    }
+    out
+}
+
+/// How tall the tree is in total — every row it shows, scroll or no scroll.
+pub fn content_height(ctrl: &Control) -> f32 {
+    let n = visible_nodes(ctrl).len();
+    if n == 0 {
+        0.0
+    } else {
+        // The half row above the first centre, every row's pitch, and the same
+        // half again under the last — so the last node is not flush against the
+        // bottom edge when scrolled all the way down.
+        FIRST_ROW_Y + n as f32 * TreeMetrics::of(ctrl).row_h
+    }
+}
+
+/// How far the tree CAN scroll: zero when everything already fits.
+pub fn max_scroll(ctrl: &Control, rect: Rect) -> f32 {
+    (content_height(ctrl) - rect.height()).max(0.0)
+}
+
+/// A scroll offset held inside what there is to scroll — the guard that stops
+/// a wheel or a drag running past either end.
+pub fn clamp_scroll(ctrl: &Control, rect: Rect, scroll: f32) -> f32 {
+    scroll.clamp(0.0, max_scroll(ctrl, rect))
+}
+
+/// The label of every row the tree SHOWS, top to bottom — including the rows
+/// currently scrolled out of sight.
+///
+/// What an arrow key steps through. Stepping through the laid-out rows instead
+/// would stop the selection dead at the viewport edge, which is precisely the
+/// moment it needs to keep going and drag the view with it.
+pub fn visible_labels(ctrl: &Control) -> Vec<String> {
+    visible_nodes(ctrl)
+        .into_iter()
+        .map(|v| v.node.text)
+        .collect()
+}
+
+/// The scroll that brings row `n` (counted among the rows the tree SHOWS) fully
+/// inside `rect`, leaving it alone when it is already there.
+///
+/// This is what makes a keyboard selection reachable: the arrow moves the
+/// selection, and the view follows only as far as it must.
+pub fn scroll_to_row(ctrl: &Control, rect: Rect, n: usize, scroll: f32) -> f32 {
+    let m = TreeMetrics::of(ctrl);
+    let centre = FIRST_ROW_Y + n as f32 * m.row_h;
+    let (top, bottom) = (centre - m.row_h * 0.5, centre + m.row_h * 0.5);
+    // Below the fold: scroll just enough that its bottom sits on the edge.
+    // Above it: just enough that its top does. `clamp` needs its low bound
+    // under its high one, which it is whenever a row is shorter than the
+    // control — and when it is not, showing the row's TOP is the better answer.
+    let low = (bottom - rect.height()).min(top);
+    clamp_scroll(ctrl, rect, scroll.clamp(low, top))
+}
+
+/// Lay the tree out inside `rect`, unscrolled — what a design surface draws.
+pub fn layout(ctrl: &Control, rect: Rect) -> Vec<TreeRow> {
+    layout_at(ctrl, rect, 0.0)
+}
+
+/// Lay the tree out inside `rect`, `scroll` points from the top.
+///
+/// Rows that fall entirely outside `rect` are dropped — above it as well as
+/// below, now that there is an above. A row that straddles an edge is KEPT and
+/// clipped by the painter: dropping it would make the tree jump a whole row at
+/// a time instead of sliding, and a half-row at the edge is how an operator
+/// knows there is more to come.
+pub fn layout_at(ctrl: &Control, rect: Rect, scroll: f32) -> Vec<TreeRow> {
+    let visible = visible_nodes(ctrl);
+    let m = TreeMetrics::of(ctrl);
+    let checks = flag(ctrl, "CheckBoxes", false);
+    let icons = flag(ctrl, "ShowIcons", true);
+    let mut y = rect.min.y + FIRST_ROW_Y - clamp_scroll(ctrl, rect, scroll);
+    let mut rows = Vec::new();
+    for VisibleNode {
+        node,
+        has_children,
+        collapsed: is_collapsed,
+    } in &visible
+    {
+        let (index, depth, text) = (node.index, node.depth, node.text.clone());
+        let (has_children, is_collapsed) = (*has_children, *is_collapsed);
+        let icon = &node.icon;
+        // Above the top: step past it without building it, so scrolling costs
+        // the same whether the operator is at the first row or the ten
+        // thousandth.
+        if y + m.row_h * 0.5 < rect.min.y {
+            y += m.row_h;
+            continue;
+        }
+        if y - m.row_h * 0.5 > rect.max.y {
             break;
         }
         let band = Rect::from_min_max(
@@ -340,6 +443,11 @@ pub fn paint(
     rows: &[TreeRow],
     state: TreeState<'_>,
 ) {
+    // Everything below is drawn INSIDE the control, whatever the scroll. A row
+    // straddling an edge is deliberately kept — that is what makes the tree
+    // slide instead of jumping a whole row at a time — and this is what keeps
+    // its other half off the form around it.
+    let painter = &painter.with_clip_rect(rect);
     let a = state.alpha.clamp(0.0, 1.0);
     let fade = |c: Color32| {
         Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), (c.a() as f32 * a) as u8)
@@ -789,6 +897,128 @@ mod tests {
         assert!(
             rows.iter().all(|r| r.rect.max.y <= rect().max.y + ROW_H),
             "no row may hang below the control"
+        );
+    }
+
+    /// A tree taller than its control SCROLLS instead of dropping the overflow
+    /// on the floor. The nodes were always there; there was no way to reach
+    /// them.
+    #[test]
+    fn a_tree_taller_than_its_control_scrolls() {
+        let items = (1..=40)
+            .map(|i| format!("Node {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let c = tree(&items);
+        let max = max_scroll(&c, rect());
+        assert!(max > 0.0, "40 rows in 160pt must be scrollable");
+
+        let top = layout_at(&c, rect(), 0.0);
+        assert_eq!(top[0].text, "Node 1", "unscrolled starts at the first node");
+
+        let bottom = layout_at(&c, rect(), max);
+        assert_eq!(
+            bottom.last().expect("rows").text,
+            "Node 40",
+            "scrolled to the end, the LAST node is reachable — it never was"
+        );
+        assert!(
+            !bottom.iter().any(|r| r.text == "Node 1"),
+            "and the head has scrolled away"
+        );
+    }
+
+    /// The offset is held inside what there is to scroll, at both ends.
+    #[test]
+    fn scrolling_stops_at_both_ends() {
+        let items = (1..=40)
+            .map(|i| format!("Node {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let c = tree(&items);
+        let max = max_scroll(&c, rect());
+        assert_eq!(clamp_scroll(&c, rect(), max + 5_000.0), max, "stops at the end");
+        assert_eq!(clamp_scroll(&c, rect(), -500.0), 0.0, "and at the start");
+
+        // A tree that already fits cannot scroll at all, so a stray wheel over
+        // it does nothing rather than shifting it by a pixel.
+        let short = tree("A\nB");
+        assert_eq!(max_scroll(&short, rect()), 0.0);
+        assert_eq!(clamp_scroll(&short, rect(), 900.0), 0.0);
+    }
+
+    /// How far a tree can scroll is measured against the rows it SHOWS. A tree
+    /// folded down to three rows must not scroll as if it held three hundred.
+    #[test]
+    fn folding_a_tree_shortens_what_there_is_to_scroll() {
+        let items = (1..=12)
+            .map(|i| format!("Parent {i}\n  Child {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut c = tree(&items);
+        let open = content_height(&c);
+        let folded_list = (1..=12)
+            .map(|i| format!("Parent {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        c.set_prop("CollapsedNodes", PropValue::String(folded_list));
+        let shut = content_height(&c);
+        assert!(
+            shut < open,
+            "folding every parent halves the tree: {open} → {shut}"
+        );
+        assert!(
+            (shut - (FIRST_ROW_Y + 12.0 * TreeMetrics::of(&c).row_h)).abs() < 0.01,
+            "twelve rows remain, not twenty-four: {shut}"
+        );
+    }
+
+    /// A row scrolled half off the edge is KEPT — that is what makes the tree
+    /// slide rather than jump a whole row at a time. The painter clips it.
+    #[test]
+    fn a_straddling_row_is_kept_not_dropped() {
+        let items = (1..=40)
+            .map(|i| format!("Node {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let c = tree(&items);
+        // Scrolled until the first row's CENTRE sits on the top edge: half of
+        // it is above the control and half below.
+        let rows = layout_at(&c, rect(), FIRST_ROW_Y);
+        let first = &rows[0];
+        assert!(
+            first.rect.min.y < rect().min.y && first.rect.max.y > rect().min.y,
+            "the top row straddles the edge: {:?}",
+            first.rect
+        );
+    }
+
+    /// The view follows a keyboard selection only as far as it must — and not
+    /// at all when the row is already on screen.
+    #[test]
+    fn the_view_follows_the_selection_only_when_it_has_to() {
+        let items = (1..=40)
+            .map(|i| format!("Node {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let c = tree(&items);
+        assert_eq!(
+            scroll_to_row(&c, rect(), 1, 0.0),
+            0.0,
+            "row 1 is already in view: the tree must not move"
+        );
+        let deep = scroll_to_row(&c, rect(), 39, 0.0);
+        assert!(deep > 0.0, "the last row is not: the view follows");
+        let rows = layout_at(&c, rect(), deep);
+        assert!(
+            rows.iter().any(|r| r.text == "Node 40"),
+            "and lands with it visible: {:?}",
+            rows.iter().map(|r| &r.text).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            scroll_to_row(&c, rect(), 39, deep),
+            deep,
+            "asked again, it stays put"
         );
     }
 

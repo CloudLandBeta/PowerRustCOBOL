@@ -1926,6 +1926,27 @@ designer canvas, the preview, Run Form and the compiled binary.
 > > much of that box the tick fills. That is the same split a CheckBox makes,
 > > where the box comes from the font and only the tick has a percentage.
 >
+> **It scrolls, since 1.61.160.** A tree taller than the control you drew used
+> to drop the overflow on the floor — the nodes were there, and nothing could
+> reach them. Three ways to move it, and you need no property for any of them:
+>
+> - the **wheel**, while the pointer is over the tree;
+> - a **drag** anywhere on it (a click still selects — the two are told apart
+>   by whether the pointer moved);
+> - **Up / Down / Home / End** once it has focus, which a click gives it. The
+>   selection steps through every row the tree shows, including the ones
+>   scrolled out of sight, and the view follows **only as far as it must** to
+>   bring the new row on screen.
+>
+> A row that straddles an edge is drawn and clipped rather than dropped, so the
+> tree slides instead of jumping a row at a time — and that half-row is how the
+> operator knows there is more below.
+>
+> > **Note.** How far a tree can scroll is measured against the rows it *shows*,
+> > so folding a branch shortens it. And there is deliberately **no scroll
+> > property**: where an operator has scrolled to is view state, not design, and
+> > it is not written to the `.cfrm`.
+>
 > **A row never shrinks below what it holds.** `RowHeight` is a floor, so
 > growing **Icon size** or **Checkbox size** grows the row with it instead of
 > letting a big icon paint over its neighbours; **Gap between nodes**
