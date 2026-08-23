@@ -1,5 +1,13 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.165] — 2026-08-23
+
+No behaviour change: the missing test for the claim 1.61.164 rested on. A
+Splitter's two panes are drop targets and the division line between them is
+not, asserted through the real drop resolver — "a pane is a Panel, so of
+course it takes a drop" was the one part of the rework nothing checked.
+
+
 ## [PowerRustCOBOL 1.61.164] — 2026-08-23
 
 Two defects from the operator, both reported against 1.61.163.
