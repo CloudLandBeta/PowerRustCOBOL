@@ -834,6 +834,13 @@ impl DbAgentInvoker {
         if declared.contains("knowledge.search") {
             let dir = self.project_dir.clone();
             let record = record.clone();
+            // Asking the same thing twice gets the same answer: both stores
+            // are synced at the start of the workflow and do not move under a
+            // run. Grace spent her entire tool budget re-running “message box”
+            // seven times, because an empty result reads as “try again”
+            // (2026-08-23) — so a repeat is answered, not re-run.
+            let asked: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
+                std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
             let f: HostToolFn = std::sync::Arc::new(move |args: serde_json::Value| {
                 let query = args
                     .get("query")
@@ -850,31 +857,88 @@ impl DbAgentInvoker {
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or(5)
                     .clamp(1, 10) as usize;
-                let _ = cobolt_agents::project_knowledge::sync_documentation(&dir);
-                match cobolt_agents::project_knowledge::search(&dir, &query, limit) {
-                    Ok(hits) => {
-                        record(
-                            "knowledge.search",
-                            &args,
-                            true,
-                            format!("retrieved {} project document(s)", hits.len()),
-                        );
-                        Ok(hits
-                            .iter()
-                            .map(|hit| {
-                                format!(
-                                    "PATH: {}\nSCORE: {:.4}\nEXCERPT:\n{}",
-                                    hit.path, hit.score, hit.excerpt
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n\n---\n\n"))
+                let fresh = asked
+                    .lock()
+                    .map(|mut seen| seen.insert(format!("{}\u{1}{limit}", query.to_lowercase())))
+                    .unwrap_or(true);
+                if !fresh {
+                    record("knowledge.search", &args, true, "repeat query, not re-run".into());
+                    return Ok(format!(
+                        "ALREADY SEARCHED: \u{201c}{query}\u{201d} was searched earlier in this \
+                         call and neither Knowledge Base has changed since, so repeating it \
+                         returns exactly what it returned then. Use that result. If it found \
+                         nothing, the Knowledge Bases hold nothing under that wording — say so, \
+                         or search DIFFERENT wording, but do not repeat this query."
+                    ));
+                }
+                // BOTH stores, exactly as the injected retrieval does. The
+                // platform reference (controls, methods, RustCOBOL extensions)
+                // lives ONLY in the System KB, and every prompt sends agents
+                // here for it; searching the project store alone made a
+                // platform-fact search structurally unanswerable, which is how
+                // a real question about a message box came back empty seven
+                // times over.
+                let system_store = cobolt_agents::chunked_knowledge::ide_chunked_path();
+                let project_store = cobolt_agents::chunked_knowledge::project_chunked_path(&dir);
+                // The System KB is published and indexed at workflow start and
+                // is never written mid-run; the project's own documents can be
+                // written by an earlier task in this very workflow, so its
+                // store is brought up to date per call (incremental — only a
+                // changed document is re-embedded).
+                let _ = cobolt_agents::chunked_knowledge::sync_tree(&dir, &project_store);
+                let mut hits: Vec<(&str, cobolt_agents::chunked_knowledge::ChunkHit)> =
+                    match cobolt_agents::chunked_knowledge::search(&system_store, &query, limit) {
+                        Ok(found) => found
+                            .into_iter()
+                            .map(|hit| (SYSTEM_KB_SOURCE, hit))
+                            .collect(),
+                        Err(error) => {
+                            record("knowledge.search", &args, false, "system search failed".into());
+                            return Err(format!(
+                                "System Knowledge Base could not be searched: {error}"
+                            ));
+                        }
+                    };
+                match cobolt_agents::chunked_knowledge::search(&project_store, &query, limit) {
+                    Ok(found) => {
+                        hits.extend(found.into_iter().map(|hit| (PROJECT_KB_SOURCE, hit)))
                     }
                     Err(error) => {
-                        record("knowledge.search", &args, false, "search failed".into());
-                        Err(error)
+                        record("knowledge.search", &args, false, "project search failed".into());
+                        return Err(format!(
+                            "Project Knowledge Base could not be searched: {error}"
+                        ));
                     }
                 }
+                hits.sort_by(|left, right| right.1.score.total_cmp(&left.1.score));
+                hits.truncate(limit);
+                let system = hits
+                    .iter()
+                    .filter(|(source, _)| *source == SYSTEM_KB_SOURCE)
+                    .count();
+                record(
+                    "knowledge.search",
+                    &args,
+                    true,
+                    format!(
+                        "retrieved {} record(s): {system} system, {} project",
+                        hits.len(),
+                        hits.len() - system
+                    ),
+                );
+                if hits.is_empty() {
+                    // An empty string is a successful call that said nothing —
+                    // indistinguishable from a fluke, so the model retries it.
+                    // A miss has to be stated to be acted on.
+                    return Ok(format!(
+                        "NO MATCH: neither the System Knowledge Base nor this project's \
+                         Knowledge Base holds a record for \u{201c}{query}\u{201d}. Treat that as \
+                         evidence that the platform documents nothing under that name — report \
+                         the gap to the developer, or try DIFFERENT wording ONCE; repeating this \
+                         query returns this same answer."
+                    ));
+                }
+                Ok(format_knowledge_excerpts(&hits))
             });
             tools.knowledge_search = Some(f);
         }
@@ -4522,6 +4586,70 @@ mod tests {
         assert!(slice.len() <= CLARITY_CONVERSATION_BUDGET + '…'.len_utf8());
         assert!(slice.starts_with('…'), "{slice}");
         assert!(slice.ends_with("fim"), "{slice}");
+    }
+
+    /// Observed live (2026-08-23): Grace was asked for a message box, searched
+    /// `message box` seven times, and died on "tool budget exhausted" without
+    /// ever producing a plan. Two defects compounded — the tool searched the
+    /// PROJECT store only, so the platform reference every prompt sends agents
+    /// here for was unreachable; and a miss came back as the empty string,
+    /// which reads as a fluke worth retrying.
+    #[test]
+    fn knowledge_search_covers_both_stores_and_answers_a_repeat() {
+        let proj = std::env::temp_dir().join(format!("prc-kbsearch-{}", std::process::id()));
+        std::fs::create_dir_all(&proj).unwrap();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = crate::agents_db::AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        db.save_all().unwrap();
+
+        let invoker = DbAgentInvoker {
+            project_dir: proj.clone(),
+            llm: llm.clone(),
+            tokens: Arc::new(Mutex::new((0, 0))),
+            stats: Arc::new(Mutex::new(UsageAccum::default())),
+            evidence: Arc::new(Mutex::new(Vec::new())),
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            request: String::new(),
+            suppress_native_tools: false,
+        };
+        let search = invoker
+            .native_tools(crate::agents_db::GRACE)
+            .knowledge_search
+            .expect("Grace declares knowledge.search");
+
+        // A miss NEVER comes back empty: an empty result is what the model
+        // retried seven times over.
+        let args = serde_json::json!({ "query": "message box" });
+        let first = search(args.clone()).expect("search succeeds");
+        assert!(
+            !first.trim().is_empty(),
+            "a search must always say something, even on a miss"
+        );
+
+        // The same query is answered, not re-run — the stores cannot have
+        // moved between two calls of one workflow.
+        let second = search(args).expect("a repeat still succeeds");
+        assert!(
+            second.contains("ALREADY SEARCHED"),
+            "a repeated query must be short-circuited, got: {second}"
+        );
+
+        // The System KB is the ONLY store holding platform reference material,
+        // so a platform question must reach it. Asserted only where that store
+        // is actually installed — a machine that has never run the IDE has no
+        // `~/PowerRustCOBOL/data/chunked.data` to search.
+        if cobolt_agents::chunked_knowledge::ide_chunked_path().exists() {
+            let platform = search(serde_json::json!({
+                "query": "open a dialog window from an event handler"
+            }))
+            .expect("search succeeds");
+            assert!(
+                platform.contains(SYSTEM_KB_SOURCE),
+                "a platform question must retrieve System KB records, got: {platform}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&proj);
     }
 
     #[test]

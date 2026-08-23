@@ -877,15 +877,22 @@ coordination structure before execution and requests one corrected plan when a
 documentation workflow assigns writing to another specialist or omits a
 required source dependency.
 
-Before every Grace request, including a read-only question, the IDE synchronizes
-textual files added to the project Knowledge Base by either Grace or the
-developer and searches the project-local index. Relevant excerpts take
-precedence over general model training for project-specific answers, and Grace
-cites their project-relative paths. When the Knowledge Base has no relevant
-evidence, Grace says so, labels any general guidance, and asks for missing
-project facts rather than inventing them. Every specialist receives governed,
-read-only `knowledge.search` access so approved plans, requirements, task lists,
-and prior project decisions can be retrieved in later work.
+Two Knowledge Bases are searched, never one. The **System Knowledge Base** is the
+platform's own reference — controls with their properties, events and methods,
+the RustCOBOL extensions, form themes, the layout model, the project model — and
+it lives outside every project, so it is never copied into yours. The **project
+Knowledge Base** is your own material: the documents you and Grace write under
+the project's `Knowledge Base/` folder. Before every Grace request, including a
+read-only question, the IDE synchronizes both indexes and searches both;
+excerpts arrive labelled with the store they came from, and Grace cites a
+project-relative path only for your own documents.
+
+Relevant excerpts take precedence over general model training, and when neither
+Knowledge Base holds relevant evidence Grace says so, labels any general
+guidance, and asks for missing project facts rather than inventing them. Every
+specialist receives governed, read-only `knowledge.search` access over the same
+two stores, so a platform fact and a prior project decision are both retrievable
+in later work.
 
 Indexed-file work uses a mandatory two-specialist handoff coordinated by Grace.
 Documentation Agent first obtains a missing file name, derives the file purpose
