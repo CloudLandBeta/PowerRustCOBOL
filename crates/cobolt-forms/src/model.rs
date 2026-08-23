@@ -6188,6 +6188,13 @@ impl Form {
                 // alpha 0 and lost its face (operator, 2026-08-23: a Knob in a
                 // splitter "became a white rectangle").
                 p.set_prop("HideBackground", true);
+                // What the pane does with its contents when the division moves.
+                // Translate is what the panes shipped with, so a form saved
+                // before the property existed behaves as it did.
+                p.set_prop(
+                    crate::splitter::PANE_RESIZE_PROP,
+                    crate::splitter::PaneResize::ALL[0],
+                );
                 self.controls.push(p);
             }
         }

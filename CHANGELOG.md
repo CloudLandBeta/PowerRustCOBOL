@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.171] — 2026-08-23
+
+### New — each Splitter pane decides what its contents do when the line moves
+
+A new property on each pane (not on the splitter), **Pane Left/Right Resize
+Behavior**, so the two halves can behave differently — a fixed control strip
+down one side and a scaling canvas on the other:
+
+| Behaviour | The controls inside that pane |
+|---|---|
+| **Translate with divider** (default) | Keep their distance from the division LINE, in both panes: drag it 40pt right and both halves' contents move 40pt right. A control can be carried past its pane's far edge, where it is clipped. |
+| **Scale within the pane** | Keep their position as a fraction of the pane, so growing it spreads them and shrinking packs them. Sizes are never scaled — only positions — so nothing is distorted and nothing leaves. |
+| **Anchor to the outer edge** | Keep their distance from their pane's leading edge. Pane 1's never moves, so its contents stay put; pane 2's IS the division line, so its contents travel with it. How a plain container behaves. |
+
+Dragging the division **in the designer really moves the controls**: their X/Y
+are rewritten and saved, and the whole gesture — the line and everything it
+carried — is a single undo step. At run time the same movement is derived from
+`SplitPosition` alone and nothing is written back to the model, so the contents
+and the line can never disagree.
+
+`Cmd::AgentBatch` is now `Cmd::Batch`: the same "applied and reverted as one
+step" machinery, no longer named after its first caller.
+
+
 ## [PowerRustCOBOL 1.61.170] — 2026-08-23
 
 ### Fixed — the 3D border styles ignored the corner radius

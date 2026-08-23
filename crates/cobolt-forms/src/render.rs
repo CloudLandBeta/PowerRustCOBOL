@@ -1336,8 +1336,54 @@ fn live_control(controls: &[Control], idx: usize, state: &dyn FormState) -> Cont
     let mut live = state.live(base);
     if let Some(rect) = splitter_pane_rect(controls, base, state) {
         live.rect = rect;
+        return live;
+    }
+    // A control INSIDE a pane travels with it, the way that pane's
+    // `ResizeBehavior` says. The pane's own rect is derived from
+    // `SplitPosition`, so the child is reflowed from where the pane was
+    // DESIGNED to where it is now — one calculation from one number, rather
+    // than geometry written back per pointer move.
+    if let Some(rect) = splitter_child_rect(controls, base, live.rect, state) {
+        live.rect = rect;
     }
     live
+}
+
+/// Where a control that sits INSIDE a Splitter pane lands this frame, or
+/// `None` when it is not in one.
+fn splitter_child_rect(
+    controls: &[Control],
+    ctrl: &Control,
+    designed: crate::model::Rect,
+    state: &dyn FormState,
+) -> Option<crate::model::Rect> {
+    let pane = controls
+        .iter()
+        .find(|c| Some(c.id.as_str()) == ctrl.parent.as_deref())?;
+    let n = crate::splitter::pane_index(pane)?;
+    let owner = controls
+        .iter()
+        .find(|c| Some(c.id.as_str()) == pane.parent.as_deref())
+        .filter(|c| c.control_type == ControlType::Splitter)?;
+    let live_owner = state.live(owner);
+    let before = crate::splitter::geometry(owner, owner.rect);
+    let after = crate::splitter::geometry(&live_owner, live_owner.rect);
+    let (before, after) = if n == 1 {
+        (before.pane1, after.pane1)
+    } else {
+        (before.pane2, after.pane2)
+    };
+    if before == after {
+        return None;
+    }
+    Some(crate::splitter::reflow_child(
+        crate::splitter::PaneResize::of(pane),
+        n,
+        before,
+        after,
+        designed,
+        crate::splitter::is_horizontal(owner),
+    ))
 }
 
 /// Where a Splitter pane sits this frame, or `None` when the control is not a
@@ -9785,6 +9831,48 @@ mod tests {
         out
     }
 
+
+    /// The running form moves a pane's contents too — from ONE number. The
+    /// designed positions are untouched; the live rect is derived from the
+    /// designed division to the live one, so a drag at run time cannot leave
+    /// the contents and the line disagreeing.
+    #[test]
+    fn a_running_form_carries_pane_contents_with_the_division() {
+        let mut form = crate::model::Form::new("F", "F", 400, 300);
+        let mut sp = Control::new("SPLIT-1", ControlType::Splitter, 0, 0);
+        sp.rect = crate::model::Rect::new(0, 0, 320, 220);
+        form.controls.push(sp);
+        form.sync_splitter_panes();
+        let mut btn = Control::new("BTN-1", ControlType::Button, 40, 80);
+        btn.rect = crate::model::Rect::new(40, 80, 60, 24);
+        btn.parent = Some(crate::splitter::pane_id("SPLIT-1", 1));
+        form.controls.push(btn);
+        let idx = form.controls.len() - 1;
+
+        let designed = form.controls[idx].rect.x;
+        let mut overrides: Map<String, Map<String, String>> = Map::new();
+        overrides
+            .entry("SPLIT-1".into())
+            .or_default()
+            .insert("SplitPosition".into(), "75".into());
+        let cell = RefCell::new(overrides);
+        let st = MapState(&cell);
+
+        let live = live_control(&form.controls, idx, &st).rect.x;
+        assert!(
+            live > designed,
+            "the division moved right, so pane 1's button did too: {designed} → {live}"
+        );
+        assert_eq!(
+            form.controls[idx].rect.x, designed,
+            "…and the DESIGNED position is untouched — the run form derives, it \
+             does not write back"
+        );
+        println!(
+            "\n  Splitter — SplitPosition 50→75 % at run time: a pane-1 button \
+             drawn at {live} instead of {designed}, with nothing written to the model\n"
+        );
+    }
 
     /// **A control dropped into a Splitter pane must look exactly as it does
     /// anywhere else.**

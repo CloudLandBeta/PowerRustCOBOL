@@ -1149,6 +1149,9 @@ pub struct Tr {
     /// Where the map OPENS: centre in decimal degrees, and the zoom it
     /// starts at. COBOL and a drag both write these back, so the pane always
     /// shows where the map is now.
+    /// What a Splitter pane does with its CONTENTS when the division line
+    /// moves — set per pane, so the two halves can behave differently.
+    pub lbl_pane_resize: &'static str,
     pub lbl_map_center_lat: &'static str,
     pub lbl_map_center_lng: &'static str,
     pub lbl_map_zoom: &'static str,
@@ -2357,6 +2360,7 @@ const EN: Tr = Tr {
     lbl_gauge_normal_color:   "Normal zone:",
     lbl_gauge_warning_color:  "Warning zone:",
     lbl_gauge_critical_color: "Critical zone:",
+    lbl_pane_resize:       "Pane Left/Right Resize Behavior:",
     lbl_map_center_lat:    "Start latitude:",
     lbl_map_center_lng:    "Start longitude:",
     lbl_map_zoom:          "Start zoom:",
@@ -3511,6 +3515,7 @@ const ES: Tr = Tr {
     lbl_gauge_normal_color:   "Zona normal:",
     lbl_gauge_warning_color:  "Zona de aviso:",
     lbl_gauge_critical_color: "Zona crítica:",
+    lbl_pane_resize:       "Comportamiento de redimensionado del panel izquierdo/derecho:",
     lbl_map_center_lat:    "Latitud inicial:",
     lbl_map_center_lng:    "Longitud inicial:",
     lbl_map_zoom:          "Zoom inicial:",
@@ -4665,6 +4670,7 @@ const PT: Tr = Tr {
     lbl_gauge_normal_color:   "Zona normal:",
     lbl_gauge_warning_color:  "Zona de aviso:",
     lbl_gauge_critical_color: "Zona crítica:",
+    lbl_pane_resize:       "Comportamento de redimensionamento do painel esquerdo/direito:",
     lbl_map_center_lat:    "Latitude inicial:",
     lbl_map_center_lng:    "Longitude inicial:",
     lbl_map_zoom:          "Zoom inicial:",
@@ -5818,6 +5824,7 @@ const JA: Tr = Tr {
     lbl_gauge_normal_color:   "通常ゾーン:",
     lbl_gauge_warning_color:  "警告ゾーン:",
     lbl_gauge_critical_color: "危険ゾーン:",
+    lbl_pane_resize:       "左右ペインのリサイズ動作:",
     lbl_map_center_lat:    "初期の緯度:",
     lbl_map_center_lng:    "初期の経度:",
     lbl_map_zoom:          "初期のズーム:",
@@ -6978,6 +6985,7 @@ const ZH: Tr = Tr {
     lbl_gauge_normal_color: "正常区间：",
     lbl_gauge_warning_color: "警告区间：",
     lbl_gauge_critical_color: "危险区间：",
+    lbl_pane_resize: "左/右窗格的缩放行为：",
     lbl_map_center_lat: "初始纬度：",
     lbl_map_center_lng: "初始经度：",
     lbl_map_zoom: "初始缩放级别：",
@@ -8133,6 +8141,7 @@ const FR: Tr = Tr {
     lbl_gauge_normal_color:   "Zone normale :",
     lbl_gauge_warning_color:  "Zone d'alerte :",
     lbl_gauge_critical_color: "Zone critique :",
+    lbl_pane_resize:       "Comportement de redimensionnement du volet gauche/droit :",
     lbl_map_center_lat:    "Latitude initiale :",
     lbl_map_center_lng:    "Longitude initiale :",
     lbl_map_zoom:          "Zoom initial :",
