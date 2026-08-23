@@ -1,6 +1,6 @@
 # PowerRustCOBOL — Changelog
 
-## [PowerRustCOBOL 1.61.167] — 2026-08-23
+## [PowerRustCOBOL 1.61.168] — 2026-08-23
 
 ### Fixed — a container clipped the box but not the text inside it
 
