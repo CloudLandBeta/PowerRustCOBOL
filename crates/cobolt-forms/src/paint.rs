@@ -5207,7 +5207,20 @@ fn draw_control_body(
     //
     // No pointer here, so nothing is hot-tracked: a design surface is for
     // laying a tree out, not for driving it.
-    if matches!(ctrl.control_type, CT::TreeView) {
+    //
+    // `_DeferTree` is how the RUNNING form opts out. It paints the tree itself,
+    // scrolled and with this frame's hover and ticks — state a face painter
+    // cannot see — so without this it got two trees: this one pinned at scroll
+    // 0 and its own at the scrolled offset. They coincided exactly until the
+    // tree learned to scroll in 1.61.160, and then every scroll smeared a ghost
+    // copy across the live one (operator, 2026-08-22). Same idiom as
+    // `_DeferCaption` and `_DeferTabs`.
+    if matches!(ctrl.control_type, CT::TreeView)
+        && !ctrl
+            .get_prop("_DeferTree")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+    {
         let rows = crate::treeview::layout(ctrl, rect);
         let selected = ctrl
             .get_prop("SelectedNode")

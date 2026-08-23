@@ -1,5 +1,64 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.163] — 2026-08-22
+
+Four defects from the operator, all reported against 1.61.162.
+
+### Fixed — scrolling a TreeView smeared a ghost copy of it
+
+**A regression from 1.61.160, and mine.** `draw_control` paints the tree as
+part of the control's FACE; the running form then paints it *again*, because it
+alone knows the scroll offset, this frame's hot-tracked row and this frame's
+ticks. Both drew at scroll 0 and landed exactly on top of each other, so the
+duplicate was invisible — until the tree learned to scroll, and every scroll
+pulled the two apart into the overlapping mess the operator screenshotted.
+
+`_DeferTree` now tells the face painter to skip the tree, the same idiom
+`_DeferCaption` and `_DeferTabs` already use. The regression test asserts the
+deferred face draws **no** nodes rather than comparing the two pictures — the
+bug survived precisely because the two pictures agreed.
+
+### Fixed — the Nodes box grew until it owned the inspector
+
+`desired_rows` is a floor, not a ceiling, so a real tree (the operator's has
+60-odd nodes) stretched the field until every property below it was pushed off
+the bottom. It is capped at **twelve lines** and scrolls past that. The height
+is twelve rows of the font in use, **not** a share of the space available —
+sizing a child from available space is the feedback loop that inflates an egui
+pane a little more every frame.
+
+### Fixed — an icon row's buttons were adrift from its name
+
+The preview, **…** and **✕** sat on their own line *above* the labelled name
+field, putting three unlabelled controls between one property's label and the
+next. All four are in the one labelled cell now, in the shape a Button's image
+row already has: browse first, then the field. Picking or clearing also updates
+the row's text buffer, so the field shows the choice at once instead of holding
+the old name until focus moved.
+
+### Fixed — the Splitter did not split anything
+
+It painted a slab and took **no interaction at all**: the grip could not be
+grabbed and nothing resized. Operator: "Splitter does not work at all."
+
+Settled as **a bar between two controls, not a container** — the seeded 200×8
+default is a rule, not a pane. Dragging it moves it along its axis and hands
+the room one pane gives up to the other.
+
+- Its panes are found by geometry: on each side, the **nearest control whose
+  span across the bar overlaps the bar's own**. The overlap test is what makes
+  this a rule rather than a guess — a splitter down the left of a form must not
+  grab something stacked above the *right* half just because that is the
+  closest thing upward. A splitter is never another splitter's pane.
+- `MinimumSize` (default 25) clamps the **delta**, not the result, so the bar
+  and its panes stay on one number and nothing drifts apart over a long drag.
+- `SplitPosition` is kept in step, so a handler can read where the operator put
+  the bar.
+- `render_interactive` now receives its own design rect and the sibling list.
+  It was handed one control re-based to `(0,0,w,h)` and nothing else, so the
+  one control whose job is to move other controls could see neither itself nor
+  them.
+
 ## [PowerRustCOBOL 1.61.162] — 2026-08-22
 
 ### Fixed — a Splitter was one colour on the canvas and another running

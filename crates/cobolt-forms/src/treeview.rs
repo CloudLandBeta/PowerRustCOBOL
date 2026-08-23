@@ -1022,6 +1022,63 @@ mod tests {
         );
     }
 
+    /// `_DeferTree` stops the FACE painter drawing a tree, so the running form
+    /// — which paints its own, scrolled and hot-tracked — gets exactly one.
+    ///
+    /// Both drew until 1.61.160, harmlessly, because both sat at scroll 0 and
+    /// landed on top of each other. The moment one of them could scroll, every
+    /// scroll smeared a ghost copy of the tree across the live one (operator,
+    /// 2026-08-22). The bug was invisible for as long as the two agreed, which
+    /// is why this asserts the FACE draws no nodes rather than asserting the
+    /// pixels match.
+    #[test]
+    fn the_face_painter_defers_the_tree_when_asked() {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+
+        let draw = |ctrl: &Control| -> usize {
+            let mut full = ctx.clone().run_ui(input.clone(), |ui| {
+                crate::paint::draw_control(
+                    ui.painter(),
+                    Pos2::ZERO,
+                    ctrl,
+                    false,
+                    true,
+                    1.0,
+                    1.0,
+                    None,
+                );
+            });
+            full.textures_delta.clear();
+            fn count(s: &egui::Shape) -> usize {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().map(count).sum(),
+                    egui::Shape::Text(_) => 1,
+                    _ => 0,
+                }
+            }
+            full.shapes.iter().map(|cs| count(&cs.shape)).sum()
+        };
+
+        let plain = tree("Node 1\n  Child 1\nNode 2");
+        let mut deferred = plain.clone();
+        deferred.set_prop("_DeferTree", PropValue::Bool(true));
+
+        let with_tree = draw(&plain);
+        let face_only = draw(&deferred);
+        assert!(
+            with_tree > face_only,
+            "the face painter must draw the nodes when it is not deferred: \
+             {with_tree} vs {face_only}"
+        );
+        assert_eq!(
+            face_only, 0,
+            "and none of them when it is — every node it draws is a second, \
+             unscrolled copy under the running form's own"
+        );
+    }
+
     /// Everything one `paint` pass put on the screen, flattened — the same
     /// shape-walk the CheckBox's own surface tests use.
     #[derive(Default)]
