@@ -9518,6 +9518,40 @@ mod tests {
 
     /// Every filled rectangle painted for `controls`, with its corner radius â
     /// for questions about a highlight's shape.
+    fn painted_shapes(controls: &[Control]) -> Vec<egui::Shape> {
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(700.0, 560.0),
+                )),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(640.0, 480.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(640.0, 480.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &input);
+                });
+            },
+        );
+        let out: Vec<egui::Shape> = full.shapes.iter().map(|cs| cs.shape.clone()).collect();
+        full.textures_delta.clear();
+        out
+    }
+
+    /// Every filled rectangle painted for `controls`, with its corner radius —
+    /// for questions about a highlight's shape.
     fn painted_bands(controls: &[Control]) -> Vec<(Rect, egui::CornerRadius, Color32)> {
         fn collect(shape: &egui::Shape, out: &mut Vec<(Rect, egui::CornerRadius, Color32)>) {
             match shape {
@@ -9560,6 +9594,90 @@ mod tests {
         out
     }
 
+
+    /// **A control dropped into a Splitter pane must look exactly as it does
+    /// anywhere else.**
+    ///
+    /// The pane was seeded `Transparency = 100` to mean "no background of its
+    /// own" — but Transparency dims the whole SUBTREE (that is what
+    /// `ancestor_opacity` is for), so every control placed in a pane was
+    /// painted at alpha 0 and lost its face: the operator's Knob came out a
+    /// white rectangle (2026-08-23). `HideBackground` is the property that
+    /// means "no face, children unaffected", and it was already set.
+    #[test]
+    fn a_control_in_a_splitter_pane_keeps_its_colours() {
+        let mut form = crate::model::Form::new("F", "F", 400, 300);
+        let mut sp = Control::new("SPLIT-1", ControlType::Splitter, 0, 0);
+        sp.rect = crate::model::Rect::new(0, 0, 320, 220);
+        form.controls.push(sp);
+        form.sync_splitter_panes();
+        let mut knob = Control::new("Knob-4", ControlType::Knob, 20, 40);
+        knob.rect = crate::model::Rect::new(20, 40, 80, 96);
+        knob.parent = Some(crate::splitter::pane_id("SPLIT-1", 1));
+        form.controls.push(knob);
+        let knob_idx = form.controls.len() - 1;
+
+        assert_eq!(
+            containers::ancestor_opacity(&form.controls, knob_idx),
+            1.0,
+            "a pane is a layout region, not a tint: it must not fade what is \
+             placed in it"
+        );
+
+        // …and the same control OUTSIDE a splitter paints the same thing. The
+        // opacity assertion alone would pass on a pane that hid its children
+        // some other way, so this checks the pixels.
+        // Shapes CONTAINED in the knob's own box, not merely overlapping it:
+        // the splitter's face runs under the whole pane and would be counted on
+        // one side of the comparison and not the other. A dial is circles and
+        // paths, so this counts every shape kind — a rect-only census reports
+        // zero for a Knob whether it painted or not.
+        fn visible_in(shape: &egui::Shape, box_: Rect, n: &mut usize) {
+            let lit = match shape {
+                egui::Shape::Vec(v) => {
+                    v.iter().for_each(|s| visible_in(s, box_, n));
+                    return;
+                }
+                egui::Shape::Rect(r) => r.fill.a() > 0 || r.stroke.color.a() > 0,
+                egui::Shape::Circle(c) => c.fill.a() > 0 || c.stroke.color.a() > 0,
+                // A path's stroke carries a `ColorMode`, not a plain colour, so
+                // its width is what says "this line was drawn".
+                egui::Shape::Path(p) => p.fill.a() > 0 || p.stroke.width > 0.0,
+                egui::Shape::LineSegment { stroke, .. } => stroke.color.a() > 0,
+                _ => false,
+            };
+            if lit && box_.contains_rect(shape.visual_bounding_rect()) {
+                *n += 1;
+            }
+        }
+        let solid = |controls: &[Control], rect: crate::model::Rect| -> usize {
+            let box_ = Rect::from_min_size(
+                pos2(rect.x as f32, rect.y as f32),
+                Vec2::new(rect.w as f32, rect.h as f32),
+            );
+            let mut n = 0;
+            for shape in painted_shapes(controls) {
+                visible_in(&shape, box_, &mut n);
+            }
+            n
+        };
+        let mut loose = crate::model::Form::new("F", "F", 400, 300);
+        let mut lone = Control::new("Knob-4", ControlType::Knob, 20, 40);
+        lone.rect = crate::model::Rect::new(20, 40, 80, 96);
+        loose.controls.push(lone);
+
+        let inside = solid(&form.controls, crate::model::Rect::new(20, 40, 80, 96));
+        let outside = solid(&loose.controls, crate::model::Rect::new(20, 40, 80, 96));
+        assert!(
+            inside >= outside && outside > 0,
+            "the knob in a pane must paint at least what the loose one does: \
+             {inside} shapes inside vs {outside} outside"
+        );
+        println!(
+            "\n  Splitter — a Knob in pane 1 paints {inside} visible shapes; \
+             the same Knob on the bare form paints {outside}\n"
+        );
+    }
     /// The highlight spans the list's whole width and is square â except where
     /// it meets the frame's own rounded corner, which must cut it exactly as the
     /// border is cut. egui clips to an axis-aligned rect, so a highlight left to
