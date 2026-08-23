@@ -17127,6 +17127,55 @@ mod sidebar_seam_tests {
         );
     }
 
+    /// The point of owning two Panels: you can drop controls INTO each half.
+    ///
+    /// Asserted through the real drop resolver, because "a pane is a Panel so
+    /// of course it accepts a drop" rests on two things this proves — the pane
+    /// is reached before the splitter behind it, and the splitter itself is
+    /// NOT a drop target, so nothing can be parented to the gap between the
+    /// panes where no pane would ever hold it.
+    #[test]
+    fn each_pane_is_a_drop_target_and_the_splitter_is_not() {
+        use cobolt_forms::containers::{resolve_drop_target, ActiveTabs, DropTarget};
+        let mut dp = splitter_form();
+        // The real path: the control is in the list, and `reparent_to_drop`
+        // resolves the target from its own centre.
+        let mut probe = Control::new("BTN-1", ControlType::Button, 0, 0);
+        probe.rect = cobolt_forms::model::Rect::new(0, 0, 20, 20);
+        dp.form.controls.push(probe);
+        let dragged = dp.form.controls.len() - 1;
+        let active = ActiveTabs::new();
+
+        let mut into = |x: i32, y: i32| {
+            dp.form.controls[dragged].rect.x = x - 10;
+            dp.form.controls[dragged].rect.y = y - 10;
+            resolve_drop_target(&dp.form.controls, x, y, dragged, &active)
+        };
+        assert_eq!(
+            into(100, 150),
+            DropTarget::Into {
+                container: "Splitter-1-Pane1".into(),
+                tab: None
+            },
+            "the left half takes the drop"
+        );
+        assert_eq!(
+            into(300, 150),
+            DropTarget::Into {
+                container: "Splitter-1-Pane2".into(),
+                tab: None
+            },
+            "and so does the right half"
+        );
+        // On the division line itself: not a pane, and the splitter is not a
+        // container, so it falls out to the form.
+        assert_eq!(
+            into(200, 150),
+            DropTarget::Form,
+            "the division line parents nothing to the splitter"
+        );
+    }
+
     /// Dragging the division line writes `SplitPosition` live and undoes in ONE
     /// step — the gesture the operator reported as missing twice over.
     #[test]
