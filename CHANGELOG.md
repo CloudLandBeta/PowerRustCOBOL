@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.172] — 2026-08-23
+
+### New — a zoned Gauge keeps every threshold's colour along its own stretch
+
+A gauge reading 88 against marks at 70 and 90 came out **entirely red**: zone
+colouring asked "which zone is the reading in" and painted the whole fill that
+one colour, so crossing a mark repainted everything behind it and hid how much
+of the range was actually normal.
+
+The fill is now one run per zone it passes through — green up to the warning
+mark, amber from there to the critical one, red beyond. That 88 is green to 70
+and amber from 70 to 88, with **no red at all**, because the reading never
+reached it. All three styles: the `Radial` arc, the `Donut` ring and the
+`Linear` bar, which keeps its rounded end on the last run so no cap appears
+mid-bar at a threshold.
+
+The **needle** — and a `Linear`'s thumb — still takes the colour of the zone
+the reading is *in*, so which zone you are in is still legible at a glance.
+`gauge_zone_color` is unchanged and still answers that question; the new
+`gauge_zone_runs` answers the other one.
+
+Gauges with no thresholds are untouched: no zones, one run, the colour the
+meter always had.
+
+
 ## [PowerRustCOBOL 1.61.171] — 2026-08-23
 
 ### New — each Splitter pane decides what its contents do when the line moves

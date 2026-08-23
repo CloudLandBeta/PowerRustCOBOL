@@ -3927,7 +3927,7 @@ fn control_purpose(name: &str) -> &'static str {
         "ScatterChart" => "Scatter/bubble chart.",
         "DonutChart" => "Donut chart.",
         "Knob" => "Rotary dial that sets a numeric Value within Minimum..Maximum by dragging.",
-        "Gauge" => "Read-only KPI display (Radial | Linear | Donut) — never changed by user interaction.",
+        "Gauge" => "Read-only KPI display (Radial | Linear | Donut) — never changed by user interaction. With BOTH `WarningThreshold` and `CriticalThreshold` set, the fill KEEPS EACH ZONE'S COLOUR ALONG ITS OWN STRETCH (1.61.172): green up to the warning mark, amber from there to the critical one, red beyond — so a gauge reading 88 against marks at 70/90 is green to 70 and amber from 70 to 88, with no red at all. Before that the whole fill took the current zone's colour, which read as 'all red' the moment the needle crossed a mark. The NEEDLE (and a Linear's thumb) still takes the colour of the zone the reading is IN, so the current state is still legible at a glance. Thresholds are FRACTIONS of the Minimum..Maximum span (0.0-1.0), not readings on it.",
         "Switch" => "Boolean on/off visual toggle.",
         "FileDropZone" => "Non-visual: accepts files via drag-and-drop or a native file-picker click.",
         "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix). Wheel zoom is continuous: one notch is one level, released a slice per frame, and while it travels the map is drawn BETWEEN levels by scaling the tiles it already has, with the point under the pointer held fixed and markers/routes/regions scaling along with the basemap.",

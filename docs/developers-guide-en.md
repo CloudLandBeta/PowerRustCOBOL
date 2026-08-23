@@ -1761,10 +1761,14 @@ a `Linear` beside its bar, and neither has a second place to put it.
 
 Set **both** `WarningThreshold` and `CriticalThreshold` — fractions of the
 `Minimum..Maximum` span, between `0.0` and `1.0` — to turn on automatic zone
-colouring: the fill is green below the warning mark, amber from it, and red
-from the critical one. While zones are on they own the fill colour, so
-`Color` is ignored; leave either threshold empty to keep zones off and
-`Color` in charge.
+colouring. The fill then **keeps each zone's colour along its own stretch**:
+green up to the warning mark, amber from there to the critical one, and red
+beyond it. A gauge reading 88 against marks at 70 and 90 is green to 70 and
+amber from 70 to 88 — with no red at all, because the reading never reached it.
+The needle (and a `Linear`'s thumb) takes the colour of the zone the reading is
+*in*, so it still says at a glance which zone you are in. While zones are on
+they own the fill colour, so `Color` is ignored; leave either threshold empty
+to keep zones off and `Color` in charge.
 
 **Those three colours are yours** — **Normal zone**, **Warning zone** and
 **Critical zone** in the inspector (`NormalColor`, `WarningColor`,
