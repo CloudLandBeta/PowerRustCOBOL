@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.167] — 2026-08-23
+
+### Fixed — a container clipped the box but not the text inside it
+
+Drag a Splitter's division over a TextBox and the box disappeared while the
+typed text carried on across the other pane. The frame is painted through a
+painter clipped to the container; the text is a live egui widget, and the
+editor set its clip to its OWN rect, throwing the container's away.
+
+**This was never a Splitter fault** — the operator asked whether plain Panels
+did it too, and they do. A GroupBox, a Panel, a tab page and a Splitter pane
+were all affected equally; the splitter simply made it easy to see.
+
+An audit of every `ui.add` / `ui.put` / `ui.painter()` in the run renderer —
+rather than a guess about which controls were affected — found four escapes,
+all now clipped to the container:
+
+- **TextBox**, single-line and multiline;
+- **ListBox**, whose rows are widgets and whose row painter was clipped to the
+  control instead of the container;
+- **FileDropZone**, both the widget itself and the `CommitSummary` line drawn
+  over it;
+- **DataGrid**, the per-column filter input (a real `TextEdit`) — fixed by
+  inspection; the other grid text was already painter-drawn and correct.
+
+Label captions, ComboBox faces and DataGrid cells were checked and were
+already right — the Label arm sets the container clip deliberately. The
+regression test names every control it covers and asserts each one actually
+paints before asserting it stays inside, so a control that silently stops
+drawing cannot make the test pass.
+
+### Fixed — the inspector's Text row grew until it owned the pane
+
+A TextBox whose `WordWrap` is on edits its `Text` across lines, and that
+editor's height came from `desired_rows` — which is a floor, not a ceiling. A
+paragraph of Lorem ipsum stretched the row until every property under it was
+pushed off the bottom of the inspector.
+
+It is now the same **five-line window** the Items editor has used since
+1.61.x: the height comes from the row count and the font, never from the
+content, and the rest scrolls. Measured by what actually breaks — the row
+BELOW the editor sat at y=1541 with three lines and y=5996 with three hundred;
+it now stays put.
+
+
 ## [PowerRustCOBOL 1.61.166] — 2026-08-23
 
 Two more from the operator, both against 1.61.164.
