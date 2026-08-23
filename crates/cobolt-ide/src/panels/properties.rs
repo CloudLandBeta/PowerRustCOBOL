@@ -6639,6 +6639,23 @@ impl PropertiesPanel {
             // ── Panel / GroupBox ──────────────────────────────────────────────
             ControlType::Panel | ControlType::GroupBox if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
+                // A Splitter's pane is a Panel in every other way, and this is
+                // the one thing only it has: what happens to the controls
+                // inside it when the division line moves. Set per pane, so the
+                // two halves of one splitter can behave differently.
+                if ctrl.is_splitter_pane() {
+                    combo_row_inline_labeled(
+                        ui,
+                        id,
+                        cobolt_forms::splitter::PANE_RESIZE_PROP,
+                        tr.lbl_pane_resize,
+                        ctrl,
+                        action,
+                        &cobolt_forms::splitter::PaneResize::ALL,
+                        cobolt_forms::splitter::PaneResize::ALL[0],
+                    );
+                    ui.add_space(4.0);
+                }
                 // Auto-scroll overflowing children vs clip them (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
                 bool_row_inline(ui, id, "VScroll", "V-Scroll", ctrl, action);

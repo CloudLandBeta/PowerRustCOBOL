@@ -587,9 +587,11 @@ enum Cmd {
         old: Option<String>,
         new: String,
     },
-    /// A batch of commands applied and reverted as **one** undoable step — the unit
-    /// an approved agent change-set becomes (spec 025 R6).
-    AgentBatch {
+    /// A batch of commands applied and reverted as **one** undoable step: the
+    /// unit an approved agent change-set becomes (spec 025 R6), and the unit a
+    /// Splitter division drag becomes — the line and the contents it carried
+    /// are one gesture, so they are one undo.
+    Batch {
         cmds: Vec<Cmd>,
     },
     /// One form-level property change (Title, Width, Theme, gradients, …) —
@@ -677,7 +679,7 @@ pub enum HistoryDir {
 fn touches_procedures(cmd: &Cmd) -> bool {
     match cmd {
         Cmd::SetProcedure { .. } | Cmd::AddProcedure { .. } | Cmd::RemoveProcedure { .. } => true,
-        Cmd::AgentBatch { cmds } => cmds.iter().any(touches_procedures),
+        Cmd::Batch { cmds } => cmds.iter().any(touches_procedures),
         _ => false,
     }
 }
@@ -868,6 +870,9 @@ enum DragState {
         /// Where the division was when the press landed, so one undo entry
         /// covers the whole gesture.
         orig_percent: i32,
+        /// Where each pane's contents were when the press landed — the drag
+        /// moves them live, and this is what one undo puts back.
+        origins: Vec<(String, i32, i32)>,
     },
 }
 
@@ -2280,7 +2285,7 @@ impl DesignerPanel {
         }
         // The commands are already applied; record them as one step without
         // re-executing.
-        self.undo_stack.push(Cmd::AgentBatch { cmds: batch });
+        self.undo_stack.push(Cmd::Batch { cmds: batch });
         self.redo_stack.clear();
         self.dirty = true;
     }
@@ -2718,7 +2723,7 @@ impl DesignerPanel {
                 before.insert(c.id.clone(), (bx, by, c.parent.clone()));
             }
 
-            self.apply(Cmd::AgentBatch { cmds });
+            self.apply(Cmd::Batch { cmds });
 
             let anims = diff_moves(&before, &self.form);
             if !anims.is_empty() {
@@ -3134,7 +3139,7 @@ impl DesignerPanel {
             Cmd::SetProcedure { name, new, .. } => {
                 set_form_procedure(&mut self.form, name, Some(new.clone()));
             }
-            Cmd::AgentBatch { cmds } => {
+            Cmd::Batch { cmds } => {
                 for c in cmds {
                     self.execute(c);
                 }
@@ -3284,7 +3289,7 @@ impl DesignerPanel {
             Cmd::SetProcedure { name, old, .. } => {
                 set_form_procedure(&mut self.form, name, old.clone());
             }
-            Cmd::AgentBatch { cmds } => {
+            Cmd::Batch { cmds } => {
                 for c in cmds.iter().rev() {
                     self.reverse(c);
                 }
@@ -10263,17 +10268,88 @@ impl DesignerPanel {
         else {
             return;
         };
+        // Where the panes are BEFORE the write, so each pane's contents can be
+        // carried from there to where the division puts them.
+        let before: Vec<(String, u8, cobolt_forms::model::Rect)> = self.pane_rects(id);
         if let Some(c) = self.form.find_control_mut(id) {
             c.set_prop("SplitPosition", pct as i64);
         }
         self.form.sync_splitter_panes();
+        let after: Vec<(String, u8, cobolt_forms::model::Rect)> = self.pane_rects(id);
+        let horizontal = self
+            .form
+            .find_control(id)
+            .map(cobolt_forms::splitter::is_horizontal)
+            .unwrap_or(true);
+
+        for ((pane_id, n, from), (_, _, to)) in before.iter().zip(after.iter()) {
+            if from == to {
+                continue;
+            }
+            let behavior = self
+                .form
+                .find_control(pane_id)
+                .map(cobolt_forms::splitter::PaneResize::of)
+                .unwrap_or(cobolt_forms::splitter::PaneResize::Translate);
+            let kids: Vec<String> = self
+                .form
+                .controls
+                .iter()
+                .filter(|c| c.parent.as_deref() == Some(pane_id.as_str()))
+                .map(|c| c.id.clone())
+                .collect();
+            for kid in kids {
+                if let Some(c) = self.form.find_control_mut(&kid) {
+                    c.rect = cobolt_forms::splitter::reflow_child(
+                        behavior, *n, *from, *to, c.rect, horizontal,
+                    );
+                }
+            }
+        }
         self.dirty = true;
+    }
+
+    /// The two panes of `splitter_id` as they stand right now: id, which pane
+    /// it is, and its rect.
+    fn pane_rects(&self, splitter_id: &str) -> Vec<(String, u8, cobolt_forms::model::Rect)> {
+        [1_u8, 2]
+            .into_iter()
+            .filter_map(|n| {
+                let pid = cobolt_forms::splitter::pane_id(splitter_id, n);
+                let rect = self.form.find_control(&pid)?.rect;
+                Some((pid, n, rect))
+            })
+            .collect()
+    }
+
+    /// Every control inside either pane of `splitter_id`, with where it sits —
+    /// what a division drag captures so one undo puts the whole gesture back.
+    fn pane_child_origins(&self, splitter_id: &str) -> Vec<(String, i32, i32)> {
+        let panes: Vec<String> = [1_u8, 2]
+            .into_iter()
+            .map(|n| cobolt_forms::splitter::pane_id(splitter_id, n))
+            .collect();
+        self.form
+            .controls
+            .iter()
+            .filter(|c| {
+                c.parent
+                    .as_deref()
+                    .is_some_and(|p| panes.iter().any(|pane| pane == p))
+            })
+            .map(|c| (c.id.clone(), c.rect.x, c.rect.y))
+            .collect()
     }
 
     /// End a division drag: the percentage was written live, so this records
     /// ONE undo entry for the whole gesture rather than one per pointer move.
     fn finish_splitter_division_drag(&mut self) {
-        let DragState::MovingSplitterDivision { ref id, orig_percent } = self.drag.clone() else {
+        let DragState::MovingSplitterDivision {
+            ref id,
+            orig_percent,
+            ref origins,
+        } = self.drag.clone()
+        else {
             return;
         };
         let now = self
@@ -10281,13 +10357,34 @@ impl DesignerPanel {
             .find_control(id)
             .map(cobolt_forms::splitter::split_percent)
             .unwrap_or(orig_percent);
-        if now != orig_percent {
-            self.apply(Cmd::SetProperty {
-                id: id.clone(),
-                key: "SplitPosition".to_owned(),
-                old: Some(PropValue::Int(orig_percent as i64)),
-                new: PropValue::Int(now as i64),
-            });
+        if now == orig_percent {
+            self.dirty = true;
+            return;
+        }
+        // The division AND everything it carried, as ONE undoable step: the
+        // drag is one gesture, and undoing it must put the contents back as
+        // well as the line. Both were written live, so re-applying them here
+        // is a no-op — what this buys is the entry on the stack.
+        let moves: Vec<(String, i32, i32, i32, i32)> = origins
+            .iter()
+            .filter_map(|(kid, ox, oy)| {
+                let now = self.form.find_control(kid)?.rect;
+                (now.x != *ox || now.y != *oy).then(|| (kid.clone(), *ox, *oy, now.x, now.y))
+            })
+            .collect();
+        let mut cmds = vec![Cmd::SetProperty {
+            id: id.clone(),
+            key: "SplitPosition".to_owned(),
+            old: Some(PropValue::Int(orig_percent as i64)),
+            new: PropValue::Int(now as i64),
+        }];
+        if !moves.is_empty() {
+            cmds.push(Cmd::MoveMany { moves });
+        }
+        if cmds.len() == 1 {
+            self.apply(cmds.pop().expect("one command"));
+        } else {
+            self.apply(Cmd::Batch { cmds });
         }
         self.dirty = true;
     }
@@ -10789,7 +10886,12 @@ impl DesignerPanel {
                             .find_control(&id)
                             .map(cobolt_forms::splitter::split_percent)
                             .unwrap_or(cobolt_forms::splitter::CENTRE_PERCENT);
-                        self.drag = DragState::MovingSplitterDivision { id, orig_percent };
+                        let origins = self.pane_child_origins(&id);
+                        self.drag = DragState::MovingSplitterDivision {
+                            id,
+                            orig_percent,
+                            origins,
+                        };
                     } else
                     // 049 — a sidebar seam outranks everything: the pointer is
                     // on the rail, and without this the press would start
@@ -15624,7 +15726,7 @@ mod text_align_tests {
         assert_eq!(
             d.undo_stack.len(),
             1,
-            "approve is one AgentBatch = one Undo"
+            "approve is one Batch = one Undo"
         );
         assert!(d.form.find_control("B").is_some());
     }
@@ -17176,6 +17278,101 @@ mod sidebar_seam_tests {
         );
     }
 
+    /// **Dragging the division carries the panes' contents, and one undo puts
+    /// the whole gesture back** (operator, 2026-08-23).
+    ///
+    /// The RAD edit is real: the children's designed X/Y are rewritten, so what
+    /// is on screen is what is saved. That makes the undo entry the thing to
+    /// get right — a drag that moved the line and five controls must not cost
+    /// six undos.
+    #[test]
+    fn dragging_the_division_carries_the_contents_and_undoes_once() {
+        let mut dp = splitter_form();
+        // One control in each pane. Pane 1 spans x=42..~199, pane 2 ~201..358.
+        for (id, pane, x) in [("BTN-1", 1_u8, 60), ("BTN-2", 2, 240)] {
+            let mut c = Control::new(id, ControlType::Button, x, 100);
+            c.rect = cobolt_forms::model::Rect::new(x, 100, 40, 24);
+            c.parent = Some(cobolt_forms::splitter::pane_id("Splitter-1", pane));
+            dp.form.controls.push(c);
+        }
+        let x_of = |dp: &DesignerPanel, id: &str| dp.form.find_control(id).unwrap().rect.x;
+        let (b1, b2) = (x_of(&dp, "BTN-1"), x_of(&dp, "BTN-2"));
+
+        let origins = dp.pane_child_origins("Splitter-1");
+        assert_eq!(origins.len(), 2, "both panes' contents are captured");
+        dp.drag = DragState::MovingSplitterDivision {
+            id: "Splitter-1".into(),
+            orig_percent: 50,
+            origins,
+        };
+        // Drag the division right: at 75 % of a 320pt splitter starting at 40.
+        dp.apply_splitter_division_drag(277, 150);
+        let (a1, a2) = (x_of(&dp, "BTN-1"), x_of(&dp, "BTN-2"));
+        assert!(
+            a1 > b1 && a2 > b2,
+            "both panes' contents travel with the line (default Translate): \
+             {b1}→{a1} and {b2}→{a2}"
+        );
+        assert_eq!(
+            a1 - b1,
+            a2 - b2,
+            "…by the same amount — they move with the LINE, not with their pane"
+        );
+
+        dp.finish_splitter_division_drag();
+        dp.undo();
+        assert_eq!(
+            (x_of(&dp, "BTN-1"), x_of(&dp, "BTN-2")),
+            (b1, b2),
+            "ONE undo restores the contents"
+        );
+        assert_eq!(
+            cobolt_forms::splitter::split_percent(dp.form.find_control("Splitter-1").unwrap()),
+            50,
+            "…and the division with them, in the same step"
+        );
+        println!(
+            "  Splitter — division 50→75 %: contents moved +{} in both panes, one undo restored all of it",
+            a1 - b1
+        );
+    }
+
+    /// Each pane chooses for itself: a `Scale` pane spreads its contents while
+    /// an `Anchor` pane holds them still.
+    #[test]
+    fn each_pane_chooses_its_own_resize_behaviour() {
+        let mut dp = splitter_form();
+        dp.set_property(
+            &cobolt_forms::splitter::pane_id("Splitter-1", 1),
+            cobolt_forms::splitter::PANE_RESIZE_PROP,
+            PropValue::String("Anchor to the outer edge".into()),
+        );
+        for (id, pane, x) in [("BTN-1", 1_u8, 60), ("BTN-2", 2, 240)] {
+            let mut c = Control::new(id, ControlType::Button, x, 100);
+            c.rect = cobolt_forms::model::Rect::new(x, 100, 40, 24);
+            c.parent = Some(cobolt_forms::splitter::pane_id("Splitter-1", pane));
+            dp.form.controls.push(c);
+        }
+        let x_of = |dp: &DesignerPanel, id: &str| dp.form.find_control(id).unwrap().rect.x;
+        let (b1, b2) = (x_of(&dp, "BTN-1"), x_of(&dp, "BTN-2"));
+
+        dp.drag = DragState::MovingSplitterDivision {
+            id: "Splitter-1".into(),
+            orig_percent: 50,
+            origins: dp.pane_child_origins("Splitter-1"),
+        };
+        dp.apply_splitter_division_drag(277, 150);
+        assert_eq!(
+            x_of(&dp, "BTN-1"),
+            b1,
+            "pane 1 is anchored to an edge that did not move, so its content stayed"
+        );
+        assert!(
+            x_of(&dp, "BTN-2") > b2,
+            "pane 2 still translates with the division — the two panes are independent"
+        );
+    }
+
     /// Dragging the division line writes `SplitPosition` live and undoes in ONE
     /// step — the gesture the operator reported as missing twice over.
     #[test]
@@ -17202,6 +17399,7 @@ mod sidebar_seam_tests {
         dp.drag = DragState::MovingSplitterDivision {
             id: "Splitter-1".into(),
             orig_percent: 50,
+            origins: Vec::new(),
         };
         // A quarter across: inner x starts at 42, inner width 316 ⇒ 42 + 79.
         dp.apply_splitter_division_drag(121, 150);
@@ -17224,6 +17422,7 @@ mod sidebar_seam_tests {
         dp.drag = DragState::MovingSplitterDivision {
             id: "Splitter-1".into(),
             orig_percent: 50,
+            origins: Vec::new(),
         };
         dp.apply_splitter_division_drag(-5_000, 150);
         assert_eq!(

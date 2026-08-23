@@ -546,6 +546,25 @@ los non-visual son services.
     formulario. El panel también sigue el tema mientras no fije
     `BackgroundColor`, `BorderStyle` o `BorderColor`.
 
+  - **Qué hacen los contenidos cuando la línea se mueve** lo decide cada panel
+    por su cuenta, en la propiedad del panel (no del splitter)
+    **Pane Left/Right Resize Behavior**:
+
+    | Comportamiento | Qué hacen los controles de ese panel |
+    |---|---|
+    | **Translate with divider** (por defecto) | Cada control conserva su distancia a la línea de división, en ambos paneles: arrastre la línea 40pt a la derecha y todo lo que hay en las dos mitades se mueve 40pt a la derecha. Un control puede quedar arrastrado más allá del borde opuesto de su panel, donde se recorta. |
+    | **Scale within the pane** | Cada control conserva su posición como *fracción* del panel, de modo que al crecer el panel sus contenidos se separan y al encogerlo se juntan. Los tamaños nunca se escalan —sólo las posiciones—, así que nada se deforma ni sale del panel. |
+    | **Anchor to the outer edge** | Cada control conserva su distancia al borde inicial de su propio panel. El borde inicial del panel 1 es el del splitter y nunca se mueve, así que sus contenidos se quedan quietos; el del panel 2 *es* la línea de división, así que sus contenidos viajan con ella. Es como se comporta un contenedor normal. |
+
+    Los dos paneles son independientes: una franja de controles fija a un lado
+    y un lienzo que escala al otro es simplemente un panel en *Anchor* y el
+    otro en *Scale*.
+
+    Arrastrar la división **en el diseñador mueve los controles de verdad**: su
+    X/Y se reescriben y se guardan, y todo el arrastre —la línea y cuanto se
+    llevó consigo— es un único paso de deshacer.
+
+
   > **Nota** — el rectángulo de cada panel se deriva de la división, así que
   > moverlo o redimensionarlo a mano no hace nada: vuelve solo a su sitio.
   > Mueva el **splitter** para mover ambos paneles, y arrastre la **línea**

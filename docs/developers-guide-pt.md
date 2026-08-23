@@ -550,6 +550,25 @@ non-visual ones are services.
     formulário. O painel também segue o tema enquanto você não definir
     `BackgroundColor`, `BorderStyle` ou `BorderColor`.
 
+  - **O que os conteúdos fazem quando a linha se move** é escolha de cada
+    painel, na propriedade do painel (não do splitter)
+    **Pane Left/Right Resize Behavior**:
+
+    | Comportamento | O que fazem os controles daquele painel |
+    |---|---|
+    | **Translate with divider** (padrão) | Cada controle mantém sua distância até a linha de divisão, nos dois painéis: arraste a linha 40pt para a direita e tudo nas duas metades anda 40pt para a direita. Um controle pode ser levado para além da borda oposta do seu painel, onde é recortado. |
+    | **Scale within the pane** | Cada controle mantém sua posição como *fração* do painel, então crescer o painel espalha seu conteúdo e encolher o comprime. Tamanhos nunca são escalados — apenas posições — de modo que nada se deforma nem sai do painel. |
+    | **Anchor to the outer edge** | Cada controle mantém sua distância até a borda inicial do próprio painel. A borda inicial do painel 1 é a do splitter e nunca se move, então seu conteúdo fica parado; a do painel 2 *é* a linha de divisão, então seu conteúdo viaja com ela. É como se comporta um contêiner comum. |
+
+    Os dois painéis são independentes: uma faixa fixa de controles de um lado e
+    uma área que escala do outro é apenas um painel em *Anchor* e o outro em
+    *Scale*.
+
+    Arrastar a divisão **no designer move os controles de verdade**: seus X/Y
+    são reescritos e salvos, e todo o arrasto — a linha e tudo o que ela levou
+    — é um único passo de desfazer.
+
+
   > **Nota** — o retângulo de cada painel é derivado da divisão, então movê-lo
   > ou redimensioná-lo à mão não faz nada: ele volta sozinho ao lugar. Mova o
   > **splitter** para mover os dois painéis, e arraste a **linha** para mudar a

@@ -102,6 +102,123 @@ pub fn pane_id(splitter_id: &str, pane: u8) -> String {
     format!("{splitter_id}-Pane{pane}")
 }
 
+/// What a pane does with its CONTENTS when the division line moves.
+///
+/// Set per pane, so the two halves of one splitter can behave differently — a
+/// fixed toolbar down one side and a scaling canvas on the other.
+pub const PANE_RESIZE_PROP: &str = "ResizeBehavior";
+
+/// How a pane's children follow the division line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneResize {
+    /// Every child keeps its offset from the DIVISION LINE, in both panes:
+    /// move the line 40pt right and everything in both halves moves 40pt
+    /// right. A child can be carried out of its pane's far edge and clipped.
+    Translate,
+    /// Each child keeps its position as a FRACTION of the pane: a control a
+    /// quarter of the way across stays a quarter of the way across, so growing
+    /// a pane spreads its contents and shrinking packs them. Sizes are never
+    /// scaled — only positions — so nothing is distorted, and nothing leaves.
+    Scale,
+    /// Each child keeps its offset from its pane's own LEADING edge. Pane 1's
+    /// leading edge is the splitter's (it never moves), so its contents stay
+    /// put; pane 2's IS the division line, so its contents travel with it.
+    /// The way a plain container behaves.
+    Anchor,
+}
+
+impl PaneResize {
+    /// The three behaviours, in the order the inspector offers them, spelled
+    /// the way the operator named them.
+    pub const ALL: [&'static str; 3] = [
+        "Translate with divider",
+        "Scale within the pane",
+        "Anchor to the outer edge",
+    ];
+
+    /// Parse a `ResizeBehavior` value. Anything unrecognised — including the
+    /// empty string a pane created before this property carried — is
+    /// [`PaneResize::Translate`], which is the behaviour the panes shipped
+    /// with.
+    pub fn parse(s: &str) -> Self {
+        let key = s.trim().to_ascii_lowercase();
+        if key.starts_with("scale") {
+            PaneResize::Scale
+        } else if key.starts_with("anchor") {
+            PaneResize::Anchor
+        } else {
+            PaneResize::Translate
+        }
+    }
+
+    /// The behaviour a pane control asks for.
+    pub fn of(pane: &Control) -> Self {
+        Self::parse(sv(pane, PANE_RESIZE_PROP))
+    }
+}
+
+/// Where a child of a pane lands when that pane goes from `before` to `after`.
+///
+/// Pure geometry so all three surfaces — the designer's live drag, the running
+/// form and the model — move a control to the same place. Only the split axis
+/// moves: a horizontal splitter never changes a child's `y`.
+///
+/// `pane` is 1 or 2; the two differ only under [`PaneResize::Anchor`], where
+/// the leading edge one of them is anchored to is the division line itself.
+pub fn reflow_child(
+    behavior: PaneResize,
+    pane: u8,
+    before: Rect,
+    after: Rect,
+    child: Rect,
+    horizontal: bool,
+) -> Rect {
+    // The pane's start and length on the axis the division moves along.
+    let (b_start, b_len) = if horizontal {
+        (before.x, before.w)
+    } else {
+        (before.y, before.h)
+    };
+    let (a_start, a_len) = if horizontal {
+        (after.x, after.w)
+    } else {
+        (after.y, after.h)
+    };
+    let child_start = if horizontal { child.x } else { child.y };
+
+    let moved = match behavior {
+        PaneResize::Translate => {
+            // The division line: pane 1's far edge, pane 2's near one. Both
+            // move by the same amount, which is the point — the two halves
+            // travel together.
+            let divider_before = if pane == 1 { b_start + b_len } else { b_start };
+            let divider_after = if pane == 1 { a_start + a_len } else { a_start };
+            child_start + (divider_after - divider_before)
+        }
+        PaneResize::Scale => {
+            if b_len <= 0 {
+                // A pane with no width cannot say where a fraction of it is;
+                // leaving the child alone is the only answer that does not
+                // invent one (and the next drag, with room, places it).
+                child_start
+            } else {
+                let fraction = (child_start - b_start) as f32 / b_len as f32;
+                a_start + (fraction * a_len as f32).round() as i32
+            }
+        }
+        // Pane 1's leading edge is the splitter's own and never moves; pane 2's
+        // is the division line.
+        PaneResize::Anchor if pane == 2 => child_start + (a_start - b_start),
+        PaneResize::Anchor => child_start,
+    };
+
+    if horizontal {
+        Rect::new(moved, child.y, child.w, child.h)
+    } else {
+        Rect::new(child.x, moved, child.w, child.h)
+    }
+}
+
 /// `true` when the panes sit SIDE BY SIDE (pane 1 left, pane 2 right) and the
 /// division line therefore runs vertically.
 ///
@@ -493,6 +610,105 @@ pub use painting::{paint, percent_at_screen, screen_geometry, ScreenGeometry, Sp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pane_at(x: i32, w: i32) -> Rect {
+        Rect::new(x, 0, w, 100)
+    }
+
+    /// `Translate` carries BOTH panes' contents with the division line — the
+    /// behaviour the operator described: grow the left pane by dragging the
+    /// line right, and what is in it moves right too.
+    #[test]
+    fn translate_moves_both_panes_contents_with_the_division() {
+        // The line moves right 40: pane 1 grows 200→240, pane 2 starts 40 later.
+        let (p1_before, p1_after) = (pane_at(0, 200), pane_at(0, 240));
+        let (p2_before, p2_after) = (pane_at(200, 200), pane_at(240, 160));
+        let child = Rect::new(20, 10, 50, 20);
+
+        let one = reflow_child(PaneResize::Translate, 1, p1_before, p1_after, child, true);
+        assert_eq!(one.x, 60, "pane 1's child moves right with the line");
+        let two = reflow_child(
+            PaneResize::Translate,
+            2,
+            p2_before,
+            p2_after,
+            Rect::new(220, 10, 50, 20),
+            true,
+        );
+        assert_eq!(two.x, 260, "and so does pane 2's, by the same 40");
+        assert_eq!((one.y, one.w, one.h), (10, 50, 20), "only the split axis moves");
+    }
+
+    /// `Scale` keeps each child at the same FRACTION across its pane, so a
+    /// growing pane spreads its contents and nothing is carried out of it.
+    #[test]
+    fn scale_keeps_each_child_at_the_same_fraction_across_its_pane() {
+        let before = pane_at(0, 200);
+        let after = pane_at(0, 400);
+        // A quarter across stays a quarter across.
+        let child = reflow_child(PaneResize::Scale, 1, before, after, Rect::new(50, 0, 10, 10), true);
+        assert_eq!(child.x, 100);
+        // The near edge stays pinned.
+        let edge = reflow_child(PaneResize::Scale, 1, before, after, Rect::new(0, 0, 10, 10), true);
+        assert_eq!(edge.x, 0);
+        // Sizes are never scaled — a control must not be distorted by a drag.
+        assert_eq!(child.w, 10);
+    }
+
+    /// `Anchor` is the plain-container behaviour: pane 1's contents stay put
+    /// (its leading edge never moves) and pane 2's travel with the division.
+    #[test]
+    fn anchor_holds_pane_one_still_and_carries_pane_two() {
+        let (p1_before, p1_after) = (pane_at(0, 200), pane_at(0, 240));
+        let (p2_before, p2_after) = (pane_at(200, 200), pane_at(240, 160));
+        let one = reflow_child(PaneResize::Anchor, 1, p1_before, p1_after, Rect::new(20, 0, 10, 10), true);
+        assert_eq!(one.x, 20, "pane 1's leading edge did not move, so nor did its child");
+        let two = reflow_child(PaneResize::Anchor, 2, p2_before, p2_after, Rect::new(220, 0, 10, 10), true);
+        assert_eq!(two.x, 260, "pane 2's leading edge IS the division line");
+    }
+
+    /// A vertical splitter moves its contents on the OTHER axis, and leaves x
+    /// alone.
+    #[test]
+    fn a_vertical_splitter_moves_its_contents_down_the_page() {
+        let before = Rect::new(0, 0, 100, 200);
+        let after = Rect::new(0, 0, 100, 240);
+        let moved = reflow_child(
+            PaneResize::Translate,
+            1,
+            before,
+            after,
+            Rect::new(15, 20, 10, 10),
+            false,
+        );
+        assert_eq!((moved.x, moved.y), (15, 60), "y follows the line, x is untouched");
+    }
+
+    /// A pane with no room cannot say where a fraction of it is; the child is
+    /// left alone rather than sent to an invented place (and a later drag,
+    /// with room, places it).
+    #[test]
+    fn scaling_out_of_a_closed_pane_does_not_invent_a_position() {
+        let closed = pane_at(0, 0);
+        let open = pane_at(0, 200);
+        let child = Rect::new(30, 0, 10, 10);
+        assert_eq!(
+            reflow_child(PaneResize::Scale, 1, closed, open, child, true).x,
+            30
+        );
+    }
+
+    #[test]
+    fn behaviours_parse_and_default_to_translate() {
+        assert_eq!(PaneResize::parse("Scale within the pane"), PaneResize::Scale);
+        assert_eq!(PaneResize::parse("Anchor to the outer edge"), PaneResize::Anchor);
+        assert_eq!(PaneResize::parse("Translate with divider"), PaneResize::Translate);
+        assert_eq!(
+            PaneResize::parse(""),
+            PaneResize::Translate,
+            "a pane saved before the property existed keeps the behaviour it had"
+        );
+    }
     use crate::model::PropValue;
 
     fn splitter(w: i32, h: i32) -> Control {

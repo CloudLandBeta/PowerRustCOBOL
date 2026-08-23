@@ -1332,6 +1332,23 @@ non-visual ones are services.
     form theme. The panel itself follows the theme too, until you set
     `BackgroundColor`, `BorderStyle` or `BorderColor`.
 
+  - **What the contents do when the line moves** is each pane's own choice,
+    set on the pane (not the splitter) as **Pane Left/Right Resize Behavior**:
+
+    | Behaviour | What the controls inside that pane do |
+    |---|---|
+    | **Translate with divider** (default) | Every control keeps its distance from the division line, in both panes: drag the line 40pt right and everything in both halves moves 40pt right. A control can be carried past its pane's far edge, where it is clipped. |
+    | **Scale within the pane** | Every control keeps its position as a *fraction* of the pane, so growing the pane spreads its contents out and shrinking packs them together. Sizes are never scaled — only positions — so nothing is distorted and nothing leaves the pane. |
+    | **Anchor to the outer edge** | Every control keeps its distance from its pane's own leading edge. Pane 1's leading edge is the splitter's and never moves, so its contents stay put; pane 2's *is* the division line, so its contents travel with it. This is how a plain container behaves. |
+
+    The two panes are independent — a fixed control strip down one side and a
+    scaling canvas on the other is just one pane set to *Anchor* and the other
+    to *Scale*.
+
+    Dragging the division **in the designer really moves the controls**: their
+    X/Y are rewritten and saved, and the whole drag — the line and everything
+    it carried — is a single undo step.
+
   > **Note** — a pane's own rectangle is derived from the division, so moving
   > or resizing a pane by hand does nothing: it snaps straight back. Move the
   > **splitter** to move both panes, and drag the **line** to change their
