@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.170] — 2026-08-23
+
+### Fixed — the 3D border styles ignored the corner radius
+
+`Fixed3D`, `Raised` and `Sunken` drew four straight lines on the control's
+bounding box, so on anything with a `CornerRadius` the relief ran out past the
+arc at all four corners — they were the only border styles that did not follow
+the shape they were bordering (operator, 2026-08-23, on a rounded TextBox).
+
+The relief is now two stroked arcs that follow the outline: the lit top-left
+run and the shaded bottom-right one, meeting at the NE and SW corners' 45°
+points — where a light source at the top-left puts the terminator, so a square
+control still meets exactly at its corners and a rounded one meets halfway
+round the arc. The path is generated in floating point rather than asked of
+`rect_stroke`, because an inside stroke's centreline radius is fractional and
+egui's `CornerRadius` is `u8`.
+
+The corner baseline moved by exactly −2 in every Classic and Enhanced row (four
+line leaves became two path leaves, on the fixture's one 3D-bordered control)
+and by 0 in both Neumorphic rows, which paint their relief from the shadow
+stack and never reach this code.
+
+
 ## [PowerRustCOBOL 1.61.169] — 2026-08-23
 
 ### Fixed — Grace could not reach the System Knowledge Base

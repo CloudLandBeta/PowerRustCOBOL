@@ -445,20 +445,87 @@ pub(crate) fn draw_control_border(
 
     let light = shade(color, 0.35);
     let dark = shade(color, -0.35);
-    let inset = bw * 0.5;
-    let r = rect.shrink(inset);
     let top_left_light = style_l == "raised" || style_l == "fixed3d" || style_l == "3d";
     let (top_left, bottom_right) = if top_left_light {
         (light, dark)
     } else {
         (dark, light)
     };
-    let stroke_tl = Stroke::new(bw, top_left);
-    let stroke_br = Stroke::new(bw, bottom_right);
-    painter.line_segment([r.left_top(), r.right_top()], stroke_tl);
-    painter.line_segment([r.left_top(), r.left_bottom()], stroke_tl);
-    painter.line_segment([r.right_top(), r.right_bottom()], stroke_br);
-    painter.line_segment([r.left_bottom(), r.right_bottom()], stroke_br);
+    // A relief follows the control's OWN outline. It was four straight
+    // `line_segment`s on the bounding box, which put square corners on a
+    // rounded control: the bevel ran out past the arc at every corner and the
+    // three 3D styles were the only borders that ignored `CornerRadius`
+    // (operator, 2026-08-23).
+    //
+    // The path is generated in f32 here rather than asked of `rect_stroke`,
+    // and that is deliberate: an inside stroke's CENTRELINE radius is
+    // `face_radius - bw/2`, a fractional value, and egui's `CornerRadius` is
+    // u8 — it cannot hold one. Points can. Do not "simplify" this back into a
+    // rounded-rect stroke.
+    let (lit, shaded) = bevel_runs(rect, rounding, bw * 0.5);
+    painter.add(egui::Shape::line(lit, Stroke::new(bw, top_left)));
+    painter.add(egui::Shape::line(shaded, Stroke::new(bw, bottom_right)));
+}
+
+/// The two runs a 3D bevel is drawn from: the lit top-left half of the
+/// control's outline and the shaded bottom-right half.
+///
+/// Split at the NE and SW corners' 45° points, which is where a light source
+/// at the top-left puts the terminator — so on a square-cornered control the
+/// two runs meet exactly at the corners, and on a rounded one they meet
+/// halfway round the arc.
+///
+/// `inset` is half the border width: the returned points are the stroke's
+/// CENTRELINE, so a stroke of that width lands wholly inside `rect` (what
+/// `StrokeKind::Inside` does for the plain styles).
+fn bevel_runs(
+    rect: Rect,
+    rounding: egui::CornerRadius,
+    inset: f32,
+) -> (Vec<Pos2>, Vec<Pos2>) {
+    let path = rect.shrink(inset);
+    // egui's own rule: a radius may never exceed half the shorter side, or the
+    // arcs overlap and the outline crosses itself.
+    let cap = 0.5 * path.width().min(path.height()).max(0.0);
+    let r = |stored: u8| (f32::from(stored) - inset).clamp(0.0, cap);
+    let (nw, ne, sw, se) = (
+        r(rounding.nw),
+        r(rounding.ne),
+        r(rounding.sw),
+        r(rounding.se),
+    );
+
+    // Screen space: 0° is East, 90° South, 180° West, 270° North.
+    let centre = |cx: f32, cy: f32| Pos2::new(cx, cy);
+    let ne_c = centre(path.max.x - ne, path.min.y + ne);
+    let se_c = centre(path.max.x - se, path.max.y - se);
+    let sw_c = centre(path.min.x + sw, path.max.y - sw);
+    let nw_c = centre(path.min.x + nw, path.min.y + nw);
+
+    // An arc of `radius` about `c`, `from`→`to` degrees. A zero radius still
+    // yields the corner point, so a square corner keeps its vertex.
+    let arc = |c: Pos2, radius: f32, from: f32, to: f32, out: &mut Vec<Pos2>| {
+        let seg = 6;
+        for i in 0..=seg {
+            let ang = (from + (to - from) * i as f32 / seg as f32).to_radians();
+            out.push(c + Vec2::new(ang.cos(), ang.sin()) * radius);
+        }
+    };
+
+    // Shaded: from the NE terminator, clockwise round the right and bottom to
+    // the SW terminator.
+    let mut shaded = Vec::new();
+    arc(ne_c, ne, -45.0, 0.0, &mut shaded);
+    arc(se_c, se, 0.0, 90.0, &mut shaded);
+    arc(sw_c, sw, 90.0, 135.0, &mut shaded);
+
+    // Lit: on round the left and top, back to the NE terminator.
+    let mut lit = Vec::new();
+    arc(sw_c, sw, 135.0, 180.0, &mut lit);
+    arc(nw_c, nw, 180.0, 270.0, &mut lit);
+    arc(ne_c, ne, 270.0, 315.0, &mut lit);
+
+    (lit, shaded)
 }
 
 // ── Shared control renderer (moved here from the Form Designer) ────────────
@@ -11714,6 +11781,7 @@ mod toggle_surface_tests {
     struct Painted {
         fills: Vec<(Color32, egui::Rect)>,
         rect_strokes: Vec<(Color32, f32, egui::Rect)>,
+        /// Stroked runs: line segments and open paths alike.
         segments: Vec<(Color32, f32)>,
         circles: Vec<(Color32, f32)>,
     }
@@ -11764,6 +11832,17 @@ mod toggle_surface_tests {
                 }
                 egui::Shape::LineSegment { stroke, .. } if stroke.width > 0.0 => {
                     out.segments.push((stroke.color, stroke.width));
+                }
+                // A stroked RUN, the same thing a line segment is: the 3D
+                // relief became two open paths when it learned to follow the
+                // corner radius, and a harness blind to paths reported a
+                // control that draws a relief as drawing none.
+                egui::Shape::Path(p) if p.stroke.width > 0.0 => {
+                    if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                        if c.a() > 0 {
+                            out.segments.push((c, p.stroke.width));
+                        }
+                    }
                 }
                 egui::Shape::Circle(c) => {
                     if c.stroke.width > 0.0 && c.stroke.color.a() > 0 {
@@ -15868,11 +15947,24 @@ mod elegance_baseline_tests {
         // icon (a vector, ten-odd leaves) plus those three spine segments. Both
         // themes in every style moved identically, which is what says one
         // control moved and not the seam: no pack here skins a tree.
+        // Re-blessed in 1.61.170: the 3D border styles follow the corner
+        // radius. `Fixed3D`, `Raised` and `Sunken` drew four straight
+        // `line_segment`s on the bounding box — square corners on a rounded
+        // control, the only borders that ignored `CornerRadius` (operator,
+        // 2026-08-23). They are two stroked arcs now: the lit top-left run and
+        // the shaded bottom-right one, split at the NE/SW terminators.
+        //
+        // Four leaves became two, so every Classic and Enhanced row moved by
+        // exactly −2 — the fixture holds exactly one control with a 3D border.
+        // Both themes moved identically, which is what says one control moved
+        // rather than the seam, and BOTH Neumorphic rows are unchanged: that
+        // style paints its relief from its own shadow stack and never reaches
+        // `draw_control_border`.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1437),
-            ("asset-pack", GS::Classic, 1259),
-            ("liquid-glass", GS::Enhanced, 1537),
-            ("asset-pack", GS::Enhanced, 1333),
+            ("liquid-glass", GS::Classic, 1435),
+            ("asset-pack", GS::Classic, 1257),
+            ("liquid-glass", GS::Enhanced, 1535),
+            ("asset-pack", GS::Enhanced, 1331),
             ("liquid-glass", GS::Neumorphic, 632),
             ("asset-pack", GS::Neumorphic, 648),
             ("liquid-glass", GS::NeumorphicDark, 632),
@@ -15890,5 +15982,84 @@ mod elegance_baseline_tests {
                  — the seam refactor must not change what is painted"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod border_3d_tests {
+    use super::*;
+
+    /// **A 3D border follows the control's corner radius.**
+    ///
+    /// `Fixed3D`, `Raised` and `Sunken` drew four straight lines on the
+    /// bounding box, so on a rounded control the bevel ran out past the arc at
+    /// every corner — the three styles were the only borders that ignored
+    /// `CornerRadius` (operator, 2026-08-23, on a rounded TextBox).
+    ///
+    /// Asserted with the same predicate the rest of the corner system uses, so
+    /// "inside the face" means here what it means everywhere else.
+    #[test]
+    fn a_3d_border_stays_inside_the_rounded_face() {
+        let face = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(200.0, 60.0));
+        let radius = 16_u8;
+        let rounding = egui::CornerRadius::same(radius);
+        let width = 3.0;
+
+        for style in ["Fixed3D", "Raised", "Sunken"] {
+            let ctx = egui::Context::default();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    draw_control_border(
+                        ui.painter(),
+                        face,
+                        rounding,
+                        style,
+                        width,
+                        Color32::from_gray(140),
+                    );
+                },
+            );
+            let mut points: Vec<Pos2> = Vec::new();
+            fn walk(shape: &egui::Shape, out: &mut Vec<Pos2>) {
+                match shape {
+                    egui::Shape::Path(p) => out.extend(p.points.iter().copied()),
+                    egui::Shape::LineSegment { points, .. } => out.extend(points.iter().copied()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut points);
+            }
+            full.textures_delta.clear();
+
+            assert!(
+                !points.is_empty(),
+                "{style} must paint a border at all, or this proves nothing"
+            );
+            // The stroke is centred on the path, so its outer edge reaches half
+            // a width beyond each point: the points must clear the arc by that
+            // much for the INK to stay inside.
+            let outside: Vec<Pos2> = points
+                .iter()
+                .copied()
+                .filter(|p| !rounded_rect_contains(face, rounding, *p))
+                .collect();
+            assert!(
+                outside.is_empty(),
+                "{style} painted {} point(s) outside the rounded face, e.g. {:?} \
+                 (face {face:?}, radius {radius})",
+                outside.len(),
+                outside.first()
+            );
+        }
+        println!(
+            "\n  Borders — Fixed3D / Raised / Sunken on a {radius}pt radius: every \
+             point of the relief lies inside the rounded face\n"
+        );
     }
 }
