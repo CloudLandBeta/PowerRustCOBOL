@@ -1640,12 +1640,38 @@ pub fn draw_neumorphic_user_border(
     rounding: egui::CornerRadius,
     border_width: f32,
     alpha_mul: f32,
+    // `Sunken` turns the relief over: the shadow moves to the top-left and the
+    // highlight to the bottom-right, so the control reads as pressed INTO the
+    // form rather than standing off it. Every other style keeps the raised
+    // relief, which is the one this style has always drawn (operator,
+    // 2026-08-23 — the four styles used to be indistinguishable here).
+    inverted: bool,
 ) {
     if border_width < 0.5 || alpha_mul <= 0.0 {
         return;
     }
     let am = alpha_mul.clamp(0.0, 1.0);
     let bw = border_width;
+    // The two tones of the relief, and which edges take them. Naming them by
+    // POSITION rather than by tone is what lets one path draw both reliefs:
+    // the light source is fixed at the top-left, so inverting is a swap.
+    let highlight = Color32::from_rgba_premultiplied(
+        (200.0 * am) as u8,
+        (200.0 * am) as u8,
+        (200.0 * am) as u8,
+        (200.0 * am) as u8,
+    );
+    let shadow = Color32::from_rgba_premultiplied(
+        (144.0 * am) as u8,
+        (144.0 * am) as u8,
+        (144.0 * am) as u8,
+        (144.0 * am) as u8,
+    );
+    let (top_left_ink, bottom_right_ink) = if inverted {
+        (shadow, highlight)
+    } else {
+        (highlight, shadow)
+    };
     // Inside strokes at the exact integer face radius (see draw_control_border).
     let inner = rect;
     let rnd = rounding;
@@ -1656,14 +1682,7 @@ pub fn draw_neumorphic_user_border(
             Pos2::new(rect.min.x - bw, rect.min.y - bw),
             Pos2::new(rect.max.x + bw, rect.max.y + bw),
         );
-        // We draw the full stroke but use light gray for top/left:
-        // Top edge
-        let light = Color32::from_rgba_premultiplied(
-            (200.0 * am) as u8,
-            (200.0 * am) as u8,
-            (200.0 * am) as u8,
-            (200.0 * am) as u8,
-        );
+        let light = top_left_ink;
         // Clip to upper-left triangle by drawing two separate half-strokes
         let top_clip = egui::Rect::from_min_max(
             Pos2::new(rect.min.x - bw, rect.min.y - bw),
@@ -1680,12 +1699,7 @@ pub fn draw_neumorphic_user_border(
     }
     // Dark edges (bottom + right)
     {
-        let dark = Color32::from_rgba_premultiplied(
-            (144.0 * am) as u8,
-            (144.0 * am) as u8,
-            (144.0 * am) as u8,
-            (144.0 * am) as u8,
-        );
+        let dark = bottom_right_ink;
         let bottom_clip = egui::Rect::from_min_max(
             Pos2::new(rect.min.x - bw, rect.center().y),
             Pos2::new(rect.max.x + bw, rect.max.y + bw),
@@ -4363,6 +4377,7 @@ fn draw_control_body(
                     frame_round,
                     user_border_width,
                     alpha_mul,
+                    border_style.eq_ignore_ascii_case("Sunken"),
                 );
             } else {
                 let bw = if selected {
@@ -16105,6 +16120,89 @@ mod elegance_baseline_tests {
 
 #[cfg(test)]
 mod border_3d_tests {
+
+    /// **Under Neumorphic, `Sunken` turns the relief over.**
+    ///
+    /// That style paints its own soft relief from the form's shadow stack, and
+    /// it drew the SAME raised relief whatever `BorderStyle` said — so the one
+    /// property that ought to say "pressed in" did nothing (operator,
+    /// 2026-08-23). The light source stays at the top-left; `Sunken` swaps
+    /// which edges take the highlight and which take the shadow.
+    #[test]
+    fn neumorphic_sunken_inverts_the_relief() {
+        use crate::model::GlassStyle as GS;
+
+        // The ink on the TOP-LEFT edges, which is what tells raised from
+        // pressed: light there means standing off the form, dark means sunk in.
+        let top_left_ink = |style: &str| -> u8 {
+            let mut c = Control::new("C", ControlType::Button, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 160, 48);
+            c.set_prop("BorderStyle", style);
+            c.set_prop("BorderWidth", crate::PropValue::Int(4));
+            c.set_prop("CornerRadius", crate::PropValue::Int(0));
+            let ctx = egui::Context::default();
+            set_glass_style(&ctx, GS::Neumorphic);
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        Pos2::ZERO,
+                        Vec2::new(400.0, 200.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                },
+            );
+            // The relief is drawn as four clipped strokes of the same rect; the
+            // top-left pair are the ones clipped to the upper/left halves.
+            let mut ink = None;
+            for cs in &full.shapes {
+                fn walk(
+                    s: &egui::Shape,
+                    clip: egui::Rect,
+                    bounds: egui::Rect,
+                    out: &mut Option<u8>,
+                ) {
+                    match s {
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, bounds, out)),
+                        egui::Shape::Rect(r) if r.stroke.width >= 3.5 => {
+                            // The stroke clipped to the TOP half: its clip ends
+                            // at the control's vertical centre.
+                            if (clip.max.y - bounds.center().y).abs() < 1.0 && out.is_none() {
+                                *out = Some(r.stroke.color.r());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                walk(
+                    &cs.shape,
+                    cs.clip_rect,
+                    egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 48.0)),
+                    &mut ink,
+                );
+            }
+            full.textures_delta.clear();
+            ink.expect("the neumorphic relief draws a stroke clipped to the top half")
+        };
+
+        let raised = top_left_ink("Raised");
+        let sunken = top_left_ink("Sunken");
+        let single = top_left_ink("Single");
+        assert!(
+            raised > sunken,
+            "Raised lights the top-left ({raised}) and Sunken shades it ({sunken})"
+        );
+        assert_eq!(
+            single, raised,
+            "every other style keeps the raised relief this style has always drawn"
+        );
+        println!(
+            "\n  Neumorphic — top-left edge ink: Raised {raised}, Single {single}, \
+             Sunken {sunken} (the relief turns over)\n"
+        );
+    }
 
     /// **Every border style works on every FACE path, and follows the radius.**
     ///
