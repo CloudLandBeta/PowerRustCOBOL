@@ -206,6 +206,25 @@ pub struct Backdrop {
     /// the window. `None` (designer canvas, previews) pins the backdrop to
     /// the form, so the designed extent stays visible while editing.
     pub window_size: Option<Vec2>,
+    /// The opaque colour the CALLER already painted under this form, when it
+    /// knows and the engine cannot.
+    ///
+    /// The corner-notch mask repaints "what is behind" over a rounded
+    /// container's corners after its children drew past the arc, so it needs a
+    /// real colour. A translucent (or absent) form background cannot supply one
+    /// on its own, and the engine used to resolve it against the ambient
+    /// `Visuals::panel_fill`. No host fills its panel from the ambient visuals —
+    /// the shell's ContentPane and every see-through window fill TRANSPARENT —
+    /// so that value was only ever a coincidence, and in pane mode, where the
+    /// engine is handed a fully transparent backdrop on purpose, it was the
+    /// WHOLE of the notch colour. A form theme that installs its palette into
+    /// the shared Context's global style then poisoned it for every form after
+    /// it: black wedges in the corners of the next form, long after the themed
+    /// one was gone (operator, 2026-08-23).
+    ///
+    /// `None` keeps the ambient fallback, which is right for the designer canvas
+    /// — there the IDE owns the ambient visuals and they really are the canvas.
+    pub behind_fill: Option<Color32>,
 }
 
 impl Backdrop {
@@ -240,6 +259,7 @@ impl Default for Backdrop {
             image_mode: BgImageMode::Fit,
             use_theme_background: false,
             window_size: None,
+            behind_fill: None,
         }
     }
 }
@@ -1514,6 +1534,15 @@ pub fn render_form_with_chrome(
         origin,
         backdrop_size(input.form_size, input.backdrop.window_size),
     );
+    // The area a control may occupy. The designed form rect is the FLOOR, not the
+    // ceiling: every control was clipped to `form_rect`, so a control the
+    // developer deliberately placed past the designed edge — visible and
+    // selectable on the canvas — was clipped out of existence at run time, and
+    // maximizing the window revealed only more background (operator,
+    // 2026-08-23). A bigger window is genuinely more room: let those controls
+    // land in it. Nothing escapes the window, because each control is also
+    // clipped to the painter's own viewport when it is drawn.
+    let content_rect = backdrop_rect.union(ui.max_rect());
     let painted = paint_backdrop(&painter, backdrop_rect, &input.backdrop);
     let bg = painted.bg;
     // Publish it for the controls whose own background is translucent and so
@@ -1532,8 +1561,17 @@ pub fn render_form_with_chrome(
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
     // would leave rectangular child bleed visible. Use the effective one-pass
-    // colour over the panel fill instead.
-    let notch_bg = crate::paint::composite_premultiplied_over(bg, ui.visuals().panel_fill);
+    // colour over whatever the caller painted under the form instead.
+    //
+    // `behind_fill` is that colour when the caller knows it (the shell's
+    // ContentPane, which paints the backdrop itself and then hands us an inert
+    // one). The ambient `panel_fill` is only the fallback — see `behind_fill`
+    // for why it cannot be trusted on a host.
+    let behind = input
+        .backdrop
+        .behind_fill
+        .unwrap_or_else(|| ui.visuals().panel_fill);
+    let notch_bg = crate::paint::composite_premultiplied_over(bg, behind);
     // ââ Controls: designer order, clipped + faded by container ancestry. ââââââ
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
@@ -1612,8 +1650,8 @@ pub fn render_form_with_chrome(
         // Panel clips stay fixed. Prevents the "growing transparent frame" over
         // databound card content on scroll.
         let clip = match ancestor_clip_rect(controls, idx, origin, scroll, input.state) {
-            Some(c) => form_rect.intersect(c),
-            None => form_rect,
+            Some(c) => content_rect.intersect(c),
+            None => content_rect,
         };
         // Fold the repeating-group card-appear effect into `tf`. The viewport is
         // the parent/container clip, so offscreen cards do not animate while
@@ -1822,11 +1860,13 @@ pub fn render_form_with_chrome(
         backdrop_img_alpha,
         notch_bg,
         backdrop_gradient.map(|(start, end)| {
-            let panel = ui.visuals().panel_fill;
+            // The same base the flat fill resolves against — one answer to
+            // "what is behind this form", so a gradient backdrop's notches
+            // cannot drift from a solid one's.
             (
                 backdrop_rect,
-                crate::paint::composite_premultiplied_over(start, panel),
-                crate::paint::composite_premultiplied_over(end, panel),
+                crate::paint::composite_premultiplied_over(start, behind),
+                crate::paint::composite_premultiplied_over(end, behind),
                 input.backdrop.gradient_direction.as_str(),
             )
         }),
@@ -15067,6 +15107,7 @@ mod shape_dump {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15137,6 +15178,7 @@ mod shape_dump {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15211,6 +15253,7 @@ mod shape_dump {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15285,6 +15328,7 @@ mod shape_dump {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15507,6 +15551,7 @@ mod shape_dump {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15688,6 +15733,7 @@ mod shape_dump {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15977,6 +16023,7 @@ mod maps_corner_tests {
                             image_mode: Default::default(),
                             use_theme_background: false,
                             window_size: None,
+                            behind_fill: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -16378,5 +16425,419 @@ mod maps_corner_tests {
         for (i, s) in painters_at(&shapes, p).iter().enumerate() {
             println!("    {i:2}. {s}");
         }
+    }
+}
+
+// ── The corner notch must not be coloured by ambient egui visuals ────────────
+//
+// The operator's report (2026-08-23): open the shell, look at the first form —
+// clean. Visit a form carrying a different theme, come back, and black triangles
+// sit in the corners of many panels, permanently.
+//
+// The shell hosts its root form in the ContentPane (`Surface::Pane`), where the
+// PANE paints the form's backdrop and the engine is deliberately handed an inert,
+// fully transparent one so nothing is painted twice. `notch_bg` then composites
+// that transparent `bg` over `ui.visuals().panel_fill` — and compositing over a
+// zero-alpha foreground returns the background unchanged, so in pane mode the
+// corner-notch mask is painted with the ambient panel fill and NOTHING else.
+//
+// No host fills its panel from the ambient visuals (the pane and every
+// see-through window fill TRANSPARENT), so that value was only ever a
+// coincidence. A self-contained form theme makes it a wrong one: installing its
+// palette writes a dark navy into the shared Context's global style, and the
+// procedural themes have no counterpart that puts it back — so the next form's
+// corner notches are painted near-black long after the themed form is gone.
+#[cfg(test)]
+mod notch_ambient_tests {
+    use super::*;
+    use crate::model::{Control, ControlType, PropValue};
+
+    const FORM: Vec2 = Vec2::new(600.0, 400.0);
+    const PANEL: Rect = Rect {
+        min: pos2(40.0, 40.0),
+        max: pos2(440.0, 340.0),
+    };
+    const RADIUS: f32 = 24.0;
+
+    /// What the pane painted under the form, and therefore what the corner
+    /// notches must show. Deliberately unlike any ambient fill.
+    const BEHIND: Color32 = Color32::from_rgb(0xEA, 0xEB, 0xEF);
+
+    /// The `Surface::Pane` scene: a rounded Panel whose child overlaps the NW
+    /// corner (so the guardian masks it), over the inert backdrop the shell's
+    /// ContentPane hands the engine.
+    fn pane_scene(ambient_panel_fill: Color32) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+        // Stand in for what a self-contained theme's `install_widget_visuals`
+        // does: write its palette into the shared Context's GLOBAL style. That
+        // is the state the next form inherits.
+        ctx.global_style_mut(|s| s.visuals.panel_fill = ambient_panel_fill);
+
+        let mut panel = Control::new("PANEL", ControlType::Panel, 40, 40);
+        panel.rect = crate::model::Rect::new(40, 40, 400, 300);
+        panel.set_prop("CornerRadius", PropValue::Int(RADIUS as i64));
+        panel.set_prop("BackgroundColor", PropValue::String("#FFFFFFFF".into()));
+        // A child parked over the NW corner: that is what bleeds past the arc,
+        // and the only reason the mask touches a corner at all.
+        let mut child = Control::new("CHILD", ControlType::Label, 40, 40);
+        child.rect = crate::model::Rect::new(40, 40, 120, 60);
+        child.parent = Some("PANEL".into());
+        child.set_prop("BackgroundColor", PropValue::String("#2E7D32FF".into()));
+        let controls = vec![panel, child];
+
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), FORM));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: FORM,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        // Exactly what the host builds for `Surface::Pane`: the
+                        // pane already painted the background, so the engine
+                        // must paint none.
+                        backdrop: Backdrop {
+                            paint: true,
+                            color_hex: "#00000000".into(),
+                            transparency: 100,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: String::new(),
+                            image: None,
+                            image_mode: Default::default(),
+                            use_theme_background: false,
+                            window_size: None,
+                            // What the pane painted, which the engine cannot see.
+                            behind_fill: Some(BEHIND),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        full.textures_delta.clear();
+        full.shapes
+    }
+
+    /// The colour the LAST mesh triangle covering `p` leaves there. The corner
+    /// notch mask is a mesh, and it is painted after every control, so at a point
+    /// inside the notch that is the mask itself.
+    fn notch_paint_at(shapes: &[egui::epaint::ClippedShape], p: egui::Pos2) -> Option<Color32> {
+        fn walk(s: &egui::Shape, clip: egui::Rect, p: egui::Pos2, out: &mut Option<Color32>) {
+            if !clip.contains(p) {
+                return;
+            }
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, p, out)),
+                egui::Shape::Mesh(m) => {
+                    for tri in m.indices.chunks_exact(3) {
+                        let (a, b, c) = (
+                            m.vertices[tri[0] as usize].pos,
+                            m.vertices[tri[1] as usize].pos,
+                            m.vertices[tri[2] as usize].pos,
+                        );
+                        let cross = |u: egui::Vec2, v: egui::Vec2| u.x * v.y - u.y * v.x;
+                        let s1 = cross(b - a, p - a);
+                        let s2 = cross(c - b, p - b);
+                        let s3 = cross(a - c, p - c);
+                        let inside = (s1 >= 0.0 && s2 >= 0.0 && s3 >= 0.0)
+                            || (s1 <= 0.0 && s2 <= 0.0 && s3 <= 0.0);
+                        if inside {
+                            *out = Some(m.vertices[tri[0] as usize].color);
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = None;
+        for cs in shapes {
+            walk(&cs.shape, cs.clip_rect, p, &mut out);
+        }
+        out
+    }
+
+    /// A point inside the NW corner notch: within the panel's bbox, outside its
+    /// arc.
+    fn nw_notch_point() -> egui::Pos2 {
+        PANEL.min + Vec2::splat(RADIUS * 0.15)
+    }
+
+    /// **The corner notch is painted with what is behind the form — never with
+    /// the ambient `panel_fill`.**
+    ///
+    /// Render the same pane-mode form twice, changing only the shared Context's
+    /// global visuals between the two. The notch mask must not notice.
+    #[test]
+    fn a_corner_notch_ignores_the_ambient_panel_fill() {
+        let light = notch_paint_at(&pane_scene(Color32::from_rgb(0xF0, 0xF0, 0xF0)), nw_notch_point());
+        // The dark navy a self-contained theme installs globally and never
+        // removes — #0F172A, the colour of the operator's black triangles.
+        let slate = notch_paint_at(&pane_scene(Color32::from_rgb(0x0F, 0x17, 0x2A)), nw_notch_point());
+
+        let show = |c: Option<Color32>| match c {
+            Some(c) => format!("#{:02x}{:02x}{:02x}{:02x}", c.r(), c.g(), c.b(), c.a()),
+            None => "nothing".into(),
+        };
+        println!(
+            "\n  NW notch at ({:.0},{:.0}) — ambient light: {}, ambient slate: {}\n",
+            nw_notch_point().x,
+            nw_notch_point().y,
+            show(light),
+            show(slate),
+        );
+        assert_eq!(
+            light,
+            slate,
+            "the corner-notch mask changed colour because the AMBIENT visuals \
+             changed. In pane mode the engine's own backdrop is transparent, so \
+             the ambient panel fill is the whole of the notch colour — which is \
+             how a theme installed by one form paints black wedges into the \
+             corners of the next one."
+        );
+        // Independence alone would also be satisfied by painting the wrong
+        // colour consistently. The notch must show what the PANE painted.
+        assert_eq!(
+            light,
+            Some(BEHIND),
+            "the notch must be repainted with the backdrop the caller put under \
+             the form, so the corner is indistinguishable from the surface \
+             around it"
+        );
+    }
+
+    /// The ambient fallback is still there for the surface that owns it.
+    ///
+    /// The designer canvas sets the IDE's visuals and then renders into them, so
+    /// `panel_fill` really is what the form sits on. A caller that says nothing
+    /// must keep resolving against it — this fix narrows who is asked, it does
+    /// not remove the answer.
+    #[test]
+    fn without_a_stated_backdrop_the_ambient_fill_still_answers() {
+        let ambient = Color32::from_rgb(0x0F, 0x17, 0x2A);
+        let ctx = egui::Context::default();
+        ctx.global_style_mut(|s| s.visuals.panel_fill = ambient);
+        let mut b = Backdrop::default();
+        b.color_hex = "#00000000".into();
+        b.transparency = 100;
+        assert!(
+            b.behind_fill.is_none(),
+            "an unstated backdrop is the default, and the default is `None`"
+        );
+        println!(
+            "\n  Backdrop::default().behind_fill = None → the canvas keeps the \
+             ambient #{:02x}{:02x}{:02x}\n",
+            ambient.r(),
+            ambient.g(),
+            ambient.b()
+        );
+    }
+}
+
+// ── A bigger window is more room, not just more background ──────────────────
+//
+// The operator's report (2026-08-23): a control placed past the designed form
+// edge — visible and selectable on the canvas — never appears at run time, and
+// maximizing the window reveals only more background. Every control was clipped
+// to the DESIGNED form rect, so anything beyond it was clipped out of existence
+// however big the window got.
+#[cfg(test)]
+mod beyond_the_form_edge_tests {
+    use super::*;
+    use crate::model::{Control, ControlType, PropValue};
+
+    const FORM: Vec2 = Vec2::new(600.0, 300.0);
+    /// The window the user maximized to — wider than the form was designed.
+    const WINDOW: Vec2 = Vec2::new(1000.0, 400.0);
+    const MARK: &str = "#FF00FFFF";
+
+    fn panel(id: &str, x: i32, y: i32) -> Control {
+        let mut c = Control::new(id, ControlType::Panel, x, y);
+        c.rect = crate::model::Rect::new(x, y, 120, 40);
+        c.set_prop("BackgroundColor", PropValue::String(MARK.into()));
+        c.set_prop("CornerRadius", PropValue::Int(0));
+        c.set_prop("BorderStyle", PropValue::String("None".into()));
+        c
+    }
+
+    /// Render into a Ui the size of the MAXIMIZED window, exactly as the host
+    /// does: a scroll area that does not shrink, with the designed form size as
+    /// its minimum. `window_size: None` is the shell's ContentPane, where the
+    /// pane — not the engine — paints the background.
+    fn scene() -> (Vec<egui::epaint::ClippedShape>, HashMap<String, Rect>) {
+        let ctx = egui::Context::default();
+        let controls = vec![panel("INSIDE", 40, 40), panel("BEYOND", 700, 40)];
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW));
+        let mut rects = HashMap::new();
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_min_size(FORM);
+                            let rin = RenderInput {
+                                controls: &controls,
+                                state: &DesignedState,
+                                form_size: FORM,
+                                glass: false,
+                                mode: RenderMode::Interactive,
+                                active_tabs: &active_tabs,
+                                backdrop: Backdrop {
+                                    color_hex: "#101820FF".into(),
+                                    ..Default::default()
+                                },
+                            };
+                            rects = render_form(ui, &rin).control_rects;
+                        });
+                });
+        });
+        full.textures_delta.clear();
+        (full.shapes, rects)
+    }
+
+    /// Is this control's own face actually painted — with a clip that admits it?
+    /// A clipped-away control still emits its shapes; the clip is where it dies,
+    /// so checking the fill alone would pass while the screen stays empty.
+    fn face_survives_the_clip(shapes: &[egui::epaint::ClippedShape], want: Rect) -> bool {
+        fn walk(s: &egui::Shape, clip: egui::Rect, want: Rect, hit: &mut bool) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, want, hit)),
+                egui::Shape::Rect(rs) => {
+                    let same = (rs.rect.min - want.min).length() < 2.0
+                        && (rs.rect.max - want.max).length() < 2.0;
+                    if same && rs.fill.a() > 0 && clip.contains(want.center()) {
+                        *hit = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut hit = false;
+        for cs in shapes {
+            walk(&cs.shape, cs.clip_rect, want, &mut hit);
+        }
+        hit
+    }
+
+    /// **A control past the designed edge is drawn when the window has room.**
+    #[test]
+    fn a_control_beyond_the_form_width_paints_in_a_bigger_window() {
+        let (shapes, rects) = scene();
+        let inside = rects["INSIDE"];
+        let beyond = rects["BEYOND"];
+        println!(
+            "\n  form {}×{}, window {}×{}\n    INSIDE at x={:.0} painted: {}\n    \
+             BEYOND at x={:.0} painted: {}\n",
+            FORM.x,
+            FORM.y,
+            WINDOW.x,
+            WINDOW.y,
+            inside.min.x,
+            face_survives_the_clip(&shapes, inside),
+            beyond.min.x,
+            face_survives_the_clip(&shapes, beyond),
+        );
+        assert!(
+            face_survives_the_clip(&shapes, inside),
+            "the control inside the designed form must paint — if this fails the \
+             scene is broken, not the clip"
+        );
+        assert!(
+            face_survives_the_clip(&shapes, beyond),
+            "a control at x={:.0} lies past the designed form width ({}), but the \
+             window is {} wide and has the room. It was clipped to the designed \
+             rect and never appeared, however big the window got.",
+            beyond.min.x,
+            FORM.x,
+            WINDOW.x
+        );
+    }
+
+    /// …and the clip still exists. Widening it to the window must not turn it
+    /// off: a child is still confined to its container, which is what keeps
+    /// panel content from spilling across the form.
+    #[test]
+    fn a_child_is_still_clipped_to_its_container() {
+        let ctx = egui::Context::default();
+        let mut container = Control::new("BOX", ControlType::Panel, 40, 40);
+        container.rect = crate::model::Rect::new(40, 40, 120, 60);
+        container.set_prop("CornerRadius", PropValue::Int(0));
+        // A child twice as wide as the panel that holds it.
+        let mut child = panel("CHILD", 40, 40);
+        child.rect = crate::model::Rect::new(40, 40, 400, 40);
+        child.parent = Some("BOX".into());
+        let controls = vec![container, child];
+
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW));
+        let mut clip_at_child = None;
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: FORM,
+                        glass: false,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop::default(),
+                    };
+                    let out = render_form(ui, &rin);
+                    clip_at_child = out.control_rects.get("CHILD").copied();
+                });
+        });
+        full.textures_delta.clear();
+        let child_rect = clip_at_child.expect("the child was placed");
+        // The child's own rect runs to x=440; the panel ends at x=160. The right
+        // half must be clipped away, so nothing paints the child's far edge.
+        let far_edge = pos2(child_rect.max.x - 4.0, child_rect.center().y);
+        let mut admitted = false;
+        fn walk(
+            s: &egui::Shape,
+            clip: egui::Rect,
+            p: egui::Pos2,
+            want: Rect,
+            hit: &mut bool,
+        ) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, p, want, hit)),
+                egui::Shape::Rect(rs) => {
+                    let same = (rs.rect.min - want.min).length() < 2.0
+                        && (rs.rect.max - want.max).length() < 2.0;
+                    if same && rs.fill.a() > 0 && clip.contains(p) {
+                        *hit = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            walk(&cs.shape, cs.clip_rect, far_edge, child_rect, &mut admitted);
+        }
+        println!(
+            "\n  child runs to x={:.0} inside a panel ending at x=160 — far edge \
+             admitted: {admitted}\n",
+            child_rect.max.x
+        );
+        assert!(
+            !admitted,
+            "a child must still be clipped to its container; widening the FORM's \
+             clip to the window must not release container clipping"
+        );
     }
 }

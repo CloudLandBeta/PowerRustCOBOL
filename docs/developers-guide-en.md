@@ -1210,6 +1210,28 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 > edit. Window entrance effects animate this same picture, background
 > included.
 
+> **Room past the form's edge — controls that arrive when the window grows.**
+> The size you design is a *floor*, not a ceiling. Drop a control beyond the
+> right or bottom edge on the canvas and it is kept exactly as you placed it; it
+> simply has nowhere to land while the window is only as wide as the form.
+> Maximize that window — or drag it out — and the control appears in the room
+> that opened up. Nothing is stretched and nothing is re-laid-out, in keeping
+> with the rule above: the control is drawn at the position and size you gave
+> it, and the window's own edge is the only thing that ever cuts it. It is a
+> deliberate way to hold back an optional side panel, a decorative graphic or a
+> wide chart for the operators who have the screen for it.
+>
+> **Notes.** Nesting is unchanged — a control inside a Panel or GroupBox is
+> still clipped to its container, however large the window becomes; only the
+> *form's* own edge stopped being a wall. The designer canvas already drew these
+> controls, so what you see while editing is now what runs.
+>
+> ⚠️ **Caveat.** A window *smaller* than the form scrolls the form, but it will
+> not scroll out to a control placed past the designed edge: the scrollable area
+> is the form's designed rectangle. Anything the operator must always be able to
+> reach belongs inside it — treat the space beyond the edge as a bonus, never as
+> the only way to get at a control.
+
 > **Run Form isolation (performance).** To keep the IDE responsive and avoid CPU
 > spikes while a form is running (especially with timers, loops, or heavy
 > rendering), `Run Form` spawns an isolated child `rcrun` process. The IDE and
