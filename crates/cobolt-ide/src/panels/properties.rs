@@ -6914,12 +6914,31 @@ impl PropertiesPanel {
                         *buf = cur;
                     }
                     property_row(ui, "Nodes (indent = child)", |ui| {
-                        let resp = ui.add(
-                            egui::TextEdit::multiline(buf)
-                                .id(wid)
-                                .desired_rows(5)
-                                .desired_width(ui.available_width()),
-                        );
+                        // Capped at twelve lines, and it SCROLLS past that.
+                        // `desired_rows` is a floor, not a ceiling, so a real
+                        // tree — the operator's had 60-odd nodes — grew the
+                        // field until it owned the whole pane and every other
+                        // property was pushed off the bottom (operator,
+                        // 2026-08-22).
+                        //
+                        // The height is twelve rows of the font actually in
+                        // use, NOT a share of the space available: sizing a
+                        // child from available space is the feedback loop that
+                        // makes an egui pane inflate a little more every frame.
+                        let row_h = ui.text_style_height(&egui::TextStyle::Body);
+                        let resp = egui::ScrollArea::vertical()
+                            .id_salt(("nodes-box", id))
+                            .max_height(row_h * 12.0)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(buf)
+                                        .id(wid)
+                                        .desired_rows(5)
+                                        .desired_width(ui.available_width()),
+                                )
+                            })
+                            .inner;
                         if resp.lost_focus() {
                             action.set_props.push((
                                 id.to_owned(),
@@ -6952,38 +6971,59 @@ impl PropertiesPanel {
                         .get_prop(key)
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
-                    // The name is still typed — but it can be PICKED now, from
-                    // the same catalogue the toolbar editor opens. Typing was
-                    // the only way in: `folder-open` spelled right, out of 660,
-                    // with a typo costing the icon and nothing on screen saying
-                    // what was on offer.
-                    match super::icon_picker::preview_row(ui, &cur, built_in) {
+                    // Preview, …, ✕ and the name ALL in the one labelled cell —
+                    // the shape a Button's image row already has. They used to
+                    // be split across two lines, which put three unlabelled
+                    // controls between one property's label and the next.
+                    let buf_key = format!("{id}-{key}");
+                    let wid = egui::Id::new(&buf_key);
+                    let mut want = super::icon_picker::IconRowAction::None;
+                    let mut typed: Option<String> = None;
+                    {
+                        let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
+                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                            *buf = cur.clone();
+                        }
+                        property_row(ui, label, |ui| {
+                            let (a, committed) =
+                                super::icon_picker::name_row(ui, buf, wid, built_in);
+                            want = a;
+                            if committed {
+                                typed = Some(buf.clone());
+                            }
+                        });
+                    }
+                    if let Some(name) = typed {
+                        action
+                            .set_props
+                            .push((id.to_owned(), key.into(), PropValue::String(name)));
+                    }
+                    match want {
                         super::icon_picker::IconRowAction::Pick => self.icon_picker.open(key),
                         // Clearing writes EMPTY, not the built-in name: empty
                         // means "the platform's own", so a tree whose default
                         // changes follows it, and a cleared row does not freeze
                         // today's answer into the .cfrm.
-                        super::icon_picker::IconRowAction::Clear => action.set_props.push((
-                            id.to_owned(),
-                            key.into(),
-                            PropValue::String(String::new()),
-                        )),
+                        super::icon_picker::IconRowAction::Clear => {
+                            self.text_bufs.insert(format!("{id}-{key}"), String::new());
+                            action.set_props.push((
+                                id.to_owned(),
+                                key.into(),
+                                PropValue::String(String::new()),
+                            ));
+                        }
                         super::icon_picker::IconRowAction::None => {}
                     }
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        key,
-                        &cur,
-                        label,
-                        built_in,
-                        action,
-                    );
                 }
                 if let Some((key, name)) =
                     super::icon_picker::show(ui.ctx(), &mut self.icon_picker)
                 {
+                    // The field shows the pick immediately. Writing only the
+                    // property would leave the row's own buffer holding the old
+                    // name until focus moved, so the picker would look as though
+                    // it had chosen nothing.
+                    self.text_bufs
+                        .insert(format!("{id}-{key}"), name.clone());
                     action
                         .set_props
                         .push((id.to_owned(), key, PropValue::String(name)));

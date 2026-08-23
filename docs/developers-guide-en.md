@@ -1295,6 +1295,26 @@ non-visual ones are services.
   **SideMenu**.
   **GroupBox, Panel and TabControl are true containers** — see *Containers and
   nesting* below.
+  A **Splitter is a bar, not a container.** Nothing goes *inside* it; you put it
+  *between* two controls. Since 1.61.163 the operator can grab it and drag it
+  along its axis, and the room one side gives up goes to the other:
+
+  - **Orientation** `Horizontal` is a wide bar splitting top from bottom;
+    `Vertical` is a tall one splitting left from right. The seeded size is
+    200×8 — a rule, not a pane.
+  - Its two panes are found by geometry: on each side of the bar, the nearest
+    control whose span **across** the bar overlaps the bar's own. So a splitter
+    only ever moves something it actually runs across, and never another
+    splitter. Lay the bar out so it spans the two controls it divides.
+  - **MinimumSize** (default 25) is how small either pane may get, and it stops
+    the drag at that point rather than letting a pane collapse.
+  - **SplitPosition** follows the bar, so your COBOL can read where the
+    operator left it — `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N`.
+
+  > ⚠️ A splitter with nothing overlapping it on either side has no panes to
+  > resize, and dragging it will appear to do nothing. That is a layout
+  > problem, not a fault: check that the bar really spans the controls it is
+  > meant to divide.
   A **SideMenu** is the one control that changes how the whole application
   starts: put it on the main form and the application opens as a *shell* with a
   navigation sidebar instead of one window per form — see
@@ -1811,7 +1831,12 @@ designer canvas, the preview, Run Form and the compiled binary.
 > same one the toolbar editor uses — and a **✕** that clears the row back to
 > the platform's own default. Clearing writes *empty*, not today's default
 > name, so the row keeps following the platform rather than freezing an answer
-> into the `.cfrm`.
+> into the `.cfrm`. The preview, both buttons and the name all sit in the one
+> labelled cell, the way a Button's image row does.
+>
+> The **Nodes** box itself is capped at twelve lines and scrolls past that, so
+> a tree with sixty nodes no longer pushes every property below it off the
+> bottom of the pane.
 >
 > Nodes that name none take **Folder icon (shut)** / **(open)** / **Leaf icon**
 > — `folder`, `folder-open` and `doc-text` by default, so a tree looks like a

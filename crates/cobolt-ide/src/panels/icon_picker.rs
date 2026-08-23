@@ -133,23 +133,34 @@ fn cell(ui: &mut egui::Ui, name: &str) -> bool {
     resp.clicked()
 }
 
-/// A small square showing what an icon name resolves to, and the two buttons
-/// that go with it: **pick** opens the catalogue, **✕** clears the name back to
-/// the platform's own default.
+/// One icon row, all of it in a single cell: the preview, the **…** that opens
+/// the catalogue, the **✕** that clears it, and the name itself.
 ///
-/// Returns `true` when the pick button was pressed — the caller opens the
-/// picker, since only it knows which key it is picking for.
-pub fn preview_row(ui: &mut egui::Ui, current: &str, fallback: &str) -> IconRowAction {
+/// The same shape a Button's image row has — browse button first, then the
+/// field — so the two read alike. They were split across two lines here, the
+/// preview and its buttons floating above the labelled name field, which put
+/// three unlabelled controls between one property's label and the next
+/// (operator, 2026-08-22).
+///
+/// Returns what the buttons asked for and whether the NAME was committed (the
+/// field lost focus), which is when the caller writes the property.
+pub fn name_row(
+    ui: &mut egui::Ui,
+    buf: &mut String,
+    id: egui::Id,
+    fallback: &str,
+) -> (IconRowAction, bool) {
     let mut action = IconRowAction::None;
+    let mut committed = false;
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::hover());
         // An empty name is not "no icon" — it is "the platform's own", which is
         // what the tree actually draws. Showing nothing there would say the row
         // was off.
-        let shown = if current.trim().is_empty() {
+        let shown = if buf.trim().is_empty() {
             fallback
         } else {
-            current.trim()
+            buf.trim()
         };
         cobolt_forms::icons::draw_menu_icon(
             ui.painter(),
@@ -166,7 +177,7 @@ pub fn preview_row(ui: &mut egui::Ui, current: &str, fallback: &str) -> IconRowA
         }
         // Only offered when there is something to clear — a ✕ that does nothing
         // is a button that lies about the state.
-        if !current.trim().is_empty()
+        if !buf.trim().is_empty()
             && ui
                 .add(egui::Button::new("✕").small())
                 .on_hover_text("Use the default icon")
@@ -174,8 +185,16 @@ pub fn preview_row(ui: &mut egui::Ui, current: &str, fallback: &str) -> IconRowA
         {
             action = IconRowAction::Clear;
         }
+        committed = ui
+            .add(
+                egui::TextEdit::singleline(buf)
+                    .id(id)
+                    .hint_text(fallback)
+                    .desired_width(ui.available_width()),
+            )
+            .lost_focus();
     });
-    action
+    (action, committed)
 }
 
 /// What an icon row's buttons asked for.
