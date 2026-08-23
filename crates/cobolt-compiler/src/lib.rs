@@ -3740,8 +3740,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
 
         // ── Maps (spec 039) ──
-        "CenterLat" => ("decimal degrees as a string, e.g. `\"48.8566\"`", "Map center latitude."),
-        "CenterLng" => ("decimal degrees as a string, e.g. `\"2.3522\"`", "Map center longitude."),
+        "CenterLat" => ("decimal degrees as a string, e.g. `\"48.8566\"`", "Map center latitude. Where the map OPENS is set in the properties pane (`Start latitude`), and a pan or a COBOL write updates it."),
+        "CenterLng" => ("decimal degrees as a string, e.g. `\"2.3522\"`", "Map center longitude. Set in the properties pane as `Start longitude`; a pan or a COBOL write updates it."),
         "Zoom" => ("integer, typically 0-20", "OpenStreetMap zoom level (higher = closer). Always a WHOLE level — the one whose tiles are fetched, and the value a handler reads, writes and receives on onBoundsChanged. Wheel zooming glides between levels by drawing the map at a fractional scale, but that fraction is view state and is never published, so this property never carries one."),
         "Markers" => (
             "one marker per line, TAB-separated: `id\\tlat\\tlng\\tlabel\\tinfo`",

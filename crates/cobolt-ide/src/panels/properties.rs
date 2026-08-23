@@ -5459,6 +5459,55 @@ impl PropertiesPanel {
             // what keeps existing maps unchanged.
             ControlType::Maps if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
+                // Where the map OPENS. The runtime and the canvas have read
+                // these since the control shipped — `CenterLat`/`CenterLng`
+                // place the basemap and `Zoom` scales it — but the pane offered
+                // no way to set them, so the only route to a starting location
+                // was COBOL at run time or dragging the map by hand every time
+                // the designer opened (operator, 2026-08-23). Decimal degrees,
+                // the form every mapping tool takes: 40.7128 / -74.0060.
+                {
+                    let lat = ctrl
+                        .get_prop("CenterLat")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "CenterLat",
+                        &lat,
+                        tr.lbl_map_center_lat,
+                        "-90 … 90",
+                        action,
+                    );
+                    let lng = ctrl
+                        .get_prop("CenterLng")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "CenterLng",
+                        &lng,
+                        tr.lbl_map_center_lng,
+                        "-180 … 180",
+                        action,
+                    );
+                }
+                int_prop_row(
+                    ui,
+                    id,
+                    "Zoom",
+                    tr.lbl_map_zoom,
+                    ctrl,
+                    action,
+                    (cobolt_forms::map_tiles::MIN_ZOOM as i64)
+                        ..=(cobolt_forms::map_tiles::MAX_ZOOM as i64),
+                    None,
+                    2,
+                );
                 color_prop_row_default(
                     ui,
                     id,
@@ -10780,6 +10829,79 @@ pub fn color32_to_hex(c: Color32) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A property the runtime reads must be settable in the pane.**
+    ///
+    /// The Maps control has carried `CenterLat`, `CenterLng` and `Zoom` since
+    /// it shipped — the running form places the basemap from them and the
+    /// canvas paints its preview from them — but the inspector offered rows for
+    /// its colours only. So the one thing every map needs first, where it
+    /// opens, could be set from COBOL or by dragging the map, and nowhere else
+    /// (operator, 2026-08-23: "where is the initial coordinate location
+    /// property?").
+    #[test]
+    fn the_maps_pane_offers_the_starting_location() {
+        let form = Form::new("F", "F", 800, 600);
+        let mut map = Control::new("Maps-1", ControlType::Maps, 10, 10);
+        map.set_prop("CenterLat", PropValue::String("40.7128".into()));
+        map.set_prop("CenterLng", PropValue::String("-74.0060".into()));
+        map.set_prop("Zoom", PropValue::Int(12));
+
+        let tr = &crate::i18n::Language::English.tr();
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        let mut labels: Vec<String> = Vec::new();
+        let mut values: Vec<String> = Vec::new();
+        // Two frames: a text row seeds its buffer on the first and shows the
+        // value on the second.
+        for _ in 0..2 {
+            labels.clear();
+            values.clear();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(420.0, 1400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, &form, Some(&map), &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut labels);
+            }
+            values = labels.clone();
+            full.textures_delta.clear();
+        }
+        let shown = |needle: &str| values.iter().any(|t| t.contains(needle));
+
+        for label in [tr.lbl_map_center_lat, tr.lbl_map_center_lng, tr.lbl_map_zoom] {
+            assert!(
+                shown(label.trim_end_matches([':', ' '])),
+                "the Maps pane must offer `{label}`; it showed {values:?}"
+            );
+        }
+        // …carrying the control's real values, not a blank row.
+        assert!(shown("40.7128"), "the latitude row shows the map's latitude");
+        assert!(shown("-74.0060"), "and the longitude row its longitude");
+        assert!(shown("12"), "and the zoom row its zoom");
+
+        println!(
+            "\n  Maps — the pane now opens with Start latitude / Start longitude / \
+             Start zoom, showing 40.7128, -74.0060, 12\n"
+        );
+    }
     use super::*;
 
     /// The list-item editor is a FIXED five-line window on the list (operator,

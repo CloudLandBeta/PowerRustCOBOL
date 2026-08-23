@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.166] — 2026-08-23
+
+Two more from the operator, both against 1.61.164.
+
+### Fixed — a control dropped into a Splitter pane lost its theme
+
+A Knob placed in a pane came out a white rectangle. The pane was seeded
+`Transparency = 100` to mean "no background of its own" — but Transparency
+dims the whole **subtree** (that is what `ancestor_opacity` computes), so every
+control in a pane was painted at alpha 0 and lost its face. `HideBackground`,
+already set, is the property that actually means "no face, children
+untouched"; the misleading seed is gone.
+
+`ancestor_opacity` now also skips a Splitter pane the way it already skips a
+GroupBox: a pane is a layout region the splitter owns, not a tint, and a
+transparent one must show what is behind it rather than erase what is inside
+it. That repairs forms already saved by 1.61.164 — their panes still carry the
+bad value — without rewriting anyone's properties.
+
+### Fixed — a Map's starting location could not be set in the designer
+
+`CenterLat`, `CenterLng` and `Zoom` have been there since the control shipped:
+the running form places the basemap from them, the canvas paints its preview
+from them, a pan writes them back, and COBOL reads and writes them. The
+properties pane offered rows for the map's **colours** only — so the first
+thing every map needs, where it opens, was reachable from COBOL at run time and
+nowhere else. The pane now opens with **Start latitude**, **Start longitude**
+(decimal degrees) and **Start zoom** (0–19), in all six languages.
+
+
 ## [PowerRustCOBOL 1.61.165] — 2026-08-23
 
 No behaviour change: the missing test for the claim 1.61.164 rested on. A

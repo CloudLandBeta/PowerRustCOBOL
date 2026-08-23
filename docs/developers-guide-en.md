@@ -4525,7 +4525,10 @@ independent halves with different credential needs:
 - **The basemap needs no API key at all.** `CenterLat` / `CenterLng` /
   `Zoom` position the view; the user pans and scrolls the wheel to zoom
   interactively, firing `onBoundsChanged` (and updating those three
-  properties) when they do. Writing those three from COBOL moves the map:
+  properties) when they do. Set **where the map opens** in the properties
+  pane — *Start latitude*, *Start longitude* and *Start zoom*, in decimal
+  degrees — and the canvas shows that view as you design. Writing those three
+  from COBOL moves the map:
 
   ```cobol
   MOVE "-23.5614" TO MAP-1::CenterLat

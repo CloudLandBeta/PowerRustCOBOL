@@ -6181,8 +6181,13 @@ impl Form {
                 p.set_prop(crate::splitter::PANE_PROP, n as i64);
                 p.set_prop("BorderStyle", "None");
                 p.set_prop("BorderWidth", 0i64);
+                // `HideBackground` is what "no face of its own" means — and it
+                // is the ONLY thing that means it. `Transparency` was seeded to
+                // 100 here, which reads the same and is not: it dims the whole
+                // SUBTREE, so every control dropped into a pane was painted at
+                // alpha 0 and lost its face (operator, 2026-08-23: a Knob in a
+                // splitter "became a white rectangle").
                 p.set_prop("HideBackground", true);
-                p.set_prop("Transparency", 100i64);
                 self.controls.push(p);
             }
         }

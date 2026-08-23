@@ -166,6 +166,13 @@ pub fn clip_rect(controls: &[Control], idx: usize) -> Option<Rect> {
 /// `alpha_mul` should start from so a faded container dims its subtree.
 /// GroupBox opacity applies only to its own frame (border/caption), never to the
 /// controls placed inside it, so GroupBox ancestors are skipped here.
+///
+/// A **Splitter pane** is skipped for the same reason, and a stronger one: the
+/// developer does not own its `Transparency` in the first place — the pane is
+/// a layout region the splitter creates, and a transparent one must show what
+/// is behind it, not erase what is inside it. Skipping the pane also repairs a
+/// form saved by 1.61.164, whose panes carry the `Transparency = 100` that
+/// blanked their contents.
 pub fn ancestor_opacity(controls: &[Control], idx: usize) -> f32 {
     let mut o = 1.0_f32;
     let mut cur = idx;
@@ -173,7 +180,9 @@ pub fn ancestor_opacity(controls: &[Control], idx: usize) -> f32 {
         let Some(p) = index_of(controls, &pid) else {
             break;
         };
-        if !matches!(controls[p].control_type, crate::ControlType::GroupBox) {
+        let frame_only = matches!(controls[p].control_type, crate::ControlType::GroupBox)
+            || crate::splitter::pane_index(&controls[p]).is_some();
+        if !frame_only {
             o *= opacity_of(&controls[p]);
         }
         cur = p;
