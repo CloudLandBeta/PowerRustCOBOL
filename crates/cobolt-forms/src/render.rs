@@ -7134,18 +7134,27 @@ fn render_interactive(
             );
         }
         CT::Splitter => {
+            // The DESIGNED face, through the shared painter — the same rule the
+            // ListBox and the TreeView follow here.
+            //
+            // This arm hard-coded a slate-blue `rgb(60, 66, 96)` while the
+            // designer canvas drew the control's own light grey, so the same
+            // splitter was two different colours depending on where you looked
+            // at it — and neither of them was the one the developer chose:
+            // `BackgroundColor` reached the canvas and not the running form.
             let horiz = !sv(ctrl, "Orientation").starts_with('V');
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(60, 66, 96),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-                paint::SurfaceRole::Card,
-            );
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // The grip, in the theme's own rule colour rather than a fixed pale
+            // blue that only ever suited the hard-coded face it sat on.
             let c = screen.center();
-            let dot = Color32::from_rgba_premultiplied(200, 210, 240, 160);
+            let dot = paint::theme_token(ui.ctx(), crate::surface_theme::ColorToken::Border)
+                .unwrap_or(Color32::from_rgba_premultiplied(200, 210, 240, 160));
+            let dot = Color32::from_rgba_premultiplied(
+                dot.r(),
+                dot.g(),
+                dot.b(),
+                (dot.a() as f32 * alpha) as u8,
+            );
             for k in -1..=1 {
                 let p = if horiz {
                     pos2(c.x + k as f32 * 5.0, c.y)

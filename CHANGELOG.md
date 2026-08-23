@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.162] — 2026-08-22
+
+### Fixed — a Splitter was one colour on the canvas and another running
+
+The run-form arm hard-coded a slate-blue `rgb(60, 66, 96)`; the designer canvas
+drew the control's own light grey. The same splitter was two different colours
+depending on where you looked at it — and neither of them was the one the
+developer chose, because `BackgroundColor` reached the canvas and never reached
+the running form.
+
+It now goes through `draw_control` like every other face here, so the designed
+background, border and corner radius all arrive. The grip dots take the theme's
+own rule colour instead of a fixed pale blue that only ever suited the
+hard-coded face it sat on.
+
+> **Still outstanding — the Splitter does not yet split anything.** It paints,
+> it can be selected and moved at design time, and that is all: dragging it at
+> run time does not move it, and it does not resize anything on either side of
+> it. Finishing it needs a decision that is the operator's, not the agent's:
+>
+> 1. **A bar between neighbours.** Dragging it resizes the two controls whose
+>    edges touch it. This is what the seeded properties already describe — the
+>    default size is 200×8, which is a rule, not a pane — and it matches what
+>    the audience knows from PowerCOBOL and isCOBOL. It also means a control
+>    can move controls the developer placed, which wants care.
+> 2. **A real two-pane container.** `is_container()` grows to include it,
+>    children are assigned to a pane (the way a TabControl uses `Tab`), and
+>    `SplitPosition` divides its own rect. Cleaner ownership, but it contradicts
+>    the 8px default and is a much larger change across drop targeting,
+>    clipping and codegen.
+>
+> Whichever wins, the plumbing comes first: `render_interactive` receives a
+> single control **re-based to `(0,0,w,h)`** and no sibling list, so it cannot
+> currently see either its own design position or its neighbours'.
+
 ## [PowerRustCOBOL 1.61.161] — 2026-08-22
 
 ### Added — an icon is PICKED in the inspector, not spelled
