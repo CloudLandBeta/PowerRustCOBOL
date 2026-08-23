@@ -519,6 +519,50 @@ non-visual ones are services.
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
 
+  Um **Splitter é um painel dividido em dois** — um contêiner, como os três
+  anteriores. Ao soltá-lo aparecem **três** controles na árvore: o próprio
+  splitter e os dois painéis que lhe pertencem, `<id>-Pane1` e `<id>-Pane2`.
+  Os painéis são Panel comuns — sem borda e transparentes de início — portanto
+  você solta controles dentro deles, aplica estilo e faz vínculos exatamente
+  como em qualquer Panel. O que você **não** define é onde eles ficam: quem
+  decide isso é a linha de divisão.
+
+  - **Orientation** descreve como os **painéis** ficam dispostos, não como a
+    linha corre. `Horizontal` coloca o **painel 1 à esquerda e o painel 2 à
+    direita**, separados por uma linha vertical; `Vertical` coloca o **painel 1
+    em cima e o painel 2 embaixo**, separados por uma linha horizontal.
+  - **SplitPosition** é uma **porcentagem, 0–100**, da largura interna
+    (Horizontal) ou da altura interna (Vertical). Por ser uma proporção e não
+    um deslocamento em pixels, a divisão permanece onde você a deixou quando o
+    formulário ou o splitter é redimensionado. Seu COBOL pode lê-la —
+    `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N` — ou defini-la:
+    `SET Splitter-1::SplitPosition TO 30`.
+  - **Arraste a linha** — em qualquer ponto, não apenas na alça — e os dois
+    painéis se redistribuem sob o ponteiro. O cursor vira uma **mão de
+    agarrar** sobre a linha, e **um duplo clique devolve a divisão para 50 %**.
+    O mesmo gesto funciona na tela do designer e no formulário em execução.
+  - **0 % e 100 % são válidos.** Um painel fecha por completo e o outro fica
+    com tudo; a alça é recortada pela própria borda do splitter, de modo que
+    metade dela continua visível para arrastar de volta.
+  - **Estilo da linha**: `LineColor` e `LineSize` para a régua; `GripStyle`
+    (`FilledPill`, `HollowPill`, `FilledCircle`, `HollowCircle`), `GripSize` e
+    `GripColor` para a alça. Se deixar uma cor vazia, ela segue o tema do
+    formulário. O painel também segue o tema enquanto você não definir
+    `BackgroundColor`, `BorderStyle` ou `BorderColor`.
+
+  > **Nota** — o retângulo de cada painel é derivado da divisão, então movê-lo
+  > ou redimensioná-lo à mão não faz nada: ele volta sozinho ao lugar. Mova o
+  > **splitter** para mover os dois painéis, e arraste a **linha** para mudar a
+  > proporção entre eles.
+
+  > ⚠️ **Mudança na 1.61.164.** Antes o Splitter era uma *barra entre dois
+  > controles vizinhos* e `Orientation` descrevia a direção da própria barra —
+  > `Horizontal` era uma barra larga separando cima de baixo, o oposto do que
+  > significa agora. Um formulário salvo antes abre com os painéis invertidos,
+  > e seu `SplitPosition` (que era um deslocamento em pixels) volta para 50 %.
+  > Escolha a orientação desejada e arraste a linha para o lugar: é uma
+  > correção única e nada do que você colocou no formulário se perde.
+
 **Data**
 : DataGrid, TreeView.
 
@@ -735,7 +779,14 @@ In words:
 >   (list / combo), and the combo's `onDropDown` on open.
 > - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
 >   `onKeyDown`/`onKeyUp`/`onKeyPress` while focused.
-> - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+> - **Timer** dispara `onTick` a cada `Interval` ms enquanto estiver ativo
+>   (`Start`/`Stop`). **`Enabled` é o interruptor do próprio timer** — decide se
+>   ele roda, e não se um controle fica esmaecido. Desmarque **Enabled at
+>   start** no painel de propriedades para um timer que espera ser iniciado, e
+>   ligue-o ou desligue-o pelo COBOL com `SET Timer-1::Enabled TO 1` / `TO 0`.
+>   (Antes da 1.61.164 nenhum dos dois funcionava: ambos escreviam no
+>   indicador genérico do controle, que o timer não lê, de modo que não havia
+>   como parar um timer.)
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).

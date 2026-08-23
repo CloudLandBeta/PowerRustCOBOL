@@ -7166,6 +7166,9 @@ impl PropertiesPanel {
             // ── Splitter ──────────────────────────────────────────────────────
             ControlType::Splitter if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
+                // Horizontal = the panes sit SIDE BY SIDE (pane 1 left), so the
+                // division line runs vertically. That is how a developer reads
+                // "a horizontal splitter", and it is the operator's definition.
                 combo_row_inline(
                     ui,
                     id,
@@ -7174,28 +7177,51 @@ impl PropertiesPanel {
                     action,
                     &["Horizontal", "Vertical"],
                 );
-                int_prop_row(
-                    ui,
-                    id,
-                    "MinimumSize",
-                    "MinSize",
-                    ctrl,
-                    action,
-                    0..=500,
-                    None,
-                    25,
-                );
+                // A PERCENTAGE, not a pixel offset: it survives the splitter
+                // being resized, and 0/100 are legal (one pane closed).
                 int_prop_row(
                     ui,
                     id,
                     "SplitPosition",
-                    "SplitPosition",
+                    "Split position %",
                     ctrl,
                     action,
-                    0..=9999,
+                    0..=100,
                     None,
-                    100,
+                    cobolt_forms::splitter::DEFAULT_SPLIT_PERCENT as i64,
                 );
+                color_row(ui, id, "LineColor", ctrl, action);
+                int_prop_row(
+                    ui,
+                    id,
+                    "LineSize",
+                    "Line size",
+                    ctrl,
+                    action,
+                    1..=40,
+                    None,
+                    cobolt_forms::splitter::DEFAULT_LINE_SIZE as i64,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "GripStyle",
+                    ctrl,
+                    action,
+                    &cobolt_forms::splitter::GripStyle::ALL,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "GripSize",
+                    "Grip size",
+                    ctrl,
+                    action,
+                    0..=400,
+                    None,
+                    cobolt_forms::splitter::DEFAULT_GRIP_SIZE as i64,
+                );
+                color_row(ui, id, "GripColor", ctrl, action);
                 color_row(ui, id, "BorderColor", ctrl, action);
                 ui.add_space(4.0);
             }

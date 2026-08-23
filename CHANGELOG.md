@@ -1,5 +1,68 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.164] — 2026-08-23
+
+Two defects from the operator, both reported against 1.61.163.
+
+### Fixed — the Splitter was the wrong control
+
+Reported as "splitter still not working properly", with the specification of
+what it should have been all along. 1.61.163 made the old model *draggable*;
+this replaces the model.
+
+A Splitter is now **a themed panel divided in two**, and the two halves are
+real controls: dropping one creates `<id>-Pane1` and `<id>-Pane2`, borderless
+transparent Panels parented to the splitter. They appear in the tree, they are
+selectable and styleable, and they are drop targets — everything a Panel is,
+because they *are* Panels. Their geometry is derived from one number,
+`SplitPosition`, and re-derived every frame, so nothing can drift out of step
+with the line.
+
+- **`Orientation` now names the pane arrangement, not the line.** `Horizontal`
+  = pane 1 left, pane 2 right (a vertical division line); `Vertical` = pane 1
+  top, pane 2 bottom. This is the **opposite** of what it meant before: a form
+  saved with a Splitter opens with its panes the other way round. Deliberate,
+  and not silently migrated — a rewrite of a saved layout is worse than a
+  documented one-time flip.
+- **`SplitPosition` is a percentage (0–100), not a pixel offset**, so the
+  division survives a resize. A splitter saved before this loses its old pixel
+  value, which has no meaning as a percentage: it opens centred, and a splitter
+  still at the old 200×8 bar size — a size no pane fits in — is opened out to
+  the size a Splitter is dropped at now.
+- **The line is draggable along its whole length**, not just at the grip; the
+  pointer becomes a grab hand over it, closes while dragging, and a
+  **double-click re-centres** the division. Canvas and running form share one
+  renderer and one hit test, so what you drag is what was drawn.
+- **0 % and 100 % are reachable.** One pane closes entirely and the grip is
+  clipped by the splitter's edge, leaving the inner half visible to drag back
+  with — clipping, not a special case, so there is no position where it escapes
+  over a neighbour.
+- New properties: `LineColor`, `LineSize`, `GripStyle` (`FilledPill`,
+  `HollowPill`, `FilledCircle`, `HollowCircle`), `GripSize`, `GripColor`. Empty
+  colours follow the form theme, and the panel face follows it too until
+  `BackgroundColor` / `BorderStyle` / `BorderColor` say otherwise — the splitter
+  used to paint an opaque `#F0F0F0` slab that ignored the theme entirely.
+
+Gone with the old model: `splitter_neighbours` (the guess about which sibling
+controls were a bar's "panes"), the `MinimumSize` clamp that made the extremes
+unreachable, and the two extra parameters it needed threading through the
+render path.
+
+### Fixed — a Timer could not be turned off, at design time or from COBOL
+
+`Enabled` means two different things: the chrome flag every control has, and —
+on a Timer — the control's own on/off switch, which is what the runtime reads
+and what codegen seeds `WS-<timer>-ENABLED` from. Every write went to the
+chrome flag. So the inspector's **Enabled at start** checkbox displayed the
+property and wrote the field, and looked simply unclickable (operator: "timers
+do not allow to disable the property Enabled at start") — and, worse and
+unreported, `SET Timer-1::Enabled TO 0` from a running handler did nothing
+either: the timer kept firing.
+
+Both paths now write the property when the control owns one, and keep the
+chrome flag in step so the two can never disagree.
+
+
 ## [PowerRustCOBOL 1.61.163] — 2026-08-22
 
 Four defects from the operator, all reported against 1.61.162.

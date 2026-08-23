@@ -2520,7 +2520,9 @@ impl ControlType {
             ControlType::DateTimePicker => (200, 24),
             ControlType::NumericUpDown => (120, 24),
             ControlType::TreeView => (200, 200),
-            ControlType::Splitter => (200, 8),
+            // A panel holding two panes, not a bar between two controls: it is
+            // dropped at a size you can actually put something into.
+            ControlType::Splitter => (320, 220),
             ControlType::Timer => (48, 48),
             ControlType::Shape => (120, 80),
             ControlType::AgentObject => (56, 56),
@@ -4452,10 +4454,34 @@ impl Control {
                 props.insert("HotTrackColor".into(), PropValue::String("".into()));
             }
             ControlType::Splitter => {
+                // A Splitter is a PANEL divided in two, so it carries a panel's
+                // frame properties and follows the form theme until they are
+                // set — `Orientation` names the pane arrangement, not the line:
+                // Horizontal ⇒ pane 1 left, pane 2 right.
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into()));
-                props.insert("MinimumSize".into(), PropValue::Int(25));
-                props.insert("SplitPosition".into(), PropValue::Int(100));
+                props.insert("BorderStyle".into(), PropValue::String("Single".into()));
                 props.insert("BorderColor".into(), PropValue::String("#CCCCCC".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
+                // Where the division sits, as a PERCENTAGE of the inner span.
+                // A percentage survives the splitter being resized; the raw
+                // pixel offset this used to hold did not.
+                props.insert(
+                    "SplitPosition".into(),
+                    PropValue::Int(crate::splitter::DEFAULT_SPLIT_PERCENT as i64),
+                );
+                // The division line and its grip. Empty colours = the form
+                // theme's own rule colour, overridable per splitter.
+                props.insert("LineColor".into(), PropValue::String("".into()));
+                props.insert(
+                    "LineSize".into(),
+                    PropValue::Int(crate::splitter::DEFAULT_LINE_SIZE as i64),
+                );
+                props.insert("GripStyle".into(), PropValue::String("FilledPill".into()));
+                props.insert(
+                    "GripSize".into(),
+                    PropValue::Int(crate::splitter::DEFAULT_GRIP_SIZE as i64),
+                );
+                props.insert("GripColor".into(), PropValue::String("".into()));
             }
             ControlType::Timer => {
                 props.insert("Interval".into(), PropValue::Int(1000)); // milliseconds
@@ -5200,6 +5226,16 @@ impl Control {
                 .get_prop(SIDE_MENU_FOOTER_PROP)
                 .map(|v| v.as_bool())
                 .unwrap_or(false)
+    }
+
+    /// Is this one of the two Panels a Splitter owns — pane 1 or pane 2?
+    ///
+    /// Like the SideMenu's footer, it is a normal container to the developer
+    /// (selectable, styleable, a drop target) but the splitter owns where it
+    /// sits and how big it is: the division decides that, so the designer will
+    /// not let it be dragged away from its half.
+    pub fn is_splitter_pane(&self) -> bool {
+        crate::splitter::pane_index(self).is_some()
     }
 
     pub fn set_prop(&mut self, name: impl Into<String>, value: impl Into<PropValue>) {
@@ -6105,6 +6141,50 @@ impl Form {
             // footer Panel stays recognisable after a rename or a reload.
             p.set_prop(SIDE_MENU_FOOTER_PROP, true);
             self.controls.push(p);
+        }
+    }
+
+    /// Every Splitter owns two Panels — pane 1 and pane 2 — and this is what
+    /// creates and pins them.
+    ///
+    /// The panes are the developer's: they drop controls into them and style
+    /// them through the ordinary inspector. What they do NOT own is the
+    /// geometry — the division line decides that — so the rects are re-derived
+    /// here every frame rather than being dragged around. Idempotent, and the
+    /// one call site is what makes the panes follow a `SplitPosition` edit, a
+    /// splitter resize and an `Orientation` flip without any of those knowing
+    /// about it.
+    ///
+    /// Seeded borderless and transparent: a pane is a place to put controls,
+    /// not a second frame drawn inside the splitter's own.
+    pub fn sync_splitter_panes(&mut self) {
+        let splitters: Vec<(String, crate::splitter::Geometry)> = self
+            .controls
+            .iter()
+            .filter(|c| c.control_type == ControlType::Splitter)
+            .map(|c| (c.id.clone(), crate::splitter::geometry(c, c.rect)))
+            .collect();
+
+        for (sid, g) in splitters {
+            for (n, pinned) in [(1u8, g.pane1), (2u8, g.pane2)] {
+                let pid = crate::splitter::pane_id(&sid, n);
+                if let Some(p) = self.controls.iter_mut().find(|c| c.id == pid) {
+                    p.rect = pinned;
+                    p.parent = Some(sid.clone());
+                    continue;
+                }
+                let mut p = Control::new(&pid, ControlType::Panel, pinned.x, pinned.y);
+                p.rect = pinned;
+                p.parent = Some(sid.clone());
+                // The marker the designer's locks and both renderers key off,
+                // so a pane stays recognisable after a rename or a reload.
+                p.set_prop(crate::splitter::PANE_PROP, n as i64);
+                p.set_prop("BorderStyle", "None");
+                p.set_prop("BorderWidth", 0i64);
+                p.set_prop("HideBackground", true);
+                p.set_prop("Transparency", 100i64);
+                self.controls.push(p);
+            }
         }
     }
 
