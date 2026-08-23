@@ -1,5 +1,180 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.162] — 2026-08-22
+
+### Fixed — a Splitter was one colour on the canvas and another running
+
+The run-form arm hard-coded a slate-blue `rgb(60, 66, 96)`; the designer canvas
+drew the control's own light grey. The same splitter was two different colours
+depending on where you looked at it — and neither of them was the one the
+developer chose, because `BackgroundColor` reached the canvas and never reached
+the running form.
+
+It now goes through `draw_control` like every other face here, so the designed
+background, border and corner radius all arrive. The grip dots take the theme's
+own rule colour instead of a fixed pale blue that only ever suited the
+hard-coded face it sat on.
+
+> **Still outstanding — the Splitter does not yet split anything.** It paints,
+> it can be selected and moved at design time, and that is all: dragging it at
+> run time does not move it, and it does not resize anything on either side of
+> it. Finishing it needs a decision that is the operator's, not the agent's:
+>
+> 1. **A bar between neighbours.** Dragging it resizes the two controls whose
+>    edges touch it. This is what the seeded properties already describe — the
+>    default size is 200×8, which is a rule, not a pane — and it matches what
+>    the audience knows from PowerCOBOL and isCOBOL. It also means a control
+>    can move controls the developer placed, which wants care.
+> 2. **A real two-pane container.** `is_container()` grows to include it,
+>    children are assigned to a pane (the way a TabControl uses `Tab`), and
+>    `SplitPosition` divides its own rect. Cleaner ownership, but it contradicts
+>    the 8px default and is a much larger change across drop targeting,
+>    clipping and codegen.
+>
+> Whichever wins, the plumbing comes first: `render_interactive` receives a
+> single control **re-based to `(0,0,w,h)`** and no sibling list, so it cannot
+> currently see either its own design position or its neighbours'.
+
+## [PowerRustCOBOL 1.61.161] — 2026-08-22
+
+### Added — an icon is PICKED in the inspector, not spelled
+
+The TreeView's three icon rows offered a text field. An icon was a name you had
+to know and type — `folder-open`, spelled right, out of a catalogue of 660-odd
+— with a typo costing you the icon and nothing on screen saying what was on
+offer. Each row now carries a **…** button that opens the catalogue and a **✕**
+that clears it.
+
+- The picker was lifted out of `toolbar_editor.rs`, where it was a private
+  modal with three fields of its own. That is exactly why the properties pane
+  had none: there was nothing to call. It is now
+  `panels::icon_picker`, and the toolbar editor calls it too — one catalogue,
+  one search box, one behaviour.
+- **One state per pane, not per row.** It carries which row is being picked
+  *for* and hands that key back with the choice, so three icon rows need one
+  picker rather than three.
+- **✕ writes EMPTY, not the built-in name.** Empty means "the platform's own",
+  so a cleared row follows the default if it ever changes instead of freezing
+  today's answer into the `.cfrm`.
+- Every open takes a fresh window id: re-showing under an id egui already holds
+  geometry for reopens the window wherever it was last dragged, which — if that
+  was off-screen — reads as the picker not opening at all.
+
+**Left in place:** `properties.rs::icon_preview` is now unreferenced. It is
+superseded by `icon_picker::preview_row`, but user code is never deleted for
+being unused — flagging it rather than removing it.
+
+## [PowerRustCOBOL 1.61.160] — 2026-08-22
+
+### Added — the TreeView scrolls instead of dropping what does not fit
+
+A tree taller than its control dropped the overflow on the floor. The nodes
+existed, `NodeCount` counted them, a handler could walk to them — and nothing
+on the screen could reach them. Three ways to move it, no property for any:
+
+- the **wheel**, while the pointer is over the tree — claimed only when the
+  tree can actually scroll, so a short tree inside a scrolling Panel does not
+  swallow the Panel's wheel;
+- a **drag** anywhere on it. The rows sense `click_and_drag`, so a click still
+  selects and egui tells the two apart — cheaper than a full-control drag layer
+  fighting the rows for the pointer;
+- **Up / Down / Home / End** once the tree has focus (a click gives it, through
+  the same after-the-rows `interact` the DataGrid uses so a row click stays the
+  row's). The selection steps through every row the tree SHOWS, including rows
+  scrolled out of sight — stepping through the laid-out rows would stop it dead
+  at the viewport edge, which is exactly when it needs to drag the view with it
+  — and `scroll_to_row` moves the view **only as far as it must**.
+
+- A row that straddles an edge is now **kept and clipped** rather than dropped
+  whole, so the tree slides instead of jumping a row at a time; `paint` clips to
+  the control, which is what keeps the other half off the form.
+- `max_scroll` is measured against the rows the tree SHOWS (`visible_nodes`, now
+  shared with the layout), so folding a branch shortens what there is to scroll.
+- The offset lives in egui's memory keyed by the control, **not** in a property:
+  where an operator scrolled to is view state and has no business in a saved
+  `.cfrm`.
+
+⚠️ **Baseline re-blessed** (`elegance_baseline_reports_untouched_paths`, +23 on
+all eight rows). The fixture tiles controls at 130×70 and its tree is four rows
+at 18pt from y=12, so `Node 2` sat at 57..75 and was thrown away for the 5pt
+that hung over. It is drawn now, and being the fixture's second root it also
+earns the root spine its `roots.len() > 1`. +23 = that row's label and
+`doc-text` icon (a vector, ten-odd leaves) plus the spine's vertical and two
+elbows. Both themes moved identically in every style — one control, not the seam.
+
+## [PowerRustCOBOL 1.61.159] — 2026-08-22
+
+### Added — a handler can walk the tree, and a node can dress itself
+
+Operator: "node needs a way to access its parent and or sibling nodes so we can
+traverse the tree… how do I access the node properties?"
+
+1.61.158 told a handler **which** node fired. It could not tell it where that
+node sat. Every call below takes the node's **index** — the same
+`CONTROL-NODE-INDEX` the event already delivers — and the traversal calls
+*return* an index, so they chain:
+
+```cobol
+       MOVE TREE-1::NodeParent(CONTROL-NODE-INDEX) TO WS-IDX.
+       MOVE TREE-1::NodeFirstChild(CONTROL-NODE-INDEX) TO WS-IDX.
+       PERFORM UNTIL WS-IDX < 0
+           MOVE TREE-1::NodeText(WS-IDX) TO WS-NAME
+           MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
+       END-PERFORM.
+```
+
+- **Traversal:** `NodeParent`, `NodeFirstChild`/`NodeLastChild`,
+  `NodeNextSibling`/`NodePrevSibling`, `NodeChildCount`, `NodeHasChildren`.
+  `-1` = no such node, which is what ends a walk. A sibling walk never descends
+  into children and never escapes into the next parent.
+- **Reading a node:** `NodeText`/`NodeName`, `NodePath` (`Root/Child/Leaf`),
+  `NodeLevel`, `NodeIcon`, `NodeColor`, `NodeBackColor`, plus `NodeChecked` and
+  `NodeCollapsed`, which read the control's LIVE `CheckedNodes`/`CollapsedNodes`
+  rather than the node's line. `NodeCount` and `NodeIndexOf` get you a handle.
+- **No node object**, deliberately. A handle you kept would go stale the moment
+  `Items` changed under it; an index is re-read against whatever the tree holds
+  now. Asking about a node that is not there answers *empty* rather than
+  raising — a walk runs off the end of a tree by design, so the `-1` is the
+  guard, not an error every loop would have to trap.
+- **`AddNode(level, text [, icon, color, background])`** builds a tree from
+  COBOL. `AddItem` cannot: it trims its argument (a `PIC X` field arrives
+  space-padded) and a node's level IS leading spaces, so an indented literal
+  could never have made a child. A number says what two spaces only imply.
+- **A node dresses itself.** An `Items` line is now
+  `label ⇥ icon ⇥ colour ⇥ background`; every field is optional and an empty one
+  means "as the tree draws it". The row colour paints UNDER the selection band,
+  so a coloured row still shows when it is selected.
+- The tree's parse and its family links moved to `cobolt-forms::treenodes`,
+  outside the `render` feature, so the interpreter answers `NodeParent` without
+  egui — and answers it from the same parse the canvas draws from, rather than
+  from a second parser that would have drifted the first time either changed.
+
+⚠️ New method names must also be listed in `is_known_method`: an unlisted name
+parses its parentheses as a **collection subscript** instead of a call, so
+`TV::NodeParent(3)` would have silently meant "element 3 of NodeParent".
+
+### Added — the TreeView's tick box is dressed like a CheckBox
+
+The box was three numbers nailed into the painter — a black-alpha well, a 1px
+rim in the node ink, a tick at 28 % of the box — and the inspector offered only
+its *size*. It now wears the **same five properties a CheckBox wears**, reading
+the same keys and drawing the same tick mark: `CheckBoxColor`,
+`CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth`,
+`CheckColor`, `CheckSize`.
+
+- Borrowed, not invented: `paint::user_checkbox_color` is the shared reader, and
+  the rim goes through the shared `draw_control_border`, so `Single` / `Double` /
+  `Dashed` / `None` mean here exactly what they mean on every control frame —
+  and `None` is how the rim switches off.
+- Every default is chosen so an existing tree does not move: empty fill keeps
+  the recessed well, empty ink follows the node text (the rule `IconColor`
+  already set), and the rim is seeded to the `Single` 1px the box always had.
+- **`CheckBoxSize` is the box in points; `CheckSize` is the tick's share of that
+  box, 0-100** — the same split the CheckBox makes.
+
+Tests: `treenodes` (7), `treeview` tick-box paint (3), `test_treeview_nodes` (6,
+end-to-end from COBOL). System KB + Developer's Guide updated.
+
 ## [PowerRustCOBOL 1.61.158] — 2026-08-22
 
 ### Added — a node event tells the handler which node fired

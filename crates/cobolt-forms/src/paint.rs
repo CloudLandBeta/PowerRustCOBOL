@@ -414,7 +414,10 @@ fn button_content_layout(
     (text_pos, Some(image_rect))
 }
 
-fn draw_control_border(
+/// Shared so the TreeView's tick box gets the same rim vocabulary — Single,
+/// Double, Dashed, None — as every control frame, rather than a private stroke
+/// that only ever knew one style.
+pub(crate) fn draw_control_border(
     painter: &egui::Painter,
     rect: Rect,
     rounding: egui::CornerRadius,
@@ -15806,15 +15809,33 @@ mod elegance_baseline_tests {
         // catalogue icon is a VECTOR, ten-odd shapes each, not one glyph. Both
         // themes moved identically, which is what says one control moved rather
         // than the seam — no pack here skins a tree.
+        // Re-blessed in 1.61.160: the TreeView SCROLLS, and a row that straddles
+        // an edge is now kept and clipped instead of being dropped whole. The
+        // old rule discarded a row the moment its BOTTOM passed the control's
+        // edge, however much of it was visible; the new one keeps anything that
+        // overlaps, because dropping it would make a scrolling tree jump a row
+        // at a time instead of sliding.
+        //
+        // The fixture tiles every control at 130x70, and its tree is four rows
+        // at 18pt pitch from y=12 — so the fourth, `Node 2`, sat at 57..75 and
+        // was thrown away for the 5pt that hung over. It is drawn now, and it
+        // is the fixture's SECOND root, which also earns the root spine its
+        // `roots.len() > 1` (one vertical + two elbows — before, there was one
+        // root laid out and no spine at all).
+        //
+        // Every row moved by exactly +23 — that row's label and its `doc-text`
+        // icon (a vector, ten-odd leaves) plus those three spine segments. Both
+        // themes in every style moved identically, which is what says one
+        // control moved and not the seam: no pack here skins a tree.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1414),
-            ("asset-pack", GS::Classic, 1236),
-            ("liquid-glass", GS::Enhanced, 1514),
-            ("asset-pack", GS::Enhanced, 1310),
-            ("liquid-glass", GS::Neumorphic, 609),
-            ("asset-pack", GS::Neumorphic, 625),
-            ("liquid-glass", GS::NeumorphicDark, 609),
-            ("asset-pack", GS::NeumorphicDark, 625),
+            ("liquid-glass", GS::Classic, 1437),
+            ("asset-pack", GS::Classic, 1259),
+            ("liquid-glass", GS::Enhanced, 1537),
+            ("asset-pack", GS::Enhanced, 1333),
+            ("liquid-glass", GS::Neumorphic, 632),
+            ("asset-pack", GS::Neumorphic, 648),
+            ("liquid-glass", GS::NeumorphicDark, 632),
+            ("asset-pack", GS::NeumorphicDark, 648),
         ];
         for (theme, gs, want) in expected {
             let got = rows

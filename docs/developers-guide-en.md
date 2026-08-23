@@ -1806,6 +1806,13 @@ designer canvas, the preview, Run Form and the compiled binary.
 >   Bolts	wrench
 > ```
 >
+> Since 1.61.161 you **pick** those three rather than spelling them: each row
+> in the inspector carries a **…** button that opens the icon catalogue — the
+> same one the toolbar editor uses — and a **✕** that clears the row back to
+> the platform's own default. Clearing writes *empty*, not today's default
+> name, so the row keeps following the platform rather than freezing an answer
+> into the `.cfrm`.
+>
 > Nodes that name none take **Folder icon (shut)** / **(open)** / **Leaf icon**
 > — `folder`, `folder-open` and `doc-text` by default, so a tree looks like a
 > tree untouched. **Show icons** turns the column off and the labels reclaim the
@@ -1846,6 +1853,106 @@ designer canvas, the preview, Run Form and the compiled binary.
 > boxes). This is the platform's second event payload, alongside
 > `CONTROL-ARRAY-INDEX` — before 1.61.158 a handler for `onNodeCheck`,
 > `onNodeCollapse` or `onNodeExpand` had no way to tell which node had moved.
+>
+> **Walking the tree, since 1.61.159.** Knowing which node fired is half of it;
+> the other half is finding your way from there. `CONTROL-NODE-INDEX` **is the
+> node's handle** — every call below takes it, and the traversal calls *return*
+> one, so they chain:
+>
+> ```cobol
+>       *> Climb from the node that fired to the one it hangs under.
+>            MOVE TREE-1::NodeParent(CONTROL-NODE-INDEX) TO WS-IDX
+>            IF WS-IDX >= 0
+>                MOVE TREE-1::NodeText(WS-IDX) TO WS-PARENT-NAME
+>            END-IF
+>
+>       *> Run along everything under it — and no further.
+>            MOVE TREE-1::NodeFirstChild(CONTROL-NODE-INDEX) TO WS-IDX
+>            PERFORM UNTIL WS-IDX < 0
+>                MOVE TREE-1::NodeText(WS-IDX) TO WS-NAME
+>                DISPLAY "child: " WS-NAME
+>                MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
+>            END-PERFORM
+> ```
+>
+> **`-1` means there is no such node** — no parent above a root, no sibling past
+> the last one — which is what ends the loop. A sibling walk never descends into
+> children and never escapes into the next parent.
+>
+> | Call | Answers |
+> |---|---|
+> | `NodeParent(i)` | the node it hangs under, `-1` on a root |
+> | `NodeFirstChild(i)` / `NodeLastChild(i)` | its first / last direct child |
+> | `NodeNextSibling(i)` / `NodePrevSibling(i)` | the next / previous node at the same level, same parent |
+> | `NodeChildCount(i)` / `NodeHasChildren(i)` | direct children only — grandchildren are not children |
+> | `NodeText(i)` / `NodePath(i)` / `NodeLevel(i)` | its label, its `Root/Child/Leaf` path, its depth |
+> | `NodeIcon(i)` / `NodeColor(i)` / `NodeBackColor(i)` | what the node itself carries |
+> | `NodeChecked(i)` / `NodeCollapsed(i)` | `1`/`0`, read from the live `CheckedNodes` / `CollapsedNodes` |
+> | `NodeCount()` / `NodeIndexOf(text)` | how many nodes; the handle for a label you already know |
+>
+> There is deliberately **no node object to hold**. A handle you kept would go
+> stale the moment `Items` changed under it; an index is simply re-read against
+> whatever the tree holds now. For the same reason, asking about a node that is
+> not there answers *empty* rather than raising — a walk runs off the end of a
+> tree by design, and the `-1` is the guard, not an error every loop would have
+> to trap.
+>
+> **Building a tree from COBOL:** use `AddNode`, **not** `AddItem`.
+>
+> ```cobol
+>            TREE-1::AddNode(0, "Warehouse")
+>            TREE-1::AddNode(1, "Inbound")
+>            TREE-1::AddNode(2, "Dock A")
+> ```
+>
+> ⚠️ `AddItem` **trims its argument** — it has to, because a `PIC X` field
+> arrives padded with spaces — and a node's level *is* leading spaces, so an
+> indented literal could never have built a child. `AddNode` takes the level as
+> a number, which says what a pair of spaces only implies.
+>
+> **A node can dress itself, since 1.61.159.** An `Items` line is `label`, then
+> up to three TAB-separated fields of its own:
+>
+> ```text
+> label ⇥ icon ⇥ colour ⇥ background
+> ```
+>
+> So `Overdue⇥⇥#C81E1E` is a node written in red with its icon left to the tree
+> — every field is optional, and an empty one means "as the tree draws it". The
+> row colour paints **under** the selection band, so a coloured row still shows
+> when it is the selected one. `AddNode` writes these too:
+> `TREE-1::AddNode(1, "Overdue", "alert", "#C81E1E", " ")`.
+>
+> **The tick box is dressed like a CheckBox, since 1.61.159.** It wears the same
+> five properties, meaning the same things: **Box colour**, **Box border** (with
+> its colour and width), **Tick colour** and **Tick size %** — and it draws the
+> same tick mark. Before this it was a black well, a 1px rim and a tick at 28 %
+> of the box: three numbers in the painter, none of them reachable.
+>
+> > **Note.** **Checkbox size** is the box, in points; **Tick size %** is how
+> > much of that box the tick fills. That is the same split a CheckBox makes,
+> > where the box comes from the font and only the tick has a percentage.
+>
+> **It scrolls, since 1.61.160.** A tree taller than the control you drew used
+> to drop the overflow on the floor — the nodes were there, and nothing could
+> reach them. Three ways to move it, and you need no property for any of them:
+>
+> - the **wheel**, while the pointer is over the tree;
+> - a **drag** anywhere on it (a click still selects — the two are told apart
+>   by whether the pointer moved);
+> - **Up / Down / Home / End** once it has focus, which a click gives it. The
+>   selection steps through every row the tree shows, including the ones
+>   scrolled out of sight, and the view follows **only as far as it must** to
+>   bring the new row on screen.
+>
+> A row that straddles an edge is drawn and clipped rather than dropped, so the
+> tree slides instead of jumping a row at a time — and that half-row is how the
+> operator knows there is more below.
+>
+> > **Note.** How far a tree can scroll is measured against the rows it *shows*,
+> > so folding a branch shortens it. And there is deliberately **no scroll
+> > property**: where an operator has scrolled to is view state, not design, and
+> > it is not written to the `.cfrm`.
 >
 > **A row never shrinks below what it holds.** `RowHeight` is a floor, so
 > growing **Icon size** or **Checkbox size** grows the row with it instead of

@@ -4420,6 +4420,32 @@ impl Control {
                 props.insert("NodeSpacing".into(), PropValue::Int(0));
                 props.insert("IndentWidth".into(), PropValue::Int(16));
                 props.insert("CheckBoxSize".into(), PropValue::Int(12));
+                // The tick box's own dress — the SAME five keys a CheckBox
+                // carries, so a developer who has styled one has styled both.
+                // Borrowed rather than invented: `TreeCheckFill` and friends
+                // would have been a second vocabulary for one widget.
+                //
+                // `CheckBoxSize` is the box's SIZE IN POINTS and `CheckSize` is
+                // how much of that box the tick fills, 0-100 — the same split
+                // the CheckBox already makes, where the box is sized from the
+                // font and only the tick has a percentage.
+                //
+                // Every one is seeded so that an existing tree does not move:
+                // empty fill keeps the recessed well, empty ink follows the
+                // node text (the tree's own rule, as `IconColor` already does),
+                // and the rim is seeded to the Single 1px the box has always
+                // been drawn with — now with a style property that can turn it
+                // off, which is exactly what the frame's own `BorderStyle` was
+                // added for.
+                props.insert("CheckBoxColor".into(), PropValue::String("".into()));
+                props.insert(
+                    "CheckBoxBorderStyle".into(),
+                    PropValue::String("Single".into()),
+                );
+                props.insert("CheckBoxBorderColor".into(), PropValue::String("".into()));
+                props.insert("CheckBoxBorderWidth".into(), PropValue::Int(1));
+                props.insert("CheckColor".into(), PropValue::String("".into()));
+                props.insert("CheckSize".into(), PropValue::Int(70));
                 // Empty = the theme's focus colour at the weight a band has
                 // always had, and half that for the hot-track.
                 props.insert("SelectionColor".into(), PropValue::String("".into()));

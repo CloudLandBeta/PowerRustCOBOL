@@ -18,6 +18,7 @@ pub mod doc_viewer;
 pub mod editor;
 pub mod external_crates;
 pub mod forms_list;
+pub mod icon_picker;
 pub mod grace_chat;
 pub mod indexed_editor;
 pub mod indexed_field_control;

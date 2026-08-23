@@ -6924,7 +6924,30 @@ fn render_interactive(
             // caption "[TreeView]" and nothing else on the canvas (operator,
             // 2026-08-22: "treeview not working / content not rendered").
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let rows = crate::treeview::layout(ctrl, screen);
+            // ── Scrolling ────────────────────────────────────────────────
+            //
+            // A tree taller than its control used to simply DROP the overflow
+            // on the floor — the nodes existed, and there was no way to reach
+            // them. The offset is view state, not design state, so it lives in
+            // egui's memory keyed by the control rather than becoming a
+            // property: nothing about how far a operator has scrolled belongs
+            // in the saved `.cfrm`.
+            let scroll_id = ctrl_id.with("tv-scroll");
+            let mut scroll = ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<f32>(scroll_id))
+                .unwrap_or(0.0);
+            let scrollable = crate::treeview::max_scroll(ctrl, screen) > 0.0;
+            // The WHEEL, while the pointer is over the tree. Claimed only when
+            // the tree can actually scroll, so a short tree inside a scrolling
+            // Panel does not swallow the Panel's wheel.
+            if scrollable && ui.rect_contains_pointer(screen) {
+                let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+                if wheel != 0.0 {
+                    scroll -= wheel;
+                }
+            }
+            let rows = crate::treeview::layout_at(ctrl, screen, scroll);
             let selected = sv(ctrl, "SelectedNode");
             let checked: Vec<String> = sv(ctrl, "CheckedNodes")
                 .lines()
@@ -6948,11 +6971,18 @@ fn render_interactive(
                 .map(str::to_owned)
                 .collect();
             for row in &rows {
+                // `click_and_drag`, so a DRAG anywhere on the tree scrolls it
+                // while a click still selects — egui already tells the two
+                // apart, so this costs the rows nothing and saves a
+                // full-control drag layer fighting them for the pointer.
                 let resp = ui.interact(
                     row.rect,
                     ctrl_id.with(("tv-node", row.index)),
-                    Sense::click(),
+                    Sense::click_and_drag(),
                 );
+                if scrollable && resp.dragged() {
+                    scroll -= resp.drag_delta().y;
+                }
                 if hot && resp.hovered() {
                     hovered = Some(row.index);
                 }
@@ -7025,6 +7055,71 @@ fn render_interactive(
                         .push(UiEvent::with_value(id, "onNodeDoubleClick", &node_payload(row, &checked_after)));
                 }
             }
+            // ── Keyboard ─────────────────────────────────────────────────
+            //
+            // Registered AFTER the rows, so a click on a row is the row's and
+            // only the leftover surface takes focus — the same order the
+            // DataGrid uses for the same reason.
+            let tree_focus = ui.interact(screen, ctrl_id.with("tv-focus"), Sense::click());
+            if tree_focus.clicked() {
+                tree_focus.request_focus();
+            }
+            if enabled && tree_focus.has_focus() {
+                // Stepping through every row the tree SHOWS, not through the
+                // rows currently laid out: the selection has to be able to
+                // leave the viewport, because that is what drags the view.
+                let labels = crate::treeview::visible_labels(ctrl);
+                let (up, down, home, end) = ui.input(|i| {
+                    (
+                        i.key_pressed(egui::Key::ArrowUp),
+                        i.key_pressed(egui::Key::ArrowDown),
+                        i.key_pressed(egui::Key::Home),
+                        i.key_pressed(egui::Key::End),
+                    )
+                });
+                if !labels.is_empty() && (up || down || home || end) {
+                    let at = labels.iter().position(|l| *l == selected);
+                    let next = if home {
+                        0
+                    } else if end {
+                        labels.len() - 1
+                    } else {
+                        match (at, up) {
+                            // Nothing selected yet: the first press lands on an
+                            // end rather than doing nothing, so a tree is
+                            // reachable from the keyboard alone.
+                            (None, true) => labels.len() - 1,
+                            (None, false) => 0,
+                            (Some(i), true) => i.saturating_sub(1),
+                            (Some(i), false) => (i + 1).min(labels.len() - 1),
+                        }
+                    };
+                    if at != Some(next) {
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "SelectedNode".to_owned(),
+                            labels[next].clone(),
+                        ));
+                        // The same payload a click sends, so a handler cannot
+                        // tell how the node was reached — and should not have to.
+                        if let Some(row) = rows.iter().find(|r| r.text == labels[next]) {
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onNodeSelect",
+                                &node_payload(row, &checked_after),
+                            ));
+                        }
+                    }
+                    // The view follows only as far as it must to show the row.
+                    scroll = crate::treeview::scroll_to_row(ctrl, screen, next, scroll);
+                }
+            }
+            // One write, at the end, of whatever the wheel, the drag and the
+            // keys left — held inside what there is to scroll, so a flick past
+            // either end does not bank an offset the tree has to unwind later.
+            let settled = crate::treeview::clamp_scroll(ctrl, screen, scroll);
+            ui.ctx()
+                .memory_mut(|m| m.data.insert_temp(scroll_id, settled));
             crate::treeview::paint(
                 &painter,
                 ctrl,
@@ -7039,18 +7134,27 @@ fn render_interactive(
             );
         }
         CT::Splitter => {
+            // The DESIGNED face, through the shared painter — the same rule the
+            // ListBox and the TreeView follow here.
+            //
+            // This arm hard-coded a slate-blue `rgb(60, 66, 96)` while the
+            // designer canvas drew the control's own light grey, so the same
+            // splitter was two different colours depending on where you looked
+            // at it — and neither of them was the one the developer chose:
+            // `BackgroundColor` reached the canvas and not the running form.
             let horiz = !sv(ctrl, "Orientation").starts_with('V');
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(60, 66, 96),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-                paint::SurfaceRole::Card,
-            );
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // The grip, in the theme's own rule colour rather than a fixed pale
+            // blue that only ever suited the hard-coded face it sat on.
             let c = screen.center();
-            let dot = Color32::from_rgba_premultiplied(200, 210, 240, 160);
+            let dot = paint::theme_token(ui.ctx(), crate::surface_theme::ColorToken::Border)
+                .unwrap_or(Color32::from_rgba_premultiplied(200, 210, 240, 160));
+            let dot = Color32::from_rgba_premultiplied(
+                dot.r(),
+                dot.g(),
+                dot.b(),
+                (dot.a() as f32 * alpha) as u8,
+            );
             for k in -1..=1 {
                 let p = if horiz {
                     pos2(c.x + k as f32 * 5.0, c.y)
