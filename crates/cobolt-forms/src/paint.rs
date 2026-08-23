@@ -3124,8 +3124,12 @@ fn draw_control_body(
                           stroke_w: f32,
                           start_deg: f32,
                           sweep_deg: f32,
-                          frac: f32,
-                          fill: Color32,
+                          // The filled arc as `(from, to, colour)` spans of the
+                          // sweep. One span for a plain meter; one PER ZONE for
+                          // a gauge with thresholds, so the fill keeps each
+                          // threshold's colour along its own stretch instead of
+                          // taking the current zone's for the whole length.
+                          runs: &[(f32, f32, Color32)],
                           track: Color32| {
             let segments = 48.max((sweep_deg.abs() / 4.0) as usize);
             let pt = |deg: f32| -> Pos2 {
@@ -3136,11 +3140,15 @@ fn draw_control_body(
                 .map(|i| pt(start_deg + sweep_deg * (i as f32 / segments as f32)))
                 .collect();
             painter.add(egui::Shape::line(track_pts, Stroke::new(stroke_w, track)));
-            if frac > 0.001 {
-                let fill_sweep = sweep_deg * frac.clamp(0.0, 1.0);
-                let fill_segments = 48.max((fill_sweep.abs() / 4.0) as usize).max(1);
-                let fill_pts: Vec<Pos2> = (0..=fill_segments)
-                    .map(|i| pt(start_deg + fill_sweep * (i as f32 / fill_segments as f32)))
+            for &(from, to, fill) in runs {
+                if to - from <= 0.001 {
+                    continue;
+                }
+                let run_sweep = sweep_deg * (to - from);
+                let run_start = start_deg + sweep_deg * from;
+                let run_segments = 48.max((run_sweep.abs() / 4.0) as usize).max(1);
+                let fill_pts: Vec<Pos2> = (0..=run_segments)
+                    .map(|i| pt(run_start + run_sweep * (i as f32 / run_segments as f32)))
                     .collect();
                 painter.add(egui::Shape::line(fill_pts, Stroke::new(stroke_w, fill)));
             }
@@ -3184,6 +3192,16 @@ fn draw_control_body(
                     None if !color_prop.is_empty() => parse_color(&color_prop),
                     None => user_fg.unwrap_or_else(|| accent_color("Blue")),
                 });
+                // The fill, run by run: one span per zone the reading has passed
+                // through, or a single span in the meter's own colour when the
+                // developer set no thresholds.
+                let fill_runs: Vec<(f32, f32, Color32)> = match gauge_zone_runs(ctrl, frac) {
+                    Some(runs) => runs
+                        .into_iter()
+                        .map(|(from, to, c)| (from, to, alpha_color(c)))
+                        .collect(),
+                    None => vec![(0.0, frac, fill)],
+                };
                 let track = alpha_color(
                     user_background_color(ctrl).unwrap_or_else(|| {
                         theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140))
@@ -3262,7 +3280,36 @@ fn draw_control_body(
                             Vec2::new(bar.width() * frac, bar.height()),
                         );
                         if frac > 0.001 {
-                            painter.rect_filled(filled, r, fill);
+                            // The bar takes the same run-per-zone treatment as
+                            // the two round styles. The rounded ends belong to
+                            // the WHOLE fill, so the bar is laid down once in
+                            // its first run's colour and the later zones are
+                            // painted over their own stretches — a rounded rect
+                            // per run would put a cap in the middle of the bar
+                            // at every threshold.
+                            painter.rect_filled(filled, r, fill_runs[0].2);
+                            for &(from, to, colour) in fill_runs.iter().skip(1) {
+                                let x0 = bar.min.x + bar.width() * from;
+                                let x1 = bar.min.x + bar.width() * to;
+                                let span = egui::Rect::from_min_max(
+                                    Pos2::new(x0, bar.min.y),
+                                    Pos2::new(x1, bar.max.y),
+                                );
+                                // The last run keeps the fill's rounded end;
+                                // the ones before it butt square against the
+                                // next zone.
+                                let round = if (to - frac).abs() < 1e-4 {
+                                    egui::CornerRadius {
+                                        nw: 0,
+                                        sw: 0,
+                                        ne: r as u8,
+                                        se: r as u8,
+                                    }
+                                } else {
+                                    egui::CornerRadius::ZERO
+                                };
+                                painter.rect_filled(span, round, colour);
+                            }
                         }
                         // The thumb marks where the reading sits, riding proud
                         // of the bar so it reads against both halves of it.
@@ -3292,7 +3339,7 @@ fn draw_control_body(
                             .get_prop("StrokeWidth")
                             .map(|v| v.as_i64() as f32)
                             .unwrap_or(8.0);
-                        draw_ring(painter, center, radius, stroke_w, -90.0, 360.0, frac, fill, track);
+                        draw_ring(painter, center, radius, stroke_w, -90.0, 360.0, &fill_runs, track);
                         // The needle, on the hub it turns about — the same
                         // `ShowNeedle` the Radial honours, over the Donut's own
                         // sweep (from the top, clockwise). It reaches the band's
@@ -3322,7 +3369,7 @@ fn draw_control_body(
                         let radius = (rect.width() * 0.5 - 4.0)
                             .min(rect.height() - 10.0 - reserve)
                             .max(6.0);
-                        draw_ring(painter, center, radius, radius * 0.18, 180.0, 180.0, frac, fill, track);
+                        draw_ring(painter, center, radius, radius * 0.18, 180.0, 180.0, &fill_runs, track);
                         // The scale: ten divisions across the sweep, just inside
                         // the band, with a longer mark at each end and the
                         // half-way point — the marks the needle is read against.
@@ -9576,6 +9623,61 @@ pub fn gauge_zone_color(ctrl: &Control, frac: f32) -> Option<Color32> {
     } else {
         zone("NormalColor", GAUGE_NORMAL_COLOR)
     })
+}
+
+/// The filled part of a zoned gauge, split into one run per zone it passes
+/// THROUGH — `(from, to, colour)` as fractions of the meter's sweep.
+///
+/// [`gauge_zone_color`] answers "which zone is the reading in", one colour for
+/// the whole fill. That is right for the needle, and wrong for the bar: a
+/// gauge reading 88 against thresholds at 70 and 90 came out entirely red,
+/// hiding that most of the range it covers is normal (operator, 2026-08-23).
+/// Here the fill keeps each threshold's colour along its own stretch: green to
+/// 70, amber from 70 to 88, and no red at all until the reading reaches 90.
+///
+/// `None` when the developer set no zones — both thresholds are required, the
+/// same rule `gauge_zone_color` applies — and the caller paints its one colour.
+pub fn gauge_zone_runs(ctrl: &Control, frac: f32) -> Option<Vec<(f32, f32, Color32)>> {
+    let threshold = |key: &str| -> Option<f32> {
+        let raw = ctrl.get_prop(key)?.as_str().trim().to_owned();
+        raw.parse::<f32>().ok()
+    };
+    let zone = |key: &str, built_in: Color32| -> Color32 {
+        ctrl.get_prop(key)
+            .map(|v| v.as_str().to_owned())
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| parse_color(&s))
+            .filter(|c| c.a() > 0)
+            .unwrap_or(built_in)
+    };
+    let warn = threshold("WarningThreshold")?.clamp(0.0, 1.0);
+    // A critical mark below the warning one would make the runs run backwards.
+    // `gauge_zone_color` tests critical FIRST, so there it simply wins from its
+    // own mark up; holding it at or above the warning mark is the same rule
+    // expressed as spans.
+    let crit = threshold("CriticalThreshold")?.clamp(0.0, 1.0).max(warn);
+    let frac = frac.clamp(0.0, 1.0);
+
+    let mut runs: Vec<(f32, f32, Color32)> = Vec::new();
+    let mut push = |from: f32, to: f32, colour: Color32| {
+        // A zone the reading has not entered contributes nothing; without this
+        // an empty span still paints a round cap at its start.
+        if to - from > 1e-4 {
+            runs.push((from, to, colour));
+        }
+    };
+    push(0.0, frac.min(warn), zone("NormalColor", GAUGE_NORMAL_COLOR));
+    push(
+        warn.min(frac),
+        frac.min(crit),
+        zone("WarningColor", GAUGE_WARNING_COLOR),
+    );
+    push(
+        crit.min(frac),
+        frac,
+        zone("CriticalColor", GAUGE_CRITICAL_COLOR),
+    );
+    Some(runs)
 }
 
 /// A 270° arc from `start_deg`, filled to `frac` over a dim track.
@@ -16061,5 +16163,146 @@ mod border_3d_tests {
             "\n  Borders — Fixed3D / Raised / Sunken on a {radius}pt radius: every \
              point of the relief lies inside the rounded face\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod gauge_zone_tests {
+    use super::*;
+    use crate::model::{Control, ControlType};
+
+    /// **A zoned gauge keeps every threshold's colour along its own stretch.**
+    ///
+    /// The operator's gauge read 88 against marks at 70 and 90 and came out
+    /// entirely red (2026-08-23) — `gauge_zone_color` answers "which zone is
+    /// the reading IN", and the whole fill took that one colour. The fill is
+    /// now one run per zone it passes through, so 88 is green to 70, amber
+    /// from 70 to 88, and no red at all until the reading reaches 90.
+    #[test]
+    fn a_zoned_gauge_fill_keeps_each_threshold_colour() {
+        let mut g = Control::new("G", ControlType::Gauge, 0, 0);
+        g.set_prop("WarningThreshold", crate::PropValue::String("0.70".into()));
+        g.set_prop("CriticalThreshold", crate::PropValue::String("0.90".into()));
+        let green = Color32::from_rgb(0, 200, 0);
+        let amber = Color32::from_rgb(255, 190, 0);
+        let red = Color32::from_rgb(220, 0, 0);
+        g.set_prop("NormalColor", crate::PropValue::String("#00C800".into()));
+        g.set_prop("WarningColor", crate::PropValue::String("#FFBE00".into()));
+        g.set_prop("CriticalColor", crate::PropValue::String("#DC0000".into()));
+
+        // The operator's reading: past the warning mark, short of the critical.
+        let runs = gauge_zone_runs(&g, 0.88).expect("both marks set ⇒ zones on");
+        assert_eq!(
+            runs,
+            vec![(0.0, 0.70, green), (0.70, 0.88, amber)],
+            "green to the warning mark, amber from there to the reading, no red"
+        );
+        assert_eq!(
+            gauge_zone_color(&g, 0.88),
+            Some(amber),
+            "the single-colour answer is unchanged — it is what the NEEDLE takes"
+        );
+
+        // Below the first mark: one run, and no empty spans that would paint a
+        // cap at the start of a zone the reading never entered.
+        assert_eq!(
+            gauge_zone_runs(&g, 0.40).unwrap(),
+            vec![(0.0, 0.40, green)]
+        );
+        // Into the critical zone: all three, in order, meeting exactly.
+        assert_eq!(
+            gauge_zone_runs(&g, 0.95).unwrap(),
+            vec![(0.0, 0.70, green), (0.70, 0.90, amber), (0.90, 0.95, red)]
+        );
+        // A full reading ends exactly at 1.0 — no run runs past the sweep.
+        let full = gauge_zone_runs(&g, 1.0).unwrap();
+        assert_eq!(full.last().unwrap().1, 1.0);
+
+        // No thresholds ⇒ no runs, and the caller paints its own one colour.
+        let plain = Control::new("G2", ControlType::Gauge, 0, 0);
+        assert_eq!(gauge_zone_runs(&plain, 0.5), None);
+
+        println!(
+            "\n  Gauge — thresholds 0.70/0.90 at a reading of 0.88: {:?}\n",
+            gauge_zone_runs(&g, 0.88).unwrap()
+        );
+    }
+
+    /// A critical mark set BELOW the warning mark cannot make the runs go
+    /// backwards; it is held at the warning mark, which is the same precedence
+    /// `gauge_zone_color` gives it by testing critical first.
+    #[test]
+    fn a_critical_mark_under_the_warning_mark_does_not_reverse_the_runs() {
+        let mut g = Control::new("G", ControlType::Gauge, 0, 0);
+        g.set_prop("WarningThreshold", crate::PropValue::String("0.80".into()));
+        g.set_prop("CriticalThreshold", crate::PropValue::String("0.20".into()));
+        let runs = gauge_zone_runs(&g, 1.0).unwrap();
+        for pair in runs.windows(2) {
+            assert!(
+                pair[1].0 >= pair[0].1 - 1e-4,
+                "runs must not overlap or reverse: {runs:?}"
+            );
+        }
+        for (from, to, _) in &runs {
+            assert!(to > from, "no empty or negative run: {runs:?}");
+        }
+    }
+
+    /// …and the runs reach the SCREEN: a radial gauge at 0.88 paints both its
+    /// green and its amber stretch, and no red at all.
+    #[test]
+    fn a_zoned_radial_gauge_paints_every_zone_it_passes_through() {
+        let mut g = Control::new("G", ControlType::Gauge, 0, 0);
+        g.rect = crate::model::Rect::new(0, 0, 200, 140);
+        g.set_prop("GaugeStyle", crate::PropValue::String("Radial".into()));
+        g.set_prop("Minimum", crate::PropValue::Int(0));
+        g.set_prop("Maximum", crate::PropValue::Int(100));
+        g.set_prop("Value", crate::PropValue::Int(88));
+        g.set_prop("WarningThreshold", crate::PropValue::String("0.70".into()));
+        g.set_prop("CriticalThreshold", crate::PropValue::String("0.90".into()));
+        g.set_prop("NormalColor", crate::PropValue::String("#00C800".into()));
+        g.set_prop("WarningColor", crate::PropValue::String("#FFBE00".into()));
+        g.set_prop("CriticalColor", crate::PropValue::String("#DC0000".into()));
+
+        let ctx = egui::Context::default();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(400.0, 300.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &g, false, true, 1.0, 1.0, None);
+            },
+        );
+        fn walk(s: &egui::Shape, out: &mut Vec<Color32>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Path(p) => {
+                    if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                        out.push(c);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut inks = Vec::new();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut inks);
+        }
+        full.textures_delta.clear();
+        let has = |rgb: (u8, u8, u8)| {
+            inks.iter()
+                .any(|c| (c.r(), c.g(), c.b()) == rgb)
+        };
+        assert!(has((0, 200, 0)), "the normal stretch is painted: {inks:?}");
+        assert!(has((255, 190, 0)), "and the warning stretch: {inks:?}");
+        assert!(
+            !has((220, 0, 0)),
+            "and NOT the critical one — the reading never reached it: {inks:?}"
+        );
+        println!("\n  Gauge — a radial gauge at 88 with marks at 70/90 paints green AND amber, no red\n");
     }
 }
