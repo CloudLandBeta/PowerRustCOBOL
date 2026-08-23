@@ -1524,10 +1524,12 @@ The relief follows the corner radius exactly as `Single` does — before
 arc at every corner. It also draws identically whatever paints the control's
 face: the glass styles, a background gradient, a form theme or an asset pack.
 
-> ⚠️ **Neumorphic is the exception.** That style paints its own soft relief —
-> light from the top-left, shadow to the bottom-right — from the same shadow
-> stack that gives the whole form its look, so the four visible styles collapse
-> to one there. Choose Neumorphic for the relief, not `BorderStyle`.
+> **Note — Neumorphic.** That style paints its own soft relief, lit from the
+> top-left, from the same shadow stack that gives the whole form its look, so
+> `Fixed3D`, `Raised` and `Single` all read as raised there. **`Sunken` turns
+> that relief over** — shadow on the top and left, highlight on the bottom and
+> right — so a control set to it reads as pressed *into* the form. That is the
+> whole of `BorderStyle` under Neumorphic: raised, or pressed.
 
 > Older forms that used a container **Border radius** still load and round
 > correctly — it is read as an alias for **Corner radius**.

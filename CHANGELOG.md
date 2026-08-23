@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.174] — 2026-08-23
+
+### New — `Sunken` presses a Neumorphic control into the form
+
+The Neumorphic glass style paints its own soft relief from the form's shadow
+stack, and it drew the SAME raised relief whatever `BorderStyle` said — so the
+one style that ought to mean "pressed in" did nothing there. `Sunken` now turns
+that relief over: shadow on the top and left, highlight on the bottom and
+right. The light source does not move — inverting is a swap of which edges take
+which tone, which is why one path draws both reliefs.
+
+`Fixed3D`, `Raised` and `Single` keep the raised relief the style has always
+drawn, so nothing you already built changes. Raised or pressed is now the whole
+of `BorderStyle` under Neumorphic, and the guide and KB say so instead of
+warning that the property is inert.
+
+
 ## [PowerRustCOBOL 1.61.173] — 2026-08-23
 
 ### Fixed — a form theme flattened Fixed3D, Raised and Sunken to Single
