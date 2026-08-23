@@ -4284,19 +4284,35 @@ fn draw_control_body(
             } else {
                 frame_rect
             };
-            painter.rect_stroke(
-                border_rect,
-                frame_round,
-                Stroke::new(
-                    if selected {
-                        2.0_f32.max(user_border_width)
-                    } else {
-                        user_border_width
-                    },
+            // Through `draw_control_border`, like every other frame branch.
+            // This was a bare `rect_stroke`, which draws ONE flat line whatever
+            // the style says — so under a surface theme (elegance, and any
+            // published theme) `Fixed3D`, `Raised` and `Sunken` all collapsed
+            // to `Single`, and a Button looked as though it had no border style
+            // at all (operator, 2026-08-23). The identical defect was fixed in
+            // the gradient branch on 2026-08-22 and missed here.
+            //
+            // It also strokes `Inside` now rather than `Middle`: a middle
+            // stroke puts half its width OUTSIDE the face, which on a rounded
+            // control is the thin-dark-arc artifact the corner system exists to
+            // avoid.
+            if selected {
+                painter.rect_stroke(
+                    border_rect,
+                    frame_round,
+                    Stroke::new(2.0_f32.max(user_border_width), stroke_color),
+                    egui::StrokeKind::Inside,
+                );
+            } else {
+                draw_control_border(
+                    painter,
+                    border_rect,
+                    frame_round,
+                    &border_style,
+                    user_border_width,
                     stroke_color,
-                ),
-                egui::StrokeKind::Middle,
-            );
+                );
+            }
         }
     } else if glass {
         let glass_rect = if is_container {
@@ -16089,6 +16105,135 @@ mod elegance_baseline_tests {
 
 #[cfg(test)]
 mod border_3d_tests {
+
+    /// **Every border style works on every FACE path, and follows the radius.**
+    ///
+    /// A control's face is painted by one of several branches — plain, glass,
+    /// background-gradient, surface-theme (elegance), asset-pack skin — and
+    /// each draws the user's border itself. The gradient branch once stroked
+    /// one flat rect whatever the style said, flattening Fixed3D/Raised/Sunken
+    /// to Single (fixed 2026-08-22); the surface-theme branch had the identical
+    /// defect and kept it, so under a theme a Button looked as though it had no
+    /// border style at all (operator, 2026-08-23: "why buttons have no border
+    /// style?").
+    ///
+    /// This walks the paths a property can reach and asserts each style is
+    /// distinguishable, so the next branch to grow its own border cannot
+    /// quietly flatten them again.
+    #[test]
+    fn every_border_style_survives_every_face_path() {
+        use crate::model::GlassStyle as GS;
+
+        #[derive(Debug, PartialEq)]
+        enum Drawn {
+            Nothing,
+            /// One rounded stroke — `Single`, at the corner radius it was given.
+            Flat(u8),
+            /// A relief: the lit run and the shaded one, in painting order.
+            Relief(bool),
+        }
+
+        let look = |style: &str,
+                    theme: Option<std::sync::Arc<dyn crate::surface_theme::SurfaceTheme>>,
+                    gs: GS,
+                    gradient: bool|
+         -> Drawn {
+            let mut c = Control::new("C", ControlType::Button, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 160, 48);
+            c.set_prop("BorderStyle", style);
+            c.set_prop("BorderWidth", crate::PropValue::Int(3));
+            c.set_prop("BorderColor", "#FF0000");
+            c.set_prop("CornerRadius", crate::PropValue::Int(12));
+            if gradient {
+                c.set_prop("BackgroundGradientEnabled", crate::PropValue::Bool(true));
+                c.set_prop("BackgroundGradientStartColor", "#FFFFFF");
+                c.set_prop("BackgroundGradientEndColor", "#202020");
+            }
+            let ctx = egui::Context::default();
+            if let Some(t) = theme {
+                set_surface_theme(&ctx, t);
+            }
+            set_glass_style(&ctx, gs);
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        Pos2::ZERO,
+                        Vec2::new(400.0, 200.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                },
+            );
+            // The border is 3pt; the themes' own rims are thinner, so width is
+            // what separates "what the developer asked for" from the furniture.
+            let mut rects: Vec<u8> = Vec::new();
+            let mut runs: Vec<Color32> = Vec::new();
+            fn walk(s: &egui::Shape, rects: &mut Vec<u8>, runs: &mut Vec<Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rects, runs)),
+                    egui::Shape::Rect(r) if r.stroke.width >= 2.5 => {
+                        rects.push(r.corner_radius.nw)
+                    }
+                    egui::Shape::Path(p) if p.stroke.width >= 2.5 => {
+                        if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
+                            runs.push(c);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut rects, &mut runs);
+            }
+            full.textures_delta.clear();
+            if runs.len() >= 2 {
+                // Lit first means Raised/Fixed3D; shaded first means Sunken.
+                Drawn::Relief(runs[0].r() > runs[1].r())
+            } else if let Some(r) = rects.first() {
+                Drawn::Flat(*r)
+            } else {
+                Drawn::Nothing
+            }
+        };
+
+        let paths: [(&str, Option<std::sync::Arc<dyn crate::surface_theme::SurfaceTheme>>, GS, bool); 4] = [
+            ("liquid glass", Some(crate::surface_theme::liquid_glass()), GS::Classic, false),
+            ("surface theme", Some(crate::surface_theme::elegance()), GS::Classic, false),
+            ("enhanced glass", None, GS::Enhanced, false),
+            ("gradient", None, GS::Classic, true),
+        ];
+        for (name, theme, gs, gradient) in paths {
+            assert_eq!(
+                look("None", theme.clone(), gs, gradient),
+                Drawn::Nothing,
+                "{name}: None must draw no border"
+            );
+            assert_eq!(
+                look("Single", theme.clone(), gs, gradient),
+                Drawn::Flat(12),
+                "{name}: Single is one stroke at the control's 12pt radius"
+            );
+            for lit_first in ["Fixed3D", "Raised"] {
+                assert_eq!(
+                    look(lit_first, theme.clone(), gs, gradient),
+                    Drawn::Relief(true),
+                    "{name}: {lit_first} is a relief lit from the top-left"
+                );
+            }
+            assert_eq!(
+                look("Sunken", theme.clone(), gs, gradient),
+                Drawn::Relief(false),
+                "{name}: Sunken is the same relief inverted"
+            );
+        }
+        println!(
+            "\n  Borders — None / Single / Fixed3D / Raised / Sunken all distinguishable \
+             on a Button across liquid glass, a surface theme, enhanced glass and a \
+             background gradient; Single keeps the 12pt corner radius\n"
+        );
+    }
     use super::*;
 
     /// **A 3D border follows the control's corner radius.**
