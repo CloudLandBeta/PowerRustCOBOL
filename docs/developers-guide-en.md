@@ -1806,6 +1806,13 @@ designer canvas, the preview, Run Form and the compiled binary.
 >   Bolts	wrench
 > ```
 >
+> Since 1.61.161 you **pick** those three rather than spelling them: each row
+> in the inspector carries a **…** button that opens the icon catalogue — the
+> same one the toolbar editor uses — and a **✕** that clears the row back to
+> the platform's own default. Clearing writes *empty*, not today's default
+> name, so the row keeps following the platform rather than freezing an answer
+> into the `.cfrm`.
+>
 > Nodes that name none take **Folder icon (shut)** / **(open)** / **Leaf icon**
 > — `folder`, `folder-open` and `doc-text` by default, so a tree looks like a
 > tree untouched. **Show icons** turns the column off and the labels reclaim the

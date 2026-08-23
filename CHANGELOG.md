@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.161] — 2026-08-22
+
+### Added — an icon is PICKED in the inspector, not spelled
+
+The TreeView's three icon rows offered a text field. An icon was a name you had
+to know and type — `folder-open`, spelled right, out of a catalogue of 660-odd
+— with a typo costing you the icon and nothing on screen saying what was on
+offer. Each row now carries a **…** button that opens the catalogue and a **✕**
+that clears it.
+
+- The picker was lifted out of `toolbar_editor.rs`, where it was a private
+  modal with three fields of its own. That is exactly why the properties pane
+  had none: there was nothing to call. It is now
+  `panels::icon_picker`, and the toolbar editor calls it too — one catalogue,
+  one search box, one behaviour.
+- **One state per pane, not per row.** It carries which row is being picked
+  *for* and hands that key back with the choice, so three icon rows need one
+  picker rather than three.
+- **✕ writes EMPTY, not the built-in name.** Empty means "the platform's own",
+  so a cleared row follows the default if it ever changes instead of freezing
+  today's answer into the `.cfrm`.
+- Every open takes a fresh window id: re-showing under an id egui already holds
+  geometry for reopens the window wherever it was last dragged, which — if that
+  was off-screen — reads as the picker not opening at all.
+
+**Left in place:** `properties.rs::icon_preview` is now unreferenced. It is
+superseded by `icon_picker::preview_row`, but user code is never deleted for
+being unused — flagging it rather than removing it.
+
 ## [PowerRustCOBOL 1.61.160] — 2026-08-22
 
 ### Added — the TreeView scrolls instead of dropping what does not fit

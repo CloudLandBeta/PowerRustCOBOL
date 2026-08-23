@@ -3485,6 +3485,10 @@ pub struct PropertiesPanel {
     datagrid_editor: Option<String>,
     active_tab: InspectorTab,
     property_split: f32,
+    /// The icon catalogue, shared with the toolbar editor. One state for the
+    /// whole pane: it carries WHICH row is being picked for, so three icon rows
+    /// do not need three of these.
+    icon_picker: super::icon_picker::IconPickerState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3506,6 +3510,7 @@ impl PropertiesPanel {
             datagrid_editor: None,
             active_tab: InspectorTab::Visuals,
             property_split: 0.0,
+            icon_picker: Default::default(),
         }
     }
 
@@ -6947,10 +6952,24 @@ impl PropertiesPanel {
                         .get_prop(key)
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
-                    // The name is typed, and DRAWN beside the field — a name
-                    // the catalogue does not have shows as an empty preview
-                    // rather than as a surprise at run time.
-                    icon_preview(ui, &cur, built_in);
+                    // The name is still typed — but it can be PICKED now, from
+                    // the same catalogue the toolbar editor opens. Typing was
+                    // the only way in: `folder-open` spelled right, out of 660,
+                    // with a typo costing the icon and nothing on screen saying
+                    // what was on offer.
+                    match super::icon_picker::preview_row(ui, &cur, built_in) {
+                        super::icon_picker::IconRowAction::Pick => self.icon_picker.open(key),
+                        // Clearing writes EMPTY, not the built-in name: empty
+                        // means "the platform's own", so a tree whose default
+                        // changes follows it, and a cleared row does not freeze
+                        // today's answer into the .cfrm.
+                        super::icon_picker::IconRowAction::Clear => action.set_props.push((
+                            id.to_owned(),
+                            key.into(),
+                            PropValue::String(String::new()),
+                        )),
+                        super::icon_picker::IconRowAction::None => {}
+                    }
                     text_row_hint(
                         ui,
                         &mut self.hints,
@@ -6961,6 +6980,13 @@ impl PropertiesPanel {
                         built_in,
                         action,
                     );
+                }
+                if let Some((key, name)) =
+                    super::icon_picker::show(ui.ctx(), &mut self.icon_picker)
+                {
+                    action
+                        .set_props
+                        .push((id.to_owned(), key, PropValue::String(name)));
                 }
                 int_prop_row(ui, id, "IconSize", "Icon size", ctrl, action, 6..=64, None, 14);
                 color_prop_row_default(

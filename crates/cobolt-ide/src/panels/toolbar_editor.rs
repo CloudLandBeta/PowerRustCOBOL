@@ -45,10 +45,10 @@ pub struct ToolbarEditorModal {
     /// The working copy. Only Save puts it back on the control.
     pub def: ToolbarDef,
     pub selected: Selection,
-    /// Icon picker state, mirroring the menu editor's.
-    icon_picker_open: bool,
-    icon_search: String,
-    icon_picker_gen: u32,
+    /// The icon catalogue — the SHARED one, since 1.61.161. It used to be a
+    /// private modal in this file with its own three fields, which is why the
+    /// properties pane had no picker at all: there was nothing to call.
+    icon_picker: super::icon_picker::IconPickerState,
     /// Split between the tree and the properties pane, 0.0-1.0. The developer's
     /// own drag; never derived from the available width (that is the feedback
     /// loop that makes a pane inflate).
@@ -73,9 +73,7 @@ impl ToolbarEditorModal {
             ctrl_id,
             def,
             selected,
-            icon_picker_open: false,
-            icon_search: String::new(),
-            icon_picker_gen: 0,
+            icon_picker: Default::default(),
             split_ratio: 0.38,
             edit_event: None,
         }
@@ -626,11 +624,23 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                 modal.edit_event = Some(target);
             }
             if open_picker {
-                modal.icon_picker_open = true;
-                modal.icon_picker_gen += 1;
-                modal.icon_search.clear();
+                // The key names the BUTTON being picked for; the shared picker
+                // hands it back with the choice, so nothing has to be
+                // remembered on the side.
+                modal.icon_picker.open(format!("{gi}:{bi}"));
             }
-            show_icon_picker(modal, ui.ctx(), gi, bi);
+            if let Some((_, name)) = super::icon_picker::show(ui.ctx(), &mut modal.icon_picker) {
+                if let Some(b) = modal
+                    .def
+                    .groups
+                    .get_mut(gi)
+                    .and_then(|g| g.buttons.get_mut(bi))
+                {
+                    // Through the setter, so choosing an icon takes the label
+                    // away.
+                    b.set_icon(name);
+                }
+            }
         }
     }
 }
@@ -872,93 +882,6 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
             _ => ToolbarAction::Event,
         };
         b.action = action.to_action_string();
-    }
-}
-
-fn show_icon_picker(modal: &mut ToolbarEditorModal, ctx: &egui::Context, gi: usize, bi: usize) {
-    if !modal.icon_picker_open {
-        return;
-    }
-    let mut chosen: Option<String> = None;
-    let mut close = false;
-    egui::Window::new("Icon")
-        .id(egui::Id::new(("toolbar_icon_picker", modal.icon_picker_gen)))
-        .collapsible(false)
-        .resizable(true)
-        .default_size([420.0, 380.0])
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Find:");
-                ui.text_edit_singleline(&mut modal.icon_search);
-            });
-            ui.separator();
-            let needle = modal.icon_search.trim().to_ascii_lowercase();
-            egui::ScrollArea::vertical()
-                .max_height(300.0)
-                .show(ui, |ui| {
-                    egui::Grid::new("toolbar_icon_grid").show(ui, |ui| {
-                        let mut n = 0;
-                        for name in cobolt_forms::icons::menu_icon_names() {
-                            if !needle.is_empty() && !name.to_ascii_lowercase().contains(&needle) {
-                                continue;
-                            }
-                            let (rect, resp) = ui.allocate_exact_size(
-                                egui::vec2(72.0, 56.0),
-                                egui::Sense::click(),
-                            );
-                            if resp.hovered() {
-                                ui.painter().rect_filled(
-                                    rect,
-                                    6.0,
-                                    ui.visuals().widgets.hovered.bg_fill,
-                                );
-                            }
-                            let icon_rect = egui::Rect::from_center_size(
-                                egui::pos2(rect.center().x, rect.top() + 20.0),
-                                egui::Vec2::splat(24.0),
-                            );
-                            cobolt_forms::icons::draw_menu_icon(
-                                ui.painter(),
-                                icon_rect,
-                                name,
-                                ui.visuals().text_color(),
-                            );
-                            ui.painter().text(
-                                egui::pos2(rect.center().x, rect.bottom() - 4.0),
-                                egui::Align2::CENTER_BOTTOM,
-                                name,
-                                egui::FontId::proportional(9.0),
-                                ui.visuals().weak_text_color(),
-                            );
-                            if resp.clicked() {
-                                chosen = Some(name.to_owned());
-                            }
-                            n += 1;
-                            if n % 5 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-                });
-            ui.separator();
-            if ui.button("Close").clicked() {
-                close = true;
-            }
-        });
-    if let Some(name) = chosen {
-        if let Some(b) = modal
-            .def
-            .groups
-            .get_mut(gi)
-            .and_then(|g| g.buttons.get_mut(bi))
-        {
-            // Through the setter, so choosing an icon takes the label away.
-            b.set_icon(name);
-        }
-        close = true;
-    }
-    if close {
-        modal.icon_picker_open = false;
     }
 }
 
