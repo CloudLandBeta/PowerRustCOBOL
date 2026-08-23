@@ -3323,7 +3323,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── Borders ──
         "BorderStyle" => (
             "one of: `None` | `Single` | `Fixed3D` | `Raised` | `Sunken`",
-            "Border drawing style.",
+            "Border drawing style, on every control that carries the property (Button included). `Single` is one line of `BorderWidth` in `BorderColor`; `Fixed3D`/`Raised` draw a relief lit from the top-left (lighter top and left, darker bottom and right); `Sunken` inverts it. ALL of them follow the control's `CornerRadius`, meeting halfway round each corner arc, and all draw the same whatever paints the face — glass, background gradient, form theme or asset pack. EXCEPTION: the Neumorphic glass style paints its own soft relief from the form's shadow stack, so the four visible styles collapse to one under it.",
         ),
         "BorderColor" => (COLOR_DOMAIN, "Border line color."),
         "BorderWidth" => ("pixels ≥ 0", "Border line thickness."),

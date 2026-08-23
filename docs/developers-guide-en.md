@@ -1509,6 +1509,26 @@ run-time inputs (e.g. a TextBox while typing) stays square inside its rounded
 frame, and container **children** are clipped to the rectangular content area
 (the rounded corners are cosmetic on the frame).
 
+**Every border style follows that radius**, on every control that has one.
+`BorderStyle` takes five values in the properties pane:
+
+| Style | What it draws |
+|---|---|
+| `None` | No border at all. |
+| `Single` | One line of `BorderWidth` in `BorderColor`, following the corner radius. |
+| `Fixed3D`, `Raised` | A relief lit from the top-left: the top and left edges in a lighter shade of `BorderColor`, the bottom and right in a darker one, meeting halfway round the corner arcs. |
+| `Sunken` | The same relief inverted, so the control reads as pressed into the form. |
+
+The relief follows the corner radius exactly as `Single` does — before
+1.61.170 it drew four straight lines on the bounding box and ran out past the
+arc at every corner. It also draws identically whatever paints the control's
+face: the glass styles, a background gradient, a form theme or an asset pack.
+
+> ⚠️ **Neumorphic is the exception.** That style paints its own soft relief —
+> light from the top-left, shadow to the bottom-right — from the same shadow
+> stack that gives the whole form its look, so the four visible styles collapse
+> to one there. Choose Neumorphic for the relief, not `BorderStyle`.
+
 > Older forms that used a container **Border radius** still load and round
 > correctly — it is read as an alias for **Corner radius**.
 

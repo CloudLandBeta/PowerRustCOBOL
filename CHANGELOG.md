@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.173] — 2026-08-23
+
+### Fixed — a form theme flattened Fixed3D, Raised and Sunken to Single
+
+"Why do buttons have no border style?" — they have one, and it was being
+thrown away. A control's face is painted by one of several branches, and each
+draws the developer's border itself. The **surface-theme** branch (elegance,
+and any published form theme) stroked one flat rectangle whatever `BorderStyle`
+said, so under a theme the three relief styles were indistinguishable from
+`Single` — on every control, not just the Button.
+
+This is the identical defect fixed in the background-gradient branch on
+2026-08-22, in the branch beside it. Both go through `draw_control_border` now.
+That branch also stroked `Middle`, putting half the border's width outside the
+face; it strokes `Inside`, which is what the rest of the corner system does and
+what keeps a rounded control free of thin dark arcs.
+
+The audit behind it — every style × every face path — is now a test, so the
+next branch to grow its own border cannot quietly flatten them again.
+
+**Not changed:** the Neumorphic glass style still paints its own soft relief
+from the form's shadow stack, so the four visible styles collapse to one under
+it. That is deliberate — the relief is the style — and it is now written down
+in the guide and the KB rather than being a surprise.
+
+
 ## [PowerRustCOBOL 1.61.172] — 2026-08-23
 
 ### New — a zoned Gauge keeps every threshold's colour along its own stretch
