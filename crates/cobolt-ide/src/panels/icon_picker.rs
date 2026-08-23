@@ -13,8 +13,6 @@
 //! costing you the icon and no way to find out what was on offer. The
 //! properties pane now opens the same picker the toolbar editor does.
 
-use std::hash::Hash;
-
 /// A picker's own state — which surface opened it, and what has been typed in
 /// its search box.
 ///
