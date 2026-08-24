@@ -14,6 +14,7 @@
 //! `DesignerPanel::show_cobol_structure_window`. This module just describes which
 //! block is being edited and reads/writes its text on the form.
 
+use cobolt_forms::code_site::{CodeSite, StructureSection};
 use cobolt_forms::Form;
 
 /// Which COBOL Structure block the popup editor is editing.
@@ -28,27 +29,73 @@ pub enum CsTarget {
     Procedure(usize),
 }
 
-/// The five fixed structure sections, in division/section order.
+/// The five fixed structure sections, in division/section order — **derived
+/// from the model's [`StructureSection::ALL`]** (spec 053 R3), so the editor
+/// targets and the model's code sites are one list and cannot drift.
 pub const SECTIONS: [CsTarget; 5] = [
-    CsTarget::SpecialNames,
-    CsTarget::Repository,
-    CsTarget::FileControl,
-    CsTarget::FileSection,
-    CsTarget::WorkingStorage,
+    CsTarget::for_section(StructureSection::ALL[0]),
+    CsTarget::for_section(StructureSection::ALL[1]),
+    CsTarget::for_section(StructureSection::ALL[2]),
+    CsTarget::for_section(StructureSection::ALL[3]),
+    CsTarget::for_section(StructureSection::ALL[4]),
 ];
 
 impl CsTarget {
+    /// The model section this target edits, or `None` for a user procedure.
+    /// Exhaustive both ways with [`CsTarget::for_section`], so adding a
+    /// section to either enum is a compile error until both carry it.
+    pub const fn section(self) -> Option<StructureSection> {
+        match self {
+            CsTarget::SpecialNames => Some(StructureSection::SpecialNames),
+            CsTarget::Repository => Some(StructureSection::Repository),
+            CsTarget::FileControl => Some(StructureSection::FileControl),
+            CsTarget::FileSection => Some(StructureSection::FileSection),
+            CsTarget::WorkingStorage => Some(StructureSection::WorkingStorage),
+            CsTarget::Procedure(_) => None,
+        }
+    }
+
+    /// The editor target for a model structure section.
+    pub const fn for_section(section: StructureSection) -> CsTarget {
+        match section {
+            StructureSection::SpecialNames => CsTarget::SpecialNames,
+            StructureSection::Repository => CsTarget::Repository,
+            StructureSection::FileControl => CsTarget::FileControl,
+            StructureSection::FileSection => CsTarget::FileSection,
+            StructureSection::WorkingStorage => CsTarget::WorkingStorage,
+        }
+    }
+
+    /// The code site this target edits (spec 053 R3). A procedure resolves its
+    /// name against `form`; an out-of-range index yields `None`.
+    pub fn to_code_site(self, form: &Form) -> Option<CodeSite> {
+        match self {
+            CsTarget::Procedure(i) => form.user_procedures.get(i).map(|p| CodeSite::Procedure {
+                name: p.name.trim().to_string(),
+            }),
+            other => other.section().map(CodeSite::Section),
+        }
+    }
+
+    /// The editor target that owns `site`, or `None` when the structure window
+    /// is not that site's editing surface (handlers, Common Code).
+    pub fn from_code_site(site: &CodeSite, form: &Form) -> Option<CsTarget> {
+        match site {
+            CodeSite::Section(s) => Some(CsTarget::for_section(*s)),
+            CodeSite::Procedure { name } => form
+                .user_procedures
+                .iter()
+                .position(|p| p.name.trim() == name.as_str())
+                .map(CsTarget::Procedure),
+            _ => None,
+        }
+    }
+
     /// The fixed COBOL section keyword, or `None` for a user procedure (whose
-    /// title is its name).
+    /// title is its name). Delegates to the model's [`StructureSection`] so
+    /// there is exactly one spelling of each keyword.
     pub fn section_keyword(self) -> Option<&'static str> {
-        Some(match self {
-            CsTarget::SpecialNames => "SPECIAL-NAMES",
-            CsTarget::Repository => "REPOSITORY",
-            CsTarget::FileControl => "FILE-CONTROL",
-            CsTarget::FileSection => "FILE SECTION",
-            CsTarget::WorkingStorage => "WORKING-STORAGE",
-            CsTarget::Procedure(_) => return None,
-        })
+        self.section().map(StructureSection::keyword)
     }
 
     /// A stable key for the synthetic editor buffer path of this block.
@@ -382,5 +429,34 @@ mod global_01_tests {
             "       01  WS-A GLOBAL.\n"
         );
         assert_eq!(ensure_global_on_01_levels(""), "");
+    }
+
+    /// Spec 053 T4: the editor targets and the model's code sites are one
+    /// list — every section round-trips CsTarget → CodeSite → CsTarget, and
+    /// SECTIONS follows the model's division order.
+    #[test]
+    fn cs_target_and_code_site_are_one_list() {
+        let form = cobolt_forms::code_site::all_sites_fixture();
+        for (i, section) in StructureSection::ALL.into_iter().enumerate() {
+            let target = CsTarget::for_section(section);
+            assert_eq!(SECTIONS[i], target, "SECTIONS follows StructureSection::ALL");
+            assert_eq!(target.section(), Some(section));
+            assert_eq!(target.section_keyword(), Some(section.keyword()));
+            let site = target.to_code_site(&form).expect("section site");
+            assert_eq!(site, CodeSite::Section(section));
+            assert_eq!(CsTarget::from_code_site(&site, &form), Some(target));
+        }
+        // A procedure round-trips through its name.
+        let target = CsTarget::Procedure(0);
+        let site = target.to_code_site(&form).expect("procedure site");
+        assert_eq!(
+            site,
+            CodeSite::Procedure {
+                name: "VALIDATE-CUSTOMER".into()
+            }
+        );
+        assert_eq!(CsTarget::from_code_site(&site, &form), Some(target));
+        // An out-of-range procedure index addresses nothing.
+        assert_eq!(CsTarget::Procedure(9).to_code_site(&form), None);
     }
 }

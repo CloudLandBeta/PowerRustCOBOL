@@ -21,6 +21,7 @@
 //! </Form>
 //! ```
 
+pub mod code_site;
 pub mod containers;
 pub mod datagrid;
 pub mod dropzone;
@@ -41,6 +42,7 @@ pub use model::{
     GuardianSeverity, MapMarkerField, MapMarkerRecord, MappingCompatibility, PropValue, Rect,
     DATAGRID_ADVANCED_PROP, DATA_BINDING_SCHEMA_VERSION,
 };
+pub use code_site::{code_sites, resolve_display_path, site_text, CodeSite, StructureSection};
 pub use xml::{form_to_string, load_form, load_form_from_str, save_form, FormError};
 
 #[cfg(feature = "render")]

@@ -15,8 +15,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |----------|--------|----------|
 | `README.md` | current | repo landing page |
 | `docs/developers-guide-en.md` | **canonical English** | developers using the IDE |
-| `docs/developers-guide-{es,pt,fr,jp,cn}.md` | translations — **Claude-maintained** (GOLDEN RULE #8); currently **stale**: pt/jp/cn are English copies, es partial, fr missing | localized readers |
-| `docs/{BENCHMARKS,BUILDING,database-runtime,observability,cobol85-supported-syntax}-{es,pt,fr,jp,cn}.md` | translations — current as of 2026-08-20 | localized readers |
+| `docs/developers-guide-{es,pt,fr,jp,cn}.md` | translations — **frozen until the doc restructure** (operator ruling 2026-08-23, see Localization policy); **stale**: pt/jp/cn are English copies, es partial, fr missing | localized readers |
+| `docs/{BENCHMARKS,BUILDING,database-runtime,observability,cobol85-supported-syntax}-{es,pt,fr,jp,cn}.md` | translations — current as of 2026-08-20, frozen with the rest | localized readers |
 | `docs/cobol85-supported-syntax.md` | current | language reference |
 | `docs/cobol85-verb-test-matrix.md` | current | verb coverage |
 | `CHANGELOG.md` | current | release notes |
@@ -69,21 +69,31 @@ are candidates for update. Sections use the doc's GitHub anchor.
   need the operator to drive while the skill captures.
 - Reference an image from `docs/` as `../assets/images/screenshots/<name>.png`.
 
-## Localization policy (GOLDEN RULE #8)
+## Localization policy
 
-- **Every documentation change ships in every language, in the same change.**
-  After any new feature or any fix, the docs that describe it are updated in
-  **en, es, pt, fr, jp, cn** before the change is considered done.
+> **Documentation is ENGLISH-ONLY until the doc restructure** (operator ruling,
+> 2026-08-23): *"No reason to translate something that will change anyways.
+> Just keep English up-to-date."* This **suspends GOLDEN RULE #8** for
+> documents — keep `docs/*-en.md` (and unlabelled English docs) current, and
+> **do not touch any translation file**. This settles the former three-way
+> contradiction with `tech.md`/`structure.md` in their favour. A suspension
+> with a reason, not a permanent reversal: expect translations to resume after
+> the restructure, using the method preserved below.
+>
+> **Scope:** the ruling governs *documents only*. The IDE's user-facing
+> **strings** remain `Tr` fields in all six languages (EN/ES/PT/JA/ZH/FR) —
+> that is a `tech.md` hard constraint with its own completeness test, and it
+> is unaffected.
+
+The method, for when translation resumes:
+
 - **English first, then the same delta into each translation.** The English file
   is the canonical text and the only one to reason about correctness in. Never
   translate from a translation.
 - **Naming:** `<doc>-<lang>.md` beside the English file — `observability-fr.md`,
   `BUILDING-jp.md`. The English canonical keeps its own name.
-- **Claude writes the translations directly.** This **supersedes** the former
-  "English canonical only / never spend Claude credits translating" policy
-  (reversed 2026-08-20 by operator instruction). `/doc-localize` is retained only
-  for bulk work the operator explicitly asks to route outside; it is no longer
-  the default path out of `/docsync`.
+- **Claude writes the translations directly.** `/doc-localize` is retained only
+  for bulk work the operator explicitly asks to route outside.
 - **Verify before claiming done:** each touched file passes
   `iconv -f UTF-8 -t UTF-8`, has zero double-encoded sequences, and carries no
   leftover English prose or characters from another script.

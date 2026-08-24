@@ -62,6 +62,7 @@
 //!       END PROGRAM MAIN-FORM.
 //! ```
 
+use cobolt_forms::code_site::{CodeSite, StructureSection};
 use cobolt_forms::model::PropValue;
 use cobolt_forms::{Control, ControlType, Form};
 
@@ -98,11 +99,79 @@ pub fn cobol_word(id: &str) -> String {
     out.trim_matches('-').to_owned()
 }
 
+// ── Source map (spec 053) ─────────────────────────────────────────────────────
+
+/// One contiguous run of generated lines that came verbatim from a developer
+/// [`CodeSite`] (spec 053 R6). Line numbers are 1-based and inclusive, in the
+/// generated `.cbl`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MappedSpan {
+    /// The place the developer wrote these lines.
+    pub site: CodeSite,
+    /// First generated line of the span.
+    pub gen_start: u32,
+    /// Last generated line of the span (inclusive).
+    pub gen_end: u32,
+    /// Which line **of the site's own text** `gen_start` holds. Usually 1 —
+    /// but the WORKING-STORAGE weaver skips leading blank lines, so generated
+    /// line *N* is NOT always site line *N − gen_start + 1*; this field
+    /// records the true offset once instead of every consumer re-deriving it.
+    pub site_line_at_start: u32,
+}
+
+/// The map from generated `.cbl` lines back to the code sites that produced
+/// them (spec 053 R6). A line no span covers was authored by codegen itself.
+///
+/// Derives serde (spec Q6) so a later runtime-locations spec can ship it into
+/// a compiled binary without a retrofit.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SourceMap {
+    pub spans: Vec<MappedSpan>,
+}
+
+impl SourceMap {
+    /// The site that produced `gen_line` and the 1-based line **within that
+    /// site's text**, or `None` for a line codegen authored (R12).
+    pub fn resolve(&self, gen_line: u32) -> Option<(&CodeSite, u32)> {
+        self.spans
+            .iter()
+            .find(|s| gen_line >= s.gen_start && gen_line <= s.gen_end)
+            .map(|s| (&s.site, s.site_line_at_start + (gen_line - s.gen_start)))
+    }
+
+    fn record(&mut self, site: CodeSite, gen_start: u32, gen_end: u32, site_line_at_start: u32) {
+        self.spans.push(MappedSpan {
+            site,
+            gen_start,
+            gen_end,
+            site_line_at_start,
+        });
+    }
+
+    /// The handler/procedure **body** ranges — exactly what
+    /// [`generate_with_user_lines`] has always returned; structure-section
+    /// spans are not bodies and are excluded.
+    pub fn user_body_ranges(&self) -> Vec<(u32, u32)> {
+        self.spans
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.site,
+                    CodeSite::ControlEvent { .. }
+                        | CodeSite::FormEvent { .. }
+                        | CodeSite::Procedure { .. }
+                )
+            })
+            .map(|s| (s.gen_start, s.gen_end))
+            .collect()
+    }
+}
+
 /// Generate a complete COBOL source skeleton from `form`.
 ///
 /// Returns a `String` containing fixed-format COBOL source code.
 pub fn generate(form: &Form) -> String {
-    generate_with_user_lines(form).0
+    generate_with_map(form).0
 }
 
 /// Like [`generate`], but also returns the **user-code line map**: the 1-based,
@@ -114,17 +183,31 @@ pub fn generate(form: &Form) -> String {
 /// The debugger uses this to optionally hide/skip generated code and stop only in
 /// the developer's own handlers. Empty (unwritten) handlers contribute no range —
 /// their body is a generated template stub, not user code.
+///
+/// A thin wrapper over [`generate_with_map`] — one recording path, so the
+/// debugger's view of "user code" and the diagnostics' view are the same fact.
 pub fn generate_with_user_lines(form: &Form) -> (String, Vec<(u32, u32)>) {
+    let (out, map) = generate_with_map(form);
+    let user_lines = map.user_body_ranges();
+    (out, user_lines)
+}
+
+/// The generation primitive (spec 053 R6/R9): the source **and** the
+/// [`SourceMap`] from its lines back to the developer's code sites, produced
+/// by the same call so the two cannot drift. Producing the map changes the
+/// generated COBOL by nothing — the map is a return value, never text in the
+/// file (R8, pinned by the `generated_bytes_golden` test).
+pub fn generate_with_map(form: &Form) -> (String, SourceMap) {
     let mut out = String::with_capacity(4096);
-    let mut user_lines: Vec<(u32, u32)> = Vec::new();
+    let mut map = SourceMap::default();
 
     write_header(&mut out);
     write_identification(&mut out, form);
-    write_environment(&mut out, form);
-    write_data_division(&mut out, form);
-    write_procedure_division(&mut out, form, &mut user_lines);
+    write_environment(&mut out, form, &mut map);
+    write_data_division(&mut out, form, &mut map);
+    write_procedure_division(&mut out, form, &mut map);
 
-    (out, user_lines)
+    (out, map)
 }
 
 /// 1-based number of the line that the NEXT character pushed to `out` will start.
@@ -180,13 +263,24 @@ fn write_identification(out: &mut String, form: &Form) {
 
 /// Append a fixed section/paragraph header and the developer's verbatim block
 /// body, only when the body is non-empty (spec 005 COBOL Structure).
-fn weave_block(out: &mut String, header: &str, body: &str) {
+///
+/// The one chokepoint for the four woven structure sections, so it records the
+/// span they occupy in the generated source (spec 053 R6/R7). Leading blank
+/// lines are kept, so the span starts at site line 1.
+fn weave_block(
+    out: &mut String,
+    header: &str,
+    body: &str,
+    section: StructureSection,
+    map: &mut SourceMap,
+) {
     let body = body.trim_end();
     if body.trim().is_empty() {
         return;
     }
     out.push_str(header);
     out.push('\n');
+    let gen_start = next_line_number(out);
     out.push_str(body);
     // A COBOL paragraph must terminate with a period. If the author didn't write
     // one (e.g. a REPOSITORY whose last `CLASS … IS "…"` entry has no period),
@@ -195,32 +289,54 @@ fn weave_block(out: &mut String, header: &str, body: &str) {
         out.push('.');
     }
     out.push('\n');
+    let gen_end = gen_start + body.lines().count().max(1) as u32 - 1;
+    map.record(CodeSite::Section(section), gen_start, gen_end, 1);
 }
 
-fn write_environment(out: &mut String, form: &Form) {
+fn write_environment(out: &mut String, form: &Form, map: &mut SourceMap) {
     out.push_str("       ENVIRONMENT DIVISION.\n");
 
     // ── COBOL Structure: CONFIGURATION / INPUT-OUTPUT (spec 005) ──────────────
     let cs = &form.cobol_structure;
     if !cs.special_names.trim().is_empty() || !cs.repository.trim().is_empty() {
         out.push_str("       CONFIGURATION SECTION.\n");
-        weave_block(out, "       SPECIAL-NAMES.", &cs.special_names);
-        weave_block(out, "       REPOSITORY.", &cs.repository);
+        weave_block(
+            out,
+            "       SPECIAL-NAMES.",
+            &cs.special_names,
+            StructureSection::SpecialNames,
+            map,
+        );
+        weave_block(
+            out,
+            "       REPOSITORY.",
+            &cs.repository,
+            StructureSection::Repository,
+            map,
+        );
     }
     if !cs.file_control.trim().is_empty() {
         out.push_str("       INPUT-OUTPUT SECTION.\n");
-        weave_block(out, "       FILE-CONTROL.", &cs.file_control);
+        weave_block(
+            out,
+            "       FILE-CONTROL.",
+            &cs.file_control,
+            StructureSection::FileControl,
+            map,
+        );
     }
     out.push('\n');
 }
 
-fn write_data_division(out: &mut String, form: &Form) {
+fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
     out.push_str("       DATA DIVISION.\n");
     // ── COBOL Structure: FILE SECTION (spec 005) — precedes WORKING-STORAGE ───
     weave_block(
         out,
         "       FILE SECTION.",
         &form.cobol_structure.file_section,
+        StructureSection::FileSection,
+        map,
     );
     out.push_str("       WORKING-STORAGE SECTION.\n");
     out.push_str("      *>── Cobolt runtime fields ─────────────────────────────────────\n");
@@ -541,14 +657,29 @@ fn write_data_division(out: &mut String, form: &Form) {
     // columns and break a fixed-format build).
     if !form.user_ws_source.trim().is_empty() {
         out.push_str("      *>── User Working Storage ────────────────────────────────────────\n");
+        // This weaver skips the site's leading blank lines, so the first
+        // generated line is NOT site line 1 — `site_line_at_start` records the
+        // real offset (spec 053 R6) instead of every consumer re-deriving it.
+        let gen_start = next_line_number(out);
+        let mut skipped: u32 = 0;
         let mut started = false;
         for line in form.user_ws_source.trim_end().lines() {
             if !started && line.trim().is_empty() {
+                skipped += 1;
                 continue;
             }
             started = true;
             out.push_str(line);
             out.push('\n');
+        }
+        let gen_end = out.matches('\n').count() as u32; // last WS line written
+        if gen_end >= gen_start {
+            map.record(
+                CodeSite::Section(StructureSection::WorkingStorage),
+                gen_start,
+                gen_end,
+                1 + skipped,
+            );
         }
         out.push('\n');
     }
@@ -746,7 +877,7 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
     out.push('\n');
 }
 
-fn write_procedure_division(out: &mut String, form: &Form, user_lines: &mut Vec<(u32, u32)>) {
+fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) {
     out.push_str("       PROCEDURE DIVISION.\n");
 
     let all_controls = collect_all_controls(&form.controls);
@@ -816,7 +947,7 @@ fn write_procedure_division(out: &mut String, form: &Form, user_lines: &mut Vec<
     data_binding::write_data_binding_paragraphs(out, form);
 
     // ── Nested COBOL-85 programs — one per event handler ─────────────────
-    write_nested_programs(out, form, &all_controls, user_lines);
+    write_nested_programs(out, form, &all_controls, map);
 
     // ── Close the outer program ───────────────────────────────────────────
     out.push_str(&format!("       END PROGRAM {}.\n", form.name));
@@ -1835,21 +1966,22 @@ fn write_nested_programs(
     out: &mut String,
     form: &Form,
     all_controls: &[&Control],
-    user_lines: &mut Vec<(u32, u32)>,
+    map: &mut SourceMap,
 ) {
     // A toolbar button's handler is emitted here too. It is not in any control's
     // `events` table — the toolbar owns its buttons — so the walk below would
     // never reach it, and a bound handler would have a `WHEN` calling a program
     // that was never written.
-    let toolbar_handlers: Vec<(String, String, String, String)> =
+    let toolbar_handlers: Vec<(String, String, String, String, String)> =
         collect_toolbar_dispatch(all_controls)
             .into_iter()
             .filter(|d| toolbar_when_branches(d).is_ok())
             .flat_map(|d| {
                 let origin = d.origin.clone();
-                d.handlers
-                    .into_iter()
-                    .map(move |(para, event, code)| (para, event, code, origin.clone()))
+                let control_id = d.control_id.clone();
+                d.handlers.into_iter().map(move |(para, event, code)| {
+                    (para, event, code, origin.clone(), control_id.clone())
+                })
             })
             .collect();
 
@@ -1876,7 +2008,10 @@ fn write_nested_programs(
             &format!("Form {} handler", ev.event),
             true,
             None,
-            user_lines,
+            CodeSite::FormEvent {
+                event: ev.event.clone(),
+            },
+            map,
         );
     }
 
@@ -1896,14 +2031,18 @@ fn write_nested_programs(
                 &format!("{} {} handler", ctrl.id, ev.event),
                 true,
                 array_member.as_deref(),
-                user_lines,
+                CodeSite::ControlEvent {
+                    control_id: ctrl.id.clone(),
+                    event: ev.event.clone(),
+                },
+                map,
             );
         }
     }
 
     // Toolbar button handlers. `IS COMMON` like every other woven procedure, so
     // a button's handler can CALL a user procedure and be CALLed in turn.
-    for (paragraph, event, code, origin) in &toolbar_handlers {
+    for (paragraph, event, code, origin, control_id) in &toolbar_handlers {
         write_nested_program(
             out,
             paragraph,
@@ -1912,7 +2051,11 @@ fn write_nested_programs(
             &format!("toolbar button {origin} {event} handler"),
             true,
             None,
-            user_lines,
+            CodeSite::ControlEvent {
+                control_id: control_id.clone(),
+                event: event.clone(),
+            },
+            map,
         );
     }
 
@@ -1931,7 +2074,10 @@ fn write_nested_programs(
             &format!("user procedure {}", up.name.trim()),
             true,
             None,
-            user_lines,
+            CodeSite::Procedure {
+                name: up.name.trim().to_string(),
+            },
+            map,
         );
     }
 }
@@ -1955,7 +2101,8 @@ fn write_nested_program(
     comment: &str,
     common: bool,
     array_member: Option<&str>,
-    user_lines: &mut Vec<(u32, u32)>,
+    site: CodeSite,
+    map: &mut SourceMap,
 ) {
     let attr = if common { " IS COMMON PROGRAM" } else { "" };
     out.push_str("       IDENTIFICATION DIVISION.\n");
@@ -1976,8 +2123,11 @@ fn write_nested_program(
         source.to_string()
     };
     // Record the inclusive 1-based line range of the developer-authored body so
-    // the debugger can hide/skip the surrounding generated scaffolding. Only real
-    // user code counts — an empty handler emits a generated template stub.
+    // the debugger can hide/skip the surrounding generated scaffolding and a
+    // diagnostic can name the owning site (spec 053 R6). Only real user code
+    // counts — an empty handler emits a generated template stub, which maps to
+    // no site. Handler bodies keep their leading blank lines, so the span
+    // starts at site line 1.
     let body_start = next_line_number(out);
     for line in body.trim_end().lines() {
         out.push_str(line);
@@ -1986,7 +2136,7 @@ fn write_nested_program(
     if is_user_authored {
         let body_end = out.matches('\n').count() as u32; // last line just written
         if body_end >= body_start {
-            user_lines.push((body_start, body_end));
+            map.record(site, body_start, body_end, 1);
         }
     }
     out.push('\n');
@@ -3492,5 +3642,167 @@ mod tests {
         ] {
             assert!(src.contains(needle), "missing {needle}\n{src}");
         }
+    }
+}
+
+// ── Source-map tests (spec 053 T9) ───────────────────────────────────────────
+
+#[cfg(test)]
+mod source_map_tests {
+    use super::*;
+    use cobolt_forms::code_site::{all_sites_fixture, fixture_markers, site_text};
+
+    /// AC3: the marker planted at a known line of each of the eight in-form
+    /// site kinds resolves to exactly that site and that site line (±0),
+    /// untidy input included — the WORKING-STORAGE marker sits behind two
+    /// skipped leading blank lines.
+    #[test]
+    fn source_map_finds_every_marker_at_its_site_line() {
+        let form = all_sites_fixture();
+        let (src, map) = generate_with_map(&form);
+        let lines: Vec<&str> = src.lines().collect();
+
+        println!("── per-kind marker resolution (AC3) ─────────────────────");
+        for (site, marker, site_line) in fixture_markers() {
+            let gen_line = lines
+                .iter()
+                .position(|l| l.contains(marker))
+                .map(|i| i as u32 + 1)
+                .unwrap_or_else(|| panic!("marker {marker} not in generated source"));
+            let (got_site, got_line) = map
+                .resolve(gen_line)
+                .unwrap_or_else(|| panic!("marker {marker} (gen line {gen_line}) unmapped"));
+            assert_eq!(got_site, &site, "marker {marker} owned by the wrong site");
+            assert_eq!(
+                got_line, site_line,
+                "marker {marker} at the wrong site line"
+            );
+            println!(
+                "  {marker:<26} gen {gen_line:>3} → {:<40} site line {got_line}",
+                site.display_path(&form.name)
+            );
+        }
+    }
+
+    /// AC2: the map accounts for 100 % of the generated lines — every line a
+    /// span covers is verbatim the site's own text at the resolved site line,
+    /// and every developer marker line is covered by a span. Prints the span
+    /// table and the attributed/total counts.
+    #[test]
+    fn source_map_attributes_every_span_line_verbatim() {
+        let form = all_sites_fixture();
+        let (src, map) = generate_with_map(&form);
+        let lines: Vec<&str> = src.lines().collect();
+        let total = lines.len() as u32;
+        let mut attributed = 0u32;
+
+        println!("── span table: site → generated range → site lines ─────");
+        for span in &map.spans {
+            println!(
+                "  {:<44} gen {:>3}-{:<3} site lines {}-{}",
+                span.site.display_path(&form.name),
+                span.gen_start,
+                span.gen_end,
+                span.site_line_at_start,
+                span.site_line_at_start + (span.gen_end - span.gen_start)
+            );
+        }
+
+        for gen_line in 1..=total {
+            let Some((site, site_line)) = map.resolve(gen_line) else {
+                continue; // codegen-authored (R12) — the banner, scaffolding, stubs
+            };
+            attributed += 1;
+            let text = site_text(&form, site).expect("mapped site has text");
+            let expected = text
+                .lines()
+                .nth(site_line as usize - 1)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "gen line {gen_line} resolves past the end of {}",
+                        site.display_path(&form.name)
+                    )
+                });
+            let got = lines[gen_line as usize - 1];
+            // The weave may trim trailing whitespace off a body's LAST line and
+            // append the terminating period a section author omitted; nothing
+            // else may differ.
+            let matches = got == expected
+                || got == expected.trim_end()
+                || got == format!("{}.", expected.trim_end());
+            assert!(
+                matches,
+                "gen line {gen_line} is not the site's text:\n  gen : {got:?}\n  site: {expected:?}"
+            );
+        }
+
+        // Every marker line is inside a span (the developer's code is never
+        // silently unattributed).
+        for (_, marker, _) in fixture_markers() {
+            let gen_line = lines
+                .iter()
+                .position(|l| l.contains(marker))
+                .map(|i| i as u32 + 1)
+                .unwrap();
+            assert!(
+                map.resolve(gen_line).is_some(),
+                "marker {marker} must be attributed"
+            );
+        }
+        println!("  {attributed}/{total} generated lines attributed to a site; the rest are codegen's own");
+        assert!(attributed > 0, "the fixture must attribute lines");
+    }
+
+    /// The stub emitted for an EMPTY handler is codegen's code, not the
+    /// developer's: every line of it resolves to no site (R12; the stub half
+    /// of AC7).
+    #[test]
+    fn source_map_leaves_an_empty_handler_stub_unattributed() {
+        let form = all_sites_fixture();
+        let (src, map) = generate_with_map(&form);
+        let lines: Vec<&str> = src.lines().collect();
+
+        let start = lines
+            .iter()
+            .position(|l| l.contains("PROGRAM-ID. BTN-EMPTY--ONCLICK"))
+            .expect("stub program present");
+        let end = lines
+            .iter()
+            .position(|l| l.contains("END PROGRAM BTN-EMPTY--ONCLICK"))
+            .expect("stub program closed");
+        assert!(end > start);
+        for (idx, _) in lines.iter().enumerate().take(end + 1).skip(start) {
+            let gen_line = idx as u32 + 1;
+            assert!(
+                map.resolve(gen_line).is_none(),
+                "stub line {gen_line} ({:?}) must resolve to no site",
+                lines[idx]
+            );
+        }
+        println!(
+            "  stub BTN-EMPTY--ONCLICK: gen lines {}-{} all unattributed (generated code)",
+            start + 1,
+            end + 1
+        );
+    }
+
+    /// Wrapper parity (R29): `generate_with_user_lines` derives exactly the
+    /// handler/procedure body ranges from the map — section spans are not
+    /// bodies and never leak into the debugger's view of user code.
+    #[test]
+    fn source_map_user_body_ranges_exclude_sections() {
+        let form = all_sites_fixture();
+        let (_, map) = generate_with_map(&form);
+        let (_, ranges) = generate_with_user_lines(&form);
+        assert_eq!(ranges, map.user_body_ranges());
+        // The fixture has three bodies: onLoad, BTN-GO onClick, VALIDATE-CUSTOMER.
+        assert_eq!(ranges.len(), 3, "three authored bodies");
+        // And five section spans that must NOT be in the body ranges.
+        let sections = map
+            .spans
+            .iter()
+            .filter(|s| matches!(s.site, CodeSite::Section(_)))
+            .count();
+        assert_eq!(sections, 5, "five woven sections recorded");
     }
 }

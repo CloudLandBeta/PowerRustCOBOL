@@ -74,6 +74,15 @@ pub fn show(
             }
             crate::theme::flash_on_click(ui, &check_resp);
 
+            // ── Project-wide code search (spec 053) ───────────────────────────
+            let search_resp = ui
+                .add_enabled(has_active, Button::new(tr.tb_search))
+                .on_hover_text(tr.tb_search_hint);
+            if search_resp.clicked() {
+                action = ToolbarAction::Search;
+            }
+            crate::theme::flash_on_click(ui, &search_resp);
+
             // ── Build binary ──────────────────────────────────────────────────
             let build_resp = ui.add_enabled(compilable, Button::new(tr.tb_build));
             if build_resp.clicked() {
@@ -176,4 +185,6 @@ pub enum ToolbarAction {
     Check,
     Open,
     Save,
+    /// Open the project-wide code search window (spec 053).
+    Search,
 }

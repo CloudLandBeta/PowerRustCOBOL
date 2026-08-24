@@ -193,7 +193,7 @@ pub fn compile_defects(
     }
     apply_for_probe(&mut probe, cs);
 
-    let (source, user_lines) = cobolt_codegen::generate_with_user_lines(&probe);
+    let (source, map) = cobolt_codegen::generate_with_map(&probe);
     let tokens = tokenize(&source, SourceFormat::detect(&source));
     let parsed = cobolt_parser::parse(tokens);
 
@@ -202,7 +202,7 @@ pub fn compile_defects(
         .iter()
         .filter(|d| d.severity == cobolt_parser::Severity::Error)
         .map(|d| CompileDefect {
-            op: attribute(cs, &source, &user_lines, d.span.line),
+            op: attribute(cs, &map, d.span.line),
             message: d.message.clone(),
         })
         .collect();
@@ -217,7 +217,7 @@ pub fn compile_defects(
                     .iter()
                     .filter(|d| d.severity == cobolt_semantic::Severity::Error)
                     .map(|d| CompileDefect {
-                        op: attribute(cs, &source, &user_lines, d.span.line),
+                        op: attribute(cs, &map, d.span.line),
                         message: d.message.clone(),
                     }),
             );
@@ -227,48 +227,37 @@ pub fn compile_defects(
 }
 
 /// Map a 1-based line of the generated source back to the operation whose body
-/// occupies it.
+/// occupies it, through codegen's [`cobolt_codegen::SourceMap`] (spec 053).
 ///
-/// `user_lines` are codegen's own ranges of developer-authored code, in emission
-/// order. A line outside every range is generated scaffolding and belongs to no
+/// The map answers exactly and for every site kind — including the structure
+/// sections, which the old backwards scan for the nearest `PROGRAM-ID.` could
+/// not see at all (they have none), and which it would have mis-attributed to
+/// whatever program happened to precede them had codegen ever reordered. A
+/// line the map does not cover is generated scaffolding and belongs to no
 /// operation.
-fn attribute(
-    cs: &AgentChangeSet,
-    source: &str,
-    user_lines: &[(u32, u32)],
-    line: u32,
-) -> Option<String> {
-    if !user_lines.iter().any(|(a, b)| line >= *a && line <= *b) {
-        return None;
-    }
-    // The enclosing nested program names itself: `PROGRAM-ID. BTN-OK--ONCLICK.`
-    // for a handler, `PROGRAM-ID. RECALC IS COMMON PROGRAM.` for a procedure.
-    let above: Vec<&str> = source.lines().take(line as usize).collect();
-    let prog = above.iter().rev().find_map(|l| {
-        let t = l.trim();
-        t.strip_prefix("PROGRAM-ID.")
-            .map(|rest| rest.trim().trim_end_matches('.').to_ascii_uppercase())
-    })?;
-    let prog_name = prog
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_string();
+fn attribute(cs: &AgentChangeSet, map: &cobolt_codegen::SourceMap, line: u32) -> Option<String> {
+    use cobolt_forms::code_site::CodeSite;
+    let (site, _site_line) = map.resolve(line)?;
 
-    cs.operations.iter().find_map(|op| match op {
-        AgentOp::GenerateEventHandler {
-            control_id, event, ..
-        } => {
-            let expect = format!(
-                "{}--{}",
-                cobolt_codegen::cobol_word(control_id).to_ascii_uppercase(),
-                event.to_ascii_uppercase()
-            );
-            (expect == prog_name).then(|| format!("generate_event_handler {control_id}.{event}"))
-        }
-        AgentOp::CreateProcedure { name, .. } => {
-            (cobolt_codegen::cobol_word(name).to_ascii_uppercase() == prog_name)
+    cs.operations.iter().find_map(|op| match (op, site) {
+        (
+            AgentOp::GenerateEventHandler {
+                control_id, event, ..
+            },
+            CodeSite::ControlEvent {
+                control_id: site_id,
+                event: site_event,
+            },
+        ) => (site_id.eq_ignore_ascii_case(control_id) && site_event.eq_ignore_ascii_case(event))
+            .then(|| format!("generate_event_handler {control_id}.{event}")),
+        (AgentOp::CreateProcedure { name, .. }, CodeSite::Procedure { name: site_name }) => {
+            site_name
+                .eq_ignore_ascii_case(name.trim())
                 .then(|| format!("create_procedure {name}"))
+        }
+        (AgentOp::SetFormStructure { block, .. }, CodeSite::Section(section)) => {
+            (crate::agent::form_structure_block(block) == Some(section.keyword()))
+                .then(|| format!("set_form_structure {}", section.keyword()))
         }
         _ => None,
     })
@@ -422,6 +411,28 @@ mod tests {
         assert!(
             compile_defects(&form(), &[], &parse_change_set(&with_clause).unwrap()).is_empty(),
             "with the clause in force, 8,49 is a decimal literal"
+        );
+    }
+
+    /// Spec 053 T10: a defect inside a structure section is attributed to the
+    /// operation that wrote it. The old backwards scan for the nearest
+    /// `PROGRAM-ID.` could not see the sections at all (they have none), so
+    /// this defect used to reach the correction scoper with `op: None`.
+    #[test]
+    fn a_defect_in_a_structure_section_is_attributed() {
+        let cs = parse_change_set(
+            r#"{"operations":[
+  {"op":"set_form_structure","block":"WORKING-STORAGE","code":"       01  WS-PRICE  PIC 9(5)V99 VALUE 8,49."}
+]}"#,
+        )
+        .unwrap();
+        let defects = compile_defects(&form(), &[], &cs);
+        assert!(!defects.is_empty(), "the comma literal must be caught");
+        assert!(
+            defects
+                .iter()
+                .any(|d| d.op.as_deref() == Some("set_form_structure WORKING-STORAGE")),
+            "the section defect must name its operation: {defects:?}"
         );
     }
 
