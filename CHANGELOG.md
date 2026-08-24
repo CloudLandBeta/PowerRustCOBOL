@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.175] — 2026-08-23
+
+### Fixed — black triangles in panel corners after visiting a themed form
+
+The corner-notch mask repaints "what is behind" over a rounded container's
+corners, and took that colour from the ambient `panel_fill` — which a
+self-contained form theme (Elegance) had written into the shared context and
+never restored. Visit such a form once and many panels' corners turned navy,
+permanently. The caller now states what it painted (`Backdrop::behind_fill`,
+set from the pane's own backdrop); ambient survives only as the designer-canvas
+fallback. Pinned by `render::notch_ambient_tests`.
+
+### Fixed — a control past the form's designed edge never rendered
+
+A control placed beyond the designed form width — visible and selectable on
+the canvas — never appeared at run time: every control was clipped to the
+designed form rect. The designed rect is now the floor, not the ceiling: the
+clip is the designed rect unioned with the room actually available, and a
+child is still clipped to its Panel/GroupBox. Known limit: a window *smaller*
+than the form still scrolls only the designed rectangle. Pinned by
+`render::beyond_the_form_edge_tests`.
+
+
 ## [PowerRustCOBOL 1.61.174] — 2026-08-23
 
 ### New — `Sunken` presses a Neumorphic control into the form
