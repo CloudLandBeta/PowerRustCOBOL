@@ -557,7 +557,11 @@ impl CodeSearchPanel {
                 },
             );
             job.append(post, 0.0, egui::TextFormat::simple(font, dim));
-            let resp = ui.add(egui::Label::new(job).sense(egui::Sense::click()));
+            // A result row is a link, and reads as one: the pointing hand on
+            // hover (the diagnostic rows already do this — R16's convention).
+            let resp = ui
+                .add(egui::Label::new(job).sense(egui::Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.double_clicked() {
                 action = Some(CodeSearchAction::Jump(hit.clone()));
             }
@@ -800,6 +804,58 @@ mod code_search_tests {
             ctx.memory(|m| m.area_rect(egui::Id::new("code_search_window"))),
             action,
         )
+    }
+
+    /// Operator (2026-08-23): the cursor over a search result is the pointing
+    /// hand — the hyperlink convention, and the same affordance the clickable
+    /// diagnostic rows already carry. Hovering the result list must set it;
+    /// hovering outside the window must not.
+    #[test]
+    fn a_hovered_result_row_shows_the_pointing_hand() {
+        let ctx = egui::Context::default();
+        let mut panel = CodeSearchPanel::new();
+        panel.hits = overflow_hits(300);
+        panel.searched_once = true;
+        let mut open = true;
+
+        // Settle the window and learn where it is.
+        let mut rect = None;
+        for _ in 0..5 {
+            rect = run_frame(&ctx, &mut panel, &mut open, vec![]).0;
+        }
+        let rect = rect.expect("window rect");
+
+        let cursor_at = |panel: &mut CodeSearchPanel, open: &mut bool, pos: egui::Pos2| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1600.0, 1000.0),
+            ));
+            input.events = vec![egui::Event::PointerMoved(pos)];
+            let tr = crate::i18n::Language::English.tr();
+            let full = ctx.run_ui(input, |root_ui| {
+                let ctx2 = root_ui.ctx().clone();
+                panel.show(&ctx2, open, &tr, 0);
+            });
+            full.platform_output.cursor_icon
+        };
+
+        // The list fills the central panel; with 300 rows the window's centre
+        // is on a result row. Sample a few heights so a group header under
+        // one probe cannot fake a failure.
+        let hand = [0.45, 0.55, 0.65].iter().any(|f| {
+            let pos = egui::pos2(rect.center().x, rect.min.y + rect.height() * f);
+            cursor_at(&mut panel, &mut open, pos) == egui::CursorIcon::PointingHand
+        });
+        assert!(hand, "hovering the result list must show the pointing hand");
+
+        // Outside the window: the default cursor, not a stuck hand.
+        let outside = egui::pos2(1500.0, 950.0);
+        assert_ne!(
+            cursor_at(&mut panel, &mut open, outside),
+            egui::CursorIcon::PointingHand,
+            "the hand must not leak outside the result rows"
+        );
     }
 
     /// AC17 — the self-inflation guard, written before the window had real
