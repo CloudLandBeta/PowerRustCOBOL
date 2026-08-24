@@ -13299,6 +13299,12 @@ impl CoboltApp {
 
         let mut updates: Vec<(String, String, String)> = Vec::new();
         let mut toolbar_presses: Vec<(String, String, String)> = Vec::new();
+        // Focus as it stood BEFORE this frame's widgets see the click: the
+        // click that presses a toolbar button surrenders the text field's
+        // focus during render (egui SurrenderFocusOn::Clicks), so the
+        // clipboard verbs must remember who HAD it — same rule as the
+        // running host.
+        let pre_focus = ctx.memory(|m| m.focused());
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(panel_ui, |ui| {
@@ -13366,20 +13372,33 @@ impl CoboltApp {
             // Copy/Cut/Paste act on whichever control has keyboard focus. egui
             // reports that as a widget id, and a control's TextEdit is built with
             // `Id::new(("rt_ctrl", <control id>))` — so the focused control is
-            // found by matching that back. Same rule as the running host.
-            let focused = ctx.memory(|m| m.focused()).and_then(|focus| {
-                controls.iter().find_map(|c| {
-                    (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
-                        let text = self.designers[idx]
-                            .1
-                            .preview_state
-                            .get(&c.id)
-                            .cloned()
-                            .unwrap_or_default();
-                        (c.id.clone(), text)
+            // found by matching that back. Live focus is already gone by now —
+            // the pressing click surrendered it — so the pre-render focus is
+            // the fallback. Same rule as the running host.
+            let focused = ctx
+                .memory(|m| m.focused())
+                .or(pre_focus)
+                .and_then(|focus| {
+                    controls.iter().find_map(|c| {
+                        (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                            // Live text when edited; the designed Text/Value
+                            // otherwise, so Copy on an untouched field copies
+                            // what is on screen, not "".
+                            let text = self.designers[idx]
+                                .1
+                                .preview_state
+                                .get(&c.id)
+                                .cloned()
+                                .or_else(|| {
+                                    c.get_prop("Text")
+                                        .or_else(|| c.get_prop("Value"))
+                                        .map(|v| v.as_str().to_owned())
+                                })
+                                .unwrap_or_default();
+                            (c.id.clone(), text)
+                        })
                     })
-                })
-            });
+                });
             let focused_ref = focused
                 .as_ref()
                 .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {

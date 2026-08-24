@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.184] — 2026-08-23
+
+### Fixed — toolbar platform actions: copy/cut/paste never worked, and failures were silent
+
+An audit of all eleven predefined toolbar actions (operator report: "print,
+copy, paste are doing nothing") found three defects and confirmed the rest of
+the chain sound (`event`, `procedure`, `open-modal`, and the capture/launch
+actions were correctly wired on the main surfaces):
+
+- **`copy`/`cut`/`paste` failed on every surface.** The very click that
+  presses the button surrenders the text field's keyboard focus (egui's
+  default), so by execution time no field had focus — every clipboard verb
+  reported "No text field has focus", invisibly. The focus as it stood
+  *before* the press is now the fallback, and an untouched field yields its
+  **designed** text instead of "".
+- **A toolbar in a SideMenu footer did nothing.** The footer's render pass
+  forwarded only COBOL events; platform actions (and FileDropZone pickers)
+  were dropped. They now route through the same executor as every other
+  surface.
+- **Failures were stderr-only on Run Form.** Every platform press now shows
+  its outcome — what it did, or why it could not — as a brief notice at the
+  bottom of the form's window, so a failed print or an empty-clipboard paste
+  is visible instead of looking like a dead button.
+
+System KB ToolBar entry and the guide updated; pinned by an end-to-end
+`run_platform_requests` test (pre-press focus + designed text → copied;
+no focus → visible failure).
+
+
 ## [PowerRustCOBOL 1.61.183] — 2026-08-23
 
 ### Fixed — the toolbar editor's action notes wrap instead of widening the window

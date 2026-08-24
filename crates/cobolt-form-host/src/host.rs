@@ -494,6 +494,7 @@ impl FormHost {
                 hovered: std::collections::HashSet::new(),
                 parked_timer_clocks: HashMap::new(),
                 toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+                action_notice: None,
             },
             children: Vec::new(),
             occupants: HashMap::new(),
@@ -619,6 +620,11 @@ pub(crate) struct FormBody {
     /// screenshot is its own. It used to live on the host, which is part of why
     /// only the root form ever ran a toolbar action at all.
     pub(crate) toolbar_runner: cobolt_forms::toolbar_actions::Runner,
+    /// The latest platform-action outcome, shown briefly in the form window
+    /// (message, is_error, egui time it appeared). A Failed print or an
+    /// empty-clipboard paste used to go only to stderr — to the operator that
+    /// read as "the button does nothing" (2026-08-23).
+    pub(crate) action_notice: Option<(String, bool, f64)>,
 }
 
 impl FormBody {
@@ -697,7 +703,21 @@ impl FormBody {
             // translucent Panel still has something to resolve against.
             backdrop: cobolt_forms::render::Backdrop::behind(behind),
         };
+        // Focus BEFORE the footer's widgets see the click — same rule as the
+        // main frame paths (the press surrenders the field's focus).
+        let pre_focus = ui.ctx().memory(|m| m.focused());
         let out = cobolt_forms::render::render_form(&mut child, &input);
+        // A toolbar button (or FileDropZone) in the footer is as real as one
+        // on the form: its platform actions used to be dropped here — only the
+        // COBOL event was forwarded, so print/copy/share in a footer did
+        // nothing, silently (operator, 2026-08-23).
+        let ctx = ui.ctx().clone();
+        self.run_platform_requests(
+            &ctx,
+            &out.file_picker_requests,
+            &out.toolbar_actions,
+            pre_focus,
+        );
         self.forward_interaction(&out.prop_updates, out.events);
     }
 
@@ -818,6 +838,7 @@ impl FormBody {
         ctx: &egui::Context,
         file_pickers: &[String],
         toolbar_actions: &[(String, String, String)],
+        pre_focus: Option<egui::Id>,
     ) -> bool {
         let mut acted = false;
 
@@ -903,31 +924,51 @@ impl FormBody {
             // reports that as a widget id, and a control's TextEdit is built with
             // `Id::new(("rt_ctrl", <control id>))` — so the focused control is
             // found by matching that back.
-            let focused = ctx.memory(|m| m.focused()).and_then(|focus| {
-                self.controls.iter().find_map(|c| {
-                    (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
-                        let text = self
-                            .state
-                            .get(&c.id)
-                            .and_then(|s| {
-                                s.props.iter().find_map(|(k, v)| {
-                                    (k.eq_ignore_ascii_case("Text")
-                                        || k.eq_ignore_ascii_case("Value"))
-                                    .then(|| v.clone())
+            //
+            // The very click that pressed the button SURRENDERS that focus:
+            // egui 0.36 defaults to `SurrenderFocusOn::Clicks`, so by the time
+            // this runs, live focus is gone and every clipboard verb reported
+            // "No text field has focus" (operator, 2026-08-23 — "copy, paste
+            // are doing nothing"). `pre_focus` is the focus as it stood BEFORE
+            // this frame's widgets processed the click — the field the user
+            // means — and is the fallback when the live answer is empty.
+            let focused = ctx
+                .memory(|m| m.focused())
+                .or(pre_focus)
+                .and_then(|focus| {
+                    self.controls.iter().find_map(|c| {
+                        (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                            // The live text when the field was edited; the
+                            // DESIGNED text otherwise — an untouched field's
+                            // Copy used to copy "".
+                            let text = self
+                                .state
+                                .get(&c.id)
+                                .and_then(|s| {
+                                    s.props.iter().find_map(|(k, v)| {
+                                        (k.eq_ignore_ascii_case("Text")
+                                            || k.eq_ignore_ascii_case("Value"))
+                                        .then(|| v.clone())
+                                    })
                                 })
-                            })
-                            .unwrap_or_default();
-                        (c.id.clone(), text)
+                                .or_else(|| {
+                                    c.get_prop("Text")
+                                        .or_else(|| c.get_prop("Value"))
+                                        .map(|v| v.as_str().to_owned())
+                                })
+                                .unwrap_or_default();
+                            (c.id.clone(), text)
+                        })
                     })
-                })
-            });
+                });
             let focused_ref = focused
                 .as_ref()
                 .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
                     control_id: id.as_str(),
                     text: text.clone(),
                 });
-            let (_outcome, new_text) = self.toolbar_runner.perform(ctx, &parsed, focused_ref);
+            let (outcome, new_text) = self.toolbar_runner.perform(ctx, &parsed, focused_ref);
+            self.note_action_outcome(ctx, &outcome);
             // A Cut or a Paste changed the focused field: write it back the way a
             // keystroke would have, so the form sees it.
             if let (Some(text), Some((target, _))) = (new_text, focused) {
@@ -943,10 +984,68 @@ impl FormBody {
             acted = true;
         }
         // A window capture asked for on an earlier frame finishes here.
-        if self.toolbar_runner.poll_capture(ctx).is_some() {
+        if let Some(outcome) = self.toolbar_runner.poll_capture(ctx) {
+            self.note_action_outcome(ctx, &outcome);
             acted = true;
         }
         acted
+    }
+
+    /// Keep a platform-action outcome to show in the window for a few
+    /// seconds. `Pending` is skipped — its completion reports itself.
+    fn note_action_outcome(
+        &mut self,
+        ctx: &egui::Context,
+        outcome: &cobolt_forms::toolbar_actions::Outcome,
+    ) {
+        use cobolt_forms::toolbar_actions::Outcome;
+        if matches!(outcome, Outcome::Pending(_)) {
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        self.action_notice = Some((outcome.message().to_owned(), outcome.is_error(), now));
+    }
+
+    /// Paint the latest platform-action outcome as a small bottom-anchored
+    /// notice for a few seconds, so a Failed print or an empty-clipboard
+    /// paste is VISIBLE instead of a line on stderr. Colours are fixed, not
+    /// taken from the theme — a glass theme's ambient values are exactly what
+    /// made text unreadable before.
+    pub(crate) fn show_action_notice(&mut self, ctx: &egui::Context) {
+        const NOTICE_SECONDS: f64 = 4.0;
+        let Some((message, is_error, shown_at)) = &self.action_notice else {
+            return;
+        };
+        let now = ctx.input(|i| i.time);
+        if now - shown_at > NOTICE_SECONDS {
+            self.action_notice = None;
+            return;
+        }
+        let (fg, bg) = if *is_error {
+            (
+                egui::Color32::WHITE,
+                egui::Color32::from_rgba_unmultiplied(150, 40, 40, 230),
+            )
+        } else {
+            (
+                egui::Color32::WHITE,
+                egui::Color32::from_rgba_unmultiplied(30, 60, 90, 230),
+            )
+        };
+        egui::Area::new(egui::Id::new(("toolbar-action-notice", self.form_name.as_str())))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -18.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::NONE
+                    .fill(bg)
+                    .corner_radius(6.0)
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(message.as_str()).color(fg).size(13.0));
+                    });
+            });
+        ctx.request_repaint(); // keep the clock running so the notice expires
     }
 
     /// Apply one interpreter → UI property update, and fire the OBSERVER events
@@ -1317,6 +1416,10 @@ impl FormBody {
 
         let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
         let form_size = self.form_size;
+        // Focus as it stood BEFORE this frame's widgets see the click — the
+        // click that presses a toolbar button surrenders the text field's
+        // focus during render, and the clipboard verbs need to know who HAD it.
+        let pre_focus = ctx.memory(|m| m.focused());
         let output = {
             let controls = self.controls.clone();
             let st = LiveState {
@@ -1401,10 +1504,12 @@ impl FormBody {
                 ctx,
                 &output.file_picker_requests,
                 &output.toolbar_actions,
+                pre_focus,
             ) {
                 platform_acted = true;
             }
         }
+        self.show_action_notice(ctx);
 
         // A busy child keeps frames coming; an idle one rides the root's
         // heartbeat.
@@ -2254,6 +2359,7 @@ impl FormHost {
             hovered: std::collections::HashSet::new(),
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+            action_notice: None,
         };
         Ok((body, form))
     }
@@ -2932,6 +3038,8 @@ impl FormHost {
         let mut pane_backdrop_rect: Option<egui::Rect> = None;
         let mut pane_backdrop_fill: Option<egui::Color32> = None;
         let mut content_scroll = egui::Vec2::ZERO;
+        // Focus BEFORE this frame's widgets see the click — see child_frame.
+        let pre_focus = ctx.memory(|m| m.focused());
         let output = {
             let controls = self.root.controls.clone();
             let st = LiveState {
@@ -3112,10 +3220,12 @@ impl FormHost {
                 ctx,
                 &output.file_picker_requests,
                 &output.toolbar_actions,
+                pre_focus,
             ) {
                 interacted = true;
             }
         }
+        self.root.show_action_notice(ctx);
 
         // Reactive frame scheduling — never spin at max FPS. While interpreter
         // traffic is flowing (state drained, events sent, or a backlog is
@@ -4407,7 +4517,77 @@ mod parity {
             hovered: std::collections::HashSet::new(),
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+            action_notice: None,
         }
+    }
+
+    /// Operator (2026-08-23): "copy, paste are doing nothing". Two defects in
+    /// one chain: the click that presses the toolbar button SURRENDERS the
+    /// text field's focus before the press is executed (egui's
+    /// `SurrenderFocusOn::Clicks`), so live focus is always `None`; and an
+    /// untouched field had no state entry, so even a resolved Copy copied "".
+    /// The pre-press focus is the fallback, and the DESIGNED text is what an
+    /// unedited field yields — pinned here end-to-end through
+    /// `run_platform_requests`.
+    #[test]
+    fn copy_uses_the_pre_press_focus_and_the_designed_text() {
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let mut body = timer_body(ev_tx, input_tx, Arc::new(AtomicUsize::new(0)));
+        let mut txt =
+            cobolt_forms::Control::new("TXT-1", cobolt_forms::ControlType::TextBox, 0, 0);
+        txt.set_prop(
+            "Text",
+            cobolt_forms::PropValue::String("HELLO FROM DESIGN".into()),
+        );
+        body.controls.push(txt);
+
+        let press = [(
+            "TB-1".to_owned(),
+            "save".to_owned(),
+            "copy".to_owned(),
+        )];
+
+        // Live focus is None — the post-surrender state — and the pre-press
+        // focus names the field the user was in.
+        let ctx = egui::Context::default();
+        let pre = Some(egui::Id::new(("rt_ctrl", "TXT-1")));
+        let mut full = ctx.run_ui(Default::default(), |_root| {
+            let ctx2 = _root.ctx().clone();
+            body.run_platform_requests(&ctx2, &[], &press, pre);
+        });
+        full.textures_delta.clear();
+        let copied = full.platform_output.commands.iter().find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            copied.as_deref(),
+            Some("HELLO FROM DESIGN"),
+            "copy must reach the pre-press field and its designed text"
+        );
+        let (msg, is_error, _) = body.action_notice.clone().expect("outcome surfaced");
+        assert!(!is_error, "a successful copy is not an error: {msg}");
+        assert!(msg.contains("Copied"), "the notice says what happened: {msg}");
+
+        // Without any focus at all, the failure is SURFACED, not silent.
+        body.action_notice = None;
+        let mut full = ctx.run_ui(Default::default(), |_root| {
+            let ctx2 = _root.ctx().clone();
+            body.run_platform_requests(&ctx2, &[], &press, None);
+        });
+        full.textures_delta.clear();
+        assert!(
+            !full
+                .platform_output
+                .commands
+                .iter()
+                .any(|c| matches!(c, egui::OutputCommand::CopyText(_))),
+            "no focus, nothing copied"
+        );
+        let (msg, is_error, _) = body.action_notice.clone().expect("failure surfaced");
+        assert!(is_error, "the no-focus failure is visible: {msg}");
+        println!("copy: pre-press focus + designed text → copied; no focus → visible failure");
     }
 
     // ── Group 3: effects gating (R5–R10) ─────────────────────────────────────
