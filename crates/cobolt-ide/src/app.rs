@@ -13404,6 +13404,7 @@ impl CoboltApp {
                 .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
                     control_id: id.as_str(),
                     text: text.clone(),
+                    widget_id: egui::Id::new(("rt_ctrl", id.as_str())),
                 });
             let (outcome, new_text) = self
                 .preview_toolbar_runner

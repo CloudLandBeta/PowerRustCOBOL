@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.185] — 2026-08-23
+
+### Fixed — copy / cut / paste now honour the selection and give the field back
+
+The clipboard buttons took the **whole field** and left the caret wherever it
+fell. They now follow the rules a clipboard is expected to follow: `copy` takes
+**only the selection** (the whole field when nothing is selected) and leaves the
+caret right after the last character copied; `paste` **replaces the selection**,
+or inserts at the caret when there is none, leaving the caret right after the
+last character pasted; `cut` follows copy's rule and leaves the caret where the
+removed text began. Each verb hands the focus **back** to the field, so typing
+carries on where it left off, and with no field focused `paste` changes nothing
+and says so. The rules count characters, not bytes, so accented and CJK text is
+never sliced through a character.
+
+### Fixed — a splitter nested in another splitter's pane left its contents behind
+
+Dragging the outer division moved the panel holding a second splitter while
+everything *inside* that second splitter stood still. Both geometry helpers read
+the owning splitter with a bare live lookup, so an inner splitter's panes were
+derived from where it was **designed** — it moved, its panes did not. The owner
+is now resolved recursively (cycle-bounded), so the inner splitter, its panes and
+their contents all travel by the outer division's delta. Confirmed red before the
+fix: the inner pane moved 8 px while its splitter moved 167.
+
+### Fixed — resize knobs sat away from the selected control's border
+
+The blue selection border is stroked on the rect the canvas **painted**, while
+the resize knobs were positioned from the control's **model** rect — so wherever
+the two differ the knobs floated off the border they belong to, Panel controls
+included. Both now read one rect, and the hit-test reads it too, so a knob is
+grabbable exactly where it is drawn.
+
+Also documented, because it is the rule the other two turn on: **a pane never
+resizes what is in it** — moving the division changes positions, never `Width`
+or `Height`. The pane is a viewport, and a control too big for it is clipped by
+its edge rather than shrunk.
+
+
 ## [PowerRustCOBOL 1.61.184] — 2026-08-23
 
 ### Fixed — toolbar platform actions: copy/cut/paste never worked, and failures were silent

@@ -1407,7 +1407,14 @@ non-visual ones are services.
     TabControl you dropped into a pane moves as one piece, its controls
     travelling with it — under *Scale* too, where the container takes its
     fraction position and everything inside follows it rigidly rather than
-    being spread out of it.
+    being spread out of it. This holds however deeply things nest, **a
+    splitter inside a pane included**: the inner splitter travels with the
+    outer division, and its own panes and their contents travel with it.
+
+    > **A pane never resizes what is in it.** Moving the division changes the
+    > pane's own rectangle and the *positions* of its contents — never their
+    > `Width` or `Height`. The pane is a **viewport**: a control too big for it
+    > is clipped by the pane's edge, not shrunk to fit.
 
     Dragging the division **in the designer really moves the controls**: their
     X/Y are rewritten and saved, and the whole drag — the line and everything
@@ -2357,7 +2364,7 @@ strip. Delete it, rename it, or build around it.
 | `print` | Opens the named document in the platform's viewer, where its print dialog is. |
 | `share` | Captures this form's window and hands the image to the OS for sharing. |
 | `screenshot` | Puts an image of this form's window on the clipboard. |
-| `copy` / `cut` / `paste` | The OS clipboard, acting on the control that **had** keyboard focus when the button was pressed (the press itself takes focus away, so it is the field you were in that counts). An untouched field yields its designed text. |
+| `copy` / `cut` / `paste` | The OS clipboard, acting on the field you were in — see below. |
 | `run-app` | Launches another application. |
 | `open-terminal` | Opens a terminal, optionally in a given folder. |
 
@@ -2365,6 +2372,25 @@ Every platform press reports its outcome — what it did, or why it could not �
 as a brief notice at the bottom of the running form's window, so a press never
 appears to do nothing. A toolbar in a SideMenu's footer panel carries out
 platform actions like any other.
+
+##### The clipboard buttons
+
+`copy`, `cut` and `paste` act on the text field that **had** keyboard focus when
+the button was pressed — pressing a toolbar button is a click elsewhere, which
+takes the field's focus away, so it is the field you were in that counts. Each
+one hands the focus **back** afterwards, with the caret where the edit ended, so
+typing carries on where it left off.
+
+| Verb | With text selected | With nothing selected |
+|---|---|---|
+| `copy` | Copies **only the selection**; caret right after the last character copied. | Copies the whole field; caret at its end. |
+| `cut` | Copies and removes the selection; caret where the removed text began. | Takes the whole field and empties it. |
+| `paste` | **Replaces the selection**; caret right after the last character pasted. | **Inserts at the caret**; caret right after the last character pasted. |
+
+With no field focused at all, `paste` changes nothing and says so. A field you
+have not typed into yields the text you designed it with. The rules count
+**characters**, not bytes, so accented and CJK text is never cut through the
+middle of a character.
 
 The form **always** hears the press as an `onClick` on the toolbar, whatever else
 the action does — so one handler can serve a whole toolbar by reading which
