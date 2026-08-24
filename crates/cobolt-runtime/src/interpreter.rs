@@ -5511,7 +5511,7 @@ impl Interpreter {
             //
             // The backend (SQLite / PostgreSQL / MySQL) is chosen from the
             // connection string's scheme; the CALL surface below is identical
-            // for every engine. See `docs/database-runtime.md`.
+            // for every engine. See `docs/database-runtime-en.md`.
             //
             // COBOL-OPEN-DB   USING conn-string-var, handle-var, status-var
             //   Opens a database connection (SQLite file/`:memory:`,

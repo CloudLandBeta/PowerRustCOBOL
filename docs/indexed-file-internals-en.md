@@ -16,14 +16,14 @@ so RAM stays bounded regardless of file size.
 > **Scope.** This describes the *physical engine* (`DiskIndexedFile`, container
 > magic `PRCIDXD1`). It is a different artifact from the single-blob,
 > self-describing `PRCIDX1` container documented in
-> [`indexed-file-format.md`](indexed-file-format.md), which models the metadata a
+> [`indexed-file-format-en.md`](indexed-file-format-en.md), which models the metadata a
 > future Fujitsu importer needs. The in-memory engine (`STORAGE IS MEMORY`,
 > `IndexedFile`) is a simplified subset of the same logical model (BTreeMaps
 > instead of on-disk B+trees).
 >
 > A second, **crash-safe** `STORAGE IS DISK` engine (opt-in, on the pure-Rust
 > redb ACID store) addresses this engine's RAM-bound directory and CLOSE-only
-> persistence — see [`indexed-redb-engine.md`](indexed-redb-engine.md).
+> persistence — see [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md).
 
 Implementation:
 [`crates/cobolt-runtime/src/indexed_disk.rs`](../crates/cobolt-runtime/src/indexed_disk.rs),

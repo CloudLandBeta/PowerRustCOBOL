@@ -19,3 +19,11 @@ CLAUDE.md
 
 # Per-control example build outputs (binaries)
 examples/*/bin/
+
+# Session handoff notes — working documents, kept on disk, never in the repo.
+# (operator, 2026-08-24)
+HANDOFF*.md
+HANDOFF*.txt
+handoff*.md
+handoff*.txt
+SESSION-HANDOFF*

@@ -1,5 +1,142 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.1] — 2026-08-24
+
+### Fixed — with the sidebar collapsed, clicks landed on the wrong control
+
+Showing a SideMenu collapsed on the designer canvas slides the content left with
+the rail's edge, the same slide Run Form makes. That slide was applied **to
+painting only**: `hit_top_id` went on testing the designed rects. Every content
+control's clickable area therefore sat a rail-width to the right of the control
+actually on screen, so clicking one control selected its left-hand neighbour —
+on the reported form, clicking the green `On` label selected `CheckBox-2`. The
+only way to hit anything was to aim where it *would* be with the rail open,
+which is not a place anything is drawn.
+
+Hit-testing now reads the geometry the canvas painted, so the two cannot
+disagree by construction. `sidebar::rail_view` preserves ids, order and length,
+so the index-keyed container queries (render order, tab visibility, clip rects)
+are unaffected. `splitter_division_at` got the same treatment: a Splitter is
+content, so its grab band slides with the line drawn on screen.
+
+The design is still never touched — the slide is a view, the `.cfrm` keeps the
+rects the developer gave, and opening the rail restores them.
+
+Test: `a_collapsed_rail_moves_the_clickable_area_with_the_control` builds the
+overlap that made the bug visible — a control designed at x400 painted at x248,
+exactly where its neighbour was designed — and fails with `Some("Left")` when
+the fix is removed. The Developer's Guide now states that collapsing the rail
+slides the content on the canvas as well, and that neither the slide nor the
+click changes the design.
+
+## [PowerRustCOBOL 1.62.0] — 2026-08-24
+
+### Changed — documentation is translated by regeneration, not by patching
+
+The old policy asked every documentation change to carry the same delta into
+five languages in the same commit. It did not survive contact with a 319 KB
+Developer's Guide: `-pt`, `-jp` and `-cn` ended up as **English text under a
+translated filename**, `-es` was a partial translation stalled at 1,425 lines
+against the English 5,999, and `-fr` never existed at all. A translation that is
+really English is worse than a missing one, because it reads as done.
+
+Translations are now **discarded and regenerated whole** from the English
+canonical, and the cycle runs **only on a major/minor bump** — never on a fix,
+where the cost cannot be justified. When a fix touches a document, its five
+translations are deleted and simply stay gone until the next minor rebuilds
+them. No English file is ever deleted.
+
+- **Every English document now carries `-en`.** Eleven files were renamed
+  (`observability.md` → `observability-en.md`, and so on), so a document's six
+  files finally share one naming rule. `README.md`, the cross-document links,
+  two Rust doc comments and the `/docsync` skill were updated with them.
+- **The IDE Help needed no resolver change** — `docs_embed.rs::split_lang`
+  already accepted both spellings — but its tests asserted the old filenames and
+  the old "some languages are missing" reality. The per-file assertions are
+  replaced by `every_document_ships_in_every_language`, which fails if any
+  language falls back to English: the guard that would have caught the missing
+  French guide on its first run instead of months later.
+- **Documents over 32 KB are split by table-of-contents entry** into
+  `temp-*-en.md` working files, translated section by section, concatenated back
+  in order, and the temp files deleted. Splits never cut through a paragraph, a
+  table, a fenced code block or a mermaid block. An interrupted run is recovered
+  by deleting `temp-*` and starting over — never by resuming.
+- The 32 KB threshold is not arbitrary: every doc family that stayed under it
+  was genuinely translated, and the one family above it is the one that rotted.
+
+Policy recorded in `CLAUDE.md` (GOLDEN RULE #8) and `specs/steering/docs.md`.
+
+### Fixed — `END-DISPLAY` and `END-ACCEPT` were read as data, not as terminators
+
+Neither word existed in the lexer. The scope-terminator table stopped at the
+COBOL-85 set (`END-READ` … `END-UNSTRING`, plus `END-EXEC` and `END-TRY`), so
+`END-DISPLAY` and `END-ACCEPT` fell through to `Token::Identifier` — and
+`is_expr_start` accepts an identifier. The consequence was not a diagnostic but
+a **silently wrong parse**:
+
+```cobol
+       DISPLAY "A" END-DISPLAY
+       DISPLAY "B".
+```
+
+was ONE display of three operands — `"A"`, the terminator, and `"B"` — with the
+second statement gone. A developer who closes every verb explicitly, which is
+the habit anyone arriving from another compiler brings, got a program that ran
+and printed the wrong thing.
+
+Both are now real tokens, consumed by their own statement (`p.eat`) and added to
+the stop set of the shared screen-phrase parser, so `DISPLAY X AT LINE 5 WITH
+HIGHLIGHT END-DISPLAY` ends where it says it does instead of reading the
+terminator as another display attribute. They stay **optional** — a period closes
+the statement exactly as before, and a program that never writes them is
+unaffected.
+
+Tests: four in `test_statements` — the two-statement case that was failing, the
+terminator after a screen phrase, the three `ACCEPT` forms (plain, `FROM DATE`,
+positioned), and a guard that both verbs still parse bare.
+`docs/cobol85-supported-syntax.md` and the Developer's Guide carry the two
+terminators.
+
+### Fixed — the completion popup stamped each name's kind on top of the name
+
+Reported against Neumorphic Light, where the theme's large monospace made it
+unreadable, but the defect was in the layout and every theme carried it. A row
+was a `selectable_label`, which sizes itself to its **caption** — so
+`resp.rect.right()` was the end of the NAME, and the kind hint, right-aligned to
+that same edge, was painted back over the name it annotates. Each row's hint
+therefore sat at a different x, wherever its name happened to end: the tell in
+the operator's screenshot is that `Panel 10`'s hint is further right than
+`Panel 1`'s.
+
+The row is now grown to the popup's full width (`Button::selectable` +
+`min_size`). A plain text atom does not grow, so the extra width lands on the
+right and the name stays left-aligned — and the hint's anchor becomes the
+popup's edge, which is what it always meant. The empty space right of a short
+name is now part of the row, so clicking it picks that item, as a completion
+list is expected to behave.
+
+Confirmed red before the fix, in numbers: inside a 300 pt popup the row measured
+75.4 pt, the caption ended at 78.4 and the hint began at 46.3 — 32 points of
+overlap. Pinned by `prompt_ac_row_tests` (row spans the popup; caption and hint
+disjoint at both 14 pt and the 24 pt a large theme sets). The row moved into
+`prompt_ac_row` so the test drives the real code rather than a copy of it.
+
+### Fixed — "Close AI Assistant" was drawn over the font-size "+"
+
+The button sat in a `right_to_left` sub-layout at the end of the AI pane's
+control row. That sub-layout takes whatever width is LEFT and pins its content
+to the right edge of it — so once the row ran out of room, the button was drawn
+back over the controls already there, and what it covered was the "+" that
+grows the history font. The control was not disabled or hidden by a state bug:
+it was underneath.
+
+The button is now placed in the flow like every other button in the row, and the
+row is `horizontal_wrapped`, so a narrow AI pane moves the tail onto a second
+line instead of stacking controls on top of each other. The row carries eight
+buttons and the pane is resized by the developer, so it has to survive being
+narrow.
+
+
 ## [PowerRustCOBOL 1.61.185] — 2026-08-23
 
 ### Fixed — copy / cut / paste now honour the selection and give the field back

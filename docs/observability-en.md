@@ -31,7 +31,7 @@ what it did, how fast, and how healthy the underlying stores are. It starts with
 The crash-safe **redb** indexed engine can write a per-file log of every
 transaction — useful for diagnostics, capacity planning, and dashboards. It is
 **off by default** and specific to the redb engine
-(`--indexed-engine redb`; see [`indexed-redb-engine.md`](indexed-redb-engine.md)).
+(`--indexed-engine redb`; see [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md)).
 
 ### 1.1 Enabling it
 
@@ -339,6 +339,6 @@ wins is your decision, not the IDE's.
 Planned additions, to keep this document the single observability reference:
 
 - **SQL runtime** — per-connection/statement timing and row counts for the
-  SQLite/PostgreSQL/MySQL engines (see [`database-runtime.md`](database-runtime.md)).
+  SQLite/PostgreSQL/MySQL engines (see [`database-runtime-en.md`](database-runtime-en.md)).
 - **HTTP client** — request/latency/status logging for the REST built-ins.
 - **Aggregate run summary** — an optional end-of-run report across all files.

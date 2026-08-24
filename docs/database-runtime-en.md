@@ -194,7 +194,7 @@ behaviour is exactly your server's:
 
 > The COBOL `COMMIT` / `ROLLBACK` **verbs** are a separate feature that controls
 > RustCOBOL **INDEXED file** transactions (see
-> [`docs/indexed-file-format.md`](indexed-file-format.md)). They do **not** act
+> [`docs/indexed-file-format-en.md`](indexed-file-format-en.md)). They do **not** act
 > on SQL connections — use `COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK`
 > for the database, as shown above.
 

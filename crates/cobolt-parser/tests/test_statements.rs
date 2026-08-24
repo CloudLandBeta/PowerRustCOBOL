@@ -255,6 +255,63 @@ fn display_at_with_screen_phrase() {
     }
 }
 
+// ── END-DISPLAY / END-ACCEPT scope terminators ────────────────────────────────
+
+/// The terminator ENDS the operand list. Without a token of its own it lexed as
+/// an identifier, and `is_expr_start` accepts identifiers — so this parsed as
+/// ONE display of three operands ('A', END-DISPLAY, 'B') and the second DISPLAY
+/// vanished.
+#[test]
+fn end_display_terminates_the_operand_list() {
+    let code = prog("    DISPLAY 'A' END-DISPLAY\n    DISPLAY 'B'.\n    STOP RUN.\n");
+    let stmts = parse_stmts(&code);
+    let (Stmt::Display { operands: a, .. }, Stmt::Display { operands: b, .. }) =
+        (&stmts[0], &stmts[1])
+    else {
+        panic!("expected two DISPLAY statements, got {:?}", &stmts[..2]);
+    };
+    assert_eq!(a.len(), 1, "first DISPLAY kept only its own operand");
+    assert_eq!(b.len(), 1, "second DISPLAY survived as a statement");
+}
+
+#[test]
+fn end_display_after_a_screen_phrase() {
+    let code = prog("    DISPLAY 'X' AT LINE 5 COLUMN 10 WITH HIGHLIGHT END-DISPLAY.\n");
+    let stmts = parse_stmts(&code);
+    let Stmt::Display {
+        operands, screen, ..
+    } = &stmts[0]
+    else {
+        panic!("expected DISPLAY");
+    };
+    assert_eq!(operands.len(), 1);
+    let sc = screen.as_ref().expect("the screen phrase survives the terminator");
+    assert!(sc.line.is_some() && sc.col.is_some() && sc.highlight);
+}
+
+#[test]
+fn end_accept_terminates_the_statement() {
+    for src in [
+        "    ACCEPT WS-NAME END-ACCEPT.\n",
+        "    ACCEPT WS-TODAY FROM DATE END-ACCEPT.\n",
+        "    ACCEPT ITM LINE 3 COL 5 WITH HIGHLIGHT END-ACCEPT.\n",
+    ] {
+        let stmts = parse_stmts(&prog(src));
+        assert_eq!(stmts.len(), 1, "one statement, not a trailing operand: {src}");
+        assert!(matches!(stmts[0], Stmt::Accept { .. }), "{src}");
+    }
+}
+
+/// Both verbs still parse without the terminator — it is optional, and a
+/// program that never writes it must be unaffected.
+#[test]
+fn the_terminators_stay_optional() {
+    let d = parse_stmts(&prog("    DISPLAY 'A'.\n"));
+    assert!(matches!(d[0], Stmt::Display { .. }));
+    let a = parse_stmts(&prog("    ACCEPT WS-X.\n"));
+    assert!(matches!(a[0], Stmt::Accept { .. }));
+}
+
 // ── STOP RUN ──────────────────────────────────────────────────────────────────
 
 #[test]

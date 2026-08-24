@@ -62,7 +62,7 @@ neither OPEN instantly at scale nor survive a mid-run power loss.
   duplicates. Files with no alternate keys skip it entirely and pay just one
   B+tree insert per `WRITE`.
 - Records are stored as positional fixed-width images (see
-  [`indexed-file-internals.md`](indexed-file-internals.md) §6); `WITH
+  [`indexed-file-internals-en.md`](indexed-file-internals-en.md) §6); `WITH
   COMPRESSION` applies the same PackBits RLE used by the other engines.
 
 ---
@@ -152,4 +152,4 @@ The line format is `text` (logfmt) or `json` (NDJSON, Grafana/Loki-ready).
 
 **The full reference** — flags, the field table, formats, the Grafana/Loki
 pipeline (Promtail + LogQL), and cost/safety notes — lives in
-[`observability.md`](observability.md) §1.
+[`observability-en.md`](observability-en.md) §1.

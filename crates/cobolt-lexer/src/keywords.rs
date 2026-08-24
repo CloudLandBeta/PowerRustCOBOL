@@ -201,6 +201,8 @@ pub fn lookup(word: &str) -> Option<Token> {
         "END-STRING" => Token::EndString,
         "END-UNSTRING" => Token::EndUnstring,
         "END-SEARCH" => Token::EndSearch,
+        "END-ACCEPT" => Token::EndAccept,
+        "END-DISPLAY" => Token::EndDisplay,
         "INVALID" => Token::InvalidKey, // parser combines INVALID KEY
         "UPON" => Token::Upon,
         "ADVANCING" => Token::Advancing,

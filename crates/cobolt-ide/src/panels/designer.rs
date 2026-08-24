@@ -2468,10 +2468,6 @@ impl DesignerPanel {
                         let label = egui::RichText::new(&item.label)
                             .monospace()
                             .color(prompt_ac_color(item.kind));
-                        let resp = ui.selectable_label(selected, label);
-                        if resp.clicked() {
-                            clicked = Some(i);
-                        }
                         // The kind (and the type a member came from) rides on
                         // the same row, right-aligned and quiet.
                         let hint = match &item.owner {
@@ -2480,13 +2476,9 @@ impl DesignerPanel {
                             }
                             _ => item.kind.detail().to_string(),
                         };
-                        ui.painter().text(
-                            egui::pos2(resp.rect.right() - 4.0, resp.rect.center().y),
-                            egui::Align2::RIGHT_CENTER,
-                            hint,
-                            egui::FontId::proportional(10.0),
-                            egui::Color32::from_gray(140),
-                        );
+                        if prompt_ac_row(ui, label, &hint, selected).clicked() {
+                            clicked = Some(i);
+                        }
                     }
                     ui.label(
                         egui::RichText::new("↑↓ escolher · Tab/Enter aceitar · Esc fechar")
@@ -3503,21 +3495,29 @@ impl DesignerPanel {
 
     /// Topmost **visible** control under a form-space point, respecting container
     /// clipping and tab visibility (spec 012). Children win over their container.
+    ///
+    /// 049 — this tests the geometry the canvas **painted**, not the designed
+    /// rects. A rail shown collapsed slides the content left with its edge
+    /// (`sidebar::rail_view`), so testing the design put every content control's
+    /// clickable area a rail-width to the RIGHT of the control on screen:
+    /// clicking a label selected whatever had been designed under the pointer,
+    /// and the only way to hit anything was to aim where it would sit with the
+    /// rail open (operator, 2026-08-24). `rail_view` preserves ids, order and
+    /// length, so the index-keyed container queries below read the same list.
     fn hit_top_id(&self, cx: i32, cy: i32) -> Option<String> {
-        for &idx in super::containers::render_order(&self.form.controls)
-            .iter()
-            .rev()
-        {
-            if !super::containers::is_visible(&self.form.controls, idx, &self.active_tabs) {
+        let view = self.rail_view_controls(&self.form.controls);
+        let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
+        for &idx in super::containers::render_order(controls).iter().rev() {
+            if !super::containers::is_visible(controls, idx, &self.active_tabs) {
                 continue;
             }
-            if let Some(clip) = super::containers::clip_rect(&self.form.controls, idx) {
+            if let Some(clip) = super::containers::clip_rect(controls, idx) {
                 if !clip.contains(cx, cy) {
                     continue;
                 }
             }
-            if self.form.controls[idx].rect.contains(cx, cy) {
-                return Some(self.form.controls[idx].id.clone());
+            if controls[idx].rect.contains(cx, cy) {
+                return Some(controls[idx].id.clone());
             }
         }
         None
@@ -6161,8 +6161,14 @@ impl DesignerPanel {
                             }
 
                             // 2. Controls
+                            //
+                            // Wrapped, so a narrow AI pane moves the tail of
+                            // the row onto a second line instead of running it
+                            // off the edge. Every button here stays reachable
+                            // at any pane width — the row carries eight of
+                            // them and the pane is resized by the developer.
                             ui.add_space(4.0);
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 // Model-in-use + context gauge (operator,
                                 // 2026-07-29), same indicator as the Grace chat.
                                 let fallback_model = project_root.and_then(|root| {
@@ -6207,11 +6213,15 @@ impl DesignerPanel {
                                 {
                                     increase_history_font = true;
                                 }
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button("Close AI Assistant").clicked() {
-                                        do_close = true;
-                                    }
-                                });
+                                // Placed in the flow, not in a right-to-left
+                                // sub-layout. That sub-layout took whatever
+                                // width was LEFT and pinned the button to its
+                                // right edge, so once the row ran out of room
+                                // the button was drawn back over the controls
+                                // already there — it covered the font "+".
+                                if ui.button("Close AI Assistant").clicked() {
+                                    do_close = true;
+                                }
                             });
                     }
                     ui.set_style(pane_style);
@@ -10334,9 +10344,16 @@ impl DesignerPanel {
     ///
     /// Topmost first, so a splitter dropped inside another splitter's pane
     /// wins over the one behind it.
+    ///
+    /// Read from the PAINTED view for the same reason as `hit_top_id`: a
+    /// splitter is content, so it slides with everything else when the rail is
+    /// shown collapsed, and its grab band has to travel with the line drawn on
+    /// screen.
     fn splitter_division_at(&self, px: i32, py: i32) -> Option<String> {
+        let view = self.rail_view_controls(&self.form.controls);
+        let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
         let mut hit = None;
-        for c in &self.form.controls {
+        for c in controls {
             if c.control_type != ControlType::Splitter || !c.visible {
                 continue;
             }
@@ -12221,6 +12238,37 @@ fn prompt_ac_color(kind: crate::prompt_complete::Kind) -> egui::Color32 {
         Kind::Property => egui::Color32::from_rgb(140, 220, 160),
         Kind::Event => egui::Color32::from_rgb(240, 170, 130),
     }
+}
+
+/// One row of the completion popup: the name on the left, its kind right-
+/// aligned at the POPUP's edge.
+///
+/// The row is grown to the full width with `min_size`, and a plain text atom
+/// does not grow, so the extra width lands on the RIGHT and the name stays
+/// left-aligned. That width is the whole point: sized to its caption instead,
+/// the row's `right()` was the end of the NAME, so the hint — right-aligned to
+/// that same edge — was stamped on top of the name it was meant to annotate,
+/// and each row's hint sat at a different x, wherever its name happened to
+/// end. Growing the row also makes the empty space to the right of a short
+/// name clickable, which a completion list is expected to do.
+fn prompt_ac_row(
+    ui: &mut egui::Ui,
+    label: egui::RichText,
+    hint: &str,
+    selected: bool,
+) -> egui::Response {
+    let resp = ui.add(
+        egui::Button::selectable(selected, label)
+            .min_size(egui::vec2(ui.available_width(), 0.0)),
+    );
+    ui.painter().text(
+        egui::pos2(resp.rect.right() - 4.0, resp.rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        hint,
+        egui::FontId::proportional(10.0),
+        egui::Color32::from_gray(140),
+    );
+    resp
 }
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
@@ -14327,6 +14375,93 @@ mod animator_tests {
         let ctx = egui::Context::default();
         // No source → no image mesh is painted (placeholder text/box instead).
         assert!(frame_tex(&ctx, "", 0.0).is_none());
+    }
+}
+
+#[cfg(test)]
+mod prompt_ac_row_tests {
+    use super::*;
+
+    /// Draw one completion row in a popup `width` points wide, with the
+    /// monospace text style at `mono_pt`, and return (row rect, the text
+    /// shapes it painted).
+    fn row(width: f32, mono_pt: f32) -> (egui::Rect, Vec<egui::epaint::TextShape>) {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        ctx.all_styles_mut(|s| {
+            s.text_styles.insert(
+                egui::TextStyle::Monospace,
+                egui::FontId::monospace(mono_pt),
+            );
+        });
+        let rect = std::cell::Cell::new(egui::Rect::NOTHING);
+        let mut draw = || {
+            ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            // The same Area + popup Frame the real list is built in. A panel
+            // would not do: its inner ui already claims the whole panel as its
+            // MINIMUM, and `set_max_width` refuses to shrink below that, so
+            // the row would be measured against the screen instead of the
+            // popup.
+            let ctx = root_ui.ctx().clone();
+            egui::Area::new(egui::Id::new("prompt_ac_row_test"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(egui::Pos2::ZERO)
+                .show(&ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_width(width);
+                        let label = egui::RichText::new("Panel 10").monospace();
+                        rect.set(prompt_ac_row(ui, label, "control", false).rect);
+                    });
+                });
+            })
+        };
+        // Two frames: egui measures a brand-new Area on the first one and
+        // throws its shapes away, so only the second frame carries the text.
+        // The measuring frame's texture delta has to be cleared, not dropped.
+        let mut warmup = draw();
+        warmup.textures_delta.clear();
+        let mut out = draw();
+        out.textures_delta.clear();
+        let texts = out
+            .shapes
+            .into_iter()
+            .filter_map(|cs| match cs.shape {
+                egui::Shape::Text(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        (rect.get(), texts)
+    }
+
+    /// The row spans the popup. Sized to its caption instead, the hint —
+    /// right-aligned to the row — landed on the caption.
+    #[test]
+    fn the_row_spans_the_popup_not_the_caption() {
+        let (r, _) = row(300.0, 14.0);
+        assert!(
+            (r.width() - 300.0).abs() < 1.0,
+            "row is {} wide inside a 300 pt popup",
+            r.width()
+        );
+    }
+
+    /// The reported defect, at the font size that made it obvious: the name
+    /// and its kind must not be painted on top of each other.
+    #[test]
+    fn the_caption_and_its_hint_never_overlap() {
+        // 24 pt is the large monospace a theme like Neumorphic Light sets; 14
+        // is the ordinary one. Both must clear.
+        for mono_pt in [14.0_f32, 24.0] {
+            let (_, texts) = row(300.0, mono_pt);
+            assert_eq!(texts.len(), 2, "caption + hint at {mono_pt} pt");
+            let caption_right = texts[0].pos.x + texts[0].galley.size().x;
+            let hint_left = texts[1].pos.x;
+            assert!(
+                caption_right <= hint_left,
+                "at {mono_pt} pt the caption ends at {caption_right} and the hint starts at \
+                 {hint_left} — they overlap",
+            );
+        }
     }
 }
 
@@ -18085,6 +18220,66 @@ mod sidebar_seam_tests {
              at {}pt (designed {designed_w}pt kept, property untouched); footer \
              Panel narrows with the rail; an inspector edit resets the override",
             cobolt_forms::sidebar::COLLAPSED_WIDTH
+        );
+    }
+
+    /// 049 — a click lands on the control the developer can SEE.
+    ///
+    /// Showing the rail collapsed slides the content left with its edge, but
+    /// only for painting: hit-testing kept reading the designed rects, so every
+    /// content control's clickable area sat a rail-width to the right of the
+    /// control on screen. Clicking one control selected its left-hand
+    /// neighbour, and the only way to hit anything was to aim where it would be
+    /// with the rail open (operator, 2026-08-24: "I need to click where the
+    /// control would be if the sidebar is not collapsed, not where visually
+    /// they are").
+    #[test]
+    fn a_collapsed_rail_moves_the_clickable_area_with_the_control() {
+        let mut dp = sidebar_form();
+        dp.form.sync_side_menu_footer_panels();
+        for (id, x) in [("Left", 248), ("Right", 400)] {
+            let mut c = Control::new(id, ControlType::Label, x, 300);
+            c.rect = cobolt_forms::model::Rect::new(x, 300, 100, 40);
+            dp.form.controls.push(c);
+        }
+        let designed_w = dp.form.find_control("SideMenu-1").unwrap().rect.w as f32;
+        let dx = (designed_w - cobolt_forms::sidebar::COLLAPSED_WIDTH) as i32;
+
+        // Rail open: the canvas shows the design, so a click is the design.
+        assert_eq!(dp.hit_top_id(420, 320).as_deref(), Some("Right"));
+        assert_eq!(dp.hit_top_id(260, 320).as_deref(), Some("Left"));
+
+        // Shown collapsed, "Right" is PAINTED where "Left" was designed — the
+        // exact overlap that made the bug visible.
+        dp.rail_view_collapsed = Some(true);
+        let right_shown = 400 - dx;
+        assert_eq!(right_shown, 248, "the fixture reproduces the overlap");
+
+        assert_eq!(
+            dp.hit_top_id(right_shown + 20, 320).as_deref(),
+            Some("Right"),
+            "clicking a control must select THAT control, not the one designed there"
+        );
+        assert_eq!(
+            dp.hit_top_id(248 - dx + 20, 320).as_deref(),
+            Some("Left"),
+            "and its neighbour is hit where IT is drawn"
+        );
+        assert_eq!(
+            dp.hit_top_id(420, 320),
+            None,
+            "nothing is clickable where the control merely used to be"
+        );
+
+        // The design is untouched — this is a view, never an edit.
+        assert_eq!(dp.form.find_control("Right").unwrap().rect.x, 400);
+        assert_eq!(dp.form.find_control("Left").unwrap().rect.x, 248);
+
+        println!(
+            "049 hit-test — rail 200→{}pt shifts content {dx}pt left; a click at \
+             the drawn x{} selects Right (was Left), the design keeps x400/x248",
+            cobolt_forms::sidebar::COLLAPSED_WIDTH,
+            right_shown + 20
         );
     }
 

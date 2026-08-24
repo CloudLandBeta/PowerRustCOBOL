@@ -12,7 +12,7 @@ See the LICENSE file in the project root for full license information.
 derived from the source (`cobolt-lexer`, `cobolt-parser`, `cobolt-runtime`).
 Write tests against the ✅ forms; the ❌ forms will fail to parse or are no‑ops,
 and ⚠️ forms parse but behave partially. This is the companion to
-[`cobol85-verb-test-matrix.md`](cobol85-verb-test-matrix.md): the matrix says
+[`cobol85-verb-test-matrix-en.md`](cobol85-verb-test-matrix-en.md): the matrix says
 *what* to test, this says *which spelling RustCOBOL understands*.
 
 Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recognized
@@ -180,9 +180,12 @@ unhandled error `FILE STATUS`.
   ARGUMENT-NUMBER`) · `FROM ENVIRONMENT "name"` / `FROM ENVIRONMENT-VALUE` (the
   variable named by `DISPLAY "name" UPON ENVIRONMENT-NAME`) · `FROM ESCAPE KEY`
   → `"00"` · `FROM CRT STATUS` → `"0000"`.
+- ✅ `END-ACCEPT` closes the statement (optional).
 
 ### DISPLAY
-- ✅ `DISPLAY {id|lit} … [UPON mnemonic] [[WITH] NO ADVANCING]`.
+- ✅ `DISPLAY {id|lit} … [UPON mnemonic] [[WITH] NO ADVANCING] [END-DISPLAY]`.
+- ✅ `END-DISPLAY` closes the operand list (optional), so
+  `DISPLAY A END-DISPLAY DISPLAY B` is two statements rather than one.
 - ✅ screen forms `DISPLAY id AT nnnn` / `AT LINE n COLUMN n`
   `[WITH {HIGHLIGHT | REVERSE-VIDEO | UNDERLINE}]` — executed via ANSI cursor
   positioning + SGR in **CLI mode** (`rcrun`); ignored in GUI mode (the form
@@ -253,7 +256,7 @@ unhandled error `FILE STATUS`.
   extension) — records the operator/user in the INDEXED observability log
   (`user=` field on every event line for that file's session). Purely
   observational; no authentication/authorization. See
-  [`observability.md`](observability.md) §1.3.1.
+  [`observability-en.md`](observability-en.md) §1.3.1.
 - ✅ `READ f [RECORD] [{NEXT|PREVIOUS}] [INTO id] [KEY IS k] [WITH [NO] LOCK]
   [AT END …][NOT AT END …][INVALID KEY …][NOT INVALID KEY …][END-READ]`.
   `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.

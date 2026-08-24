@@ -1736,6 +1736,12 @@ fn parse_accept(p: &mut Parser) -> Stmt {
         screen = Some(merge_screen(screen, more));
     }
 
+    // Optional scope terminator. ACCEPT here carries no conditional phrase, so
+    // END-ACCEPT delimits nothing the period does not — but it is standard, and
+    // without a token of its own it lexed as an identifier and was read as part
+    // of the statement.
+    p.eat(&Token::EndAccept);
+
     Stmt::Accept {
         target,
         from,
@@ -1753,6 +1759,8 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
             || p.at(&Token::Upon)
             || p.at(&Token::Eof)
             || p.at(&Token::Period)
+            || p.at(&Token::EndAccept)
+            || p.at(&Token::EndDisplay)
             || is_stmt_start(p.peek())
     };
     let is_line = |p: &Parser| p.at(&Token::Line) || is_word(p.peek(), "LINE");
@@ -1916,6 +1924,12 @@ fn parse_display(p: &mut Parser) -> Stmt {
         p.eat(&Token::Advancing);
         true
     };
+
+    // Optional scope terminator. It ends the operand list, which is what makes
+    // it worth having: `DISPLAY A END-DISPLAY DISPLAY B` are two statements,
+    // where before the terminator lexed as an identifier and became a third
+    // operand of the first DISPLAY.
+    p.eat(&Token::EndDisplay);
 
     Stmt::Display {
         operands,
