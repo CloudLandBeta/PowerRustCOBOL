@@ -803,7 +803,33 @@ fn events_rows(
     asked
 }
 
+/// The widest an action hint or explanation may lay out before wrapping.
+/// A bounded width is what keeps the modal's size independent of which verb
+/// is picked — an unwrapped explanation used to stretch the whole window
+/// (operator, 2026-08-23).
+const ACTION_NOTE_WRAP_W: f32 = 340.0;
+
+/// A small weak note in the grid's value column, on its OWN row, wrapped at
+/// [`ACTION_NOTE_WRAP_W`] — never inline with the field it annotates. The
+/// row claims exactly that width (min AND max), so the column — and with it
+/// the window — is the same size whichever verb's note is showing.
+fn action_note_row(ui: &mut egui::Ui, text: &str) {
+    ui.label("");
+    ui.vertical(|ui| {
+        ui.set_min_width(ACTION_NOTE_WRAP_W);
+        ui.set_max_width(ACTION_NOTE_WRAP_W);
+        ui.add(egui::Label::new(egui::RichText::new(text).small().weak()).wrap());
+    });
+    ui.end_row();
+}
+
 /// The action picker: a verb, and the target the verb needs.
+///
+/// Lives inside the two-column `prop_grid`, so every piece is a grid ROW —
+/// verb, target, then each note on its own wrapped line. The old layout never
+/// called `end_row()`, so the target field, both notes and even the next
+/// section heading all continued as extra cells of ONE row, and the window
+/// grew as wide as the longest explanation (operator, 2026-08-23).
 fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
     let current = b.action();
     let mut verb = current.verb().to_owned();
@@ -817,19 +843,18 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
     };
     let mut changed = false;
 
-    ui.horizontal(|ui| {
-        ui.label("Does:");
-        egui::ComboBox::from_id_salt(("tb-action", b.id.clone()))
-            .selected_text(verb.clone())
-            .show_ui(ui, |ui| {
-                for v in ToolbarAction::VERBS {
-                    if ui.selectable_label(verb == *v, *v).clicked() {
-                        verb = (*v).to_owned();
-                        changed = true;
-                    }
+    ui.label("Does:");
+    egui::ComboBox::from_id_salt(("tb-action", b.id.clone()))
+        .selected_text(verb.clone())
+        .show_ui(ui, |ui| {
+            for v in ToolbarAction::VERBS {
+                if ui.selectable_label(verb == *v, *v).clicked() {
+                    verb = (*v).to_owned();
+                    changed = true;
                 }
-            });
-    });
+            }
+        });
+    ui.end_row();
     if ToolbarAction::takes_target(&verb) {
         let hint = match verb.as_str() {
             "procedure" => "the procedure to PERFORM",
@@ -839,14 +864,15 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
             "open-terminal" => "folder to open in (blank = the project's)",
             _ => "",
         };
-        ui.horizontal(|ui| {
-            ui.label("With:");
-            if ui.text_edit_singleline(&mut target).changed() {
-                changed = true;
-            }
-        });
+        ui.label("With:");
+        ui.add(
+            egui::TextEdit::singleline(&mut target).desired_width(ACTION_NOTE_WRAP_W),
+        )
+        .changed()
+        .then(|| changed = true);
+        ui.end_row();
         if !hint.is_empty() {
-            ui.label(egui::RichText::new(hint).small().weak());
+            action_note_row(ui, hint);
         }
     }
     // What this action means, in one line, so the developer is not guessing.
@@ -865,7 +891,7 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
         _ => "",
     };
     if !explain.is_empty() {
-        ui.label(egui::RichText::new(explain).small().weak());
+        action_note_row(ui, explain);
     }
     if changed {
         let action = match verb.as_str() {
@@ -1134,6 +1160,63 @@ mod tests {
     /// It did: `clamp(180.0, total_w - 260.0)` hands `f32::clamp` a maximum
     /// below its minimum as soon as the modal is under 440 px, and `clamp`
     /// panics on that — which killed the whole event loop, not just the modal.
+    /// Operator (2026-08-23): the action explanation sat INLINE with the verb
+    /// row — the old `action_row` never ended a grid row, so the target
+    /// field, both notes and the next section heading all continued as cells
+    /// of one row, and the window stretched as wide as the longest
+    /// explanation. Every note now lands on its own wrapped line, so the
+    /// laid-out width stays bounded whatever verb is picked.
+    #[test]
+    fn action_notes_wrap_instead_of_widening_the_modal() {
+        let tr = crate::i18n::Language::English.tr();
+        let ctx = egui::Context::default();
+        let mut widths: Vec<(&str, f32)> = Vec::new();
+
+        for verb in ToolbarAction::VERBS {
+            let mut b = ToolbarButton::new("btn-1", "B");
+            b.action = if ToolbarAction::takes_target(verb) {
+                format!("{verb}:SOME-TARGET")
+            } else {
+                (*verb).to_string()
+            };
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1400.0, 900.0),
+            ));
+            let mut w = 0.0f32;
+            ctx.run_ui(input, |root_ui| {
+                let ctx2 = root_ui.ctx().clone();
+                let r = egui::Area::new(egui::Id::new(("measure", *verb)))
+                    .show(&ctx2, |ui| {
+                        prop_grid(ui, verb, |ui| action_row(ui, &mut b, &tr));
+                    })
+                    .response;
+                w = r.rect.width();
+            })
+            .textures_delta
+            .clear();
+            widths.push((verb, w));
+        }
+
+        println!("── action-row laid-out widths per verb ──────────────────");
+        for (verb, w) in &widths {
+            println!("  {verb:<14} {w:>6.0} px");
+            // Label column + the 340 px wrap width + grid spacing. The old
+            // inline layout measured far past this for every explained verb.
+            assert!(
+                *w < 480.0,
+                "{verb}: the action area must wrap, not widen ({w:.0} px)"
+            );
+        }
+        let max = widths.iter().map(|(_, w)| *w).fold(0.0f32, f32::max);
+        let min = widths.iter().map(|(_, w)| *w).fold(f32::MAX, f32::min);
+        assert!(
+            max - min < 80.0,
+            "picking a verb must not resize the window: widths spread {min:.0}–{max:.0} px"
+        );
+    }
+
     #[test]
     fn the_split_never_panics_however_narrow_the_modal_gets() {
         // Every width from nothing to a very wide window, and the whole range of

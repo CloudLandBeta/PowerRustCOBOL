@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.183] — 2026-08-23
+
+### Fixed — the toolbar editor's action notes wrap instead of widening the window
+
+The Action section's explanations ("PERFORMs one of the form's procedures.",
+the target hints) rendered INLINE with the verb row — the layout never ended
+its grid row, so the target field, both notes and even the next section
+heading continued as cells of one row, and the window stretched as wide as
+the longest explanation. Each note now sits on its own line, wrapped at a
+fixed 340 pt width the row always claims, so the editor is exactly the same
+size whichever of the eleven verbs is picked (laid-out action area measured
+at 390 px for all eleven).
+
+
 ## [PowerRustCOBOL 1.61.182] — 2026-08-23
 
 ### Fixed — the splitter divider carries a container's contents, at any depth
