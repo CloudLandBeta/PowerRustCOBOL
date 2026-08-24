@@ -1,5 +1,15 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.179] — 2026-08-23
+
+### Fixed — search results now show the pointing-hand cursor
+
+A Code Search result row is a link — double-click opens the code — but the
+cursor over it stayed the default arrow. It now shows the pointing hand, the
+hyperlink convention the clickable diagnostic rows already follow. Pinned by
+a headless hover test (hand over the result list, arrow outside the window).
+
+
 ## [PowerRustCOBOL 1.61.178] — 2026-08-23
 
 ### New — `CollapsedWidth`: the collapsed sidebar's width is the developer's
