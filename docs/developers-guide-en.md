@@ -3778,10 +3778,26 @@ extensions. Highlights a working COBOL programmer will rely on:
   and financial functions.
 - **Screen ACCEPT/DISPLAY** for character-mode interaction (when you are not
   building a windowed form).
+- **Scope terminators:** the COBOL-85 set (`END-IF`, `END-PERFORM`, `END-READ`,
+  `END-EVALUATE`, `END-STRING`, and the rest) plus `END-ACCEPT` and
+  `END-DISPLAY`. Every one of them is optional — a period closes the statement
+  just as well — but `END-DISPLAY` is the one that can change what a line
+  means, because it closes the **operand list**:
+
+  ```cobol
+           DISPLAY "A" END-DISPLAY
+           DISPLAY "B".
+  ```
+
+  is two statements. Without the terminator, a `DISPLAY` runs until it meets a
+  period or a phrase it recognises, so writing the two on separate lines with
+  no terminator and no period between them makes `"B"` a third operand of the
+  first `DISPLAY`. If you are used to closing every verb explicitly, that habit
+  carries over here unchanged.
 
 > **Ground truth.** The authoritative, always-current list of supported syntax is
-> `docs/cobol85-supported-syntax.md`; the verb-by-verb test matrix is
-> `docs/cobol85-verb-test-matrix.md`. When in doubt, those files (and the test
+> `docs/cobol85-supported-syntax-en.md`; the verb-by-verb test matrix is
+> `docs/cobol85-verb-test-matrix-en.md`. When in doubt, those files (and the test
 > suite) are definitive.
 
 > ⚠️ **Out of scope (today):** RELATIVE file organisation, cross-process record
@@ -4636,7 +4652,7 @@ Typical flow:
 
 The drivers are pure and bundled (no `libpq`/OpenSSL to install). Use
 `COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK` for SQL transactions. Full
-reference: `docs/database-runtime.md`.
+reference: `docs/database-runtime-en.md`.
 
 > **Note.** You can model a database connection visually with the **SQL Database**
 > non-visual control (its properties hold the connection string, driver, and the
@@ -5476,6 +5492,14 @@ you have selected, so what you design is what starts.
 > single menu item*. Being able to reclaim the width is the operator's control
 > over the window, so it never depends on what you put in the menu. COBOL can
 > drive the same thing with `super::<menu-id>::Collapse()` / `::Open()`.
+
+**Your controls move when the rail closes — on the canvas too.** Collapsing the
+sidebar hands its width back to the content, which slides left to take it, and
+the designer canvas shows that slide exactly as the running application will.
+Nothing has been edited: the rects in your `.cfrm` are untouched, the inspector
+still reports the positions you gave, and opening the rail puts everything back.
+Clicking picks the control where you see it, in either state — so you can lay a
+form out with the rail closed and know it will hold when it opens.
 
 Everything the sidebar draws is anchored to its **top** and grows downward — the
 ☰ first, then the menu items. A sidebar is a rail, not a centred caption.

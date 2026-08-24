@@ -15,12 +15,17 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |----------|--------|----------|
 | `README.md` | current | repo landing page |
 | `docs/developers-guide-en.md` | **canonical English** | developers using the IDE |
-| `docs/developers-guide-{es,pt,fr,jp,cn}.md` | translations — **frozen until the doc restructure** (operator ruling 2026-08-23, see Localization policy); **stale**: pt/jp/cn are English copies, es partial, fr missing | localized readers |
-| `docs/{BENCHMARKS,BUILDING,database-runtime,observability,cobol85-supported-syntax}-{es,pt,fr,jp,cn}.md` | translations — current as of 2026-08-20, frozen with the rest | localized readers |
-| `docs/cobol85-supported-syntax.md` | current | language reference |
-| `docs/cobol85-verb-test-matrix.md` | current | verb coverage |
-| `CHANGELOG.md` | current | release notes |
-| `docs/compiler-manual.md` | **planned** | CLI / build deep-dive |
+| `docs/<doc>-{es,pt,fr,jp,cn}.md` | translations — **regenerated whole on every minor/major, deleted whenever their English changes** (operator ruling 2026-08-24, see Localization policy). Never patched, never partially updated. | localized readers |
+| `docs/cobol85-supported-syntax-en.md` | current | language reference |
+| `docs/cobol85-verb-test-matrix-en.md` | current | verb coverage |
+| `CHANGELOG.md` | current (English only — release notes are not translated) | release notes |
+| `docs/compiler-manual-en.md` | **planned** | CLI / build deep-dive |
+
+> **Every English document carries `-en`** since 1.62.0. The other eight English
+> docs — `BENCHMARKS`, `BUILDING`, `DEPENDENCIES`, `database-runtime`,
+> `ide-collaboration-design`, `indexed-file-format`, `indexed-file-internals`,
+> `indexed-redb-engine`, `observability` — follow the same `-en` naming and the
+> same translation cycle.
 
 ## Code ↔ document registry (traceability)
 
@@ -46,9 +51,9 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#20-appearance-and-internationalisation` | `crates/cobolt-ide/src/i18n.rs`, `crates/cobolt-ide/src/fonts.rs`, `crates/cobolt-forms/src/fonts.rs` | i18n, theming, font-pipeline |
 | `…#21-cobol-structure-and-shared-data` | `crates/cobolt-ide/src/panels/cobol_structure.rs`, `crates/cobolt-forms/**`, `crates/cobolt-codegen/**`, `crates/cobolt-runtime/src/{environment,interpreter}.rs` | cobol-structure, shared-data |
 | `…#22-the-application-shell-and-the-super-receiver` | `crates/cobolt-form-host/src/shell.rs`, `crates/cobolt-form-host/src/host.rs`, `crates/cobolt-runtime/src/{interpreter,form_host}.rs`, `crates/cobolt-semantic/src/resolver.rs`, `crates/cobolt-forms/src/{model,menu}.rs` | application-shell, super-receiver |
-| `cobol85-supported-syntax.md` | `crates/cobolt-{parser,semantic,runtime}/**` | language-support |
-| `cobol85-verb-test-matrix.md` | `tests/cobol/**`, `crates/cobolt-runtime/**` | verb-tests |
-| `compiler-manual.md` *(planned)* | `crates/cobolt-cli/**`, `crates/cobolt-compiler/**` | cli-flags, build |
+| `cobol85-supported-syntax-en.md` | `crates/cobolt-{parser,semantic,runtime}/**` | language-support |
+| `cobol85-verb-test-matrix-en.md` | `tests/cobol/**`, `crates/cobolt-runtime/**` | verb-tests |
+| `compiler-manual-en.md` *(planned)* | `crates/cobolt-cli/**`, `crates/cobolt-compiler/**` | cli-flags, build |
 | `README.md` | *(project overview — broad)* | overview |
 
 > Maintenance rule: whenever a new document or major section is added, **add a row
@@ -69,35 +74,60 @@ are candidates for update. Sections use the doc's GitHub anchor.
   need the operator to drive while the skill captures.
 - Reference an image from `docs/` as `../assets/images/screenshots/<name>.png`.
 
-## Localization policy
+## Localization policy — the regeneration cycle
 
-> **Documentation is ENGLISH-ONLY until the doc restructure** (operator ruling,
-> 2026-08-23): *"No reason to translate something that will change anyways.
-> Just keep English up-to-date."* This **suspends GOLDEN RULE #8** for
-> documents — keep `docs/*-en.md` (and unlabelled English docs) current, and
-> **do not touch any translation file**. This settles the former three-way
-> contradiction with `tech.md`/`structure.md` in their favour. A suspension
-> with a reason, not a permanent reversal: expect translations to resume after
-> the restructure, using the method preserved below.
+> **Operator ruling, 2026-08-24.** Translations are no longer *patched*. They
+> are **discarded and regenerated whole** from the English canonical. This
+> replaces both the delta-into-every-language method and the 2026-08-23
+> English-only suspension; `CLAUDE.md` GOLDEN RULE #8 carries the same text.
 >
-> **Scope:** the ruling governs *documents only*. The IDE's user-facing
-> **strings** remain `Tr` fields in all six languages (EN/ES/PT/JA/ZH/FR) —
-> that is a `tech.md` hard constraint with its own completeness test, and it
-> is unaffected.
+> **Scope:** documents only. The IDE's user-facing **strings** remain `Tr`
+> fields in all six languages (EN/ES/PT/JA/ZH/FR) — a `tech.md` hard constraint
+> with its own completeness test, unaffected by this.
 
-The method, for when translation resumes:
+**When the cycle runs.** Only on a **major or minor** version bump (`x`/`y`,
+which only the operator raises). **Never on a fix** (`z`) — too expensive to run
+per change.
 
-- **English first, then the same delta into each translation.** The English file
-  is the canonical text and the only one to reason about correctness in. Never
-  translate from a translation.
-- **Naming:** `<doc>-<lang>.md` beside the English file — `observability-fr.md`,
-  `BUILDING-jp.md`. The English canonical keeps its own name.
-- **Claude writes the translations directly.** `/doc-localize` is retained only
-  for bulk work the operator explicitly asks to route outside.
-- **Verify before claiming done:** each touched file passes
+**On any change that touches a document.** Update the **English canonical
+only**, then **physically delete that document's five translations**. A stale
+translation is worse than a missing one; the next minor/major rebuilds them all.
+**No English file is ever deleted.**
+
+**Naming.** Every English document carries `-en` (`observability-en.md`). A
+document still lacking the suffix is renamed before its first translation, and
+`README.md`, cross-document links, Rust doc comments and the IDE Help tests are
+fixed in the same change. `docs_embed.rs::split_lang` already treats a
+suffix-less name and `-en` alike, so the resolver itself needs no change.
+
+**Per English document:**
+
+| Size | Procedure |
+|------|-----------|
+| ≤ 32 KB | Translate the whole file directly into `<doc>-<lang>.md`. |
+| > 32 KB | Split by ToC entry → `temp-<doc>-en.md` (head: title, intro, ToC) + one `temp-<doc>-<section>-en.md` per entry. Translate each into every language, `cat` them back **in original order** into `<doc>-<lang>.md`, delete every `temp-*`. |
+| > 32 KB, no ToC | Add a ToC to the English canonical first, then split. |
+| ToC entry itself > 32 KB | Subdivide that entry further. |
+
+**Never split mid-context** — a paragraph, a markdown table, a fenced code block
+and a mermaid block each stay whole in one temp file. Cut only at headings.
+
+**Temp files** live in `docs/`, are **never committed**, and are **never
+reused**. Recover an interrupted run by deleting every `temp-*` and starting
+over — never by resuming.
+
+**Links.** Translate section headings, regenerate the ToC anchors from the
+*translated* headings, and repoint cross-document links at the same-language
+file. One English file in → exactly one file per language out, six total.
+
+- **Target languages:** **es, pt, fr, jp, cn** (fr included — the IDE ships French).
+- **Never machine-copy English** into a translation file to make it "exist".
+- **Verify before claiming done:** each generated file passes
   `iconv -f UTF-8 -t UTF-8`, has zero double-encoded sequences, and carries no
   leftover English prose or characters from another script.
-- Target languages: **es, pt, fr, jp, cn** (fr included — the IDE ships French).
 - **Glossary — keep untranslated:** `PowerRustCOBOL`, product/menu names, all
   COBOL keywords/identifiers and code samples. Never introduce "cobolt" in any
   language.
+- **Measured expansion** (this repo's own complete translations, 2026-08-24):
+  es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %, **jp +17–40 %** in bytes. Size
+  splits against the Japanese worst case.

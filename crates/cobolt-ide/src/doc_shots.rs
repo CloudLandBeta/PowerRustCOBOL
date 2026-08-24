@@ -875,7 +875,7 @@ Body text.
     #[test]
     fn translated_guides_are_never_offered() {
         assert!(is_english_doc(Path::new("docs/developers-guide-en.md")));
-        assert!(is_english_doc(Path::new("docs/observability.md")));
+        assert!(is_english_doc(Path::new("docs/observability-en.md")));
         for translated in ["-es", "-pt", "-jp", "-cn", "-fr"] {
             let path = format!("docs/developers-guide{translated}.md");
             assert!(!is_english_doc(Path::new(&path)), "{path} must be skipped");

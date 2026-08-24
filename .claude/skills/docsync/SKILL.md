@@ -29,23 +29,23 @@ to `/doc-localize`.
    to add a diagram, colour/emphasis).
 5. **Screenshots:** if a change invalidates an image (UI/layout), or a section is
    missing one, list it and invoke **`/doc-shots`** (or note it for the operator).
-6. **Translations (GOLDEN RULE #8 — required, not optional):** carry **the same
-   delta** you just wrote into **every** supported language — **es, pt, fr, jp,
-   cn** — as `<doc>-<lang>.md` beside the English file. Translate the prose only:
-   COBOL keywords, `cobol` blocks, CLI commands/flags, paths, identifiers,
-   property names, menu labels and the product names stay English. Never
-   translate from a translation, and never copy English in to make a file exist.
-   Then verify each touched file: `iconv -f UTF-8 -t UTF-8` passes, zero
-   double-encoded sequences, no leftover English prose.
+6. **Translations (GOLDEN RULE #8 — DELETE, do not patch):** you have just
+   changed the English canonical, so its five translations are now stale.
+   **Physically delete `<doc>-{es,pt,fr,jp,cn}.md` for every document you
+   touched.** Do **not** carry the delta into them, and do **not** regenerate
+   them: the full regeneration cycle runs **only on a major/minor bump**, which
+   only the operator raises. **Never delete an English file.**
 7. **Report** a concise summary: which docs/sections changed in which languages,
    registry rows added, and screenshots flagged.
 
 ## Rules
 
-- **English first, every language same change.** Write/patch the English
-  canonical, then carry it into all five translations before calling the change
-  done. (This **supersedes** the old "English canonical only" rule — Claude now
-  writes translations directly.)
+- **English only; stale translations are deleted, never patched.** Write/patch
+  the English canonical and delete the five translations of every document you
+  touched. Regenerating them is a **major/minor-only** cycle — see GOLDEN RULE #8
+  in `CLAUDE.md` and "Localization policy" in `specs/steering/docs.md` for the
+  32 KB / ToC-split / `temp-*` procedure. (This supersedes the 2026-08-20
+  "every language, same change" rule.)
 - Keep the registry in `specs/steering/docs.md` current — a new doc/section needs
   a row in the same change.
 - New `README.md` files are hidden by the global gitignore — `git add -f` them.

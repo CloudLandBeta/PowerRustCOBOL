@@ -154,7 +154,7 @@ the feature on:
 
 ## The two crates that compile C
 
-Worth knowing when setting up a machine (see [BUILDING.md](BUILDING.md)):
+Worth knowing when setting up a machine (see [BUILDING-en.md](BUILDING-en.md)):
 
 | Crate | Reached via | What it compiles |
 |---|---|---|

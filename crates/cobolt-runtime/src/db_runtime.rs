@@ -152,7 +152,7 @@ impl DbConn {
     /// Open a PostgreSQL connection from a `postgres://` / `postgresql://` URL.
     ///
     /// Connections are made without TLS (`NoTls`) — suitable for local and
-    /// trusted-network servers. See `docs/database-runtime.md` for enabling TLS.
+    /// trusted-network servers. See `docs/database-runtime-en.md` for enabling TLS.
     fn open_postgres(conn_str: &str) -> Result<postgres::Client, String> {
         postgres::Client::connect(conn_str.trim(), postgres::NoTls).map_err(|e| e.to_string())
     }

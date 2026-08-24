@@ -10,11 +10,13 @@
 //! (via `include_dir!`) so the Documentation viewer works offline and always
 //! ships with the app.
 //!
-//! Every document may ship in the six UI languages as `<base>-<code>.md`
-//! (GOLDEN RULE #8), with the English canonical carrying either `-en` or no
-//! suffix at all. The viewer must show **one entry per document**, so the whole
-//! `<base>` family is collapsed to the file matching the current UI language,
-//! falling back to English when that translation does not exist yet.
+//! Every document ships in the six UI languages as `<base>-<code>.md` (GOLDEN
+//! RULE #8): the English canonical carries `-en`, and the other five are
+//! regenerated wholesale on each minor/major release. The viewer must show
+//! **one entry per document**, so the whole `<base>` family is collapsed to the
+//! file matching the current UI language. A bare, suffix-less name still
+//! resolves as English, and a missing translation still falls back to English
+//! rather than dropping the document — both are safety nets, not the norm.
 
 use include_dir::{include_dir, Dir};
 
@@ -159,18 +161,25 @@ mod tests {
     fn split_lang_only_splits_on_real_language_codes() {
         assert_eq!(split_lang("observability-fr.md"), ("observability", "fr"));
         assert_eq!(split_lang("BENCHMARKS-jp.md"), ("BENCHMARKS", "jp"));
-        assert_eq!(split_lang("BENCHMARKS.md"), ("BENCHMARKS", "en"));
         assert_eq!(
-            split_lang("cobol85-supported-syntax.md"),
+            split_lang("cobol85-supported-syntax-en.md"),
             ("cobol85-supported-syntax", "en")
         );
         assert_eq!(
-            split_lang("indexed-file-format.md"),
-            ("indexed-file-format", "en")
+            split_lang("indexed-file-format-pt.md"),
+            ("indexed-file-format", "pt")
         );
         assert_eq!(
-            split_lang("database-runtime.md"),
-            ("database-runtime", "en")
+            split_lang("database-runtime-cn.md"),
+            ("database-runtime", "cn")
+        );
+        // Every English document carries `-en` since 1.62.0 (GOLDEN RULE #8),
+        // but a bare name must still resolve as English — the resolver is the
+        // one place that must not break if a doc lands without the suffix.
+        assert_eq!(split_lang("BENCHMARKS.md"), ("BENCHMARKS", "en"));
+        assert_eq!(
+            split_lang("indexed-file-format.md"),
+            ("indexed-file-format", "en")
         );
     }
 
@@ -192,27 +201,34 @@ mod tests {
         }
     }
 
-    /// A translated doc resolves to its own file; a doc with no translation in
-    /// that language falls back to English rather than disappearing.
+    /// Since 1.62.0 the translation cycle regenerates **every** document in
+    /// **every** language on each minor/major (GOLDEN RULE #8), so a reader who
+    /// picks Japanese must never be handed an English page. This is the guard
+    /// that the old per-file assertions could not give: it is the missing `-fr`
+    /// guide — invisible for months behind a silent English fallback — that this
+    /// test would have caught on the first run.
+    ///
+    /// **Ignored while the 1.62 cycle runs.** The stale translations were deleted
+    /// wholesale and are being regenerated document by document; 4 of the 12
+    /// families are done. Run it with `--ignored` to see exactly which documents
+    /// are still English-only — it prints them — and delete this attribute when
+    /// the last language of the last document lands. It is the cycle's
+    /// completion criterion, not a judgement call.
     #[test]
-    fn translation_is_picked_when_present_and_english_when_not() {
-        let es: Vec<String> = doc_list(Language::Spanish)
-            .into_iter()
-            .map(|d| d.id)
-            .collect();
-        assert!(es.contains(&"observability-es.md".to_string()));
-        assert!(es.contains(&"BENCHMARKS-es.md".to_string()));
-        // No Spanish translation of this one yet → English canonical.
-        assert!(es.contains(&"indexed-file-format.md".to_string()));
-
-        // French has the five translated docs but no guide translation yet, so
-        // the guide must still appear — in English.
-        let fr: Vec<String> = doc_list(Language::French)
-            .into_iter()
-            .map(|d| d.id)
-            .collect();
-        assert!(fr.contains(&"BENCHMARKS-fr.md".to_string()));
-        assert!(fr.contains(&"developers-guide-en.md".to_string()));
+    #[ignore = "1.62 translation cycle in progress — 4/12 document families done"]
+    fn every_document_ships_in_every_language() {
+        for lang in Language::ALL {
+            let want = lang_code(*lang);
+            let missing: Vec<String> = doc_list(*lang)
+                .into_iter()
+                .filter(|d| split_lang(&d.id).1 != want)
+                .map(|d| d.id)
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{lang:?} fell back to English for: {missing:?}"
+            );
+        }
     }
 
     /// Whatever the language, the guide is the first row in the list.

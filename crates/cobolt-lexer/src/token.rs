@@ -353,6 +353,8 @@ pub enum Token {
     EndString,     // END-STRING
     EndUnstring,   // END-UNSTRING
     EndSearch,     // END-SEARCH
+    EndAccept,     // END-ACCEPT
+    EndDisplay,    // END-DISPLAY
     InvalidKey,    // INVALID KEY
     NotInvalidKey, // NOT INVALID KEY
     Upon,          // DISPLAY ... UPON

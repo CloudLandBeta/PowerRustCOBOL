@@ -164,13 +164,13 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
     (timestamps, record/byte counts, throughput, key-ordering quality, and—at
     `full`—index page stats), in logfmt or **Grafana/Loki-ready NDJSON**
     (`--indexed-log-format json`) — see
-    [`docs/observability.md`](docs/observability.md). Engine details:
-    [`docs/indexed-redb-engine.md`](docs/indexed-redb-engine.md).
+    [`docs/observability-en.md`](docs/observability-en.md). Engine details:
+    [`docs/indexed-redb-engine-en.md`](docs/indexed-redb-engine-en.md).
   - **Self-describing `PRCIDX1` container** — embeds the file schema (record
     format + key descriptors) so files are discoverable and a future Fujitsu
     importer can write faithful data; strict open-time validation maps schema
     mismatch → `39`, missing file → `35`. Not byte-compatible with Fujitsu. See
-    [`docs/indexed-file-format.md`](docs/indexed-file-format.md).
+    [`docs/indexed-file-format-en.md`](docs/indexed-file-format-en.md).
 - `SELECT … ASSIGN TO … ORGANIZATION … [ACCESS MODE …] [RECORD KEY …] [FILE STATUS IS …]`.
 - File verbs are dispatched by each file's declared `ORGANIZATION` (per its
   `SELECT`), so sequential and indexed files share `OPEN`/`CLOSE`/`READ`/`WRITE`
@@ -183,7 +183,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   identical CALL surface for all three; the backend is chosen from the
   connection string (`:memory:` / `sqlite:` / `postgres://` / `mysql://`). All
   drivers are pure Rust (no system libraries). See
-  [`docs/database-runtime.md`](docs/database-runtime.md).
+  [`docs/database-runtime-en.md`](docs/database-runtime-en.md).
 - **HTTP / REST** — GET/POST/PUT/DELETE with custom headers.
 - **GUI** — `COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`, `COBOL-INIT-FORM`.
 - **Charts** — 6 chart types bound to COBOL tables (bar/line/pie/area/scatter/donut).
@@ -202,7 +202,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 Get from a clean machine to the running IDE in four steps. For the full per-OS
 walkthrough — package lists for Debian/Ubuntu, Fedora and Arch, where the
 artifacts land, and what to do when the build fails — see
-**[docs/BUILDING.md](docs/BUILDING.md)**.
+**[docs/BUILDING-en.md](docs/BUILDING-en.md)**.
 
 ### 1. Install the requirements
 
@@ -426,7 +426,7 @@ honest map of where things stand.
   **`COMPUTE` with multiple receivers + per-receiver `ROUNDED`**, **operator-
   prefixed abbreviated conditions** (`a > 1 AND < 9`), and **`CALL … ON
   EXCEPTION`** (runs on an unresolved CALL). See the
-  [supported-syntax reference](docs/cobol85-supported-syntax.md).
+  [supported-syntax reference](docs/cobol85-supported-syntax-en.md).
 - **Hierarchical / occurrence-aware tables (1.5.0)** — **runtime table
   subscripting** `t(i)` / `t(i, j)` (per-occurrence storage, variable
   subscripts), **qualified-name disambiguation** `id OF/IN group` (a leaf name
