@@ -2357,9 +2357,14 @@ strip. Delete it, rename it, or build around it.
 | `print` | Opens the named document in the platform's viewer, where its print dialog is. |
 | `share` | Captures this form's window and hands the image to the OS for sharing. |
 | `screenshot` | Puts an image of this form's window on the clipboard. |
-| `copy` / `cut` / `paste` | The OS clipboard, acting on whichever control has keyboard focus. |
+| `copy` / `cut` / `paste` | The OS clipboard, acting on the control that **had** keyboard focus when the button was pressed (the press itself takes focus away, so it is the field you were in that counts). An untouched field yields its designed text. |
 | `run-app` | Launches another application. |
 | `open-terminal` | Opens a terminal, optionally in a given folder. |
+
+Every platform press reports its outcome — what it did, or why it could not —
+as a brief notice at the bottom of the running form's window, so a press never
+appears to do nothing. A toolbar in a SideMenu's footer panel carries out
+platform actions like any other.
 
 The form **always** hears the press as an `onClick` on the toolbar, whatever else
 the action does — so one handler can serve a whole toolbar by reading which
