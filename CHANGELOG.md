@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.177] — 2026-08-23
+
+### Fixed — the collapsed sidebar was a different width on the canvas and in Preview
+
+The running shell's collapsed icon rail is 48 px — the reference look. The
+designer canvas and the Preview narrowed the same rail through a private
+72 px constant instead, so the rail the developer designed against was a
+quarter wider than the one their users see. One constant now feeds every
+surface (`sidebar::COLLAPSED_WIDTH`; the shell's `MENU_PANE_COLLAPSED_WIDTH`
+is that constant re-exported), pinned by a parity test that compares the
+running pane's width against the design-time narrowing.
+
+
 ## [PowerRustCOBOL 1.61.176] — 2026-08-23
 
 ### New — diagnostics name your code, and a project-wide code search (spec 053)

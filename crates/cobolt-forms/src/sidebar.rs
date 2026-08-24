@@ -40,7 +40,14 @@ use egui::{Color32, FontId, Pos2, Rect, Stroke, Vec2};
 
 /// Default rail widths, in points.
 pub const OPEN_WIDTH: f32 = 240.0;
-pub const COLLAPSED_WIDTH: f32 = 72.0;
+/// The collapsed icon rail's width. **48 is the reference look** — the running
+/// shell's MenuPane (the operator's "only correct" collapsed rail,
+/// 2026-08-23); the designer canvas and the preview narrowed to a private 72
+/// instead, so the same rail was a quarter wider anywhere but at run time.
+/// One constant, read by every surface (the shell's
+/// `MENU_PANE_COLLAPSED_WIDTH` is this constant re-exported), so they cannot
+/// disagree again.
+pub const COLLAPSED_WIDTH: f32 = 48.0;
 
 /// How wide the rail is SHOWN when it is in the given state.
 ///
