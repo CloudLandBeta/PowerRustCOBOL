@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.178] — 2026-08-23
+
+### New — `CollapsedWidth`: the collapsed sidebar's width is the developer's
+
+A SideMenu gains a **Collapsed width** property (`CollapsedWidth`, default 48,
+24–200 points): how wide the collapsed icon rail is — one value on every
+surface, since the running shell's pane, the designer canvas and the preview
+all narrow the rail through the same rule. The open pane still needs no
+property (it is as wide as the control was drawn). Values under 24 are raised
+to 24, and a form designed before the property existed keeps collapsing to 48
+exactly as before. The System KB property tables and the developer's guide
+carry the property.
+
+
 ## [PowerRustCOBOL 1.61.177] — 2026-08-23
 
 ### Fixed — the collapsed sidebar was a different width on the canvas and in Preview

@@ -5499,13 +5499,23 @@ icons are painted — `Neumorphic` matches the IDE's Neumorphic surface style.
 
 Both default to 22 points and take any value from 8 to 64. They are separate
 because the two states are two designs: next to a label an icon must not
-overpower the text, while alone on a 72-point rail that same size reads as
+overpower the text, while alone on the narrow rail that same size reads as
 lost. Icons are drawn as vectors, so any value is a clean scale rather than a
 stretched bitmap.
 
 > **Note.** A form designed before **Icon size (Collapsed)** existed simply uses
 > its open size in both states, so nothing you already drew changes until you
 > set it.
+
+**The collapsed rail's width is yours too.** The **Collapsed width** row
+(`CollapsedWidth`, default 48, from 24 to 200 points) sets how wide the icon
+rail is while the sidebar is collapsed — and it is **one value on every
+surface**: the running application's pane, the designer canvas and the
+preview all narrow the rail to exactly it, so the rail you design against is
+the rail your users see. The *open* pane needs no property: it is as wide as
+you drew the control. Values under 24 are raised to 24 — below that an icon
+row has nothing to fit in — and a form designed before the property existed
+keeps collapsing to 48, as it always did.
 
 **What the collapsed rail carries.** The rail is one icon wide, so an item earns
 a place on it only when it can be reached *by its icon*: it has **an icon**, it

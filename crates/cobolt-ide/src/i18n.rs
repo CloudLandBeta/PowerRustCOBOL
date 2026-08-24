@@ -1422,6 +1422,9 @@ pub struct Tr {
     /// 049 — …and while it is COLLAPSED. Two rows because the two rail states
     /// are two designs: beside a label, and alone on the rail.
     pub prop_icon_size_collapsed: &'static str,
+    /// The collapsed icon rail's width row (spec 053-adjacent, operator
+    /// 2026-08-23) — one width on every surface.
+    pub prop_collapsed_width: &'static str,
     /// The breadcrumb frame's height row (the strip the rail owns).
     pub prop_crumb_height: &'static str,
     /// …and its background colour row. Empty = follow the content pane.
@@ -2631,6 +2634,7 @@ const EN: Tr = Tr {
     prop_collapsed: "Start collapsed",
     prop_icon_size_open: "Icon size (Open)",
     prop_icon_size_collapsed: "Icon size (Collapsed)",
+    prop_collapsed_width: "Collapsed width",
     prop_crumb_height: "Breadcrumb height",
     prop_crumb_bg: "Breadcrumb background",
     prop_crumb_align: "Breadcrumb vertical align",
@@ -3801,6 +3805,7 @@ const ES: Tr = Tr {
     prop_collapsed: "Iniciar contraído",
     prop_icon_size_open: "Tamaño de icono (abierta)",
     prop_icon_size_collapsed: "Tamaño de icono (contraída)",
+    prop_collapsed_width: "Ancho contraído",
     prop_crumb_height: "Altura de la ruta de navegación",
     prop_crumb_bg: "Fondo de la ruta de navegación",
     prop_crumb_align: "Alineación vertical",
@@ -4971,6 +4976,7 @@ const PT: Tr = Tr {
     prop_collapsed: "Iniciar recolhido",
     prop_icon_size_open: "Tamanho do ícone (aberta)",
     prop_icon_size_collapsed: "Tamanho do ícone (recolhida)",
+    prop_collapsed_width: "Largura recolhida",
     prop_crumb_height: "Altura da trilha de navegação",
     prop_crumb_bg: "Fundo da trilha de navegação",
     prop_crumb_align: "Alinhamento vertical",
@@ -6140,6 +6146,7 @@ const JA: Tr = Tr {
     prop_collapsed: "折りたたんで開始",
     prop_icon_size_open: "アイコンサイズ(展開時)",
     prop_icon_size_collapsed: "アイコンサイズ(折りたたみ時)",
+    prop_collapsed_width: "折りたたみ時の幅",
     prop_crumb_height: "パンくずリストの高さ",
     prop_crumb_bg: "パンくずリストの背景",
     prop_crumb_align: "垂直位置",
@@ -7317,6 +7324,7 @@ const ZH: Tr = Tr {
     prop_collapsed: "启动时折叠",
     prop_icon_size_open: "图标大小(展开时)",
     prop_icon_size_collapsed: "图标大小(收起时)",
+    prop_collapsed_width: "收起宽度",
     prop_crumb_height: "面包屑高度",
     prop_crumb_bg: "面包屑背景",
     prop_crumb_align: "垂直对齐",
@@ -8487,6 +8495,7 @@ const FR: Tr = Tr {
     prop_collapsed: "Demarrer replie",
     prop_icon_size_open: "Taille d'icone (ouverte)",
     prop_icon_size_collapsed: "Taille d'icone (reduite)",
+    prop_collapsed_width: "Largeur repliée",
     prop_crumb_height: "Hauteur du fil d'Ariane",
     prop_crumb_bg: "Fond du fil d'Ariane",
     prop_crumb_align: "Alignement vertical",
