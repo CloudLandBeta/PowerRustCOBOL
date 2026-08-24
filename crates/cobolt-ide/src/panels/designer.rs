@@ -745,6 +745,22 @@ fn handle_pos(r: &cobolt_forms::model::Rect, h: Handle) -> Pos2 {
     }
 }
 
+impl DesignerPanel {
+    /// The rect `id`'s resize knobs sit on, in form coordinates: the one the
+    /// last canvas frame drew them on, or the control's own rect when the
+    /// canvas has not reported one (no frame yet, or a control it did not
+    /// paint). Drawing and hit-testing share it so the knobs and their grab
+    /// zones can never drift apart.
+    pub(crate) fn handle_rect_of(&self, id: &str) -> Option<cobolt_forms::model::Rect> {
+        if let Some((sid, rect)) = &self.sel_handle_rect {
+            if sid == id {
+                return Some(*rect);
+            }
+        }
+        self.form.find_control(id).map(|c| c.rect)
+    }
+}
+
 fn handle_cursor(h: Handle) -> CursorIcon {
     match h {
         Handle::TopLeft | Handle::BotRight => CursorIcon::ResizeNwSe,
@@ -1846,6 +1862,16 @@ pub struct DesignerPanel {
     /// first pressed.  Consumed on `drag_started()` so the drag-start check
     /// doesn't have to re-test the (now moved) pointer against the small handle.
     press_handle: Option<Handle>,
+    /// The primary selection's resize-handle rect, in FORM coordinates, as of
+    /// the last canvas frame — taken from the rect the canvas actually
+    /// PAINTED, which is the same rect the blue selection border is drawn on.
+    ///
+    /// The knobs used to be positioned from the control's MODEL rect while the
+    /// border came from the painted one, so wherever the two differ the knobs
+    /// sat away from the border they belong to (operator, 2026-08-23). Drawing
+    /// and hit-testing both read this, so a knob is always on the line the
+    /// developer can see.
+    sel_handle_rect: Option<(String, cobolt_forms::model::Rect)>,
     /// Stores which form edge (if any) the pointer was on when the mouse button
     /// was first pressed, so the form-resize drag can begin on `drag_started()`.
     press_form_edge: Option<FormEdge>,
@@ -2013,6 +2039,7 @@ impl DesignerPanel {
             spawn_anim_start: None,
             move_anim_last_now: None,
             press_handle: None,
+            sel_handle_rect: None,
             press_form_edge: None,
             menu_modal: None,
             toolbar_modal: None,
@@ -7399,11 +7426,36 @@ impl DesignerPanel {
                 // pane heights are the developer's alone.
                 self.draw_sidebar_seam_grips(&painter, origin);
 
-                // Draw selection handles over the primary selected control
-                if let Some(sid) = self.selected_ids.first() {
-                    if let Some(ctrl) = self.form.find_control(sid) {
-                        draw_handles(&painter, origin, &ctrl.rect, self.glass_mode);
+                // Draw selection handles over the primary selected control.
+                //
+                // On the rect the canvas actually PAINTED — the very one the
+                // blue selection border above is stroked on. Positioning them
+                // from the control's MODEL rect instead left the knobs away
+                // from that border wherever the two differ (operator,
+                // 2026-08-23: "the knobs stay out of sync of the panel
+                // control borders"). The model rect is still the fallback for
+                // a control the render pass reported no rect for.
+                let glass = self.glass_mode;
+                if let Some(sid) = self.selected_ids.first().cloned() {
+                    let painted = control_rects.get(&sid).map(|r| {
+                        cobolt_forms::model::Rect::new(
+                            (r.min.x - origin.x).round() as i32,
+                            (r.min.y - origin.y).round() as i32,
+                            r.width().round() as i32,
+                            r.height().round() as i32,
+                        )
+                    });
+                    let rect = painted.or_else(|| self.form.find_control(&sid).map(|c| c.rect));
+                    if let Some(rect) = rect {
+                        draw_handles(&painter, origin, &rect, glass);
+                        // The hit-test reads the same rect, so a knob is
+                        // grabbable exactly where it is drawn.
+                        self.sel_handle_rect = Some((sid, rect));
+                    } else {
+                        self.sel_handle_rect = None;
                     }
+                } else {
+                    self.sel_handle_rect = None;
                 }
                 // Draw secondary selection highlight boxes
                 for sid in self.selected_ids.iter().skip(1) {
@@ -10877,10 +10929,12 @@ impl DesignerPanel {
         }
 
         // Check if pointer is currently over a resize handle (for cursor feedback).
+        // The grab zones sit on the rect the knobs were DRAWN on (see
+        // `sel_handle_rect`), so a knob is grabbable exactly where it appears.
         let handle_hover = self.selected_ids.first().and_then(|sid| {
-            self.form.find_control(sid).and_then(|ctrl| {
+            self.handle_rect_of(sid).and_then(|r| {
                 for &h in &ALL_HANDLES {
-                    let hp = handle_pos(&ctrl.rect, h);
+                    let hp = handle_pos(&r, h);
                     let dist = ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt();
                     if dist < 8.0 {
                         return Some(h);
@@ -17479,6 +17533,58 @@ mod sidebar_seam_tests {
         println!(
             "  Splitter — division 50→75 %: contents moved +{} in both panes, one undo restored all of it",
             a1 - b1
+        );
+    }
+
+    /// Operator (2026-08-23): "the knobs stay out of sync of the panel control
+    /// borders". The blue selection border is stroked on the rect the canvas
+    /// PAINTED, while the resize knobs were positioned from the control's
+    /// MODEL rect — so wherever the two differ (a rail shown collapsed, a
+    /// derived pane, an animated control) the knobs sat away from the border
+    /// they belong to. Both now read one rect, and the hit-test reads the same
+    /// one, so a knob is grabbable exactly where it is drawn.
+    #[test]
+    fn the_resize_knobs_sit_on_the_painted_border() {
+        let mut dp = splitter_form();
+        let mut panel = Control::new("PNL-1", ControlType::Panel, 210, 60);
+        panel.rect = cobolt_forms::model::Rect::new(210, 60, 140, 160);
+        dp.form.controls.push(panel);
+        dp.selected_ids = vec!["PNL-1".to_owned()];
+
+        // No canvas frame yet: the model rect is the honest fallback.
+        assert_eq!(
+            dp.handle_rect_of("PNL-1"),
+            Some(cobolt_forms::model::Rect::new(210, 60, 140, 160)),
+            "with nothing painted yet the model rect stands in"
+        );
+
+        // A frame painted it somewhere else than the model says.
+        let painted = cobolt_forms::model::Rect::new(710, 60, 140, 160);
+        dp.sel_handle_rect = Some(("PNL-1".to_owned(), painted));
+        assert_eq!(
+            dp.handle_rect_of("PNL-1"),
+            Some(painted),
+            "the knobs follow the painted border, not the model rect"
+        );
+        // Every knob lands on that border's own edges.
+        for h in ALL_HANDLES {
+            let p = handle_pos(&painted, h);
+            assert!(
+                (p.x - 710.0).abs() < 0.01
+                    || (p.x - 780.0).abs() < 0.01
+                    || (p.x - 850.0).abs() < 0.01,
+                "{h:?} x={} is off the painted border",
+                p.x
+            );
+        }
+        // Another control is unaffected — the stash is per selection.
+        assert_eq!(
+            dp.handle_rect_of("Splitter-1-Pane1"),
+            dp.form.find_control("Splitter-1-Pane1").map(|c| c.rect),
+            "a control the stash is not about keeps its own rect"
+        );
+        println!(
+            "knobs: model 210 → painted 710 followed; unpainted controls fall back to the model"
         );
     }
 

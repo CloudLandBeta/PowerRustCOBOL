@@ -83,6 +83,108 @@ pub struct Focused<'a> {
     pub control_id: &'a str,
     /// Its current text. `Cut` and `Paste` write back through this.
     pub text: String,
+    /// The field's egui widget id. The clipboard verbs read its SELECTION
+    /// through it and put the caret and the focus back afterwards — a copy
+    /// that took the whole field, or that left the developer's cursor
+    /// somewhere else, is not what a clipboard button means.
+    pub widget_id: egui::Id,
+}
+
+// ── What the clipboard verbs do to a field ───────────────────────────────────
+//
+// Pure text rules, in CHARACTER indices, so they are the same on every surface
+// and testable without a Context. egui's cursor is character-based too, so no
+// byte arithmetic escapes this module.
+
+/// A field's selection as the clipboard verbs see it, in character indices.
+/// `start == end` is a plain caret with nothing selected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Selection {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Selection {
+    /// A caret at `at`, selecting nothing.
+    pub fn caret(at: usize) -> Self {
+        Self { start: at, end: at }
+    }
+
+    /// The range, low end first — egui's two cursors come in either order.
+    pub fn sorted(self) -> (usize, usize) {
+        if self.start <= self.end {
+            (self.start, self.end)
+        } else {
+            (self.end, self.start)
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.start == self.end
+    }
+}
+
+/// Byte offset of character `idx`, clamped to the end of `text`.
+fn byte_of(text: &str, idx: usize) -> usize {
+    text.char_indices()
+        .nth(idx)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
+}
+
+/// The selection as it applies to `text`: clamped to the text's length, and —
+/// when the field has no cursor state at all — a caret at the end, which is
+/// where an append belongs.
+fn effective(text: &str, sel: Option<Selection>) -> (usize, usize) {
+    let len = text.chars().count();
+    match sel {
+        None => (len, len),
+        Some(s) => {
+            let (a, b) = s.sorted();
+            (a.min(len), b.min(len))
+        }
+    }
+}
+
+/// What `copy` takes, and where the caret lands: **the selection** when there
+/// is one, the whole field when there is not. The caret goes right after the
+/// last character copied.
+pub fn clipboard_copy(text: &str, sel: Option<Selection>) -> (String, usize) {
+    let (a, b) = effective(text, sel);
+    if a == b {
+        return (text.to_owned(), text.chars().count());
+    }
+    (text[byte_of(text, a)..byte_of(text, b)].to_owned(), b)
+}
+
+/// What `cut` takes, what the field is left holding, and where the caret
+/// lands — the same selection rule as [`clipboard_copy`], with the taken text
+/// removed and the caret where it began.
+pub fn clipboard_cut(text: &str, sel: Option<Selection>) -> (String, String, usize) {
+    let (a, b) = effective(text, sel);
+    if a == b {
+        return (text.to_owned(), String::new(), 0);
+    }
+    let (ba, bb) = (byte_of(text, a), byte_of(text, b));
+    let taken = text[ba..bb].to_owned();
+    let mut left = String::with_capacity(text.len() - taken.len());
+    left.push_str(&text[..ba]);
+    left.push_str(&text[bb..]);
+    (taken, left, a)
+}
+
+/// What `paste` leaves in the field, and where the caret lands: the clipboard
+/// REPLACES a selection, or is inserted at the caret when there is none — one
+/// formula, since an empty selection is an insertion point. The caret goes
+/// right after the last character pasted.
+pub fn clipboard_paste(text: &str, sel: Option<Selection>, clip: &str) -> (String, usize) {
+    let (a, b) = effective(text, sel);
+    let (ba, bb) = (byte_of(text, a), byte_of(text, b));
+    let mut out = String::with_capacity(text.len() - (bb - ba) + clip.len());
+    out.push_str(&text[..ba]);
+    out.push_str(clip);
+    out.push_str(&text[bb..]);
+    (out, a + clip.chars().count())
 }
 
 /// Carries out platform actions and finishes captures.
@@ -122,11 +224,15 @@ impl Runner {
             ToolbarAction::Copy => match &focused {
                 None => (Outcome::Failed(no_focus()), None),
                 Some(f) => {
-                    ctx.copy_text(f.text.clone());
+                    let sel = selection_of(ctx, f.widget_id);
+                    let (taken, caret) = clipboard_copy(&f.text, sel);
+                    ctx.copy_text(taken.clone());
+                    // Back to the field, caret right after what was copied.
+                    restore_caret(ctx, f.widget_id, caret);
                     (
                         Outcome::Done(format!(
                             "Copied {} character(s) from {}",
-                            f.text.chars().count(),
+                            taken.chars().count(),
                             f.control_id
                         )),
                         None,
@@ -136,17 +242,22 @@ impl Runner {
             ToolbarAction::Cut => match &focused {
                 None => (Outcome::Failed(no_focus()), None),
                 Some(f) => {
-                    ctx.copy_text(f.text.clone());
+                    let sel = selection_of(ctx, f.widget_id);
+                    let (taken, left, caret) = clipboard_cut(&f.text, sel);
+                    ctx.copy_text(taken.clone());
+                    restore_caret(ctx, f.widget_id, caret);
                     (
                         Outcome::Done(format!(
                             "Cut {} character(s) from {}",
-                            f.text.chars().count(),
+                            taken.chars().count(),
                             f.control_id
                         )),
-                        Some(String::new()),
+                        Some(left),
                     )
                 }
             },
+            // No field has focus: nothing is pasted anywhere. The message says
+            // so rather than leaving a dead-looking button.
             ToolbarAction::Paste => match &focused {
                 None => (Outcome::Failed(no_focus()), None),
                 Some(f) => match clipboard_text() {
@@ -155,14 +266,19 @@ impl Runner {
                         Outcome::Failed("The clipboard holds no text".into()),
                         None,
                     ),
-                    Ok(text) => (
-                        Outcome::Done(format!(
-                            "Pasted {} character(s) into {}",
-                            text.chars().count(),
-                            f.control_id
-                        )),
-                        Some(text),
-                    ),
+                    Ok(text) => {
+                        let sel = selection_of(ctx, f.widget_id);
+                        let (new_text, caret) = clipboard_paste(&f.text, sel, &text);
+                        restore_caret(ctx, f.widget_id, caret);
+                        (
+                            Outcome::Done(format!(
+                                "Pasted {} character(s) into {}",
+                                text.chars().count(),
+                                f.control_id
+                            )),
+                            Some(new_text),
+                        )
+                    }
                 },
             },
 
@@ -229,6 +345,33 @@ impl Runner {
 
 fn no_focus() -> String {
     "No text field has focus — click into one first".into()
+}
+
+/// The field's current selection, straight from egui's own text-edit state —
+/// the very cursor the developer left there. `None` when the field has no
+/// cursor state yet, which the rules read as a caret at the end.
+fn selection_of(ctx: &egui::Context, widget_id: egui::Id) -> Option<Selection> {
+    let state = egui::text_edit::TextEditState::load(ctx, widget_id)?;
+    let range = state.cursor.char_range()?;
+    Some(Selection {
+        start: range.primary.index.0,
+        end: range.secondary.index.0,
+    })
+}
+
+/// Put the focus back on the field with the caret at character `caret`.
+///
+/// A clipboard button is not a place to leave someone: pressing it takes the
+/// field's focus (the press is a click elsewhere), so the verb hands it back
+/// and puts the caret where the edit ended — after what was copied, or after
+/// what was pasted (operator, 2026-08-23).
+fn restore_caret(ctx: &egui::Context, widget_id: egui::Id, caret: usize) {
+    let mut state = egui::text_edit::TextEditState::load(ctx, widget_id).unwrap_or_default();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(
+        egui::text::CCursor::new(caret),
+    )));
+    state.store(ctx, widget_id);
+    ctx.memory_mut(|m| m.request_focus(widget_id));
 }
 
 fn clipboard_text() -> Result<String, String> {
@@ -392,6 +535,98 @@ fn spawn(program: &str, args: &[&str]) -> Result<(), String> {
 }
 
 #[cfg(test)]
+mod clipboard_rule_tests {
+    use super::*;
+
+    fn sel(a: usize, b: usize) -> Option<Selection> {
+        Some(Selection { start: a, end: b })
+    }
+
+    /// COPY (operator, 2026-08-23): "if a text is selected, only the selection
+    /// is copied", and the caret ends "right after the last character copied".
+    /// With nothing selected the whole field is the selection.
+    #[test]
+    fn copy_takes_the_selection_and_leaves_the_caret_after_it() {
+        let text = "HELLO WORLD";
+        //          0123456789A — "WORLD" is chars 6..11
+        let (taken, caret) = clipboard_copy(text, sel(6, 11));
+        assert_eq!(taken, "WORLD", "only the selection is copied");
+        assert_eq!(caret, 11, "caret right after the last character copied");
+
+        // egui's two cursors come in either order — a right-to-left drag.
+        let (taken, caret) = clipboard_copy(text, sel(11, 6));
+        assert_eq!((taken.as_str(), caret), ("WORLD", 11));
+
+        // Nothing selected: the whole field, caret at its end.
+        let (taken, caret) = clipboard_copy(text, sel(4, 4));
+        assert_eq!((taken.as_str(), caret), ("HELLO WORLD", 11));
+        // No cursor state at all behaves the same way.
+        let (taken, caret) = clipboard_copy(text, None);
+        assert_eq!((taken.as_str(), caret), ("HELLO WORLD", 11));
+        println!("copy: selection→\"WORLD\"@11 · no selection→whole field@11");
+    }
+
+    /// PASTE 2 (operator): a selection is REPLACED by the clipboard.
+    /// PASTE 3: with nothing selected the clipboard is INSERTED at the caret.
+    /// Both leave the caret right after the last character pasted.
+    #[test]
+    fn paste_replaces_a_selection_and_inserts_at_a_bare_caret() {
+        let text = "HELLO WORLD";
+        // Replace "WORLD" (chars 6..11) with "COBOL".
+        let (out, caret) = clipboard_paste(text, sel(6, 11), "COBOL");
+        assert_eq!(out, "HELLO COBOL", "the selection is replaced");
+        assert_eq!(caret, 11, "caret right after the last character pasted");
+
+        // Insert at the caret between "HELLO" and " WORLD".
+        let (out, caret) = clipboard_paste(text, sel(5, 5), " THERE");
+        assert_eq!(out, "HELLO THERE WORLD", "inserted at the caret");
+        assert_eq!(caret, 11, "caret right after what was pasted");
+
+        // Reversed selection, and an empty field.
+        assert_eq!(
+            clipboard_paste(text, sel(11, 6), "COBOL"),
+            ("HELLO COBOL".to_owned(), 11)
+        );
+        assert_eq!(clipboard_paste("", None, "X"), ("X".to_owned(), 1));
+        // No cursor state: the clipboard lands at the end, nothing is lost.
+        assert_eq!(
+            clipboard_paste("AB", None, "CD"),
+            ("ABCD".to_owned(), 4)
+        );
+        println!("paste: selection replaced · bare caret inserted · caret after the paste");
+    }
+
+    /// CUT follows COPY's selection rule and leaves the caret where the
+    /// removed text began.
+    #[test]
+    fn cut_removes_the_selection_and_leaves_the_caret_where_it_began() {
+        let (taken, left, caret) = clipboard_cut("HELLO WORLD", sel(5, 11));
+        assert_eq!((taken.as_str(), left.as_str(), caret), (" WORLD", "HELLO", 5));
+        // Nothing selected: the whole field, as COPY takes the whole field.
+        let (taken, left, caret) = clipboard_cut("HELLO", sel(2, 2));
+        assert_eq!((taken.as_str(), left.as_str(), caret), ("HELLO", "", 0));
+    }
+
+    /// The rules are in CHARACTERS, not bytes: a field holding accents or CJK
+    /// must not be sliced through the middle of a code point.
+    #[test]
+    fn the_rules_are_character_based_not_byte_based() {
+        let text = "café ☕ 日本";
+        // chars: c a f é ' ' ☕ ' ' 日 本  → "☕" is char 5
+        let (taken, caret) = clipboard_copy(text, sel(5, 6));
+        assert_eq!((taken.as_str(), caret), ("☕", 6));
+        let (out, caret) = clipboard_paste(text, sel(0, 4), "tea");
+        assert_eq!(out, "tea ☕ 日本");
+        assert_eq!(caret, 3);
+        let (taken, left, _) = clipboard_cut(text, sel(7, 9));
+        assert_eq!((taken.as_str(), left.as_str()), ("日本", "café ☕ "));
+        // Out-of-range indices clamp instead of panicking.
+        assert_eq!(clipboard_copy("ab", sel(99, 99)).0, "ab");
+        assert_eq!(clipboard_paste("ab", sel(99, 99), "c").0, "abc");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -457,6 +692,7 @@ mod tests {
             Some(Focused {
                 control_id: "TXT-1",
                 text: "hello".into(),
+                widget_id: egui::Id::new(("rt_ctrl", "TXT-1")),
             }),
         );
         assert!(matches!(&outcome, Outcome::Done(m) if m.contains("5 character(s)")), "{outcome:?}");
@@ -469,6 +705,7 @@ mod tests {
             Some(Focused {
                 control_id: "TXT-1",
                 text: "hello".into(),
+                widget_id: egui::Id::new(("rt_ctrl", "TXT-1")),
             }),
         );
         assert!(matches!(&outcome, Outcome::Done(_)), "{outcome:?}");

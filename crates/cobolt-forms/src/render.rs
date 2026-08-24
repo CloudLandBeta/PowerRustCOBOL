@@ -1354,19 +1354,53 @@ fn ancestor_auto_scroll_offset(
 fn live_control(controls: &[Control], idx: usize, state: &dyn FormState) -> Control {
     let base = &controls[idx];
     let mut live = state.live(base);
-    if let Some(rect) = splitter_pane_rect(controls, base, state) {
-        live.rect = rect;
-        return live;
-    }
-    // A control INSIDE a pane travels with it, the way that pane's
-    // `ResizeBehavior` says. The pane's own rect is derived from
-    // `SplitPosition`, so the child is reflowed from where the pane was
-    // DESIGNED to where it is now — one calculation from one number, rather
-    // than geometry written back per pointer move.
-    if let Some(rect) = splitter_child_rect(controls, base, live.rect, state) {
-        live.rect = rect;
-    }
+    live.rect = resolved_rect(controls, base, live.rect, state, controls.len());
     live
+}
+
+/// The rect a control actually occupies this frame, with splitter geometry
+/// resolved **recursively**.
+///
+/// A pane's rect comes from its splitter, and a control inside a pane travels
+/// with it the way that pane's `ResizeBehavior` says — but a splitter can
+/// itself sit inside another splitter's pane, in which case the inner one has
+/// already MOVED before its own panes are derived. Reading the owner with a
+/// bare `state.live()` misses that: the outer divider slid the inner splitter
+/// across while its panes stayed pinned to where it was designed, so the panel
+/// moved and everything inside it stood still (operator, 2026-08-23). Each
+/// owner is therefore resolved through this same function.
+///
+/// `depth` bounds the walk, so a hand-edited `.cfrm` with a parent cycle
+/// cannot spin a frame.
+fn resolved_rect(
+    controls: &[Control],
+    ctrl: &Control,
+    live_rect: crate::model::Rect,
+    state: &dyn FormState,
+    depth: usize,
+) -> crate::model::Rect {
+    if depth == 0 {
+        return live_rect;
+    }
+    if let Some(rect) = splitter_pane_rect(controls, ctrl, state, depth) {
+        return rect;
+    }
+    if let Some(rect) = splitter_child_rect(controls, ctrl, live_rect, state, depth) {
+        return rect;
+    }
+    live_rect
+}
+
+/// Where `owner` — a Splitter — actually sits this frame: its live rect with
+/// any outer-splitter reflow already applied.
+fn resolved_owner_rect(
+    controls: &[Control],
+    owner: &Control,
+    state: &dyn FormState,
+    depth: usize,
+) -> crate::model::Rect {
+    let live = state.live(owner);
+    resolved_rect(controls, owner, live.rect, state, depth.saturating_sub(1))
 }
 
 /// Where a control that sits INSIDE a Splitter pane lands this frame, or
@@ -1380,6 +1414,7 @@ fn splitter_child_rect(
     ctrl: &Control,
     designed: crate::model::Rect,
     state: &dyn FormState,
+    depth: usize,
 ) -> Option<crate::model::Rect> {
     // Walk up to the NEAREST pane, remembering the subtree root — the pane's
     // direct child — whose reflow the whole subtree follows. Bounded by the
@@ -1407,8 +1442,14 @@ fn splitter_child_rect(
         .find(|c| Some(c.id.as_str()) == pane.parent.as_deref())
         .filter(|c| c.control_type == ControlType::Splitter)?;
     let live_owner = state.live(owner);
+    // `before` is the DESIGN — the splitter where it was drawn, at its designed
+    // division. `after` is where it is NOW, which includes any outer splitter
+    // having carried it: without that, a splitter nested in another splitter's
+    // pane compared its designed geometry against itself and reported no
+    // change, so its whole contents stood still while it moved.
     let before = crate::splitter::geometry(owner, owner.rect);
-    let after = crate::splitter::geometry(&live_owner, live_owner.rect);
+    let owner_rect = resolved_owner_rect(controls, owner, state, depth);
+    let after = crate::splitter::geometry(&live_owner, owner_rect);
     let (before, after) = if n == 1 {
         (before.pane1, after.pane1)
     } else {
@@ -1435,14 +1476,18 @@ fn splitter_pane_rect(
     controls: &[Control],
     ctrl: &Control,
     state: &dyn FormState,
+    depth: usize,
 ) -> Option<crate::model::Rect> {
     let n = crate::splitter::pane_index(ctrl)?;
     let pid = ctrl.parent.as_deref()?;
     let owner = controls
         .iter()
         .find(|c| c.id == pid && c.control_type == ControlType::Splitter)?;
-    let owner = state.live(owner);
-    let g = crate::splitter::geometry(&owner, owner.rect);
+    let live_owner = state.live(owner);
+    // Where the splitter IS, not merely where it was designed — it may have
+    // been carried here by an outer splitter's divider.
+    let owner_rect = resolved_owner_rect(controls, owner, state, depth);
+    let g = crate::splitter::geometry(&live_owner, owner_rect);
     Some(if n == 1 { g.pane1 } else { g.pane2 })
 }
 
@@ -16973,6 +17018,105 @@ mod splitter_subtree_tests {
         );
         println!(
             "live divider 50→75%: panel +{d_panel} · groupbox +{d_gb} · deep button +{d_deep} — one rigid move"
+        );
+    }
+
+    /// Operator (2026-08-23): dragging the OUTER divider moved the panel
+    /// holding a second splitter, but the second splitter's own contents
+    /// stood still. Both helpers read the owning splitter with a bare
+    /// `state.live()`, so an inner splitter's panes were derived from where
+    /// it was DESIGNED — it moved, its panes did not, and everything in them
+    /// stayed behind. The owner is now resolved recursively: the inner
+    /// splitter, its panes and their contents all travel by the outer
+    /// divider's delta.
+    #[test]
+    fn an_inner_splitters_contents_travel_with_the_outer_divider() {
+        let mut form = crate::model::Form::new("NESTED", "Nested", 900, 500);
+        let mut outer = Control::new("SPL-OUT", ControlType::Splitter, 20, 20);
+        outer.rect = MRect::new(20, 20, 800, 400);
+        form.controls.push(outer);
+        form.sync_splitter_panes();
+
+        // A second splitter INSIDE the outer splitter's pane 2.
+        let outer_pane2 = crate::splitter::pane_id("SPL-OUT", 2);
+        let mut inner = Control::new("SPL-IN", ControlType::Splitter, 440, 40);
+        inner.rect = MRect::new(440, 40, 340, 300);
+        inner.parent = Some(outer_pane2);
+        form.controls.push(inner);
+        form.sync_splitter_panes();
+
+        // A control inside the INNER splitter's pane 1.
+        let inner_pane1 = crate::splitter::pane_id("SPL-IN", 1);
+        let mut radio = Control::new("RADIO-5", ControlType::RadioButton, 470, 120);
+        radio.rect = MRect::new(470, 120, 120, 24);
+        radio.parent = Some(inner_pane1.clone());
+        form.controls.push(radio);
+
+        let controls = form.controls.clone();
+        let designed_x: Map<String, i32> = controls
+            .iter()
+            .map(|c| (c.id.clone(), c.rect.x))
+            .collect();
+
+        // The OUTER divider moved; the inner splitter's own division is
+        // untouched.
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        overrides
+            .borrow_mut()
+            .entry("SPL-OUT".into())
+            .or_default()
+            .insert("SplitPosition".into(), "70".into());
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut placed: Map<String, egui::Rect> = Map::new();
+        ctx.run_ui(Default::default(), |root_ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(1000.0, 600.0));
+                let st = MapState(&overrides);
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &st,
+                    form_size: Vec2::new(900.0, 500.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let out = render_form(ui, &input);
+                placed = out.control_rects.into_iter().collect();
+            });
+        })
+        .textures_delta
+        .clear();
+
+        let dx = |id: &str| {
+            (placed
+                .get(id)
+                .unwrap_or_else(|| panic!("{id} was not placed"))
+                .min
+                .x) as i32
+                - designed_x[id]
+        };
+        let d_inner = dx("SPL-IN");
+        assert!(
+            d_inner > 0,
+            "the inner splitter travels with the outer divider (moved {d_inner})"
+        );
+        assert_eq!(
+            dx(&inner_pane1),
+            d_inner,
+            "the inner splitter's own pane travels with it"
+        );
+        assert_eq!(
+            dx("RADIO-5"),
+            d_inner,
+            "…and so does the control inside that pane"
+        );
+        println!(
+            "outer divider 50→70%: inner splitter +{d_inner} · its pane +{} · its content +{} — all one move",
+            dx(&inner_pane1),
+            dx("RADIO-5")
         );
     }
 }

@@ -966,6 +966,7 @@ impl FormBody {
                 .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
                     control_id: id.as_str(),
                     text: text.clone(),
+                    widget_id: egui::Id::new(("rt_ctrl", id.as_str())),
                 });
             let (outcome, new_text) = self.toolbar_runner.perform(ctx, &parsed, focused_ref);
             self.note_action_outcome(ctx, &outcome);
@@ -4571,7 +4572,11 @@ mod parity {
         assert!(msg.contains("Copied"), "the notice says what happened: {msg}");
 
         // Without any focus at all, the failure is SURFACED, not silent.
+        // A FRESH context: the copy above handed the focus back to the field
+        // (which is the point of `restore_caret`), so this one must start
+        // from a form where nothing is focused at all.
         body.action_notice = None;
+        let ctx = egui::Context::default();
         let mut full = ctx.run_ui(Default::default(), |_root| {
             let ctx2 = _root.ctx().clone();
             body.run_platform_requests(&ctx2, &[], &press, None);
@@ -4588,6 +4593,70 @@ mod parity {
         let (msg, is_error, _) = body.action_notice.clone().expect("failure surfaced");
         assert!(is_error, "the no-focus failure is visible: {msg}");
         println!("copy: pre-press focus + designed text → copied; no focus → visible failure");
+    }
+
+    /// Operator (2026-08-23): a Copy must take only what is SELECTED, and
+    /// must hand the field its focus back with the caret right after the last
+    /// character copied. This drives the whole chain — a real
+    /// `TextEditState` carrying a selection, through `run_platform_requests`,
+    /// out to the clipboard command and back to egui's focus and cursor.
+    #[test]
+    fn copy_takes_only_the_selection_and_hands_the_field_back() {
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let mut body = timer_body(ev_tx, input_tx, Arc::new(AtomicUsize::new(0)));
+        let mut txt =
+            cobolt_forms::Control::new("TXT-1", cobolt_forms::ControlType::TextBox, 0, 0);
+        txt.set_prop(
+            "Text",
+            cobolt_forms::PropValue::String("HELLO WORLD".into()),
+        );
+        body.controls.push(txt);
+
+        let widget_id = egui::Id::new(("rt_ctrl", "TXT-1"));
+        let ctx = egui::Context::default();
+        // The developer selected "WORLD" (characters 6..11) before pressing.
+        let mut state = egui::text_edit::TextEditState::default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange {
+            primary: egui::text::CCursor::new(6usize),
+            secondary: egui::text::CCursor::new(11usize),
+            h_pos: None,
+        }));
+        state.store(&ctx, widget_id);
+
+        let press = [("TB-1".to_owned(), "copy".to_owned(), "copy".to_owned())];
+        let mut full = ctx.run_ui(Default::default(), |root| {
+            let ctx2 = root.ctx().clone();
+            // Live focus already surrendered by the press; pre-press focus names the field.
+            body.run_platform_requests(&ctx2, &[], &press, Some(widget_id));
+        });
+        full.textures_delta.clear();
+
+        let copied = full.platform_output.commands.iter().find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            copied.as_deref(),
+            Some("WORLD"),
+            "only the selection reaches the clipboard"
+        );
+        assert_eq!(
+            ctx.memory(|m| m.focused()),
+            Some(widget_id),
+            "the field gets its focus back"
+        );
+        let after = egui::text_edit::TextEditState::load(&ctx, widget_id)
+            .and_then(|s| s.cursor.char_range())
+            .expect("a caret was left behind");
+        assert!(after.is_empty(), "the caret selects nothing after a copy");
+        assert_eq!(
+            after.primary.index.0, 11,
+            "caret right after the last character copied"
+        );
+        println!(
+            "copy of \"HELLO WORLD\" with 6..11 selected → clipboard \"WORLD\", focus back on TXT-1, caret at 11"
+        );
     }
 
     // ── Group 3: effects gating (R5–R10) ─────────────────────────────────────
