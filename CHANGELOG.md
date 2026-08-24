@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.180] — 2026-08-23
+
+### Fixed — the COBOL error dialog's rows are links to the offending code
+
+When Build or Run is blocked by a form's code error, the dialog listed the
+errors as plain text — the developer read `broken.cfrm: … (line 669)` and
+then had to go hunting. Each error row that resolves to the developer's own
+code (through the spec-053 source map) is now a link: underlined, pointing
+hand, one click closes the dialog and opens the owning editor — event modal,
+COBOL Structure window, or code editor — with the caret on the offending
+line of the developer's own text. A line codegen authored stays plain, and
+Copy/Save still capture the full message unchanged.
+
+
 ## [PowerRustCOBOL 1.61.179] — 2026-08-23
 
 ### Fixed — search results now show the pointing-hand cursor

@@ -264,6 +264,42 @@ fn generate_with_entry(cfrm: &std::path::Path, form: &Form) -> (String, GenMapEn
     )
 }
 
+/// A form's first code error, as the Build/Run gate dialogs list it, plus the
+/// click-through origin when the offending line is the developer's own code
+/// (spec 053 — the modal's error rows open the code directly; a line codegen
+/// authored gets no link, exactly like the Output rows).
+#[derive(Debug, Clone)]
+pub struct FormCodeError {
+    pub message: String,
+    pub origin: Option<crate::runner::DiagOrigin>,
+}
+
+/// The first error-severity diagnostic of `form`, formatted the way the gate
+/// dialogs have always shown it (`… (line N)`), with its origin resolved
+/// through a fresh source map. Free of `CoboltApp` so it is testable headless;
+/// `gen_path` is display metadata for a codegen-authored line.
+fn first_form_error_with_origin(
+    cfrm: &std::path::Path,
+    gen_path: &std::path::Path,
+    form: &Form,
+) -> Option<FormCodeError> {
+    use crate::runner::{DiagOrigin, DiagSeverity};
+    let (diags, src, map) = CoboltApp::validate_form_source_full(form);
+    let d = diags.iter().find(|d| d.severity == DiagSeverity::Error)?;
+    let entry = GenMapEntry {
+        cfrm: cfrm.to_path_buf(),
+        form_name: form.name.clone(),
+        map,
+    };
+    let origin = resolve_diag_origin(Some(&entry), true, gen_path, &src, d.line, d.col);
+    Some(FormCodeError {
+        message: format!("{} (line {})", d.message, d.line),
+        // Only the developer's own code is a navigation target (R15) — a
+        // codegen-authored line is named in the message but not linked.
+        origin: matches!(origin, DiagOrigin::Site { .. }).then_some(origin),
+    })
+}
+
 /// Resolve where a diagnostic against `path` actually lives (spec 053 R10/R12).
 ///
 /// A diagnostic in a generated form `.cbl` resolves through that file's source
@@ -552,6 +588,11 @@ pub struct CoboltApp {
     show_code_search: bool,
     code_search: crate::panels::code_search::CodeSearchPanel,
 
+    /// Click-through targets for the lines of the CURRENT `form_error` modal
+    /// (operator, 2026-08-23): a message line that exactly matches a key here
+    /// renders as a link and opens the code it names. Cleared with the modal.
+    form_error_links: Vec<(String, crate::runner::DiagOrigin)>,
+
     /// Track whether glass visuals have been applied (applied once on first frame).
     glass_visuals_applied: bool,
 
@@ -732,6 +773,9 @@ const ERROR_MODAL_SIZE: [f32; 2] = [800.0, 450.0];
 struct ErrorBodyAction {
     close: bool,
     save: bool,
+    /// A clicked error-line link (operator, 2026-08-23): the caller closes
+    /// the modal and navigates through `goto_code_location`.
+    open: Option<crate::runner::DiagOrigin>,
 }
 
 /// Put an error/confirmation modal above every other window in ITS viewport.
@@ -808,6 +852,8 @@ fn error_modal_body_ui(
     intro: Option<&str>,
     msg: &str,
     font_size: &mut f32,
+    links: &[(String, crate::runner::DiagOrigin)],
+    click_hint: &str,
 ) -> ErrorBodyAction {
     let mut act = ErrorBodyAction::default();
     egui::Panel::bottom(ui.id().with("error_modal_footer"))
@@ -909,7 +955,45 @@ fn error_modal_body_ui(
                 .show(ui, |ui| {
                     // `both()` disables wrapping, so long single-line errors
                     // scroll horizontally instead of inflating the window.
-                    ui.label(egui::RichText::new(msg).monospace().size(*font_size));
+                    if links.is_empty() {
+                        ui.label(egui::RichText::new(msg).monospace().size(*font_size));
+                    } else {
+                        // Line-by-line, so an error line that resolved to the
+                        // developer's own code renders as a LINK — underlined,
+                        // pointing hand, click to open it (operator,
+                        // 2026-08-23). Copy/Save still carry the whole `msg`
+                        // untouched: the rows ARE the message's lines.
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        for line in msg.lines() {
+                            let origin =
+                                links.iter().find(|(l, _)| l == line).map(|(_, o)| o);
+                            match origin {
+                                Some(origin) => {
+                                    let text = egui::RichText::new(line)
+                                        .monospace()
+                                        .size(*font_size)
+                                        .underline();
+                                    let resp = ui
+                                        .add(
+                                            egui::Label::new(text)
+                                                .sense(egui::Sense::click()),
+                                        )
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                        .on_hover_text(click_hint);
+                                    if resp.clicked() {
+                                        act.open = Some(origin.clone());
+                                    }
+                                }
+                                None => {
+                                    ui.label(
+                                        egui::RichText::new(line)
+                                            .monospace()
+                                            .size(*font_size),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 });
         });
     act
@@ -1381,6 +1465,7 @@ impl CoboltApp {
             pending_goto_line: None,
             show_code_search: false,
             code_search: crate::panels::code_search::CodeSearchPanel::new(),
+            form_error_links: Vec::new(),
             glass_visuals_applied: false,
             lang: crate::ui_prefs::load_language(),
             lang_persisted: crate::ui_prefs::load_language(),
@@ -2006,19 +2091,24 @@ impl CoboltApp {
         // in a modal with the red tree semaphore — execution is refused until
         // the code is fixed (same contract as the old in-IDE runtime).
         {
-            use crate::runner::DiagSeverity;
-            let diags = Self::validate_form_source(&form);
-            if let Some(err) = diags
-                .iter()
-                .find(|d| d.severity == DiagSeverity::Error)
-                .map(|d| format!("{} (line {})", d.message, d.line))
-            {
+            let gen_path = self.generated_cbl_path(&form_path);
+            if let Some(err) = first_form_error_with_origin(&form_path, &gen_path, &form) {
                 self.output
-                    .push_status(format!("Error launching form: {err}"));
+                    .push_status(format!("Error launching form: {}", err.message));
                 self.set_element_status(&form_path, ElementStatus::Failed);
-                self.set_form_error(format!(
-                    "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{err}"
-                ));
+                // The error line is a LINK when it resolved to the developer's
+                // own code — click it to land there (operator, 2026-08-23).
+                let links = err
+                    .origin
+                    .map(|origin| vec![(err.message.clone(), origin)])
+                    .unwrap_or_default();
+                self.set_form_error_with_links(
+                    format!(
+                        "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{}",
+                        err.message
+                    ),
+                    links,
+                );
                 return;
             }
         }
@@ -2314,11 +2404,20 @@ impl CoboltApp {
     /// WORKING-STORAGE in one scope, so a data item defined by one handler never
     /// false-flags another.
     fn validate_form_source(form: &Form) -> Vec<crate::runner::DiagMsg> {
+        Self::validate_form_source_full(form).0
+    }
+
+    /// [`Self::validate_form_source`], keeping the generated source and its
+    /// [`cobolt_codegen::SourceMap`] — one generation serves the diagnostics,
+    /// the quoted line, and the click-through origin (spec 053).
+    fn validate_form_source_full(
+        form: &Form,
+    ) -> (Vec<crate::runner::DiagMsg>, String, cobolt_codegen::SourceMap) {
         use crate::runner::{DiagMsg, DiagSeverity};
         // Spec 044 R20 — the service wrapper allows registered External Crates.
         use crate::external_crates_service::analyze_project as analyze;
         // Generated form source is always free-form.
-        let src = cobolt_codegen::generate(form);
+        let (src, map) = cobolt_codegen::generate_with_map(form);
         let parse_result = parse(tokenize(&src, SourceFormat::Free));
         let mut diags = Vec::new();
         for d in &parse_result.diagnostics {
@@ -2349,7 +2448,7 @@ impl CoboltApp {
                 ));
             }
         }
-        diags
+        (diags, src, map)
     }
 
     /// Validate one form and update its tree semaphore (green = clean, red = has
@@ -2361,18 +2460,15 @@ impl CoboltApp {
         cfrm_path: &std::path::Path,
         form: &Form,
         report: bool,
-    ) -> Option<String> {
-        use crate::runner::{DiagSeverity, RunMsg};
-        let diags = Self::validate_form_source(form);
-        let first_error = diags
-            .iter()
-            .find(|d| d.severity == DiagSeverity::Error)
-            .map(|d| format!("{} (line {})", d.message, d.line));
+    ) -> Option<FormCodeError> {
+        use crate::runner::RunMsg;
         if report {
-            for d in &diags {
+            for d in &Self::validate_form_source(form) {
                 self.output.push_msg(&RunMsg::Diagnostic(d.clone()));
             }
         }
+        let gen_path = self.generated_cbl_path(cfrm_path);
+        let first_error = first_form_error_with_origin(cfrm_path, &gen_path, form);
         self.set_element_status(
             cfrm_path,
             if first_error.is_some() {
@@ -2385,9 +2481,9 @@ impl CoboltApp {
     }
 
     /// Validate every tracked form (open designers + on-disk) and refresh each
-    /// form's tree semaphore. Returns the forms that have an error, as
-    /// `(cfrm_path, first_error_message)` — used to block Build/Run up front.
-    fn revalidate_all_forms(&mut self) -> Vec<(PathBuf, String)> {
+    /// form's tree semaphore. Returns the forms that have an error, with each
+    /// error's click-through origin — used to block Build/Run up front.
+    fn revalidate_all_forms(&mut self) -> Vec<(PathBuf, FormCodeError)> {
         let mut forms: Vec<(PathBuf, Form)> = self
             .designers
             .iter()
@@ -2414,8 +2510,8 @@ impl CoboltApp {
         }
         let mut bad = Vec::new();
         for (path, form) in forms {
-            if let Some(msg) = self.revalidate_form(&path, &form, false) {
-                bad.push((path, msg));
+            if let Some(err) = self.revalidate_form(&path, &form, false) {
+                bad.push((path, err));
             }
         }
         bad
@@ -2937,32 +3033,42 @@ impl CoboltApp {
             self.output.clear_run_output();
             self.output
                 .push_status("── Build blocked: fix these code errors first ──");
-            for (path, msg) in &bad_forms {
+            for (path, err) in &bad_forms {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("form");
-                self.output.push_status(format!("  ✗ {name}: {msg}"));
+                self.output.push_status(format!("  ✗ {name}: {}", err.message));
             }
             // Name them HERE, in the modal. The Output panel has carried the
             // list all along, but the modal is what the developer is looking
             // at, and "a form has errors" with no name is a search rather than
             // a fix — on a project with a dozen forms there is nothing to go
             // on. Long lists stay bounded; the panel still has all of them.
+            // Each row that resolved to the developer's own code is a LINK:
+            // clicking it opens that code directly (operator, 2026-08-23).
             const SHOWN: usize = 6;
+            let mut links: Vec<(String, crate::runner::DiagOrigin)> = Vec::new();
             let mut lines: Vec<String> = bad_forms
                 .iter()
                 .take(SHOWN)
-                .map(|(path, msg)| {
+                .map(|(path, err)| {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("form");
-                    format!("  • {name}: {msg}")
+                    let line = format!("  • {name}: {}", err.message);
+                    if let Some(origin) = &err.origin {
+                        links.push((line.clone(), origin.clone()));
+                    }
+                    line
                 })
                 .collect();
             if bad_forms.len() > SHOWN {
                 lines.push(format!("  … and {} more", bad_forms.len() - SHOWN));
             }
-            self.set_form_error(format!(
-                "Build blocked — {} form(s) have code errors that must be fixed first:\n\n{}",
-                bad_forms.len(),
-                lines.join("\n")
-            ));
+            self.set_form_error_with_links(
+                format!(
+                    "Build blocked — {} form(s) have code errors that must be fixed first:\n\n{}",
+                    bad_forms.len(),
+                    lines.join("\n")
+                ),
+                links,
+            );
             return;
         }
 
@@ -3758,9 +3864,22 @@ impl CoboltApp {
 
     /// Show the build/form error dialog, and record it.
     fn set_form_error(&mut self, message: impl Into<String>) {
+        self.set_form_error_with_links(message, Vec::new());
+    }
+
+    /// [`Self::set_form_error`], with click-through targets: a message line
+    /// exactly matching a key renders as a link that opens the code it names
+    /// (operator, 2026-08-23 — "I should be able to click in the error
+    /// description to get there directly").
+    fn set_form_error_with_links(
+        &mut self,
+        message: impl Into<String>,
+        links: Vec<(String, crate::runner::DiagOrigin)>,
+    ) {
         let message = message.into();
         self.output.push_status(format!("✗ {message}"));
         self.form_error = Some(message);
+        self.form_error_links = links;
     }
 
     /// Show the general alert dialog, and record it.
@@ -4887,8 +5006,8 @@ impl CoboltApp {
         // learns about a bad event handler immediately, not only at Run time.
         if let Some(err) = self.revalidate_form(cfrm_path, &form, true) {
             self.output.push_status(format!(
-                "⚠ {} has a code error — fix it before running: {err}",
-                form.name
+                "⚠ {} has a code error — fix it before running: {}",
+                form.name, err.message
             ));
         }
     }
@@ -9355,16 +9474,19 @@ impl CoboltApp {
             .default_pos(Self::error_modal_default_pos(ctx))
             .open(&mut open)
             .show(ctx, |ui| {
+                let links = self.form_error_links.clone();
                 close = self.error_modal_resize_box(ui, &salt, |app, ui| {
                     app.error_modal_body(
                         ui,
                         Some("Execution stopped. See the Output panel for details."),
                         &msg,
+                        &links,
                     )
                 });
             });
         if !open || close {
             self.form_error = None;
+            self.form_error_links.clear();
         }
     }
 
@@ -9387,7 +9509,7 @@ impl CoboltApp {
             .open(&mut open)
             .show(ctx, |ui| {
                 close = self.error_modal_resize_box(ui, &salt, |app, ui| {
-                    app.error_modal_body(ui, None, &msg)
+                    app.error_modal_body(ui, None, &msg, &[])
                 });
             });
         if !open || close {
@@ -9424,9 +9546,18 @@ impl CoboltApp {
 
     /// Shared body of the two error modals: optional intro line, the message
     /// in a two-axis scroll area, and the Copy / Save / font-size / OK row.
-    /// Returns `true` when OK was clicked (the caller clears its message).
-    fn error_modal_body(&mut self, ui: &mut egui::Ui, intro: Option<&str>, msg: &str) -> bool {
-        let act = error_modal_body_ui(ui, intro, msg, &mut self.error_font_size);
+    /// Message lines matching a `links` key render as click-through links.
+    /// Returns `true` when the modal should close (OK, or a link was followed
+    /// — the navigation lands BEHIND the modal, so it steps aside).
+    fn error_modal_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        intro: Option<&str>,
+        msg: &str,
+        links: &[(String, crate::runner::DiagOrigin)],
+    ) -> bool {
+        let hint = self.lang.tr().diag_click_hint;
+        let act = error_modal_body_ui(ui, intro, msg, &mut self.error_font_size, links, hint);
         if act.save {
             self.begin_file_dialog(
                 FileRequest::SaveErrorText(msg.to_owned()),
@@ -9434,6 +9565,10 @@ impl CoboltApp {
                     .filter("Text file", &["txt"])
                     .file_name("error.txt"),
             );
+        }
+        if let Some(origin) = act.open {
+            self.goto_code_location(&origin);
+            return true;
         }
         act.close
     }
@@ -16719,6 +16854,168 @@ mod form_paste_tests {
 }
 
 #[cfg(test)]
+mod error_modal_link_tests {
+    use super::*;
+    use crate::runner::DiagOrigin;
+    use cobolt_forms::code_site::CodeSite;
+
+    /// A form whose handler carries a REAL error at a known site line: the
+    /// comma literal with no `DECIMAL-POINT IS COMMA` in force, at line 4 of
+    /// the handler's own text.
+    fn broken_form() -> Form {
+        let mut form = Form::new("BROKEN-FORM", "Broken", 640, 480);
+        let mut btn =
+            cobolt_forms::Control::new("BTN-GO", cobolt_forms::ControlType::Button, 10, 10);
+        let mut ev = cobolt_forms::EventBinding::for_control("BTN-GO", "onClick");
+        ev.code = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-P  PIC 9(3)V99 VALUE 8,49.\n       PROCEDURE DIVISION.\n           CONTINUE.".into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+        form
+    }
+
+    /// Operator (2026-08-23): "if an error is reported, I should be able to
+    /// click in the error description to get there directly." The gate's
+    /// first error resolves to the developer's own handler line — the origin
+    /// the modal's link opens through `goto_code_location`.
+    #[test]
+    fn a_gate_error_resolves_to_the_handler_line() {
+        let form = broken_form();
+        let err = first_form_error_with_origin(
+            std::path::Path::new("/proj/forms/broken.cfrm"),
+            std::path::Path::new("/proj/generated/broken.cbl"),
+            &form,
+        )
+        .expect("the comma literal is an error");
+        assert!(err.message.contains("(line "), "msg: {}", err.message);
+        match err.origin.expect("resolves to the developer's code") {
+            DiagOrigin::Site {
+                form_name,
+                site,
+                line,
+                source_line,
+                ..
+            } => {
+                assert_eq!(form_name, "BROKEN-FORM");
+                assert_eq!(
+                    site,
+                    CodeSite::ControlEvent {
+                        control_id: "BTN-GO".into(),
+                        event: "onClick".into()
+                    }
+                );
+                assert_eq!(line, 4, "the handler's own line of VALUE 8,49");
+                assert!(source_line.contains("8,49"), "quoted: {source_line:?}");
+            }
+            other => panic!("expected Site, got {other:?}"),
+        }
+        // A clean form gates nothing.
+        assert!(first_form_error_with_origin(
+            std::path::Path::new("/x.cfrm"),
+            std::path::Path::new("/x.cbl"),
+            &Form::new("CLEAN", "Clean", 320, 200),
+        )
+        .is_none());
+    }
+
+    /// The modal renders a linked error line as a LINK: the pointing hand
+    /// over it, and a click hands the origin back for navigation. Rendered
+    /// through the production Window + scaffold + body stack.
+    #[test]
+    fn a_modal_error_row_is_clickable() {
+        let ctx = egui::Context::default();
+        let msg = "Build blocked — 1 form(s) have code errors that must be fixed first:\n\n  • broken.cfrm: expected Division (line 669)";
+        let origin = DiagOrigin::Site {
+            form_name: "BROKEN-FORM".into(),
+            form_path: PathBuf::from("/proj/forms/broken.cfrm"),
+            site: CodeSite::ControlEvent {
+                control_id: "BTN-GO".into(),
+                event: "onClick".into(),
+            },
+            line: 4,
+            col: 1,
+            source_line: "       01  WS-P  PIC 9(3)V99 VALUE 8,49.".into(),
+        };
+        let links = vec![(
+            "  • broken.cfrm: expected Division (line 669)".to_string(),
+            origin.clone(),
+        )];
+        let mut font = 13.0f32;
+
+        let mut run = |events: Vec<egui::Event>| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1600.0, 1000.0),
+            ));
+            input.events = events;
+            let mut act = ErrorBodyAction::default();
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let ctx2 = root_ui.ctx().clone();
+                egui::Window::new("⛔ COBOL error")
+                    .id(egui::Id::new("test_error_modal_links"))
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(&ctx2, |ui| {
+                        error_modal_scaffold(ui, "test_error_modal_links_resize", |ui| {
+                            act = error_modal_body_ui(
+                                ui,
+                                Some("Execution stopped."),
+                                msg,
+                                &mut font,
+                                &links,
+                                "Click to open this code in its editor",
+                            );
+                        });
+                    });
+            });
+            let cursor = full.platform_output.cursor_icon;
+            full.textures_delta.clear();
+            let rect = ctx.memory(|m| m.area_rect(egui::Id::new("test_error_modal_links")));
+            (rect, act, cursor)
+        };
+
+        // Settle, then probe down the body for the link row's hand cursor.
+        let mut rect = None;
+        for _ in 0..5 {
+            rect = run(vec![]).0;
+        }
+        let rect = rect.expect("modal rect");
+        let mut link_pos = None;
+        let mut y = rect.min.y + 40.0;
+        while y < rect.max.y - 60.0 {
+            let pos = egui::pos2(rect.min.x + 120.0, y);
+            let (_, _, cursor) = run(vec![egui::Event::PointerMoved(pos)]);
+            if cursor == egui::CursorIcon::PointingHand {
+                link_pos = Some(pos);
+                break;
+            }
+            y += 6.0;
+        }
+        let pos = link_pos.expect("some row must show the pointing hand (the link)");
+
+        // Click it: the action carries the origin to navigate to.
+        run(vec![egui::Event::PointerMoved(pos)]);
+        let (_, _, _) = run(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        }]);
+        let (_, act, _) = run(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }]);
+        assert_eq!(
+            act.open,
+            Some(origin),
+            "clicking the error row must hand back its origin"
+        );
+    }
+}
+
+#[cfg(test)]
 mod shortcut_routing_tests {
     use super::*;
 
@@ -17545,6 +17842,8 @@ mod error_modal_tests {
                             Some("Execution stopped. See the Output panel for details."),
                             msg,
                             font,
+                            &[],
+                            "",
                         );
                     });
                 });
