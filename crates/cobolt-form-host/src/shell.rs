@@ -26,7 +26,10 @@ use egui::{Rect, Ui, Vec2};
 pub const MENU_PANE_OPEN_WIDTH: f32 = 220.0;
 /// Default Collapsed width — a narrow icon rail that keeps the root items
 /// reachable (spec R8).
-pub const MENU_PANE_COLLAPSED_WIDTH: f32 = 48.0;
+// The ONE collapsed-rail width (spec 049 / operator 2026-08-23): the shell's
+// pane and every design-time surface read the same constant, so the rail
+// cannot be one width running and another on the canvas or in the preview.
+pub const MENU_PANE_COLLAPSED_WIDTH: f32 = cobolt_forms::sidebar::COLLAPSED_WIDTH;
 /// Height of the breadcrumb strip.
 pub const BREADCRUMB_HEIGHT: f32 = 28.0;
 
@@ -1734,6 +1737,37 @@ impl eframe::App for ShellApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Operator (2026-08-23): the run-time collapsed rail was the only
+    /// correct one — the canvas and preview narrowed the same rail to a
+    /// private 72 while the shell's pane was 48. One constant now feeds every
+    /// surface; this pins the running pane and the design-time narrowing to
+    /// the same number, so they cannot drift apart again.
+    #[test]
+    fn the_collapsed_rail_is_one_width_on_every_surface() {
+        let mut shell = Shell::default();
+        shell.collapsed = true;
+        let pane = shell.menu_pane_width();
+
+        let mut side = cobolt_forms::Control::new(
+            "SideMenu-1",
+            cobolt_forms::ControlType::SideMenu,
+            0,
+            0,
+        );
+        side.rect.w = 240; // the designed width must not leak into collapsed
+        let drawn = cobolt_forms::sidebar::shown_width(&side, true);
+
+        assert_eq!(
+            pane, drawn,
+            "canvas/preview rail width must equal the running pane's"
+        );
+        assert_eq!(
+            drawn, 48.0,
+            "the reference collapsed width is the shell's (operator, 2026-08-23)"
+        );
+        println!("collapsed rail: pane {pane} px == drawn {drawn} px on every surface");
+    }
 
     fn raw(size: Vec2) -> egui::RawInput {
         egui::RawInput {
