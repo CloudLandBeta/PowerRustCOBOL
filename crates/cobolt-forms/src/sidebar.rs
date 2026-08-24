@@ -40,24 +40,26 @@ use egui::{Color32, FontId, Pos2, Rect, Stroke, Vec2};
 
 /// Default rail widths, in points.
 pub const OPEN_WIDTH: f32 = 240.0;
-/// The collapsed icon rail's width. **48 is the reference look** — the running
-/// shell's MenuPane (the operator's "only correct" collapsed rail,
-/// 2026-08-23); the designer canvas and the preview narrowed to a private 72
-/// instead, so the same rail was a quarter wider anywhere but at run time.
-/// One constant, read by every surface (the shell's
+/// The collapsed icon rail's default width. **48 is the reference look** —
+/// the running shell's MenuPane (the operator's "only correct" collapsed
+/// rail, 2026-08-23); the designer canvas and the preview narrowed to a
+/// private 72 instead, so the same rail was a quarter wider anywhere but at
+/// run time. One value, read by every surface (the shell's
 /// `MENU_PANE_COLLAPSED_WIDTH` is this constant re-exported), so they cannot
-/// disagree again.
-pub const COLLAPSED_WIDTH: f32 = 48.0;
+/// disagree again. The developer overrides it per rail with the
+/// `CollapsedWidth` property — see [`shown_width`].
+pub const COLLAPSED_WIDTH: f32 = crate::model::SIDE_MENU_COLLAPSED_WIDTH;
 
 /// How wide the rail is SHOWN when it is in the given state.
 ///
-/// Open, it is as wide as the developer drew it. Collapsed, it is
-/// [`COLLAPSED_WIDTH`] — an icon rail is a fixed width, not a proportion of
-/// what it was. The designed rect is untouched either way: collapsing is a
-/// state the rail is *in*, never an edit to the design.
+/// Open, it is as wide as the developer drew it. Collapsed, it is the rail's
+/// own `CollapsedWidth` property ([`COLLAPSED_WIDTH`] when unset) — an icon
+/// rail is a fixed width, not a proportion of what it was. The designed rect
+/// is untouched either way: collapsing is a state the rail is *in*, never an
+/// edit to the design.
 pub fn shown_width(ctrl: &Control, collapsed: bool) -> f32 {
     if collapsed {
-        COLLAPSED_WIDTH
+        ctrl.side_menu_collapsed_width()
     } else {
         (ctrl.rect.w as f32).max(1.0)
     }
@@ -1238,6 +1240,36 @@ fn paint_footer(_painter: &egui::Painter, _rect: Rect, _state: &SidebarState<'_>
 mod tests {
     use super::*;
     use crate::menu::MenuItem;
+
+    /// `CollapsedWidth` (operator, 2026-08-23) drives the collapsed rail on
+    /// every surface: `shown_width` (canvas/preview/shell all read it) and
+    /// `rail_view` (the drawn narrowing) follow the property; unset falls
+    /// back to the shared 48; under 24 is floored; the OPEN width is
+    /// untouched.
+    #[test]
+    fn collapsed_width_property_drives_every_surface() {
+        use crate::model::{ControlType, PropValue};
+        let mut side = Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+        side.rect.w = 240;
+
+        assert_eq!(shown_width(&side, true), 48.0, "default: the shared width");
+
+        side.set_prop("CollapsedWidth", PropValue::Int(64));
+        assert_eq!(shown_width(&side, true), 64.0, "the developer's width");
+        let controls = vec![side.clone()];
+        let view = rail_view(&controls, &side, true);
+        assert_eq!(view[0].rect.w, 64, "the drawn rail narrows to it");
+
+        side.set_prop("CollapsedWidth", PropValue::Int(10));
+        assert_eq!(shown_width(&side, true), 24.0, "floored at 24");
+
+        // A form designed before the property existed carries no key at all.
+        side.properties.remove("CollapsedWidth");
+        assert_eq!(shown_width(&side, true), 48.0, "pre-property forms unchanged");
+
+        assert_eq!(shown_width(&side, false), 240.0, "open width untouched");
+        println!("CollapsedWidth: default 48 · custom 64 · floor 24 — one rule everywhere");
+    }
 
     fn ctx() -> egui::Context {
         egui::Context::default()

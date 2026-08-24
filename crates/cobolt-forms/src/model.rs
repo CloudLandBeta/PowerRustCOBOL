@@ -3607,6 +3607,17 @@ pub const DEFAULT_SIDE_MENU_FOOTER_H: i32 = 72;
 /// model is not behind the `render` feature and the property default is.
 pub const DEFAULT_BREADCRUMB_HEIGHT: f32 = 28.0;
 
+/// The collapsed icon rail's default width, in points — what a SideMenu with
+/// no `CollapsedWidth` collapses to on EVERY surface (the running shell's
+/// pane, the designer canvas, the preview). Re-exported as
+/// `sidebar::COLLAPSED_WIDTH`; it lives here because the model is not behind
+/// the `render` feature and the property default is.
+pub const SIDE_MENU_COLLAPSED_WIDTH: f32 = 48.0;
+
+/// The narrowest a collapsed rail may be. Below this an icon row has nothing
+/// to fit in; `CollapsedWidth` values under it are raised to it, never obeyed.
+pub const SIDE_MENU_MIN_COLLAPSED_WIDTH: f32 = 24.0;
+
 /// The shortest a breadcrumb frame may be drawn, in points. Below this the
 /// strip has no room for its own text and the sidebar's Open/Collapsed control
 /// stops being a target anyone can hit; a height under it is read as "not set".
@@ -4263,6 +4274,13 @@ impl Control {
                     // open one, so nothing that was designed changes.
                     props.insert("IconSize".into(), PropValue::Int(22));
                     props.insert("IconSizeCollapsed".into(), PropValue::Int(22));
+                    // How wide the collapsed icon rail is, in points, on every
+                    // surface (operator, 2026-08-23). The default is the width
+                    // the rail has always collapsed to.
+                    props.insert(
+                        "CollapsedWidth".into(),
+                        PropValue::Int(SIDE_MENU_COLLAPSED_WIDTH as i64),
+                    );
                     // The three panes: a header carrying the logo, the menu,
                     // and a footer holding the developer's Panel. The menu
                     // pane is whatever height is left between them.
@@ -5133,6 +5151,20 @@ impl Control {
     pub fn side_menu_collapsed(&self) -> bool {
         self.control_type == ControlType::SideMenu
             && self.get_prop("Collapsed").map(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// The collapsed icon rail's width for this SideMenu, in points
+    /// (`CollapsedWidth`, operator request 2026-08-23). Floored at
+    /// [`SIDE_MENU_MIN_COLLAPSED_WIDTH`] so the rail can never collapse into
+    /// something an icon does not fit; a form designed before the property
+    /// existed falls back to [`SIDE_MENU_COLLAPSED_WIDTH`], the width every
+    /// surface has always shared.
+    pub fn side_menu_collapsed_width(&self) -> f32 {
+        self.get_prop("CollapsedWidth")
+            .map(|v| v.as_i64() as f32)
+            .filter(|w| *w > 0.0)
+            .map(|w| w.max(SIDE_MENU_MIN_COLLAPSED_WIDTH))
+            .unwrap_or(SIDE_MENU_COLLAPSED_WIDTH)
     }
 
     /// The height of the breadcrumb frame this SideMenu owns, in points.

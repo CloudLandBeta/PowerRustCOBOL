@@ -1214,10 +1214,14 @@ pub fn run_shell(
     // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
     // shell used a fixed 220 regardless, so the ContentPane started 20px past
     // where the form was laid out for and every control in it sat that much
-    // off. Collapsed stays the icon rail: an icon-only strip is not a width
-    // the developer chose, it is what the state means.
+    // off. Collapsed is the rail's own `CollapsedWidth` (operator, 2026-08-23)
+    // — the same value the designer canvas and the preview narrow to, so the
+    // running pane and the design surfaces cannot disagree.
     if let Some(w) = side_menu.map(|c| c.rect.w).filter(|w| *w > 0) {
         shell.menu_open_width = w as f32;
+    }
+    if let Some(side) = side_menu {
+        shell.menu_collapsed_width = side.side_menu_collapsed_width();
     }
     // What a translucent rail colour composites over — the SAME backdrop the
     // ContentPane paints, so the rail and the form agree on the application's
@@ -1766,7 +1770,17 @@ mod tests {
             drawn, 48.0,
             "the reference collapsed width is the shell's (operator, 2026-08-23)"
         );
-        println!("collapsed rail: pane {pane} px == drawn {drawn} px on every surface");
+
+        // The developer's own `CollapsedWidth` follows the same single chain:
+        // the shell configures its pane from the control, and the design
+        // surfaces narrow through `shown_width` — one value on every surface.
+        side.set_prop("CollapsedWidth", cobolt_forms::PropValue::Int(64));
+        shell.menu_collapsed_width = side.side_menu_collapsed_width();
+        assert_eq!(shell.menu_pane_width(), 64.0);
+        assert_eq!(cobolt_forms::sidebar::shown_width(&side, true), 64.0);
+        println!(
+            "collapsed rail: pane {pane} px == drawn {drawn} px on every surface (custom 64 follows)"
+        );
     }
 
     fn raw(size: Vec2) -> egui::RawInput {

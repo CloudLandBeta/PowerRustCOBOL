@@ -7394,6 +7394,18 @@ impl PropertiesPanel {
                         action,
                         8..=64,
                     );
+                    // The collapsed icon rail's width, on every surface
+                    // (operator, 2026-08-23). Floor 24: below it an icon row
+                    // has nothing to fit in.
+                    int_row_inline(
+                        ui,
+                        id,
+                        "CollapsedWidth",
+                        tr.prop_collapsed_width,
+                        ctrl,
+                        action,
+                        24..=200,
+                    );
                     // The breadcrumb frame the rail owns. Its width is not a
                     // property: it always runs from the rail's right edge to
                     // the window's. An empty background follows the content
