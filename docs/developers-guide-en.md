@@ -1403,6 +1403,12 @@ non-visual ones are services.
     scaling canvas on the other is just one pane set to *Anchor* and the other
     to *Scale*.
 
+    A **container inside a pane carries its contents**: a Panel, GroupBox or
+    TabControl you dropped into a pane moves as one piece, its controls
+    travelling with it — under *Scale* too, where the container takes its
+    fraction position and everything inside follows it rigidly rather than
+    being spread out of it.
+
     Dragging the division **in the designer really moves the controls**: their
     X/Y are rewritten and saved, and the whole drag — the line and everything
     it carried — is a single undo step.

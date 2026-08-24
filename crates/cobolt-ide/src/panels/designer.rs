@@ -10336,17 +10336,31 @@ impl DesignerPanel {
                 .find_control(pane_id)
                 .map(cobolt_forms::splitter::PaneResize::of)
                 .unwrap_or(cobolt_forms::splitter::PaneResize::Translate);
-            let kids: Vec<String> = self
+            // Each direct child is a subtree ROOT: it reflows per the pane's
+            // behaviour and its whole subtree travels rigidly with it — a
+            // custom Panel, GroupBox or TabControl carries its contents
+            // (operator, 2026-08-23: the divider moved the panel but not what
+            // was inside it, and this rewrite is the DESIGN, so the strand
+            // was permanent).
+            let kids: Vec<usize> = self
                 .form
                 .controls
                 .iter()
-                .filter(|c| c.parent.as_deref() == Some(pane_id.as_str()))
-                .map(|c| c.id.clone())
+                .enumerate()
+                .filter(|(_, c)| c.parent.as_deref() == Some(pane_id.as_str()))
+                .map(|(i, _)| i)
                 .collect();
-            for kid in kids {
-                if let Some(c) = self.form.find_control_mut(&kid) {
-                    c.rect = cobolt_forms::splitter::reflow_child(
-                        behavior, *n, *from, *to, c.rect, horizontal,
+            for kid_idx in kids {
+                let root_rect = self.form.controls[kid_idx].rect;
+                let mut subtree = cobolt_forms::containers::collect_descendants(
+                    &self.form.controls,
+                    kid_idx,
+                );
+                subtree.push(kid_idx);
+                for i in subtree {
+                    let rect = self.form.controls[i].rect;
+                    self.form.controls[i].rect = cobolt_forms::splitter::reflow_in_subtree(
+                        behavior, *n, *from, *to, root_rect, rect, horizontal,
                     );
                 }
             }
@@ -10370,19 +10384,26 @@ impl DesignerPanel {
     /// Every control inside either pane of `splitter_id`, with where it sits —
     /// what a division drag captures so one undo puts the whole gesture back.
     fn pane_child_origins(&self, splitter_id: &str) -> Vec<(String, i32, i32)> {
-        let panes: Vec<String> = [1_u8, 2]
+        // The WHOLE subtree of each pane, not just its direct children: the
+        // divider carries a nested container's contents too (operator,
+        // 2026-08-23), and the one-undo contract must put all of it back.
+        let pane_idxs: Vec<usize> = [1_u8, 2]
             .into_iter()
-            .map(|n| cobolt_forms::splitter::pane_id(splitter_id, n))
+            .filter_map(|n| {
+                let pid = cobolt_forms::splitter::pane_id(splitter_id, n);
+                self.form.controls.iter().position(|c| c.id == pid)
+            })
             .collect();
         self.form
             .controls
             .iter()
-            .filter(|c| {
-                c.parent
-                    .as_deref()
-                    .is_some_and(|p| panes.iter().any(|pane| pane == p))
+            .enumerate()
+            .filter(|(i, _)| {
+                pane_idxs.iter().any(|&p| {
+                    cobolt_forms::containers::is_descendant(&self.form.controls, *i, p)
+                })
             })
-            .map(|c| (c.id.clone(), c.rect.x, c.rect.y))
+            .map(|(_, c)| (c.id.clone(), c.rect.x, c.rect.y))
             .collect()
     }
 
@@ -17458,6 +17479,74 @@ mod sidebar_seam_tests {
         println!(
             "  Splitter — division 50→75 %: contents moved +{} in both panes, one undo restored all of it",
             a1 - b1
+        );
+    }
+
+    /// Operator (2026-08-23): the divider moved a pane's custom Panel but not
+    /// its content. The division drag now carries the pane's WHOLE subtree —
+    /// a nested Panel, the GroupBox inside it, and a control two levels deep
+    /// all move by the panel's own delta — and ONE undo restores every one of
+    /// them along with the division.
+    #[test]
+    fn dragging_the_division_carries_nested_container_contents() {
+        let mut dp = splitter_form();
+        let pane2 = cobolt_forms::splitter::pane_id("Splitter-1", 2);
+        let mut custom = Control::new("PNL-CUSTOM", ControlType::Panel, 220, 60);
+        custom.rect = cobolt_forms::model::Rect::new(220, 60, 120, 180);
+        custom.parent = Some(pane2);
+        dp.form.controls.push(custom);
+        let mut gb = Control::new("GB-IN", ControlType::GroupBox, 230, 80);
+        gb.rect = cobolt_forms::model::Rect::new(230, 80, 100, 100);
+        gb.parent = Some("PNL-CUSTOM".into());
+        dp.form.controls.push(gb);
+        let mut deep = Control::new("BTN-DEEP", ControlType::Button, 240, 100);
+        deep.rect = cobolt_forms::model::Rect::new(240, 100, 50, 24);
+        deep.parent = Some("GB-IN".into());
+        dp.form.controls.push(deep);
+
+        let x_of = |dp: &DesignerPanel, id: &str| dp.form.find_control(id).unwrap().rect.x;
+        let before: Vec<i32> = ["PNL-CUSTOM", "GB-IN", "BTN-DEEP"]
+            .iter()
+            .map(|id| x_of(&dp, id))
+            .collect();
+
+        let origins = dp.pane_child_origins("Splitter-1");
+        assert!(
+            origins.iter().any(|(id, _, _)| id == "BTN-DEEP"),
+            "the undo capture reaches the whole subtree"
+        );
+        dp.drag = DragState::MovingSplitterDivision {
+            id: "Splitter-1".into(),
+            orig_percent: 50,
+            origins,
+        };
+        dp.apply_splitter_division_drag(277, 150);
+        let after: Vec<i32> = ["PNL-CUSTOM", "GB-IN", "BTN-DEEP"]
+            .iter()
+            .map(|id| x_of(&dp, id))
+            .collect();
+        let delta = after[0] - before[0];
+        assert!(delta > 0, "the panel travels with the divider");
+        assert_eq!(
+            after[1] - before[1],
+            delta,
+            "the GroupBox inside it travels by the panel's delta"
+        );
+        assert_eq!(
+            after[2] - before[2],
+            delta,
+            "…and so does the control two levels deep"
+        );
+
+        dp.finish_splitter_division_drag();
+        dp.undo();
+        let restored: Vec<i32> = ["PNL-CUSTOM", "GB-IN", "BTN-DEEP"]
+            .iter()
+            .map(|id| x_of(&dp, id))
+            .collect();
+        assert_eq!(restored, before, "ONE undo restores the whole subtree");
+        println!(
+            "division drag carried the nested subtree +{delta} (panel, groupbox, deep button) — one undo restored all three"
         );
     }
 

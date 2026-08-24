@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.182] — 2026-08-23
+
+### Fixed — the splitter divider carries a container's contents, at any depth
+
+A custom Panel dropped into a splitter pane travelled with the divider, but
+the controls INSIDE it stayed put — at run time and, worse, on the designer
+canvas, where the divider drag rewrites the design and the strand was
+permanent. GroupBox and TabControl contents were stranded the same way. The
+pane reflow now reaches the whole subtree: the pane's direct child reflows
+per the pane's `ResizeBehavior` and everything inside travels rigidly with
+it — under *Scale* too, where spreading a container's contents by their own
+fractions would tear them out of it. One shared rule
+(`splitter::reflow_in_subtree`) drives the canvas, the preview and the
+running form; the designer's one-undo contract now captures and restores the
+whole subtree. System KB and guide updated.
+
+
 ## [PowerRustCOBOL 1.61.181] — 2026-08-23
 
 ### Fixed — collapsing the rail slides the canvas/preview content left, like Run Form

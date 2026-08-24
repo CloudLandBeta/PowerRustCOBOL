@@ -219,6 +219,38 @@ pub fn reflow_child(
     }
 }
 
+/// Where ANY control inside a pane's subtree lands when the pane goes from
+/// `before` to `after` (operator, 2026-08-23: the divider moved a pane's
+/// custom Panel but not its contents).
+///
+/// The subtree's ROOT — the pane's direct child — is reflowed per the pane's
+/// behaviour, and every descendant travels RIGIDLY with it: a Panel, GroupBox
+/// or TabControl carries its contents, exactly as the designer's drag carries
+/// them. That rigidity matters under [`PaneResize::Scale`], where reflowing a
+/// grandchild by its own fraction would spread a container's contents out of
+/// the container instead of moving them with it.
+///
+/// `root` is the direct child's rect and `child` the control's own; pass the
+/// same rect for both when the control IS the direct child (the result then
+/// equals [`reflow_child`]).
+pub fn reflow_in_subtree(
+    behavior: PaneResize,
+    pane: u8,
+    before: Rect,
+    after: Rect,
+    root: Rect,
+    child: Rect,
+    horizontal: bool,
+) -> Rect {
+    let new_root = reflow_child(behavior, pane, before, after, root, horizontal);
+    Rect::new(
+        child.x + (new_root.x - root.x),
+        child.y + (new_root.y - root.y),
+        child.w,
+        child.h,
+    )
+}
+
 /// `true` when the panes sit SIDE BY SIDE (pane 1 left, pane 2 right) and the
 /// division line therefore runs vertically.
 ///
@@ -904,5 +936,49 @@ mod tests {
         assert_eq!(pane_index(&p), None);
         p.set_prop(PANE_PROP, PropValue::Int(2));
         assert_eq!(pane_index(&p), Some(2));
+    }
+
+    /// Operator (2026-08-23): the divider moved a pane's custom Panel but not
+    /// its contents. A subtree travels RIGIDLY with its root under all three
+    /// behaviours — and under `Scale`, rigidity is the point: a grandchild is
+    /// never spread by its own fraction out of its container.
+    #[test]
+    fn a_subtree_travels_rigidly_with_its_root() {
+        let before = pane_at(200, 200);
+        let after = pane_at(240, 160);
+        let root = Rect::new(220, 40, 120, 200); // custom Panel in pane 2
+        let child = Rect::new(240, 60, 60, 24); // a control inside it
+
+        for behavior in [PaneResize::Translate, PaneResize::Scale, PaneResize::Anchor] {
+            let new_root = reflow_child(behavior, 2, before, after, root, true);
+            let new_child = reflow_in_subtree(behavior, 2, before, after, root, child, true);
+            assert_eq!(
+                new_child.x - child.x,
+                new_root.x - root.x,
+                "{behavior:?}: the child moves exactly with its container"
+            );
+            assert_eq!(new_child.y, child.y, "{behavior:?}: only the split axis moves");
+            assert_eq!((new_child.w, new_child.h), (child.w, child.h));
+            assert_eq!(
+                reflow_in_subtree(behavior, 2, before, after, root, root, true),
+                new_root,
+                "{behavior:?}: the root itself reduces to reflow_child"
+            );
+        }
+
+        // Under Scale the child's OWN fraction lands somewhere else — the
+        // rigid subtree deliberately ignores it.
+        let own = reflow_child(PaneResize::Scale, 2, before, after, child, true);
+        let rigid = reflow_in_subtree(PaneResize::Scale, 2, before, after, root, child, true);
+        assert_ne!(
+            own.x, rigid.x,
+            "a grandchild is not spread by its own fraction"
+        );
+        println!(
+            "subtree rigidity: root 220→{} · child 240→{} (own-fraction would be {})",
+            reflow_child(PaneResize::Scale, 2, before, after, root, true).x,
+            rigid.x,
+            own.x
+        );
     }
 }

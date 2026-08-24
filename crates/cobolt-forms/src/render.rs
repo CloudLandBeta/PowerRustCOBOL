@@ -1370,16 +1370,37 @@ fn live_control(controls: &[Control], idx: usize, state: &dyn FormState) -> Cont
 }
 
 /// Where a control that sits INSIDE a Splitter pane lands this frame, or
-/// `None` when it is not in one.
+/// `None` when it is not in one — at ANY depth. The reflow used to reach only
+/// the pane's DIRECT children, so a custom Panel in a pane travelled with the
+/// divider while its contents stayed put (operator, 2026-08-23); the whole
+/// subtree now moves rigidly with its root, GroupBox and TabControl contents
+/// included.
 fn splitter_child_rect(
     controls: &[Control],
     ctrl: &Control,
     designed: crate::model::Rect,
     state: &dyn FormState,
 ) -> Option<crate::model::Rect> {
-    let pane = controls
-        .iter()
-        .find(|c| Some(c.id.as_str()) == ctrl.parent.as_deref())?;
+    // Walk up to the NEAREST pane, remembering the subtree root — the pane's
+    // direct child — whose reflow the whole subtree follows. Bounded by the
+    // control count so a hand-edited `.cfrm` with a parent cycle cannot hang
+    // the frame.
+    let mut root: &Control = ctrl;
+    let mut cur: &Control = ctrl;
+    let mut pane: Option<&Control> = None;
+    for _ in 0..controls.len() {
+        let Some(pid) = cur.parent.as_deref() else {
+            break;
+        };
+        let parent = controls.iter().find(|c| c.id == pid)?;
+        if crate::splitter::pane_index(parent).is_some() {
+            pane = Some(parent);
+            break;
+        }
+        root = parent;
+        cur = parent;
+    }
+    let pane = pane?;
     let n = crate::splitter::pane_index(pane)?;
     let owner = controls
         .iter()
@@ -1396,11 +1417,12 @@ fn splitter_child_rect(
     if before == after {
         return None;
     }
-    Some(crate::splitter::reflow_child(
+    Some(crate::splitter::reflow_in_subtree(
         crate::splitter::PaneResize::of(pane),
         n,
         before,
         after,
+        root.rect,
         designed,
         crate::splitter::is_horizontal(owner),
     ))
@@ -16838,6 +16860,119 @@ mod beyond_the_form_edge_tests {
             !admitted,
             "a child must still be clipped to its container; widening the FORM's \
              clip to the window must not release container clipping"
+        );
+    }
+}
+
+#[cfg(test)]
+mod splitter_subtree_tests {
+    use super::*;
+    use crate::containers::ActiveTabs;
+    use crate::model::{ControlType, PropValue, Rect as MRect};
+    use egui::Vec2;
+    use std::cell::RefCell;
+    use std::collections::BTreeMap as Map;
+
+    /// A `FormState` over a per-control live-override map, the way the
+    /// running host drives the engine.
+    struct MapState<'a>(&'a RefCell<Map<String, Map<String, String>>>);
+    impl FormState for MapState<'_> {
+        fn live(&self, base: &Control) -> Control {
+            let m = self.0.borrow();
+            match m.get(&base.id) {
+                Some(p) => merge_props(base, p.iter()),
+                None => base.clone(),
+            }
+        }
+    }
+
+    /// Operator (2026-08-23): "If any pane has a custom panel with control,
+    /// the splitter resizer moves the panel, but not its content." At run
+    /// time a live `SplitPosition` must carry a pane's WHOLE subtree — the
+    /// nested container, its child, and a grandchild inside a GroupBox — by
+    /// the same delta as the container itself.
+    #[test]
+    fn a_live_divider_carries_the_whole_pane_subtree() {
+        let mut form = crate::model::Form::new("SPLIT-FORM", "Split", 640, 480);
+        let mut split = Control::new("SPL", ControlType::Splitter, 40, 20);
+        split.rect = MRect::new(40, 20, 400, 300);
+        form.controls.push(split);
+        form.sync_splitter_panes();
+
+        let pane2 = crate::splitter::pane_id("SPL", 2);
+        let mut custom = Control::new("PNL-CUSTOM", ControlType::Panel, 260, 60);
+        custom.rect = MRect::new(260, 60, 150, 200);
+        custom.parent = Some(pane2.clone());
+        form.controls.push(custom);
+        let mut gb = Control::new("GB-IN", ControlType::GroupBox, 270, 80);
+        gb.rect = MRect::new(270, 80, 120, 120);
+        gb.parent = Some("PNL-CUSTOM".into());
+        form.controls.push(gb);
+        let mut deep = Control::new("BTN-DEEP", ControlType::Button, 280, 100);
+        deep.rect = MRect::new(280, 100, 60, 24);
+        deep.parent = Some("GB-IN".into());
+        form.controls.push(deep);
+
+        let controls = form.controls.clone();
+        let designed_x: Map<String, i32> = controls
+            .iter()
+            .map(|c| (c.id.clone(), c.rect.x))
+            .collect();
+
+        // The running divider moved: SplitPosition 50 → 75, live state only.
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        overrides
+            .borrow_mut()
+            .entry("SPL".into())
+            .or_default()
+            .insert("SplitPosition".into(), "75".into());
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut placed: Map<String, egui::Rect> = Map::new();
+        ctx.run_ui(Default::default(), |root_ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(700.0, 500.0));
+                let st = MapState(&overrides);
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &st,
+                    form_size: Vec2::new(640.0, 480.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let out = render_form(ui, &input);
+                placed = out.control_rects.into_iter().collect();
+            });
+        })
+        .textures_delta
+        .clear();
+
+        let dx = |id: &str| {
+            (placed
+                .get(id)
+                .unwrap_or_else(|| panic!("{id} was not placed"))
+                .min
+                .x) as i32
+                - designed_x[id]
+        };
+        let (d_panel, d_gb, d_deep) = (dx("PNL-CUSTOM"), dx("GB-IN"), dx("BTN-DEEP"));
+        assert!(
+            d_panel > 0,
+            "the pane's panel travels with the divider (moved {d_panel})"
+        );
+        assert_eq!(
+            d_gb, d_panel,
+            "a GroupBox inside it travels by the same delta"
+        );
+        assert_eq!(
+            d_deep, d_panel,
+            "…and so does a control nested two levels deep"
+        );
+        println!(
+            "live divider 50→75%: panel +{d_panel} · groupbox +{d_gb} · deep button +{d_deep} — one rigid move"
         );
     }
 }
