@@ -5512,7 +5512,10 @@ stretched bitmap.
 rail is while the sidebar is collapsed — and it is **one value on every
 surface**: the running application's pane, the designer canvas and the
 preview all narrow the rail to exactly it, so the rail you design against is
-the rail your users see. The *open* pane needs no property: it is as wide as
+the rail your users see. When the rail collapses, the **content follows its
+edge** on those surfaces too — everything to the right of the rail slides
+left over the column the rail gave up, exactly as the running shell moves
+its content pane, and slides back when the rail opens. The *open* pane needs no property: it is as wide as
 you drew the control. Values under 24 are raised to 24 — below that an icon
 row has nothing to fit in — and a form designed before the property existed
 keeps collapsing to 48, as it always did.

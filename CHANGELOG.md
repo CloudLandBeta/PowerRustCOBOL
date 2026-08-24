@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.61.181] — 2026-08-23
+
+### Fixed — collapsing the rail slides the canvas/preview content left, like Run Form
+
+In the running shell, collapsing the sidebar moves the content pane's edge
+and the whole form travels with it. On the designer canvas and in Preview
+the rail narrowed but the content stayed put, leaving a dead band where the
+open rail used to be. The shared narrowing now slides every content control
+— children included — over the column the rail gave up, with the shell's own
+clamp for controls parked under the rail; the footer subtree is rail, not
+content, and stays. Shown open, the canvas shows the design untouched.
+
+
 ## [PowerRustCOBOL 1.61.180] — 2026-08-23
 
 ### Fixed — the COBOL error dialog's rows are links to the offending code

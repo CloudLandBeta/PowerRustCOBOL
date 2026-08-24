@@ -568,16 +568,32 @@ pub fn clamp_scroll(rect: Rect, state: &SidebarState<'_>) -> f32 {
 pub fn rail_view(controls: &[Control], side: &Control, collapsed: bool) -> Vec<Control> {
     let footer_id = crate::model::side_menu_footer_id(&side.id);
     let width = shown_width(side, collapsed) as i32;
+    // Shown collapsed, the CONTENT travels left with the rail's edge — the
+    // same slide the running shell's ContentPane makes (operator, 2026-08-23:
+    // "If I collapse the sidebar, the content pane should move to the left,
+    // just like it does in Run Form"). The shell computes
+    // `(x - designed_rail_w).max(0)` in pane space and lays the pane at the
+    // collapsed edge; in the canvas's one coordinate space that is
+    // `(x - dx).max(width)` with `dx` the width the rail gave up — including
+    // the shell's clamp for a control parked under the rail. Shown open,
+    // nothing moves: the canvas shows the design.
+    let dx = if collapsed { side.rect.w - width } else { 0 };
     controls
         .iter()
         .map(|c| {
             if c.id != side.id && c.id != footer_id {
-                return c.clone();
+                let mut c = c.clone();
+                if dx != 0 {
+                    slide_content(&mut c, dx, width);
+                }
+                return c;
             }
             let mut c = c.clone();
             // The footer Panel is pinned to the rail's column, so it narrows
             // with it — otherwise it hangs out over the content area the
-            // moment the rail collapses.
+            // moment the rail collapses. Its children are rail, not content
+            // (the footer band lays them out from their designed rects), so
+            // they do not slide.
             c.rect.w = width;
             if c.id == side.id {
                 c.set_prop("Collapsed", collapsed);
@@ -585,6 +601,16 @@ pub fn rail_view(controls: &[Control], side: &Control, collapsed: bool) -> Vec<C
             c
         })
         .collect()
+}
+
+/// Slide one content control — and its subtree, whose rects are absolute —
+/// over the column the collapsed rail gave up, clamping at the rail's edge so
+/// nothing disappears under it (the shell's own rule).
+fn slide_content(c: &mut Control, dx: i32, min_x: i32) {
+    c.rect.x = (c.rect.x - dx).max(min_x);
+    for child in &mut c.children {
+        slide_content(child, dx, min_x);
+    }
 }
 
 /// Lay out the menu rows from `y` downwards, recursing into expanded parents.
@@ -1269,6 +1295,59 @@ mod tests {
 
         assert_eq!(shown_width(&side, false), 240.0, "open width untouched");
         println!("CollapsedWidth: default 48 · custom 64 · floor 24 — one rule everywhere");
+    }
+
+    /// Operator (2026-08-23): "If I collapse the sidebar, the content pane
+    /// should move to the left, just like it does in Run Form." The shared
+    /// narrowing now slides the content over the column the rail gave up —
+    /// the shell's own rule, clamp included — while the footer subtree (rail,
+    /// not content) and the open view stay exactly as designed.
+    #[test]
+    fn collapsing_the_rail_slides_the_content_left_like_the_shell() {
+        use crate::model::ControlType;
+        let mut side = Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+        side.rect.w = 240;
+        let mut panel = Control::new("Panel-1", ControlType::Panel, 300, 40);
+        panel.rect.w = 400;
+        panel
+            .children
+            .push(Control::new("BTN-IN", ControlType::Button, 320, 60));
+        let parked = Control::new("LBL-UNDER", ControlType::Label, 20, 500);
+        let footer_id = crate::model::side_menu_footer_id(&side.id);
+        let mut footer = Control::new(footer_id, ControlType::Panel, 0, 700);
+        footer.rect.w = 240;
+        footer
+            .children
+            .push(Control::new("LBL-CLOCK", ControlType::Label, 10, 710));
+        let controls = vec![side.clone(), panel, parked, footer];
+
+        // Collapsed: dx = 240 − 48 = 192, clamped at the rail's edge.
+        let view = rail_view(&controls, &side, true);
+        assert_eq!(view[1].rect.x, 300 - 192, "content slides with the edge");
+        assert_eq!(
+            view[1].children[0].rect.x,
+            320 - 192,
+            "child rects are absolute and travel with their parent"
+        );
+        assert_eq!(
+            view[2].rect.x, 48,
+            "a control parked under the rail clamps to its edge (the shell's rule)"
+        );
+        assert_eq!(view[3].rect.w, 48, "the footer narrows with the rail");
+        assert_eq!(
+            view[3].children[0].rect.x, 10,
+            "footer children are rail, not content — they do not slide"
+        );
+
+        // Shown open: the canvas shows the design, untouched.
+        let open = rail_view(&controls, &side, false);
+        assert_eq!(open[1].rect.x, 300);
+        assert_eq!(open[1].children[0].rect.x, 320);
+        assert_eq!(open[2].rect.x, 20);
+        println!(
+            "collapse slide: 300→{} · child 320→{} · parked 20→{} (clamp) · footer child 10→10",
+            view[1].rect.x, view[1].children[0].rect.x, view[2].rect.x
+        );
     }
 
     fn ctx() -> egui::Context {
