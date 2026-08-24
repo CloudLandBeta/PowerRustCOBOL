@@ -675,6 +675,42 @@ until the model arrives — nothing is thrown away. Whenever records do need
 conversation shows a **progress bar** (`Indexing Knowledge Base (n of m
 records)`) so a long index never looks stuck.
 
+### Project-wide code search
+
+If you maintained applications in PowerCOBOL you will remember the routine:
+"where else did I use `CUST-BALANCE`?" meant opening every sheet and every
+event procedure by hand. PowerRustCOBOL answers it in one window: **View ▸
+Code Search…**, the 🔍 **Search** toolbar button, or **Ctrl+Shift+F**
+(**Cmd+Shift+F** on macOS) opens the search window; the plain **Ctrl+F**
+keeps its old meaning, find in the current editor tab.
+
+Type a plain-text query and press **Search**. The scan covers **every place
+you can write COBOL** in the project: every control event handler, every
+form's `onLoad`/`onClose`, every user procedure, the five structure sections
+(`SPECIAL-NAMES`, `REPOSITORY`, `FILE-CONTROL`, `FILE SECTION`,
+`WORKING-STORAGE`) of every form — open forms are read from their **live,
+even unsaved** text — plus every Common Code file.
+
+- Results are grouped by form, then by site, each row showing the line number
+  *within that handler or section* and the matching line with the match
+  highlighted, and the totals line counts occurrences and distinct sites.
+- **Case sensitive** and **Whole word** are both off by default. Whole word
+  understands COBOL words: `BAL` does not match inside `CUST-BAL`.
+- **Double-click** a result and the IDE opens the owning editor — the event
+  modal, the COBOL Structure window, or the code editor for Common Code —
+  with the caret on that line, opening the form's designer first if it was
+  not open.
+- The window is yours until you close it: it stays open while you jump
+  around, edit, and re-Check, resizes only when you drag its corner grip,
+  and closes only on its **✕** or **Cancel**.
+
+What it deliberately does **not** search: generated `.cbl` files (build
+artifacts — every hit in one is a duplicate of a hit at its real site) and
+the deleted-code recycle bin.
+
+> 📷 Screenshot needed — `code-search.png`. The search window over a project,
+> showing grouped results with highlighted matches and the totals line.
+
 ## Window effects
 
 Every project can give its windows a signature **entrance and exit effect**,
@@ -3640,6 +3676,42 @@ or bug fixes) without breaking your code.
 > designers use their live, even unsaved, state; other forms reload from their
 > `.cfrm`), so what compiles and runs always matches your forms. Put reusable
 > logic in **Common Code** and `CALL` it from handlers.
+
+### Reading a diagnostic
+
+Because the compiler sees the woven `.cbl`, an error used to be reported
+against that artifact — `842:17: ✖ error: …`, line 842 of a file you never
+wrote. A Check now reports the place **you** wrote instead. An Output row
+reads:
+
+```
+MAIN-FORM ▸ BTN-OK ▸ onClick — 3:12: ✖ error: syntax error near "DISPLYA"
+    3 │            DISPLYA "HELLO".
+      │            ^
+```
+
+- The left part is the **site path** — the form, then the control and event
+  (or the procedure name, or the section keyword, e.g.
+  `MAIN-FORM ▸ WORKING-STORAGE`). It reads the way you navigate the RAD.
+- The line and column are **within that handler's or section's own text**,
+  exactly as the editor shows it — not the generated file's numbering.
+- The offending line is quoted with the column marked, so the message says
+  where on its own — in a screenshot, a forum post, or over a shoulder.
+- The row is a **link**: click it and the IDE opens the owning editor — the
+  event modal for a handler, the COBOL Structure window for a section or
+  procedure, the code editor for a Common Code file — with the caret on that
+  line. The generated `.cbl` is never opened.
+
+Some lines belong to the generator itself (the event loop, an unwritten
+handler's stub). A diagnostic on one of those is labelled
+`[generated code]` with the generated file and line, and is deliberately
+**not** attributed to any of your handlers — if you see one, the fault is in
+PowerRustCOBOL's plumbing or in how a property is set, not in code you can
+edit.
+
+> **Note.** Site locations cover **compile-time** diagnostics (Check, and the
+> parse/analysis run before Build/Run/Debug). A runtime abort still reports
+> the generated program's location for now.
 
 ---
 

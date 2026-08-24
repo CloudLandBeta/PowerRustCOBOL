@@ -228,6 +228,89 @@ fn build_needs_full(
     project.is_some_and(|p| p.project.build_is_stale_for(current))
 }
 
+/// What the IDE keeps beside each generated `.cbl` (spec 053): the source map
+/// back to the developer's code sites, and the form that owns them — enough to
+/// resolve a diagnostic into `Form ▸ Site` and to navigate there.
+#[derive(Debug, Clone)]
+pub struct GenMapEntry {
+    /// The `.cfrm` the `.cbl` was generated from.
+    pub cfrm: PathBuf,
+    /// The form's name, for the display path.
+    pub form_name: String,
+    pub map: cobolt_codegen::SourceMap,
+}
+
+/// The project-wide search shortcut: Cmd/Ctrl+Shift+F, EXACT modifier match
+/// (spec 053 T26) — the raw modifiers, not `consume_key`, which matches
+/// logically and drops extra Shift/Alt (recorded egui pitfall). The in-tab
+/// counterpart is [`crate::panels::editor::in_tab_search_pressed`]; the two
+/// predicates are disjoint by construction (Shift routes to exactly one).
+pub(crate) fn project_search_pressed(i: &egui::InputState) -> bool {
+    i.key_pressed(egui::Key::F) && i.modifiers.command && i.modifiers.shift && !i.modifiers.alt
+}
+
+/// Generate a form's `.cbl` text together with the [`GenMapEntry`] the IDE
+/// keeps beside it — one call produces both (spec 053 R9), used by every
+/// place that writes a generated `.cbl`.
+fn generate_with_entry(cfrm: &std::path::Path, form: &Form) -> (String, GenMapEntry) {
+    let (src, map) = cobolt_codegen::generate_with_map(form);
+    (
+        src,
+        GenMapEntry {
+            cfrm: cfrm.to_path_buf(),
+            form_name: form.name.clone(),
+            map,
+        },
+    )
+}
+
+/// Resolve where a diagnostic against `path` actually lives (spec 053 R10/R12).
+///
+/// A diagnostic in a generated form `.cbl` resolves through that file's source
+/// map into the developer's own code site — carrying the line and column
+/// *within the site's text* and the offending line quoted (the mapped lines
+/// are the developer's text verbatim, so quoting from the generated source IS
+/// quoting the developer). A generated line no site produced is labelled
+/// [`crate::runner::DiagOrigin::Generated`], never guessed onto a nearby site.
+/// A hand-written file resolves to a plain file origin.
+fn resolve_diag_origin(
+    entry: Option<&GenMapEntry>,
+    path_is_generated: bool,
+    path: &std::path::Path,
+    source: &str,
+    line: u32,
+    col: u32,
+) -> crate::runner::DiagOrigin {
+    use crate::runner::DiagOrigin;
+    if let Some(entry) = entry {
+        if let Some((site, site_line)) = entry.map.resolve(line) {
+            let source_line = source
+                .lines()
+                .nth(line as usize - 1)
+                .unwrap_or("")
+                .to_string();
+            return DiagOrigin::Site {
+                form_name: entry.form_name.clone(),
+                form_path: entry.cfrm.clone(),
+                site: site.clone(),
+                line: site_line,
+                col,
+                source_line,
+            };
+        }
+    }
+    if entry.is_some() || path_is_generated {
+        return DiagOrigin::Generated {
+            gen_path: path.to_path_buf(),
+            line,
+        };
+    }
+    DiagOrigin::File {
+        path: path.to_path_buf(),
+        line,
+    }
+}
+
 pub struct CoboltApp {
     // Code workspace
     project: ProjectPanel,
@@ -450,6 +533,25 @@ pub struct CoboltApp {
     /// been opened (set by double-clicking an event row; see `jump_to_event_code`).
     pending_goto_paragraph: Option<String>,
 
+    /// Per generated `.cbl`: the source map back to the developer's code sites,
+    /// plus the owning form (spec 053 R9). Written by the same call that writes
+    /// the `.cbl` — regeneration on Check/Build/Run/Debug replaces the entry,
+    /// so the map cannot go stale against the file beside it.
+    gen_maps: std::collections::HashMap<PathBuf, GenMapEntry>,
+
+    /// A 1-based `(line, col)` to place the caret at in the main editor once
+    /// the queued file has been opened (spec 053 R14 — mirrors
+    /// `pending_goto_paragraph`).
+    pending_goto_line: Option<(u32, u32)>,
+
+    /// The project-wide code search window (spec 053 R32–R36). The open flag
+    /// is this plain bool and nothing else: only the window's `✕` and its
+    /// Cancel button clear it — a jump, a click elsewhere, a rebuild or a
+    /// form opening/closing never do (R35). Never routed through egui's popup
+    /// manager (which force-closes unregistered popups every frame).
+    show_code_search: bool,
+    code_search: crate::panels::code_search::CodeSearchPanel,
+
     /// Track whether glass visuals have been applied (applied once on first frame).
     glass_visuals_applied: bool,
 
@@ -658,19 +760,25 @@ fn per_viewport_salt(ctx: &egui::Context, base: &str) -> String {
     format!("{base}_{}", ctx.viewport_id().0.value())
 }
 
-/// The user-resizable box every error modal lives in. The inner `egui::Resize`
-/// is the single size authority: seeded at [`ERROR_MODAL_SIZE`], changed only
-/// by the user's grip drag. The body must keep its measured content within the
-/// box — egui (0.35) ratchets `Resize` up to the content min-size every frame,
-/// so any overflow becomes runaway growth. Pair with [`error_modal_body_ui`],
-/// whose embedded panels partition the box exactly.
-fn error_modal_scaffold(ui: &mut egui::Ui, id_salt: &str, body: impl FnOnce(&mut egui::Ui)) {
+/// The user-resizable box the error modals AND the code-search window live in
+/// (spec 053 R33/R34 shares the proven shape). The inner `egui::Resize` is the
+/// single size authority: seeded at `default_size`, changed only by the user's
+/// grip drag. The body must keep its measured content within the box — egui
+/// (0.35) ratchets `Resize` up to the content min-size every frame, so any
+/// overflow becomes runaway growth. Partition the interior with embedded
+/// panels, never estimated heights.
+pub(crate) fn resizable_tool_box(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    default_size: egui::Vec2,
+    body: impl FnOnce(&mut egui::Ui),
+) {
     egui::Resize::default()
         .id_salt(id_salt)
         .resizable([true, true])
         .min_size(egui::vec2(380.0, 220.0))
         .max_size(egui::vec2(4000.0, 4000.0))
-        .default_size(egui::Vec2::from(ERROR_MODAL_SIZE)) // seed only
+        .default_size(default_size) // seed only
         .show(ui, |ui| {
             // `sz` is the Resize box: user/default state, bounded — NOT
             // "remaining space" of an auto-sizing container.
@@ -680,6 +788,13 @@ fn error_modal_scaffold(ui: &mut egui::Ui, id_salt: &str, body: impl FnOnce(&mut
                 body(ui);
             });
         });
+}
+
+/// The user-resizable box every error modal lives in — see
+/// [`resizable_tool_box`], seeded at [`ERROR_MODAL_SIZE`]. Pair with
+/// [`error_modal_body_ui`], whose embedded panels partition the box exactly.
+fn error_modal_scaffold(ui: &mut egui::Ui, id_salt: &str, body: impl FnOnce(&mut egui::Ui)) {
+    resizable_tool_box(ui, id_salt, egui::Vec2::from(ERROR_MODAL_SIZE), body);
 }
 
 /// Error-modal interior: intro, scrollable message, button row. Laid out with
@@ -1262,6 +1377,10 @@ impl CoboltApp {
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
+            gen_maps: std::collections::HashMap::new(),
+            pending_goto_line: None,
+            show_code_search: false,
+            code_search: crate::panels::code_search::CodeSearchPanel::new(),
             glass_visuals_applied: false,
             lang: crate::ui_prefs::load_language(),
             lang_persisted: crate::ui_prefs::load_language(),
@@ -2204,30 +2323,30 @@ impl CoboltApp {
         let mut diags = Vec::new();
         for d in &parse_result.diagnostics {
             use cobolt_parser::Severity as PSev;
-            diags.push(DiagMsg {
-                severity: match d.severity {
+            diags.push(DiagMsg::plain(
+                match d.severity {
                     PSev::Error => DiagSeverity::Error,
                     PSev::Warning => DiagSeverity::Warning,
                 },
-                message: d.message.clone(),
-                line: d.span.line,
-                col: d.span.col,
-            });
+                d.message.clone(),
+                d.span.line,
+                d.span.col,
+            ));
         }
         if let Some(prog) = parse_result.program {
             let sem = analyze(&prog);
             for d in &sem.diagnostics {
                 use cobolt_semantic::Severity;
-                diags.push(DiagMsg {
-                    severity: match d.severity {
+                diags.push(DiagMsg::plain(
+                    match d.severity {
                         Severity::Error => DiagSeverity::Error,
                         Severity::Warning => DiagSeverity::Warning,
                         Severity::Info => DiagSeverity::Info,
                     },
-                    message: d.message.clone(),
-                    line: d.span.line,
-                    col: d.span.col,
-                });
+                    d.message.clone(),
+                    d.span.line,
+                    d.span.col,
+                ));
             }
         }
         diags
@@ -2338,18 +2457,26 @@ impl CoboltApp {
         let tokens = tokenize(&source, fmt);
         let parse_result = parse(tokens);
 
+        // Spec 053 R10: a diagnostic against a generated form `.cbl` names the
+        // developer's own code site instead of the artifact's line.
+        let gen_entry = self.gen_maps.get(&path).cloned();
+        let is_generated = self.path_is_generated(&path);
+
         for d in &parse_result.diagnostics {
             use cobolt_parser::Severity as PSev;
             let sev = match d.severity {
                 PSev::Error => DiagSeverity::Error,
                 PSev::Warning => DiagSeverity::Warning,
             };
-            let diag = DiagMsg {
-                severity: sev,
-                message: d.message.clone(),
-                line: d.span.line,
-                col: d.span.col,
-            };
+            let mut diag = DiagMsg::plain(sev, d.message.clone(), d.span.line, d.span.col);
+            diag.origin = Some(resolve_diag_origin(
+                gen_entry.as_ref(),
+                is_generated,
+                &path,
+                &source,
+                d.span.line,
+                d.span.col,
+            ));
             self.output.push_msg(&RunMsg::Diagnostic(diag.clone()));
             self.editor.add_diag(&path, diag);
         }
@@ -2372,12 +2499,15 @@ impl CoboltApp {
                         Severity::Warning => DiagSeverity::Warning,
                         Severity::Info => DiagSeverity::Info,
                     };
-                    let diag = DiagMsg {
-                        severity: sev,
-                        message: d.message.clone(),
-                        line: d.span.line,
-                        col: d.span.col,
-                    };
+                    let mut diag = DiagMsg::plain(sev, d.message.clone(), d.span.line, d.span.col);
+                    diag.origin = Some(resolve_diag_origin(
+                        gen_entry.as_ref(),
+                        is_generated,
+                        &path,
+                        &source,
+                        d.span.line,
+                        d.span.col,
+                    ));
                     self.output.push_msg(&RunMsg::Diagnostic(diag.clone()));
                     self.editor.add_diag(&path, diag);
                 }
@@ -4295,6 +4425,153 @@ impl CoboltApp {
         self.pending_goto_paragraph = Some(para);
     }
 
+    /// The ONE navigation entry point for spec 053 — both an activated
+    /// diagnostic (R13/R14) and a double-clicked search result (R21) land
+    /// here. Opens the designer that owns the site (loading the form if it is
+    /// not open in the RAD), then the site's owning editor — event modal,
+    /// structure window, or the main editor for a Common Code file — with the
+    /// caret on the mapped line. Never opens, focuses or scrolls the generated
+    /// `.cbl` (R15).
+    fn goto_code_location(&mut self, origin: &crate::runner::DiagOrigin) {
+        use crate::runner::DiagOrigin;
+        match origin {
+            // R15/R12: generated code is not a navigation target.
+            DiagOrigin::Generated { .. } => {}
+            // R14: a hand-written file opens in the main editor at the line.
+            DiagOrigin::File { path, line } => {
+                self.pending_open_in_editor = Some(path.clone());
+                self.pending_goto_line = Some((*line, 1));
+            }
+            DiagOrigin::Site {
+                form_path,
+                site,
+                line,
+                col,
+                ..
+            } => {
+                if let cobolt_forms::code_site::CodeSite::CommonCode { rel_path } = site {
+                    // Common Code belongs to the main editor, not a designer.
+                    let abs = self
+                        .project_path
+                        .as_ref()
+                        .and_then(|p| p.parent())
+                        .map(|dir| dir.join(rel_path))
+                        .unwrap_or_else(|| PathBuf::from(rel_path));
+                    self.pending_open_in_editor = Some(abs);
+                    self.pending_goto_line = Some((*line, *col));
+                    return;
+                }
+                // Open (or activate) the owning form's designer, then the
+                // site's own editor with the caret placed.
+                self.load_form_from_path(form_path.clone());
+                if let Some(i) = self.designers.iter().position(|(p, _)| p == form_path) {
+                    if !self.designers[i].1.open_site_editor(site, *line, *col) {
+                        self.output.push_status(format!(
+                            "Could not open {}",
+                            site.display_path(&self.designers[i].1.form.name)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fingerprint of the live in-memory forms (spec 053 R22): the search
+    /// window compares this against the fingerprint its results were produced
+    /// under, and marks them stale on a mismatch instead of silently trusting
+    /// them.
+    fn live_forms_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (path, d) in &self.designers {
+            path.hash(&mut h);
+            d.form.name.hash(&mut h);
+            for (site, text) in cobolt_forms::code_sites(&d.form) {
+                site.display_path(&d.form.name).hash(&mut h);
+                text.hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
+    /// Snapshot the project for the search worker (spec 053 T20): open forms
+    /// are cloned with their live, possibly unsaved text (R22); closed forms
+    /// and Common Code files go as paths for the worker to load off the paint
+    /// path. Generated `.cbl` files are structurally absent — `sources` holds
+    /// only hand-written Common Code, and forms are scanned from their models,
+    /// never their generated artifacts (R24).
+    fn code_search_inputs(&self, fingerprint: u64) -> crate::panels::code_search::ScanInputs {
+        let live_forms: Vec<(PathBuf, Form)> = self
+            .designers
+            .iter()
+            .map(|(p, d)| (p.clone(), d.form.clone()))
+            .collect();
+        let open_paths: std::collections::HashSet<&PathBuf> =
+            self.designers.iter().map(|(p, _)| p).collect();
+        let root = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_owned());
+        let mut disk_forms: Vec<PathBuf> = Vec::new();
+        let mut common_files: Vec<(PathBuf, String)> = Vec::new();
+        if let (Some(root), Some(proj)) = (&root, &self.cobolt_project) {
+            for rel in &proj.files.forms {
+                let abs = root.join(rel);
+                if !open_paths.contains(&abs) {
+                    disk_forms.push(abs);
+                }
+            }
+            for rel in &proj.files.sources {
+                common_files.push((root.join(rel), rel.clone()));
+            }
+        }
+        crate::panels::code_search::ScanInputs {
+            live_forms,
+            disk_forms,
+            common_files,
+            fingerprint,
+        }
+    }
+
+    /// Render the code-search window and route its actions (spec 053).
+    fn show_code_search_window(&mut self, ctx: &Context) {
+        use crate::panels::code_search::CodeSearchAction;
+        if !self.show_code_search {
+            return;
+        }
+        let tr = self.lang.tr();
+        let fingerprint = self.live_forms_fingerprint();
+        let mut open = self.show_code_search;
+        let action = self.code_search.show(ctx, &mut open, &tr, fingerprint);
+        self.show_code_search = open;
+        match action {
+            CodeSearchAction::StartScan => {
+                let inputs = self.code_search_inputs(fingerprint);
+                self.code_search.start_scan(inputs);
+            }
+            CodeSearchAction::Jump(hit) => {
+                // The one navigation path (R21): a hit becomes the same origin
+                // a diagnostic resolves to, and goto_code_location does the
+                // rest. The column is the match's 1-based character column.
+                let col = hit.line_text[..hit.span.0.min(hit.line_text.len())]
+                    .chars()
+                    .count() as u32
+                    + 1;
+                let origin = crate::runner::DiagOrigin::Site {
+                    form_name: hit.form_name.clone(),
+                    form_path: hit.form_path.clone().unwrap_or_default(),
+                    site: hit.site.clone(),
+                    line: hit.line,
+                    col,
+                    source_line: hit.line_text.clone(),
+                };
+                self.goto_code_location(&origin);
+            }
+            CodeSearchAction::None | CodeSearchAction::Cancel => {}
+        }
+    }
+
     /// Open the inline inspector in the Main Pane for a form (and optionally a
     /// control), reusing a transient `DesignerPanel` (no designer window).
     fn open_inspect(&mut self, path: PathBuf, ctrl_id: Option<String>) {
@@ -4623,9 +4900,13 @@ impl CoboltApp {
         if let Some(parent) = cbl.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if std::fs::write(&cbl, generate(form)).is_err() {
+        let (src, entry) = generate_with_entry(cfrm, form);
+        if std::fs::write(&cbl, src).is_err() {
             return false;
         }
+        // The map is produced by the same call that produced the source, so
+        // the two cannot drift (spec 053 R9); insert replaces any stale entry.
+        self.gen_maps.insert(cbl.clone(), entry);
         if let Some(rel) = self
             .project_path
             .as_ref()
@@ -8385,7 +8666,11 @@ impl CoboltApp {
             return;
         };
         let search_shortcut =
-            ctx.input(|i| i.key_pressed(egui::Key::F) && (i.modifiers.command || i.modifiers.ctrl));
+            ctx.input(|i| {
+                i.key_pressed(egui::Key::F)
+                    && (i.modifiers.command || i.modifiers.ctrl)
+                    && !i.modifiers.shift // Ctrl+Shift+F is the project search (spec 053)
+            });
         if search_shortcut {
             if let Some(p) = self.asset_preview.as_mut() {
                 p.search_open = true;
@@ -8816,9 +9101,11 @@ impl CoboltApp {
         if let Some(parent) = cbl_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let cobol = generate(&self.designers[idx].1.form);
+        let (cobol, entry) =
+            generate_with_entry(&self.designers[idx].0.clone(), &self.designers[idx].1.form);
         match std::fs::write(&cbl_path, &cobol) {
             Ok(()) => {
+                self.gen_maps.insert(cbl_path.clone(), entry);
                 self.output
                     .push_status(format!("Generated {}", cbl_path.display()));
                 // Auto-add to project if applicable.
@@ -9894,6 +10181,10 @@ impl CoboltApp {
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
         {
             self.do_open();
+        }
+        // Ctrl/Cmd+Shift+F → the project-wide code search (spec 053 T26).
+        if ctx.input(project_search_pressed) {
+            self.show_code_search = true;
         }
     }
 
@@ -11538,14 +11829,22 @@ impl eframe::App for CoboltApp {
             if let Some(para) = self.pending_goto_paragraph.take() {
                 self.editor.goto_paragraph(&para);
             }
+            // A line/col caret queued by a diagnostic or search navigation
+            // (spec 053 R14) — applied the same way, after the open.
+            if let Some((line, col)) = self.pending_goto_line.take() {
+                self.editor.goto_line(line, col);
+            }
         } else if let Some(para) = self.pending_goto_paragraph.take() {
             self.editor.goto_paragraph(&para);
+        } else if let Some((line, col)) = self.pending_goto_line.take() {
+            self.editor.goto_line(line, col);
         }
 
         // ── Keyboard shortcuts ────────────────────────────────────────────────
         self.handle_shortcuts(ctx);
 
         // ── Dialogs ───────────────────────────────────────────────────────────
+        self.show_code_search_window(ctx);
         self.show_new_project_dialog(ctx);
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
@@ -11689,6 +11988,11 @@ impl eframe::App for CoboltApp {
 
                     ui.menu_button(tr.menu_view, |ui| {
                         ui.checkbox(&mut self.editor.show_line_numbers, tr.menu_line_numbers);
+                        ui.separator();
+                        if ui.button(tr.search_menu).clicked() {
+                            self.show_code_search = true;
+                            ui.close();
+                        }
                     });
                 });
 
@@ -11749,6 +12053,7 @@ impl eframe::App for CoboltApp {
             ToolbarAction::Debug => self.do_debug(),
             ToolbarAction::Build => self.do_build_binary_button(),
             ToolbarAction::Check => self.do_check(),
+            ToolbarAction::Search => self.show_code_search = true,
             // The toolbar Open button always opens (or switches to) a project, so
             // you can change projects at any time. Opening an individual COBOL
             // file lives in File → Open COBOL (and the project tree).
@@ -11774,7 +12079,11 @@ impl eframe::App for CoboltApp {
         // New/Open a project.
         let has_project = self.cobolt_project.is_some();
         if has_project {
-            self.output.show(root_ui, &tr);
+            // Spec 053 R13: a clicked diagnostic row opens the code site that
+            // owns it — single click, the convention for a link in a log.
+            if let Some(origin) = self.output.show(root_ui, &tr) {
+                self.goto_code_location(&origin);
+            }
 
             // 037 R4 — an open designer's (possibly unsaved) MainForm claim
             // outranks the on-disk flags, so the tree crown moves the moment
@@ -16406,6 +16715,197 @@ mod form_paste_tests {
         assert!(load_form_from_str("this is not xml at all").is_err());
         assert!(load_form_from_str("<NotAForm><Something/></NotAForm>").is_err());
         assert!(load_form_from_str("").is_err());
+    }
+}
+
+#[cfg(test)]
+mod shortcut_routing_tests {
+    use super::*;
+
+    fn press_f(command: bool, shift: bool, alt: bool) -> egui::Context {
+        let ctx = egui::Context::default();
+        let modifiers = egui::Modifiers {
+            command,
+            shift,
+            alt,
+            ..Default::default()
+        };
+        let mut input = egui::RawInput::default();
+        // egui 0.36 feeds InputState.modifiers from this event, not a field.
+        input.events.push(egui::Event::ModifiersChanged(modifiers));
+        input.events.push(egui::Event::Key {
+            key: egui::Key::F,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+        ctx.run_ui(input, |_| {}).textures_delta.clear();
+        ctx
+    }
+
+    /// Spec 053 T26/AC16: Ctrl+F routes to the in-tab search and NOT the
+    /// project window; Ctrl+Shift+F the exact reverse. Both predicates match
+    /// modifiers exactly — the recorded `consume_key` pitfall (it drops extra
+    /// Shift) is what this test pins against.
+    #[test]
+    fn ctrl_f_and_ctrl_shift_f_route_to_different_searches() {
+        let ctx = press_f(true, false, false);
+        ctx.input(|i| {
+            assert!(crate::panels::editor::in_tab_search_pressed(i), "Ctrl+F → in-tab");
+            assert!(!project_search_pressed(i), "Ctrl+F must NOT open the project search");
+        });
+
+        let ctx = press_f(true, true, false);
+        ctx.input(|i| {
+            assert!(!crate::panels::editor::in_tab_search_pressed(i), "Ctrl+Shift+F must NOT open the in-tab search");
+            assert!(project_search_pressed(i), "Ctrl+Shift+F → project search");
+        });
+
+        // Alt disqualifies both — no accidental triple-modifier match.
+        let ctx = press_f(true, true, true);
+        ctx.input(|i| {
+            assert!(!crate::panels::editor::in_tab_search_pressed(i));
+            assert!(!project_search_pressed(i));
+        });
+    }
+}
+
+#[cfg(test)]
+mod gen_map_tests {
+    use super::*;
+    use crate::runner::DiagOrigin;
+    use cobolt_forms::code_site::{all_sites_fixture, fixture_markers, CodeSite, StructureSection};
+
+    /// Spec 053 T12: generating produces a non-empty map entry beside the
+    /// `.cbl`, and re-generating REPLACES the entry under the same key —
+    /// never appends a stale one.
+    #[test]
+    fn a_generate_produces_a_map_entry_and_regenerate_replaces_it() {
+        let form = all_sites_fixture();
+        let cfrm = PathBuf::from("/proj/forms/all-sites.cfrm");
+        let cbl = PathBuf::from("/proj/generated/all-sites.cbl");
+        let (_, entry) = generate_with_entry(&cfrm, &form);
+        assert!(!entry.map.spans.is_empty(), "map must be non-empty");
+        assert_eq!(entry.form_name, "ALL-SITES");
+        assert_eq!(entry.cfrm, cfrm);
+
+        let mut gen_maps: std::collections::HashMap<PathBuf, GenMapEntry> = Default::default();
+        gen_maps.insert(cbl.clone(), entry);
+        let before_spans = gen_maps[&cbl].map.spans.len();
+
+        // Edit the form and regenerate: same key, replaced content.
+        let mut edited = form.clone();
+        edited.user_procedures.clear();
+        let (_, entry2) = generate_with_entry(&cfrm, &edited);
+        gen_maps.insert(cbl.clone(), entry2);
+        assert_eq!(gen_maps.len(), 1, "replaced, not appended");
+        assert!(
+            gen_maps[&cbl].map.spans.len() < before_spans,
+            "the replacement reflects the edited form"
+        );
+    }
+
+    /// Spec 053 T13: a REAL syntax error planted in WORKING-STORAGE — a comma
+    /// literal with no `DECIMAL-POINT IS COMMA` in force, sitting behind two
+    /// skipped leading blank lines — resolves to the WORKING-STORAGE site at
+    /// its own site line (3, not an off-by-N), with the offending line quoted.
+    #[test]
+    fn a_planted_ws_error_resolves_to_its_site_line() {
+        let mut form = all_sites_fixture();
+        // No DECIMAL-POINT IS COMMA in force.
+        form.cobol_structure.special_names = String::new();
+        form.user_ws_source =
+            "\n\n       01  WS-PRICE  PIC 9(5)V99 VALUE 8,49.".to_string();
+        let cfrm = PathBuf::from("/proj/forms/all-sites.cfrm");
+        let cbl = PathBuf::from("/proj/generated/all-sites.cbl");
+        let (src, entry) = generate_with_entry(&cfrm, &form);
+
+        let parse_result =
+            cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+        let err = parse_result
+            .diagnostics
+            .iter()
+            .find(|d| {
+                d.severity == cobolt_parser::Severity::Error
+                    && d.message.contains("DECIMAL-POINT IS COMMA")
+            })
+            .expect("the comma literal must be reported");
+
+        let origin = resolve_diag_origin(
+            Some(&entry),
+            true,
+            &cbl,
+            &src,
+            err.span.line,
+            err.span.col,
+        );
+        match origin {
+            DiagOrigin::Site {
+                form_name,
+                site,
+                line,
+                source_line,
+                ..
+            } => {
+                assert_eq!(form_name, "ALL-SITES");
+                assert_eq!(site, CodeSite::Section(StructureSection::WorkingStorage));
+                assert_eq!(line, 3, "site line behind two skipped blanks");
+                assert!(
+                    source_line.contains("WS-PRICE"),
+                    "the offending line is quoted: {source_line:?}"
+                );
+            }
+            other => panic!("expected a Site origin, got {other:?}"),
+        }
+    }
+
+    /// Every in-form site kind resolves to a Site origin at its documented
+    /// site line; the banner resolves to Generated (named, blamed on no
+    /// site); a hand-written file resolves to a File origin.
+    #[test]
+    fn origins_resolve_site_generated_and_file() {
+        let form = all_sites_fixture();
+        let cfrm = PathBuf::from("/proj/forms/all-sites.cfrm");
+        let cbl = PathBuf::from("/proj/generated/all-sites.cbl");
+        let (src, entry) = generate_with_entry(&cfrm, &form);
+        let lines: Vec<&str> = src.lines().collect();
+
+        for (site, marker, site_line) in fixture_markers() {
+            let gen_line = lines
+                .iter()
+                .position(|l| l.contains(marker))
+                .map(|i| i as u32 + 1)
+                .unwrap();
+            match resolve_diag_origin(Some(&entry), true, &cbl, &src, gen_line, 1) {
+                DiagOrigin::Site {
+                    site: got, line, ..
+                } => {
+                    assert_eq!(got, site, "{marker} owned by the wrong site");
+                    assert_eq!(line, site_line, "{marker} at the wrong site line");
+                }
+                other => panic!("{marker}: expected Site, got {other:?}"),
+            }
+        }
+
+        // Line 1 is the banner — codegen's own, named as such (R12).
+        match resolve_diag_origin(Some(&entry), true, &cbl, &src, 1, 1) {
+            DiagOrigin::Generated { gen_path, line } => {
+                assert_eq!(gen_path, cbl);
+                assert_eq!(line, 1);
+            }
+            other => panic!("expected Generated, got {other:?}"),
+        }
+
+        // A hand-written file: no entry, not generated → File (R14).
+        let common = PathBuf::from("/proj/common/util.cbl");
+        match resolve_diag_origin(None, false, &common, "", 7, 2) {
+            DiagOrigin::File { path, line } => {
+                assert_eq!(path, common);
+                assert_eq!(line, 7);
+            }
+            other => panic!("expected File, got {other:?}"),
+        }
     }
 }
 

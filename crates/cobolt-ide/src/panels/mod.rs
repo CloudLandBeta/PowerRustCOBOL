@@ -9,6 +9,7 @@
 pub mod agents_modal;
 pub mod beautify;
 pub mod cobol_structure;
+pub mod code_search;
 pub mod containers;
 pub mod data_binding;
 pub mod data_grid_columns;

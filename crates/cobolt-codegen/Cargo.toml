@@ -16,3 +16,4 @@ license.workspace     = true
 cobolt-forms   = { path = "../cobolt-forms" }
 cobolt-indexed = { path = "../cobolt-indexed" }
 indexmap       = { workspace = true }
+serde          = { workspace = true }

@@ -87,6 +87,56 @@ pub struct DiagMsg {
     pub message: String,
     pub line: u32,
     pub col: u32,
+    /// Where the diagnosed line actually lives (spec 053). `None` until the
+    /// check path resolves it — every producer starts plain and behaves as
+    /// before.
+    pub origin: Option<DiagOrigin>,
+}
+
+impl DiagMsg {
+    /// A diagnostic with no resolved origin — exactly what every producer
+    /// emitted before spec 053. The check path may attach an origin later.
+    pub fn plain(severity: DiagSeverity, message: impl Into<String>, line: u32, col: u32) -> Self {
+        Self {
+            severity,
+            message: message.into(),
+            line,
+            col,
+            origin: None,
+        }
+    }
+}
+
+/// Where a diagnostic's line actually lives (spec 053 R10/R12).
+///
+/// A diagnostic against a generated form `.cbl` resolves through the form's
+/// [`cobolt_codegen::SourceMap`] into either the developer's own code site or
+/// an explicit "codegen wrote this" — never a guess at a nearby site.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DiagOrigin {
+    /// The developer's code: the owning form, the site within it, and the
+    /// line/col **within that site's own text**, plus the offending source
+    /// line quoted so the message locates the fault on its own (R11).
+    Site {
+        form_name: String,
+        /// The `.cfrm` that owns the site — the navigation target (R13).
+        form_path: std::path::PathBuf,
+        site: cobolt_forms::code_site::CodeSite,
+        line: u32,
+        col: u32,
+        source_line: String,
+    },
+    /// A line codegen authored (R12): named explicitly, attributed to no
+    /// developer site, and never a navigation target.
+    Generated {
+        gen_path: std::path::PathBuf,
+        line: u32,
+    },
+    /// A hand-written file (Common Code): the file and line as reported (R14).
+    File {
+        path: std::path::PathBuf,
+        line: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,12 +282,12 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
             cobolt_parser::Severity::Error => DiagSeverity::Error,
             cobolt_parser::Severity::Warning => DiagSeverity::Warning,
         };
-        let _ = tx.send(RunMsg::Diagnostic(DiagMsg {
+        let _ = tx.send(RunMsg::Diagnostic(DiagMsg::plain(
             severity,
-            message: d.message.clone(),
-            line: d.span.line,
-            col: d.span.col,
-        }));
+            d.message.clone(),
+            d.span.line,
+            d.span.col,
+        )));
     }
 
     let program = match parse_result.program {
@@ -270,12 +320,12 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
             Severity::Warning => DiagSeverity::Warning,
             Severity::Info => DiagSeverity::Info,
         };
-        let _ = tx.send(RunMsg::Diagnostic(DiagMsg {
+        let _ = tx.send(RunMsg::Diagnostic(DiagMsg::plain(
             severity,
-            message: diag.message.clone(),
-            line: diag.span.line,
-            col: diag.span.col,
-        }));
+            diag.message.clone(),
+            diag.span.line,
+            diag.span.col,
+        )));
     }
     if !sem.is_ok() {
         let _ = tx.send(RunMsg::Error("Aborting: semantic errors found.".to_owned()));
@@ -511,12 +561,12 @@ fn run_debug_pipeline(
             cobolt_parser::Severity::Error => DiagSeverity::Error,
             cobolt_parser::Severity::Warning => DiagSeverity::Warning,
         };
-        let _ = run_tx.send(RunMsg::Diagnostic(DiagMsg {
+        let _ = run_tx.send(RunMsg::Diagnostic(DiagMsg::plain(
             severity,
-            message: d.message.clone(),
-            line: d.span.line,
-            col: d.span.col,
-        }));
+            d.message.clone(),
+            d.span.line,
+            d.span.col,
+        )));
     }
 
     let program = match parse_result.program {
@@ -561,12 +611,12 @@ fn run_debug_pipeline(
             Severity::Warning => DiagSeverity::Warning,
             Severity::Info => DiagSeverity::Info,
         };
-        let _ = run_tx.send(RunMsg::Diagnostic(DiagMsg {
+        let _ = run_tx.send(RunMsg::Diagnostic(DiagMsg::plain(
             severity,
-            message: diag.message.clone(),
-            line: diag.span.line,
-            col: diag.span.col,
-        }));
+            diag.message.clone(),
+            diag.span.line,
+            diag.span.col,
+        )));
     }
     if !sem.is_ok() {
         dbg_log("pipeline: semantic errors — aborting");

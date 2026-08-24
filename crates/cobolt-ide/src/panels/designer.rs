@@ -1413,12 +1413,7 @@ fn save_event_history(
 fn validate_handler_syntax(program_id: &str, body: &str) -> Vec<crate::runner::DiagMsg> {
     use crate::runner::{DiagMsg, DiagSeverity};
     if let Some(message) = crate::agent::handler_body_shape_error(body) {
-        return vec![DiagMsg {
-            severity: DiagSeverity::Error,
-            message,
-            line: 1,
-            col: 1,
-        }];
+        return vec![DiagMsg::plain(DiagSeverity::Error, message, 1, 1)];
     }
     // Two header lines precede the editable body.
     const HEADER_LINES: u32 = 2;
@@ -1435,12 +1430,12 @@ fn validate_handler_syntax(program_id: &str, body: &str) -> Vec<crate::runner::D
             continue; // syntax errors only
         }
         let line = d.span.line.saturating_sub(HEADER_LINES).max(1);
-        diags.push(DiagMsg {
-            severity: DiagSeverity::Error,
-            message: d.message.clone(),
+        diags.push(DiagMsg::plain(
+            DiagSeverity::Error,
+            d.message.clone(),
             line,
-            col: d.span.col,
-        });
+            d.span.col,
+        ));
     }
     diags
 }
@@ -1481,12 +1476,12 @@ fn validate_handler_members(form: &Form, code: &str) -> Vec<crate::runner::DiagM
             ("property", ok)
         };
         if !ok {
-            out.push(DiagMsg {
-                severity: DiagSeverity::Error,
-                message: format!("Control '{}' has no {} '{}'.", r.recv, kind, r.member),
-                line: r.line,
-                col: 1,
-            });
+            out.push(DiagMsg::plain(
+                DiagSeverity::Error,
+                format!("Control '{}' has no {} '{}'.", r.recv, kind, r.member),
+                r.line,
+                1,
+            ));
         }
     }
     out
@@ -1585,12 +1580,12 @@ fn validate_handler_semantics(
         let line0 = d.span.line as usize;
         if line0 > start + 1 && line0 <= end {
             let editor_line = line0.saturating_sub(start + 1).max(1) as u32;
-            out.push(DiagMsg {
-                severity: DiagSeverity::Error,
-                message: d.message.clone(),
-                line: editor_line,
-                col: d.span.col,
-            });
+            out.push(DiagMsg::plain(
+                DiagSeverity::Error,
+                d.message.clone(),
+                editor_line,
+                d.span.col,
+            ));
         }
     }
     out
@@ -1875,6 +1870,10 @@ pub struct DesignerPanel {
     /// currently in its buffer (reloaded only when the selection changes).
     cs_editor: super::editor::EditorPanel,
     cs_loaded: Option<super::cobol_structure::CsTarget>,
+    /// A caret waiting to be placed in the structure window's editor once its
+    /// buffer is (re)loaded (spec 053 R13 — set by `open_site_editor`, since
+    /// the buffer only loads when the window next renders).
+    cs_pending_caret: Option<(u32, u32)>,
     /// Last frame's COBOL Structure editor-box rect. Its WIDTH bounds the
     /// window's other rows (`set_max_width`), so width-filling widgets (the
     /// status row's right-aligner, separators, the AI bar) follow the BOX —
@@ -2022,6 +2021,7 @@ impl DesignerPanel {
             ai_prompt_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
             cs_loaded: None,
+            cs_pending_caret: None,
             cs_box_rect: None,
             ai_pane_open: false,
             ai_history: Vec::new(),
@@ -4579,6 +4579,46 @@ impl DesignerPanel {
         self.event_modal = Some(EventEditorModal::new(
             ctrl_id, display, event_name, program_id, source,
         ));
+    }
+
+    /// Open the editing surface that owns `site` with the caret on the 1-based
+    /// `(line, col)` within the site's own text (spec 053 R13): the event
+    /// modal for a handler (toolbar buttons included — `open_event_modal`
+    /// already resolves their derived ids), or the structure window for a
+    /// section / user procedure. Returns `false` for a site this designer
+    /// cannot edit (a Common Code file belongs to the main editor).
+    pub fn open_site_editor(
+        &mut self,
+        site: &cobolt_forms::code_site::CodeSite,
+        line: u32,
+        col: u32,
+    ) -> bool {
+        use cobolt_forms::code_site::CodeSite;
+        match site {
+            CodeSite::ControlEvent { control_id, event } => {
+                self.open_event_modal(control_id, event);
+                self.event_editor.goto_line(line, col);
+                true
+            }
+            CodeSite::FormEvent { event } => {
+                self.open_event_modal("", event);
+                self.event_editor.goto_line(line, col);
+                true
+            }
+            CodeSite::Procedure { .. } | CodeSite::Section(_) => {
+                let Some(target) =
+                    super::cobol_structure::CsTarget::from_code_site(site, &self.form)
+                else {
+                    return false;
+                };
+                self.cobol_structure_edit = Some(target);
+                // The buffer loads when the window next renders — the caret
+                // waits for it.
+                self.cs_pending_caret = Some((line, col));
+                true
+            }
+            CodeSite::CommonCode { .. } => false,
+        }
     }
 
     /// The action the 🔧 Auto-fix button used to run in the syntax-error modal:
@@ -8943,12 +8983,12 @@ impl DesignerPanel {
                             if let Some(line) =
                                 crate::agent::unrequested_exec_rust(&code, &request)
                             {
-                                errs.push(crate::runner::DiagMsg {
+                                errs.push(crate::runner::DiagMsg::plain(
+                                    crate::runner::DiagSeverity::Error,
+                                    crate::agent::unrequested_exec_rust_msg(),
                                     line,
-                                    col: 1,
-                                    severity: crate::runner::DiagSeverity::Error,
-                                    message: crate::agent::unrequested_exec_rust_msg(),
-                                });
+                                    1,
+                                ));
                             }
                             if errs.is_empty() {
                                 self.event_editor.open_buffer(
@@ -9930,6 +9970,11 @@ impl DesignerPanel {
             );
             self.cs_editor.known_controls = super::editor::build_known_controls(&self.form);
             self.cs_loaded = Some(target);
+        }
+        // A navigation queued a caret for this block (spec 053 R13) — place it
+        // now that the buffer is guaranteed loaded.
+        if let Some((line, col)) = self.cs_pending_caret.take() {
+            self.cs_editor.goto_line(line, col);
         }
 
         let title = match target {
@@ -16693,6 +16738,85 @@ mod ai_pane_trace_tests {
         assert_eq!(d.next(a.clone()), vec![a.clone()]);
         assert_eq!(d.next(b.clone()), vec![b]);
         println!("a/b/a/b oscillation reported in full — 4 lines, none suppressed");
+    }
+}
+
+#[cfg(test)]
+mod goto_site_tests {
+    use super::*;
+    use crate::panels::cobol_structure::CsTarget;
+    use cobolt_forms::code_site::{all_sites_fixture, CodeSite, StructureSection};
+
+    /// Spec 053 T16: `open_site_editor` opens the surface that owns each site
+    /// kind — the event modal for handlers, the structure window for sections
+    /// and procedures — and queues the caret. A Common Code site is refused
+    /// (it belongs to the main editor).
+    #[test]
+    fn open_site_editor_routes_each_site_kind_to_its_surface() {
+        let mut dp = DesignerPanel::new(all_sites_fixture());
+
+        // A control handler → the event modal, on the right program.
+        assert!(dp.open_site_editor(
+            &CodeSite::ControlEvent {
+                control_id: "BTN-GO".into(),
+                event: "onClick".into(),
+            },
+            3,
+            12,
+        ));
+        let modal = dp.event_modal.as_ref().expect("event modal open");
+        assert_eq!(modal.program_id, "BTN-GO--ONCLICK");
+
+        // A form lifecycle handler → the event modal too.
+        assert!(dp.open_site_editor(
+            &CodeSite::FormEvent {
+                event: "onLoad".into(),
+            },
+            4,
+            1,
+        ));
+        let modal = dp.event_modal.as_ref().expect("event modal open");
+        assert!(modal.program_id.contains("ONLOAD"), "{}", modal.program_id);
+
+        // A structure section → the structure window, caret queued for when
+        // the buffer loads.
+        assert!(dp.open_site_editor(
+            &CodeSite::Section(StructureSection::FileControl),
+            3,
+            1
+        ));
+        assert_eq!(dp.cobol_structure_edit, Some(CsTarget::FileControl));
+        assert_eq!(dp.cs_pending_caret, Some((3, 1)));
+
+        // A user procedure → the structure window on that procedure.
+        assert!(dp.open_site_editor(
+            &CodeSite::Procedure {
+                name: "VALIDATE-CUSTOMER".into(),
+            },
+            4,
+            1,
+        ));
+        assert_eq!(dp.cobol_structure_edit, Some(CsTarget::Procedure(0)));
+        assert_eq!(dp.cs_pending_caret, Some((4, 1)));
+
+        // Common Code is the main editor's job — refused here, and the caller
+        // routes it there instead.
+        assert!(!dp.open_site_editor(
+            &CodeSite::CommonCode {
+                rel_path: "common/util.cbl".into(),
+            },
+            1,
+            1,
+        ));
+
+        // A procedure that does not exist on this form addresses nothing.
+        assert!(!dp.open_site_editor(
+            &CodeSite::Procedure {
+                name: "NOT-THERE".into(),
+            },
+            1,
+            1,
+        ));
     }
 }
 

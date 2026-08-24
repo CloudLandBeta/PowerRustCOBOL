@@ -9,7 +9,87 @@
 use egui::{Color32, Context, Panel, RichText, ScrollArea};
 
 use crate::i18n::Tr;
-use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
+use crate::runner::{DiagMsg, DiagOrigin, DiagSeverity, RunMsg};
+
+// ── Diagnostic row text (spec 053 R10/R11/R12) ────────────────────────────────
+
+fn severity_prefix(severity: DiagSeverity) -> (&'static str, Color32) {
+    match severity {
+        DiagSeverity::Error => ("✖ error", Color32::from_rgb(240, 80, 80)),
+        DiagSeverity::Warning => ("⚠ warning", Color32::from_rgb(255, 200, 50)),
+        DiagSeverity::Info => ("ℹ note", Color32::from_gray(180)),
+    }
+}
+
+/// The main text of a diagnostic row. A `Site` origin names the developer's
+/// own place and position — `FORM ▸ SITE — line:col: ✖ error: …` — where line
+/// and column are **within that site's text** (R10). A `Generated` origin says
+/// so explicitly and names the artifact instead of blaming a site (R12).
+/// A plain or file diagnostic reads exactly as it always has.
+pub fn diag_row_text(d: &DiagMsg, tr: &Tr) -> String {
+    let (prefix, _) = severity_prefix(d.severity);
+    match &d.origin {
+        Some(DiagOrigin::Site {
+            form_name,
+            site,
+            line,
+            col,
+            ..
+        }) => format!(
+            "{} — {}:{}: {}: {}",
+            site.display_path(form_name),
+            line,
+            col,
+            prefix,
+            d.message
+        ),
+        Some(DiagOrigin::Generated { gen_path, line }) => format!(
+            "[{}] {}:{}: {}: {}",
+            tr.diag_generated_code,
+            gen_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            line,
+            prefix,
+            d.message
+        ),
+        _ => format!("{}:{}: {}: {}", d.line, d.col, prefix, d.message),
+    }
+}
+
+/// The quoted offending line and its column marker, for a `Site` diagnostic
+/// (R11): the message locates the fault on its own, with no link followed and
+/// no file opened.
+pub fn diag_quote(d: &DiagMsg) -> Option<(String, String)> {
+    if let Some(DiagOrigin::Site {
+        line,
+        col,
+        source_line,
+        ..
+    }) = &d.origin
+    {
+        let gutter = format!("{line:>5} │ ");
+        let marker = format!(
+            "{}│ {}^",
+            " ".repeat(gutter.chars().count() - 2),
+            " ".repeat(col.saturating_sub(1) as usize)
+        );
+        Some((format!("{gutter}{source_line}"), marker))
+    } else {
+        None
+    }
+}
+
+/// Whether activating this diagnostic can open an owning editor (R16): a
+/// developer site or a hand-written file can; generated code and plain
+/// diagnostics cannot (R15).
+pub fn diag_is_activatable(d: &DiagMsg) -> bool {
+    matches!(
+        d.origin,
+        Some(DiagOrigin::Site { .. }) | Some(DiagOrigin::File { .. })
+    )
+}
 
 // ── OutputLine ────────────────────────────────────────────────────────────────
 
@@ -156,7 +236,12 @@ impl OutputPanel {
     }
 
     /// Render the output panel at the bottom.
-    pub fn show(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+    ///
+    /// Returns the origin of a diagnostic row the developer activated this
+    /// frame (spec 053 R13) — the caller routes it to `goto_code_location`,
+    /// the same return-an-action pattern the inspector uses.
+    pub fn show(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) -> Option<DiagOrigin> {
+        let mut activated: Option<DiagOrigin> = None;
         let ctx = panel_ui.ctx().clone();
         let ctx = &ctx;
 
@@ -239,24 +324,41 @@ impl OutputPanel {
                                 );
                             }
                             OutputLine::Diagnostic(d) => {
-                                let (color, prefix) = match d.severity {
-                                    DiagSeverity::Error => {
-                                        (Color32::from_rgb(240, 80, 80), "✖ error")
-                                    }
-                                    DiagSeverity::Warning => {
-                                        (Color32::from_rgb(255, 200, 50), "⚠ warning")
-                                    }
-                                    DiagSeverity::Info => (Color32::from_gray(180), "ℹ note"),
-                                };
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{}:{}: {}: {}",
-                                        d.line, d.col, prefix, d.message
-                                    ))
+                                let (_, color) = severity_prefix(d.severity);
+                                let text = RichText::new(diag_row_text(d, tr))
                                     .monospace()
                                     .size(font_size)
-                                    .color(color),
-                                );
+                                    .color(color);
+                                if diag_is_activatable(d) {
+                                    // R16: an activatable row is visibly a link
+                                    // (underline) and answers hover.
+                                    let resp = ui
+                                        .add(
+                                            egui::Label::new(text.underline())
+                                                .sense(egui::Sense::click()),
+                                        )
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                        .on_hover_text(tr.diag_click_hint);
+                                    if resp.clicked() {
+                                        activated = d.origin.clone();
+                                    }
+                                } else {
+                                    ui.label(text);
+                                }
+                                if let Some((quote, marker)) = diag_quote(d) {
+                                    ui.label(
+                                        RichText::new(quote)
+                                            .monospace()
+                                            .size(font_size)
+                                            .color(Color32::from_gray(150)),
+                                    );
+                                    ui.label(
+                                        RichText::new(marker)
+                                            .monospace()
+                                            .size(font_size)
+                                            .color(color),
+                                    );
+                                }
                             }
                             OutputLine::Status(s) => {
                                 ui.label(
@@ -322,6 +424,7 @@ impl OutputPanel {
 
                 self.scroll_to_bottom = false;
             });
+        activated
     }
 }
 
@@ -351,7 +454,25 @@ impl OutputLine {
                     DiagSeverity::Warning => "warning",
                     DiagSeverity::Info => "note",
                 };
-                format!("{}:{}: {}: {}", d.line, d.col, prefix, d.message)
+                // A copied log carries the site too (the display path is COBOL
+                // identifiers, English in every language).
+                match &d.origin {
+                    Some(DiagOrigin::Site {
+                        form_name,
+                        site,
+                        line,
+                        col,
+                        ..
+                    }) => format!(
+                        "{} — {}:{}: {}: {}",
+                        site.display_path(form_name),
+                        line,
+                        col,
+                        prefix,
+                        d.message
+                    ),
+                    _ => format!("{}:{}: {}: {}", d.line, d.col, prefix, d.message),
+                }
             }
             OutputLine::Error(e) => format!("error: {e}"),
             OutputLine::AiError(s) => format!("ai error: {s}"),
@@ -395,5 +516,88 @@ mod tests {
         // The explicit Clear button still wipes everything.
         out.clear();
         assert!(out.all_text().is_empty());
+    }
+
+    fn site_diag() -> DiagMsg {
+        let mut d = DiagMsg::plain(DiagSeverity::Error, "syntax error near DISPLYA", 842, 17);
+        d.origin = Some(DiagOrigin::Site {
+            form_name: "MAIN-FORM".into(),
+            form_path: std::path::PathBuf::from("/proj/forms/main-form.cfrm"),
+            site: cobolt_forms::code_site::CodeSite::ControlEvent {
+                control_id: "BTN-GO".into(),
+                event: "onClick".into(),
+            },
+            line: 3,
+            col: 12,
+            source_line: "           DISPLYA \"HELLO\".".into(),
+        });
+        d
+    }
+
+    /// Spec 053 AC5: the rendered row carries the form name, the site display
+    /// path, the line and column WITHIN the site, and the offending source
+    /// line with its column marked — asserted on the produced text.
+    #[test]
+    fn a_site_diagnostic_renders_its_location_and_quote() {
+        let tr = crate::i18n::Language::English.tr();
+        let d = site_diag();
+
+        let row = diag_row_text(&d, &tr);
+        assert!(row.contains("MAIN-FORM ▸ BTN-GO ▸ onClick"), "row: {row}");
+        assert!(row.contains("3:12"), "site line:col, not 842:17 — row: {row}");
+        assert!(!row.contains("842"), "the artifact's line must not show: {row}");
+        assert!(row.contains("✖ error"), "row: {row}");
+        assert!(row.contains("syntax error near DISPLYA"), "row: {row}");
+
+        let (quote, marker) = diag_quote(&d).expect("a Site diagnostic quotes its line");
+        assert!(quote.contains("DISPLYA \"HELLO\""), "quote: {quote}");
+        assert!(quote.contains("3 │"), "quote carries the site line: {quote}");
+        // The caret sits under column 12.
+        let caret_col = marker.find('^').expect("marker has a caret");
+        let bar_col = marker.find('│').unwrap();
+        assert_eq!(caret_col - bar_col - "│".len() - 1, 11, "caret under col 12");
+
+        assert!(diag_is_activatable(&d), "a Site diagnostic is a link (R16)");
+    }
+
+    /// Spec 053 AC7: a diagnostic on a codegen-authored line says so, names
+    /// the generated file and line, is attributed to no site — and is not a
+    /// link (R15).
+    #[test]
+    fn a_generated_diagnostic_is_labelled_and_not_activatable() {
+        let tr = crate::i18n::Language::English.tr();
+        let mut d = DiagMsg::plain(DiagSeverity::Error, "bad PERFORM", 57, 4);
+        d.origin = Some(DiagOrigin::Generated {
+            gen_path: std::path::PathBuf::from("/proj/generated/main-form.cbl"),
+            line: 57,
+        });
+        let row = diag_row_text(&d, &tr);
+        assert!(row.contains("generated code"), "row: {row}");
+        assert!(row.contains("main-form.cbl"), "row names the artifact: {row}");
+        assert!(row.contains("57"), "row: {row}");
+        assert!(!row.contains('▸'), "no site path on a generated line: {row}");
+        assert!(diag_quote(&d).is_none(), "nothing of the developer's to quote");
+        assert!(!diag_is_activatable(&d), "generated code is not a link");
+    }
+
+    /// A plain diagnostic (no origin) renders exactly as it always has —
+    /// nothing regresses for producers that never resolve one.
+    #[test]
+    fn a_plain_diagnostic_renders_as_before() {
+        let tr = crate::i18n::Language::English.tr();
+        let d = DiagMsg::plain(DiagSeverity::Warning, "unused item", 12, 8);
+        assert_eq!(diag_row_text(&d, &tr), "12:8: ⚠ warning: unused item");
+        assert!(diag_quote(&d).is_none());
+        assert!(!diag_is_activatable(&d));
+    }
+
+    /// The copied log carries the site path too, so a pasted diagnostic still
+    /// says where (the display path is COBOL identifiers — English always).
+    #[test]
+    fn all_text_carries_the_site_path() {
+        let mut out = OutputPanel::new();
+        out.push_msg(&RunMsg::Diagnostic(site_diag()));
+        let text = out.all_text();
+        assert!(text.contains("MAIN-FORM ▸ BTN-GO ▸ onClick"), "log: {text}");
     }
 }

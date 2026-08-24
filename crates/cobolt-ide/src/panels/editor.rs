@@ -20,6 +20,14 @@ use egui::{CentralPanel, Color32, Context, FontId, Key, Panel, Pos2, ScrollArea,
 
 use crate::runner::DiagMsg;
 
+/// The in-tab find-bar shortcut: Cmd/Ctrl+F with Shift NOT down. With Shift
+/// it is the project-wide search (spec 053 T26) — and the match must be on
+/// the raw modifiers, because egui's `consume_key` matches logically and
+/// drops extra Shift/Alt (recorded pitfall), which would fire both.
+pub(crate) fn in_tab_search_pressed(i: &egui::InputState) -> bool {
+    i.key_pressed(egui::Key::F) && i.modifiers.command && !i.modifiers.shift
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 pub const EDITOR_FONT_SIZE: f32 = 16.0;
@@ -2146,6 +2154,46 @@ impl EditorPanel {
         }
     }
 
+    /// Scroll the active tab to the 1-based `(line, col)` and place the caret
+    /// there, reusing the search-scroll machinery (spec 053 R13/R14 —
+    /// generalises [`Self::goto_paragraph`]). A line beyond the buffer clamps
+    /// to the last line, and a column beyond the line to its end, rather than
+    /// panicking or doing nothing.
+    pub fn goto_line(&mut self, line: u32, col: u32) -> bool {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return false;
+        };
+        let content = &tab.content;
+        let target = line.max(1);
+        let mut byte = 0usize;
+        let mut current = 1u32;
+        let mut last_line_start = 0usize;
+        let mut found: Option<usize> = None;
+        for l in content.split_inclusive('\n') {
+            last_line_start = byte;
+            if current == target {
+                let line_str = l.strip_suffix('\n').unwrap_or(l);
+                let want = col.saturating_sub(1) as usize;
+                let byte_col = line_str
+                    .char_indices()
+                    .nth(want)
+                    .map(|(b, _)| b)
+                    .unwrap_or(line_str.len());
+                found = Some(byte + byte_col);
+                break;
+            }
+            byte += l.len();
+            current += 1;
+        }
+        // Line past the end: clamp to the start of the last line.
+        let off = found.unwrap_or(last_line_start);
+        self.search.matches = vec![off];
+        self.search.current = 0;
+        self.search.needs_scroll = true;
+        self.search.focus_editor_on_scroll = true;
+        true
+    }
+
     /// Scroll the active tab to the definition of `paragraph` (a COBOL paragraph
     /// header or `PROGRAM-ID. NAME`) and place the cursor there. Reuses the
     /// search-scroll machinery. Returns `false` if the name isn't found.
@@ -3030,8 +3078,9 @@ impl EditorPanel {
 
         // ── Global key handling ───────────────────────────────────────────
 
-        // Cmd/Ctrl+F → toggle find bar
-        let open_search = ctx.input(|i| i.key_pressed(Key::F) && i.modifiers.command);
+        // Cmd/Ctrl+F → toggle find bar (exact-modifier match, see
+        // `in_tab_search_pressed`).
+        let open_search = ctx.input(in_tab_search_pressed);
         if open_search {
             self.search.visible = !self.search.visible;
             if self.search.visible {
@@ -5206,6 +5255,42 @@ mod goto_tests {
     fn missing_paragraph_returns_false() {
         let mut ed = editor_with(SRC);
         assert!(!ed.goto_paragraph("DOES-NOT-EXIST"));
+    }
+
+    /// Spec 053 T15: goto_line lands the caret at the 1-based (line, col),
+    /// reusing the search-scroll machinery — and focuses the editor.
+    #[test]
+    fn goto_line_lands_on_the_exact_position() {
+        let mut ed = editor_with(SRC);
+        // Line 6 is the paragraph header; col 8 is the 'B' of BTN.
+        assert!(ed.goto_line(6, 8));
+        let off = ed.search.matches[0];
+        assert!(
+            SRC[off..].starts_with("BTN-OK--CLICK."),
+            "expected line 6 col 8, got: {:?}",
+            &SRC[off..off.min(SRC.len() - 1) + 14]
+        );
+        assert!(ed.search.needs_scroll);
+        assert!(ed.search.focus_editor_on_scroll);
+    }
+
+    /// Spec 053 T15: a line beyond the buffer clamps to the start of the last
+    /// line — never a panic, never a silent no-op. A column beyond the line
+    /// clamps to its end.
+    #[test]
+    fn goto_line_clamps_line_and_column() {
+        let mut ed = editor_with(SRC);
+        assert!(ed.goto_line(999, 1));
+        let off = ed.search.matches[0];
+        assert!(
+            SRC[off..].starts_with("           DISPLAY"),
+            "expected the last line, got: {:?}",
+            &SRC[off..]
+        );
+        // Column past the end of line 2 clamps to the line's end.
+        assert!(ed.goto_line(2, 999));
+        let off = ed.search.matches[0];
+        assert_eq!(&SRC[off - 1..off], ".", "clamped to the end of line 2");
     }
 
     #[test]
