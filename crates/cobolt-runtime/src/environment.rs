@@ -65,6 +65,11 @@ pub struct ItemSym {
     /// [`children`]. Used by `CORRESPONDING` to address the right occurrence of
     /// a duplicated child name.
     pub child_keys: Vec<String>,
+    /// Storage keys of **every** subordinate item in declaration order,
+    /// including unnamed `FILLER`. This is the group's byte layout, as opposed
+    /// to [`child_keys`], which is the `CORRESPONDING` list and excludes items
+    /// that have no name to correspond by. Empty for an elementary item.
+    pub layout_keys: Vec<String>,
     /// Ancestor group names (uppercased), outermost first, for qualified-name
     /// (`A OF B`) disambiguation.
     pub quals: Vec<String>,
@@ -180,6 +185,23 @@ fn count_names(decl: &DataDecl, counts: &mut std::collections::HashMap<String, u
 fn is_subsequence(needle: &[String], haystack: &[&String]) -> bool {
     let mut it = haystack.iter();
     needle.iter().all(|q| it.any(|h| h.eq_ignore_ascii_case(q)))
+}
+
+/// The storage key of the `idx`-th subordinate item of `parent` when that item
+/// is unnamed (`FILLER`, or the level number alone).
+///
+/// FILLER holds bytes and may carry a VALUE, so it has to be stored somewhere —
+/// but it has no name, and nothing in the COBOL program may reach it. `\u{2}`
+/// cannot appear in a COBOL word, so a key built with it is addressable by the
+/// group's layout and by nothing else.
+fn filler_key(parent: &str, idx: usize) -> String {
+    format!("{parent}\u{2}{idx}")
+}
+
+/// `true` if `key` is one of those synthetic FILLER slots — used to keep them
+/// out of anything a developer reads, such as the debugger's variable list.
+fn is_filler_key(key: &str) -> bool {
+    key.contains('\u{2}')
 }
 
 /// The base item name of a (possibly subscripted) storage key: `A(2)` → `A`.
@@ -436,6 +458,9 @@ impl CobolEnvironment {
 
         let upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase());
         let is_named = matches!(&upper, Some(n) if n != "FILLER");
+        // This item's own storage key once it is known, so the children loop
+        // below can key its unnamed FILLERs under it.
+        let mut owner_key: Option<String> = None;
 
         // 66-level RENAMES: register the regrouping over already-declared
         // elementary items; it has no storage of its own.
@@ -488,6 +513,24 @@ impl CobolEnvironment {
                 .iter()
                 .map(|c| self.canon_key(c, &child_path))
                 .collect();
+            // The group's LAYOUT: every subordinate item in declaration order,
+            // **including FILLER**. This is deliberately not `child_keys`, which
+            // is the CORRESPONDING list and must leave unnamed items out — they
+            // have no name to correspond by. A group's *bytes*, though, are all
+            // of its items: drop the FILLERs and `01 T. 05 HH PIC 99. 05 PIC X
+            // VALUE ":". 05 MM PIC 99.` reads back as "1234" instead of "12:34".
+            let layout_keys: Vec<String> = decl
+                .children
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.level != 88 && c.level != 66)
+                .map(|(i, c)| match c.name.as_deref() {
+                    Some(n) if !n.eq_ignore_ascii_case("FILLER") => {
+                        self.canon_key(&n.to_ascii_uppercase(), &child_path)
+                    }
+                    _ => filler_key(&key, i),
+                })
+                .collect();
             let index_names: Vec<String> = decl
                 .occurs
                 .as_ref()
@@ -514,6 +557,7 @@ impl CobolEnvironment {
                     dims: dims.clone(),
                     children,
                     child_keys,
+                    layout_keys,
                     quals: quals.clone(),
                     is_group: !decl.children.is_empty(),
                     index_names: index_names.clone(),
@@ -547,12 +591,27 @@ impl CobolEnvironment {
                     .entry(ix.clone())
                     .or_insert_with(|| CobolValue::from_i64(1));
             }
+            owner_key = Some(key);
             quals.push(leaf);
         }
 
-        for child in &decl.children {
+        for (i, child) in decl.children.iter().enumerate() {
             if child.level == 88 {
                 continue; // condition-names are not data items
+            }
+            // An unnamed / FILLER item occupies bytes in its parent and may
+            // carry a VALUE, but it has no name, so `is_named` below would give
+            // it no storage at all and the group would read back with its
+            // separators missing. Give it a synthetic key under its parent —
+            // `\u{2}` cannot occur in a COBOL name, so nothing in the program
+            // can reach it — and store its value there.
+            let unnamed = !matches!(child.name.as_deref(), Some(n) if !n.eq_ignore_ascii_case("FILLER"));
+            if unnamed && child.children.is_empty() {
+                if let Some(parent) = owner_key.as_deref() {
+                    let fk = filler_key(parent, i);
+                    self.insert_value(&fk, child);
+                    continue;
+                }
             }
             self.init_decl_h(
                 child,
@@ -715,6 +774,100 @@ impl CobolEnvironment {
         self.renames.contains_key(&name.to_ascii_uppercase())
     }
 
+    // ── Group items ───────────────────────────────────────────────────────────
+    //
+    // A group item is **not** a slot of its own that happens to sit above other
+    // slots: in COBOL-85 it *is* its subordinate items, laid end to end, and it
+    // is alphanumeric whatever its children are. Its size is the sum of theirs.
+    //
+    // Before this, a group had an independent slot that nothing kept in step
+    // with the children, so `DISPLAY <group>` printed whatever had been moved
+    // to the group itself — usually nothing — while the children held the real
+    // data, and `MOVE … TO <group>` left every child untouched.
+    //
+    // Reads synthesize and writes distribute, exactly as 66 RENAMES already
+    // did; the group's own slot is no longer consulted for either.
+
+    /// `true` if `name` is a group item — one with subordinate **data** items.
+    ///
+    /// Not [`ItemSym::is_group`], which is `!decl.children.is_empty()` and so is
+    /// also true for an elementary item carrying 88-level condition-names. Those
+    /// are not data items and hold no bytes: `01 WS-GRADE PIC 9(3). 88 PASSING
+    /// VALUE 60 THRU 100.` is an ordinary numeric field, and treating it as a
+    /// group made it read back as the empty concatenation of no children.
+    pub fn is_group(&self, name: &str) -> bool {
+        self.symbols
+            .get(&name.to_ascii_uppercase())
+            .map(|s| s.is_group && !s.layout_keys.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// The synthesized value of a group: its subordinate items' display strings
+    /// concatenated in declaration order. `None` when `name` is not a group.
+    ///
+    /// Nested groups fold in through [`display_string`], which routes a group
+    /// back here — so a group of groups reads as the whole flattened record.
+    pub fn group_value(&self, name: &str) -> Option<String> {
+        let sym = self.symbols.get(&name.to_ascii_uppercase())?;
+        // `layout_keys` empty ⇒ no subordinate data items ⇒ elementary, whatever
+        // `is_group` says (88-level condition-names count as children there).
+        if !sym.is_group || sym.layout_keys.is_empty() {
+            return None;
+        }
+        let mut out = String::new();
+        for ck in &sym.layout_keys {
+            out.push_str(&self.display_string(ck).unwrap_or_default());
+        }
+        Some(out)
+    }
+
+    /// The stored width of one item in bytes — its rendered, fixed-width form.
+    /// For a group that is the sum of its children, by the same recursion.
+    fn item_width(&self, key: &str) -> usize {
+        self.display_string(key).map(|d| d.len()).unwrap_or(0)
+    }
+
+    /// Distribute `s` across a group's subordinate items by each one's stored
+    /// width, left to right — a group move is alphanumeric, so the bytes land
+    /// where they fall and each child is padded to its own width.
+    ///
+    /// Recurses into subordinate groups so a nested record fills correctly.
+    pub fn set_group(&mut self, name: &str, s: &str) {
+        let key = name.to_ascii_uppercase();
+        let Some(sym) = self.symbols.get(&key) else {
+            return;
+        };
+        if !sym.is_group || sym.layout_keys.is_empty() {
+            return; // elementary (see `is_group` on 88-level children)
+        }
+        let child_keys = sym.layout_keys.clone();
+        let bytes = s.as_bytes();
+        let mut pos = 0usize;
+        for ck in child_keys {
+            let width = self.item_width(&ck).max(1);
+            let end = (pos + width).min(bytes.len());
+            let chunk = if pos < bytes.len() {
+                String::from_utf8_lossy(&bytes[pos..end]).into_owned()
+            } else {
+                String::new()
+            };
+            let padded = format!("{chunk:<width$}");
+            if self.is_group(&ck) {
+                self.set_group(&ck, &padded);
+            } else if self.field_caps.contains_key(&ck) {
+                // Numeric receiver: keep the digits the bytes spell out. A slice
+                // that is not a number (spaces from a short sender) leaves the
+                // child alone rather than zeroing it.
+                if let Ok(n) = padded.trim().parse::<i128>() {
+                    self.set(&ck, CobolValue::from_i64(n as i64));
+                }
+            } else {
+                self.set_str(&ck, &padded);
+            }
+            pos += width;
+        }
+    }
+
     /// The synthesized value of a RENAMES item: the concatenated display strings
     /// of the items it covers.
     pub fn renames_value(&self, name: &str) -> Option<String> {
@@ -859,6 +1012,11 @@ impl CobolEnvironment {
         if self.renames.contains_key(&key) {
             return self.renames_value(&key);
         }
+        // A group IS its children (see the group-item section above), so it is
+        // read from them and never from its own slot.
+        if let Some(g) = self.group_value(&key) {
+            return Some(g);
+        }
         let val = self.get(&key)?;
         if let CobolValue::Numeric(n) = val {
             if let Some(&(int_digits, _)) = self
@@ -964,8 +1122,13 @@ impl CobolEnvironment {
     }
 
     /// Iterate all data items in declaration order.
+    /// Every addressable data item and its value.
+    ///
+    /// Unnamed `FILLER` slots are left out: they exist so a group can render its
+    /// own bytes, they carry a synthetic key no COBOL statement can name, and a
+    /// developer watching variables in the debugger has no use for them.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &CobolValue)> {
-        self.store.iter()
+        self.store.iter().filter(|(k, _)| !is_filler_key(k))
     }
 
     // ── Nested-program scope management ──────────────────────────────────────

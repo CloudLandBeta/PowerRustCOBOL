@@ -73,6 +73,50 @@ pub(crate) fn try_parse_figurative(p: &mut Parser) -> Option<(FigurativeConstant
     }
 }
 
+// ── Decimal-point assembly ────────────────────────────────────────────────────
+//
+// COBOL writes the parts of one numeric literal as separate tokens whenever the
+// decimal point is not the lexer's own `9.99` shape: `123,45` under
+// `DECIMAL-POINT IS COMMA`, and `.5` in every dialect. Both are reassembled the
+// same way — by **adjacency**. COBOL-85 requires a space after a separator
+// comma and after a sentence-ending period, so "no gap between these tokens" is
+// exactly what tells a decimal point from punctuation.
+
+/// Is the token at `offset` glued to the one before it — no space between them?
+fn glued(p: &Parser, offset: usize) -> bool {
+    debug_assert!(offset > 0, "nothing precedes offset 0");
+    p.peek_span_at(offset).start == p.peek_span_at(offset - 1).end
+}
+
+/// Read the token at `offset` as a run of decimal digits: its value, and **how
+/// many digits were written**.
+///
+/// The width has to come from the span: the token has already parsed its text,
+/// so `00001` arrives as the value `1` with no memory of the four leading
+/// zeros — and those zeros are the difference between `.00001` and `.1`.
+///
+/// `LevelNumber` is accepted as well as `IntegerLiteral` because the lexer
+/// treats a period as a line start (`lexer.rs`), so the digits right after a
+/// decimal point are offered to the level-number rule: `.1` arrives as
+/// `LevelNumber(1)` and `.09` as `LevelNumber(9)`, while `.999` arrives as
+/// `IntegerLiteral(999)`.
+fn digit_run(p: &Parser, offset: usize) -> Option<(i128, u8)> {
+    let value = match p.peek_at(offset) {
+        Token::IntegerLiteral(n) => *n as i128,
+        Token::LevelNumber(n) => *n as i128,
+        _ => return None,
+    };
+    let sp = p.peek_span_at(offset);
+    Some((value, (sp.end - sp.start) as u8))
+}
+
+/// Combine an integer part with a fractional digit run: `12` + `(345, 3)` → the
+/// exact fixed-point decimal `12.345`.
+fn join_decimal(int_part: i128, frac: i128, scale: u8) -> Literal {
+    let mantissa = int_part * 10_i128.pow(scale as u32) + frac;
+    Literal::Decimal(mantissa, scale)
+}
+
 /// Parse a bare (non-figurative) literal: string, integer, or float.
 fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
     let span = p.peek_span();
@@ -86,23 +130,12 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
             // an integer, an *adjacent* comma, and an *adjacent* integer (no
             // spaces — a comma followed by a space is still a separator).
             if p.decimal_comma {
-                if let (Token::Comma, Token::IntegerLiteral(frac)) =
-                    (p.peek_at(1).clone(), p.peek_at(2).clone())
-                {
-                    let int_end = p.peek_span().end;
-                    let comma_sp = p.peek_span_at(1);
-                    let frac_sp = p.peek_span_at(2);
-                    let adjacent = comma_sp.start == int_end && frac_sp.start == comma_sp.end;
-                    if adjacent {
-                        // Frac token text was the literal digits after the comma;
-                        // its width = number of fractional digits (preserves zeros).
-                        let scale = (frac_sp.end - frac_sp.start) as u8;
-                        let pow = 10_i128.pow(scale as u32);
-                        let mantissa = (n as i128) * pow + frac as i128;
+                if matches!(p.peek_at(1), Token::Comma) && glued(p, 1) && glued(p, 2) {
+                    if let Some((frac, scale)) = digit_run(p, 2) {
                         p.advance(); // integer
                         p.advance(); // comma
-                        p.advance(); // fractional integer
-                        return Some((Literal::Decimal(mantissa, scale), span));
+                        p.advance(); // fractional digits
+                        return Some((join_decimal(n as i128, frac, scale), span));
                     }
                 }
             } else if let (Token::Comma, Token::IntegerLiteral(frac)) =
@@ -136,6 +169,38 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
             p.advance();
             Some((Literal::Decimal(mantissa, scale), span))
         }
+
+        // A numeric literal that begins with the decimal point: `.5`, `.00001`.
+        //
+        // COBOL-85 allows this — a numeric literal must only not *end* with a
+        // decimal point — and the NIST CCVS85 suite depends on it heavily, most
+        // of all in the intrinsic-function module (`FUNCTION ACOS(.999)`).
+        //
+        // The lexer cannot form this token itself: a leading dot also starts a
+        // numeric-edited PICTURE (`PIC .9999/99999,99999,99`), and the two are
+        // indistinguishable lexically. Resolving it here is what keeps PICTURE
+        // parsing untouched — `parse_pic_clause` never calls this function.
+        //
+        // Adjacency is the whole rule. COBOL-85 requires a space after a
+        // sentence-ending period, so a period glued to its digits can only be a
+        // decimal point; one followed by a space or a newline is a terminator
+        // and is left alone.
+        Token::Period if glued(p, 1) => {
+            let (frac, scale) = digit_run(p, 1)?;
+            p.advance(); // the point
+            p.advance(); // the digits
+            Some((join_decimal(0, frac, scale), span))
+        }
+
+        // The same literal with the roles swapped, under
+        // `SPECIAL-NAMES. DECIMAL-POINT IS COMMA.`
+        Token::Comma if p.decimal_comma && glued(p, 1) => {
+            let (frac, scale) = digit_run(p, 1)?;
+            p.advance(); // the point
+            p.advance(); // the digits
+            Some((join_decimal(0, frac, scale), span))
+        }
+
         _ => None,
     }
 }

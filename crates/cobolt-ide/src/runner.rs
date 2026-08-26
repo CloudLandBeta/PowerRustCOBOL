@@ -386,6 +386,9 @@ pub struct DebugRunner {
     cmd_tx: Option<mpsc::Sender<DebugCmd>>,
     /// Shared breakpoint set — IDE writes, interpreter reads.
     pub breakpoints: Breakpoints,
+    /// Shared "only my code" scope — IDE writes, interpreter reads. Same shape
+    /// as `breakpoints` so the toggle takes effect mid-session either way.
+    pub user_scope: cobolt_runtime::DebugUserScope,
     /// Handle to the interpreter thread.
     handle: Option<JoinHandle<()>>,
     /// `true` while the thread is still running.
@@ -405,6 +408,7 @@ impl DebugRunner {
             event_rx: None,
             cmd_tx: None,
             breakpoints: new_breakpoints(),
+            user_scope: cobolt_runtime::new_user_scope(),
             handle: None,
             running: false,
         }
@@ -420,6 +424,7 @@ impl DebugRunner {
         // (Breakpoints set by the editor before calling start() are preserved
         // because the caller should write to `self.breakpoints` before calling.)
         let bp = Arc::clone(&self.breakpoints);
+        let scope = Arc::clone(&self.user_scope);
 
         let (run_tx, run_rx) = mpsc::channel::<RunMsg>();
         let (ev_tx, ev_rx) = mpsc::channel::<DebugEvent>();
@@ -437,7 +442,7 @@ impl DebugRunner {
             "DebugRunner::start() — spawning thread for {file_name}"
         ));
         let handle = thread::spawn(move || {
-            run_debug_pipeline(file_name, source, run_tx, ev_tx, cmd_rx, bp);
+            run_debug_pipeline(file_name, source, run_tx, ev_tx, cmd_rx, bp, scope);
         });
         self.handle = Some(handle);
         dbg_log("DebugRunner::start() — thread spawned, returning");
@@ -528,6 +533,7 @@ fn run_debug_pipeline(
     ev_tx: mpsc::Sender<DebugEvent>,
     cmd_rx: mpsc::Receiver<DebugCmd>,
     breakpoints: Breakpoints,
+    user_scope: cobolt_runtime::DebugUserScope,
 ) {
     dbg_log(&format!(
         "pipeline: start file={file_name} source_len={}",
@@ -628,6 +634,7 @@ fn run_debug_pipeline(
     let _ = run_tx.send(RunMsg::Output("[DBG] creating interpreter…".to_owned()));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new_with_debug_channels(program, cmd_rx, ev_tx, breakpoints);
+        interp.set_debug_user_scope(user_scope);
         dbg_log("pipeline: interpreter created, calling run()");
         let r = interp.run();
         dbg_log(&format!("pipeline: run() returned ok={}", r.is_ok()));

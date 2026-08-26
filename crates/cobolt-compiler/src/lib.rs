@@ -54,6 +54,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 pub mod exec_rust;
+pub mod runtime_features;
 pub mod external_crates;
 pub mod main_form_guard;
 
@@ -348,6 +349,21 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
 /// stem): the `files.generated` entry with the same stem, a same-stem entry
 /// still tracked under `files.sources` (legacy projects), or `<stem>.cbl`
 /// beside the form's own `.cfrm`. `None` = the form has no program on disk.
+/// An openable form's program, held until its `EXEC RUST` blocks are compiled.
+///
+/// The binary embeds one of these per form (051 R1) and runs it in an
+/// interpreter of its own — but all of them share the process's single compiled
+/// block registry, so their blocks are generated together with the main
+/// program's (spec 041 R2).
+struct FormProgramUnit {
+    /// The generated `.cbl`, relative to the project — what a diagnostic names.
+    rel: String,
+    /// The text it was parsed from, for exact block positions.
+    source: String,
+    program: cobolt_ast::program::Program,
+    symbols: cobolt_semantic::symbol_table::SymbolTable,
+}
+
 fn generated_program_path(proj: &CoboltProject, dir: &Path, id: &str) -> Option<PathBuf> {
     let stem_matches = |rel: &str| {
         Path::new(rel)
@@ -822,6 +838,12 @@ fn build_core(
         }
     }
 
+    // Where a form program's `EXEC RUST` block ids continue from. Every program
+    // in this binary shares ONE compiled block registry, so numbering each file
+    // from zero would make the main form's first block and a child form's first
+    // block the same id — and the survivor would run for both.
+    let next_block_id = parse_result.next_block_id;
+
     let program = parse_result.program.ok_or_else(|| CompilerError::Parse {
         file: main_rel.clone(),
         message: "Parse produced no program".into(),
@@ -1030,6 +1052,11 @@ fn build_core(
     // time (R15) instead of failing every build of the project.
     report(0.44, "Compiling form programs…");
     let mut form_programs: Vec<(String, Vec<u8>)> = Vec::new(); // (ID, gz bincode)
+    // Kept whole until step 8: a block in one of these forms is compiled into
+    // the same module as the main program's, so the generator needs each
+    // program, the text it was parsed from, and its symbols.
+    let mut form_units: Vec<FormProgramUnit> = Vec::new();
+    let mut block_id_base = next_block_id;
     for (id, _) in forms.iter().skip(1) {
         let Some(cbl) = generated_program_path(&proj, &project_dir, id) else {
             log(&format!(
@@ -1045,11 +1072,14 @@ fn build_core(
                 continue;
             }
         };
-        let pr = parse(tokenize(&src, detect_format(&src)));
+        // `parse_from`, not `parse`: continue the block numbering rather than
+        // restarting it, so this form's blocks get ids of their own.
+        let pr = cobolt_parser::parse_from(tokenize(&src, detect_format(&src)), block_id_base);
         let program_ok = pr
             .diagnostics
             .iter()
             .all(|d| d.severity != cobolt_parser::Severity::Error);
+        let next = pr.next_block_id;
         let Some(form_program) = pr.program.filter(|_| program_ok) else {
             log(&format!(
                 "⚠️  form {id}: its generated program does not parse — omitted \
@@ -1057,11 +1087,22 @@ fn build_core(
             ));
             continue;
         };
+        block_id_base = next;
         let bytes = bincode::serialize(&form_program)
             .map_err(|e| CompilerError::Serialize(e.to_string()))?;
         let mut gz = GzEncoder::new(Vec::new(), Compression::best());
         gz.write_all(&bytes).unwrap();
         form_programs.push((id.clone(), gz.finish()?));
+        form_units.push(FormProgramUnit {
+            rel: cbl
+                .strip_prefix(&project_dir)
+                .unwrap_or(&cbl)
+                .display()
+                .to_string(),
+            symbols: cobolt_semantic::symbol_table::SymbolTable::build(&form_program),
+            program: form_program,
+            source: src,
+        });
     }
     if !form_programs.is_empty() {
         log(&format!("   {} form program(s) embedded", form_programs.len()));
@@ -1073,11 +1114,19 @@ fn build_core(
     let workspace_root = match workspace_root {
         Some(root) => root,
         None => {
+            // Name every folder that was tried. "It looked somewhere and failed"
+            // is only actionable if the reader can see *where*, and can tell
+            // whether the fix is to install the SDK or to point at one.
+            let tried = workspace_candidates(opts.workspace_root.clone())
+                .iter()
+                .map(|p| format!("\n  · {}", p.display()))
+                .collect::<String>();
             return Err(CompilerError::Workspace(format!(
-                "looked via the running executable and the build-time path, but \
-                 found no 'crates/cobolt-ast'. Pass BuildOptions.workspace_root, \
-                 or run the IDE from within the PowerRustCOBOL source tree. \
-                 (project dir: {})",
+                "building an executable compiles the platform's Rust crates, so \
+                 it needs a folder holding both 'Cargo.toml' and \
+                 'crates/cobolt-ast'. Install the PowerRustCOBOL SDK beside the \
+                 IDE, or point at a copy with Help → Platform SDK Location. \
+                 Searched:{tried}\n(project dir: {})",
                 project_dir.display()
             )));
         }
@@ -1203,11 +1252,42 @@ fn build_core(
         }
     }
 
-    let blocks = exec_rust::generate(&program, &sem.symbols, main_src, has_forms);
+    // Every program the binary can run, not just the entry one: a block in a
+    // child form's event handler is compiled exactly like a block in the main
+    // form's. Generating only the main program left the child's id registered
+    // against nothing, and the button that ran it failed at the click.
+    let mut units = vec![exec_rust::ProgramUnit {
+        file: main_rel.clone(),
+        source: main_src,
+        program: &program,
+        symbols: &sem.symbols,
+    }];
+    units.extend(form_units.iter().map(|u| exec_rust::ProgramUnit {
+        file: u.rel.clone(),
+        source: &u.source,
+        program: &u.program,
+        symbols: &u.symbols,
+    }));
+    // Which optional runtime this application actually reaches — read from the
+    // same set of programs, so a database opened only by a child form still
+    // links the drivers. Everything is linked unless every program proves it
+    // needs nothing; see `runtime_features` for why the reading is timid.
+    let features = units
+        .iter()
+        .fold(runtime_features::RuntimeFeatures::default(), |acc, u| {
+            acc.union(runtime_features::scan_program(u.program))
+        });
+    if !features.sql {
+        log("   no SQL verb reached — building without the SQLite/PostgreSQL/MySQL drivers (no C toolchain needed)");
+    }
+
+    let blocks = exec_rust::generate_all(&units, has_forms);
     if blocks.block_count > 0 || blocks.item_count > 0 {
         log(&format!(
-            "   {} EXEC RUST block(s), {} item-level block(s)",
-            blocks.block_count, blocks.item_count
+            "   {} EXEC RUST block(s), {} item-level block(s) across {} program(s)",
+            blocks.block_count,
+            blocks.item_count,
+            units.len()
         ));
     }
     write_if_changed(&src_dir.join("exec_rust_blocks.rs"), blocks.source.as_bytes())?;
@@ -1234,6 +1314,7 @@ fn build_core(
         links_gui,
         &project_dir,
         &proj.crates,
+        features,
     );
     write_if_changed(&build_dir.join("Cargo.toml"), cargo_toml.as_bytes())?;
 
@@ -1365,14 +1446,20 @@ fn build_core(
         // (line, column). Taking whichever error cargo's parallel JSON stream
         // mentioned first made identical rebuilds show different single
         // errors — which read as new bugs appearing on every build.
-        if let Some((line, col, message)) =
-            exec_rust::block_errors_report(exec_rust::map_cargo_json(&json, &blocks))
+        if let Some(report) = exec_rust::block_errors_report(exec_rust::map_cargo_json(&json, &blocks))
         {
             return Err(CompilerError::ExecRustBlock {
-                file: main_rel.clone(),
-                line,
-                col,
-                message,
+                // The block's OWN file — a form application compiles several
+                // `.cbl` into one module, and naming the entry program would
+                // send the developer to that line in the wrong file.
+                file: if report.file.is_empty() {
+                    main_rel.clone()
+                } else {
+                    report.file
+                },
+                line: report.line,
+                col: report.col,
+                message: report.message,
             });
         }
         return Err(CompilerError::CargoBuild {
@@ -1694,22 +1781,233 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
     out
 }
 
+/// The platform crates a generated binary compiles against, as a `path =`
+/// dependency closure rooted at `cobolt-ast` + `cobolt-runtime` (and, for a
+/// form application, `cobolt-form-host`).
+///
+/// This is the **redistributable set**: the six remaining workspace members
+/// (`cobolt-cli`, `cobolt-compiler`, `cobolt-ide`, `cobolt-agents`,
+/// `cobolt-stdlib`, `cobolt-bench`) build the tooling, never the output, so a
+/// shipped SDK leaves them out. [`stage_sdk`] copies exactly this list and
+/// [`sdk_manifest`] names exactly this list as the workspace members — keeping
+/// both beside [`resolve_workspace_root`] is what stops the shipped layout and
+/// the layout we look for from drifting apart.
+pub const SDK_CRATES: [&str; 10] = [
+    "cobolt-ast",
+    "cobolt-codegen",
+    "cobolt-form-host",
+    "cobolt-forms",
+    "cobolt-indexed",
+    "cobolt-lexer",
+    "cobolt-media",
+    "cobolt-parser",
+    "cobolt-runtime",
+    "cobolt-semantic",
+];
+
+/// Paths outside `crates/` that a build reads from the workspace root.
+///
+/// Crates are not the whole story, and missing one of these fails *late*:
+///
+/// * `assets/images/powerrustcobol-icon.png` — `cobolt-form-host` bakes it in
+///   with `include_bytes!` (`host.rs`), so without it **no form application
+///   compiles at all**. `sdk_covers_every_compile_time_asset` guards this.
+/// * `assets/themes` — the asset-pack form themes. A build copies the packs a
+///   form asks for; without them a project themed Cobalt Steel or Neumorphic
+///   still builds, but silently falls back to procedural Liquid Glass, which
+///   is a design the developer did not choose.
+pub const SDK_EXTRA_PATHS: [&str; 2] =
+    ["assets/images/powerrustcobol-icon.png", "assets/themes"];
+
+/// Does `root` look like something we can build against?
+///
+/// Both halves matter. `crates/cobolt-ast` is what the generated manifest
+/// points at, and the root `Cargo.toml` is what makes it *buildable*: every
+/// platform crate inherits `version.workspace` / `serde = { workspace = true }`
+/// from `[workspace.package]` and `[workspace.dependencies]`, so a `crates/`
+/// tree without that manifest above it fails to resolve the moment cargo reads
+/// the first member.
+fn is_workspace_root(root: &Path) -> bool {
+    root.join("crates").join("cobolt-ast").is_dir() && root.join("Cargo.toml").is_file()
+}
+
+/// Every directory [`resolve_workspace_root`] will consider, in priority order.
+///
+/// Exposed so a failure can *report* what it looked at: an error that names the
+/// searched folders is actionable, one that names an internal API is not.
+pub fn workspace_candidates(explicit: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut push = |p: PathBuf| {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    };
+
+    // 1. What the caller was told to use — the IDE's persisted SDK location.
+    if let Some(p) = explicit {
+        push(p);
+    }
+
+    // 2. A shipped SDK beside the executable. An installed IDE is never inside
+    //    the source tree, so walking *up* (step 3) cannot find one; these are
+    //    the layouts an install actually produces.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            push(dir.to_path_buf()); // <install>/cobolt-ide.exe + <install>/crates
+            push(dir.join("sdk")); //   <install>/sdk/crates
+            if let Some(up) = dir.parent() {
+                push(up.to_path_buf()); // <install>/bin/cobolt-ide + <install>/crates
+                push(up.join("sdk"));
+                // macOS bundle: Contents/MacOS/cobolt-ide → Contents/Resources.
+                push(up.join("Resources"));
+                push(up.join("Resources").join("sdk"));
+            }
+        }
+        // 3. A development checkout: walk up for a Cargo.toml with [workspace].
+        if let Some(root) = find_workspace_root(&exe) {
+            push(root);
+        }
+    }
+
+    // 4. The path baked in when this binary was compiled. Correct only on the
+    //    machine that built it, and only while the tree stays put.
+    if let Some(p) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) {
+        // crates/cobolt-compiler → crates → workspace
+        push(p.to_path_buf());
+    }
+
+    out
+}
+
+/// The first candidate that actually holds a buildable platform tree.
 pub fn resolve_workspace_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
-    let has_crates = |root: &Path| root.join("crates").join("cobolt-ast").is_dir();
-    explicit
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| find_workspace_root(&p))
-        })
-        .filter(|p| has_crates(p))
-        .or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors()
-                .nth(2) // crates/cobolt-compiler → crates → workspace
-                .map(Path::to_path_buf)
-                .filter(|p| has_crates(p))
-        })
+    workspace_candidates(explicit)
+        .into_iter()
+        .find(|p| is_workspace_root(p))
+}
+
+/// Rewrite the workspace manifest for a shipped SDK: same `[workspace.package]`
+/// and `[workspace.dependencies]`, but `members` trimmed to [`SDK_CRATES`].
+///
+/// The trim is not cosmetic. Cargo reads this manifest to resolve every
+/// `workspace = true` inheritance in the crates below it, and a member it
+/// cannot find on disk is a hard error — so the list has to name exactly what
+/// was copied.
+pub fn sdk_manifest(source_manifest: &str) -> Result<String, CompilerError> {
+    let mut doc: toml::Value = toml::from_str(source_manifest)
+        .map_err(|e| CompilerError::Workspace(format!("workspace Cargo.toml is not valid TOML: {e}")))?;
+
+    let members = SDK_CRATES
+        .iter()
+        .map(|c| toml::Value::String(format!("crates/{c}")))
+        .collect::<Vec<_>>();
+
+    doc.get_mut("workspace")
+        .and_then(|w| w.as_table_mut())
+        .ok_or_else(|| CompilerError::Workspace("workspace Cargo.toml has no [workspace]".into()))?
+        .insert("members".into(), toml::Value::Array(members));
+
+    toml::to_string_pretty(&doc)
+        .map_err(|e| CompilerError::Workspace(format!("could not write the SDK manifest: {e}")))
+}
+
+/// Assemble the redistributable platform SDK at `dest`.
+///
+/// `dest` is the folder that ends up holding `Cargo.toml` + `crates/` — put it
+/// beside the IDE executable (or in a `sdk/` subfolder of the install) and
+/// [`resolve_workspace_root`] finds it with no configuration at all.
+///
+/// Returns the number of bytes copied, so a packaging step can report the cost.
+pub fn stage_sdk(workspace_root: &Path, dest: &Path) -> Result<u64, CompilerError> {
+    let io = |e: std::io::Error| CompilerError::Workspace(format!("staging the SDK: {e}"));
+
+    if !is_workspace_root(workspace_root) {
+        return Err(CompilerError::Workspace(format!(
+            "{} is not a PowerRustCOBOL source tree (no Cargo.toml + crates/cobolt-ast)",
+            workspace_root.display()
+        )));
+    }
+
+    std::fs::create_dir_all(dest).map_err(io)?;
+
+    let manifest = std::fs::read_to_string(workspace_root.join("Cargo.toml")).map_err(io)?;
+    std::fs::write(dest.join("Cargo.toml"), sdk_manifest(&manifest)?).map_err(io)?;
+
+    // The lock is optional — the generated project resolves its own graph — but
+    // shipping it pins the platform crates' own dependencies to what we tested.
+    let lock = workspace_root.join("Cargo.lock");
+    if lock.is_file() {
+        std::fs::copy(&lock, dest.join("Cargo.lock")).map_err(io)?;
+    }
+
+    let crates_dest = dest.join("crates");
+    std::fs::create_dir_all(&crates_dest).map_err(io)?;
+    for name in SDK_CRATES {
+        let src = workspace_root.join("crates").join(name);
+        if !src.is_dir() {
+            return Err(CompilerError::Workspace(format!(
+                "the source tree is missing crates/{name}"
+            )));
+        }
+        copy_crate_source(&src, &crates_dest.join(name)).map_err(io)?;
+    }
+
+    // The assets a build reads from the workspace root. The icon is a hard
+    // compile-time dependency of every form application; leaving it out is what
+    // makes a staged SDK look complete and then fail on the first Build.
+    for rel in SDK_EXTRA_PATHS {
+        let src = workspace_root.join(rel);
+        let dst = dest.join(rel);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent).map_err(io)?;
+        }
+        if src.is_dir() {
+            copy_crate_source(&src, &dst).map_err(io)?;
+        } else if src.is_file() {
+            std::fs::copy(&src, &dst).map_err(io)?;
+        } else {
+            return Err(CompilerError::Workspace(format!(
+                "the source tree is missing {rel}"
+            )));
+        }
+    }
+
+    Ok(dir_size(dest))
+}
+
+/// Copy one crate's sources, skipping build output.
+fn copy_crate_source(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        // `target/` is a build artefact of a checkout that happened to build
+        // in-crate; it is never part of the source we ship.
+        if name == "target" {
+            continue;
+        }
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            copy_crate_source(&path, &dst.join(name))?;
+        } else {
+            std::fs::copy(&path, dst.join(name))?;
+        }
+    }
+    Ok(())
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => total += dir_size(&entry.path()),
+                Ok(_) => total += entry.metadata().map(|m| m.len()).unwrap_or(0),
+                Err(_) => {}
+            }
+        }
+    }
+    total
 }
 
 /// The `[dependencies]` block every generated program shares. Also the base
@@ -1718,11 +2016,20 @@ pub fn resolve_workspace_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
 /// through `external_crates::toml_path` (absolute, forward-slashed): cargo
 /// resolves `path =` against the manifest that names it, and backslashes are
 /// TOML escapes.
-pub(crate) fn base_dependency_block(crates_path: &Path, has_forms: bool) -> String {
+pub(crate) fn base_dependency_block(
+    crates_path: &Path,
+    has_forms: bool,
+    features: runtime_features::RuntimeFeatures,
+) -> String {
     let cp = external_crates::toml_path(crates_path);
+    // `default-features = false` plus an explicit list, so the manifest states
+    // what this program needs rather than inheriting everything. An empty list
+    // is the point of the exercise: no SQL drivers means no SQLite C
+    // amalgamation, and a build that needs `rustc` alone.
+    let feats = features.as_toml_features();
     let mut s = format!(
         r#"cobolt-ast      = {{ path = "{cp}/cobolt-ast" }}
-cobolt-runtime  = {{ path = "{cp}/cobolt-runtime" }}
+cobolt-runtime  = {{ path = "{cp}/cobolt-runtime", default-features = false, features = [{feats}] }}
 flate2          = "1"
 bincode         = "1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
@@ -1736,7 +2043,7 @@ tracing         = "0.1"
         // eframe/egui stay direct dependencies — `EXEC RUST` blocks compile
         // against them (cobolt_windows, ViewportBuilder, …).
         s.push_str(&format!(
-            r#"cobolt-form-host = {{ path = "{cp}/cobolt-form-host" }}
+            r#"cobolt-form-host = {{ path = "{cp}/cobolt-form-host", default-features = false, features = [{feats}] }}
 cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
 eframe          = {{ version = "0.36", features = ["default_fonts"] }}
@@ -1764,6 +2071,7 @@ fn generate_cargo_toml(
     has_forms: bool,
     project_dir: &Path,
     pins: &[ExternalCrate],
+    features: runtime_features::RuntimeFeatures,
 ) -> String {
     // The empty `[workspace]` table detaches the generated package: a user's
     // project can live under someone else's cargo workspace, and without it
@@ -1784,7 +2092,7 @@ path = "src/main.rs"
 [dependencies]
 "#
     );
-    s.push_str(&base_dependency_block(crates_path, has_forms));
+    s.push_str(&base_dependency_block(crates_path, has_forms, features));
 
     // Registered External Crates (spec 044 R7/R10/R15): exact pins, with the
     // vendored source patched in as THE copy cargo uses everywhere.
@@ -5697,7 +6005,15 @@ mod resolve_main_tests {
             true,
         );
         let cargo_toml =
-            generate_cargo_toml("gencompilecheck", "0.1.0", &crates_path, true, &dir, &[]);
+        generate_cargo_toml(
+            "gencompilecheck",
+            "0.1.0",
+            &crates_path,
+            true,
+            &dir,
+            &[],
+            runtime_features::RuntimeFeatures::all(),
+        );
         std::fs::write(dir.join("src/main.rs"), &main_rs).unwrap();
         std::fs::write(dir.join("Cargo.toml"), &cargo_toml).unwrap();
         // `main.rs` declares `mod exec_rust_blocks;` unconditionally, so the
@@ -5801,6 +6117,7 @@ mod resolve_main_tests {
             // Linked exactly as `build_core` does it: any block pulls in the GUI
             // crates, which is what lets a block open a window. Hardcoding
             // `false` here made this harness disagree with the real build.
+            // Runtime features come from the fixture for the same reason.
             generate_cargo_toml(
                 bin,
                 "0.1.0",
@@ -5808,6 +6125,7 @@ mod resolve_main_tests {
                 blocks.block_count > 0 || blocks.item_count > 0,
                 &dir,
                 &[],
+                runtime_features::scan_program(&program),
             ),
         )
         .unwrap();
@@ -5976,7 +6294,8 @@ mod resolve_main_tests {
         .unwrap();
         fs::write(
             dir.join("Cargo.toml"),
-            // As `build_core` links it — a block brings the GUI crates with it.
+            // As `build_core` links it — a block brings the GUI crates with it,
+            // and the runtime features are read from the fixture.
             generate_cargo_toml(
                 bin,
                 "0.1.0",
@@ -5984,6 +6303,7 @@ mod resolve_main_tests {
                 blocks.block_count > 0 || blocks.item_count > 0,
                 &dir,
                 &[],
+                runtime_features::scan_program(&program),
             ),
         )
         .unwrap();
@@ -7242,5 +7562,191 @@ generated = ["generated/inner-form1.cbl"]
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod sdk_tests {
+    use super::*;
+
+    /// The staged manifest must name exactly the crates we copy — a member
+    /// cargo cannot find on disk is a hard error the moment it resolves the
+    /// first inheritance.
+    #[test]
+    fn sdk_manifest_members_match_the_copied_crates() {
+        let source = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .nth(2)
+                .unwrap()
+                .join("Cargo.toml"),
+        )
+        .expect("workspace manifest");
+
+        let staged = sdk_manifest(&source).expect("manifest rewrites");
+        let doc: toml::Value = toml::from_str(&staged).expect("staged manifest is valid TOML");
+
+        let members: Vec<String> = doc["workspace"]["members"]
+            .as_array()
+            .expect("members array")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect();
+
+        let expected: Vec<String> = SDK_CRATES.iter().map(|c| format!("crates/{c}")).collect();
+        assert_eq!(members, expected);
+
+        // Inheritance must survive the rewrite, or every member fails to build.
+        assert!(doc["workspace"].get("package").is_some(), "[workspace.package] lost");
+        assert!(
+            doc["workspace"].get("dependencies").is_some(),
+            "[workspace.dependencies] lost"
+        );
+    }
+
+    /// The redistributable set must be closed under `path =` dependencies: a
+    /// crate we ship may not depend on one we left behind.
+    #[test]
+    fn sdk_crate_set_is_closed_under_path_dependencies() {
+        let crates_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("crates");
+
+        for name in SDK_CRATES {
+            let manifest = std::fs::read_to_string(crates_dir.join(name).join("Cargo.toml"))
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            // Only real dependencies matter; dev-dependencies are never built
+            // for a path dependency pulled in from outside the workspace.
+            let cut = manifest
+                .find("[dev-dependencies]")
+                .unwrap_or(manifest.len());
+            for line in manifest[..cut].lines() {
+                let Some(at) = line.find("path = \"../") else {
+                    continue;
+                };
+                let rest = &line[at + "path = \"../".len()..];
+                let dep = &rest[..rest.find('"').expect("closing quote")];
+                assert!(
+                    SDK_CRATES.contains(&dep),
+                    "{name} depends on {dep}, which the SDK does not ship"
+                );
+            }
+        }
+    }
+
+    /// A folder is only a workspace root when BOTH halves are there. Missing
+    /// the manifest is the failure that produced an unbuildable install.
+    #[test]
+    fn is_workspace_root_requires_manifest_and_crates() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+        assert!(is_workspace_root(root));
+
+        let tmp = std::env::temp_dir().join("cobolt-sdk-probe");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("crates").join("cobolt-ast")).unwrap();
+        assert!(!is_workspace_root(&tmp), "crates/ alone must not qualify");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// **A staged SDK must satisfy every compile-time file read in the crates
+    /// it ships.**
+    ///
+    /// `include_bytes!` / `include_str!` reach outside the crate at *compile*
+    /// time, so a path they name is as load-bearing as a dependency — and one
+    /// that is missing does not fail staging, it fails the developer's first
+    /// Build. `cobolt-form-host` bakes in the window icon this way, which the
+    /// first version of `stage_sdk` did not copy: the staged tree resolved
+    /// under `cargo metadata` and could not compile a single form application.
+    #[test]
+    fn sdk_covers_every_compile_time_asset() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+
+        let mut escaping = Vec::new();
+        for name in SDK_CRATES {
+            collect_escaping_includes(&root.join("crates").join(name), &mut escaping);
+        }
+        assert!(
+            !escaping.is_empty(),
+            "the scanner found nothing — it has stopped testing anything"
+        );
+
+        for rel in &escaping {
+            let covered = SDK_EXTRA_PATHS
+                .iter()
+                .any(|extra| rel == extra || rel.starts_with(&format!("{extra}/")));
+            assert!(
+                covered,
+                "{rel} is read at compile time by an SDK crate but no SDK_EXTRA_PATHS \
+                 entry ships it — a staged SDK would fail to build"
+            );
+            assert!(
+                root.join(rel).exists(),
+                "{rel} is listed but missing from the source tree"
+            );
+        }
+    }
+
+    /// Every path in the list must exist, or staging dies mid-copy.
+    #[test]
+    fn sdk_extra_paths_all_exist() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+        for rel in SDK_EXTRA_PATHS {
+            assert!(root.join(rel).exists(), "SDK_EXTRA_PATHS names a missing {rel}");
+        }
+    }
+
+    /// Gather workspace-relative paths that a crate's sources pull in at
+    /// compile time from *outside* the crate, i.e. through `CARGO_MANIFEST_DIR`
+    /// followed by a `../..` climb to the workspace root.
+    fn collect_escaping_includes(dir: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_escaping_includes(&path, out);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            // `include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../<rel>"))`
+            for (idx, _) in text.match_indices("CARGO_MANIFEST_DIR") {
+                let tail = &text[idx..];
+                let Some(open) = tail.find("\"/../../") else {
+                    continue;
+                };
+                // Only when the literal follows closely — otherwise we are
+                // looking at an unrelated later line.
+                if open > 40 {
+                    continue;
+                }
+                let rest = &tail[open + "\"/../../".len()..];
+                let Some(end) = rest.find('"') else { continue };
+                out.push(rest[..end].to_owned());
+            }
+        }
+    }
+
+    /// An explicit folder outranks everything, and the compile-time path stays
+    /// last so a shipped SDK beside the executable is preferred over it.
+    #[test]
+    fn explicit_root_is_searched_first() {
+        let chosen = PathBuf::from("/somewhere/chosen");
+        let candidates = workspace_candidates(Some(chosen.clone()));
+        assert_eq!(candidates.first(), Some(&chosen));
+
+        let built = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .map(Path::to_path_buf)
+            .unwrap();
+        assert_eq!(candidates.last(), Some(&built), "build-time path must rank last");
     }
 }

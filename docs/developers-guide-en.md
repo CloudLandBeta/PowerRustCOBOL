@@ -3760,6 +3760,30 @@ extensions. Highlights a working COBOL programmer will rely on:
 - **Data & structure:** group items, `OCCURS` (with subscripts/indices),
   `REDEFINES`, `RENAMES` (66 level), condition-names (88 level with `VALUE` /
   `THRU`), `USAGE` incl. `POINTER`.
+
+> **A group is its children.** A group item has no storage of its own: it is the
+> items under it laid end to end, it is alphanumeric whatever they are, and its
+> size is the sum of theirs. Reading one gives you the whole record, writing one
+> spreads the bytes across the children by width, and a change to any child shows
+> through the group immediately. `FILLER` counts — it holds its bytes and its
+> `VALUE` like any other item — and the word itself is optional, so `05 PIC X
+> VALUE ":".` is a perfectly good separator:
+>
+> ```cobol
+>        01 EDITED-TIME.
+>           05 HH PIC 99.
+>           05    PIC X VALUE ":".
+>           05 MM PIC 99.
+> ```
+>
+> With `HH` = 09 and `MM` = 30, `DISPLAY EDITED-TIME` shows `09:30`. This is the
+> ordinary way to build a formatted field out of parts, and it is why a group
+> never needs a `PIC` of its own.
+>
+> ⚠️ **Reference modification counts characters, not values.** `T(1:2)` takes the
+> first two *character positions* of `T`, so a `PIC 9(8)` holding `00224845`
+> gives `"00"` — the leading zeros are part of the item. That is what makes the
+> classic unpack (`MOVE T(1:2) TO HH`, `MOVE T(3:2) TO MM`, …) line up.
 - **Arithmetic:** `ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE` with multiple receivers
   and per-receiver `ROUNDED`; numeric-edited `PICTURE` editing.
 - **Control flow:** `IF/ELSE`, `EVALUATE` (with `ALSO` and `WHEN NOT`), inline and
@@ -5064,6 +5088,7 @@ is.
 
 | Command | Flag | What it does |
 |---|---|---|
+| `run`, `check` | `--source-format <fmt>` | `free` (default), `fixed`, `fixed-relaxed`, `auto` — see **Bringing card-image source across** below |
 | `run` | `--indexed-engine <name>`, `-I` | ISAM engine: `rust` (default), `rm-cobol85`, `fujitsu`, `redb` |
 | `run` | `--indexed-log <basic\|full>` | Per-file INDEXED transaction log → `<assign-path>.log` |
 | `run` | `--indexed-log-format <text\|json>` | Log line format; `json` is NDJSON for Grafana/Loki |
@@ -5088,6 +5113,7 @@ is.
 | Variable | What it sets |
 |---|---|
 | `COBOLT_LOG` | Logging filter, e.g. `warn`, `debug`, `cobolt-runtime=trace` |
+| `COBOLT_SOURCE_FORMAT` | Default for `--source-format` |
 | `COBOLT_FIXED` | Set to `1` to force fixed-form source parsing |
 | `COBOL_INDEXED_ENGINE` | Same choices as `--indexed-engine` |
 | `COBOL_INDEXED_LOG` | `off` (default), `basic`, `full` |
@@ -5098,6 +5124,55 @@ A flag always wins over its environment variable.
 > 📷 **Screenshot needed — `rcrun-terminal.png`.** A terminal session showing
 > `rcrun check`, then `rcrun run`, on a small program, with the output. Helps
 > newcomers see the CLI is approachable.
+
+### Bringing card-image source across
+
+Source you wrote in PowerCOBOL or isCOBOL is very likely in the **classic
+reference format** — the punch-card layout, where columns 1-6 hold a sequence
+number, column 7 is the indicator, the program lives in columns 8 to 72, and
+columns 73-80 hold a program stamp the compiler ignores. Files that came off a
+mainframe are almost always 80 characters wide, whether or not anyone still
+thinks of them as cards.
+
+PowerRustCOBOL's own projects are **free format** — no column rules at all — and
+that is the default. So an imported file needs to be told what it is:
+
+```bash
+rcrun check --source-format=fixed  PAYROLL.CBL
+rcrun run   --source-format=fixed  PAYROLL.CBL
+```
+
+That switches on every column rule at once, including continuation lines, which
+free format has no equivalent for:
+
+```cobol
+011700     02 FILLER PICTURE IS X(54) VALUE IS "------------------------
+011800-    "------------------------------".
+```
+
+The hyphen in column 7 says "this line continues the last one". For a literal,
+the continued line has no closing quotation mark and the continuation line
+reopens with one; the literal is the two halves joined. For a word, the halves
+simply meet:
+
+```cobol
+004700 01  WRK-DS-18V00-CONTIN
+004800-    UED PICTURE X.
+```
+
+⚠️ **Do not pass `--source-format=fixed` for free-format source.** It is not a
+harmless reinterpretation: everything past column 72 is discarded, and anything
+you wrote in the first seven columns is read as a sequence number and an
+indicator. A `MOVE` that ran long would quietly lose its tail.
+
+⚠️ **A continued literal is only byte-exact under `fixed`.** The rule is that the
+continued fragment runs to column 72, trailing spaces included — so a line that
+stops short of column 72 still contributes those spaces to the literal. Without
+a column 72 there is nothing to pad to.
+
+**Note.** If you want the sequence area and indicator column honoured but *not*
+the 72-column cut — useful for source that has been reformatted over the
+years — use `--source-format=fixed-relaxed`.
 
 ---
 
@@ -5119,6 +5194,32 @@ flowchart LR
 - Tracked **Assets** and **Knowledge Base** files are copied next to the binary so the
   program finds them by relative path at run time.
 - Required licence/notice files are placed alongside the binary automatically.
+
+> ⚠️ **Caveat.** The *end user* of your application installs nothing, but the
+> machine that **builds** it needs two things: the Rust toolchain, and the
+> platform's own sources. Building is a real compile, not an export. A
+> PowerRustCOBOL installation that ships the platform SDK beside its executable
+> satisfies this on its own; if yours does not, Build stops and names every
+> folder it searched. Point it at a copy under **Help → Platform SDK Location**,
+> or see *Installing the IDE elsewhere* in `BUILDING-en.md`.
+
+> **Note — what a build links, and what that costs.** The SQL bridge
+> (`COBOL-OPEN-DB` and its companions) brings SQLite with it, and SQLite is C:
+> linking it means the build machine also needs a **C compiler** — `link.exe`
+> from the Visual Studio Build Tools on Windows, `cc` from `build-essential` or
+> the Xcode Command Line Tools elsewhere. So the build reads your program first
+> and links the database drivers only when something in it reaches them. A
+> program that never opens a database is built with **Rust alone**.
+>
+> The reading errs towards linking, because the cost of guessing wrong is a
+> program that works under *Run Form* and fails only once built. Anything it
+> cannot settle — a `CALL` whose verb name lives in a data item rather than in
+> quotes, an `EXEC RUST` block that names the database modules — links the
+> drivers. You do not have to declare anything; the point is only that a plain
+> program no longer pays for a database it never opens.
+>
+> ⚠️ On **Linux**, `COBOL-HTTP-*` and the Maps control still reach OpenSSL, so a
+> program using those needs the system TLS development package regardless.
 - **`dist/`** is reserved for a future "bundle everything needed to run on a
   machine without PowerRustCOBOL" feature (binary + assets + any libraries +
   launcher). For now, ship `bin/` and the copied assets.
@@ -5173,12 +5274,28 @@ it looks in an application.
 
 Select a Generated Code item and press **Debug** to start a session. You get:
 
-- **Breakpoints** in the editor gutter,
+- **Breakpoints** in the editor gutter **and in the debugger window's own
+  gutter** — click beside any line in either place, before the session or during
+  it. A breakpoint you set, move or clear while the program is stopped takes
+  effect on the very next statement; you do not restart to change your mind.
 - **step** controls and **continue** (F5 / F10 while debugging),
-- a **variable watch** panel.
+- a **variable watch** panel,
+- **Only my code**, on by default: stepping runs straight through the generated
+  scaffolding — the event loop above all — and stops only in handlers and
+  procedures you wrote. Turn it off in the debugger toolbar when you want to
+  watch the machinery. Breakpoints are never filtered by it: one you set on a
+  generated line still stops there, because setting it was your decision.
 
 During a session a *Stop Debug* control appears; otherwise debugging starts from
 the toolbar **Debug** button (to the right of **Run**).
+
+> ⚠️ **To stop inside an event handler, debug the form — not its generated
+> `.cbl`.** Pressing **Debug** on a form launches it as a real window, so its
+> handlers actually run and your breakpoints in them are reached. Pressing
+> **Debug** on the generated file from the editor runs the program with no
+> window attached: `COBOL-WAIT-EVENT` finds no form to wait on, ends the event
+> loop straight away, and no handler is ever dispatched — so a breakpoint inside
+> one is never passed, however correctly it is set.
 
 > 📷 **Screenshot needed — `debugger.png`.** A debug session paused on a
 > breakpoint, with the variable-watch panel populated.

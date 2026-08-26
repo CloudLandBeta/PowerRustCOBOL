@@ -1,5 +1,557 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.12] — 2026-08-25
+
+### Fixed — one stray quotation mark could shift an entire program
+
+A literal now ends at the end of its line. It could previously run past the
+newline, hunting for a closing quotation mark, and that turned a typo into
+something far worse than a typo.
+
+The programs where this was found each contain an **even** number of quotation
+marks — nothing was unterminated. A single quote inside ordinary prose:
+
+```cobol
+      *> THIS PROGRAM CHECKS THE COMPILER"S ABILITY TO HANDLE EIGHT
+```
+
+opened a literal that closed at the *next* quote several lines away, swallowing
+whatever lay between — in one case an entire `ENVIRONMENT DIVISION` header —
+after which every remaining quote in the file paired with the wrong partner.
+One character shifted the parity of the whole program, and the error surfaced
+hundreds of lines from its cause, or as an end-of-file "expected PROCEDURE
+DIVISION" with nothing to point at.
+
+Confining a literal to its line makes the damage **self-correcting at the next
+newline**: the offending line is reported, and the line after it pairs correctly
+again.
+
+An unclosed literal now says so, where it is written:
+
+```text
+unterminated alphanumeric literal — a literal cannot span source lines. In fixed
+format, continue it on the next line with `-` in column 7 and reopen with the
+same quotation mark; in free format there is no continuation, so the literal
+must fit on one line.
+```
+
+**Continuation is unaffected.** A `-` in column 7 still joins a literal across
+lines, still runs the continued fragment to column 72 with its trailing spaces,
+and still reassembles byte-exactly — that work happens in the preprocessor,
+before the lexer sees anything. Verified by executing programs and reading their
+output, not by a clean parse: CCVS85's `HYPHEN-LINE` reassembles to exactly the
+54 characters its `PICTURE X(54)` declares.
+
+`EXEC RUST` blocks are unaffected too — Rust's own multi-line strings included —
+because a block is captured by offset slicing between `RUST` and `END-EXEC`.
+
+Measured on the NIST CCVS85 suite, front end only: in-scope **241 → 242 of 434**.
+A small gain from a cleared 6-program bucket, and the reason is worth stating:
+one program now passes, and four advanced to `SORT-PARA SECTION 69.` — a segment
+priority number, which is a different gap. Segmentation still reads 0 / 13, but
+its real blocker is now visible.
+
+## [PowerRustCOBOL 1.62.11] — 2026-08-25
+
+### Fixed — the IDENTIFICATION DIVISION's descriptive paragraphs
+
+`AUTHOR`, `INSTALLATION`, `DATE-WRITTEN`, `DATE-COMPILED`, `SECURITY` — and
+`REMARKS`, which COBOL-85 deleted but older source still carries — take a
+**comment-entry**: free text that may contain reserved words and periods, and
+that runs until the next paragraph or division header. Three things were wrong.
+
+**`DATE-COMPILED` was never handled.** It is a keyword, so it never reached the
+generic paragraph branch, fell through, and ended the division early. The parser
+then demanded a division header where a paragraph name sat.
+
+**The text ended at the first period.** A comment-entry is prose and routinely
+contains them. This one, from the NIST suite, is nine lines:
+
+```cobol
+INSTALLATION.
+    GENERAL SERVICES ADMINISTRATION
+    AUTOMATED DATA AND TELECOMMUNICATION SERVICE.
+    5203 LEESBURG PIKE  SUITE 1100
+    FALLS CHURCH VIRGINIA 22041.
+DATE-WRITTEN.
+```
+
+Only the first line survived.
+
+**Reserved words in the text were taken literally.** Collection stopped at the
+`DATA` on line three, concluded the DATA DIVISION had begun, looked for
+`DIVISION`, and found `AND`.
+
+An entry now ends only at a token that **begins a line** *and* **looks like a
+header** — a paragraph keyword, or a division keyword followed by `DIVISION`.
+Both halves are needed: the first lets prose contain `DATA`, the second lets a
+line legitimately start with it.
+
+The same rule was applied to the duplicate-division check, which scans raw
+tokens before parsing. Without it, `SECURITY. SEE THE PROCEDURE DIVISION BELOW.`
+would have been reported as a redeclared PROCEDURE DIVISION.
+
+`INSTALLATION`, `SECURITY` and `REMARKS` are recognised **only inside the
+IDENTIFICATION DIVISION** and deliberately did not become reserved words — a
+data item named `SECURITY` keeps working.
+
+Measured on the NIST CCVS85 suite, front end only: in-scope **237 → 241 of 434**
+(54.6 % → 55.5 %), Debug 5 → 9. The 32-program bucket this cleared is larger
+than the gain: 9 of those are Communication programs, which stay out of scope,
+and most of the rest reach a second blocker immediately.
+
+**It also uncovered a defect it cannot fix.** Six programs now fail on a stray
+quotation mark inside comment-entry prose — `THE COMPILER"S ABILITY` opens a
+literal that runs to the next quote anywhere in the file. Lexing precedes
+parsing, so the lexer cannot know it is inside a comment-entry; the fix belongs
+with the unterminated-literal work already recorded in
+`specs/nist/NIST-spec-literal-continuation.md` R6.
+
+## [PowerRustCOBOL 1.62.10] — 2026-08-25
+
+### Fixed — a numeric literal may begin with a decimal point
+
+`.5` is one half. COBOL-85 says a numeric literal must only not *end* with a
+decimal point; a leading one is explicitly allowed. RustCOBOL required a digit
+in front, so `.999` was read as a sentence-ending period followed by the integer
+999 — and because a period puts the lexer at what it considers a line start,
+`.00001` came out as a **level number**.
+
+The damage was worst inside a function call, where the stray period closed the
+argument list early:
+
+```cobol
+COMPUTE WS-NUM = FUNCTION ACOS(.999).
+```
+
+That is how the NIST intrinsic-function module writes every one of its tests, so
+the module was largely unreachable.
+
+Now supported everywhere a numeric literal is: `VALUE`, `MOVE`, `COMPUTE`,
+conditions, `FUNCTION` arguments, `WHEN`, 88-level values — signed (`-.5`,
+`+.5`) included, and under `DECIMAL-POINT IS COMMA` for `,5`.
+
+**Leading zeros are exact.** `.000000001` is one billionth, not one tenth. The
+digits written are what set the scale, so `.000000001 * 1000000000` is exactly
+1 — checked by executing the program and reading its output, not by a clean
+parse. That distinction matters here: `VALUE .11111` produced *no diagnostic*
+before this fix either. It simply stored the wrong number, in silence.
+
+**What did not change.** A period followed by a space or a newline is still a
+sentence terminator, and a numeric-edited PICTURE beginning with a decimal
+point — `PIC .9999/99999,99999,99` — is untouched. The two are told apart by
+the absence of a space, which is how COBOL-85 itself distinguishes them; it is
+also why this is resolved when the literal is *parsed* rather than when it is
+lexed, where a picture and a literal are indistinguishable. Malformed source
+such as `MOVE X TO Y.5` stays a compile error rather than being quietly
+reinterpreted.
+
+Measured on the NIST CCVS85 suite, front end only: in-scope **222 → 237 of 434
+(51.2 % → 54.6 %)**. Intrinsic functions 21 → 29, Nucleus 25 → 29, Sort/Merge
+27 → 30. New test suite `tests/cobol/numeric/leading-decimal-point.cbl`
+(11 cases, quantified summary).
+
+## [PowerRustCOBOL 1.62.9] — 2026-08-25
+
+### Fixed — every application compiled SQLite, so every build needed a C compiler
+
+`rusqlite` is pinned with its `bundled` feature, which compiles the SQLite **C
+amalgamation**. `cobolt-runtime` took that unconditionally, and every generated
+application depends on `cobolt-runtime` — so a console program that only ever
+DISPLAYs still built a C library, and still needed a **C toolchain** (`link.exe`
+on Windows, `cc` elsewhere) on top of `rustc`. `BUILDING-en.md` already
+documented all three as things a developer must install; one of them was being
+demanded by programs that had no use for it.
+
+The failure it produced named nothing the developer had written — a linker
+error, against a dependency they never chose — and it landed on the machine that
+builds, never on the machine that runs.
+
+**The SQL bridge is now a feature.** `cobolt-runtime`'s `sql` feature carries
+SQLite, PostgreSQL and MySQL together and is on by default, so `rcrun`, the IDE
+and every test keep the surface they had. The generated manifest is the only
+thing that turns it off, and it does so for a program the build can prove never
+reaches a SQL verb. `libsqlite3-sys` then leaves the dependency graph entirely,
+and the build needs Rust alone.
+
+`cobolt-form-host` forwards the same feature rather than owning it. Cargo unions
+features across a graph, so a form application that cut SQL from the runtime
+would have had it handed straight back by the host — a test pins both lines,
+because that failure is invisible: the build keeps working and keeps needing the
+C toolchain.
+
+**The reading is deliberately timid**, because being wrong here is worse than
+being wasteful: the IDE interprets with the full runtime, so a misjudged program
+would work under *Run Form* and fail only once built. Doubt links the drivers —
+a `CALL` naming a SQL verb, a `CALL` whose target is a data item rather than a
+literal (the name is only known at run time), or an `EXEC RUST` block that
+mentions the SQL modules. Only a program where none of that appears loses SQL.
+The scan covers every form's program, not just the entry one, so a database
+opened by a child form still links.
+
+If a verb somehow arrives that the build could not see, the runtime says which
+decision produced it and what to change, rather than reporting an ordinary
+connection failure.
+
+⚠️ `native-tls` still reaches OpenSSL on Linux, so HTTP and Maps remain a
+system-library dependency there. This change covers SQLite only.
+
+## [PowerRustCOBOL 1.62.8] — 2026-08-25
+
+### Fixed — classic COBOL-85 source now compiles: `--source-format=fixed`
+
+Card-image COBOL did not compile. Not "some of it" — none of it. Handed the
+official NIST COBOL-85 validation suite (CCVS85 4.0, 459 programs, 28 MB),
+RustCOBOL parsed **0 of them**.
+
+Two rules of the reference format were missing.
+
+**Columns 73-80.** The standard reserves them for the identification area and
+the compiler ignores them. We read them as source, so every CCVS85 line ended
+with its program stamp — `NC1014.2` — glued onto the statement. The parser could
+not find `PROGRAM-ID` in a single program.
+
+**Continuation lines.** A hyphen in column 7 continues the previous line. We did
+not join them at all: the fragments were emitted as separate lines, so a literal
+split across two lines left an unbalanced quotation mark, and the lexer's string
+rule ran past the end of the line hunting for its closing quote — swallowing
+arbitrary amounts of the program. 396 of the 459 programs contain such a
+literal. The symptom was always the same and always misleading: one
+`expected PROCEDURE DIVISION` at end of file, pointing nowhere near the cause.
+
+Both are now implemented, behind an explicit selector:
+
+```bash
+rcrun run   --source-format=fixed  program.cbl
+rcrun check --source-format=fixed  program.cbl
+```
+
+`fixed` is the classic reference format — sequence area, indicator column,
+source in columns 8-72, identification area discarded, continuation lines joined
+for literals and for words. `free` (the default), `fixed-relaxed` and `auto` are
+the other values; `COBOLT_SOURCE_FORMAT` sets a default.
+
+**Nothing about existing behaviour changed.** The relaxed fixed reading is a
+separate variant and still runs a line as far as the developer typed it. That
+matters: enforcing the 72-column limit everywhere is what broke `EXEC RUST` in
+generated form sources on 2026-08-05, since a generated `.cbl` opens with a
+banner whose `*` sits in column 7 and embedded Rust has no column rules at all.
+Strict format is never chosen by detection — only by asking for it.
+
+One judgement call is worth stating. A column-7 character that is not a COBOL-85
+indicator is read as **ordinary source**, not rejected. CCVS85 uses the
+indicator area as a selector, marking optional lines with `Y`, `P`, `C`, `S` and
+eleven other letters — 4,830 `Y` lines alone. Rejecting them would fail the
+suite; dropping them would silently delete code.
+
+Measured on the untouched distribution, front end only: **0 → 224 of 459
+(48.8 %)**, and the `expected PROCEDURE DIVISION` root-cause bucket fell from 48
+programs to 6. What remains are real language gaps — numeric literals with a
+leading decimal point, separator commas and semicolons, `FUNCTION x(ALL)`,
+`CLOSE … WITH LOCK` — each specified in `specs/nist/`.
+
+## [PowerRustCOBOL 1.62.7] — 2026-08-25
+
+### Fixed — an `EXEC RUST` block in a second form never ran
+
+An application is not one program. The main form's generated COBOL is one, and
+every form it can open is another (051): each runs in its own interpreter, and
+all of them resolve a compiled block through the process's **single** registry.
+Three pieces of this treated "the program" as the entry file alone, and a block
+written in any other form fell through all three.
+
+**It never reached a compiler.** *Run* decides between the interpreter and a
+build by asking whether the program holds a block — of the form being run, and
+only that one. A block in a child form's event handler answered "no", so the
+IDE started `rcrun run-form`, which cannot execute a block by design. Nothing
+was wrong at Run; the failure arrived later, when the developer clicked the
+button that reached the block. The question now covers every form the project
+holds, which is exactly the set the build compiles.
+
+**Building did not save it either.** `exec_rust::generate` walked the entry
+program, so a child form's block was never emitted and never registered — the
+built binary failed at the same click, after a build that reported success.
+Generation now takes every program the binary can run.
+
+**And the ids collided.** Block ids come from a per-parse counter that starts at
+zero, so the main form's first block and a child form's first block were both
+`0`. Emitting both without fixing that would have been worse than the bug:
+`register(0, …)` twice, last one wins, and a button silently running another
+form's Rust. `parse_from` continues the numbering instead, and the compiler
+threads it through every form program — the ids the AST carries and the ids the
+generated module registers come from one sequence.
+
+A `rustc` error inside a block now names **the form it was written in**. One
+module holds every program's blocks, so the old report — always the entry file,
+at the block's own line — pointed into whichever file the build called main,
+reliably the wrong one when the error was elsewhere.
+
+Item-level blocks from every form are emitted at module scope together, which is
+what makes a helper `fn` written in one form callable from a block in another.
+That is the same process-wide sharing the guide already promises for the object
+bridge; it was true of handles and not of code.
+
+## [PowerRustCOBOL 1.62.6] — 2026-08-25
+
+### Fixed — an installed IDE could not build, and said so in the wrong language
+
+Building an application is a real `cargo build`: the generated project depends
+on `cobolt-ast` and `cobolt-runtime` **by path**, so the platform's Rust sources
+have to exist on the machine. An IDE copied somewhere on its own carries none of
+them, and every build died at the same place:
+
+```
+Build failed: could not locate the PowerRustCOBOL workspace crates: looked via
+the running executable and the build-time path, but found no 'crates/cobolt-ast'.
+Pass BuildOptions.workspace_root, or run the IDE from within the PowerRustCOBOL
+source tree.
+```
+
+Three things were wrong with that. It named `BuildOptions.workspace_root`, an
+internal Rust API no user can reach. It listed no folder it had actually looked
+in. And the two strategies it did have could not succeed on an installed copy:
+one walks *up* from the executable for a `[workspace]` manifest — an install is
+never inside the source tree — and the other used the path baked in when the
+binary was compiled, which is a folder on the machine that built it.
+
+**The platform SDK now ships.** `SDK_CRATES` names the ten crates a built
+application actually compiles against — the `path =` closure of `cobolt-ast`,
+`cobolt-runtime` and `cobolt-form-host` — leaving out the six that build only
+the tooling. A test proves that set is closed: no shipped crate may depend on a
+crate left behind. Staging it is one command, and costs 6.0 MB:
+
+```sh
+cargo run -p cobolt-compiler --example stage_sdk -- <install-dir>
+```
+
+The staged workspace manifest keeps `[workspace.package]` and
+`[workspace.dependencies]` — every platform crate inherits `version.workspace`
+and `serde = { workspace = true }` from them, so a `crates/` folder without that
+manifest above it fails the moment cargo reads the first member — and trims
+`members` to exactly what was copied, which a second test pins.
+
+**Crates are not the whole SDK.** `SDK_EXTRA_PATHS` also ships
+`assets/images/powerrustcobol-icon.png` and `assets/themes`. The icon is not
+decoration: `cobolt-form-host` bakes it in with `include_bytes!`, so a tree
+without it compiles **no form application at all** — and it fails at the
+developer's first Build, not while staging. Themes matter more quietly; without
+them a project designed in Cobalt Steel or Neumorphic still builds and silently
+comes out in Liquid Glass. A staged SDK is 18.9 MB.
+
+`sdk_covers_every_compile_time_asset` scans every SDK crate for `include_bytes!`
+/ `include_str!` paths that climb out of the crate and fails when one is not
+shipped. That guard exists because the first version of this change did not copy
+`assets/`: the staged tree resolved cleanly under `cargo metadata` — which reads
+manifests without compiling — and then died on the icon.
+
+**The search now looks where an install puts things**: beside the executable,
+in an `sdk/` subfolder, one level up, and inside a macOS bundle's `Resources`.
+A folder qualifies only when it holds **both** `Cargo.toml` and
+`crates/cobolt-ast`; requiring just the latter is what let a half-copied tree
+look valid. When nothing is found the error now names every folder it tried.
+
+**Help → Platform SDK Location** sets the folder by hand for a checkout that
+lives elsewhere. It is IDE-wide (`ui.toml`, beside the language and Beautify
+choices), never `cobolt.toml`: the path is a property of this machine, and a
+colleague opening the same project must not inherit a folder that exists only on
+someone else's disk. A blank entry means "search automatically" rather than
+"use the working directory". The dialog shows which folder is in force and
+whether it was found or chosen, and the setting reaches the External Crates
+conflict probe and System-closure scan too, not just Build.
+
+## [PowerRustCOBOL 1.62.5] — 2026-08-24
+
+### Fixed — the date and time registers reported UTC, not the local clock
+
+COBOL-85 defines `ACCEPT … FROM DATE / TIME / DAY / DAY-OF-WEEK` and
+`FUNCTION CURRENT-DATE` on the **local** clock. All of them were derived
+straight from `SystemTime::now()` since `UNIX_EPOCH`, which is UTC — a different
+time of day for most of the world, and a different *date* either side of
+midnight. A clock built the obvious way read three hours wrong in São Paulo:
+
+```cobol
+           ACCEPT date-time FROM TIME     *> 00224845 at 21:22 local
+```
+
+`FUNCTION CURRENT-DATE` was worse than wrong, it was self-contradictory: its
+last five characters are the offset from GMT, and it reported the literal
+`-0000` wherever the machine actually was. The one field whose whole job is to
+say which zone the program is in claimed GMT, always.
+
+All five registers now read `chrono::Local`, and CURRENT-DATE reports the
+machine's real offset. Measured on the reporting machine: `23:18:12.76 -0300`
+against a wall clock reading `231811 -0300`, where it used to answer `02:18`.
+
+This adds nothing to the build. `chrono` was **already compiled into
+`cobolt-runtime`** through `google_maps` → `chrono-tz`; it is now a direct
+dependency of the crate that was already pulling it. No C toolchain and no
+system library come with the `clock` feature.
+
+Tests: `test_local_clock` brackets a real run between two `Local::now()`
+readings — so it cannot flake on a second or midnight boundary — and checks the
+reported offset against the machine's own. It fails by exactly the offset if the
+registers ever go back to UTC, and says so out loud when run on a machine that
+is itself on GMT, where the distinction is invisible.
+
+## [PowerRustCOBOL 1.62.4] — 2026-08-24
+
+### Added — "Only my code": stepping crosses the generated event loop
+
+A form's generated `.cbl` is mostly plumbing the developer never wrote, and the
+`COBOL-EVENT-LOOP` is the worst of it: single-stepping put dozens of statements
+between them and their own handler. Operator, 2026-08-24: *"do not animate the
+cobol event loop. This is an internal construct… the focus is on the user code."*
+
+The whole feature had been **designed end to end and left with its middle
+missing**. `debugger.rs` already had `UserScope` / `DebugUserScope` /
+`new_user_scope`, the wire protocol already had
+`RemoteDebugCmd::SetUserScope { user_only, user_lines }`, and
+`codegen::generate_with_user_lines` already reported which generated lines hold
+the developer's own handler and procedure bodies — with a golden test pinning
+it. But `Interpreter::set_debug_user_scope` did not exist, `debug_check` had no
+filter, `form_gui.rs` accepted the command as a documented no-op, and nothing in
+the IDE ever sent it. Not one of those four pieces was reachable from another.
+
+They are now joined up, and the toggle sits in the debugger toolbar — **on by
+default**, since the scaffolding is not the developer's code. Both session kinds
+carry the scope, so it behaves the same whether the session came from a form or
+from the editor.
+
+**Breakpoints are deliberately not filtered.** Setting one is an explicit act,
+and silently refusing to stop there would be a worse surprise than stepping
+through a loop. The scope governs stepping, nothing else. An absent or empty
+scope means "stop anywhere" — an empty set must never read as "stop nowhere", or
+a session looks like a hang.
+
+Tests: `test_debug_scope` drives a real debug session statement by statement and
+compares the lines it stopped on. With the scope on it stopped on `[10, 12]` —
+the two user lines, 12 generated lines crossed without a pause; with it off,
+`[8, 9, 10, 11, 12, 13, 14]`, every statement as before.
+
+## [PowerRustCOBOL 1.62.3] — 2026-08-24
+
+### Fixed — a breakpoint set after the session started did nothing
+
+Breakpoints were a **launch-time snapshot**. The set was read from the editor
+gutter once, pushed to the debuggee as the session opened, and never looked at
+again: every toggle after that changed a dot on screen and nothing else, and the
+program ran straight past the line the developer had just marked. Four separate
+gaps, each enough on its own:
+
+- The **debugger window's gutter was not clickable at all** — it was allocated
+  with `Sense::hover()`, so it only painted. The one place a developer is
+  actually reading the code while stopped in it was the one place they could not
+  set a breakpoint.
+- `RemoteDebugCmd::SetBreakpoints` was sent from exactly one call site, at
+  launch, so nothing ever reached the `rcrun run-form --debug` child afterwards.
+- The in-IDE `DebugRunner`'s shared set was written only in `do_debug()`.
+- `DebuggerPanel::set_breakpoints()` had **no callers**, so even the window's own
+  dots and its Breakpoints tab went stale.
+
+The gutter now takes clicks (with a hover ghost, so an empty gutter shows it can
+be clicked) and reports them as `DebugAction::ToggleBreakpoint`. A click is
+recorded against the file the debugger window is **showing** — the generated
+`.cbl`, which is rarely the tab in front — through the new
+`EditorPanel::toggle_breakpoint_at`. And `sync_breakpoints_to_debuggee` runs
+every frame on both session kinds, pushing the set whenever it differs from what
+that debuggee was last told, so a breakpoint set, moved or cleared mid-session
+takes effect on the next statement.
+
+Hitting a breakpoint inside an **event handler** was the worst case, and it is
+worth stating plainly: the handler only runs in the external
+`rcrun run-form --debug` session. The in-IDE `DebugRunner` starts the
+interpreter with no form host and no event channel, so `COBOL-WAIT-EVENT` takes
+its CLI branch, sets `COBOL-QUIT` immediately and the event loop exits before any
+handler is dispatched. Debugging a form's handler means debugging the form, not
+the generated `.cbl` from the editor.
+
+Tests: `a_breakpoint_can_be_set_on_a_file_that_is_not_in_front` (the path-keyed
+toggle the debugger gutter needs) and
+`the_window_reports_the_file_its_breakpoints_belong_to` (the panel reports its
+source path, `set_breakpoints` takes, and `reset` clears the run without
+clearing the developer's marks).
+
+## [PowerRustCOBOL 1.62.2] — 2026-08-24
+
+### Fixed — a group item was a variable of its own, not its subordinate items
+
+In COBOL-85 a group **is** the items under it, laid end to end, and it is
+alphanumeric whatever they are; its size is the sum of theirs. Here a group
+owned an independent storage slot that nothing kept in step with the children,
+so the two drifted apart in every direction at once:
+
+```cobol
+       01 G.
+          05 A PIC 99.
+          05 B PIC 99.
+       …
+           MOVE "1234" TO G      *> children stayed 00 / 00
+           DISPLAY G             *> "1234" — from G's own slot
+           MOVE 11 TO A
+           DISPLAY G             *> still "1234" — A is invisible from G
+```
+
+and a group whose children carried `VALUE` clauses displayed **empty**, because
+nothing had ever written the group's own slot.
+
+Reading a group now concatenates its subordinate items and writing one
+distributes the bytes across them by width — the same read-synthesise /
+write-distribute pair 66 `RENAMES` already had. The group's slot is no longer
+consulted for either, so there is one source of truth.
+
+### Fixed — FILLER vanished from the group that contained it
+
+`ItemSym::children` deliberately excludes `FILLER`: it is the `CORRESPONDING`
+list, and an unnamed item has no name to correspond by. Reading a group from
+that list dropped every separator, so the classic edited-time record came back
+as `23473536` instead of `23:47:35_36`.
+
+A group now carries a second list, `layout_keys` — every subordinate item in
+declaration order, `FILLER` included — and unnamed items get a synthetic storage
+key (`\u{2}`, which cannot occur in a COBOL word) so their `VALUE` is really
+stored. `CORRESPONDING` is untouched and still matches by name only. The word
+`FILLER` stays optional, as COBOL-85 allows: `05 PIC X VALUE ":".`
+
+### Fixed — reference modification dropped a numeric item's leading zeros
+
+`id(start:len)` addresses **character positions**, so the sender is taken at its
+full `PIC` width. It was rendering the *value* instead, which drops the padding:
+`PIC 9(8)` holding `00224845` came back as `"224845"`, and the classic unpack
+
+```cobol
+           MOVE T(1:2) TO HH   MOVE T(3:2) TO MM
+           MOVE T(5:2) TO SS   MOVE T(7:2) TO CC
+```
+
+slid two places left — every field took its neighbour's digits and the last one
+fell off the end. Reported while checking an `ACCEPT … FROM TIME` clock.
+
+An elementary item is **not** a group just because it carries 88-level
+condition-names. `ItemSym::is_group` is `!decl.children.is_empty()`, and 88s are
+children there — so `01 WS-GRADE PIC 9(3). 88 PASSING VALUE 60 THRU 100.` first
+read back as the empty concatenation of no data items. A group is now one with a
+non-empty layout.
+
+Tests: three in `test_hierarchy` covering group read/write, `FILLER` (named,
+unnamed and nested) and the reference-modification width; the whole
+`cobolt-runtime` suite is green (27 binaries, 224 tests).
+`docs/cobol85-supported-syntax-en.md` and the Developer's Guide carry all three
+rules.
+
+### Fixed — editing a document rebuilt nothing, so the IDE served a stale set
+
+`docs_embed.rs` bakes the repository's `docs/` into the binary with
+`include_dir!`, which reads the filesystem while the crate compiles. Cargo
+cannot see through a macro, so it had no reason to think the crate was stale
+when a document changed: editing, adding, renaming or translating anything under
+`docs/` rebuilt nothing at all, and the Documentation viewer went on showing
+whatever was embedded the last time a *Rust* file happened to change.
+
+A build script now names the directory (`cargo:rerun-if-changed`). Measured: a
+no-op build finishes in 1.2 s, and touching one document makes it 19.6 s — it
+recompiles, where before it did not. This is why translations could land on disk
+and the viewer keep answering in English.
+
 ## [PowerRustCOBOL 1.62.1] — 2026-08-24
 
 ### Fixed — with the sidebar collapsed, clicks landed on the wrong control

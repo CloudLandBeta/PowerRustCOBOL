@@ -764,6 +764,10 @@ pub struct Interpreter {
     debug_event_tx: Option<mpsc::Sender<crate::debugger::DebugEvent>>,
     /// Active breakpoints shared between the IDE and the interpreter.
     breakpoints: Option<crate::debugger::Breakpoints>,
+    /// Which lines **stepping** is allowed to stop on — the developer's own
+    /// code, when "only my code" is on. Shared with the IDE so the toggle takes
+    /// effect mid-session. `None` (or `user_only` false) = stop anywhere.
+    debug_user_scope: Option<crate::debugger::DebugUserScope>,
     /// When `true`, pause before the very next statement (StepOver mode).
     debug_stepping: bool,
     /// Name of the paragraph currently being executed (for Paused events).
@@ -925,6 +929,7 @@ impl Interpreter {
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
+            debug_user_scope: None,
             debug_stepping: false,
             current_paragraph: String::new(),
             file_specs,
@@ -1909,6 +1914,37 @@ impl Interpreter {
         self.debug_stepping = true; // start paused at line 1
     }
 
+    /// Attach the shared "only my code" scope.
+    ///
+    /// A form's generated `.cbl` is mostly scaffolding — the `COBOL-EVENT-LOOP`
+    /// above all — and stepping through it one line at a time is noise between
+    /// the developer and their own handler. With this set and `user_only` on,
+    /// **stepping** runs straight through anything outside `user_lines`.
+    ///
+    /// Breakpoints are deliberately NOT filtered: setting one is an explicit
+    /// act, and silently refusing to stop there would be a worse surprise than
+    /// stepping through a loop.
+    pub fn set_debug_user_scope(&mut self, scope: crate::debugger::DebugUserScope) {
+        self.debug_user_scope = Some(scope);
+    }
+
+    /// `true` when stepping is allowed to pause on `line`.
+    fn debug_line_in_scope(&self, line: u32) -> bool {
+        let Some(scope) = self.debug_user_scope.as_ref() else {
+            return true;
+        };
+        let Ok(s) = scope.lock() else {
+            return true;
+        };
+        // No scope declared, or an empty one, means "debug everything" — an
+        // empty set must never mean "stop nowhere", or the session would look
+        // like a hang.
+        if !s.user_only || s.user_lines.is_empty() {
+            return true;
+        }
+        s.user_lines.contains(&line)
+    }
+
     /// Seed the visual-object registry with a form's controls and their
     /// designed properties, so that property references (`"Caption" OF Ctrl`)
     /// and method getters (`Ctrl::GetCaption()`) return the configured values
@@ -2213,6 +2249,15 @@ impl Interpreter {
                 .as_ref()
                 .map(|bp| bp.lock().map(|set| set.contains(&line)).unwrap_or(false))
                 .unwrap_or(false);
+
+        // "Only my code": while STEPPING, run straight through IDE-generated
+        // scaffolding — the `COBOL-EVENT-LOOP` above all — and pause only on
+        // lines the developer wrote. Stepping stays armed, so the very next user
+        // line stops; the loop is crossed, not disarmed. A breakpoint is honoured
+        // wherever it sits (see `set_debug_user_scope`).
+        if self.debug_stepping && !hit_breakpoint && !self.debug_line_in_scope(line) {
+            return Ok(());
+        }
 
         if !self.debug_stepping && !hit_breakpoint {
             // Check for async Pause command without blocking.
@@ -2914,6 +2959,20 @@ impl Interpreter {
             // A 66-level RENAMES receiver distributes across its covered items.
             if self.env.is_renames(&name) {
                 self.env.set_renames(&name, &val.as_display_string());
+                continue;
+            }
+            // A group receiver is an alphanumeric move into the record it names:
+            // the bytes are distributed across its subordinate items by width.
+            // Writing the group's own slot instead would leave every child at
+            // its old value while the group read back as something else.
+            if self.env.is_group(&name) {
+                // A group is alphanumeric, so a numeric sender contributes its
+                // zero-padded digit string — the same rule the alphanumeric
+                // receiver below already follows.
+                let text = src_digits
+                    .clone()
+                    .unwrap_or_else(|| val.as_display_string());
+                self.env.set_group(&name, &text);
                 continue;
             }
             // An OBJECT REFERENCE receiver names an *object*; its storage slot
@@ -8132,6 +8191,13 @@ impl Interpreter {
                     let n = s.len();
                     return Ok(CobolValue::from_str(&s, n));
                 }
+                // A group item is the concatenation of its subordinate items and
+                // is alphanumeric whatever they are, so it is read from them and
+                // never from its own slot.
+                if let Some(s) = self.env.group_value(&key) {
+                    let n = s.len();
+                    return Ok(CobolValue::from_str(&s, n));
+                }
                 // An OBJECT REFERENCE item's slot holds the bridge HANDLE ID —
                 // an internal number. Reading the item from COBOL must yield
                 // the value behind it, or `SET Label-1::Caption TO
@@ -8159,6 +8225,11 @@ impl Interpreter {
             Expr::Qualified { name, of, .. } => {
                 let quals = collect_quals(of);
                 let key = self.env.resolve_name(name, &quals);
+                // `A OF B` may name a group just as a bare reference may.
+                if let Some(s) = self.env.group_value(&key) {
+                    let n = s.len();
+                    return Ok(CobolValue::from_str(&s, n));
+                }
                 Ok(self
                     .env
                     .get(&key)
@@ -8215,7 +8286,25 @@ impl Interpreter {
                 span: s,
             } => {
                 // Reference modification (sender): `base(start:[length])`.
-                let text = self.eval_expr(base, *s)?.as_display_string();
+                //
+                // It addresses the item's CHARACTER POSITIONS, so a numeric
+                // operand is taken at its full PIC width with its leading zeros
+                // — COBOL-85 treats the sender as alphanumeric whatever its
+                // USAGE. `as_display_string` renders the *value*, which drops
+                // that padding: `PIC 9(8)` holding 00211498 came back as
+                // "211498", and every field of the classic
+                // `MOVE T(1:2) … T(3:2) … T(5:2)` unpack slid two places left.
+                let text = match base.as_ref() {
+                    Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                        let key = self.expr_to_name(base);
+                        self.env.display_string(&key)
+                    }
+                    _ => None,
+                };
+                let text = match text {
+                    Some(t) => t,
+                    None => self.eval_expr(base, *s)?.as_display_string(),
+                };
                 let bytes = text.as_bytes();
                 let start_i = self.eval_expr(start, *s)?.as_i64().unwrap_or(1).max(1) as usize; // 1-based
                 let begin = (start_i - 1).min(bytes.len());
@@ -9455,31 +9544,32 @@ fn path_display(path: &[PathSeg]) -> String {
 
 /// Return the current date as `YYYYMMDD` (8 chars).
 fn runtime_date() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let days = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        / 86400;
-    days_to_ymd(days)
+    use chrono::Datelike;
+    let now = chrono::Local::now();
+    format!(
+        "{:04}{:02}{:02}",
+        now.year(),
+        now.month(),
+        now.day()
+    )
 }
 
 /// Return the current time as `HHMMSScc` (8 chars, cc = centiseconds).
 fn runtime_time() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
+    use chrono::Timelike;
+    let now = chrono::Local::now();
     // COBOL-85 TIME is HHMMSSss where `ss` is HUNDREDTHS of a second
     // (centiseconds, 00–99) — the standard's finest resolution, not
     // milliseconds. Populate it for real so `ACCEPT … FROM TIME` (and the
     // time portion of FUNCTION CURRENT-DATE) varies sub-second.
-    let cs = now.subsec_nanos() / 10_000_000; // ns → centiseconds, 0–99
-    let h = (secs % 86400) / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
-    format!("{h:02}{m:02}{s:02}{cs:02}")
+    let cs = now.nanosecond().min(999_999_999) / 10_000_000; // ns → centiseconds, 0–99
+    format!(
+        "{:02}{:02}{:02}{:02}",
+        now.hour(),
+        now.minute(),
+        now.second(),
+        cs
+    )
 }
 
 /// Days in `month` (1–12) of `year`, accounting for leap years.
@@ -9566,33 +9656,39 @@ fn day_of_integer(n: i64) -> i64 {
 
 /// Return Julian day as `YYDDD` (5 chars).
 fn runtime_julian_day() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let days = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        / 86400;
-    let (y, _, _) = ymd_from_days(days);
-    let jan1 = days_since_epoch_jan1(y);
-    let doy = days - jan1 + 1;
-    format!("{:02}{:03}", y % 100, doy)
+    use chrono::Datelike;
+    let now = chrono::Local::now();
+    format!("{:02}{:03}", now.year() % 100, now.ordinal())
 }
 
 /// Return day-of-week as `i64`: 1 = Monday … 7 = Sunday (ISO 8601).
 fn runtime_day_of_week() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let days = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        / 86400;
-    // 1970-01-01 was a Thursday → day 4
-    ((days + 3) % 7 + 1) as i64
+    use chrono::Datelike;
+    chrono::Local::now()
+        .weekday()
+        .number_from_monday()
+        .clamp(1, 7) as i64
 }
 
-/// Return a 21-char CURRENT-DATE string: `YYYYMMDDHHMMSSCC+HHMM`.
+/// Return a 21-char CURRENT-DATE string: `YYYYMMDDHHMMSSCC±HHMM`.
+///
+/// The last five characters are the **real** offset from GMT, not the `-0000`
+/// this used to claim: the whole register is the local clock, and a program that
+/// reports its own timezone is the point of the field.
 fn current_date_string() -> String {
-    format!("{}{}-0000", runtime_date(), runtime_time())
+    let offset_secs = {
+        use chrono::Offset;
+        chrono::Local::now().offset().fix().local_minus_utc()
+    };
+    let sign = if offset_secs < 0 { '-' } else { '+' };
+    let abs = offset_secs.abs();
+    format!(
+        "{}{}{sign}{:02}{:02}",
+        runtime_date(),
+        runtime_time(),
+        abs / 3600,
+        (abs % 3600) / 60
+    )
 }
 
 // ── Simple calendar arithmetic (no external crate) ────────────────────────────

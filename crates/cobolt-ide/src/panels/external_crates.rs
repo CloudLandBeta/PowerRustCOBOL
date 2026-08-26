@@ -265,8 +265,9 @@ impl ExternalCratesPanel {
         } else if self.system.is_none() && !self.system_failed {
             let (tx, rx) = channel();
             self.system_rx = Some(rx);
+            let configured = crate::ui_prefs::load_workspace_root();
             std::thread::spawn(move || {
-                let result = cobolt_compiler::resolve_workspace_root(None)
+                let result = cobolt_compiler::resolve_workspace_root(configured)
                     .ok_or_else(|| "cannot locate the PowerRustCOBOL workspace".to_string())
                     .and_then(|root| service::system_closure(&root));
                 let _ = tx.send(result);
@@ -456,7 +457,8 @@ impl ExternalCratesPanel {
             {
                 let alias = offer.alias.clone();
                 self.spawn(format!("{} {alias}", tr.ec_alias_add), true, move |_registry, tx| {
-                    match service::confirm_alias(&path, None, offer.candidate, &offer.alias, &mut |n| {
+                    let sdk = crate::ui_prefs::load_workspace_root();
+                    match service::confirm_alias(&path, sdk, offer.candidate, &offer.alias, &mut |n| {
                         let _ = tx.send(Msg::Note(n));
                     }) {
                         Ok(text) => Ok(SpawnOutcome::Done(Some(text))),
@@ -605,7 +607,7 @@ impl ExternalCratesPanel {
                         match service::add(
                             &registry,
                             &path,
-                            None,
+                            crate::ui_prefs::load_workspace_root(),
                             &name,
                             req,
                             features,
@@ -906,7 +908,8 @@ impl ExternalCratesPanel {
             tr.ec_failed.to_string(),
         );
         self.spawn(tr.ec_update.to_string(), true, move |registry, tx| {
-            let outcomes = service::update(&registry, &path, None, &targets, &mut |n| {
+            let sdk = crate::ui_prefs::load_workspace_root();
+            let outcomes = service::update(&registry, &path, sdk, &targets, &mut |n| {
                 let _ = tx.send(Msg::Note(n));
             })?;
             let (mut updated, mut current, mut failed) = (0usize, 0usize, 0usize);

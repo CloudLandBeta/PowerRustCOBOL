@@ -35,6 +35,15 @@ pub struct UiPrefs {
     /// default, and what an older `ui.toml` reads as) means "not asked yet",
     /// which is what makes the *first* run the first run.
     pub rust_check_done: bool,
+    /// Where the platform SDK — the Rust sources a built application compiles
+    /// against — lives on this machine. Empty (the default) means "look for it
+    /// yourself", which is what an install that ships the SDK beside the
+    /// executable, and a source checkout, both want.
+    ///
+    /// It belongs here rather than in `cobolt.toml`: the folder is a property
+    /// of *this machine's* installation, so a colleague opening the same
+    /// project must not inherit a path that exists only on someone else's disk.
+    pub workspace_root: String,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -117,6 +126,27 @@ pub fn mark_rust_check_done() {
     prefs.save();
 }
 
+/// The configured platform SDK folder, or `None` to let the compiler search.
+///
+/// A blank entry is `None` rather than an empty path: an empty string would
+/// resolve to the process's working directory and shadow the automatic search
+/// with a folder nobody chose.
+pub fn load_workspace_root() -> Option<std::path::PathBuf> {
+    let prefs = UiPrefs::load();
+    let trimmed = prefs.workspace_root.trim();
+    (!trimmed.is_empty()).then(|| std::path::PathBuf::from(trimmed))
+}
+
+/// Remember where the platform SDK lives. `None` clears the setting and
+/// restores the automatic search (load-then-save, like [`save_language`]).
+pub fn save_workspace_root(root: Option<&std::path::Path>) {
+    let mut prefs = UiPrefs::load();
+    prefs.workspace_root = root
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    prefs.save();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,9 +180,23 @@ mod tests {
             beautify_verbs: "capitalize".into(),
             beautify_align_comments: true,
             rust_check_done: true,
+            workspace_root: "/opt/powerrustcobol-sdk".into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);
+    }
+
+    /// A blank entry must mean "search automatically", not "use the process's
+    /// working directory" — an empty path would resolve to the latter and
+    /// shadow the compiler's own search with a folder nobody chose.
+    #[test]
+    fn a_blank_workspace_root_is_no_setting_at_all() {
+        let blank: UiPrefs = toml::from_str("workspace_root = \"   \"\n").unwrap();
+        assert!(blank.workspace_root.trim().is_empty());
+
+        // An older ui.toml has no such key at all, and must read the same way.
+        let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
+        assert!(older.workspace_root.is_empty());
     }
 
     /// A `ui.toml` written before the Rust check existed must read as

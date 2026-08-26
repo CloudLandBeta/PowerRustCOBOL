@@ -331,15 +331,17 @@ pub fn cmd_run_form(args: &[String]) {
     // interpreter DebugEvents → stdout `@DBG <json DebugEvent>` lines. The
     // same line protocol can later ride adb/ssh for Android/iOS debuggees.
     let debug_wiring = if debug_mode {
-        use cobolt_runtime::{new_breakpoints, DebugEvent, RemoteDebugCmd};
+        use cobolt_runtime::{new_breakpoints, new_user_scope, DebugEvent, RemoteDebugCmd};
 
         let (dbg_cmd_tx, dbg_cmd_rx) = mpsc::channel::<cobolt_runtime::DebugCmd>();
         let (dbg_ev_tx, dbg_ev_rx) = mpsc::channel::<DebugEvent>();
         let breakpoints = new_breakpoints();
+        let user_scope = new_user_scope();
 
         // stdin reader: parse and dispatch remote debug commands.
         {
             let bps = Arc::clone(&breakpoints);
+            let scope = Arc::clone(&user_scope);
             std::thread::spawn(move || {
                 use std::io::BufRead;
                 let stdin = std::io::stdin();
@@ -358,11 +360,20 @@ pub fn cmd_run_form(args: &[String]) {
                                 *guard = lines.into_iter().collect();
                             }
                         }
-                        // TODO(debug-user-scope): wire the interpreter's user-only
-                        // stepping once `Interpreter::set_debug_user_scope` lands
-                        // (parked "hide generated code" feature). Accepted here so
-                        // the child never rejects the command; currently a no-op.
-                        Ok(RemoteDebugCmd::SetUserScope { .. }) => {}
+                        // "Only my code": the IDE hands over the generated
+                        // `.cbl` lines that hold the developer's own handler and
+                        // procedure bodies, and stepping crosses everything else
+                        // without stopping. Shared, so the toggle takes effect
+                        // mid-session without restarting the form.
+                        Ok(RemoteDebugCmd::SetUserScope {
+                            user_only,
+                            user_lines,
+                        }) => {
+                            if let Ok(mut guard) = scope.lock() {
+                                guard.user_only = user_only;
+                                guard.user_lines = user_lines.into_iter().collect();
+                            }
+                        }
                         Err(e) => eprintln!("run-form: bad @DBG command: {e}"),
                     }
                 }
@@ -384,7 +395,7 @@ pub fn cmd_run_form(args: &[String]) {
             }
         });
 
-        Some((dbg_cmd_rx, dbg_ev_tx, breakpoints))
+        Some((dbg_cmd_rx, dbg_ev_tx, breakpoints, user_scope))
     } else {
         None
     };
@@ -420,8 +431,9 @@ pub fn cmd_run_form(args: &[String]) {
                 closed_rx,
             );
             interp.seed_objects(seed);
-            if let Some((cmd_rx, ev_tx, bps)) = debug_wiring {
+            if let Some((cmd_rx, ev_tx, bps, scope)) = debug_wiring {
                 interp.attach_debug_channels(cmd_rx, ev_tx, bps);
+                interp.set_debug_user_scope(scope);
             }
             match interp.run() {
                 Ok(()) => {}

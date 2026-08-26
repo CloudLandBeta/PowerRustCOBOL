@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::source::{flatten_fixed, SourceFormat};
+use crate::source::{flatten_fixed, flatten_fixed_strict, SourceFormat};
 
 /// Result of preprocessing: the expanded free-form source plus any errors
 /// (missing copybook, cyclic COPY, malformed directive).
@@ -40,6 +40,10 @@ pub fn expand_copybooks(source: &str, base_dir: &Path, format: SourceFormat) -> 
 fn flatten(source: &str, format: SourceFormat) -> String {
     match format {
         SourceFormat::Fixed => flatten_fixed(source),
+        // Classic reference format: apply the column rules and join
+        // continuation lines *before* looking for COPY/REPLACE, so a directive
+        // or a copied literal split across lines is seen whole.
+        SourceFormat::FixedStrict => flatten_fixed_strict(source),
         _ => source.to_string(),
     }
 }

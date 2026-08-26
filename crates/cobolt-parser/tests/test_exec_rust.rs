@@ -311,3 +311,115 @@ fn exec_rust_in_the_data_division_is_rejected() {
         "the message must rule out the slot people actually try: {msg}"
     );
 }
+
+// ── Block ids across programs (one binary, one registry) ─────────────────────
+
+/// Two programs of one application must not both number their blocks from zero.
+///
+/// A form application compiles the main form's program and every openable
+/// form's into one binary, and every interpreter in that process resolves a
+/// block through the same registry. Numbering each file from zero gave the main
+/// form's first block and a child form's first block the same id, so whichever
+/// registered last answered for both — a button silently running another
+/// form's Rust.
+#[test]
+fn block_ids_continue_across_programs() {
+    let first = prog("    EXEC RUST\n    let a = 1;\n    END-EXEC.\n    EXEC RUST\n    let b = 2;\n    END-EXEC.");
+    let second = prog("    EXEC RUST\n    let c = 3;\n    END-EXEC.");
+
+    let a = parse(tokenize(&first, SourceFormat::Free));
+    assert_eq!(a.next_block_id, 2, "two blocks consumed ids 0 and 1");
+
+    // The second program continues where the first stopped.
+    let b = cobolt_parser::parse_from(tokenize(&second, SourceFormat::Free), a.next_block_id);
+    assert_eq!(b.next_block_id, 3);
+
+    let ids = |result: &cobolt_parser::ParseResult| -> Vec<u32> {
+        let proc = result.program.as_ref().unwrap().procedure.clone();
+        let stmts: Vec<Stmt> = match proc.body {
+            ProcedureBody::Paragraphs(paras) => paras.into_iter().flat_map(|p| p.stmts).collect(),
+            ProcedureBody::Sections(secs) => secs
+                .into_iter()
+                .flat_map(|s| s.paragraphs)
+                .flat_map(|p| p.stmts)
+                .collect(),
+        };
+        stmts
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::ExecRust { block_id, .. } => Some(*block_id),
+                _ => None,
+            })
+            .collect()
+    };
+
+    assert_eq!(ids(&a), vec![0, 1]);
+    assert_eq!(ids(&b), vec![2], "no id is claimed twice");
+}
+
+/// Parsing a source on its own still starts at zero — nothing else changes.
+#[test]
+fn a_lone_program_still_numbers_from_zero() {
+    let src = prog("    EXEC RUST\n    let a = 1;\n    END-EXEC.");
+    let r = parse(tokenize(&src, SourceFormat::Free));
+    assert_eq!(r.next_block_id, 1);
+}
+
+// ── A literal confined to its line must not disturb an EXEC RUST block ────────
+//
+// Rust genuinely has multi-line strings, and every generated form `.cbl` carries
+// `EXEC RUST` blocks, so this is the main exposure of confining COBOL literals
+// to a single line.
+//
+// It is safe by construction: the block is captured by *offset slicing* between
+// the end of `RUST` and the start of `END-EXEC`, and the scan in between only
+// matches `Word("END-EXEC")` — error tokens are `Err(..)` and never match. The
+// captured text is byte-identical however the interior happens to tokenize.
+// These tests hold that construction in place.
+
+/// A Rust body containing a multi-line string round-trips verbatim.
+#[test]
+fn exec_rust_body_with_a_multiline_rust_string_is_captured_whole() {
+    let code = prog(
+        "    EXEC RUST\n\
+         \x20       let banner = \"line one\n\
+         line two\";\n\
+         \x20       println!(\"{}\", banner);\n\
+         \x20   END-EXEC.\n",
+    );
+    let stmts = parse_stmts(&code);
+    let src = stmts
+        .iter()
+        .find_map(|s| match s {
+            Stmt::ExecRust { source, .. } => Some(source.clone()),
+            _ => None,
+        })
+        .expect("no EXEC RUST block captured");
+    assert!(src.contains("line one"), "first half lost: {src}");
+    assert!(src.contains("line two"), "second half lost: {src}");
+    assert!(src.contains("println!"), "tail of the block lost: {src}");
+}
+
+/// A single-line Rust string containing the characters `END-EXEC` must not
+/// terminate the block early — the scan sees a string token, not a word.
+#[test]
+fn exec_rust_body_may_mention_end_exec_inside_a_string() {
+    let code = prog(
+        "    EXEC RUST\n\
+         \x20       let marker = \"END-EXEC\";\n\
+         \x20       let after = marker.len();\n\
+         \x20   END-EXEC.\n",
+    );
+    let stmts = parse_stmts(&code);
+    let src = stmts
+        .iter()
+        .find_map(|s| match s {
+            Stmt::ExecRust { source, .. } => Some(source.clone()),
+            _ => None,
+        })
+        .expect("no EXEC RUST block captured");
+    assert!(
+        src.contains("marker.len()"),
+        "the block ended at the mention inside the string: {src}"
+    );
+}

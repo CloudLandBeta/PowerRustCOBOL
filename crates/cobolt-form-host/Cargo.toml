@@ -13,10 +13,18 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 
+[features]
+# Forwarded, not owned. Cargo unions features across a dependency graph, so a
+# built form application that asks `cobolt-runtime` for no SQL would get it back
+# the moment THIS crate asked for the default — and the SQLite C amalgamation
+# with it. The generated manifest turns both off together.
+default = ["sql"]
+sql = ["cobolt-runtime/sql"]
+
 [dependencies]
 cobolt-ast     = { path = "../cobolt-ast" }
 cobolt-forms   = { path = "../cobolt-forms", features = ["render"] }
-cobolt-runtime = { path = "../cobolt-runtime" }
+cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
 cobolt-media   = { path = "../cobolt-media" }
 
 egui        = "0.36"

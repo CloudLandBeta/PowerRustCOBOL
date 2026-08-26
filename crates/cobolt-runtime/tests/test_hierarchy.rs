@@ -170,3 +170,137 @@ fn search_finds_matching_occurrence() {
     let out = run_capture(src);
     assert_eq!(out, vec!["FOUND", "MISS"]);
 }
+
+/// A group item **is** its subordinate items — read and written.
+///
+/// A group used to own an independent slot that nothing kept in step with the
+/// children, so it behaved like a separate variable that merely happened to sit
+/// above them: `DISPLAY` of a group printed whatever had been moved to the group
+/// itself (usually nothing at all), a group MOVE left every child untouched, and
+/// a child MOVE was invisible from the group. Operator, 2026-08-24: *"um grupo é
+/// como um item cujo tamanho é definido pelos seus filhos, sendo alfanumérico
+/// por natureza"*.
+#[test]
+fn a_group_is_the_concatenation_of_its_children() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GRP.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-INIT.
+          05 WS-P PIC 99 VALUE 77.
+          05 WS-Q PIC 99 VALUE 88.
+       01 WS-G.
+          05 WS-A PIC 99.
+          05 WS-B PIC 99.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY "[" WS-INIT "]"
+           MOVE "1234" TO WS-G
+           DISPLAY "[" WS-G "]"
+           DISPLAY "[" WS-A "][" WS-B "]"
+           MOVE 11 TO WS-A
+           DISPLAY "[" WS-G "]"
+           MOVE WS-G TO WS-INIT
+           DISPLAY "[" WS-INIT "]"
+           STOP RUN.
+    "#;
+    let out = run_capture(src);
+    assert_eq!(
+        out,
+        vec![
+            "[7788]",  // children's VALUE clauses build the group
+            "[1234]",  // a group MOVE lands…
+            "[12][34]", // …distributed across the children
+            "[1134]",  // a child MOVE shows through the group
+            "[1134]",  // group-to-group carries the bytes
+        ]
+    );
+}
+
+/// FILLER holds bytes in the group, and the word itself is optional.
+///
+/// `children`/`child_keys` exclude FILLER on purpose — they are the
+/// `CORRESPONDING` list, and an unnamed item has no name to correspond by. The
+/// group's *layout* is a different set, and reading the group from the
+/// CORRESPONDING list dropped every separator: the classic edited-time record
+/// came back as "23473536" instead of "23:47:35_36".
+#[test]
+fn filler_holds_its_place_in_a_group_named_or_not() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FILL.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAMED.
+          05 WS-C PIC 99 VALUE 33.
+          05 FILLER PIC X VALUE ":".
+          05 WS-D PIC 99 VALUE 44.
+       01 WS-BARE.
+          05 WS-E PIC 99 VALUE 55.
+          05    PIC X VALUE ":".
+          05 WS-F PIC 99 VALUE 66.
+       01 WS-NEST.
+          05 WS-IN.
+             10 WS-X PIC 9 VALUE 1.
+             10 FILLER PIC X VALUE "-".
+             10 WS-Y PIC 9 VALUE 2.
+          05 FILLER PIC X VALUE "|".
+          05 WS-Z PIC 9 VALUE 3.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY "[" WS-NAMED "]"
+           DISPLAY "[" WS-BARE "]"
+           DISPLAY "[" WS-NEST "]"
+           DISPLAY "[" WS-IN "]"
+           STOP RUN.
+    "#;
+    let out = run_capture(src);
+    assert_eq!(
+        out,
+        vec![
+            "[33:44]",  // FILLER written out
+            "[55:66]",  // …and with the word omitted, as COBOL-85 allows
+            "[1-2|3]",  // a group of groups flattens whole
+            "[1-2]",    // and the inner group reads on its own
+        ]
+    );
+}
+
+/// Reference modification addresses CHARACTER POSITIONS, so a numeric sender is
+/// taken at its full PIC width — leading zeros included.
+///
+/// Rendering the *value* instead dropped the padding, so `PIC 9(8)` holding
+/// 00224845 came back as "224845" and the classic
+/// `MOVE T(1:2) … T(3:2) … T(5:2) … T(7:2)` unpack slid two places left: every
+/// field took its neighbour's digits and the last one fell off the end.
+#[test]
+fn reference_modification_reads_a_numeric_at_its_pic_width() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REFM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-T PIC 9(8) VALUE 00224845.
+       01 WS-EDIT.
+          05 WS-HH PIC 99.
+          05    PIC X VALUE ":".
+          05 WS-MM PIC 99.
+          05    PIC X VALUE ":".
+          05 WS-SS PIC 99.
+          05    PIC X VALUE "_".
+          05 WS-CC PIC 99.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE WS-T(1:2) TO WS-HH(1:)
+           MOVE WS-T(3:2) TO WS-MM(1:)
+           MOVE WS-T(5:2) TO WS-SS(1:)
+           MOVE WS-T(7:2) TO WS-CC(1:)
+           DISPLAY "[" WS-T(1:2) "]"
+           DISPLAY "[" WS-T(7:) "]"
+           DISPLAY "[" WS-EDIT "]"
+           STOP RUN.
+    "#;
+    let out = run_capture(src);
+    assert_eq!(out, vec!["[00]", "[45]", "[00:22:48_45]"]);
+}

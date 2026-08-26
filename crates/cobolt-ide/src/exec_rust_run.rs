@@ -50,6 +50,24 @@ pub fn file_has_blocks(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether **any** of these programs contains a block.
+///
+/// A form application is not one program. `OpenForm` runs another form's
+/// generated program in an interpreter of its own (spec 051 R1), and every one
+/// of them looks a block up in the process's single compiled registry — so a
+/// binary is needed as soon as *one* form has a block, wherever it lives.
+///
+/// Asking only about the form the developer pressed Run on answered "no" for a
+/// block in a child form's handler. The IDE then took the interpreter path,
+/// which cannot execute a block, and the failure surfaced at the button click
+/// rather than at Run. Pass every form the project holds.
+pub fn any_has_blocks<'a, I>(paths: I) -> bool
+where
+    I: IntoIterator<Item = &'a Path>,
+{
+    paths.into_iter().any(file_has_blocks)
+}
+
 /// Same heuristic the compiler uses to tell fixed from free format.
 fn looks_fixed(source: &str) -> bool {
     source.lines().any(|line| {
@@ -113,5 +131,41 @@ mod tests {
         assert!(!file_has_blocks(Path::new(
             "/nonexistent/definitely-not-here.cbl"
         )));
+    }
+
+    /// The bug this function exists for: the block is in the SECOND form, and a
+    /// multi-form application still has to be built.
+    #[test]
+    fn a_block_in_any_form_needs_a_build() {
+        let dir = std::env::temp_dir().join("prc-exec-rust-run-any");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let plain = dir.join("MAINFORM.cbl");
+        let with_block = dir.join("CHILDFORM.cbl");
+        std::fs::write(
+            &plain,
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. MAINFORM.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20          DISPLAY \"hello\".\n\
+             \x20          STOP RUN.\n",
+        )
+        .expect("write");
+        std::fs::write(&with_block, WITH_BLOCK).expect("write");
+
+        assert!(
+            !file_has_blocks(&plain),
+            "the form the developer pressed Run on has no block"
+        );
+        assert!(
+            any_has_blocks([plain.as_path(), with_block.as_path()]),
+            "…but a child form does, so the run needs a build"
+        );
+        assert!(
+            !any_has_blocks([plain.as_path()]),
+            "a project of plain forms keeps the interpreter path"
+        );
+        assert!(!any_has_blocks(std::iter::empty()), "nothing to run, nothing to build");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

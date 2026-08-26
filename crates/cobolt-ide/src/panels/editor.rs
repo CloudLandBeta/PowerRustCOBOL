@@ -1848,10 +1848,19 @@ impl EditorPanel {
     /// Toggle a breakpoint on `line` (1-based) in the active file.
     pub fn toggle_breakpoint(&mut self, line: u32) {
         if let Some(tab) = self.tabs.get(self.active) {
-            let set = self.breakpoints.entry(tab.path.clone()).or_default();
-            if !set.remove(&line) {
-                set.insert(line);
-            }
+            let path = tab.path.clone();
+            self.toggle_breakpoint_at(&path, line);
+        }
+    }
+
+    /// Toggle a breakpoint on a named file, whether or not it is the active tab
+    /// — or open at all. The debugger window shows the generated `.cbl` while
+    /// the developer's own file sits in front, so a click in its gutter has to
+    /// reach that file's set directly.
+    pub fn toggle_breakpoint_at(&mut self, path: &PathBuf, line: u32) {
+        let set = self.breakpoints.entry(path.clone()).or_default();
+        if !set.remove(&line) {
+            set.insert(line);
         }
     }
 
@@ -5969,5 +5978,49 @@ END-EVALUATE
         assert_eq!(replace_all_ci("abc", "x", "y"), "abc");
         // Non-matching UTF-8 passes through untouched.
         assert_eq!(replace_all_ci("café move", "MOVE", "ADD"), "café ADD");
+    }
+}
+
+#[cfg(test)]
+mod breakpoint_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// A breakpoint can be set on a file that is not the active tab — and need
+    /// not be open at all.
+    ///
+    /// `toggle_breakpoint` works off `self.active`, which is the only thing the
+    /// editor gutter ever needs. The debugger window shows the **generated**
+    /// `.cbl` while the developer's own file sits in front, so a click in its
+    /// gutter had nowhere to land: the debugger's gutter was not even clickable,
+    /// and the only way to mark a handler line was to open the generated file in
+    /// the editor first, before starting the session.
+    #[test]
+    fn a_breakpoint_can_be_set_on_a_file_that_is_not_in_front() {
+        let mut ed = EditorPanel::new();
+        ed.tabs.push(EditorTab::new(
+            PathBuf::from("hand-written.cbl"),
+            "MOVE 1 TO X\n".to_owned(),
+        ));
+        ed.active = 0;
+
+        let generated = PathBuf::from("generated/form1.cbl");
+        assert!(ed.breakpoints_for(&generated).is_empty());
+
+        ed.toggle_breakpoint_at(&generated, 42);
+        assert_eq!(ed.breakpoints_for(&generated), vec![42]);
+        assert!(
+            ed.breakpoints_for(&PathBuf::from("hand-written.cbl")).is_empty(),
+            "the tab in front is untouched"
+        );
+
+        // Toggling is a toggle: the second click clears the line.
+        ed.toggle_breakpoint_at(&generated, 42);
+        assert!(ed.breakpoints_for(&generated).is_empty());
+
+        // The active-tab shorthand still routes to the tab in front.
+        ed.toggle_breakpoint(9);
+        assert_eq!(ed.breakpoints_for(&PathBuf::from("hand-written.cbl")), vec![9]);
+        assert!(ed.breakpoints_for(&generated).is_empty());
     }
 }

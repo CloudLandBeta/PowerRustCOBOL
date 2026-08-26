@@ -16,7 +16,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | `README.md` | current | repo landing page |
 | `docs/developers-guide-en.md` | **canonical English** | developers using the IDE |
 | `docs/<doc>-{es,pt,fr,jp,cn}.md` | translations — **regenerated whole on every minor/major, deleted whenever their English changes** (operator ruling 2026-08-24, see Localization policy). Never patched, never partially updated. | localized readers |
-| `docs/cobol85-supported-syntax-en.md` | current | language reference |
+| `docs/cobol85-supported-syntax-en.md` | current | language reference **and the NIST CCVS85 conformance scoreboard** — the PASS/FAIL/N-A table is the document's headline and must be re-measured (`cargo run -p cobolt-semantic --example nist_conformance -- strict`) and updated whenever a `specs/nist/` fix lands |
 | `docs/cobol85-verb-test-matrix-en.md` | current | verb coverage |
 | `CHANGELOG.md` | current (English only — release notes are not translated) | release notes |
 | `docs/compiler-manual-en.md` | **planned** | CLI / build deep-dive |
@@ -51,7 +51,8 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#20-appearance-and-internationalisation` | `crates/cobolt-ide/src/i18n.rs`, `crates/cobolt-ide/src/fonts.rs`, `crates/cobolt-forms/src/fonts.rs` | i18n, theming, font-pipeline |
 | `…#21-cobol-structure-and-shared-data` | `crates/cobolt-ide/src/panels/cobol_structure.rs`, `crates/cobolt-forms/**`, `crates/cobolt-codegen/**`, `crates/cobolt-runtime/src/{environment,interpreter}.rs` | cobol-structure, shared-data |
 | `…#22-the-application-shell-and-the-super-receiver` | `crates/cobolt-form-host/src/shell.rs`, `crates/cobolt-form-host/src/host.rs`, `crates/cobolt-runtime/src/{interpreter,form_host}.rs`, `crates/cobolt-semantic/src/resolver.rs`, `crates/cobolt-forms/src/{model,menu}.rs` | application-shell, super-receiver |
-| `cobol85-supported-syntax-en.md` | `crates/cobolt-{parser,semantic,runtime}/**` | language-support |
+| `BUILDING-en.md#installing-the-ide-elsewhere--ship-the-platform-sdk` | `crates/cobolt-compiler/src/lib.rs` (`SDK_CRATES`, `stage_sdk`, `resolve_workspace_root`), `crates/cobolt-compiler/examples/stage_sdk.rs` | platform-sdk |
+| `cobol85-supported-syntax-en.md` | `crates/cobolt-{lexer,parser,semantic,runtime}/**`, `crates/cobolt-semantic/examples/nist_conformance.rs`, `specs/nist/**` | language-support, nist-conformance |
 | `cobol85-verb-test-matrix-en.md` | `tests/cobol/**`, `crates/cobolt-runtime/**` | verb-tests |
 | `compiler-manual-en.md` *(planned)* | `crates/cobolt-cli/**`, `crates/cobolt-compiler/**` | cli-flags, build |
 | `README.md` | *(project overview — broad)* | overview |

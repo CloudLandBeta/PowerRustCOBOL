@@ -61,7 +61,8 @@ pub mod value;
 pub use channels::{FormEvent, FormIpcMessage, StateUpdate};
 pub use db_runtime::DbRegistry;
 pub use debugger::{
-    new_breakpoints, Breakpoints, DebugCmd, DebugEvent, RemoteDebugCmd, VarSnapshot,
+    new_breakpoints, new_user_scope, Breakpoints, DebugCmd, DebugEvent, DebugUserScope,
+    RemoteDebugCmd, UserScope, VarSnapshot,
 };
 pub use environment::{new_external_store, CobolEnvironment, ExternalStore};
 pub use error::RuntimeError;

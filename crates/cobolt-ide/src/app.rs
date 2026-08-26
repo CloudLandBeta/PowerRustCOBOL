@@ -446,6 +446,21 @@ pub struct CoboltApp {
     /// `rcrun run-form --debug` process (over `@DBG` stdin/stdout lines)
     /// instead of the in-IDE `DebugRunner` thread.
     debug_external: bool,
+    /// The breakpoint set the live debuggee was last told about.
+    ///
+    /// Breakpoints used to be a launch-time snapshot: the set was pushed once,
+    /// when the session started, and every toggle after that changed the gutter
+    /// and nothing else — the program ran straight past the line the developer
+    /// had just marked. Kept here so the per-frame sync can tell "changed" from
+    /// "unchanged" and push only on a real edit.
+    debug_sent_breakpoints: std::collections::HashSet<u32>,
+    /// The generated-`.cbl` lines that hold the developer's own handler and
+    /// procedure bodies, from `codegen::generate_with_user_lines`. Empty for an
+    /// editor-started session, which means "debug everything".
+    debug_user_lines: Vec<u32>,
+    /// The "only my code" state the live debuggee was last told about; `None`
+    /// before the first push of a session.
+    debug_sent_user_only: Option<bool>,
     /// One-shot default sizing for the standalone debugger OS window (mirrors
     /// `inspector_sized`): applied on the session's first frame only, so the
     /// user's own window resizes are preserved afterwards.
@@ -614,6 +629,11 @@ pub struct CoboltApp {
 
     /// Whether the Help → About window is open.
     about_open: bool,
+    /// Whether the Help → Platform SDK Location window is open. The SDK is the
+    /// Rust source a built application compiles against; an install that ships
+    /// it beside the executable needs no setting, so this exists for the case
+    /// where it lives somewhere else on this machine.
+    sdk_modal_open: bool,
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
@@ -1393,6 +1413,9 @@ impl CoboltApp {
             debug_active: false,
             debug_owner_form: None,
             debug_external: false,
+            debug_sent_breakpoints: std::collections::HashSet::new(),
+            debug_user_lines: Vec::new(),
+            debug_sent_user_only: None,
             debugger_vp_sized: false,
 
             perf_window_start: None,
@@ -1473,6 +1496,7 @@ impl CoboltApp {
             welcome_quote_start_time: 0.0,
             main_form_prev: Vec::new(),
             about_open: false,
+            sdk_modal_open: false,
             ai_setup_modal: false,
             toolchain_prompt: None,
             project_upgrades: Vec::new(),
@@ -1965,6 +1989,12 @@ impl CoboltApp {
                 guard.insert(*line);
             }
         }
+        self.debug_sent_breakpoints = bp_set;
+        // An editor-started session debugs whatever file is open, so there is no
+        // form to ask for user-code ranges. An empty set means "stop anywhere",
+        // which is the right answer for hand-written COBOL.
+        self.debug_user_lines.clear();
+        self.debug_sent_user_only = None;
 
         self.debug_runner.start(path.display().to_string(), source);
         self.debug_active = true;
@@ -2124,7 +2154,14 @@ impl CoboltApp {
         // first block, which is correct but useless. Build first and run what
         // the build produced. Programs without a block never reach this and
         // keep the fast path exactly as it was.
-        if crate::exec_rust_run::file_has_blocks(&cbl_path) {
+        //
+        // The question covers EVERY form in the project, not just this one: an
+        // application opens child forms (051), each runs its own program, and
+        // all of them share one compiled block registry. Asking only about the
+        // form being run took the interpreter path for a block in a child
+        // form's handler, and it failed at the button click instead of at Run.
+        let run_cbl_paths = self.run_program_paths(&form_path);
+        if crate::exec_rust_run::any_has_blocks(run_cbl_paths.iter().map(PathBuf::as_path)) {
             let tr = self.lang.tr();
             if debug {
                 // The debugger drives the interpreter over `@DBG` lines; a
@@ -2220,6 +2257,19 @@ impl CoboltApp {
                     self.debugger
                         .set_source(cbl_path.display().to_string(), &source, &bp_set);
                     run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
+                    self.debug_sent_breakpoints = bp_set;
+                    // "Only my code": the generated `.cbl` is mostly scaffolding
+                    // — the `COBOL-EVENT-LOOP` and its plumbing — so hand the
+                    // child the ranges that hold the developer's own handler and
+                    // procedure bodies. `generate_with_user_lines` reports them
+                    // from the same recording path that produced the file, so
+                    // the two cannot drift.
+                    let (_, ranges) = cobolt_codegen::generate_with_user_lines(&form);
+                    self.debug_user_lines = ranges
+                        .into_iter()
+                        .flat_map(|(from, to)| from..=to)
+                        .collect();
+                    self.debug_sent_user_only = None; // force the first push
                     self.debug_active = true;
                     self.debug_external = true;
                     self.debug_owner_form = Some(form_path.clone());
@@ -2288,9 +2338,93 @@ impl CoboltApp {
         });
     }
 
+    /// Push the current breakpoint set to whichever session is live, when it
+    /// differs from what that debuggee was last told.
+    ///
+    /// Called every frame while a session runs. Breakpoints used to be pushed
+    /// exactly once, at launch: a line marked afterwards changed the gutter and
+    /// nothing else, and the program ran straight past it. The set is small and
+    /// the comparison is a `HashSet` equality, so a per-frame check costs
+    /// nothing and there is no way to forget a path that mutates it.
+    fn sync_breakpoints_to_debuggee(&mut self) {
+        if !self.debug_active {
+            return;
+        }
+        let path = PathBuf::from(self.debugger.source_path());
+        if path.as_os_str().is_empty() {
+            return;
+        }
+        let bp_lines = self.editor.breakpoints_for(&path);
+        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
+        if bp_set == self.debug_sent_breakpoints {
+            return;
+        }
+        self.debug_sent_breakpoints = bp_set.clone();
+        self.debugger.set_breakpoints(&bp_set);
+        if self.debug_external {
+            use cobolt_runtime::RemoteDebugCmd;
+            let owner = self.debug_owner_form.clone();
+            if let Some(run) = self
+                .external_runs
+                .iter_mut()
+                .find(|r| r.debug && owner.as_ref() == Some(&r.form_path))
+            {
+                run.send_debug(&RemoteDebugCmd::SetBreakpoints(bp_lines));
+            }
+        } else if let Ok(mut guard) = self.debug_runner.breakpoints.lock() {
+            *guard = bp_set;
+        }
+    }
+
+    /// Push the "only my code" scope when the developer flips the toggle.
+    ///
+    /// Same shape as [`Self::sync_breakpoints_to_debuggee`]: compare against
+    /// what this debuggee was last told and push only on a change, so the
+    /// toggle takes effect mid-session without restarting the form.
+    fn sync_user_scope_to_debuggee(&mut self) {
+        if !self.debug_active {
+            return;
+        }
+        let want = self.debugger.only_user_code;
+        if self.debug_sent_user_only == Some(want) {
+            return;
+        }
+        self.debug_sent_user_only = Some(want);
+        let lines = self.debug_user_lines.clone();
+        if self.debug_external {
+            use cobolt_runtime::RemoteDebugCmd;
+            let owner = self.debug_owner_form.clone();
+            if let Some(run) = self
+                .external_runs
+                .iter_mut()
+                .find(|r| r.debug && owner.as_ref() == Some(&r.form_path))
+            {
+                run.send_debug(&RemoteDebugCmd::SetUserScope {
+                    user_only: want,
+                    user_lines: lines,
+                });
+            }
+        } else if let Ok(mut guard) = self.debug_runner.user_scope.lock() {
+            guard.user_only = want;
+            guard.user_lines = lines.into_iter().collect();
+        }
+    }
+
     /// Apply a debugger toolbar/shortcut action to whichever session is live:
     /// the external `rcrun run-form --debug` process or the in-IDE DebugRunner.
     fn handle_debug_action(&mut self, action: DebugAction) {
+        // A gutter click means the same thing on both paths, so it is handled
+        // before the split: record it against the file the debugger window is
+        // showing — which is the generated `.cbl`, not whatever tab happens to
+        // be in front — and push the new set straight away.
+        if let DebugAction::ToggleBreakpoint(line) = action {
+            let path = PathBuf::from(self.debugger.source_path());
+            if !path.as_os_str().is_empty() {
+                self.editor.toggle_breakpoint_at(&path, line);
+                self.sync_breakpoints_to_debuggee();
+            }
+            return;
+        }
         if self.debug_external {
             // Remote session: commands travel to the rcrun child as `@DBG`
             // stdin lines; Stop kills the process (form window closes too).
@@ -2334,6 +2468,8 @@ impl CoboltApp {
                         run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Pause));
                     }
                 }
+                // Handled above, before the session split.
+                DebugAction::ToggleBreakpoint(_) => {}
             }
             return;
         }
@@ -2353,6 +2489,8 @@ impl CoboltApp {
                 self.debugger.center_current_line_next_frame();
                 self.debug_runner.send_cmd(DebugCmd::Pause);
             }
+            // Handled above, before the session split.
+            DebugAction::ToggleBreakpoint(_) => {}
         }
     }
 
@@ -3099,7 +3237,10 @@ impl CoboltApp {
         std::thread::spawn(move || {
             let opts = BuildOptions {
                 verbose: false,
-                workspace_root: None,
+                // The machine-local SDK folder, when the developer has set one.
+                // `None` keeps the compiler's own search, which finds a shipped
+                // SDK beside the executable and a source checkout above it.
+                workspace_root: crate::ui_prefs::load_workspace_root(),
                 progress: Some(ptx),
                 // Host only — there is no cross-compilation (spec 041 R17).
                 target: None,
@@ -5111,6 +5252,32 @@ impl CoboltApp {
             return dir.join("generated").join(&file_name);
         }
         cfrm.with_extension("cbl")
+    }
+
+    /// Every generated program a run started from `cfrm` can execute.
+    ///
+    /// The form itself first, then every other form the project holds: an
+    /// application opens child forms at run time (spec 051), and the build
+    /// compiles all of them into one binary. Any question about what a run
+    /// needs — a Rust toolchain, most of all — has to be asked of the whole
+    /// set, never of the entry form alone.
+    ///
+    /// A loose form that belongs to no project is just itself.
+    fn run_program_paths(&self, cfrm: &std::path::Path) -> Vec<PathBuf> {
+        let mut out = vec![self.generated_cbl_path(cfrm)];
+        let (Some(proj), Some(dir)) = (
+            self.cobolt_project.as_ref(),
+            self.project_path.as_ref().and_then(|p| p.parent()),
+        ) else {
+            return out;
+        };
+        for rel in &proj.files.forms {
+            let other = self.generated_cbl_path(&dir.join(rel));
+            if !out.contains(&other) {
+                out.push(other);
+            }
+        }
+        out
     }
 
     fn generated_indexed_cbl_path(&self, cidx: &std::path::Path) -> PathBuf {
@@ -9623,6 +9790,94 @@ impl CoboltApp {
         }
     }
 
+    /// Help → Platform SDK Location.
+    ///
+    /// Building an executable runs a real `cargo build` against the platform's
+    /// Rust crates, so those sources must exist on this machine. An install
+    /// that ships them beside the executable resolves automatically and this
+    /// dialog stays empty; it is here for the case where the SDK — or a full
+    /// source checkout — sits somewhere else.
+    ///
+    /// Fixed size, per the never-self-resizing-window rule: the window owns an
+    /// explicit size and every child is laid out from it, never from the
+    /// available space.
+    fn show_sdk_location(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
+        if !self.sdk_modal_open {
+            return;
+        }
+        const W: f32 = 560.0;
+
+        // Collect the picker result before painting, so the label shows the new
+        // folder on the very frame the dialog closes.
+        if let Some(picked) = crate::file_dialog::take("sdk_root") {
+            if let Some(dir) = picked {
+                crate::ui_prefs::save_workspace_root(Some(&dir));
+            }
+        }
+
+        let configured = crate::ui_prefs::load_workspace_root();
+        let resolved = cobolt_compiler::resolve_workspace_root(configured.clone());
+
+        let mut open = self.sdk_modal_open;
+        egui::Window::new(tr.sdk_menu_label)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size([W, 0.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_width(W);
+                ui.add_space(4.0);
+                ui.label(tr.sdk_explain);
+                ui.add_space(8.0);
+
+                // What is in force right now, and where it came from.
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(format!("{}:", tr.sdk_in_use));
+                    match &resolved {
+                        Some(root) => ui.monospace(root.display().to_string()),
+                        None => ui.colored_label(egui::Color32::from_rgb(220, 90, 90), tr.sdk_none),
+                    };
+                });
+                ui.add_space(2.0);
+                ui.label(if configured.is_some() {
+                    tr.sdk_source_setting
+                } else if resolved.is_some() {
+                    tr.sdk_source_auto
+                } else {
+                    tr.sdk_missing_hint
+                });
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    if ui.button(tr.sdk_browse).clicked() {
+                        let mut spec = crate::file_dialog::DialogSpec::folder();
+                        if let Some(dir) = configured.as_ref() {
+                            spec = spec.directory(dir.clone());
+                        }
+                        crate::file_dialog::begin(ctx, "sdk_root", spec);
+                    }
+                    if ui
+                        .add_enabled(configured.is_some(), egui::Button::new(tr.sdk_clear))
+                        .clicked()
+                    {
+                        crate::ui_prefs::save_workspace_root(None);
+                    }
+                    ui.add_space(ui.spacing().item_spacing.x);
+                    if ui.button(tr.sdk_close).clicked() {
+                        self.sdk_modal_open = false;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        if !open {
+            self.sdk_modal_open = false;
+        }
+    }
+
     /// "Set up the AI" invitation, shown once after opening a project that has no
     /// usable model or no configured agent. The two buttons open the very same
     /// managers as the Project Settings rows (`manage_models` / `manage_agents`),
@@ -11781,6 +12036,13 @@ impl eframe::App for CoboltApp {
             self.runner.clear();
         }
 
+        // A breakpoint toggled anywhere — this window's gutter, the editor's,
+        // or a file the developer opened mid-session — reaches the running
+        // debuggee on the next frame. Covers BOTH session kinds, which is why
+        // it sits above the in-IDE-only drain below.
+        self.sync_breakpoints_to_debuggee();
+        self.sync_user_scope_to_debuggee();
+
         // ── Drain debugger events (in-IDE DebugRunner sessions only — remote
         // `rcrun --debug` sessions are fed from the external-run drain) ───────
         if self.debug_active && !self.debug_external {
@@ -11984,6 +12246,7 @@ impl eframe::App for CoboltApp {
         self.show_new_form_dialog(ctx);
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
+        self.show_sdk_location(ctx, &tr);
         self.show_project_upgrade_modal(ctx, &tr);
         self.show_toolchain_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
@@ -12140,6 +12403,10 @@ impl eframe::App for CoboltApp {
                     ui.separator();
                     if ui.button(tr.debug_menu_label).clicked() {
                         self.debug_modal.toggle();
+                        ui.close();
+                    }
+                    if ui.button(tr.sdk_menu_label).clicked() {
+                        self.sdk_modal_open = true;
                         ui.close();
                     }
                     ui.separator();

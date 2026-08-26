@@ -40,3 +40,19 @@ use cobolt_lexer::SpannedToken;
 pub fn parse(tokens: Vec<SpannedToken>) -> ParseResult {
     Parser::new(tokens).parse_program()
 }
+
+/// Parse a program whose `EXEC RUST` block ids continue from `block_id_base`.
+///
+/// [`parse`] numbers blocks from zero, which is right for a source read on its
+/// own. A build is not that: a form application compiles the main program and
+/// every openable form's program into **one** binary, and every interpreter in
+/// that process looks a block up in **one** registry. Numbering each file from
+/// zero would give the main form's first block and a child form's first block
+/// the same id, and the last one registered would silently answer for both.
+///
+/// So the caller parses each program with the previous one's
+/// [`ParseResult::next_block_id`], and the ids stay unique across the whole
+/// application.
+pub fn parse_from(tokens: Vec<SpannedToken>, block_id_base: u32) -> ParseResult {
+    Parser::with_block_id_base(tokens, block_id_base).parse_program()
+}

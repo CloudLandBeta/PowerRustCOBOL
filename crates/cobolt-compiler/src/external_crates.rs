@@ -229,7 +229,11 @@ pub fn probe_manifest(
          # folder it is staged in lives under someone else's cargo workspace.\n\
          [workspace]\n\n\
          [dependencies]\n{}",
-        crate::base_dependency_block(crates_path, true)
+        // The probe answers "does this pin resolve against our graph?", and it
+        // runs from the External Crates panel with no program in hand. Ask
+        // against the WIDEST graph: a pin that resolves here also resolves in a
+        // build that links less, so the verdict can only ever be conservative.
+        crate::base_dependency_block(crates_path, true, crate::runtime_features::RuntimeFeatures::all())
     );
     s.push_str(&pin_deps);
     if !patches.is_empty() {
@@ -780,6 +784,7 @@ mod tests {
             true,
             &project,
             &pins,
+            crate::runtime_features::RuntimeFeatures::all(),
         );
         assert!(text.contains("[workspace]"));
         assert!(text.contains("csv = { version = \"=1.4.0\" }"));

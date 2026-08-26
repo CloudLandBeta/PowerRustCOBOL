@@ -205,6 +205,37 @@ there is nothing to install beside it on the machine you hand it to.
 
 ---
 
+## Installing the IDE elsewhere — ship the platform SDK
+
+The IDE executable is **not** self-contained the way an application you build is.
+Building an application runs a real `cargo build` against the platform's Rust
+sources, so those sources must exist on the machine doing the building. Copy
+`cobolt-ide` somewhere on its own and Build fails, naming every folder it looked
+in — the toolchain is fine, the sources are simply absent.
+
+Stage them beside the executable. From the source tree:
+
+```sh
+cargo run -p cobolt-compiler --example stage_sdk -- <install-dir>
+```
+
+That writes `Cargo.toml` and `crates/` into `<install-dir>` — 6.0 MB, the ten
+crates a built application compiles against. Pass `--sdk` to put them in
+`<install-dir>/sdk/` instead when the install folder holds other things. The IDE
+finds either layout with no configuration, and also looks one level up and, on
+macOS, inside the bundle's `Resources`.
+
+The machine still needs the Rust toolchain — Build is a real compile — and its
+first build downloads the dependency crates from the registry, so it needs
+network access once.
+
+> **Note.** For a checkout that lives somewhere else entirely, set the folder by
+> hand under **Help → Platform SDK Location**. It is remembered per machine
+> rather than per project, so it never travels to a colleague in `cobolt.toml`.
+> Leave it blank to go back to the automatic search.
+
+---
+
 ## Troubleshooting
 
 **`linker 'cc' not found` (Linux)** — `build-essential` (or `@development-tools`)

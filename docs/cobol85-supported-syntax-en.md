@@ -8,8 +8,15 @@ See the LICENSE file in the project root for full license information.
 
 # RustCOBOL‑85 Supported Syntax Reference
 
+**What this document is for:** to say how much of the COBOL‑85 standard
+RustCOBOL really implements — and to prove it against the **official NIST
+COBOL‑85 validation suite** rather than assert it. The
+[scoreboard](#-conformance-is-measured-not-asserted--nist-ccvs85) below is the
+headline; everything after it is the detail behind that number.
+
 **Ground truth of what the RustCOBOL lexer/parser/runtime actually accept today**,
-derived from the source (`cobolt-lexer`, `cobolt-parser`, `cobolt-runtime`).
+derived from the source (`cobolt-lexer`, `cobolt-parser`, `cobolt-runtime`) and
+checked against `NIST/newcob.val,cbl`.
 Write tests against the ✅ forms; the ❌ forms will fail to parse or are no‑ops,
 and ⚠️ forms parse but behave partially. This is the companion to
 [`cobol85-verb-test-matrix-en.md`](cobol85-verb-test-matrix-en.md): the matrix says
@@ -17,6 +24,138 @@ and ⚠️ forms parse but behave partially. This is the companion to
 
 Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recognized
 (avoid, or test only to confirm the gap).
+
+---
+
+## ★ Conformance is measured, not asserted — NIST CCVS85
+
+**This is the point of the document.** Every claim below is checked against the
+**official NIST COBOL‑85 validation suite** — CCVS85 version 4.0 (01 OCT 1992,
+COBOL 85 version 4.2, Apr 1993 SSVG), the suite the United States National
+Institute of Standards and Technology used to certify COBOL compilers. It is
+28 MB, 348,271 lines, **459 COBOL programs** and 51 copybook members, and it
+lives in this repository at `NIST/newcob.val,cbl`.
+
+It is the source of truth. Where RustCOBOL and CCVS85 disagree, **CCVS85 is
+right and RustCOBOL is wrong**, and the gap is recorded as a defect in
+[`specs/nist/`](../specs/nist/README.md) — one spec per fix, with the failing
+programs named.
+
+### The scoreboard
+
+Measured 2026‑08‑25 at version 1.62.12, on the untouched distribution:
+
+| | Programs | Share | Meaning |
+|---|---:|---:|---|
+| ✅ **PASS** | **242** | **55.8 %** | of the 434 in‑scope programs |
+| ❌ **FAIL** | **192** | 44.2 % | of the 434 in‑scope programs |
+| ⬜ **N/A** | **25** | — | modules outside RustCOBOL's scope (below) |
+| | **459** | | total programs in the suite |
+
+Reproduce it:
+
+```bash
+cargo run -p cobolt-semantic --example nist_conformance -- strict
+```
+
+#### ⚠️ What PASS actually means — read this before quoting the number
+
+A program counts as **PASS** when it goes through the RustCOBOL front end —
+lexer, parser, semantic analyser — with **zero errors**, using
+`--source-format=fixed`.
+
+That is *compilation* conformance. It is **not** proof the program computes the
+right answer. A CCVS85 program also prints its own `PASS`/`FAIL` tally when it
+runs, and scoring that output is the **next stage** of this work — it is not
+included in the 242. Two measured cases show why the distinction matters:
+
+- 30 of the 35 RELATIVE‑file programs compile cleanly, and the runtime has **no
+  RELATIVE engine at all** — they would run and produce wrong results silently.
+- A literal continued across two lines can reassemble incorrectly and still
+  parse, leaving the program holding the wrong data.
+
+So: **PASS = "RustCOBOL accepts every construct in this program."** Nothing more,
+yet.
+
+#### Per module
+
+| Module | What it tests | PASS / Total | |
+|---|---|---:|---|
+| NC | Nucleus | 30 / 95 | |
+| SQ | Sequential I/O | 47 / 85 | |
+| IC | Inter‑program communication | 32 / 47 | |
+| IF | Intrinsic functions | 29 / 45 | |
+| IX | Indexed I/O | 31 / 42 | |
+| ST | Sort / Merge | 30 / 40 | |
+| RL | Relative I/O | 30 / 35 | ⚠️ compiles; no runtime engine |
+| SM | Source text manipulation (COPY/REPLACE) | 4 / 17 | |
+| DB | Debug | 9 / 15 | |
+| SG | Segmentation | 0 / 13 | ⚠️ now blocked on segment priority numbers |
+| **In scope** | | **242 / 434** | |
+| CM | Communication | — | ⬜ N/A |
+| RW | Report Writer | — | ⬜ N/A |
+| OBSQ / OBIC / OBNC | Obsolete‑feature flagging | — | ⬜ N/A |
+| EXEC85 | NIST's own COBOL driver program | — | ⬜ N/A |
+
+### ⬜ N/A — what is out of RustCOBOL's scope, and why
+
+These 25 programs are **not counted as failures**. They are features RustCOBOL
+does not implement and is not planning to. Full reasoning in
+[`NIST-spec-out-of-scope-modules.md`](../specs/nist/NIST-spec-out-of-scope-modules.md).
+
+| Module | Programs | Why it is out of scope |
+|---|---:|---|
+| **CM** — Communication | 9 | `COMMUNICATION SECTION`, `CD` entries, `SEND` / `RECEIVE` / `ENABLE` / `DISABLE`. Targets 1980s teleprocessing monitors — message queues owned by a transaction manager. There is no such runtime here, and the module was removed from later COBOL standards. |
+| **RW** — Report Writer | 6 | `REPORT SECTION`, `RD` entries, `INITIATE` / `GENERATE` / `TERMINATE`, control breaks. A large declarative sub‑language; PowerRustCOBOL's answer to reporting is the Form Designer and PDF export. Could become a *feature* later if wanted — it is the one exclusion with real user value. |
+| **OBSQ / OBIC / OBNC** | 9 | These re‑test earlier modules and expect the compiler to *flag* obsolete COBOL‑85 elements. Their language content is covered by the in‑scope specs; obsolete‑feature **flagging** is what is out of scope. |
+| **EXEC85** | 1 | Not a test. It is NIST's own COBOL executive that splits the distribution and drives the suite — replaced here by a Rust harness, so it does not need to compile. |
+
+**Object‑Oriented COBOL** is also outside RustCOBOL's scope, but CCVS85 predates
+it entirely — there are no OO programs in the suite.
+
+### Where the remaining 192 failures come from
+
+Each is a specified defect, not an unknown. Ranked by the number of programs
+whose *first* error it is:
+
+| Programs | Root cause | Spec |
+|---:|---|---|
+| 31 | separator comma — `MOVE ZERO TO A, B, C` | [separators](../specs/nist/NIST-spec-separators.md) |
+| 15 | `FUNCTION MAX(TBL(ALL))` | [intrinsics](../specs/nist/NIST-spec-intrinsic-function-gaps.md) |
+| 12 | `WHEN -0.000020 THRU 0.000020` | [statement gaps](../specs/nist/NIST-spec-statement-grammar-gaps.md) |
+| 11 | space‑separated subscripts — `TBL (1  2)` | [separators](../specs/nist/NIST-spec-separators.md) |
+| 10 | `SET SW-1 TO ON` (switch names) and `SET A, B, C TO 1` | [special‑names](../specs/nist/NIST-spec-special-names.md), [separators](../specs/nist/NIST-spec-separators.md) |
+| 9 | `CLOSE … WITH LOCK` / `WITH NO REWIND` | [statement gaps](../specs/nist/NIST-spec-statement-grammar-gaps.md) |
+| 7 | `COPY` deep in Area B or split across lines | [COPY/REPLACE](../specs/nist/NIST-spec-copy-and-replace.md) |
+| 5 | separator semicolon — `START F ; INVALID KEY` | [separators](../specs/nist/NIST-spec-separators.md) |
+| 4 | `OCCURS` integer on a following line | [separators](../specs/nist/NIST-spec-separators.md) |
+| 4 | `SECTION` with a priority number — `SORT-PARA SECTION 69.` | [segmentation](../specs/nist/NIST-spec-segmentation.md) |
+
+> **The ranking moves after every fix, and the moves are informative.** Three
+> rows that led this table in earlier releases are gone — IDENTIFICATION
+> comment-entries, numeric literals, and the stray quotation mark. Each time,
+> most of the programs in the cleared row did **not** start passing; they moved
+> to the row below. The four SG programs freed at 1.62.12 now stop at
+> `SORT-PARA SECTION 69.`, which is why Segmentation still reads 0 / 13.
+> Re-measure rather than trusting a previous ranking.
+
+### Conformance history
+
+| Version | PASS / 434 | What changed |
+|---|---:|---|
+| 1.62.7 | **0** | Nothing compiled. Two rules of the classic reference format were missing: columns 73‑80 were read as source, and continuation lines were never joined. |
+| 1.62.8 | **222** | `--source-format=fixed` — the classic reference format, including continuation. See [Source formats](#source-formats). |
+| 1.62.10 | **237** | Numeric literals may begin with a decimal point (`.999`). Intrinsic functions 21 → 29, Nucleus 25 → 29, Sort/Merge 27 → 30. |
+| 1.62.11 | 241 | IDENTIFICATION comment-entry paragraphs. Debug 5 → 9. A smaller gain than the 32-program bucket suggests: 9 of those are Communication programs (N/A), and most of the rest hit a second blocker immediately after. |
+| **1.62.12** | **242** | A literal is confined to its line, so one stray quotation mark can no longer shift the parity of a whole file. Nucleus 29 → 30. The 6‑program bucket cleared: 4 moved on to segment priority numbers, 1 now passes. |
+
+> **The honest summary.** RustCOBOL accepts a little over **half** the in‑scope
+> NIST suite today, up from none four releases ago. The remaining 192 are not
+> mysterious — they are ten named defects, each specified with the programs it
+> blocks. This table is the measure of progress, and it is updated with every
+> release.
+
+---
 
 > **Update (gap-implementation pass):** the following were implemented and are
 > now ✅ — **reference modification** `id(start:len)`, **inline
@@ -74,6 +213,137 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 
 ---
 
+## IDENTIFICATION DIVISION paragraphs
+
+- ✅ `PROGRAM-ID. name [IS] [COMMON] [INITIAL] [RECURSIVE] [PROGRAM].`
+- ✅ The **comment‑entry** paragraphs — `AUTHOR`, `INSTALLATION`,
+  `DATE‑WRITTEN`, `DATE‑COMPILED`, `SECURITY` — in **any order and any subset**.
+- ✅ `REMARKS` is accepted too. It was deleted from COBOL in 1985, so it is not
+  stored; it is taken so that source carried over from COBOL‑74 still compiles.
+
+A **comment‑entry** is free text, and COBOL‑85 means that literally:
+
+```cobol
+INSTALLATION.
+    GENERAL SERVICES ADMINISTRATION
+    AUTOMATED DATA AND TELECOMMUNICATION SERVICE.
+    5203 LEESBURG PIKE  SUITE 1100
+    FALLS CHURCH VIRGINIA 22041.
+DATE-WRITTEN.
+    CCVS-74 VERSION 4.0 - 1980 JULY 1.
+```
+
+- It may contain **reserved words** — the `DATA` above does not start a DATA
+  DIVISION.
+- It may contain **periods**, and does not end at one.
+- It **spans as many lines** as you write.
+- It ends at the next paragraph or division header **beginning a line** in
+  Area A — which is how the entry above ends at `DATE-WRITTEN`.
+
+**A quotation mark in that prose is contained to its line** (since 1.62.12).
+Text such as `THE COMPILER"S ABILITY` no longer opens a literal that runs into
+the rest of the program — see [Source formats](#source-formats). It is still
+worth avoiding an unpaired quote in a comment‑entry, but it now costs you that
+line, not the file.
+
+⚠️ `INSTALLATION`, `SECURITY` and `REMARKS` are **not reserved words** here.
+They are recognised as paragraph names only inside the IDENTIFICATION DIVISION,
+so a data item called `SECURITY` keeps working.
+
+---
+
+## Source formats
+
+RustCOBOL reads three source layouts. The choice is explicit — it is **never**
+guessed from the file's contents, because applying column rules to source that
+was not written for them deletes code silently.
+
+| `--source-format` | What it means |
+|---|---|
+| `free` | No column rules at all. `*>` starts a comment. **The default**, and what PowerRustCOBOL's own projects and generated form `.cbl` files use. |
+| `fixed` | ✅ **Classic COBOL-85 reference format** — the layout the standard defines and that card-image source is written in. See below. |
+| `fixed-relaxed` | The sequence area and indicator column are honoured, but the line runs as far as you typed it — no 72-column limit. |
+| `auto` | Historical behaviour: `free`, unless `COBOLT_FIXED=1`. |
+
+`COBOLT_SOURCE_FORMAT` sets the default for a session.
+
+### `fixed` — the classic reference format
+
+```text
+Col:  1     6 7  8   11  12                                      72 73    80
+      |-----| |  |---|   |--------------------------------------- | |------|
+      SeqNum  I  AreaA   Area B (active source)                    Ident
+```
+
+- **Columns 1-6** — sequence number area, ignored.
+- **Column 7** — indicator area:
+  - `*` or `/` → comment line
+  - `-` → **continuation** of the previous line
+  - `D` → debugging line; a comment (debugging mode is not yet implemented)
+  - anything else → read as ordinary source. The standard reserves this column,
+    but card-image suites use it as a selector for optional lines, and silently
+    dropping those lines would delete code.
+- **Columns 8-72** — the source.
+- **Columns 73-80** — identification area, **discarded**.
+
+### Continuation lines ✅
+
+A hyphen in column 7 continues the previous line.
+
+**Continuing a word or a numeric literal** — the continued line's trailing
+spaces are discarded and the halves meet with nothing between them:
+
+```cobol
+004700 01  WRK-DS-18V00-CONTIN
+004800-    UED PICTURE X.
+```
+
+declares one item named `WRK-DS-18V00-CONTINUED`.
+
+**Continuing an alphanumeric literal** — the continued line's literal has no
+closing quotation mark; the continuation line must reopen with one, and the
+literal resumes at the character after it:
+
+```cobol
+011700     02 FILLER PICTURE IS X(54) VALUE IS "------------------------
+011800-    "------------------------------".
+```
+
+⚠️ **The continued fragment runs to column 72, trailing spaces included.** A line
+that stops short of column 72 still contributes those spaces to the literal.
+This is why a continued literal is only byte-exact under `fixed`; the other
+formats have no column 72 to stop at.
+
+### A literal never spans a line by accident ✅
+
+Continuation is the **only** way a literal reaches across lines. A quotation
+mark that is not closed on its own line is an error, reported where it is
+written:
+
+```text
+unterminated alphanumeric literal — a literal cannot span source lines. In fixed
+format, continue it on the next line with `-` in column 7 and reopen with the
+same quotation mark; in free format there is no continuation, so the literal
+must fit on one line.
+```
+
+This matters more than it sounds. Before 1.62.12 an unpaired quote ran to the
+*next* quotation mark anywhere in the file, so a single stray `"` in a comment
+swallowed whole divisions and shifted the pairing of every quote after it — the
+NIST programs where this was found have an **even** number of quotation marks,
+so nothing was unterminated; one character had shifted the parity of the entire
+file. The damage now stops at the newline.
+
+> **Free format has no literal continuation.** Not `&` — that is the
+> concatenation *operator* — and not a fenced block. A free-format literal must
+> fit on one line; for a long one, concatenate: `"first part" & "second part"`.
+
+> **Note.** Choosing `fixed` for a file that was written free-form will damage
+> it — anything past column 72 vanishes, and text before column 8 is read as a
+> sequence number. Only pass it for source that really is card-image.
+
+---
+
 ## Recognized statements (verbs)
 
 ✅ `MOVE` `ADD` `SUBTRACT` `MULTIPLY` `DIVIDE` `COMPUTE` `IF` `EVALUATE`
@@ -113,6 +383,14 @@ unhandled error `FILE STATUS`.
   share by name, recursing through matching sub-groups.
 - ✅ **Reference modification `id(start:len)`** — sender (substring) and receiver
   (spliced partial assignment); works on every verb's operands. `length` optional.
+  It addresses **character positions**, so a numeric operand is taken at its full
+  `PIC` width with its leading zeros: `01 T PIC 9(8) VALUE 00224845` gives
+  `T(1:2)` = `"00"`, not `"22"`.
+- ✅ **Group items are alphanumeric aggregates** — a group *is* its subordinate
+  items laid end to end, and its size is the sum of theirs. Reading one
+  concatenates the children (including `FILLER`); moving to one distributes the
+  bytes across them by width. `MOVE 11 TO A` is visible through the group that
+  contains `A`, and `MOVE "1234" TO G` sets `G`'s children, not a slot of its own.
 - ✅ subscripts `t(i)`, `t(i, j)` — read/write the per-occurrence storage slot;
   variable subscripts `t(WS-I)` evaluated each access.
 - ✅ qualification `id OF/IN group` (`… OF g1 OF g2`) — resolves to the correct
@@ -340,10 +618,29 @@ unhandled error `FILE STATUS`.
   PRESENT-VALUE, YEAR-TO-YYYY, BYTE-LENGTH, LENGTH-AN, NUMVAL-F, TEST-NUMVAL`.
   (Date conversions use the standard base 1601‑01‑01 = day 1.) The **complete
   COBOL‑85 standard intrinsic set** is implemented.
+- ✅ **The date and time registers read the LOCAL clock.** `ACCEPT … FROM DATE /
+  TIME / DAY / DAY-OF-WEEK` and `FUNCTION CURRENT-DATE` all report the machine's
+  own time of day, not UTC — including the date, which differs either side of
+  midnight. `CURRENT-DATE`'s last five characters carry the **real** offset from
+  GMT (`…-0300`), so a program can tell which zone it is running in.
   ⚠️ Any unrecognised `FUNCTION` name still parses but returns **0** at runtime.
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).
+- ✅ **A numeric literal may begin with the decimal point** — `.5`, `-.5`,
+  `.000000001`. COBOL‑85 requires only that a literal not *end* with one, so
+  `5.` is still the number 5 followed by a sentence terminator.
+  ```cobol
+  77  A05ONES  PICTURE SV9(5)  VALUE .11111.
+      COMPUTE WS-NUM = FUNCTION ACOS(.999).
+      IF WRK-DU-5V1-1 = .1  PERFORM PASS-PARA.
+  ```
+  Leading zeros are significant and exact: `.000000001` is one billionth, not
+  one tenth. Under `DECIMAL-POINT IS COMMA` the same applies to `,5`.
+  What separates the literal from a sentence-ending period is the **absence of
+  a space** — COBOL‑85 requires one after a terminator, so `MOVE X TO Y.` is
+  never read as the start of a fraction, and `MOVE X TO Y.5` is a compile
+  error rather than a silent reinterpretation.
 - ✅ **Hexadecimal literals** — `X"09"`, `x'0D0A'` (either case, either quote).
   One character per **pair** of hex digits, so the digit count must be even; an
   odd count or a non-hex digit is a malformed literal and is reported, not
@@ -354,7 +651,10 @@ unhandled error `FILE STATUS`.
 
 ## DATA DIVISION clauses (declaration syntax accepted)
 
-- ✅ Levels `01`–`49`, `77`, `88`; `FILLER`; group/elementary.
+- ✅ Levels `01`–`49`, `77`, `88`; `FILLER`; group/elementary. The word `FILLER`
+  is **optional** — `05 PIC X VALUE ":".` declares one just as `05 FILLER PIC X
+  VALUE ":".` does, and either way it holds its bytes and its `VALUE` inside the
+  group that contains it.
 - ✅ `PIC/PICTURE` with `X A 9 S V P` and edited symbols (`Z * $ + - CR DB B 0 /
   , .`).
 - ✅ `USAGE [IS] {DISPLAY | BINARY | COMP | COMP-1 | COMP-2 | COMP-3 |
@@ -377,8 +677,19 @@ unhandled error `FILE STATUS`.
 
 ## Still NOT supported — current avoid‑list
 
-The COBOL‑85 verb / clause set is **fully covered**. What remains outside scope
-is intentional or post‑85:
+> **Corrected 2026‑08‑25.** This section used to open "The COBOL‑85 verb /
+> clause set is **fully covered**." Running the NIST CCVS85 suite disproved it:
+> **197 of 434 in‑scope programs still fail**, on constructs this document did
+> not list as gaps — separator commas and semicolons, `FUNCTION x(ALL)`,
+> `CLOSE … WITH LOCK`, `COPY` in Area B, IDENTIFICATION comment entries,
+> section priority numbers, digit‑leading data names, and — until 1.62.10 —
+> numeric literals with a leading decimal point. That is what a validation
+> suite is for. Each gap is
+> now specified in [`specs/nist/`](../specs/nist/README.md) and tracked in the
+> [scoreboard](#-conformance-is-measured-not-asserted--nist-ccvs85) above.
+
+The list below is what is out of scope **by intent**, as opposed to the NIST
+gaps above, which are defects being worked through:
 
 1. **Screen `ACCEPT` input editing** — `DISPLAY … AT/WITH` and `ACCEPT … AT`
    are executed (ANSI) in CLI mode, but full field‑level SCREEN SECTION editing
@@ -390,8 +701,17 @@ is intentional or post‑85:
    (single run‑unit model).
 3. **Object‑Oriented COBOL** (class/method definitions) — `INVOKE` is a no‑op
    for COBOL objects (it drives GUI/runtime objects only).
-4. **RELATIVE** file organization (SEQUENTIAL / LINE SEQUENTIAL / INDEXED done).
-5. Unrecognised intrinsic‑function names still return **0**.
+4. ⚠️ **RELATIVE** file organization (SEQUENTIAL / LINE SEQUENTIAL / INDEXED
+   done). **This one is a trap, not a clean gap:** `ORGANIZATION IS RELATIVE`
+   *parses*, and nothing in the runtime ever dispatches on it — so a RELATIVE
+   program compiles and then misbehaves with no diagnostic. 30 of the NIST RL
+   module's 35 programs are in exactly that state. Treat it as unimplemented.
+   Spec: [relative‑organization](../specs/nist/NIST-spec-relative-organization.md).
+5. Unrecognised intrinsic‑function names still return **0** — the same silent
+   failure mode. Spec:
+   [intrinsics](../specs/nist/NIST-spec-intrinsic-function-gaps.md).
+6. **The Communication module and Report Writer** — see
+   [N/A above](#-na--what-is-out-of-rustcobols-scope-and-why).
 
 > **Resolved (1.5.0):** the flat data model became hierarchical / occurrence‑aware,
 > unblocking **CORRESPONDING**, **qualified names**, **table subscripting**, and

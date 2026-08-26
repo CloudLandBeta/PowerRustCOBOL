@@ -124,7 +124,26 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
         } else {
             // Unknown / unrecognised token — skip and try to recover
             if !p.at(&Token::Eof) {
-                p.emit_error(format!("unexpected token in statement: {:?}", p.peek()));
+                // A bare quotation mark reaches the parser as an error token,
+                // and "unexpected token: Error("\"")" tells the developer
+                // nothing. It is a literal that was never closed on its line —
+                // say that, and say how to write one that spans lines, because
+                // in free format the answer is "you cannot".
+                // logos merges a run of unmatched characters into one error
+                // token, so the text is the whole tail of the line — `"abc TO
+                // X.` — not the bare quote. Match on how it starts.
+                let msg = match p.peek() {
+                    Token::Error(t) if t.starts_with('"') || t.starts_with('\'') => {
+                        "unterminated alphanumeric literal — a literal cannot span \
+                         source lines. In fixed format, continue it on the next line \
+                         with `-` in column 7 and reopen with the same quotation mark; \
+                         in free format there is no continuation, so the literal must \
+                         fit on one line."
+                            .to_string()
+                    }
+                    other => format!("unexpected token in statement: {other:?}"),
+                };
+                p.emit_error(msg);
                 p.advance();
             } else {
                 break;

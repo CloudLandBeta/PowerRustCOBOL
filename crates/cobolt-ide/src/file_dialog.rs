@@ -32,6 +32,7 @@ fn pending() -> &'static Mutex<Pending> {
 #[derive(Clone, Default)]
 pub struct DialogSpec {
     save: bool,
+    folder: bool,
     filters: Vec<(String, Vec<String>)>,
     directory: Option<PathBuf>,
     file_name: Option<String>,
@@ -46,6 +47,14 @@ impl DialogSpec {
     pub fn save() -> Self {
         Self {
             save: true,
+            ..Self::default()
+        }
+    }
+    /// A "pick a directory" dialog. Filters and a suggested file name do not
+    /// apply, and are ignored if set.
+    pub fn folder() -> Self {
+        Self {
+            folder: true,
             ..Self::default()
         }
     }
@@ -99,12 +108,14 @@ pub fn begin(ctx: &egui::Context, key: &str, spec: DialogSpec) {
         if let Some(name) = &spec.file_name {
             dlg = dlg.set_file_name(name);
         }
-        let handle = if spec.save {
-            pollster::block_on(dlg.save_file())
+        let picked = if spec.folder {
+            pollster::block_on(dlg.pick_folder()).map(|h| h.path().to_path_buf())
+        } else if spec.save {
+            pollster::block_on(dlg.save_file()).map(|h| h.path().to_path_buf())
         } else {
-            pollster::block_on(dlg.pick_file())
+            pollster::block_on(dlg.pick_file()).map(|h| h.path().to_path_buf())
         };
-        let _ = tx.send(handle.map(|h| h.path().to_path_buf()));
+        let _ = tx.send(picked);
         // Wake every viewport so whichever frame owns the poll site runs.
         ctx.request_repaint();
         ctx.request_repaint_of(egui::ViewportId::ROOT);

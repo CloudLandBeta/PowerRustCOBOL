@@ -58,6 +58,12 @@ pub struct ParseResult {
     pub program: Option<Program>,
     /// All diagnostics emitted during parsing.
     pub diagnostics: Vec<Diagnostic>,
+    /// The first `EXEC RUST` block id this parse did **not** use.
+    ///
+    /// Pass it to [`crate::parse_from`] for the next program of the same
+    /// application and their block ids cannot collide. A source parsed on its
+    /// own ignores it.
+    pub next_block_id: u32,
 }
 
 impl ParseResult {

@@ -71,15 +71,32 @@ pub enum RawToken {
     HexString(String),
 
     // ── String literals ────────────────────────────────────────────────────
+    //
+    // **A literal never crosses a newline.** COBOL-85 has no multi-line
+    // literal: continuation is a source-format mechanism (`-` in column 7) and
+    // the preprocessor resolves it before the lexer runs, so a literal is
+    // always on one line by the time it is tokenized.
+    //
+    // Excluding `\n` from the body is what keeps one stray quotation mark from
+    // damaging the rest of the file. Without it, a `"` inside prose pairs with
+    // the *next* quote several lines away, swallows everything between, and
+    // shifts the pairing of every quote after it — the NIST programs where this
+    // was found (SG104A, SG105A, SG106A, NC215A) all have an even number of
+    // quotation marks, so nothing was unterminated; the parity of the whole
+    // file was shifted by a single character in a comment-entry. Confined to a
+    // line, the damage stops at the next newline.
+    //
+    // (`\\.` needs no change — Rust's `.` does not match `\n`.)
+
     // Double-quoted: "Hello, World!"  (doubled "" is an escaped quote)
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| {
+    #[regex(r#""([^"\\\n]|\\.)*""#, |lex| {
         let s = lex.slice();
         s[1..s.len()-1].to_string()
     })]
     StringDouble(String),
 
     // Single-quoted: 'Hello'  (doubled '' is an escaped quote)
-    #[regex(r"'([^'\\]|\\.)*'", |lex| {
+    #[regex(r"'([^'\\\n]|\\.)*'", |lex| {
         let s = lex.slice();
         s[1..s.len()-1].to_string()
     })]

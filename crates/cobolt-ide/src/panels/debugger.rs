@@ -40,6 +40,9 @@ pub enum DebugAction {
     StepOver,
     StepIn,
     Pause,
+    /// The developer clicked the gutter beside a line: add or remove a
+    /// breakpoint there. Carries the 1-based line in the displayed source.
+    ToggleBreakpoint(u32),
 }
 
 // ── DebuggerPanel ─────────────────────────────────────────────────────────────
@@ -64,6 +67,11 @@ pub struct DebuggerPanel {
     // UI state
     active_tab: Tab,
     selected_var: Option<VarSnapshot>,
+    /// "Only my code" — stepping crosses IDE-generated scaffolding instead of
+    /// walking it. **On by default**: a form's generated `.cbl` is mostly the
+    /// event loop and its plumbing, which is an internal construct the
+    /// developer did not write and has no reason to single-step through.
+    pub only_user_code: bool,
     animate: bool,
     animate_speed_lps: f32,
     last_animate_step: Option<Instant>,
@@ -91,6 +99,7 @@ impl DebuggerPanel {
             force_center_current: false,
             active_tab: Tab::default(),
             selected_var: None,
+            only_user_code: true,
             animate: false,
             animate_speed_lps: 4.0,
             last_animate_step: None,
@@ -120,6 +129,12 @@ impl DebuggerPanel {
     /// Sync the live breakpoint set from the editor gutter.
     pub fn set_breakpoints(&mut self, bps: &HashSet<u32>) {
         self.breakpoints = bps.clone();
+    }
+
+    /// The file this session is showing — the key its breakpoints are stored
+    /// under in the editor. Empty before a session starts.
+    pub fn source_path(&self) -> &str {
+        &self.source_path
     }
 
     /// Apply one interpreter event to the panel state. Shared by the in-IDE
@@ -222,7 +237,9 @@ impl DebuggerPanel {
                 action = Some(a);
             }
             ui.separator();
-            self.split_body(ui, tr, need_scroll);
+            if let Some(line) = self.split_body(ui, tr, need_scroll) {
+                action = Some(DebugAction::ToggleBreakpoint(line));
+            }
         });
 
         self.variable_value_window(ctx);
@@ -304,7 +321,9 @@ impl DebuggerPanel {
                                 action = Some(a);
                             }
                             ui.separator();
-                            self.split_body(ui, tr, need_scroll);
+                            if let Some(line) = self.split_body(ui, tr, need_scroll) {
+                                action = Some(DebugAction::ToggleBreakpoint(line));
+                            }
                         });
                     });
             });
@@ -403,6 +422,21 @@ impl DebuggerPanel {
             ui.separator();
 
             if ui
+                .selectable_label(self.only_user_code, "Only my code")
+                .on_hover_text(
+                    "Step through your own handlers and procedures only. \
+                     The generated event loop and the rest of the scaffolding \
+                     are crossed without stopping. Breakpoints still fire \
+                     wherever you set them.",
+                )
+                .clicked()
+            {
+                self.only_user_code = !self.only_user_code;
+            }
+
+            ui.separator();
+
+            if ui
                 .selectable_label(self.animate, "Animate")
                 .on_hover_text("Follow execution one statement at a time")
                 .clicked()
@@ -463,8 +497,10 @@ impl DebuggerPanel {
 
     /// Two-pane split (code viewer left, variables right), with a draggable
     /// divider whose position is persisted by egui's table state.
-    fn split_body(&mut self, ui: &mut egui::Ui, tr: &Tr, need_scroll: bool) {
+    /// Returns the gutter line the developer clicked, if any.
+    fn split_body(&mut self, ui: &mut egui::Ui, tr: &Tr, need_scroll: bool) -> Option<u32> {
         let body_h = ui.available_height().max(180.0);
+        let mut toggled: Option<u32> = None;
 
         TableBuilder::new(ui)
             .id_salt("dbg_split_table")
@@ -478,18 +514,23 @@ impl DebuggerPanel {
                 body.row(body_h, |mut row| {
                     row.col(|ui| {
                         let pane_w = ui.available_width();
-                        self.code_viewer(ui, need_scroll, pane_w);
+                        toggled = self.code_viewer(ui, need_scroll, pane_w);
                     });
                     row.col(|ui| {
                         self.data_tabs(ui, tr);
                     });
                 });
             });
+
+        toggled
     }
 
     // ── Code viewer ───────────────────────────────────────────────────────────
 
-    fn code_viewer(&self, ui: &mut egui::Ui, need_scroll: bool, pane_w: f32) {
+    /// Returns the line whose gutter was clicked, if any — the caller turns it
+    /// into a [`DebugAction::ToggleBreakpoint`]. The viewer takes `&self`, so it
+    /// reports the click rather than editing the set itself.
+    fn code_viewer(&self, ui: &mut egui::Ui, need_scroll: bool, pane_w: f32) -> Option<u32> {
         // File path in muted monospace
         ui.label(
             RichText::new(&self.source_path)
@@ -497,6 +538,12 @@ impl DebuggerPanel {
                 .size(10.0)
                 .color(Color32::from_gray(95)),
         );
+
+        // The gutter click collected this frame. `code_viewer` only reads the
+        // panel, so the toggle travels out as a return value instead of being
+        // applied here — the breakpoint set lives in the editor, and both the
+        // panel and the running debuggee are synced from there.
+        let mut toggled: Option<u32> = None;
 
         ScrollArea::both()
             .id_salt("dbg_code_scroll")
@@ -555,14 +602,30 @@ impl DebuggerPanel {
                             ),
                         );
 
-                        // Gutter: breakpoint dot and/or ► arrow
-                        let (gut_rect, _) =
-                            ui.allocate_exact_size(Vec2::new(18.0, 18.0), egui::Sense::hover());
+                        // Gutter: breakpoint dot and/or ► arrow. Clickable — a
+                        // developer sets a breakpoint where they are reading the
+                        // code, which is here, not in a separate editor tab.
+                        let (gut_rect, gut_resp) =
+                            ui.allocate_exact_size(Vec2::new(18.0, 18.0), egui::Sense::click());
+                        if gut_resp.clicked() {
+                            toggled = Some(line_num);
+                        }
+                        if gut_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
                         if is_bp {
                             ui.painter().circle_filled(
                                 gut_rect.center(),
                                 4.5,
                                 Color32::from_rgb(210, 50, 50),
+                            );
+                        } else if gut_resp.hovered() {
+                            // A hollow ghost so an empty gutter shows it can be
+                            // clicked at all.
+                            ui.painter().circle_stroke(
+                                gut_rect.center(),
+                                4.5,
+                                egui::Stroke::new(1.0, Color32::from_rgb(150, 70, 70)),
                             );
                         }
                         if is_current {
@@ -586,6 +649,8 @@ impl DebuggerPanel {
                     }
                 }
             });
+
+        toggled
     }
 
     // ── Tabbed data panel ─────────────────────────────────────────────────────
@@ -1130,5 +1195,37 @@ mod tests {
     fn layout_job_terminates_on_dash_before_letter() {
         let job = build_cobol_layout_job("COMPUTE X = Y -Z");
         assert_eq!(job.text, "COMPUTE X = Y -Z");
+    }
+
+    /// The window knows which file its breakpoints belong to.
+    ///
+    /// The debugger shows the **generated** `.cbl`, which is rarely the tab in
+    /// front — so a gutter click has to be recorded against this path, not the
+    /// active editor tab. `set_breakpoints` also has to actually take, because
+    /// it had no callers at all and the panel's set went stale the moment a
+    /// breakpoint moved.
+    #[test]
+    fn the_window_reports_the_file_its_breakpoints_belong_to() {
+        let mut p = DebuggerPanel::new();
+        assert_eq!(p.source_path(), "", "no session yet");
+
+        let mut bps = HashSet::new();
+        bps.insert(7u32);
+        p.set_source("/proj/generated/form1.cbl".into(), "A\nB\nC\n", &bps);
+        assert_eq!(p.source_path(), "/proj/generated/form1.cbl");
+        assert!(p.breakpoints.contains(&7));
+
+        // A later sync replaces the set wholesale — add and remove both land.
+        let mut moved = HashSet::new();
+        moved.insert(12u32);
+        p.set_breakpoints(&moved);
+        assert!(p.breakpoints.contains(&12));
+        assert!(!p.breakpoints.contains(&7), "the old line is gone");
+
+        // Reset keeps the source and its breakpoints: it clears the RUN, not
+        // the developer's marks.
+        p.reset();
+        assert_eq!(p.source_path(), "/proj/generated/form1.cbl");
+        assert!(p.breakpoints.contains(&12));
     }
 }

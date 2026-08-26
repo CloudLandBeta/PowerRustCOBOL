@@ -69,6 +69,13 @@ pub struct GeneratedBlocks {
     /// Where each generated line came from, for translating `rustc` diagnostics
     /// back to the developer's source (spec 041 R10).
     pub line_map: Vec<LineOrigin>,
+    /// The developer files whose blocks this module holds, indexed by
+    /// [`LineOrigin::file`].
+    ///
+    /// A form application compiles several programs into one module — the main
+    /// program and every openable form's — so a line number alone no longer
+    /// says where a `rustc` error belongs.
+    pub files: Vec<String>,
 }
 
 /// One generated line that came from a developer's `EXEC RUST` block.
@@ -83,17 +90,59 @@ pub struct LineOrigin {
     /// Zero for every line but the first of a block: the lexer trims the
     /// captured source, so only the first line lost its indentation.
     pub col_offset: u32,
+    /// Which developer file — an index into [`GeneratedBlocks::files`].
+    pub file: u32,
+}
+
+/// Where a generated line was actually written, in the developer's terms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DevOrigin<'a> {
+    /// The `.cbl` it came from.
+    pub file: &'a str,
+    /// Which program contributed it: `0` is the entry program, then each form
+    /// in build order. Used to order a report so the entry program leads —
+    /// alphabetical file order would put whichever form sorts first in front,
+    /// which means nothing to the developer.
+    pub unit: u32,
+    pub line: u32,
+    pub col: u32,
 }
 
 impl GeneratedBlocks {
-    /// The developer's `(line, column)` for a position in the generated file, or
-    /// `None` when the line is generated scaffolding rather than their code.
-    pub fn origin_of(&self, generated_line: u32, generated_col: u32) -> Option<(u32, u32)> {
+    /// The developer's origin for a position in the generated file, or `None`
+    /// when the line is generated scaffolding rather than their code.
+    pub fn origin_of(&self, generated_line: u32, generated_col: u32) -> Option<DevOrigin<'_>> {
         self.line_map
             .iter()
             .find(|o| o.generated_line == generated_line)
-            .map(|o| (o.cobol_line, generated_col + o.col_offset))
+            .map(|o| DevOrigin {
+                file: self.files.get(o.file as usize).map(String::as_str).unwrap_or(""),
+                unit: o.file,
+                line: o.cobol_line,
+                col: generated_col + o.col_offset,
+            })
     }
+}
+
+/// One COBOL program whose `EXEC RUST` blocks are compiled into the shared
+/// module.
+///
+/// A console program is one unit. A form application is one per program the
+/// binary can run: the main form's, and every openable form's (spec 051 R1).
+/// They share a module because they share a process — the docs already promise
+/// a developer that two blocks see the same objects "in different paragraphs,
+/// or in a form event handler", and that promise spans forms.
+pub struct ProgramUnit<'a> {
+    /// The developer's file, as it should read in a diagnostic — the generated
+    /// `.cbl`, relative to the project.
+    pub file: String,
+    /// The text `program` was parsed from, used to locate each block's first
+    /// line exactly. `""` falls back to the statement's own span.
+    pub source: &'a str,
+    pub program: &'a Program,
+    /// Symbols for `program`. A block resolves its bindings against the program
+    /// that contains it, so each unit brings its own.
+    pub symbols: &'a SymbolTable,
 }
 
 // ── Block-owned windows ──────────────────────────────────────────────────────
@@ -340,23 +389,46 @@ pub fn find_event_loop_calls(program: &Program, cobol_source: &str) -> Vec<Event
     found
 }
 
-/// Emit the module for `program`.
+/// Emit the module for a single program.
 ///
 /// `cobol_source` is the text the program was parsed from; it is used only to
 /// locate each block's first line exactly. Pass `""` and the mapping falls back
 /// to the statement's own span, which is one line coarser.
 ///
-/// `has_forms` decides, together with the block count, whether the
-/// `cobolt_windows` module is emitted: it names `eframe` and `egui`, and the
-/// generated manifest links those exactly when the program has forms or any
-/// block. A form application references the module unconditionally, so it must
-/// be there even for a form with no blocks at all.
+/// A convenience wrapper over [`generate_all`] for a console program, whose
+/// binary runs exactly one program. A form application must use `generate_all`:
+/// its binary also runs every openable form's program, and a block in one of
+/// those is just as compiled as a block in the main one.
 pub fn generate(
     program: &Program,
     symbols: &SymbolTable,
     cobol_source: &str,
     has_forms: bool,
 ) -> GeneratedBlocks {
+    generate_all(
+        &[ProgramUnit {
+            file: String::new(),
+            source: cobol_source,
+            program,
+            symbols,
+        }],
+        has_forms,
+    )
+}
+
+/// Emit the one module holding every unit's blocks.
+///
+/// `has_forms` decides, together with the block count, whether the
+/// `cobolt_windows` module is emitted: it names `eframe` and `egui`, and the
+/// generated manifest links those exactly when the program has forms or any
+/// block. A form application references the module unconditionally, so it must
+/// be there even for a form with no blocks at all.
+///
+/// Block ids must already be unique across the units — see
+/// [`cobolt_parser::parse_from`]. Two units numbered from zero would register
+/// two different functions against the same id, and the survivor would run for
+/// both.
+pub fn generate_all(units: &[ProgramUnit<'_>], has_forms: bool) -> GeneratedBlocks {
     let mut e = Emitter::default();
 
     e.line(
@@ -384,45 +456,65 @@ pub fn generate(
     e.line("");
 
     // ── Item-level blocks, verbatim at module scope (R19, R20) ───────────────
-    let items = cobolt_semantic::exec_rust::item_blocks(program);
-    let item_count = items.len();
-    for item in items {
-        e.line(&format!(
-            "// ── item-level EXEC RUST block (COBOL line {}) ──",
-            item.span.line
-        ));
-        e.verbatim(&item.source, block_start(cobol_source, item.span, &item.source));
-        e.line("");
+    // Every unit's, because module scope is shared: a helper `fn` written in one
+    // form is callable from a block in another, which is the same process-wide
+    // sharing the statement-level blocks already have.
+    let mut item_count = 0usize;
+    for (file_idx, unit) in units.iter().enumerate() {
+        e.set_file(file_idx as u32);
+        for item in cobolt_semantic::exec_rust::item_blocks(unit.program) {
+            item_count += 1;
+            e.line(&format!(
+                "// ── item-level EXEC RUST block (COBOL line {}) ──",
+                item.span.line
+            ));
+            e.verbatim(
+                &item.source,
+                block_start(unit.source, item.span, &item.source),
+            );
+            e.line("");
+        }
     }
 
     // ── One function per statement-level block ───────────────────────────────
     // Each block is emitted against the program that *contains* it: a form event
     // handler is a nested program with its own DATA DIVISION and REPOSITORY, and
     // resolving its names against the outer program would bind the wrong items.
-    let mut blocks: Vec<(u32, String, Span, Vec<Binding>)> = Vec::new();
-    cobolt_semantic::exec_rust::for_each_block(program, &mut |owner, stmt| {
-        if let Stmt::ExecRust {
-            source,
-            block_id,
-            span,
-            ..
-        } = stmt
-        {
-            let bindings = if std::ptr::eq(owner, program) {
-                resolve_bindings(owner, program, symbols, None, source)
-            } else {
-                // A nested program sees its own items, plus the containing
-                // program's `GLOBAL` ones — which is how a form's data reaches
-                // its event handlers.
-                let nested_symbols = SymbolTable::build(owner);
-                resolve_bindings(owner, program, &nested_symbols, Some(symbols), source)
-            };
-            blocks.push((*block_id, source.clone(), *span, bindings));
-        }
-    });
+    let mut blocks: Vec<(u32, String, Span, Vec<Binding>, usize)> = Vec::new();
+    for (file_idx, unit) in units.iter().enumerate() {
+        let (program, symbols) = (unit.program, unit.symbols);
+        cobolt_semantic::exec_rust::for_each_block(program, &mut |owner, stmt| {
+            if let Stmt::ExecRust {
+                source,
+                block_id,
+                span,
+                ..
+            } = stmt
+            {
+                let bindings = if std::ptr::eq(owner, program) {
+                    resolve_bindings(owner, program, symbols, None, source)
+                } else {
+                    // A nested program sees its own items, plus the containing
+                    // program's `GLOBAL` ones — which is how a form's data
+                    // reaches its event handlers.
+                    let nested_symbols = SymbolTable::build(owner);
+                    resolve_bindings(owner, program, &nested_symbols, Some(symbols), source)
+                };
+                blocks.push((*block_id, source.clone(), *span, bindings, file_idx));
+            }
+        });
+    }
 
-    for (block_id, source, span, bindings) in &blocks {
-        emit_block(&mut e, cobol_source, *block_id, source, *span, bindings);
+    for (block_id, source, span, bindings, file_idx) in &blocks {
+        e.set_file(*file_idx as u32);
+        emit_block(
+            &mut e,
+            units[*file_idx].source,
+            *block_id,
+            source,
+            *span,
+            bindings,
+        );
     }
 
     // ── Block-owned windows ──────────────────────────────────────────────────
@@ -436,13 +528,13 @@ pub fn generate(
     }
 
     // ── The dispatch table (R2) ──────────────────────────────────────────────
-    e.line("/// Register every compiled block in this program.");
+    e.line("/// Register every compiled block in this application.");
     e.line("///");
-    e.line("/// Called by the generated `main.rs` before the interpreter runs; an");
-    e.line("/// id with nothing registered against it is a hard runtime error, never");
-    e.line("/// a silent no-op.");
+    e.line("/// Called by the generated `main.rs` before the interpreter runs, and");
+    e.line("/// by every interpreter a form application spawns; an id with nothing");
+    e.line("/// registered against it is a hard runtime error, never a silent no-op.");
     e.line("pub fn register(registry: &mut cobolt_runtime::exec_rust::ExecRustRegistry) {");
-    for (block_id, _, _, _) in &blocks {
+    for (block_id, _, _, _, _) in &blocks {
         e.line(&format!("    registry.register({block_id}, block_{block_id});"));
     }
     e.line("}");
@@ -452,6 +544,7 @@ pub fn generate(
         block_count: blocks.len(),
         item_count,
         line_map: e.line_map,
+        files: units.iter().map(|u| u.file.clone()).collect(),
     }
 }
 
@@ -471,6 +564,12 @@ pub struct BlockDiagnostic {
     pub message: String,
     /// The error code, e.g. `"E0308"`, when `rustc` gave one.
     pub code: Option<String>,
+    /// The developer's file the block was written in. Empty when the caller
+    /// generated from a single unit and named no file.
+    pub file: String,
+    /// Which program it came from — `0` is the entry program. Orders a report
+    /// so the entry program's errors lead; see [`DevOrigin::unit`].
+    pub unit: u32,
     /// 1-based line in the developer's COBOL source.
     pub line: u32,
     /// 1-based column in the developer's COBOL source.
@@ -489,23 +588,42 @@ pub struct BlockDiagnostic {
 ///
 /// Lines that are not JSON objects are skipped rather than erroring: cargo
 /// interleaves other artefact records in the same stream.
-/// Fold every error-level block diagnostic into one deterministic report:
-/// `(line, col, message)` of the FIRST error by source position, with any
-/// further errors appended to the message.
+/// Where a build's block errors are reported, and what to say about them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockErrorReport {
+    /// The developer's file holding the first error.
+    pub file: String,
+    pub line: u32,
+    pub col: u32,
+    /// The first error, plus a listing of any others.
+    pub message: String,
+}
+
+/// Fold every error-level block diagnostic into one deterministic report: the
+/// FIRST error by source position, with any further errors appended to the
+/// message.
 ///
 /// The build used to surface whichever error cargo's JSON stream mentioned
 /// first — and with parallel rustc that order changes run to run, so two
 /// builds of identical source showed *different* single errors. To the
 /// developer that read as new bugs appearing on every rebuild. Sorting by the
-/// developer's own (line, column) makes rebuilds repeat themselves, and
-/// appending the rest stops the one-at-a-time whack-a-mole.
-pub fn block_errors_report(diags: Vec<BlockDiagnostic>) -> Option<(u32, u32, String)> {
+/// developer's own (program, line, column) makes rebuilds repeat themselves,
+/// and appending the rest stops the one-at-a-time whack-a-mole.
+///
+/// Programs are ordered as the build sees them — the entry program, then each
+/// form — never alphabetically, which would lead with whichever form's file
+/// name happens to sort first.
+pub fn block_errors_report(diags: Vec<BlockDiagnostic>) -> Option<BlockErrorReport> {
     let mut errors: Vec<&BlockDiagnostic> = diags.iter().filter(|d| d.level == "error").collect();
     if errors.is_empty() {
         return None;
     }
-    errors.sort_by(|a, b| (a.line, a.col, &a.message).cmp(&(b.line, b.col, &b.message)));
-    errors.dedup_by(|a, b| a.line == b.line && a.col == b.col && a.message == b.message);
+    errors.sort_by(|a, b| {
+        (a.unit, a.line, a.col, &a.message).cmp(&(b.unit, b.line, b.col, &b.message))
+    });
+    errors.dedup_by(|a, b| {
+        a.unit == b.unit && a.line == b.line && a.col == b.col && a.message == b.message
+    });
 
     let render = |d: &BlockDiagnostic| match &d.code {
         Some(code) => format!("{} [{code}]", d.message),
@@ -519,10 +637,28 @@ pub fn block_errors_report(diags: Vec<BlockDiagnostic>) -> Option<(u32, u32, Str
             errors.len() - 1
         ));
         for d in &errors[1..] {
-            message.push_str(&format!("\nline {}, column {}: {}", d.line, d.col, render(d)));
+            // A form application compiles several `.cbl` into one module, so an
+            // error elsewhere has to say where — a bare line number would send
+            // the developer to that line in the wrong file.
+            if d.file != first.file && !d.file.is_empty() {
+                message.push_str(&format!(
+                    "\n{}, line {}, column {}: {}",
+                    d.file,
+                    d.line,
+                    d.col,
+                    render(d)
+                ));
+            } else {
+                message.push_str(&format!("\nline {}, column {}: {}", d.line, d.col, render(d)));
+            }
         }
     }
-    Some((first.line, first.col, message))
+    Some(BlockErrorReport {
+        file: first.file.clone(),
+        line: first.line,
+        col: first.col,
+        message,
+    })
 }
 
 pub fn map_cargo_json(stdout: &str, blocks: &GeneratedBlocks) -> Vec<BlockDiagnostic> {
@@ -574,22 +710,25 @@ pub fn map_cargo_json(stdout: &str, blocks: &GeneratedBlocks) -> Vec<BlockDiagno
                     s.get("column_start").and_then(|c| c.as_u64()).unwrap_or(1) as u32,
                 )
             });
-        let mut best: Option<(u32, u32)> = None;
+        let mut best: Option<(String, u32, u32, u32)> = None;
         for (is_primary, line_start, col_start) in candidates {
-            let Some(origin) = blocks.origin_of(line_start, col_start) else {
+            let Some(o) = blocks.origin_of(line_start, col_start) else {
                 continue;
             };
+            let origin = (o.file.to_owned(), o.unit, o.line, o.col);
             if is_primary {
                 best = Some(origin);
                 break;
             }
             best.get_or_insert(origin);
         }
-        let Some((line, col)) = best else { continue };
+        let Some((file, unit, line, col)) = best else { continue };
         out.push(BlockDiagnostic {
             level,
             message: text,
             code,
+            file,
+            unit,
             line,
             col,
         });
@@ -789,9 +928,17 @@ struct Emitter {
     /// 1-based line number of the next line to be written.
     next_line: u32,
     line_map: Vec<LineOrigin>,
+    /// Which unit the lines being written belong to — recorded on every
+    /// verbatim line so a `rustc` error names the right `.cbl`.
+    file: u32,
 }
 
 impl Emitter {
+    /// Attribute the lines written from here on to unit `file`.
+    fn set_file(&mut self, file: u32) {
+        self.file = file;
+    }
+
     fn line(&mut self, text: &str) {
         if self.next_line == 0 {
             self.next_line = 1;
@@ -815,6 +962,7 @@ impl Emitter {
                 cobol_line: start_line + i as u32,
                 // Only the first line was trimmed of its indentation.
                 col_offset: if i == 0 { start_col.saturating_sub(1) } else { 0 },
+                file: self.file,
             });
             self.line(text);
         }
@@ -981,6 +1129,8 @@ MAIN.
             level: "error".to_owned(),
             message: msg.to_owned(),
             code: Some("E0597".to_owned()),
+            file: "generated/MENU.cbl".to_owned(),
+            unit: 0,
             line,
             col: 5,
         };
@@ -990,11 +1140,12 @@ MAIN.
         let ra = block_errors_report(a).expect("errors present");
         let rb = block_errors_report(b).expect("errors present");
         assert_eq!(ra, rb, "emission order must not change the report");
-        assert_eq!(ra.0, 90, "the headline is the first error by source line");
+        assert_eq!(ra.line, 90, "the headline is the first error by source line");
+        assert_eq!(ra.file, "generated/MENU.cbl");
         assert!(
-            ra.2.contains("does not live long enough"),
+            ra.message.contains("does not live long enough"),
             "every error appears: {}",
-            ra.2
+            ra.message
         );
 
         // Warnings alone produce no error report.
@@ -1002,10 +1153,147 @@ MAIN.
             level: "warning".to_owned(),
             message: "unused".to_owned(),
             code: None,
+            file: String::new(),
+            unit: 0,
             line: 1,
             col: 1,
         };
         assert!(block_errors_report(vec![warn]).is_none());
+    }
+
+    /// An error in another form's block names THAT form, not the entry program,
+    /// and the entry program's own errors still lead the report.
+    ///
+    /// One module holds every program's blocks, so a bare line number would
+    /// send the developer to that line in whichever file the build happened to
+    /// call "main" — reliably the wrong one. Ordering has to follow the build's
+    /// program order too: sorting by file name would lead with whichever form's
+    /// name sorts first, which means nothing to the reader.
+    #[test]
+    fn an_error_elsewhere_names_the_form_it_is_in() {
+        let d = |file: &str, unit: u32, line: u32| BlockDiagnostic {
+            level: "error".to_owned(),
+            message: "mismatched types".to_owned(),
+            code: Some("E0308".to_owned()),
+            file: file.to_owned(),
+            unit,
+            line,
+            col: 5,
+        };
+        // The child form sorts FIRST alphabetically and is listed first here —
+        // neither may decide the headline.
+        let report = block_errors_report(vec![
+            d("generated/CHILD.cbl", 1, 40),
+            d("generated/MAIN.cbl", 0, 12),
+        ])
+        .expect("errors present");
+
+        assert_eq!(
+            report.file, "generated/MAIN.cbl",
+            "the entry program leads, whatever the file names sort like"
+        );
+        assert_eq!(report.line, 12);
+        assert!(
+            report.message.contains("generated/CHILD.cbl, line 40"),
+            "an error in another form must say which form: {}",
+            report.message
+        );
+    }
+
+    /// Two forms, each with a block: one module, distinct ids, both registered,
+    /// and each line mapped back to the file it was written in.
+    ///
+    /// Generating from the entry program alone left the child form's block id
+    /// registered against nothing, so the button that ran it failed at the
+    /// click — in the built binary, after a build that reported success.
+    #[test]
+    fn every_form_program_contributes_its_blocks() {
+        const MAIN: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. MAINFORM.
+PROCEDURE DIVISION.
+MAIN-PARA.
+    EXEC RUST
+    println!("main form");
+    END-EXEC.
+    STOP RUN.
+"#;
+        const CHILD: &str = r#"
+IDENTIFICATION DIVISION.
+PROGRAM-ID. CHILDFORM.
+PROCEDURE DIVISION.
+CHILD-PARA.
+    EXEC RUST
+    println!("child form");
+    END-EXEC.
+    STOP RUN.
+"#;
+        let main = parse(tokenize(MAIN, SourceFormat::Free));
+        let main_program = main.program.expect("MAIN parses");
+        let main_symbols = SymbolTable::build(&main_program);
+        // The child continues the main's numbering — the same thing the build
+        // does, and the reason the two blocks cannot claim one id.
+        let child = cobolt_parser::parse_from(
+            tokenize(CHILD, SourceFormat::Free),
+            main.next_block_id,
+        );
+        let child_program = child.program.expect("CHILD parses");
+        let child_symbols = SymbolTable::build(&child_program);
+
+        let gen = generate_all(
+            &[
+                ProgramUnit {
+                    file: "generated/MAINFORM.cbl".to_owned(),
+                    source: MAIN,
+                    program: &main_program,
+                    symbols: &main_symbols,
+                },
+                ProgramUnit {
+                    file: "generated/CHILDFORM.cbl".to_owned(),
+                    source: CHILD,
+                    program: &child_program,
+                    symbols: &child_symbols,
+                },
+            ],
+            true,
+        );
+
+        assert_eq!(gen.block_count, 2, "both forms' blocks are compiled");
+        assert!(
+            gen.source.contains("println!(\"main form\")")
+                && gen.source.contains("println!(\"child form\")"),
+            "both bodies are emitted:\n{}",
+            gen.source
+        );
+        assert!(
+            gen.source.contains("registry.register(0, block_0);")
+                && gen.source.contains("registry.register(1, block_1);"),
+            "each block registers under an id of its own:\n{}",
+            gen.source
+        );
+
+        // Every emitted developer line knows which form it came from, and both
+        // forms are represented.
+        let main_line = gen
+            .source
+            .lines()
+            .position(|l| l.contains("println!(\"main form\")"))
+            .expect("main body emitted") as u32
+            + 1;
+        let child_line = gen
+            .source
+            .lines()
+            .position(|l| l.contains("println!(\"child form\")"))
+            .expect("child body emitted") as u32
+            + 1;
+        assert_eq!(
+            gen.origin_of(main_line, 5).map(|o| o.file),
+            Some("generated/MAINFORM.cbl")
+        );
+        assert_eq!(
+            gen.origin_of(child_line, 5).map(|o| o.file),
+            Some("generated/CHILDFORM.cbl")
+        );
     }
 
     /// A program with no blocks, and one whose block opens no window, are clean.
@@ -1290,11 +1578,11 @@ MAIN-PARA.
             .expect("it was emitted") as u32
             + 1;
 
-        let (mapped_line, _col) = gen
+        let origin = gen
             .origin_of(generated_line, 1)
             .expect("a developer line must have an origin");
         assert_eq!(
-            mapped_line, cobol_line,
+            origin.line, cobol_line,
             "generated line {generated_line} should map to COBOL line {cobol_line}"
         );
 

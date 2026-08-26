@@ -101,7 +101,7 @@ fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
 fn cmd_run(args: &[String]) {
     let path = require_path(args, "run");
     let source = read_source(&path);
-    let fmt = detect_format(&source, &path);
+    let fmt = resolve_source_format(args, &source, &path);
     let source = expand_copy(&path, &source, fmt);
 
     // COPY expansion flattens to free form.
@@ -292,7 +292,7 @@ fn cmd_run_form_ipc() {
 fn cmd_check(args: &[String]) {
     let path = require_path(args, "check");
     let source = read_source(&path);
-    let fmt = detect_format(&source, &path);
+    let fmt = resolve_source_format(args, &source, &path);
     let source = expand_copy(&path, &source, fmt);
 
     let tokens = tokenize(&source, SourceFormat::Free);
@@ -349,6 +349,10 @@ fn cmd_help() {
         "\n",
         "USAGE:\n",
         "  rcrun run     <file.cbl>              Run a COBOL program\n",
+        "         [--source-format <fmt>]         free (default) | fixed | fixed-relaxed | auto\n",
+        "                                         fixed = classic COBOL-85 reference format:\n",
+        "                                         cols 1-6 sequence, 7 indicator, 8-72 source,\n",
+        "                                         73-80 discarded, continuation lines joined\n",
         "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu | redb\n",
         "         [--indexed-log <basic|full>]    Per-file INDEXED txn log → <assign-path>.log (redb)\n",
         "         [--indexed-log-format <text|json>]  Log line format (json = NDJSON for Grafana/Loki)\n",
@@ -357,6 +361,7 @@ fn cmd_help() {
         "         [--designer]                    Run any form, not only the main one (PowerRustCOBOL's\n",
         "                                         Run Form; exit 3 = corrupted application, 4 = not main)\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
+        "         [--source-format <fmt>]         as for `run`\n",
         "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",
         "         [--quiet]                       Suppress build progress output\n",
@@ -368,6 +373,7 @@ fn cmd_help() {
         "ENVIRONMENT:\n",
         "  COBOLT_LOG            Logging filter (e.g. warn, debug, cobolt-runtime=trace)\n",
         "  COBOLT_FIXED          Set to '1' to force fixed-form source parsing\n",
+        "  COBOLT_SOURCE_FORMAT  Default for --source-format (free | fixed | fixed-relaxed | auto)\n",
         "  COBOL_INDEXED_ENGINE  Indexed (ISAM) engine: rust | rm-cobol85 | fujitsu | redb\n",
         "  COBOL_INDEXED_LOG     INDEXED transaction log level: off (default) | basic | full\n",
     ));
@@ -755,6 +761,7 @@ fn extract_program_args(args: &[String]) -> Vec<String> {
             || a == "-I"
             || a == "--indexed-log"
             || a == "--indexed-log-format"
+            || a == "--source-format"
         {
             i += 2;
             continue;
@@ -779,6 +786,7 @@ fn require_path(args: &[String], cmd: &str) -> PathBuf {
             || a == "-I"
             || a == "--indexed-log"
             || a == "--indexed-log-format"
+            || a == "--source-format"
         {
             i += 2; // skip the flag and its separate value
             continue;
@@ -887,6 +895,49 @@ fn detect_format(_source: &str, _path: &PathBuf) -> SourceFormat {
         return SourceFormat::Fixed;
     }
     SourceFormat::Free
+}
+
+/// Resolve the source format: `--source-format <free|fixed|auto>` /
+/// `--source-format=<…>`, then `COBOLT_SOURCE_FORMAT`, then `auto`.
+///
+/// `fixed` selects the **classic COBOL-85 reference format** — sequence area,
+/// indicator column, source in columns 8-72, identification area discarded, and
+/// continuation lines joined. That is what card-image source such as the NIST
+/// CCVS85 validation suite needs, and it is never chosen by detection: applying
+/// the column rules to source that was not written for them deletes code.
+///
+/// `auto` keeps the historical behaviour — free form, unless `COBOLT_FIXED=1`
+/// asks for the relaxed fixed reading that generated form sources use.
+fn resolve_source_format(args: &[String], source: &str, path: &PathBuf) -> SourceFormat {
+    let mut chosen: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(v) = a.strip_prefix("--source-format=") {
+            chosen = Some(v.to_string());
+        } else if a == "--source-format" {
+            chosen = args.get(i + 1).cloned();
+            i += 1;
+        }
+        i += 1;
+    }
+    let chosen = chosen.or_else(|| std::env::var("COBOLT_SOURCE_FORMAT").ok());
+    match chosen.as_deref().map(str::trim) {
+        Some(s) if s.eq_ignore_ascii_case("fixed") || s.eq_ignore_ascii_case("fixed-strict") => {
+            SourceFormat::FixedStrict
+        }
+        Some(s) if s.eq_ignore_ascii_case("fixed-relaxed") => SourceFormat::Fixed,
+        Some(s) if s.eq_ignore_ascii_case("free") => SourceFormat::Free,
+        Some(s) if s.eq_ignore_ascii_case("auto") => detect_format(source, path),
+        Some(other) => {
+            eprintln!(
+                "cobolt: unknown --source-format '{other}' \
+                 (expected free, fixed, fixed-relaxed or auto)"
+            );
+            process::exit(2);
+        }
+        None => detect_format(source, path),
+    }
 }
 
 fn print_diagnostics(diagnostics: &[cobolt_semantic::SemanticDiagnostic], file: &str) -> bool {

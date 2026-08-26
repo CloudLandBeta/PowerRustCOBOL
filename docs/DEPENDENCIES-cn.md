@@ -152,7 +152,7 @@ cargo metadata --format-version 1 | \
 
 ## 会编译 C 的那两个 crate
 
-在准备机器时值得知道（参见 [BUILDING-cn.md](BUILDING-cn.md)）：
+在准备机器时值得知道（参见 [BUILDING-en.md](BUILDING-en.md)）：
 
 | Crate | 经由 | 编译什么 |
 |---|---|---|

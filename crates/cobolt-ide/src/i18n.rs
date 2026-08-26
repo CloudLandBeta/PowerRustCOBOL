@@ -1355,6 +1355,27 @@ pub struct Tr {
 
     // ── Debug settings (Help menu) ────────────────────────────────────────────
     pub debug_menu_label: &'static str, // Help-menu item
+    // ── Help → Platform SDK Location ──────────────────────────────────────
+    /// Help-menu item opening the SDK-location dialog.
+    pub sdk_menu_label: &'static str,
+    /// What the SDK is and why a build needs it.
+    pub sdk_explain: &'static str,
+    /// Label for the folder currently in force.
+    pub sdk_in_use: &'static str,
+    /// Shown in place of a folder when no SDK could be found at all.
+    pub sdk_none: &'static str,
+    /// The folder came from this dialog.
+    pub sdk_source_setting: &'static str,
+    /// The folder was found without configuration.
+    pub sdk_source_auto: &'static str,
+    /// Nothing was found — what to do about it.
+    pub sdk_missing_hint: &'static str,
+    /// Choose the SDK folder.
+    pub sdk_browse: &'static str,
+    /// Forget the chosen folder and search automatically again.
+    pub sdk_clear: &'static str,
+    /// Dismiss the dialog.
+    pub sdk_close: &'static str,
     pub debug_title: &'static str,
     pub debug_scope_hint: &'static str,
     pub debug_close: &'static str,
@@ -2575,6 +2596,16 @@ const EN: Tr = Tr {
     doc_mermaid_error: "Could not render diagram",
 
     debug_menu_label:   "🐞 Debug Settings…",
+    sdk_menu_label:     "🧰 Platform SDK Location…",
+    sdk_explain:        "Building an application compiles it against the platform's Rust sources, so they must be present on this machine. An installation that ships them beside the IDE is found on its own — set a folder here only when they live somewhere else.",
+    sdk_in_use:         "In use",
+    sdk_none:           "not found — Build is unavailable",
+    sdk_source_setting: "This folder was chosen here.",
+    sdk_source_auto:    "Found automatically; no setting needed.",
+    sdk_missing_hint:   "Install the platform SDK beside the IDE, or choose a folder holding Cargo.toml and crates/.",
+    sdk_browse:         "Choose folder…",
+    sdk_clear:          "Search automatically",
+    sdk_close:          "Close",
     debug_title:        "Debug Settings",
     debug_scope_hint:   "IDE-wide, saved on this machine and not in the project. Design-canvas switches apply immediately; Run Form picks the rest up on its next launch.",
     debug_close:        "Close",
@@ -3746,6 +3777,16 @@ const ES: Tr = Tr {
     doc_mermaid_error: "No se pudo renderizar el diagrama",
 
     debug_menu_label:   "🐞 Ajustes de depuración…",
+    sdk_menu_label:     "🧰 Ubicación del SDK de la plataforma…",
+    sdk_explain:        "Compilar una aplicación la construye contra las fuentes Rust de la plataforma, por lo que deben estar presentes en esta máquina. Una instalación que las entrega junto al IDE se detecta sola: indique una carpeta aquí solo si están en otro lugar.",
+    sdk_in_use:         "En uso",
+    sdk_none:           "no encontrado — Compilar no está disponible",
+    sdk_source_setting: "Esta carpeta se eligió aquí.",
+    sdk_source_auto:    "Encontrado automáticamente; no hace falta configurar nada.",
+    sdk_missing_hint:   "Instale el SDK de la plataforma junto al IDE, o elija una carpeta que contenga Cargo.toml y crates/.",
+    sdk_browse:         "Elegir carpeta…",
+    sdk_clear:          "Buscar automáticamente",
+    sdk_close:          "Cerrar",
     debug_title:        "Ajustes de depuración",
     debug_scope_hint:   "Globales del IDE, guardados en este equipo y no en el proyecto. Los interruptores del lienzo de diseño se aplican de inmediato; Ejecutar formulario toma los demás en su próximo arranque.",
     debug_close:        "Cerrar",
@@ -4917,6 +4958,16 @@ const PT: Tr = Tr {
     doc_mermaid_error: "Não foi possível renderizar o diagrama",
 
     debug_menu_label:   "🐞 Configurações de depuração…",
+    sdk_menu_label:     "🧰 Local do SDK da plataforma…",
+    sdk_explain:        "Compilar uma aplicação a constrói contra os fontes Rust da plataforma, portanto eles precisam existir nesta máquina. Uma instalação que os entrega ao lado do IDE é encontrada sozinha — indique uma pasta aqui apenas se eles estiverem em outro lugar.",
+    sdk_in_use:         "Em uso",
+    sdk_none:           "não encontrado — Compilar está indisponível",
+    sdk_source_setting: "Esta pasta foi escolhida aqui.",
+    sdk_source_auto:    "Encontrado automaticamente; nada a configurar.",
+    sdk_missing_hint:   "Instale o SDK da plataforma ao lado do IDE, ou escolha uma pasta que contenha Cargo.toml e crates/.",
+    sdk_browse:         "Escolher pasta…",
+    sdk_clear:          "Procurar automaticamente",
+    sdk_close:          "Fechar",
     debug_title:        "Configurações de depuração",
     debug_scope_hint:   "Globais do IDE, salvas nesta máquina e não no projeto. As chaves da tela de design valem imediatamente; Executar formulário assume as demais na próxima execução.",
     debug_close:        "Fechar",
@@ -6087,6 +6138,16 @@ const JA: Tr = Tr {
     doc_mermaid_error: "図を描画できませんでした",
 
     debug_menu_label:   "🐞 デバッグ設定…",
+    sdk_menu_label:     "🧰 プラットフォーム SDK の場所…",
+    sdk_explain:        "アプリケーションのビルドはプラットフォームの Rust ソースに対して行われるため、それらがこのマシン上に存在している必要があります。IDE と一緒に配置された環境では自動的に見つかります。別の場所にある場合にのみ、ここでフォルダーを指定してください。",
+    sdk_in_use:         "使用中",
+    sdk_none:           "見つかりません — ビルドは利用できません",
+    sdk_source_setting: "このフォルダーはここで選択されました。",
+    sdk_source_auto:    "自動的に見つかりました。設定は不要です。",
+    sdk_missing_hint:   "プラットフォーム SDK を IDE と同じ場所に配置するか、Cargo.toml と crates/ を含むフォルダーを選択してください。",
+    sdk_browse:         "フォルダーを選択…",
+    sdk_clear:          "自動的に検索",
+    sdk_close:          "閉じる",
     debug_title:        "デバッグ設定",
     debug_scope_hint:   "IDE 全体の設定で、プロジェクトではなくこのマシンに保存されます。デザインキャンバスのスイッチは即座に反映され、その他は次回のフォーム実行から反映されます。",
     debug_close:        "閉じる",
@@ -7265,6 +7326,16 @@ const ZH: Tr = Tr {
     doc_mermaid_error: "无法渲染图表",
 
     debug_menu_label:   "🐞 调试设置…",
+    sdk_menu_label:     "🧰 平台 SDK 位置…",
+    sdk_explain:        "构建应用程序时会针对平台的 Rust 源码进行编译，因此这些源码必须存在于本机。与 IDE 一同安装的环境会自动找到它们——只有当它们位于别处时，才需要在此指定文件夹。",
+    sdk_in_use:         "正在使用",
+    sdk_none:           "未找到 — 无法构建",
+    sdk_source_setting: "此文件夹是在这里选择的。",
+    sdk_source_auto:    "已自动找到，无需设置。",
+    sdk_missing_hint:   "请将平台 SDK 安装在 IDE 旁边，或选择一个包含 Cargo.toml 和 crates/ 的文件夹。",
+    sdk_browse:         "选择文件夹…",
+    sdk_clear:          "自动搜索",
+    sdk_close:          "关闭",
     debug_title:        "调试设置",
     debug_scope_hint:   "IDE 全局设置，保存在本机而非项目中。设计画布开关立即生效，其余在下次运行窗体时生效。",
     debug_close:        "关闭",
@@ -8436,6 +8507,16 @@ const FR: Tr = Tr {
     doc_mermaid_error: "Impossible de générer le diagramme",
 
     debug_menu_label:   "🐞 Paramètres de débogage…",
+    sdk_menu_label:     "🧰 Emplacement du SDK de la plateforme…",
+    sdk_explain:        "Compiler une application la construit à partir des sources Rust de la plateforme, qui doivent donc être présentes sur cette machine. Une installation qui les place à côté de l'IDE est détectée d'elle-même : n'indiquez un dossier ici que si elles se trouvent ailleurs.",
+    sdk_in_use:         "Utilisé",
+    sdk_none:           "introuvable — la compilation est indisponible",
+    sdk_source_setting: "Ce dossier a été choisi ici.",
+    sdk_source_auto:    "Trouvé automatiquement ; aucun réglage nécessaire.",
+    sdk_missing_hint:   "Installez le SDK de la plateforme à côté de l'IDE, ou choisissez un dossier contenant Cargo.toml et crates/.",
+    sdk_browse:         "Choisir un dossier…",
+    sdk_clear:          "Rechercher automatiquement",
+    sdk_close:          "Fermer",
     debug_title:        "Paramètres de débogage",
     debug_scope_hint:   "Globaux à l'IDE, enregistrés sur cette machine et non dans le projet. Les commutateurs du canevas s'appliquent immédiatement ; Exécuter le formulaire prend les autres à son prochain lancement.",
     debug_close:        "Fermer",

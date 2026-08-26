@@ -42,6 +42,14 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<SpannedToken>) -> Self {
+        Self::with_block_id_base(tokens, 0)
+    }
+
+    /// A parser that hands out `EXEC RUST` block ids from `block_id_base`.
+    ///
+    /// See [`crate::parse_from`] for why a build needs this: several programs
+    /// share one compiled block registry, so their ids must not overlap.
+    pub fn with_block_id_base(tokens: Vec<SpannedToken>, block_id_base: u32) -> Self {
         // Filter out comment tokens — the parser doesn't need them.
         let tokens: Vec<_> = tokens
             .into_iter()
@@ -55,7 +63,7 @@ impl Parser {
             repository: Vec::new(),
             rust_items: Vec::new(),
             pending_object_class: None,
-            next_block_id: 0,
+            next_block_id: block_id_base,
         }
     }
 
@@ -91,6 +99,22 @@ impl Parser {
             .get(self.pos + offset)
             .map(|st| st.span)
             .unwrap_or(Span::dummy())
+    }
+
+    /// Does the token at `offset` begin a new source line?
+    ///
+    /// True when its line number is greater than the previous token's, and for
+    /// the very first token of the program.
+    ///
+    /// This is how the IDENTIFICATION DIVISION finds the end of a comment-entry.
+    /// COBOL-85 ends such an entry at the next entry beginning in **Area A**,
+    /// but by the time the parser runs, fixed-format source has been flattened
+    /// and re-tokenized as free form, so the format is no longer known. "Starts
+    /// a line" is the part of that rule which survives, and combined with a
+    /// check on what the token *is*, it separates a paragraph header from prose
+    /// that merely contains a reserved word.
+    pub(crate) fn at_line_start(&self, offset: usize) -> bool {
+        crate::identification::starts_line(&self.tokens, self.pos + offset)
     }
 
     /// `true` if the current token equals `tok`.
@@ -259,6 +283,23 @@ impl Parser {
 
         let mut i = 0;
         while i < self.tokens.len() {
+            // Skip the free text of an IDENTIFICATION comment-entry.
+            //
+            // A comment-entry may say anything, including the words "PROCEDURE
+            // DIVISION" — `SECURITY. SEE THE PROCEDURE DIVISION BELOW.` is legal
+            // COBOL-85. This scan runs over raw tokens before anything is
+            // parsed, so without this it would count that prose as a real
+            // division header and report a redeclaration that does not exist.
+            if let Some(mut j) = crate::identification::comment_entry_header_at(&self.tokens, i) {
+                while j < self.tokens.len()
+                    && !crate::identification::ends_comment_entry_at(&self.tokens, j)
+                {
+                    j += 1;
+                }
+                i = j;
+                continue;
+            }
+
             let tok = &self.tokens[i].token;
             let span = self.tokens[i].span;
             let next = self.tokens.get(i + 1).map(|s| &s.token);
@@ -360,6 +401,7 @@ impl Parser {
         ParseResult {
             program: Some(program),
             diagnostics: self.diagnostics,
+            next_block_id: self.next_block_id,
         }
     }
 }

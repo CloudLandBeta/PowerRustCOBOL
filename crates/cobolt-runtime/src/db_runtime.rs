@@ -90,6 +90,7 @@ impl BackendKind {
 }
 
 /// The live driver connection for one of the supported engines.
+#[cfg(feature = "sql")]
 enum Backend {
     Sqlite(rusqlite::Connection),
     Postgres(postgres::Client),
@@ -98,16 +99,34 @@ enum Backend {
 
 /// The outcome of executing one statement: cached rows plus an affected-row
 /// count (the latter is used for INSERT/UPDATE/DELETE/DDL).
+#[cfg(feature = "sql")]
 struct ExecResult {
     rows: Vec<Vec<String>>,
     affected: usize,
 }
+
+/// What a SQL verb reports when the bridge was left out of the build.
+///
+/// Reachable only when the compiler proved the program never touches SQL and
+/// then it did anyway — in practice, a `CALL` whose verb name was assembled at
+/// run time out of pieces no static reading could follow. It says which build
+/// decision produced this and how to reverse it, because "COBOL-OPEN-DB failed"
+/// on a machine where the same program works interpreted is otherwise
+/// unexplainable.
+#[cfg(not(feature = "sql"))]
+const SQL_NOT_LINKED: &str = "the SQL bridge is not linked into this program: \
+     the build found no CALL to COBOL-OPEN-DB (or any of its companions) and \
+     left SQLite, PostgreSQL and MySQL out, which is what lets an application \
+     build without a C toolchain. Reaching a SQL verb through a name assembled \
+     at run time defeats that reading — CALL the verb by its literal name \
+     somewhere the build can see it";
 
 // ── DbConn ────────────────────────────────────────────────────────────────────
 
 /// One live database connection plus its current result-set cursor.
 pub struct DbConn {
     /// The backing driver connection.
+    #[cfg(feature = "sql")]
     backend: Backend,
     /// All rows fetched from the last `COBOL-EXEC-SQL` call.
     /// Each row is a `Vec<String>` of column values (every value normalised to
@@ -121,6 +140,7 @@ pub struct DbConn {
 
 impl DbConn {
     /// Open a new connection, dispatching on the connection-string scheme.
+    #[cfg(feature = "sql")]
     fn open(conn_str: &str) -> Result<Self, String> {
         let backend = match BackendKind::classify(conn_str) {
             BackendKind::Sqlite => Backend::Sqlite(Self::open_sqlite(conn_str)?),
@@ -135,7 +155,17 @@ impl DbConn {
         })
     }
 
+    /// No drivers were linked, so there is nothing to open.
+    #[cfg(not(feature = "sql"))]
+    fn open(conn_str: &str) -> Result<Self, String> {
+        Err(format!(
+            "{SQL_NOT_LINKED} (asked for {})",
+            BackendKind::classify(conn_str).name()
+        ))
+    }
+
     /// Open a SQLite connection from a file path, `sqlite:<path>`, or `:memory:`.
+    #[cfg(feature = "sql")]
     fn open_sqlite(conn_str: &str) -> Result<rusqlite::Connection, String> {
         let path = conn_str
             .trim()
@@ -153,11 +183,13 @@ impl DbConn {
     ///
     /// Connections are made without TLS (`NoTls`) — suitable for local and
     /// trusted-network servers. See `docs/database-runtime-en.md` for enabling TLS.
+    #[cfg(feature = "sql")]
     fn open_postgres(conn_str: &str) -> Result<postgres::Client, String> {
         postgres::Client::connect(conn_str.trim(), postgres::NoTls).map_err(|e| e.to_string())
     }
 
     /// Open a MySQL connection from a `mysql://` URL.
+    #[cfg(feature = "sql")]
     fn open_mysql(conn_str: &str) -> Result<mysql::Conn, String> {
         let opts = mysql::Opts::from_url(conn_str.trim()).map_err(|e| e.to_string())?;
         mysql::Conn::new(opts).map_err(|e| e.to_string())
@@ -168,6 +200,7 @@ impl DbConn {
     /// For row-returning queries (`SELECT`, …) the rows are collected into
     /// `self.rows` and the row count is returned. For `INSERT / UPDATE / DELETE`
     /// (and DDL) the affected-row count is returned and `self.rows` is empty.
+    #[cfg(feature = "sql")]
     fn exec(&mut self, sql: &str) -> Result<usize, String> {
         self.rows.clear();
         self.cursor = 0;
@@ -189,8 +222,16 @@ impl DbConn {
         }
     }
 
+    /// Unreachable — no connection can exist without drivers — but the registry
+    /// still names this method, so it has to compile.
+    #[cfg(not(feature = "sql"))]
+    fn exec(&mut self, _sql: &str) -> Result<usize, String> {
+        Err(SQL_NOT_LINKED.to_owned())
+    }
+
     /// SQLite execution: prepared-statement query for row-returning SQL,
     /// `execute` for everything else.
+    #[cfg(feature = "sql")]
     fn exec_sqlite(conn: &rusqlite::Connection, sql: &str) -> Result<ExecResult, String> {
         let upper = sql.to_ascii_uppercase();
         let is_select =
@@ -236,6 +277,7 @@ impl DbConn {
 
     /// PostgreSQL execution via `simple_query`, which uniformly handles both
     /// row-returning and DML statements and yields every column as text.
+    #[cfg(feature = "sql")]
     fn exec_postgres(client: &mut postgres::Client, sql: &str) -> Result<ExecResult, String> {
         use postgres::SimpleQueryMessage;
         let messages = client.simple_query(sql).map_err(|e| e.to_string())?;
@@ -259,6 +301,7 @@ impl DbConn {
     }
 
     /// MySQL execution via `query_iter`, normalising each `mysql::Value` to text.
+    #[cfg(feature = "sql")]
     fn exec_mysql(conn: &mut mysql::Conn, sql: &str) -> Result<ExecResult, String> {
         use mysql::prelude::Queryable;
         let mut qr = conn.query_iter(sql).map_err(|e| e.to_string())?;
@@ -278,6 +321,7 @@ impl DbConn {
     }
 
     /// Convert one `mysql::Value` to the same text form the other backends use.
+    #[cfg(feature = "sql")]
     fn mysql_value_to_string(v: &mysql::Value) -> String {
         use mysql::Value;
         match v {
@@ -471,6 +515,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sql")]
     fn sqlite_end_to_end_crud() {
         let mut reg = DbRegistry::new();
         let h = reg.open(":memory:").expect("open in-memory sqlite");
@@ -500,6 +545,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sql")]
     fn mysql_value_to_string_covers_types() {
         use mysql::Value;
         assert_eq!(DbConn::mysql_value_to_string(&Value::NULL), "");
@@ -523,6 +569,7 @@ mod tests {
     /// (e.g. `postgres://postgres:postgres@localhost:5432/postgres`) and run
     /// `cargo test -p cobolt-runtime -- --ignored pg_live` against a real server.
     #[test]
+    #[cfg(feature = "sql")]
     #[ignore = "requires a live PostgreSQL server via PRC_TEST_PG_URL"]
     fn pg_live_round_trip() {
         let url = std::env::var("PRC_TEST_PG_URL").expect("set PRC_TEST_PG_URL");
@@ -549,6 +596,7 @@ mod tests {
     /// (e.g. `mysql://root:root@localhost:3306/test`) and run
     /// `cargo test -p cobolt-runtime -- --ignored mysql_live` against a real server.
     #[test]
+    #[cfg(feature = "sql")]
     #[ignore = "requires a live MySQL server via PRC_TEST_MYSQL_URL"]
     fn mysql_live_round_trip() {
         let url = std::env::var("PRC_TEST_MYSQL_URL").expect("set PRC_TEST_MYSQL_URL");

@@ -13,6 +13,22 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 
+[features]
+# Everything the interpreter has always had. Nothing in this workspace turns it
+# off — `rcrun`, the IDE and every test keep the full surface.
+default = ["sql"]
+
+# The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
+# PostgreSQL and MySQL.
+#
+# It is separable because of what SQLite costs to build. `rusqlite` is pinned
+# with `bundled`, which compiles the SQLite **C amalgamation** — so every
+# application built by PowerRustCOBOL needed a working **C toolchain**
+# (`link.exe` on Windows, `cc` elsewhere) on top of `rustc`, including console
+# programs that never open a database. The compiler now turns this off for a
+# program it can prove never reaches SQL, and those builds need Rust alone.
+sql = ["dep:rusqlite", "dep:postgres", "dep:mysql"]
+
 [dependencies]
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
@@ -34,9 +50,9 @@ tracing         = { workspace = true }
 # SQLite is bundled (no system library required). PostgreSQL and MySQL use the
 # pure-Rust synchronous drivers; MySQL is pinned to its rustls feature set so no
 # OpenSSL / system library is needed to build.
-rusqlite        = { workspace = true }
-postgres        = { version = "0.19" }
-mysql           = { version = "28", default-features = false, features = ["minimal-rust"] }
+rusqlite        = { workspace = true, optional = true }
+postgres        = { version = "0.19", optional = true }
+mysql           = { version = "28", default-features = false, features = ["minimal-rust"], optional = true }
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
 redb            = { version = "2.2" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
@@ -56,6 +72,15 @@ google_maps = { version = "3.10.0", default-features = false, features = [
   "distance_matrix",
 ] }
 tokio       = { workspace = true }
+# COBOL-85 `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` and `FUNCTION CURRENT-DATE`
+# are defined on the **local** clock, and CURRENT-DATE reports the real offset
+# from GMT in its last five characters. Deriving them from UNIX_EPOCH gives UTC,
+# which is simply a different time of day for most of the world.
+#
+# This adds nothing to the build: `chrono` is already compiled into this crate
+# through `google_maps` → `chrono-tz`. `clock` is the feature that reads the
+# machine's zone; no C toolchain and no system library come with it.
+chrono      = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 cobolt-codegen    = { path = "../cobolt-codegen" }

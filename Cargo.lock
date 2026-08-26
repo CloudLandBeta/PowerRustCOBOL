@@ -1500,6 +1500,7 @@ dependencies = [
 name = "cobolt-runtime"
 version = "0.2.0"
 dependencies = [
+ "chrono",
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-forms",

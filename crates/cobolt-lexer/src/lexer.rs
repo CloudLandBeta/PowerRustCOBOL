@@ -29,7 +29,7 @@ use std::ops::Range;
 
 use crate::{
     keywords,
-    source::{flatten_fixed, SourceFormat},
+    source::{flatten_fixed, flatten_fixed_strict, SourceFormat},
     span::{LineIndex, Span, SpannedToken},
     token::{RawToken, Token},
 };
@@ -107,6 +107,7 @@ impl<'src> Lexer<'src> {
     pub fn new(source: &'src str, format: SourceFormat) -> Self {
         let preprocessed = match format {
             SourceFormat::Fixed => flatten_fixed(source),
+            SourceFormat::FixedStrict => flatten_fixed_strict(source),
             SourceFormat::Free => source.to_string(),
         };
         let line_index = LineIndex::new(&preprocessed);
@@ -189,10 +190,19 @@ impl<'src> Lexer<'src> {
                 Err(()) => {
                     // Unexpected character — extract slice from preprocessed source.
                     let text = self.preprocessed.get(range).unwrap_or("?").to_string();
-                    self.errors.push(LexError::UnexpectedChar {
-                        span,
-                        text: text.clone(),
-                    });
+                    // A lone quotation mark is not a stray character: it is a
+                    // literal that was never closed on its line. Naming it as
+                    // such is what turns "unexpected character" into something
+                    // the developer can act on — and a literal cannot span
+                    // lines, so an unclosed one is always a mistake.
+                    if text.starts_with('"') || text.starts_with('\'') {
+                        self.errors.push(LexError::UnterminatedString { span });
+                    } else {
+                        self.errors.push(LexError::UnexpectedChar {
+                            span,
+                            text: text.clone(),
+                        });
+                    }
                     self.at_line_start = false;
                     Token::Error(text)
                 }

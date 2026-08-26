@@ -282,3 +282,88 @@ fn a_malformed_hex_literal_is_rejected_not_silently_reinterpreted() {
         );
     }
 }
+
+// ── A literal may not cross a line boundary ───────────────────────────────────
+//
+// COBOL-85 has no multi-line literal. Continuation is a *source-format*
+// mechanism — a `-` in column 7 — and it is resolved by the preprocessor before
+// the lexer ever runs, so by the time a literal is tokenized it is on one line.
+//
+// When the lexer lets a string run past a newline, one stray quotation mark
+// does not merely break its own line: it pairs with the *next* quote several
+// lines away, swallowing everything between, and every quote after that is then
+// matched with the wrong partner. The NIST programs this was found in
+// (SG104A, SG105A, SG106A, NC215A) all have an **even** number of quotation
+// marks — 194, 194, 194 and 224. Nothing is unterminated. The parity of the
+// whole file is simply shifted by one, from a single `"` inside prose:
+//
+//     THIS PROGRAM CHECKS THE COMPILER"S ABILITY TO HANDLE EIGHT
+//
+// Confining a literal to its line makes that self-correcting at the next
+// newline instead of cascading to end of file.
+
+/// A stray quote must not consume the following line's literal.
+#[test]
+fn an_unpaired_quote_does_not_eat_the_next_line() {
+    let src = "MOVE \"abc TO X.\nMOVE \"def\" TO Y.\n";
+    let toks = tokenize(src, SourceFormat::Free);
+    let strings: Vec<&String> = toks
+        .iter()
+        .filter_map(|st| match &st.token {
+            Token::StringLiteral(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        strings,
+        vec![&"def".to_string()],
+        "the stray quote on line 1 consumed line 2: {strings:?}"
+    );
+}
+
+/// The parity case — the one that actually occurs in the suite.
+///
+/// A quotation mark inside prose, then two ordinary lines, then a properly
+/// balanced literal. The balanced literal must survive: if the stray quote is
+/// allowed to run, it pairs with the *opening* quote of `"pair"` and the
+/// closing one then opens a literal of its own, shifting everything after.
+#[test]
+fn a_stray_quote_in_prose_does_not_shift_the_rest_of_the_file() {
+    let src = "THE COMPILER\"S ABILITY TO HANDLE EIGHT\n\
+               ASCENDING KEYS IN ONE FILE.\n\
+               ENVIRONMENT DIVISION.\n\
+               MOVE \"pair\" TO X.\n";
+    let toks = tokenize(src, SourceFormat::Free);
+    let strings: Vec<&String> = toks
+        .iter()
+        .filter_map(|st| match &st.token {
+            Token::StringLiteral(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        strings,
+        vec![&"pair".to_string()],
+        "the stray quote shifted the file's quote parity: {strings:?}"
+    );
+    // The division header between them must still be a division header.
+    assert!(
+        toks.iter().any(|st| st.token == Token::Environment),
+        "ENVIRONMENT was swallowed by the stray quote"
+    );
+}
+
+/// Same containment for apostrophe-delimited literals.
+#[test]
+fn an_unpaired_apostrophe_does_not_eat_the_next_line() {
+    let src = "MOVE 'abc TO X.\nMOVE 'def' TO Y.\n";
+    let toks = tokenize(src, SourceFormat::Free);
+    let strings: Vec<&String> = toks
+        .iter()
+        .filter_map(|st| match &st.token {
+            Token::StringLiteral(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(strings, vec![&"def".to_string()], "{strings:?}");
+}
