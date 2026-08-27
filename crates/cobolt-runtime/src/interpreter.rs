@@ -3426,17 +3426,12 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         let table_name = self.expr_to_name(table);
         let sym = self.env.symbol(&table_name).cloned();
-        // Table size = the table's own OCCURS count (its last dimension).
-        let size = sym
-            .as_ref()
-            .map(|s| {
-                if s.occurs > 0 {
-                    s.occurs
-                } else {
-                    s.dims.last().copied().unwrap_or(0)
-                }
-            })
-            .unwrap_or(0);
+        // Table size = the occurrences that are active now. For a fixed table
+        // that is its own OCCURS count (its last dimension); for an
+        // `OCCURS … DEPENDING ON` table it is the depending item's current
+        // value, so the search stops at the end of the *active* table rather
+        // than finding a value parked in a dormant occurrence (NC247A).
+        let size = self.env.table_occurrences(&table_name).unwrap_or(0);
         // The table's own first `INDEXED BY` index drives the search.
         let own_index = sym
             .as_ref()
@@ -4932,6 +4927,17 @@ impl Interpreter {
         Ok((lo.min(s.len()), hi.max(lo).min(s.len())))
     }
 
+    /// Write an INSPECT result back to its target, distributing across the
+    /// subordinate items when that target is a group. `set_str` alone would
+    /// store the whole record in a slot the group does not have.
+    fn inspect_store(&mut self, name: &str, s: &str) {
+        if self.env.is_group(name) {
+            self.env.set_group(name, s);
+        } else {
+            self.env.set_str(name, s);
+        }
+    }
+
     fn exec_inspect(
         &mut self,
         target: &Expr,
@@ -4939,12 +4945,19 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let name = self.resolve_lvalue(target);
-        let val = self
-            .env
-            .get(&name)
-            .cloned()
-            .unwrap_or_else(|| CobolValue::from_str("", 0));
-        let mut s = val.as_display_string();
+        // A group owns no store slot — its value is synthesized from its
+        // subordinate items — so reading one through `get` yielded the empty
+        // string and INSPECT tallied *nothing at all* on any group operand,
+        // variable-length or not (NC247A INS-TEST-F1-1).
+        let mut s = match self.env.group_value(&name) {
+            Some(g) => g,
+            None => self
+                .env
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| CobolValue::from_str("", 0))
+                .as_display_string(),
+        };
 
         match spec {
             InspectSpec::Tallying(tallies) => {
@@ -5034,7 +5047,7 @@ impl Interpreter {
                     }
                     s = format!("{}{}{}", &s[..lo], win, &s[hi..]);
                 }
-                self.env.set_str(&name, &s);
+                self.inspect_store(&name, &s);
             }
             InspectSpec::Converting { from, to } => {
                 let from_s = self.eval_expr(from, span)?.as_display_string();
@@ -5042,7 +5055,7 @@ impl Interpreter {
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     s = s.replace(fc, &tc.to_string());
                 }
-                self.env.set_str(&name, &s);
+                self.inspect_store(&name, &s);
             }
             InspectSpec::ConvertingIn { from, to, region } => {
                 // The same character-for-character conversion, applied only
@@ -5055,7 +5068,7 @@ impl Interpreter {
                     window = window.replace(fc, &tc.to_string());
                 }
                 s.replace_range(lo..hi, &window);
-                self.env.set_str(&name, &s);
+                self.inspect_store(&name, &s);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
                 self.exec_inspect(target, &InspectSpec::Tallying(tallies.clone()), span)?;

@@ -91,6 +91,11 @@ pub struct ItemSym {
     pub pic: String,
     /// Program/form/procedure that declared this item.
     pub origin: String,
+    /// The `OCCURS … DEPENDING ON` item (uppercased), for a variable-length
+    /// table. `None` for a fixed table and for a non-table item. The table's
+    /// *current* length is read from it — [`occurs`](Self::occurs) stays the
+    /// declared maximum, which is the storage that was reserved.
+    pub depending_on: Option<String>,
 }
 
 /// The data store for a running COBOL program.
@@ -178,6 +183,17 @@ pub struct CobolEnvironment {
     /// its digit positions wide and the sign rides on the leading or trailing
     /// digit, which is the representation the store already has.
     sign_separate: IndexMap<String, bool>,
+    /// Nesting depth of a group **move into** storage; zero when reading.
+    ///
+    /// A group containing an `OCCURS … DEPENDING ON` table uses the table's
+    /// *current* length when it is a **sending** item and its declared
+    /// **maximum** when it is a **receiving** one (COBOL-85 VI-26 5.8.3 SR5).
+    /// The asymmetry is what makes `MOVE ODO-RECORD TO NEW-RECORD` copy all
+    /// nine occurrences into a receiver whose own depending item still reads 3
+    /// — the move is what sets that item, so its old value cannot bound the
+    /// receiver. It is a depth counter so the recursion into subordinate groups
+    /// inherits the mode and only the outermost call clears it.
+    odo_receiving: u32,
 }
 
 /// Distribute `src`'s characters across an alphanumeric-edited PICTURE.
@@ -922,6 +938,11 @@ impl CobolEnvironment {
                         .map(|pic| pic.template.clone())
                         .unwrap_or_default(),
                     origin: origin.to_owned(),
+                    depending_on: decl
+                        .occurs
+                        .as_ref()
+                        .and_then(|o| o.depending_on.as_ref())
+                        .map(|n| n.to_ascii_uppercase()),
                 },
             );
             self.by_leaf
@@ -1231,6 +1252,49 @@ impl CobolEnvironment {
     /// With an empty prefix this walks a whole table, which is what makes the
     /// enclosing `01` record read and write as the flat bytes of every
     /// occurrence.
+    /// The **current** number of occurrences of an `OCCURS … DEPENDING ON`
+    /// table, read from its depending item. `None` when `key` is not one, which
+    /// is every fixed table and every ordinary item.
+    ///
+    /// Clamped to the declared maximum: the depending item is ordinary storage
+    /// and can hold a larger number than the OCCURS reserved room for, but the
+    /// table cannot be longer than itself.
+    fn odo_count(&self, key: &str) -> Option<usize> {
+        // A receiving group takes the declared maximum, so the table does not
+        // shrink at all — `None` leaves the caller on the declared dimensions.
+        if self.odo_receiving > 0 {
+            return None;
+        }
+        let upper = key.to_ascii_uppercase();
+        let sym = self.symbols.get(base_name(&upper))?;
+        let dep = sym.depending_on.as_ref()?;
+        let n = self
+            .get(&self.resolve_name(dep, &[]))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            .max(0) as usize;
+        Some(n.min(sym.occurs))
+    }
+
+    /// How many occurrences a table has **right now**: its
+    /// `OCCURS … DEPENDING ON` count when it has one, its declared maximum
+    /// otherwise. `None` when `name` is not a table.
+    ///
+    /// This is the bound `SEARCH` and `SEARCH ALL` walk. Searching the declared
+    /// maximum reached entries past the end of the active table, so a value
+    /// sitting in a dormant occurrence was still found (NC247A SCH-TEST-F1-2
+    /// and SCH-TEST-4, which both require `AT END`).
+    pub fn table_occurrences(&self, name: &str) -> Option<usize> {
+        let upper = name.to_ascii_uppercase();
+        let sym = self.symbols.get(base_name(&upper))?;
+        let declared = if sym.occurs > 0 {
+            sym.occurs
+        } else {
+            sym.dims.last().copied().unwrap_or(0)
+        };
+        Some(self.odo_count(&upper).unwrap_or(declared).min(declared))
+    }
+
     fn occurrence_keys(&self, sym: &ItemSym, prefix: &[i64]) -> Vec<String> {
         let mut out = Vec::new();
         for ck in &sym.layout_keys {
@@ -1244,6 +1308,26 @@ impl CobolEnvironment {
                 out.push(subscript_key(ck, prefix));
                 continue;
             }
+            // An `OCCURS … DEPENDING ON` table contributes only the occurrences
+            // that are **active now**, not its declared maximum: the enclosing
+            // group's length tracks the depending item. Walking the maximum
+            // made a partial ODO group read, compare, STRING and INSPECT at
+            // full width — `GRP-ODO` with 3 active entries still delivered all
+            // 9 (NC247A). The table's own dimension is the last one; any
+            // ancestor dimensions the prefix left open are unaffected.
+            //
+            // Only the ODO case allocates; a fixed table keeps the borrow.
+            let shrunk;
+            let dims: &[usize] = match self.odo_count(ck) {
+                Some(n) if n < dims[dims.len() - 1] => {
+                    let mut d = dims.to_vec();
+                    let last = d.len() - 1;
+                    d[last] = n;
+                    shrunk = d;
+                    &shrunk
+                }
+                _ => dims,
+            };
             let total: usize = dims.iter().product();
             for n in 0..total {
                 let mut rem = n;
@@ -1344,7 +1428,14 @@ impl CobolEnvironment {
         if !sym.is_group || sym.layout_keys.is_empty() {
             return; // elementary (see `is_group` on 88-level children)
         }
-        let child_keys = self.occurrence_keys(sym, &key_indices(&key));
+        // Everything from here measures a **receiving** group, which takes each
+        // ODO table's declared maximum rather than its current length. The
+        // symbol is looked up again because raising the flag needs `self`.
+        self.odo_receiving += 1;
+        let child_keys = match self.symbols.get(base_name(&key)) {
+            Some(sym) => self.occurrence_keys(sym, &key_indices(&key)),
+            None => Vec::new(),
+        };
         let bytes = s.as_bytes();
         let mut pos = 0usize;
         for ck in child_keys {
@@ -1380,6 +1471,7 @@ impl CobolEnvironment {
             }
             pos += width;
         }
+        self.odo_receiving -= 1;
     }
 
     /// The synthesized value of a RENAMES item: the concatenated display strings

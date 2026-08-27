@@ -1,5 +1,53 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.28] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): execution 69 → 71 of 95, assertions 172 → 151
+failing.** NC247A and NC235A go to 0 failures; NC216A goes 13 → 7. Compile
+stays at 94 / 95 (whole suite 419 / 434). No other module was touched
+(GOLDEN RULE #9).
+
+### Fixed — INSPECT read nothing at all from a group item
+
+A group owns no value slot — its value is synthesized from its subordinate
+items — and INSPECT read its operand through the plain store, so it saw the
+empty string. `INSPECT <group> TALLYING …` counted **zero** on every group,
+fixed-length ones included, and `REPLACING` wrote the result into a slot the
+group does not have. Both directions now go through the group accessors.
+
+This was the largest single cause: besides NC247A it cleared six failures in
+NC216A.
+
+### Fixed — a variable-length group had only one length
+
+A group containing an `OCCURS … DEPENDING ON` table has two lengths, and which
+applies depends on the direction of the reference (VI-26 5.8.3 SR5). We used
+the declared maximum for everything.
+
+**Sending** — only the occurrences the depending item currently counts take
+part. A group with 3 of 9 entries active is 13 bytes, not 19, and that is what
+a comparison, `STRING`, `UNSTRING` and `INSPECT` see; the dormant occurrences
+keep their contents but are not part of the group.
+
+**Receiving** — the declared maximum applies. The move is what writes the
+depending item, so its *old* value cannot bound the receiver:
+`MOVE ODO-RECORD TO NEW-RECORD` copies all nine occurrences into a record whose
+own depending item still reads 3. NC247A also puts the depending item in the
+group's own first byte, so a receiving move overwrites its own count partway
+through — measuring against the value the move had just written truncated the
+table.
+
+Reading the current count in every direction is as wrong as reading the
+maximum in every direction; both halves are covered by the new tests.
+
+### Fixed — SEARCH and SEARCH ALL walked past the end of a variable table
+
+Both bounded themselves by the declared OCCURS maximum, so a value sitting in a
+dormant occurrence was still found. They now walk the active length, which is
+what NC247A's two `AT END` cases require. This also cleared NC235A outright.
+
+New tests: `test_odo_group_length.rs` (13).
+
 ## [PowerRustCOBOL 1.62.27] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): execution 68 → 69 of 95, assertions 181 → 172
