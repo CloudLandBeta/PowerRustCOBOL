@@ -149,6 +149,29 @@ pub struct DataDecl {
     /// 🔴 New fields belong at the END of this struct — `DataDecl` is
     /// bincode-serialized field-by-field in declaration order.
     pub justified: bool,
+    /// `SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]` — where the operational
+    /// sign of a signed DISPLAY item lives.
+    ///
+    /// `None` is the COBOL default (trailing, embedded in the last digit).
+    /// Written on a group, the clause applies to every subordinate signed
+    /// numeric DISPLAY item that does not carry one of its own.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub sign: Option<SignClause>,
+}
+
+/// A `SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]` clause.
+///
+/// Only `separate` changes an item's storage: it adds one character position
+/// holding a literal `+` or `-`, at the front (`leading`) or the back. With an
+/// embedded sign the item is exactly its digit positions wide and the sign
+/// rides on the leading or trailing digit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignClause {
+    /// `LEADING` when true, `TRAILING` when false (the COBOL default).
+    pub leading: bool,
+    /// `SEPARATE CHARACTER` — the sign occupies its own character position.
+    pub separate: bool,
 }
 
 /// A 66-level `RENAMES item-1 [THRU item-2]` regrouping clause.

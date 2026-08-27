@@ -3134,6 +3134,15 @@ impl Interpreter {
                     self.env.set_group(&name, &repeated);
                     continue;
                 }
+                // A 66-level RENAMES receiver spans real bytes just as a group
+                // does, so the fill has to reach all of them. Without this the
+                // repeat fell through to the plain RENAMES branch below and
+                // wrote a single character (NC252A RENAM-TEST-3).
+                if let Some(width) = self.env.renames_width(&name).filter(|w| *w > 0) {
+                    let repeated: String = fill.chars().cycle().take(width).collect();
+                    self.env.set_renames(&name, &repeated);
+                    continue;
+                }
             }
             // `SET 88-name TO TRUE|FALSE` arrives here as MOVE 1|0 → set the
             // host item to (a value satisfying / violating) the condition.

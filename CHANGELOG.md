@@ -1,5 +1,63 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.24] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): execution 65 → 66 of 95, assertions 226 → 191
+failing.** Compile stays at 94 / 95. Two separate numbers, always — *compile*
+counts programs the front end accepts, *execution* counts programs that run to
+completion and report **zero failures** in their own CCVS report. NC116A went
+from 23 failures to clean; NC252A went from 17 to 11 and NC217A from 11 to 5.
+No other module was touched (GOLDEN RULE #9).
+
+### Fixed — `SIGN IS … SEPARATE CHARACTER` did not change storage
+
+The clause was parsed and thrown away, so `PIC S9(5) SIGN IS LEADING SEPARATE`
+occupied five characters instead of six and never held the `+` or `-` that the
+declaration reserves a position for. A separate sign is a *storage* position
+that is always occupied: `MOVE 15759 TO` such an item now stores `+15759`, and
+`MOVE -15759` stores `-15759`, with the sign at the front for `LEADING` and the
+back for `TRAILING`. Written on a group the clause reaches every subordinate
+signed numeric DISPLAY item that does not carry one of its own, and a nested
+group overrides it for its own subtree.
+
+An embedded (non-`SEPARATE`) sign is unchanged: the item stays exactly its digit
+positions wide, which is what the standard's implementor-defined overpunch
+leaves observable.
+
+`DataDecl` gained a `sign` field and `cobolt_ast::data::SignClause` is new —
+both at the **end** of their declarations, per the bincode-ordinal rule.
+
+### Fixed — a subordinate `REDEFINES` was serialized as extra storage
+
+Within a group, a `REDEFINES` entry is another *reading* of its sibling's bytes,
+not more bytes. The REDEFINES image builder emitted it as well, so every field
+after it shifted: `02 RDF3 REDEFINES RDFDATA3` inserted a second copy of
+`ALLDONXX66` into the record and the 36-element overlay above it read eleven
+bytes off. The serializer now skips redefining children, and the deserializer
+fills them from where their target began instead of from the bytes that follow.
+
+### Fixed — an item with 88-level condition-names contributed no bytes
+
+`04 RDF3-5-15 PIC 9.` with `88 HARD` / `88 SOFT` under it was treated as a group
+by the REDEFINES image builder, because *any* children made an item a group.
+Condition-names name values of an item, not fields inside it, so the item
+dropped out of its parent's image entirely and kept its default while the next
+field took its byte. The same miscount kept such an item out of the 66-level
+RENAMES ordering.
+
+### Fixed — `FILLER` was invisible to 66-level `RENAMES`
+
+A FILLER holds bytes like any other elementary item, but it was never recorded
+in the declaration order that a RENAMES range slices, so a range spanning one
+closed the gap it occupies: `66 RENAMES-TEST-3 RENAMES SUB-GRP-FOR-RENAMES-1
+THRU ELEM-FOR-RENAMES-2` read `X123` instead of `X  123`.
+
+### Fixed — `MOVE ALL literal` to a `RENAMES` receiver wrote one character
+
+A 66-level receiver spans real bytes exactly as a group does, and the repeated
+literal has to reach all of them. `MOVE ALL "X" TO RENAME1` filled a single
+character and left the other nineteen as they were.
+
 ## [PowerRustCOBOL 1.62.23] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): compile 93 → 94 of 95, execution 36 → 65 of 95.**

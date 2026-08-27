@@ -203,6 +203,7 @@ mod tests {
             children: vec![],
             span: Span::dummy(),
             justified: false,
+            sign: None,
         }
     }
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
@@ -223,6 +224,7 @@ mod tests {
             children,
             span: Span::dummy(),
             justified: false,
+            sign: None,
         }
     }
 

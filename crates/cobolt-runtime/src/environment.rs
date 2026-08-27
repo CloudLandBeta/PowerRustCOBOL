@@ -169,6 +169,15 @@ pub struct CobolEnvironment {
     /// to whatever is moved into it, so every store re-applies the template.
     /// See [`apply_alnum_edit`].
     alnum_edited: IndexMap<String, String>,
+    /// Signed numeric DISPLAY items declared `SIGN IS … SEPARATE CHARACTER`:
+    /// `key → leading?`. The sign occupies its own character position — one
+    /// **more** than the item's digit positions — and always holds a literal
+    /// `+` or `-`, never a space, even for a value that arrived unsigned.
+    ///
+    /// Only SEPARATE appears here. With an embedded sign the item is exactly
+    /// its digit positions wide and the sign rides on the leading or trailing
+    /// digit, which is the representation the store already has.
+    sign_separate: IndexMap<String, bool>,
 }
 
 /// Distribute `src`'s characters across an alphanumeric-edited PICTURE.
@@ -920,7 +929,9 @@ impl CobolEnvironment {
                 .or_default()
                 .push(key.clone());
             // Record elementary (leaf) items in declaration order for 66 RENAMES.
-            if decl.children.is_empty() {
+            // 88-level condition-names do not make an item a group, so one that
+            // carries them is still a leaf and still belongs in the order.
+            if !has_storage_children(decl) {
                 self.elem_order.push(key.clone());
             }
             // Base/template slot + caps/edited (one value; subscript slots are
@@ -951,6 +962,12 @@ impl CobolEnvironment {
             if unnamed && child.children.is_empty() {
                 if let Some(parent) = owner_key.as_deref() {
                     let fk = filler_key(parent, i);
+                    // A FILLER holds bytes like any other leaf, so a 66 RENAMES
+                    // range that spans it has to carry it too. Leaving it out of
+                    // the order closed the gap it occupies: `RENAMES
+                    // SUB-GRP-FOR-RENAMES-1 THRU ELEM-FOR-RENAMES-2` read
+                    // "X123" instead of "X  123" (NC252A RENAM-TEST-5/6).
+                    self.elem_order.push(fk.clone());
                     self.insert_value(&fk, child);
                     continue;
                 }
@@ -1026,6 +1043,13 @@ impl CobolEnvironment {
                 // whatever is moved or computed into it.
                 if !pic.template.to_ascii_uppercase().contains('S') {
                     self.unsigned_numeric.insert(upper.to_string());
+                } else if let Some(sign) = decl.sign.filter(|s| s.separate) {
+                    // SEPARATE only means anything on a signed DISPLAY item:
+                    // an unsigned PICTURE has no sign to separate, and COMP
+                    // items are not stored as characters at all.
+                    if matches!(decl.usage, Usage::Display) {
+                        self.sign_separate.insert(upper.to_string(), sign.leading);
+                    }
                 }
             }
             // An alphanumeric-edited item owns its insertion characters, so the
@@ -1359,6 +1383,21 @@ impl CobolEnvironment {
         Some(s)
     }
 
+    /// The total stored width of a 66-level RENAMES item, in characters.
+    ///
+    /// `None` when `name` is not a RENAMES item. `MOVE ALL "X" TO <renames>`
+    /// needs this for the same reason a group does: the fill has to reach every
+    /// covered byte, not just the first (NC252A RENAM-TEST-3).
+    pub fn renames_width(&self, name: &str) -> Option<usize> {
+        let covered = self.renames.get(&name.to_ascii_uppercase())?;
+        Some(
+            covered
+                .iter()
+                .map(|k| self.display_string(k).map(|d| d.len()).unwrap_or(0))
+                .sum(),
+        )
+    }
+
     /// Distribute `s` across the covered items of a RENAMES item by each item's
     /// stored width (left-to-right).
     pub fn set_renames(&mut self, name: &str, s: &str) {
@@ -1566,6 +1605,37 @@ impl CobolEnvironment {
         self.refresh_redefine_peers(&key);
     }
 
+    /// `Some(leading?)` when `key` is a `SIGN IS … SEPARATE CHARACTER` item.
+    fn separate_sign_of(&self, key: &str) -> Option<bool> {
+        self.sign_separate
+            .get(key)
+            .or_else(|| self.sign_separate.get(base_name(key)))
+            .copied()
+    }
+
+    /// Put the operational sign of a `SIGN … SEPARATE CHARACTER` item into its
+    /// own character position.
+    ///
+    /// [`format_display_numeric`] renders the embedded form: bare digits, with a
+    /// `-` glued on only when the value is negative. A separate sign is a
+    /// declared *storage* position that is always occupied, so the digits are
+    /// stripped of any sign and an explicit `+` or `-` is placed at the front
+    /// (LEADING) or the back (TRAILING). `MOVE 15759 TO <S9(5) SIGN LEADING
+    /// SEPARATE>` therefore stores `+15759`, six characters, not `15759`
+    /// (NC116A SIG-TEST-GF-1 / GF-15 / GF-16).
+    fn apply_separate_sign(&self, key: &str, n: &CobolNumeric, rendered: String) -> String {
+        let Some(leading) = self.separate_sign_of(key) else {
+            return rendered;
+        };
+        let digits = rendered.strip_prefix('-').unwrap_or(&rendered);
+        let sign = if n.mantissa < 0 { '-' } else { '+' };
+        if leading {
+            format!("{sign}{digits}")
+        } else {
+            format!("{digits}{sign}")
+        }
+    }
+
     /// Render a data item for `DISPLAY`. A USAGE-DISPLAY numeric item is shown as
     /// its full fixed-width digit string — leading zeros to the PIC width, the
     /// implied decimal point (`V`) not shown, and a leading `-` for negatives —
@@ -1607,12 +1677,17 @@ impl CobolEnvironment {
                         n.mantissa / 10i128.pow(trailing_p.min(38)),
                         stored_dec.min(u8::MAX as u32) as u8,
                     );
-                    return Some(format_display_numeric(
+                    return Some(self.apply_separate_sign(
+                        &key,
                         &scaled,
-                        stored_int.min(u8::MAX as u32) as u8,
+                        format_display_numeric(&scaled, stored_int.min(u8::MAX as u32) as u8),
                     ));
                 }
-                return Some(format_display_numeric(n, int_digits));
+                return Some(self.apply_separate_sign(
+                    &key,
+                    n,
+                    format_display_numeric(n, int_digits),
+                ));
             }
         }
         Some(val.as_display_string())
@@ -2119,6 +2194,61 @@ fn find_decl_by_name(data: &DataDivision, name: &str) -> Option<DataDecl> {
     None
 }
 
+/// Whether `decl` is a group for layout purposes — that is, whether anything
+/// subordinate to it actually occupies storage.
+///
+/// 88-level condition-names do not: they name *values* of the item they hang
+/// under, not fields inside it. Counting them made an elementary item with a
+/// condition-name attached serialize to zero bytes, so `04 RDF3-5-15 PIC 9`
+/// with `88 HARD` / `88 SOFT` below it silently dropped out of its parent's
+/// image and kept its default while the next field took its byte (NC252A
+/// RDF-TEST-1, RDF-TEST-12).
+fn has_storage_children(decl: &DataDecl) -> bool {
+    decl.children.iter().any(|c| c.level != 88)
+}
+
+/// `Some(leading?)` when `decl` stores its operational sign in a character
+/// position of its own (`SIGN IS … SEPARATE CHARACTER`).
+///
+/// The REDEFINES serializer works from the declaration rather than from the
+/// environment's `sign_separate` map, because it renders the *declared* image
+/// of an item that may not have a live slot yet.
+fn separate_sign_of_decl(decl: &DataDecl) -> Option<bool> {
+    let pic = decl.picture.as_ref()?;
+    let sign = decl.sign.filter(|s| s.separate)?;
+    (pic.kind == PicKind::Numeric
+        && matches!(decl.usage, Usage::Display)
+        && pic.template.to_ascii_uppercase().contains('S'))
+    .then_some(sign.leading)
+}
+
+/// Render a numeric item's stored characters, honouring a separate sign.
+///
+/// `len` is the item's whole width, sign position included, so the digits get
+/// `len - 1` positions when there is a separate sign to place.
+fn numeric_image(n: &CobolNumeric, len: usize, sep_sign: Option<bool>) -> Vec<u8> {
+    let digit_len = if sep_sign.is_some() {
+        len.saturating_sub(1)
+    } else {
+        len
+    };
+    let digits = n.mantissa.unsigned_abs().to_string();
+    let mut s = if digits.len() < digit_len {
+        format!("{}{}", "0".repeat(digit_len - digits.len()), digits)
+    } else {
+        digits
+    };
+    if s.len() > digit_len {
+        s = s[s.len() - digit_len..].to_string();
+    }
+    let sign = if n.mantissa < 0 { '-' } else { '+' };
+    match sep_sign {
+        Some(true) => format!("{sign}{s}").into_bytes(),
+        Some(false) => format!("{s}{sign}").into_bytes(),
+        None => s.into_bytes(),
+    }
+}
+
 fn serialize_decl(
     env: &CobolEnvironment,
     decl: &DataDecl,
@@ -2147,15 +2277,29 @@ fn serialize_decl(
             local_quals.push(name_upper.clone());
         }
 
-        if !decl.children.is_empty() {
+        if has_storage_children(decl) {
             for c in &decl.children {
                 if c.level == 88 {
+                    continue;
+                }
+                // A subordinate REDEFINES entry redescribes bytes the sibling
+                // it redefines has already contributed — it is another reading
+                // of them, not more of them. Emitting it as well pushed every
+                // later field down by its width, so `02 RDF3 REDEFINES
+                // RDFDATA3` inserted a second copy of `ALLDONXX66` and the
+                // 36-element overlay above it read 11 bytes off (NC252A
+                // RDF-TEST-003/5, NC107A RDF-TEST-2/10/11).
+                if c.redefines.is_some() {
                     continue;
                 }
                 serialize_decl(env, c, &mut local_quals, &mut local_indices, bytes);
             }
         } else if let Some(pic) = &decl.picture {
-            let len = (pic.digits as usize + pic.decimals as usize).max(1);
+            // A separate sign is a declared storage position, so it widens the
+            // item by one and a REDEFINES overlay sees it (NC116A GF-1/GF-2).
+            let sep_sign = separate_sign_of_decl(decl);
+            let len = (pic.digits as usize + pic.decimals as usize).max(1)
+                + usize::from(sep_sign.is_some());
             let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
 
             let key = env.canon_key(&name_upper, quals);
@@ -2172,16 +2316,7 @@ fn serialize_decl(
             if let Some(v) = val {
                 match v {
                     CobolValue::Numeric(n) => {
-                        let digits = n.mantissa.unsigned_abs().to_string();
-                        let mut s = if digits.len() < len {
-                            format!("{}{}", "0".repeat(len - digits.len()), digits)
-                        } else {
-                            digits
-                        };
-                        if s.len() > len {
-                            s = s[s.len() - len..].to_string();
-                        }
-                        f_bytes = s.into_bytes();
+                        f_bytes = numeric_image(n, len, sep_sign);
                     }
                     other => {
                         let mut b = other.as_display_string().into_bytes();
@@ -2203,16 +2338,7 @@ fn serialize_decl(
                 }
                 match fallback_v {
                     CobolValue::Numeric(n) => {
-                        let digits = n.mantissa.unsigned_abs().to_string();
-                        let mut s = if digits.len() < len {
-                            format!("{}{}", "0".repeat(len - digits.len()), digits)
-                        } else {
-                            digits
-                        };
-                        if s.len() > len {
-                            s = s[s.len() - len..].to_string();
-                        }
-                        f_bytes = s.into_bytes();
+                        f_bytes = numeric_image(&n, len, sep_sign);
                     }
                     other => {
                         let mut b = other.as_display_string().into_bytes();
@@ -2256,15 +2382,41 @@ fn deserialize_decl(
             local_quals.push(name_upper.clone());
         }
 
-        if !decl.children.is_empty() {
+        if has_storage_children(decl) {
+            // Where each named child's bytes began, so that a REDEFINES sibling
+            // can be filled from the very same bytes rather than from the ones
+            // that follow them — the mirror of the skip in `serialize_decl`.
+            let mut child_start: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
             for c in &decl.children {
                 if c.level == 88 {
                     continue;
                 }
+                if let Some(target) = &c.redefines {
+                    // Overlay: read from where the target started and leave the
+                    // cursor untouched, because those bytes are already spent.
+                    if let Some(&start) = child_start.get(&target.to_ascii_uppercase()) {
+                        let mut overlay = start;
+                        deserialize_decl(
+                            env,
+                            c,
+                            &mut local_quals,
+                            &mut local_indices,
+                            bytes,
+                            &mut overlay,
+                        );
+                    }
+                    continue;
+                }
+                if let Some(n) = &c.name {
+                    child_start.insert(n.to_ascii_uppercase(), *offset);
+                }
                 deserialize_decl(env, c, &mut local_quals, &mut local_indices, bytes, offset);
             }
         } else if let Some(pic) = &decl.picture {
-            let len = (pic.digits as usize + pic.decimals as usize).max(1);
+            let sep_sign = separate_sign_of_decl(decl);
+            let len = (pic.digits as usize + pic.decimals as usize).max(1)
+                + usize::from(sep_sign.is_some());
             let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
 
             // A redefining description may be WIDER than the storage it
@@ -2291,6 +2443,16 @@ fn deserialize_decl(
                         .map(|&b| if b.is_ascii_digit() { b as char } else { '0' })
                         .collect();
                     let mantissa: i128 = digits.parse().unwrap_or(0);
+                    // A separate sign is a real character in these bytes, and
+                    // the digit-only scan above has just turned it into a `0`.
+                    // Recover it before the value is stored, or an overlay
+                    // write through the redefining description silently drops
+                    // the sign of the item it redescribes.
+                    let mantissa = if sep_sign.is_some() && slice.contains(&b'-') {
+                        -mantissa
+                    } else {
+                        mantissa
+                    };
                     let decimals = pic.decimals.min(u8::MAX as u16) as u8;
                     env.set(
                         &key,

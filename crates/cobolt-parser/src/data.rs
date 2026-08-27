@@ -324,6 +324,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut is_external = false;
     let mut blank_when_zero = false;
     let mut justified = false;
+    let mut sign: Option<cobolt_ast::data::SignClause> = None;
 
     // Parse clauses until the period that terminates this item.
     loop {
@@ -438,14 +439,21 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 blank_when_zero = true;
             }
 
-            // SIGN IS LEADING/TRAILING [SEPARATE] — ignored
+            // SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]
+            //
+            // Only SEPARATE changes storage — it adds one character position
+            // holding a literal `+`/`-`. TRAILING is the COBOL default, so the
+            // clause is recorded either way and the runtime decides.
             Token::Sign => {
                 p.advance();
                 p.eat(&Token::Is);
-                p.eat(&Token::Leading);
-                p.eat(&Token::Trailing);
-                p.eat(&Token::Separate);
+                let leading = p.eat(&Token::Leading);
+                if !leading {
+                    p.eat(&Token::Trailing);
+                }
+                let separate = p.eat(&Token::Separate);
                 p.eat(&Token::Character);
+                sign = Some(cobolt_ast::data::SignClause { leading, separate });
             }
 
             // Optional `IS` connective before a clause keyword, e.g.
@@ -504,6 +512,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         children: Vec::new(), // filled in by build_tree
         span,
         justified,
+        sign,
     }
 }
 
@@ -1182,10 +1191,16 @@ fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
         idx: usize,
         children_of: &[Vec<usize>],
         items: &mut Vec<Option<DataDecl>>,
+        inherited_sign: Option<cobolt_ast::data::SignClause>,
     ) -> DataDecl {
         let mut node = items[idx].take().unwrap();
+        // A SIGN clause written on a group applies to every subordinate signed
+        // numeric DISPLAY item that does not carry one of its own, and a nested
+        // group overrides it for its own subtree (NC116A TEST-17/TEST-18).
+        node.sign = node.sign.or(inherited_sign);
+        let pass_down = node.sign;
         for &ci in &children_of[idx] {
-            let child = build_node(ci, children_of, items);
+            let child = build_node(ci, children_of, items, pass_down);
             node.children.push(child);
         }
         node
@@ -1193,7 +1208,7 @@ fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
 
     roots
         .into_iter()
-        .map(|i| build_node(i, &children_of, &mut items_opt))
+        .map(|i| build_node(i, &children_of, &mut items_opt, None))
         .collect()
 }
 
