@@ -264,6 +264,29 @@ pub enum Condition {
         name: String,
         span: Span,
     },
+
+    /// A condition-name reached through a **reference** rather than a bare
+    /// word: subscripted (`IF FIRSTZ (1)`) or qualified (`IF A OF IF-D32`).
+    /// The expression names the 88-level item; its subscripts and qualifiers
+    /// pick the occurrence of the host item the condition is tested against.
+    ///
+    /// 🔴 New variants belong at the END of this enum. `Condition` is
+    /// bincode-serialized and a variant is identified by its **ordinal**, so
+    /// inserting one in the middle renumbers every variant after it and an
+    /// already-built binary decodes the wrong arm.
+    ConditionRef(Box<Expr>, Span),
+
+    /// `IF item IS [NOT] class-name`, where `class-name` was declared by a
+    /// `CLASS` clause in SPECIAL-NAMES. It is not one of the four built-in
+    /// classes [`DataClass`] names — the program defines which characters
+    /// belong — so it carries the name and is resolved against
+    /// `Program::classes` at run time.
+    UserClassTest {
+        expr: Expr,
+        negated: bool,
+        class: String,
+        span: Span,
+    },
 }
 
 impl Condition {
@@ -277,6 +300,8 @@ impl Condition {
             Condition::SignTest { span, .. } => *span,
             Condition::ConditionName(_, s) => *s,
             Condition::NameOrAbbrev { span, .. } => *span,
+            Condition::ConditionRef(_, s) => *s,
+            Condition::UserClassTest { span, .. } => *span,
         }
     }
 }

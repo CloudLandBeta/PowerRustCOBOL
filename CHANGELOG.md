@@ -1,5 +1,463 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.23] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): compile 93 → 94 of 95, execution 36 → 65 of 95.**
+Two separate numbers, always. *Compile* counts programs the front end accepts;
+*execution* counts programs that run to completion and report **zero failures**
+in their own CCVS report. Assertions the programs themselves report went from
+3 915 PASS / 540 FAIL to 4 278 PASS / 226 FAIL. Whole-suite compile is now
+419 / 434. No other module was touched (GOLDEN RULE #9).
+
+Twenty-nine CCVS programs went from failing to clean, among them NC102A,
+NC106A, NC114M, NC119A, NC120A, NC124A, NC126A, NC170A, NC174A, NC176A,
+NC177A, NC203A, NC215A, NC218A, NC222A, NC224A, NC236A, NC238A, NC242A,
+NC243A, NC251A, NC253A and NC254A.
+
+### Fixed — `NOT ON SIZE ERROR` alone did not protect the receivers
+
+COBOL-85 leaves a receiver **unchanged** when it overflows and the statement
+carries a size error phrase — *either* half of it. Only `ON SIZE ERROR` was
+being tested, so
+
+```cobol
+ADD A B 6 C GIVING R1 R2 ROUNDED R3 NOT ON SIZE ERROR MOVE "A" TO FLAG.
+```
+
+wrote truncated values into every receiver that overflowed instead of leaving
+them alone. One rule, six statements (`ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`,
+`COMPUTE`, the `CORRESPONDING` forms) — and six CCVS programs.
+
+### Fixed — a duplicated paragraph name ran the other one's statements
+
+Paragraph bodies were keyed by name, so a second `PFM-INIT-F2-5.` overwrote the
+first one's statements while the first kept its place in the program. The first
+paragraph then silently ran the second's code. Bodies are now held by position
+for sequential flow and `THRU` ranges, and the name index keeps the **first**
+definition for lookup.
+
+### Fixed — `UNSTRING` ignored most of its own statement
+
+`DELIMITER IN`, `COUNT IN`, `WITH POINTER` and `TALLYING` were all parsed and
+then dropped, and the source was split by `str::split` rather than scanned.
+`DELIMITER` (the word in `DELIMITER IN`) is not the keyword `DELIMITED`, so the
+phrase was being read as *another receiving item*. UNSTRING now scans from the
+pointer, delivers one delimiter occurrence under `ALL`, splits by the
+receivers' own sizes when no `DELIMITED BY` is written, distributes into a group
+receiver, and reports overflow when the receivers run out before the source
+does.
+
+### Fixed — numeric editing
+
+* A picture whose digit positions are **all** suppressed blanks the whole item
+  when the value is zero, decimal point included: `PIC ZZZ.ZZ` and `PIC ++++.++`
+  read as spaces, `PIC *,***.**` as `*****.**`.
+* Floating insertion symbols **after** the decimal point are digit positions:
+  `PIC ++++.++` holding 12 reads `  +12.00`, not `  +12.++`.
+* The floating symbol sits immediately left of the first digit shown, counted in
+  character positions — a grouping comma in between takes the sign, so
+  `PIC --,---.--` holding -123 reads `  -123.00`.
+* A simple insertion character inside the suppression zone is replaced by the
+  suppression character: `PIC -*B*99` holding -42 reads `-***42`.
+* `P` scaling positions on an edited item bring the value down to the digits it
+  stores: `PIC ZZZPP` receiving 900 reads `  9`.
+* `PIC 090909` kept its leading zero. The lexer had read the template as a
+  number, so the picture came out one character narrower than it is.
+
+### Fixed — MOVE
+
+* A group filled with a figurative constant fills **all** of it. `MOVE ZERO TO
+  <group>` set the first field only and left the rest as they were, and
+  `MOVE ALL "ABC…" TO <7-dimension table>` filled the first occurrence of the
+  outermost OCCURS.
+* De-editing: a numeric-**edited** sender moved to a numeric receiver transfers
+  the value its characters spell out. `PIC $(4)9.99CR` holding `$ 123.45CR`
+  stores -123.45.
+* A subscripted, qualified or literal numeric sender de-edits like any other:
+  `MOVE FIELD (I) TO <PIC X(4)>` and `MOVE 2 TO <PIC X(4)>` left-align.
+* An unsigned numeric item stores the **absolute** value: `PIC 9(18)` receiving
+  a negative product holds its magnitude.
+* `ROUNDED` into an item with `P` positions rounds to that position:
+  `PIC S99P` receiving -99 holds -100.
+
+### Fixed — reference modification on a table element
+
+`TABLE-1 (3 2) (2:5)` read the table's base slot instead of occurrence (3, 2),
+so every reference-modified table element came back empty.
+
+### Fixed — `DIVIDE … REMAINDER`
+
+The remainder is formed **after** the quotient reaches its receiver, so the
+remainder receiver's own subscript sees the new quotient
+(`DIVIDE 100 BY N GIVING ANS REMAINDER WS-REM (ANS)`), and the quotient is
+truncated to the GIVING item's PICTURE even when that item is numeric-edited.
+
+### Fixed — `INSPECT … LEADING` / `TRAILING`
+
+Both counted *characters that appear in the pattern* rather than contiguous
+occurrences of the whole pattern, so `FOR LEADING "AH"` on `"AH YES AH YES"`
+counted 2. `REPLACING LEADING` also re-examined the same position after every
+replacement and never terminated when `BY` equalled the pattern.
+
+### Added — `JUSTIFIED RIGHT`
+
+Parsed and ignored until now. An alphanumeric receiver declared `JUSTIFIED`
+aligns the sender at its right end: a short sender is padded on the left, a long
+one loses its leftmost characters.
+
+### Added — alphanumeric-edited PICTUREs
+
+`PIC XXBXX/XX`, `PIC ABA` and `PIC A/AA` own their insertion characters:
+`B` prints a space, `0` a zero, `/` a slash, and the sender supplies only the
+`X`/`A`/`9` positions. `PIC ABA` was also being measured as two characters
+wide instead of three.
+
+### Added — SPECIAL-NAMES switches and user-defined classes
+
+```cobol
+SPECIAL-NAMES.
+    SWITCH-1 IS SW-1 ON STATUS IS ON-SWITCH-1
+                     OFF STATUS IS OFF-SWITCH-1
+    CLASS ORDINAL-A-D IS "A" THRU "D".
+```
+
+`SET SW-1 TO ON`, `IF ON-SWITCH-1` and `IF ITEM IS [NOT] ORDINAL-A-D` all work.
+A switch is set from outside the program — `rcrun --switch SWITCH-1=ON`
+(repeatable) or `COBOL_SWITCHES=SWITCH-1=ON,SWITCH-2=OFF` — because nothing
+inside COBOL can set one before the run starts.
+
+### Fixed — `PERFORM paragraph OF section` ignored the qualifier
+
+The `OF`/`IN` section qualifier was consumed and thrown away, so a paragraph
+name that repeats across sections always ran the first definition in the
+program. It now selects the copy inside the named section.
+(`GO TO paragraph IN section` still resolves unqualified — see the handoff.)
+
+### Fixed — a numeric-edited receiver could not raise a size error
+
+An edited item holds its edited characters, so it keeps no capacity entry and
+the size error condition could never arise for one:
+`MULTIPLY 999999 BY 999999 GIVING <PIC $**.99> … ON SIZE ERROR …` truncated the
+product into the field instead of leaving it alone. Its capacity now comes from
+the template's digit positions, exactly as its scale already did.
+
+### Fixed — `SEARCH … VARYING` drove the wrong index
+
+`VARYING id-2` replaces the search index **only when id-2 is an index of that
+same table**. Otherwise the table's own first index still drives the search and
+id-2 is stepped alongside it. Always searching on id-2 left the table's index
+where it started, so a `WHEN` subscripting by that index never advanced and the
+search always reached `AT END`.
+
+### Added — `nist_conformance report <NAME>`
+
+Prints one program's whole CCVS report, re-split into its 120-byte records.
+`fails` shows only the neighbourhood of a `FAIL*`, which is enough to bucket a
+cause across a module but not to diagnose one program.
+
+## [PowerRustCOBOL 1.62.22] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): compile 92 → 93 of 95, execution 28 → 36 of 95.**
+Two separate numbers, always. *Compile* counts programs the front end accepts;
+*execution* counts programs that run to completion and report **zero failures**
+in their own CCVS report. Assertions the programs themselves report went from
+3 302 PASS / 727 FAIL to 3 915 PASS / 540 FAIL — 87.9 % of 4 455 scored. No
+other module was touched (GOLDEN RULE #9).
+
+### Fixed — a conditional phrase swallowed the rest of the paragraph
+
+`ON SIZE ERROR`, `AT END`, `INVALID KEY`, `ON OVERFLOW`, `ON EXCEPTION` and
+every other conditional imperative read straight past the period that ends the
+sentence, so every following sentence became part of the phrase and ran **only
+when the condition fired**:
+
+```cobol
+DIVIDE A INTO B GIVING C ON SIZE ERROR MOVE "P" TO XRAY.
+DISPLAY XRAY.
+```
+
+The `DISPLAY` — and everything after it — executed only on a size error. A
+scoped body now ends at the period, which is where COBOL-85 ends it; a
+paragraph body still reads through as many sentences as it likes.
+`TRY … CATCH … END-TRY` brackets sentences, not an imperative, and is unchanged.
+
+### Fixed — `DIVIDE a INTO b` divided the wrong way round
+
+`BY` and `INTO` name their operands in opposite orders — `DIVIDE dividend BY
+divisor` but `DIVIDE divisor INTO dividend` — and only `BY` was honoured. So
+`DIVIDE 5 INTO 20 GIVING C` stored 0.25, and in the receiver form
+`DIVIDE 5 INTO B` tried to store the quotient into the literal `5` and left `B`
+untouched. A receiver series now divides each receiver by the divisor:
+`DIVIDE 2 INTO A B` halves both.
+
+### Fixed — REMAINDER used the integer quotient
+
+COBOL-85 computes the remainder from the quotient **as stored in the GIVING
+receiver** — truncated to that item's PICTURE, and truncated even when the
+quotient itself was `ROUNDED`. `DIVIDE 7 INTO 23 GIVING C REMAINDER R` with
+`C PIC 999V99` gives `C = 3.28` and `R = 0.04`, not `R = 2.00`.
+
+### Fixed — all `01` records of one FD had separate storage
+
+An FD has **one** record area however many `01` entries describe it. Each kept
+its own bytes instead, so a value moved through one record was invisible
+through another. Every CCVS85 program builds its report line in `PRINT-REC` and
+writes it as `DUMMY-RECORD`: every page heading came out blank, and the
+page-break block wrote the held line once per statement instead of once — six
+identical copies of the same detail line, which is what pushed several programs
+past the execution timeout.
+
+### Fixed — `PERFORM <section-name>` ran nothing
+
+A section header carries no statements of its own; it *is* the paragraphs that
+follow it, up to the next header. `PERFORM` found the empty header entry and
+returned immediately. Sections now expand to their paragraph range, `THRU` a
+section name ends at that section's last paragraph, and the range keeps
+paragraph identity so a `GO TO` inside it stays inside it.
+
+### Fixed — qualification stopped after one level
+
+`A OF B OF C` kept only the last qualifier: the growing chain was put where
+only a plain name fits, and every level but one was dropped. Up to the
+standard's 49 levels now resolve, so
+`TBL-ITEM-1 OF TABLE-LEVEL-1A IN TABLE-LEVEL-2A OF TABLE-LEVEL-3A` reaches the
+item it names rather than whichever duplicate was declared first. A subscript
+written before the qualifiers (`TBL-ITEM (I) OF GRP`) is kept.
+
+### Fixed — 88-level VALUE clauses lost the rest of the DATA DIVISION
+
+Four defects in one clause, each of which desynchronised the parser and
+silently dropped every entry after it:
+
+* `VALUES ARE 2 THRU 4` — the plural copula was not accepted;
+* `VALUE IS +12.34`, `VALUE 100 THRU 128 -9 THRU -2` — a leading sign was not
+  folded into the literal;
+* `VALUE IS .01, .11, .21` — a period opening a numeric literal was read as the
+  end of the entry (COBOL-85 forbids only a *trailing* decimal point);
+* a value that opens a line (`16 THRU 20` continued from the line above) was
+  taken for the next entry's level number.
+
+### Fixed — `PIC 999999999999..` dropped its editing decimal point
+
+Two periods in a row: the first belongs to the picture, the second ends the
+entry. Both were read as terminators, which cost the template its decimal point
+and left a stray period that desynchronised the DATA DIVISION.
+
+### Fixed — `ROUNDED` did not round into a numeric-edited receiver
+
+The receiver's scale was read from the value it happened to hold, and a
+numeric-edited item holds edited characters. `MULTIPLY .9 BY 80.12 GIVING
+<PIC $$$$.99> ROUNDED` edited the truncated `$72.10` instead of `$72.11`. The
+scale now comes from the PICTURE.
+
+### Fixed — `ADD`/`SUBTRACT CORRESPONDING` ignored `ON SIZE ERROR` and `ROUNDED`
+
+Both phrases were parsed and thrown away. The size-error condition belongs to
+the statement, not to a pair: an overflowing receiver is left unchanged, the
+others still receive their results, and the one imperative runs once.
+
+### Fixed — a condition in redundant parentheses read as arithmetic
+
+Only the outermost nesting level was inspected for a relational or logical
+operator, so `((((((0 - CONT-D EQUAL TO CONT-D OR -11 + CONT-F))))))` was taken
+for one arithmetic expression. An abbreviated relation whose object is an
+arithmetic expression opening with a sign (`… EQUAL TO CONT-D OR -11 +
+CONT-F`) is also accepted now.
+
+### Added — `nist_conformance fails <MODULE|NAME>`
+
+A third pass beside `strict` and `run`: it runs each program and prints the
+`FAIL*` detail records its own report carries, with the `COMPUTED=` /
+`CORRECT =` pair that names the defect. Bucketing those across a module is how
+the shared causes above were found — one program's detail is an anecdote, forty
+programs' is a bucket.
+
+## [PowerRustCOBOL 1.62.21] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): compile 76 → 92 of 95, execution 16 → 28 of 95.**
+Two separate numbers, always. *Compile* counts programs the front end accepts;
+*execution* counts programs that run to completion and report **zero failures**
+in their own CCVS report — the strictly stronger claim, and the one that means
+the program works. No other module was touched (GOLDEN RULE #9).
+
+### Fixed — an occurrence of a table of groups had no storage of its own
+
+`MOVE VALUES-1 TO GRP-1 (IN1)` wrote a scalar into a slot named `GRP-1(1)`, and
+`MOVE ELEM1 (1, 1) TO TEMP` read the child's own slot, which nothing had
+written. A group occurrence is now its subordinate items' **matching**
+occurrences: writing `GRP-1 (2)` distributes across `ELEM1 (2,1) … ELEM1 (2,4)`,
+and reading it concatenates exactly those. With no subscript the same walk gives
+the enclosing `01` record the bytes of every occurrence, so `MOVE GRP-TAB1 TO
+GRP-TAB2` copies a whole table instead of one template slot.
+
+### Fixed — a signed literal opening the next subscript read as addition
+
+`MOVE ELEM1 (IN1 +3) TO TEMP` is `ELEM1 (IN1, 3)`: the separator comma is
+optional, and a sign glued to its digits is a signed literal. It was read as
+`IN1 + 3`, one subscript, which landed on an occurrence that was never written.
+Relative indexing — `ELEM1 (IN1 - 1, 3)`, the operator spaced on both sides —
+is unchanged, and so is `TBL (I+1)`, where the sign is glued on both sides and
+programs already written that way mean arithmetic.
+
+### Fixed — a numeric MOVE did not truncate high-order digits
+
+`01 M PIC 99V999.  MOVE 123.45 TO M.` left `123.450`. The low-order end was
+already cut by the rescale; the high-order end is truncated just as silently by
+the standard, and now is. Arithmetic still tests the receiver's capacity
+*before* storing, so a statement with `ON SIZE ERROR` keeps its old value and a
+statement without one truncates.
+
+### Fixed — `P` decimal scaling positions were ignored
+
+`PIC S999PP` holds three digits standing for hundreds and `PIC PP99` two
+standing for ten-thousandths: `P` is a digit position the item spans but does
+not store. It was skipped entirely, so `MOVE 12300 TO IF-D15` stored `300` once
+truncation was in force, and `ADD … GIVING N-42` on `PIC 9(3)P(4)` gave
+`8888888` where the standard requires `8880000`. The scaling now counts toward
+the item's capacity and its scale, and the positions the `P`s stand for read
+back as zero. The **record layout is unchanged** — those positions occupy no
+bytes.
+
+### Fixed — `REDEFINES` was a one-time copy, not a live overlay
+
+A write through one description was invisible through the other, and a
+redefining item was counted in its group's bytes, making the group twice as wide
+as its storage. Descriptions that share bytes are now kept in step: a write
+anywhere inside one is re-rendered into the others, and only the target
+contributes to the group's width. This is what every CCVS failure detail is
+built on (`COMPUTED-N REDEFINES COMPUTED-A`, printed through the group above
+them). Overlays wider than 256 expanded storage slots keep the old
+per-description storage — refreshing a redefined 10×10×10 table on every write
+walks a thousand occurrences twice and made the program unrunnable.
+
+### Fixed — DIVIDE by zero aborted the run
+
+Division by zero **is** the size-error condition for `DIVIDE`. It now runs
+`ON SIZE ERROR` when there is one, suppresses `NOT ON SIZE ERROR` either way,
+and leaves the receivers untouched. Aborting instead ended the program
+mid-report; NC251A tests exactly this and printed nothing at all.
+
+### Fixed — a redefining description wider than its target panicked
+
+`deserialize_decl` clamped only the end of its byte window, so a cursor past the
+end of the storage produced `start > end` and the slice panicked
+(`range start index 58 out of range for slice of length 57`).
+
+### Fixed — grammar the Nucleus writes and the parser rejected
+
+* **`ALTER` is a series.** `ALTER a TO PROCEED TO b, c TO PROCEED TO d` parsed
+  one pair. Extra pairs are queued, so `Stmt::Alter` stays a single pair and the
+  serialized AST is untouched. Targets go through the procedure-name reader, so
+  all-digit names work.
+* **The altered `GO TO`.** `GO TO.` with no target parses, falls through while
+  un-altered, and jumps once an `ALTER` names a destination.
+* **All-digit procedure names keep their leading zeros.** `00001` and `000001`
+  are different paragraphs; both had become `1` and collided.
+* **A condition that is not a bare identifier.** A condition-name may be
+  subscripted (`IF FIRSTZ (1)`) or qualified (`IF A OF IF-D32`); the subscripts
+  select the occurrence of the host item the VALUEs are tested against.
+* **A parenthesised arithmetic operand.** `UNTIL (WRK + 12) = 100` and
+  `WHEN (33 + (99 - 43))` were read as nested conditions.
+* **`WHEN` objects.** An arithmetic expression, and a range between two data
+  items (`WHEN WRK-A THRU WRK-B`), are now selection objects.
+* **`GREATER THAN OR EQUAL TO`.** The `OR EQUAL` may sit on either side of the
+  optional `THAN`.
+* **Abbreviated combined relations.** A literal followed by a relational
+  operator is a subject, not an abbreviation object; the object may be an
+  arithmetic expression (`OR CCON-3 - 1`) or a class/sign test (`AND SIGN-1
+  ZERO`); `AND IS NOT LESS THAN x` keeps its optional `IS`; `NOT <` after `OR`
+  is an abbreviation; and the subject an abbreviation reuses may live further
+  left than the term it attaches to (`a = b OR c AND "d"`).
+* **`ELSE` binding.** An `ON SIZE ERROR` imperative and a nested `IF`'s own ELSE
+  branch both stop at the enclosing statement's `ELSE` / `END-IF` / `WHEN` /
+  `END-PERFORM` / `END-SEARCH`.
+* **`MULTIPLY` / `DIVIDE` format 1 receiver series.** `MULTIPLY a BY b ROUNDED c
+  ROUNDED d` — each receiver is multiplied by its own current value, so they are
+  queued as separate statements rather than folded into `GIVING`.
+* **`PERFORM` phrase order and forms.** `WITH TEST BEFORE` may precede
+  `VARYING`; the repeat count may be a subscripted item
+  (`PERFORM P TABLE5-NUM (INDEX5) TIMES`); `PERFORM imperative … END-PERFORM`
+  with no phrase runs its body once; a paragraph-name may be qualified by its
+  section (`PERFORM PAR-1A OF QUAL-SECTION-1`).
+* **`INSPECT`.** The `ALL`/`LEADING`/`TRAILING` category carries across the
+  operands that follow it; `CONVERTING … BEFORE/AFTER INITIAL` restricts the
+  region converted.
+* **`UNSTRING`.** `TALLYING IN` is accepted after `WITH POINTER`, which is the
+  order the standard writes.
+* **A 66-level `RENAMES` item as an arithmetic receiver.** It has no PICTURE of
+  its own, so its category is unknown rather than non-numeric, and
+  `ADD 3500 TO RENAME-12` is no longer rejected.
+
+## [PowerRustCOBOL 1.62.20] — 2026-08-27
+
+### Fixed — `PERFORM a THRU b` is a range of paragraphs, not a block of statements
+
+`PERFORM BAIL-OUT THRU BAIL-OUT-EX` flattened the paragraphs of the range into
+one statement list and ran that. Flattening loses paragraph identity, so a
+`GO TO` naming a paragraph **inside** the range could not land there: it escaped
+to the top-level driver, which resumed sequential execution *past* the range and
+never returned to the caller.
+
+```cobol
+       PRINT-DETAIL.
+           ...
+           ELSE PERFORM BAIL-OUT THRU BAIL-OUT-EX.
+       BAIL-OUT.
+           IF CORRECT-A EQUAL TO SPACE GO TO BAIL-OUT-EX.
+       BAIL-OUT-WRITE.
+           ...
+       BAIL-OUT-EX. EXIT.
+```
+
+The `GO TO BAIL-OUT-EX` above is the ordinary path, not an edge case. Control
+fell through `BAIL-OUT-EX`, through the paragraphs behind it, and into the
+program's own test section — which ran the tests again, printed them again, and
+never stopped. A range now executes **paragraph by paragraph**: a `GO TO` inside
+the range transfers control within it, a `GO TO` that leaves the range still
+propagates as COBOL requires, and the PERFORM returns when the last paragraph
+finishes.
+
+This was the systemic reason NIST CCVS85 programs did not run. The construct is
+in the boilerplate every CCVS program shares, on the path taken by every
+**passing** test, so any program with a passing test looped forever. NC104A went
+from unbounded output to finishing and reporting **199 PASS / 30 FAIL**.
+
+## [PowerRustCOBOL 1.62.19] — 2026-08-27
+
+**NIST COBOL-85 conformance: 391 → 396 of 434 in-scope programs (91.2 %).**
+Nucleus 69 → 74; no module regressed.
+
+### Fixed — a numeric-edited item is a numeric item
+
+A numeric-edited item is a legal receiver for `COMPUTE`, `ADD`, `SUBTRACT`,
+`MULTIPLY` and `DIVIDE … GIVING` — editing the result is the reason to declare
+one. Two independent defects made a correct receiver look non-numeric, and the
+analyser rejected valid code with *"'DIV9' is not numeric; DIVIDE GIVING
+requires a numeric receiver"*:
+
+```cobol
+       01  DIV9      PICTURE IS ZZ,ZZZ.9.
+       01  WRK-NE-6  PIC $**.**CR.
+           DIVIDE GROSS BY 12 GIVING DIV9.
+           SUBTRACT TAX FROM GROSS GIVING WRK-NE-6.
+```
+
+**The editing decimal point swallowed its digit.** This is the same ambiguity
+1.62.18 met on a continuation line, in a new place: a number that follows a
+period is classified as a **level number**, because that is where the next data
+item normally begins. Inside a PICTURE it is no such thing, so the template
+truncated at the point — `ZZ,ZZZ.9` became `ZZ,ZZZ` — losing the digit and, with
+it, the item's numeric category. The spans now decide, exactly as they already
+do for `B-C` versus `B - C`: only a digit **glued** to the period is part of the
+picture, so the next data item is never swallowed. `ZZ,ZZZ.99` never had the
+problem, because 99 is not a level number.
+
+**A picture need carry no `9` at all.** `Z`, `*` and a floating `$`, `+` or `-`
+are digit positions in their own right, so `ZZZZ`, `$.**` and `$**.**CR` are
+numeric-edited; they were reaching the alphanumeric fallback instead. The digit
+count now follows the same rule the runtime formats by, so the classification
+and the edited output cannot disagree.
+
 ## [PowerRustCOBOL 1.62.18] — 2026-08-27
 
 ### Fixed — a number that opens a continuation line is an operand

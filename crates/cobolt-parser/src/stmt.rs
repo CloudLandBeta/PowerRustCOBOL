@@ -71,17 +71,45 @@ pub(crate) fn is_stmt_start(tok: &Token) -> bool {
     )
 }
 
+/// Parse the statements of a **scoped body** — a conditional phrase's
+/// imperative (`ON SIZE ERROR …`, `AT END …`, `INVALID KEY …`), an `IF` branch,
+/// a `WHEN` body, an inline `PERFORM`.
+///
+/// Such a body always ends at the period that ends the sentence: COBOL-85 has
+/// no statement whose scope crosses one. Reading past it swallowed every
+/// following sentence into the phrase, so
+///
+/// ```text
+///     DIVIDE A INTO B GIVING C ON SIZE ERROR MOVE "P" TO XRAY.
+///     DISPLAY XRAY.
+/// ```
+///
+/// executed the `DISPLAY` only when the size error fired — which is how a
+/// single unhandled period silently deleted the rest of a paragraph.
+pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<Stmt> {
+    parse_stmt_list(p, stop, true)
+}
+
+/// Parse a **sentence list** — a paragraph or section body, which spans as many
+/// sentences as it likes and is bounded only by the next header.
+pub(crate) fn parse_sentences(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<Stmt> {
+    parse_stmt_list(p, stop, false)
+}
+
 /// Parse all statements until `stop(peek)` returns true or EOF.
 /// Periods between sentences are consumed and ignored.
 /// Paragraph/section headers are detected and break the loop without consuming.
-pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<Stmt> {
+fn parse_stmt_list(
+    p: &mut Parser,
+    stop: &dyn Fn(&Token) -> bool,
+    scoped: bool,
+) -> Vec<Stmt> {
     let mut stmts = Vec::new();
     loop {
-        // A period ends a scoped block whose caller treats it as a terminator
-        // (e.g. an `IF`/`ELSE` branch with no `END-IF`): stop *without* consuming
-        // it, so the enclosing sentence list sees the boundary. Callers that span
-        // multiple sentences (a paragraph) don't include `Period` in `stop`.
-        if p.at(&Token::Period) && stop(&Token::Period) {
+        // A period ends a scoped block: stop *without* consuming it, so the
+        // enclosing sentence list sees the boundary. A sentence list (a
+        // paragraph) reads straight through it.
+        if p.at(&Token::Period) && (scoped || stop(&Token::Period)) {
             break;
         }
         // Consume optional sentence-terminating periods, remembering whether one
@@ -127,6 +155,10 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
 
         if let Some(stmt) = parse_stmt(p) {
             stmts.push(stmt);
+            // One source statement may yield several AST statements (a series
+            // of `ALTER` pairs); take them in the order they were written.
+            let extra: Vec<Stmt> = p.pending.drain(..).collect();
+            stmts.extend(extra);
         } else {
             // Unknown / unrecognised token — skip and try to recover
             if !p.at(&Token::Eof) {
@@ -332,13 +364,15 @@ fn parse_add(p: &mut Parser) -> Stmt {
         p.eat(&Token::To);
         let to = parse_expr(p);
         let rounded = p.eat(&Token::Rounded);
-        let (_se, _nse) = parse_size_error(p, &Token::EndAdd);
+        let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndAdd);
         p.eat(&Token::EndAdd);
         return Stmt::AddCorresponding {
             from,
             to,
             rounded,
             span,
+            on_size_error,
+            not_on_size_error,
         };
     }
 
@@ -386,7 +420,9 @@ fn parse_size_error(p: &mut Parser, end: &Token) -> (Vec<Stmt>, Vec<Stmt>) {
     // `[ON] SIZE ERROR imperative …`
     if try_eat_size_error_phrase(p) {
         let e = end.clone();
-        on_se = parse_stmts(p, &move |tok| *tok == Token::Not || *tok == e);
+        on_se = parse_stmts(p, &move |tok| {
+            *tok == Token::Not || *tok == e || closes_enclosing_conditional(tok)
+        });
     }
     // `NOT [ON] SIZE ERROR imperative …` — only consume the `NOT` when it
     // actually introduces a SIZE ERROR phrase. Otherwise the `NOT` belongs to a
@@ -400,9 +436,61 @@ fn parse_size_error(p: &mut Parser, end: &Token) -> (Vec<Stmt>, Vec<Stmt>) {
         p.eat(&Token::Not);
         try_eat_size_error_phrase(p);
         let e = end.clone();
-        not_se = parse_stmts(p, &move |tok| *tok == e);
+        not_se = parse_stmts(p, &move |tok| {
+            *tok == e || closes_enclosing_conditional(tok)
+        });
     }
     (on_se, not_se)
+}
+
+/// A keyword that closes the statement *enclosing* an imperative phrase, and so
+/// ends that phrase whether or not the inner statement has its own `END-…`.
+///
+/// `IF x  ADD 1 TO n ON SIZE ERROR  MOVE "Y" TO f  ELSE …` — the `ELSE` belongs
+/// to the `IF`. Letting the SIZE ERROR body swallow it left the `ELSE` with no
+/// statement to attach to and the whole program failed to parse.
+/// `true` when a data item — possibly **subscripted** — sits at the cursor and
+/// is followed by `TIMES`, so it is a PERFORM repeat count:
+/// `PERFORM PARAGRAPH-A TABLE5-NUM (INDEX5) TIMES`. Requiring `TIMES` to be the
+/// very next token missed the subscripted form and left it unconsumed.
+fn at_times_count(p: &Parser) -> bool {
+    if !p.at_identifier() {
+        return false;
+    }
+    if matches!(p.peek_at(1), Token::Times) {
+        return true;
+    }
+    if !matches!(p.peek_at(1), Token::LParen) {
+        return false;
+    }
+    let mut depth = 0usize;
+    let mut i = 1usize;
+    loop {
+        match p.peek_at(i) {
+            Token::LParen => depth += 1,
+            Token::RParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return matches!(p.peek_at(i + 1), Token::Times);
+                }
+            }
+            Token::Eof => return false,
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+fn closes_enclosing_conditional(tok: &Token) -> bool {
+    matches!(
+        tok,
+        Token::Else
+            | Token::EndIf
+            | Token::When
+            | Token::EndEvaluate
+            | Token::EndPerform
+            | Token::EndSearch
+    )
 }
 
 /// Consume `[ON] SIZE ERROR`. The lexer emits `SIZE` as the `SizeError` token and
@@ -435,13 +523,15 @@ fn parse_subtract(p: &mut Parser) -> Stmt {
         p.eat(&Token::From);
         let to = parse_expr(p);
         let rounded = p.eat(&Token::Rounded);
-        let (_se, _nse) = parse_size_error(p, &Token::EndSubtract);
+        let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndSubtract);
         p.eat(&Token::EndSubtract);
         return Stmt::SubtractCorresponding {
             from,
             to,
             rounded,
             span,
+            on_size_error,
+            not_on_size_error,
         };
     }
 
@@ -488,13 +578,31 @@ fn parse_multiply(p: &mut Parser) -> Stmt {
     let by = parse_expr(p);
     // `MULTIPLY a BY b ROUNDED` (b is receiver) or `… GIVING r1 [ROUNDED] r2 …`.
     let rounded = p.eat(&Token::Rounded);
+    let mut extra: Vec<(Expr, bool)> = Vec::new();
     let giving = if p.eat(&Token::Giving) {
         parse_receivers(p, &|t| matches!(t, Token::EndMultiply))
     } else {
+        // Format 1 takes a **series** of receivers, each with its own ROUNDED:
+        // `MULTIPLY a BY b ROUNDED c ROUNDED d`. Each is multiplied by its own
+        // current value, which GIVING receivers are not, so they cannot share
+        // that list.
+        extra = parse_receivers(p, &|t| matches!(t, Token::EndMultiply));
         Vec::new()
     };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndMultiply);
     p.eat(&Token::EndMultiply);
+    // The extra receivers are queued as further MULTIPLYs of the same
+    // multiplier, which is what the series means — and keeps `Stmt::Multiply`
+    // one receiver wide, so the serialized AST is untouched.
+    p.pending.extend(extra.into_iter().map(|(r, rr)| Stmt::Multiply {
+        lhs: lhs.clone(),
+        by: r,
+        giving: Vec::new(),
+        rounded: rr,
+        on_size_error: on_size_error.clone(),
+        not_on_size_error: not_on_size_error.clone(),
+        span,
+    }));
     Stmt::Multiply {
         lhs,
         by,
@@ -511,17 +619,34 @@ fn parse_multiply(p: &mut Parser) -> Stmt {
 fn parse_divide(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // DIVIDE
-    let lhs = parse_expr(p);
-    // BY or INTO
+    let first = parse_expr(p);
+    // BY and INTO name the operands the **other way round**:
+    // `DIVIDE dividend BY divisor` but `DIVIDE divisor INTO dividend`.
+    // Eating either without recording which made `DIVIDE 5 INTO 20 GIVING C`
+    // compute 5 ÷ 20, and in the receiver form it stored the quotient into the
+    // divisor — so `DIVIDE 5 INTO B` left B untouched.
+    let into = p.at(&Token::Into);
     p.eat(&Token::By);
     p.eat(&Token::Into);
-    let by = parse_expr(p);
+    let second = parse_expr(p);
+    let (lhs, by) = if into {
+        (second, first)
+    } else {
+        (first, second)
+    };
+    // The divisor is what a receiver series divides by; each further receiver
+    // is a dividend of its own. `DIVIDE 2 INTO A B` halves both A and B.
+    let divisor = by.clone();
     // `DIVIDE a INTO b ROUNDED` (b is receiver) or `… GIVING r1 [ROUNDED] r2 …
     // [REMAINDER r]`.
     let rounded = p.eat(&Token::Rounded);
+    let mut extra: Vec<(Expr, bool)> = Vec::new();
     let giving = if p.eat(&Token::Giving) {
         parse_receivers(p, &|t| matches!(t, Token::Remainder | Token::EndDivide))
     } else {
+        // Format 1 divides into a **series** of receivers, each with its own
+        // ROUNDED — see `parse_multiply` for why they cannot share `giving`.
+        extra = parse_receivers(p, &|t| matches!(t, Token::Remainder | Token::EndDivide));
         Vec::new()
     };
     let remainder = if p.eat(&Token::Remainder) {
@@ -531,6 +656,16 @@ fn parse_divide(p: &mut Parser) -> Stmt {
     };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndDivide);
     p.eat(&Token::EndDivide);
+    p.pending.extend(extra.into_iter().map(|(r, rr)| Stmt::Divide {
+        lhs: r,
+        by: divisor.clone(),
+        giving: Vec::new(),
+        remainder: None,
+        rounded: rr,
+        on_size_error: on_size_error.clone(),
+        not_on_size_error: not_on_size_error.clone(),
+        span,
+    }));
     Stmt::Divide {
         lhs,
         by,
@@ -593,8 +728,14 @@ fn parse_if(p: &mut Parser) -> Stmt {
         matches!(tok, Token::Else | Token::EndIf | Token::Period)
     });
 
+    // An ELSE branch ends at a further `ELSE` too: one IF has only one, so a
+    // second belongs to an **enclosing** IF whose THEN branch this nested one
+    // sits in. Without it the inner ELSE swallowed the outer one and the
+    // statement parser reported "unexpected token: Else".
     let else_stmts = if p.eat(&Token::Else) {
-        parse_stmts(p, &|tok| matches!(tok, Token::EndIf | Token::Period))
+        parse_stmts(p, &|tok| {
+            matches!(tok, Token::EndIf | Token::Period | Token::Else)
+        })
     } else {
         Vec::new()
     };
@@ -751,6 +892,24 @@ fn parse_when_value(p: &mut Parser) -> WhenValue {
         }
         return WhenValue::Literal(lit);
     }
+    // A parenthesised arithmetic selection object: `WHEN (33 + (99 - 43))`.
+    // Only when nothing inside the parenthesis makes it a condition.
+    if crate::expr::paren_encloses_expression(p) {
+        let lo = parse_expr(p);
+        if p.eat(&Token::Through) {
+            return WhenValue::ExprRange(lo, parse_expr(p));
+        }
+        return WhenValue::Expr(lo);
+    }
+    // A range between two **data items**: `WHEN WRK-A THRU WRK-B`. The literal
+    // form above cannot take it, and read as a condition the bare name became a
+    // condition-name and the `THRU` was left stranded.
+    if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Through) {
+        let lo = parse_expr(p);
+        p.advance(); // THRU
+        let hi = parse_expr(p);
+        return WhenValue::ExprRange(lo, hi);
+    }
     // Condition-based WHEN
     let cond = parse_condition(p);
     WhenValue::Condition(cond)
@@ -863,13 +1022,28 @@ fn parse_perform(p: &mut Parser) -> Stmt {
     // (`PERFORM 00.` — SG201A), so this asks for a procedure-name rather than
     // an identifier.
     if !crate::procedure::is_procedure_name(p.peek()) {
+        // `PERFORM imperative-statement … END-PERFORM` — the inline form with
+        // no TIMES/UNTIL/VARYING phrase, whose body runs exactly once. Treating
+        // it as a bare PERFORM left the statements to be read as the
+        // paragraph's own and the `END-PERFORM` had nothing to close.
+        if !at_terminating_period(p) && !p.at(&Token::Eof) {
+            let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
+            p.eat(&Token::EndPerform);
+            return Stmt::Perform {
+                target: PerformTarget::Inline { stmts },
+                span,
+            };
+        }
         // Bare PERFORM with no argument — just a no-op stub
         let target = PerformTarget::Inline { stmts: Vec::new() };
         return Stmt::Perform { target, span };
     }
 
-    let (name, _) =
-        crate::procedure::eat_procedure_name(p).expect("guarded by is_procedure_name above");
+    // `PERFORM paragraph {OF|IN} section` — the qualifier picks which of two
+    // like-named paragraphs is meant (NC208A declares `PAR-2A` in two
+    // sections).
+    let (name, _, qualifying_section) = crate::procedure::eat_procedure_name_qualified(p)
+        .expect("guarded by is_procedure_name above");
 
     // PERFORM name THRU name
     let to_name = if p.at(&Token::Through) {
@@ -898,7 +1072,7 @@ fn parse_perform(p: &mut Parser) -> Stmt {
     if p.at(&Token::Times)
         || matches!(p.peek(), Token::IntegerLiteral(_))
         || count_level.is_some()
-        || (p.at_identifier() && matches!(p.peek_at(1), Token::Times))
+        || at_times_count(p)
     {
         let count_expr = if p.at(&Token::Times) {
             p.advance(); // eat TIMES
@@ -933,17 +1107,16 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         return Stmt::Perform { target, span };
     }
 
-    // PERFORM name UNTIL cond [WITH TEST BEFORE/AFTER]
-    if p.at(&Token::Until) || p.at(&Token::With) || p.at(&Token::Test) {
-        let test_before = if p.eat(&Token::With) {
+    // PERFORM name [THRU name] [WITH TEST BEFORE|AFTER] {UNTIL cond | VARYING …}
+    //
+    // `WITH TEST` may be written on **either** side of the phrase it qualifies:
+    // `PERFORM P THRU Q WITH TEST BEFORE VARYING I FROM 1 BY 1 UNTIL …` is as
+    // valid as putting it last. It is therefore taken first and the phrase it
+    // belongs to decided afterwards; reading it as part of `UNTIL` alone left
+    // the parser looking for a condition and finding `VARYING`.
+    if p.at(&Token::Until) || p.at(&Token::With) || p.at(&Token::Test) || p.at(&Token::Varying) {
+        let test_before = if p.eat(&Token::With) || p.eat(&Token::Test) {
             p.eat(&Token::Test);
-            if p.eat(&Token::After) {
-                false
-            } else {
-                p.eat(&Token::Before);
-                true
-            }
-        } else if p.eat(&Token::Test) {
             if p.eat(&Token::After) {
                 false
             } else {
@@ -953,8 +1126,6 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         } else {
             true
         };
-        p.eat(&Token::Until);
-        let condition = parse_condition(p);
         let para_stmt = Stmt::Perform {
             target: if let Some(ref t) = to_name {
                 PerformTarget::Thru {
@@ -967,37 +1138,26 @@ fn parse_perform(p: &mut Parser) -> Stmt {
             },
             span,
         };
+        // PERFORM name [THRU name] VARYING … — out-of-line: the loop body is
+        // the named paragraph (no inline END-PERFORM).
+        if p.at(&Token::Varying) {
+            let (var, from, by, until, after) = parse_varying_clauses(p);
+            let target = PerformTarget::Varying {
+                var,
+                from,
+                by,
+                until,
+                stmts: vec![para_stmt],
+                after,
+            };
+            return Stmt::Perform { target, span };
+        }
+        p.eat(&Token::Until);
+        let condition = parse_condition(p);
         let target = PerformTarget::Until {
             condition,
             test_before,
             stmts: vec![para_stmt],
-        };
-        return Stmt::Perform { target, span };
-    }
-
-    // PERFORM name [THRU name] VARYING … — out-of-line: the loop body is the
-    // named paragraph (no inline END-PERFORM).
-    if p.at(&Token::Varying) {
-        let (var, from, by, until, after) = parse_varying_clauses(p);
-        let para_stmt = Stmt::Perform {
-            target: if let Some(ref t) = to_name {
-                PerformTarget::Thru {
-                    from: name.clone(),
-                    to: t.clone(),
-                    span,
-                }
-            } else {
-                PerformTarget::Paragraph(name, span)
-            },
-            span,
-        };
-        let target = PerformTarget::Varying {
-            var,
-            from,
-            by,
-            until,
-            stmts: vec![para_stmt],
-            after,
         };
         return Stmt::Perform { target, span };
     }
@@ -1007,6 +1167,12 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         PerformTarget::Thru {
             from: name,
             to: t,
+            span,
+        }
+    } else if let Some(section) = qualifying_section {
+        PerformTarget::QualifiedParagraph {
+            name,
+            section,
             span,
         }
     } else {
@@ -1119,10 +1285,12 @@ fn parse_go(p: &mut Parser) -> Stmt {
         };
     }
 
-    let target = targets.into_iter().next().unwrap_or_else(|| {
-        p.emit_error("expected paragraph name after GO TO");
-        "<missing>".into()
-    });
+    // `GO TO.` with no procedure-name is the **altered** GO TO: its target is
+    // supplied at run time by `ALTER this-paragraph TO PROCEED TO …`. It is
+    // legal COBOL-85 and the other half of the ALTER above, so an empty target
+    // is not an error here — the runtime resolves it, and falls through when no
+    // ALTER has set it yet.
+    let target = targets.into_iter().next().unwrap_or_default();
     Stmt::GoTo { target, span }
 }
 
@@ -1149,15 +1317,51 @@ fn parse_cancel(p: &mut Parser) -> Stmt {
 fn parse_alter(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // ALTER
-    let from = p.expect_identifier("ALTER paragraph name");
-    p.eat(&Token::To);
-    // optional PROCEED TO
-    if matches!(ident_upper(p).as_deref(), Some("PROCEED")) {
-        p.advance();
+    // `ALTER a TO PROCEED TO b, c TO PROCEED TO d.` — the standard allows a
+    // *series* of pairs, and CCVS85 writes one across two lines (NC401M). Only
+    // the first becomes this statement; the rest are queued for `parse_stmts`.
+    //
+    // The names go through `eat_procedure_name`, not `expect_identifier`, so an
+    // all-digit procedure-name works here as it already does everywhere else:
+    // `ALTER PARA-05 TO PROCEED TO 69.` is legal COBOL-85.
+    let mut pairs: Vec<Stmt> = Vec::new();
+    loop {
+        let Some((from, _)) = crate::procedure::eat_procedure_name(p) else {
+            break;
+        };
         p.eat(&Token::To);
+        if matches!(ident_upper(p).as_deref(), Some("PROCEED")) {
+            p.advance();
+            p.eat(&Token::To);
+        }
+        let Some((to, _)) = crate::procedure::eat_procedure_name(p) else {
+            p.emit_error("expected the target procedure-name after ALTER … TO");
+            break;
+        };
+        pairs.push(Stmt::Alter { from, to, span });
+        // The separator comma between pairs is optional, like every separator.
+        p.eat(&Token::Comma);
+        // Another pair follows only if a procedure-name does, and a pair is
+        // always `name TO …`. Anything else is the next statement.
+        if !(crate::procedure::is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::To)) {
+            break;
+        }
     }
-    let to = p.expect_identifier("ALTER target paragraph name");
-    Stmt::Alter { from, to, span }
+
+    let mut rest = pairs.into_iter();
+    let first = match rest.next() {
+        Some(s) => s,
+        None => {
+            p.emit_error("expected a procedure-name after ALTER");
+            Stmt::Alter {
+                from: String::new(),
+                to: String::new(),
+                span,
+            }
+        }
+    };
+    p.pending.extend(rest);
+    first
 }
 
 /// `UNLOCK file [RECORD[S]]`.
@@ -2298,7 +2502,15 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
             break;
         }
         let tgt = parse_expr(p);
-        let delimiter = if p.at(&Token::Delimited) {
+        // `DELIMITER IN x` — the word is DELIMITER, which the lexer leaves as an
+        // ordinary identifier (only DELIMITED, from `DELIMITED BY`, is a
+        // keyword). Testing for `Token::Delimited` here therefore never matched,
+        // and `DELIMITER IN ID5` was read as *the next receiving item* — so the
+        // receiver list grew by one per phrase and neither the delimiter nor the
+        // count was ever stored (NC218A).
+        let delimiter = if p.at(&Token::Delimited)
+            || matches!(ident_upper(p).as_deref(), Some("DELIMITER"))
+        {
             p.advance();
             p.eat(&Token::In);
             Some(parse_expr(p))
@@ -2320,21 +2532,26 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
         p.eat(&Token::Comma);
     }
 
-    let tallying = if p.at(&Token::Tallying) {
-        p.advance();
-        p.eat(&Token::In);
-        Some(parse_expr(p))
-    } else {
-        None
-    };
-
-    let pointer = if p.at(&Token::With) {
-        p.advance();
-        p.eat(&Token::Pointer);
-        Some(parse_expr(p))
-    } else {
-        None
-    };
+    // `[WITH POINTER id] [TALLYING IN id]` — the standard writes POINTER first,
+    // and taking TALLYING only before it left `TALLYING` unread on every
+    // UNSTRING that follows the standard order. Both orders are accepted.
+    let mut tallying = None;
+    let mut pointer = None;
+    loop {
+        if tallying.is_none() && p.at(&Token::Tallying) {
+            p.advance();
+            p.eat(&Token::In);
+            tallying = Some(parse_expr(p));
+            continue;
+        }
+        if pointer.is_none() && (p.at(&Token::With) || p.at(&Token::Pointer)) {
+            p.eat(&Token::With);
+            p.eat(&Token::Pointer);
+            pointer = Some(parse_expr(p));
+            continue;
+        }
+        break;
+    }
 
     // [ON OVERFLOW imp] [NOT ON OVERFLOW imp] [END-UNSTRING]
     let stop = |t: &Token| matches!(t, Token::Not) || matches!(t, Token::EndUnstring);
@@ -2382,11 +2599,15 @@ fn parse_inspect(p: &mut Parser) -> Stmt {
         let from = parse_expr(p);
         p.expect(&Token::To);
         let to = parse_expr(p);
-        return Stmt::Inspect {
-            target,
-            spec: InspectSpec::Converting { from, to },
-            span,
+        // `CONVERTING … BEFORE/AFTER INITIAL delimiter` restricts the region the
+        // conversion applies to, exactly as REPLACING may.
+        let region = parse_inspect_region(p);
+        let spec = if region.before.is_none() && region.after.is_none() {
+            InspectSpec::Converting { from, to }
+        } else {
+            InspectSpec::ConvertingIn { from, to, region }
         };
+        return Stmt::Inspect { target, spec, span };
     }
 
     // TALLYING … [REPLACING …]
@@ -2453,6 +2674,23 @@ fn parse_inspect_region(p: &mut Parser) -> cobolt_ast::stmt::InspectRegion {
     region
 }
 
+/// `true` when the operand at the cursor continues the current
+/// `ALL`/`LEADING`/`TRAILING` series rather than opening a new counter.
+///
+/// A new counter is a **data item** followed by `FOR`, so anything else that
+/// can start an operand belongs to the series. Getting this wrong in either
+/// direction swallows the next counter or ends the phrase early, so it is the
+/// `FOR` that decides, not the operand's shape.
+fn continues_tally_series(
+    p: &Parser,
+    for_: &[(cobolt_ast::stmt::TallyFor, cobolt_ast::stmt::InspectRegion)],
+) -> bool {
+    if for_.is_empty() || !is_expr_start(p) || p.at(&Token::Replacing) {
+        return false;
+    }
+    !matches!(p.peek_at(1), Token::Identifier(s) if s.eq_ignore_ascii_case("FOR"))
+}
+
 fn parse_tally_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::TallySpec> {
     use cobolt_ast::stmt::{TallyFor, TallySpec};
     let mut tallies: Vec<TallySpec> = Vec::new();
@@ -2473,6 +2711,18 @@ fn parse_tally_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::TallySpec> {
             } else if p.at(&Token::Trailing) {
                 p.advance();
                 TallyFor::Trailing(parse_expr(p))
+            } else if continues_tally_series(p, &for_) {
+                // `FOR LEADING "S" AFTER WS-Y "S" AFTER "U" "T" AFTER "U"` —
+                // the ALL/LEADING/TRAILING category carries across the operands
+                // that follow it; only the operand and its region change. Each
+                // later operand ended the whole INSPECT before, leaving its
+                // `AFTER` to be read as a statement.
+                match for_.last().map(|(k, _)| k) {
+                    Some(TallyFor::All(_)) => TallyFor::All(parse_expr(p)),
+                    Some(TallyFor::Leading(_)) => TallyFor::Leading(parse_expr(p)),
+                    Some(TallyFor::Trailing(_)) => TallyFor::Trailing(parse_expr(p)),
+                    _ => break,
+                }
             } else {
                 break;
             };
@@ -3044,6 +3294,49 @@ fn parse_set(p: &mut Parser) -> Stmt {
         };
     }
 
+    // `SET <switch-mnemonic> … TO ON|OFF` — a SPECIAL-NAMES external switch.
+    // The mnemonic is a synthesised one-character item holding "1" or "0" (see
+    // `Parser::switches`), so this is a MOVE of that character. `ON` and `OFF`
+    // are reserved words, so nothing else can be meant here.
+    let switch_state = match p.peek() {
+        Token::On => Some("1"),
+        Token::Identifier(w) if w.eq_ignore_ascii_case("OFF") => Some("0"),
+        _ => None,
+    };
+    if let Some(state) = switch_state {
+        p.advance();
+        let first = Stmt::Move {
+            from: Expr::Literal(Literal::String(state.into()), span),
+            to: targets,
+            span,
+        };
+        // `SET SW-1 TO ON SW-2 TO OFF.` — one statement, several clauses. Each
+        // extra clause is queued in `p.pending`, the same way `ALTER`'s series
+        // is, so `Stmt::Move` stays a single assignment and the serialized AST
+        // is untouched.
+        loop {
+            let mut more = Vec::new();
+            while matches!(p.peek(), Token::Identifier(_)) && !p.at(&Token::To) {
+                more.push(parse_expr(p));
+            }
+            if more.is_empty() || !p.eat(&Token::To) {
+                break;
+            }
+            let next_state = match p.peek() {
+                Token::On => "1",
+                Token::Identifier(w) if w.eq_ignore_ascii_case("OFF") => "0",
+                _ => break,
+            };
+            p.advance();
+            p.pending.push(Stmt::Move {
+                from: Expr::Literal(Literal::String(next_state.into()), span),
+                to: more,
+                span,
+            });
+        }
+        return first;
+    }
+
     // TO TRUE / FALSE / expression (NULL → 0, handled as a plain MOVE)
     let from = match p.peek().clone() {
         Token::True_ => {
@@ -3153,8 +3446,12 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.expect(&Token::Try);
 
-    // TRY body
-    let try_stmts = parse_stmts(p, &|t| {
+    // TRY body.
+    //
+    // `TRY … CATCH … END-TRY` is a RustCOBOL block, not a COBOL-85 conditional
+    // phrase: it brackets **sentences**, so a period inside it separates two of
+    // them rather than closing the block.
+    let try_stmts = parse_sentences(p, &|t| {
         matches!(
             t,
             Token::Catch | Token::Finally | Token::EndTry | Token::Eof
@@ -3187,7 +3484,7 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
         }
         // A following CATCH ends this clause — that is what lets the two
         // clauses sit side by side.
-        let body = parse_stmts(p, &|t| {
+        let body = parse_sentences(p, &|t| {
             matches!(
                 t,
                 Token::Catch | Token::Finally | Token::EndTry | Token::Eof
@@ -3213,7 +3510,7 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
     // FINALLY (optional)
     let mut finally_stmts = Vec::new();
     if p.eat(&Token::Finally) {
-        finally_stmts = parse_stmts(p, &|t| matches!(t, Token::EndTry | Token::Eof));
+        finally_stmts = parse_sentences(p, &|t| matches!(t, Token::EndTry | Token::Eof));
     }
 
     p.eat(&Token::EndTry);

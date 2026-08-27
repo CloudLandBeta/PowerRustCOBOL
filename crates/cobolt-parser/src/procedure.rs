@@ -16,7 +16,7 @@ use cobolt_ast::program::{
 use cobolt_lexer::{Span, Token};
 
 use crate::parser::Parser;
-use crate::stmt::parse_stmts;
+use crate::stmt::parse_sentences;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
             let para = parse_paragraph(p);
             stmts.extend(para.stmts);
         } else {
-            let s = parse_stmts(p, &|tok| {
+            let s = parse_sentences(p, &|tok| {
                 matches!(
                     tok,
                     Token::End
@@ -358,20 +358,58 @@ pub(crate) fn is_procedure_name(tok: &Token) -> bool {
 ///
 /// A numeric name is normalised to its decimal digits, so the header `01.` and
 /// a later `PERFORM 01` agree — both sides go through this function.
+/// Spell an all-digit procedure name back the way it was written.
+///
+/// A COBOL procedure-name may be all digits, and then its **leading zeros are
+/// part of the name**: `0000001` and `00000001` are two different paragraphs.
+/// The lexer hands over the numeric value, which makes both of them `1`; the
+/// span says how many characters stood in the source, which is enough to
+/// restore the word. NC107A declares four such names differing only in length.
+fn digits_as_written(n: i128, span: cobolt_lexer::Span) -> String {
+    let s = n.to_string();
+    let width = span.len();
+    if width > s.len() {
+        format!("{}{}", "0".repeat(width - s.len()), s)
+    } else {
+        s
+    }
+}
+
 pub(crate) fn eat_procedure_name(p: &mut Parser) -> Option<(String, cobolt_lexer::Span)> {
+    eat_procedure_name_qualified(p).map(|(n, s, _)| (n, s))
+}
+
+/// As [`eat_procedure_name`], but hands back the `OF`/`IN` **section
+/// qualifier** when there is one.
+///
+/// `PERFORM PAR-2A OF QUAL-SECTION-2` — a paragraph-name qualified by the
+/// section that contains it. The qualifier has to be consumed either way, or
+/// the `OF` becomes the start of the next statement; a caller that can act on
+/// it (the `PERFORM`/`GO TO` targets, where the same name may exist in two
+/// sections) uses this form, and everything else keeps dropping it.
+pub(crate) fn eat_procedure_name_qualified(
+    p: &mut Parser,
+) -> Option<(String, cobolt_lexer::Span, Option<String>)> {
     let span = p.peek_span();
-    match p.peek().clone() {
+    let taken = match p.peek().clone() {
         Token::Identifier(_) => p.eat_identifier(),
         Token::IntegerLiteral(n) => {
             p.advance();
-            Some((n.to_string(), span))
+            Some((digits_as_written(n as i128, span), span))
         }
         Token::LevelNumber(n) => {
             p.advance();
-            Some((n.to_string(), span))
+            Some((digits_as_written(n as i128, span), span))
         }
         _ => None,
+    };
+    let (name, name_span) = taken?;
+    let mut qualifier = None;
+    if (p.at(&Token::Of) || p.at(&Token::In)) && is_procedure_name(p.peek_at(1)) {
+        p.advance(); // OF / IN
+        qualifier = eat_procedure_name(p).map(|(n, _)| n);
     }
+    Some((name, name_span, qualifier))
 }
 
 fn parse_paragraphs_until_section(p: &mut Parser, owner: &str) -> Vec<Paragraph> {
@@ -417,7 +455,7 @@ fn parse_paragraphs_until_section(p: &mut Parser, owner: &str) -> Vec<Paragraph>
             // `parse_stmts` stops at the next paragraph or section header, so
             // this claims only what belongs to this section.
             let span = p.peek_span();
-            let stmts = parse_stmts(p, &|tok| {
+            let stmts = parse_sentences(p, &|tok| {
                 matches!(
                     tok,
                     Token::Environment
@@ -467,7 +505,7 @@ fn parse_paragraphs(p: &mut Parser) -> Vec<Paragraph> {
             // Orphaned statements (common in simple programs without paragraph names)
             // Collect them into an implicit paragraph
             let span = p.peek_span();
-            let stmts = parse_stmts(p, &|tok| {
+            let stmts = parse_sentences(p, &|tok| {
                 // Stop at next paragraph candidate, division, or END PROGRAM
                 matches!(
                     tok,
@@ -498,7 +536,7 @@ fn parse_paragraph(p: &mut Parser) -> Paragraph {
     p.expect_period(); // the period after the name
 
     // Collect statements until the next paragraph/section header or division end
-    let stmts = parse_stmts(p, &|tok| {
+    let stmts = parse_sentences(p, &|tok| {
         matches!(
             tok,
             Token::Environment | Token::Data | Token::Identification | Token::End | Token::Eof

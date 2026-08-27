@@ -193,6 +193,12 @@ impl CobolNumeric {
         }
     }
 
+    /// Return this value **truncated** (toward zero) to `scale` decimal places
+    /// — COBOL's default when `ROUNDED` is absent.
+    pub fn truncate_to(&self, scale: u8) -> CobolNumeric {
+        CobolNumeric::new(self.rescaled_to(scale), scale)
+    }
+
     /// Return this value rounded (half away from zero) to `scale` decimal places.
     pub fn round_to(&self, scale: u8) -> CobolNumeric {
         if scale >= self.decimals {
@@ -212,6 +218,29 @@ impl CobolNumeric {
             0
         };
         CobolNumeric::new(q + bump, scale)
+    }
+
+    /// Round to a whole power of ten **above** the units position.
+    ///
+    /// `PIC 99P` stores two digits standing for tens, so its least significant
+    /// digit position is the tens — `ROUNDED` there means "to the nearest 10",
+    /// which [`Self::round_to`] cannot express because its scale counts
+    /// positions *after* the point and stops at zero. Truncating instead left
+    /// `-99` as `-90` where the standard requires `-100`.
+    pub fn round_to_power(&self, power: u32) -> CobolNumeric {
+        let units = self.round_to(0);
+        let divisor = match pow10(power) {
+            Some(d) => d,
+            None => return CobolNumeric::new(0, 0),
+        };
+        let q = units.mantissa / divisor;
+        let rem = (units.mantissa % divisor).abs();
+        let bump = if rem * 2 >= divisor {
+            units.mantissa.signum()
+        } else {
+            0
+        };
+        CobolNumeric::new((q + bump) * divisor, 0)
     }
 
     /// Compare two values numerically (sign-sensitive, scale-normalised, exact).

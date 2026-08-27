@@ -381,22 +381,65 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         // modification `(start:[length])`.
         expr = parse_subscript_or_refmod(p, expr, id_span);
 
-        // Qualified: IDENT OF/IN qualifier
+        // Qualified: `IDENT OF/IN qual [OF/IN qual]…`, up to the standard's 49
+        // levels. The chain is collected first and nested afterwards because
+        // the runtime reads it **innermost-first** — `A OF B OF C` is
+        // `Qualified{A, of: Qualified{B, of: C}}`. Nesting it as it was read
+        // put the growing chain in the `name` slot, where only a plain
+        // identifier fits, so every qualifier but the last was dropped and
+        // `TBL-ITEM-1 OF TABLE-LEVEL-1A OF TABLE-LEVEL-2B` resolved to
+        // whichever `TBL-ITEM-1` was declared first.
+        let mut quals: Vec<(String, Span)> = Vec::new();
         while p.at(&Token::Of) || p.at(&Token::In) {
             p.advance();
-            let (qual, qual_span) = p.eat_identifier().unwrap_or_else(|| {
+            quals.push(p.eat_identifier().unwrap_or_else(|| {
                 p.emit_error("expected qualifier name after OF/IN");
                 ("<missing>".into(), p.peek_span())
-            });
-            let inner_name = match &expr {
-                Expr::Identifier(n, _) => n.clone(),
-                _ => "<qual>".into(),
-            };
-            let sp = expr.span().merge(qual_span);
-            expr = Expr::Qualified {
-                name: inner_name,
-                of: Box::new(Expr::Identifier(qual, qual_span)),
-                span: sp,
+            }));
+        }
+        if let Some((last, last_span)) = quals.pop() {
+            let mut of_expr = Expr::Identifier(last, last_span);
+            for (q, qs) in quals.into_iter().rev() {
+                let sp = qs.merge(of_expr.span());
+                of_expr = Expr::Qualified {
+                    name: q,
+                    of: Box::new(of_expr),
+                    span: sp,
+                };
+            }
+            let sp = expr.span().merge(of_expr.span());
+            expr = match expr {
+                Expr::Identifier(n, _) => Expr::Qualified {
+                    name: n,
+                    of: Box::new(of_expr),
+                    span: sp,
+                },
+                // `TBL-ITEM (I) OF GRP` — the subscript was written before the
+                // qualifiers, so it stays wrapped around the qualified name.
+                Expr::Subscript {
+                    base,
+                    indices,
+                    span: _,
+                } if matches!(*base, Expr::Identifier(..)) => {
+                    let name = match *base {
+                        Expr::Identifier(n, _) => n,
+                        _ => unreachable!("guarded by the matches! above"),
+                    };
+                    Expr::Subscript {
+                        base: Box::new(Expr::Qualified {
+                            name,
+                            of: Box::new(of_expr),
+                            span: sp,
+                        }),
+                        indices,
+                        span: sp,
+                    }
+                }
+                other => Expr::Qualified {
+                    name: "<qual>".into(),
+                    of: Box::new(of_expr),
+                    span: other.span().merge(sp),
+                },
             };
         }
 
@@ -465,9 +508,15 @@ fn parse_subscript_or_refmod(p: &mut Parser, expr: Expr, id_span: Span) -> Expr 
         return expr;
     }
     p.advance();
+    // A subscript list reads a space-then-glued sign as a signed literal
+    // opening the next subscript; restore the flag on the way out so a nested
+    // reference outside the parenthesis is unaffected.
+    let outer_subscript = p.in_subscript;
+    p.in_subscript = true;
     let first = parse_subscript_index(p);
 
     if p.at(&Token::Colon) {
+        p.in_subscript = outer_subscript;
         // Reference modification: IDENT(start:[length])
         p.advance();
         let length = if p.at(&Token::RParen) {
@@ -505,6 +554,7 @@ fn parse_subscript_or_refmod(p: &mut Parser, expr: Expr, id_span: Span) -> Expr 
             break;
         }
     }
+    p.in_subscript = outer_subscript;
     p.expect(&Token::RParen);
     let sp = id_span.merge(p.peek_span());
     let mut out = Expr::Subscript {
@@ -684,6 +734,11 @@ fn parse_expr_bp(p: &mut Parser, min_bp: u8) -> Expr {
     };
 
     loop {
+        // `ELEM (IN1 +3)` — the sign belongs to the literal that opens the next
+        // subscript, so the expression for this one ends here.
+        if p.starts_signed_subscript() {
+            break;
+        }
         let tok = p.peek().clone();
         match infix_bp(&tok) {
             Some((l_bp, r_bp)) if l_bp >= min_bp => {
@@ -769,16 +824,22 @@ fn parse_relop(p: &mut Parser) -> Option<CmpOp> {
             p.eat(&Token::To);
             return Some(CmpOp::Eq);
         }
+        // `OR EQUAL TO` may be written on either side of the optional `THAN`:
+        // `GREATER OR EQUAL TO x` and `GREATER THAN OR EQUAL TO x` are the same
+        // operator. Looking only before it left `OR EQUAL TO x` behind as a
+        // separate term of the condition.
         Token::Greater => {
             p.advance();
-            let ge = check_or_equal(p);
+            let mut ge = check_or_equal(p);
             p.eat(&Token::Than);
+            ge = ge || check_or_equal(p);
             return Some(if ge { CmpOp::Ge } else { CmpOp::Gt });
         }
         Token::Less => {
             p.advance();
-            let le = check_or_equal(p);
+            let mut le = check_or_equal(p);
             p.eat(&Token::Than);
+            le = le || check_or_equal(p);
             return Some(if le { CmpOp::Le } else { CmpOp::Lt });
         }
         _ => return None,
@@ -812,8 +873,9 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
         return Condition::Not(Box::new(inner), sp);
     }
 
-    // Parenthesised condition
-    if p.at(&Token::LParen) {
+    // Parenthesised condition — unless what follows the matching `)` shows the
+    // parenthesis to be an arithmetic operand instead (see below).
+    if p.at(&Token::LParen) && !paren_opens_operand(p) {
         p.advance();
         let cond = parse_condition(p);
         p.expect(&Token::RParen);
@@ -864,6 +926,22 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
                     expr: lhs,
                     negated,
                     class: c,
+                    span: sp,
+                };
+            }
+        }
+
+        // A class the program itself declared in SPECIAL-NAMES. Checked after
+        // the four built-in classes so a program cannot shadow them, and
+        // before the sign test so a class called `POSITIVE` still loses.
+        if let Some(name) = peek_ident_upper(p) {
+            if p.classes.iter().any(|(c, _)| *c == name) {
+                p.advance();
+                let sp = span.merge(p.peek_span());
+                return Condition::UserClassTest {
+                    expr: lhs,
+                    negated,
+                    class: name,
                     span: sp,
                 };
             }
@@ -952,6 +1030,23 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
             _ if matches!(p.peek_at(after_not), Token::Zeros) => Some(SignCond::Zero),
             _ => None,
         };
+        // A SPECIAL-NAMES class, with the `IS` left out — which is how NC174A
+        // writes every one of them (`IF WS-A NOT ORDINAL-A-ONLY`).
+        if class.is_none() && sign.is_none() {
+            if let Some(name) = word.filter(|n| p.classes.iter().any(|(c, _)| c == n)) {
+                let negated = after_not == 1;
+                if negated {
+                    p.advance(); // NOT
+                }
+                p.advance(); // the class name
+                return Condition::UserClassTest {
+                    expr: lhs,
+                    negated,
+                    class: name,
+                    span: span.merge(p.peek_span()),
+                };
+            }
+        }
         if class.is_some() || sign.is_some() {
             let negated = after_not == 1;
             if negated {
@@ -1017,9 +1112,17 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
         };
     }
 
-    // No comparison operator → treat the expression as a condition-name (88-level).
+    // No comparison operator → the expression names a condition (an 88-level
+    // item). A condition-name is referenced like any other item, so besides a
+    // bare word it can be subscripted (`IF FIRSTZ (1)`) or qualified
+    // (`IF A OF IF-D32`) — those carry the occurrence the 88 is tested in, so
+    // they keep the whole reference rather than just its leaf name.
     match lhs {
         Expr::Identifier(name, s) => Condition::ConditionName(name, s),
+        other @ (Expr::Subscript { .. } | Expr::Qualified { .. }) => {
+            let s = other.span();
+            Condition::ConditionRef(Box::new(other), s)
+        }
         other => {
             p.emit_error("expected comparison operator in condition");
             Condition::ConditionName("<error>".into(), other.span())
@@ -1027,12 +1130,100 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
     }
 }
 
+/// `true` when the parenthesis at the cursor encloses an arithmetic
+/// **expression** rather than a condition: no relational or logical operator
+/// appears at its own nesting level. `WHEN (33 + (99 - 43))` is a selection
+/// object; `WHEN (A GREATER B)` is a condition.
+pub(crate) fn paren_encloses_expression(p: &Parser) -> bool {
+    if !matches!(p.peek(), Token::LParen) {
+        return false;
+    }
+    let mut depth = 0usize;
+    let mut i = 0usize;
+    loop {
+        let t = p.peek_at(i);
+        match t {
+            Token::LParen => depth += 1,
+            Token::RParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return true;
+                }
+            }
+            Token::Eof => return false,
+            _ => {
+                // Any depth, not just the outermost: redundant parentheses are
+                // legal and the suite writes them six deep —
+                // `((((((0 - CONT-D EQUAL TO CONT-D OR -11 + CONT-F))))))`.
+                // A relational or logical operator *anywhere* inside rules out
+                // an arithmetic expression, so looking only at level 1 read
+                // that whole group as one.
+                if is_relop_start(t)
+                    || matches!(t, Token::Is | Token::And | Token::Or | Token::Not)
+                {
+                    return false;
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+/// `true` when the parenthesis at the cursor is the start of an **operand**,
+/// not of a nested condition.
+///
+/// `PERFORM … UNTIL (WRK + 12) = 100` and `WHEN (33 + (99 - 43))` both open
+/// with `(`, and reading either as a parenthesised condition fails on the
+/// arithmetic inside it. What tells them apart is what follows the matching
+/// `)`: an operator (relational or arithmetic) can only follow an operand, and
+/// so can the end of the whole condition when it is an `EVALUATE` object.
+/// Scanning to the matching parenthesis costs one pass and leaves the cursor
+/// and the diagnostics untouched, which trial-parsing would not.
+fn paren_opens_operand(p: &Parser) -> bool {
+    let mut depth = 0usize;
+    let mut i = 0usize;
+    loop {
+        match p.peek_at(i) {
+            Token::LParen => depth += 1,
+            Token::RParen => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            Token::Eof => return false,
+            _ => {}
+        }
+        i += 1;
+    }
+    let after = p.peek_at(i + 1);
+    is_relop_start(after)
+        || matches!(
+            after,
+            Token::Is
+                | Token::Not
+                | Token::Plus
+                | Token::Minus
+                | Token::Star
+                | Token::Slash
+                | Token::Power
+        )
+}
+
 /// The subject (`lhs`) of the right-most `Comparison` in a condition, used to
 /// expand abbreviated combined conditions (`a > 1 AND < 9`).
 fn rightmost_subject(c: &Condition) -> Option<&Expr> {
     match c {
         Condition::Comparison { lhs, .. } => Some(lhs),
-        Condition::And(_, b, _) | Condition::Or(_, b, _) => rightmost_subject(b),
+        // An abbreviation already carries the subject it reused, and a further
+        // abbreviation chains off it: `a = b OR c AND "d"` reuses `a` twice.
+        Condition::NameOrAbbrev { subject, .. } => Some(subject),
+        // The right side may be a condition-name, which carries no subject of
+        // its own; the abbreviation then reaches back past it —
+        // `a = b OR c AND "d"` compares `a` with `"d"`.
+        Condition::And(a, b, _) | Condition::Or(a, b, _) => {
+            rightmost_subject(b).or_else(|| rightmost_subject(a))
+        }
         Condition::Not(inner, _) => rightmost_subject(inner),
         _ => None,
     }
@@ -1043,10 +1234,64 @@ fn rightmost_subject(c: &Condition) -> Option<&Expr> {
 fn rightmost_comparison(c: &Condition) -> Option<(Expr, CmpOp)> {
     match c {
         Condition::Comparison { lhs, op, .. } => Some((lhs.clone(), *op)),
-        Condition::And(_, b, _) | Condition::Or(_, b, _) => rightmost_comparison(b),
+        Condition::NameOrAbbrev { subject, op, .. } => Some(((**subject).clone(), *op)),
+        Condition::And(a, b, _) | Condition::Or(a, b, _) => {
+            rightmost_comparison(b).or_else(|| rightmost_comparison(a))
+        }
         Condition::Not(inner, _) => rightmost_comparison(inner),
         _ => None,
     }
+}
+
+/// `true` when the token `offset` ahead is a class or sign word — the tail of a
+/// class/sign condition written without its optional `IS`.
+fn at_class_or_sign_word(p: &Parser, offset: usize) -> bool {
+    if matches!(p.peek_at(offset), Token::Zeros) {
+        return true;
+    }
+    matches!(
+        peek_ident_upper_at(p, offset).as_deref(),
+        Some(
+            "NUMERIC"
+                | "ALPHABETIC"
+                | "ALPHABETIC-LOWER"
+                | "ALPHABETIC-UPPER"
+                | "POSITIVE"
+                | "NEGATIVE"
+        )
+    )
+}
+
+/// `true` when the operand at the cursor is the head of an **arithmetic
+/// expression** — an operator follows it — so the whole expression is the
+/// abbreviation object, not just the operand.
+fn starts_arithmetic_object(p: &Parser) -> bool {
+    // A leading `+`/`-` is a unary sign, and no condition may begin with one,
+    // so the object is arithmetic however it continues: `… EQUAL TO CONT-D OR
+    // -11 + CONT-F` reads all of `-11 + CONT-F` as the reused subject's object.
+    let signed = matches!(p.peek(), Token::Plus | Token::Minus);
+    let head = usize::from(signed);
+    if !matches!(
+        p.peek_at(head),
+        Token::Identifier(_) | Token::IntegerLiteral(_) | Token::DecimalLiteral { .. }
+    ) {
+        return false;
+    }
+    if signed {
+        return true;
+    }
+    matches!(
+        p.peek_at(1),
+        Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Power
+    )
+}
+
+/// `true` when the single-token operand at the cursor is followed by a
+/// relational operator — so it is the *subject* of a full relation, not the
+/// object of an abbreviation.
+fn starts_relation_after_operand(p: &Parser) -> bool {
+    let next = p.peek_at(1);
+    is_relop_start(next) || matches!(next, Token::Is) || matches!(next, Token::Not)
 }
 
 /// True if the current token starts a bare literal operand (the object of a
@@ -1075,6 +1320,11 @@ fn at_literal_object(p: &Parser) -> bool {
 /// while leaving `c AND …` to the normal AND parser (precedence).
 fn at_bare_object(p: &Parser) -> bool {
     if !matches!(p.peek(), Token::Identifier(_)) {
+        return false;
+    }
+    // `… AND SIGN-1 ZERO` is a full sign condition on a new subject, not an
+    // abbreviation object: the class/sign word after the name belongs to it.
+    if at_class_or_sign_word(p, 1) {
         return false;
     }
     !matches!(
@@ -1199,6 +1449,16 @@ fn parse_abbrev_comparison(p: &mut Parser, subject: &Expr) -> Condition {
 /// A continuation term after AND/OR: an operator-prefixed abbreviation reuses the
 /// preceding subject; otherwise a fresh primary condition.
 fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
+    // An abbreviation may keep the optional `IS` a full relation allows:
+    // `… GREATER THAN A AND IS NOT LESS THAN B`. The word carries no meaning of
+    // its own; the operator behind it decides. Left in place it reached the
+    // operand parser as "expected expression, found Is".
+    if p.at(&Token::Is)
+        && (is_relop_start(p.peek_at(1))
+            || (matches!(p.peek_at(1), Token::Not) && is_relop_start(p.peek_at(2))))
+    {
+        p.advance();
+    }
     if at_relop(p)
         || (p.at(&Token::Not) && {
             let n = p.peek_at(1);
@@ -1221,7 +1481,28 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
         }
     }
     // Literal-object abbreviation: reuse the previous subject AND operator.
-    if at_literal_object(p) {
+    //
+    // Only when the literal is the whole term. `… GREATER THAN CCON-1 AND 20
+    // LESS THAN CCON-3` writes a **complete** relation whose subject happens to
+    // be a literal; reading the `20` as an abbreviation object consumed it and
+    // left `LESS THAN CCON-3` with nothing in front of it.
+    if at_literal_object(p) && !starts_relation_after_operand(p) {
+        if let Some((subject, op)) = rightmost_comparison(prev) {
+            let span = p.peek_span();
+            let rhs = parse_expr(p);
+            let sp = span.merge(rhs.span());
+            return Condition::Comparison {
+                lhs: subject,
+                op,
+                rhs,
+                span: sp,
+            };
+        }
+    }
+    // An **arithmetic expression** as the abbreviation object:
+    // `… OR EQUAL TO CCON-1 OR 8 OR CCON-3 - 1`. The operand is only the head of
+    // the object here, so taking it alone left `- 1` behind.
+    if starts_arithmetic_object(p) {
         if let Some((subject, op)) = rightmost_comparison(prev) {
             let span = p.peek_span();
             let rhs = parse_expr(p);
@@ -1241,7 +1522,8 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
     // NameOrAbbrev node and let the runtime decide via its 88-level metadata.
     if let Token::Identifier(name) = p.peek().clone() {
         let next = p.peek_at(1);
-        let bare = !matches!(
+        let bare = !at_class_or_sign_word(p, 1)
+            && !matches!(
             next,
             Token::Eq
                 | Token::NotEq
@@ -1275,10 +1557,30 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
 }
 
 fn parse_condition_and(p: &mut Parser) -> Condition {
+    parse_condition_and_ctx(p, None)
+}
+
+/// `AND` terms, with the condition already parsed to the **left of this term**
+/// available for abbreviation.
+///
+/// The subject an abbreviation reuses may live further left than the term it
+/// attaches to: in `a = b OR c AND "d"` the AND's own left operand is the
+/// condition-name `c`, which carries no subject, and the `"d"` has to reach
+/// back to `a`. Without the outer context that literal had nothing to compare
+/// against and the condition failed to parse.
+fn parse_condition_and_ctx(p: &mut Parser, outer: Option<&Condition>) -> Condition {
     let mut lhs = parse_condition_primary(p);
     while p.at(&Token::And) {
         p.advance();
-        let rhs = parse_continuation(p, &lhs);
+        let ctx = match outer {
+            Some(o) => Condition::Or(
+                Box::new(o.clone()),
+                Box::new(lhs.clone()),
+                lhs.span(),
+            ),
+            None => lhs.clone(),
+        };
+        let rhs = parse_continuation(p, &ctx);
         let sp = lhs.span().merge(rhs.span());
         lhs = Condition::And(Box::new(lhs), Box::new(rhs), sp);
     }
@@ -1291,10 +1593,35 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
         // Guard: don't consume OR that's part of GREATER/LESS OR EQUAL
         // (those are consumed inside parse_condition_primary before returning)
         p.advance();
-        let rhs = if at_relop(p) || at_literal_object(p) || at_bare_object(p) {
-            parse_continuation(p, &lhs)
+        // `… OR NOT < TEN` — a negated operator-prefixed abbreviation. Without
+        // the `NOT` in this test it fell to the full-condition path, which has
+        // no subject to put in front of the `<`.
+        let negated_relop = p.at(&Token::Not) && is_relop_start(p.peek_at(1));
+        // `… EQUAL TO CONT-D OR -11 + CONT-F` — an *arithmetic* abbreviation
+        // object. No condition may begin with a sign or continue into an
+        // arithmetic operator, so this can only reuse the preceding subject;
+        // without the test it fell to the full-condition path, which then
+        // demanded a relational operator the source never had.
+        let rhs = if at_relop(p)
+            || negated_relop
+            || at_literal_object(p)
+            || at_bare_object(p)
+            || starts_arithmetic_object(p)
+        {
+            // AND still binds tighter than OR, so an abbreviated OR-term keeps
+            // absorbing `AND …` terms of its own: in
+            // `a = b OR c AND "d"` the `AND "d"` belongs to the `OR c` term.
+            // Returning straight to the OR loop left it unread.
+            let mut r = parse_continuation(p, &lhs);
+            while p.at(&Token::And) {
+                p.advance();
+                let next = parse_continuation(p, &r);
+                let sp = r.span().merge(next.span());
+                r = Condition::And(Box::new(r), Box::new(next), sp);
+            }
+            r
         } else {
-            parse_condition_and(p)
+            parse_condition_and_ctx(p, Some(&lhs))
         };
         let sp = lhs.span().merge(rhs.span());
         lhs = Condition::Or(Box::new(lhs), Box::new(rhs), sp);

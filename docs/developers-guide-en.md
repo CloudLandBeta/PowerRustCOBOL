@@ -3766,6 +3766,23 @@ extensions. Highlights a working COBOL programmer will rely on:
   `REDEFINES`, `RENAMES` (66 level), condition-names (88 level with `VALUE` /
   `THRU`), `USAGE` incl. `POINTER`.
 
+> **`PERFORM a THRU b` is a range of paragraphs.** A `GO TO` naming a paragraph
+> *inside* the range transfers control within the range, and the `PERFORM`
+> returns to its caller when the range's last paragraph finishes — including
+> when that paragraph was reached by the `GO TO`. This is the classic
+> exit-paragraph idiom, and it works as written:
+>
+> ```cobol
+>            PERFORM CHECK-IT THRU CHECK-IT-EX.
+>        CHECK-IT.
+>            IF WS-VALUE = SPACE GO TO CHECK-IT-EX.
+>            MOVE "NON-BLANK" TO WS-NOTE.
+>        CHECK-IT-EX. EXIT.
+> ```
+>
+> A `GO TO` whose target lies **outside** the range still leaves the `PERFORM`,
+> as the standard requires — control does not come back.
+
 > **A group is its children.** A group item has no storage of its own: it is the
 > items under it laid end to end, it is alphanumeric whatever they are, and its
 > size is the sum of theirs. Reading one gives you the whole record, writing one
@@ -3791,11 +3808,58 @@ extensions. Highlights a working COBOL programmer will rely on:
 > classic unpack (`MOVE T(1:2) TO HH`, `MOVE T(3:2) TO MM`, …) line up.
 - **Arithmetic:** `ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE` with multiple receivers
   and per-receiver `ROUNDED`; numeric-edited `PICTURE` editing.
+> **A size error phrase protects the receivers — either half of it.** If a
+> statement carries `ON SIZE ERROR` *or* `NOT ON SIZE ERROR`, a receiver that
+> cannot hold its result keeps the value it already had, and the other
+> receivers still get theirs. Without any size error phrase the result is
+> truncated into the field instead. This catches people out because the
+> protection reads like it belongs to `ON SIZE ERROR`; it belongs to the
+> statement.
+>
+> ```cobol
+> ADD  WS-BIG  6  GIVING WS-A WS-B
+>      NOT ON SIZE ERROR  MOVE "OK" TO WS-FLAG.
+> *>   WS-A and WS-B are unchanged if the sum will not fit them,
+> *>   and WS-FLAG stays as it was.
+> ```
 - **Control flow:** `IF/ELSE`, `EVALUATE` (with `ALSO` and `WHEN NOT`), inline and
   out-of-line `PERFORM` (incl. `VARYING`, `UNTIL`, `TIMES`), `GO TO`, `ALTER`,
   `EXIT PERFORM/PARAGRAPH/SECTION`, faithful `NEXT SENTENCE`.
 - **Strings:** `STRING`, `UNSTRING`, `INSPECT` (`TALLYING` + `REPLACING`, with
   `BEFORE/AFTER INITIAL`), `INITIALIZE … REPLACING`.
+> **`UNSTRING` in full.** Every phrase is honoured: `DELIMITED BY [ALL] … OR …`,
+> `DELIMITER IN`, `COUNT IN`, `WITH POINTER`, `TALLYING`, and
+> `ON OVERFLOW` / `NOT ON OVERFLOW`. Three details are worth knowing because
+> they are where hand-written unpackers usually go wrong:
+>
+> - **`WITH POINTER` is read *and* written.** The scan starts at the character
+>   that item names (1-based) and the item is left pointing one past the last
+>   character examined, so the next `UNSTRING` continues where this one stopped.
+>   A pointer outside the source raises overflow and moves nothing at all.
+> - **`ALL` consumes the run but delivers one.** `DELIMITED BY ALL ZERO` on
+>   `"1200000"` skips all five zeros, and `DELIMITER IN` receives a single `"0"`.
+> - **No `DELIMITED BY` means "by size".** Each receiver takes exactly as many
+>   characters as it is wide, in turn.
+>
+> ```cobol
+> 01  WS-LINE   PIC X(7) VALUE "1200000".
+> 01  WS-FIELD  PIC X.
+> 01  WS-DELIM  PIC X(4).
+> 01  WS-COUNT  PIC 99.
+> 01  WS-PTR    PIC 99  VALUE 1.
+> 01  WS-TALLY  PIC 99  VALUE 0.
+> ...
+>     UNSTRING WS-LINE DELIMITED BY ALL ZERO
+>         INTO WS-FIELD DELIMITER IN WS-DELIM COUNT IN WS-COUNT
+>         WITH POINTER WS-PTR TALLYING WS-TALLY.
+> *>   WS-FIELD = "1"   (the field is "12", cut to one character)
+> *>   WS-DELIM = "0"   WS-COUNT = 02   WS-PTR = 08   WS-TALLY = 01
+> ```
+>
+> **`INSPECT … LEADING` / `TRAILING` count whole patterns.** `FOR LEADING "AH"`
+> counts how many times `"AH"` repeats *contiguously from the start* of the
+> region — one, in `"AH YES AH YES"`, not two, and not "characters that appear
+> in the pattern".
 - **Tables:** `SORT` / `MERGE` (with `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
   `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
   `ASCENDING`/`DESCENDING KEY` table).
@@ -3853,6 +3917,82 @@ what a space means. These four lines are the same statement to the compiler:
 > comma (`PIC ZZ,ZZ9.99`) keep working. The rule is the standard's own: a
 > separator comma is a comma *followed by a space*.
 
+**An edited picture is still a numeric item.** `Z`, `*` and a floating `$`, `+`
+or `-` are digit positions, so a numeric-edited item is a legal receiver for
+`COMPUTE`, `ADD`, `SUBTRACT`, `MULTIPLY` and `DIVIDE … GIVING` — editing the
+result is the reason to declare one. The editing point may be followed by a
+single digit, and a picture need carry no `9` at all:
+
+```cobol
+       01  DIV9        PICTURE IS ZZ,ZZZ.9.
+       01  NET-PAY     PIC $**.**CR.
+       01  RUNNING-QTY PIC ZZZZ.
+           DIVIDE GROSS BY 12 GIVING DIV9.
+           SUBTRACT TAX FROM GROSS GIVING NET-PAY.
+```
+
+> **Note.** The value is stored in its *edited* form, so the receiver reads back
+> as the characters you see on a report. Compute with a plain numeric item and
+> move the result into the edited one when you need both.
+
+**A numeric receiver holds exactly its declared digits — at both ends.** A
+`MOVE` aligns on the decimal point, then drops whatever does not fit. The
+low-order end is the familiar one; the high-order end is cut just as silently:
+
+```cobol
+       01  M   PICTURE 99V999.
+       01  W   PICTURE 9999V9.
+           MOVE 123.45 TO M.        *> 23.450  — the hundreds digit is gone
+           MOVE 123.45 TO W.        *> 123.4   — the hundredths digit is gone
+```
+
+> ⚠️ **This is silent.** Nothing is reported, because the standard defines it as
+> the result rather than as an error. If losing the high-order digits would be a
+> bug in your program, declare the receiver wide enough — or use an arithmetic
+> statement with `ON SIZE ERROR`, which tests the receiver's capacity *first*
+> and leaves it untouched instead.
+
+**`P` moves the decimal point without storing a digit.** A `P` in a picture is a
+digit position the item *spans* but does not *hold* — useful when a field
+records thousands, or thousandths, and the trailing or leading zeros would be
+wasted bytes:
+
+```cobol
+       01  IN-HUNDREDS  PICTURE S999PP.     *> 3 digits, value × 100
+       01  IN-TEN-THOUS PICTURE PP99.       *> 2 digits, value ÷ 10 000
+           MOVE 12300 TO IN-HUNDREDS.       *> stored exactly
+           MOVE 12345 TO IN-HUNDREDS.       *> stored as 12300
+```
+
+> **Note.** The positions the `P`s stand for always read back as zero, and they
+> occupy **no bytes** — `PIC S999PP` is three character positions in a record,
+> not five. Comparisons and arithmetic use the scaled value, so
+> `IF IN-HUNDREDS = 12300` is true above.
+
+**`REDEFINES` is a second reading of the same bytes, not a second field.** The
+redefining item adds nothing to the record: it describes storage its target
+already owns, and a write through either description is immediately visible
+through the other — and through the group above them both. This is the idiom
+report programs are built on:
+
+```cobol
+       01  TEST-CORRECT.
+           02  FILLER      PIC X(17) VALUE "       CORRECT =".
+           02  CORRECT-X.
+               03  CORRECT-A               PIC X(20) VALUE SPACE.
+               03  CORRECT-N REDEFINES CORRECT-A  PIC -9(9).9(9).
+           ...
+           MOVE 242.4332220110 TO CORRECT-N.
+           MOVE TEST-CORRECT   TO PRINT-REC.   *> the edited number is there
+```
+
+> ⚠️ **Caveat — very large overlays.** Keeping two descriptions in step costs a
+> pass over both on every write. Above 256 storage positions — a redefined
+> 10×10×10 table, say — PowerRustCOBOL stops mirroring and gives each
+> description its own storage, because refreshing a thousand occurrences on
+> every `MOVE` would make the program unusable. Redefine records, not large
+> tables; if you need both readings of a table, `MOVE` between them explicitly.
+
 **Subscripts need only a space between them.** The comma is optional there too:
 
 ```cobol
@@ -3863,6 +4003,42 @@ what a space means. These four lines are the same statement to the compiler:
 
 The last line is worth noting: the subscript follows the **complete** qualified
 name, which is the order the standard specifies.
+
+**Index-names, literals and relative indexing mix freely.** A table declared
+`INDEXED BY` may be subscripted by its index-names, by literals, or by both in
+the same reference — and a subscript may be *relative*, an index-name plus or
+minus an integer:
+
+```cobol
+       01  GRP-TAB1.
+           02  GRP-1 OCCURS 6 TIMES INDEXED BY IN1.
+               03  ELEM1 PIC XXX OCCURS 4 TIMES INDEXED BY IN2.
+           ...
+           MOVE ELEM1 (IN1, 1)     TO TEMP.
+           MOVE ELEM1 (1 IN2)      TO TEMP.
+           MOVE ELEM1 (IN1 - 1, 3) TO TEMP.
+           MOVE ELEM1 (IN1 +3)     TO TEMP.
+```
+
+> ⚠️ **Where the spaces go decides what the sign means.** `IN1 - 1` — spaces on
+> both sides — is *relative indexing*: **one** subscript, one less than the
+> index. `IN1 +3` — the sign glued to its digits — is a *signed literal opening
+> the next subscript*: **two** subscripts, the same as `IN1, +3`. And `I+1`,
+> glued on both sides, is ordinary arithmetic. This is the standard's own rule,
+> and it is the same spacing rule that makes `3-DEM-TBL` a name rather than a
+> subtraction.
+
+**A table of groups is addressed one occurrence at a time.** `GRP-1 (2)` above
+is not a slot of its own: it *is* `ELEM1 (2,1)` through `ELEM1 (2,4)`. Writing
+it spreads the bytes across those four, reading it concatenates them, and
+`GRP-TAB1` — the record above the table — is every occurrence laid end to end,
+so one `MOVE` copies the whole table:
+
+```cobol
+           MOVE "AAABBBCCCDDD" TO GRP-1 (1).
+           MOVE ELEM1 (1, 3)   TO TEMP.        *> CCC
+           MOVE GRP-TAB1       TO GRP-TAB2.    *> the entire table
+```
 
 **A name may begin with a digit.** A user-defined word is drawn from `A-Z`,
 `0-9` and the hyphen; only a *data-name* has to contain at least one letter, and
@@ -3897,6 +4073,86 @@ receiving field:
            MOVE ALL "-" TO WS-BAR.       *> ----------
            MOVE ALL "ab" TO WS-BAR.      *> ababababab
 ```
+
+**A conditional phrase ends at the period.** `ON SIZE ERROR`, `AT END`,
+`INVALID KEY`, `ON OVERFLOW` and `ON EXCEPTION` each take an *imperative*, and
+the period that ends the sentence ends the phrase with it. This is worth
+knowing because the failure mode is silent: everything you meant to run
+unconditionally would instead run only when the condition fired.
+
+```cobol
+           DIVIDE A INTO B GIVING C
+               ON SIZE ERROR MOVE "P" TO FLAG.
+           DISPLAY FLAG.               *> always runs — the period closed the phrase
+```
+
+Write `END-DIVIDE` when you want the phrase closed without ending the sentence,
+which is what lets an arithmetic statement sit inside an `IF`:
+
+```cobol
+           IF READY
+               DIVIDE A INTO B GIVING C
+                   ON SIZE ERROR MOVE "P" TO FLAG
+               END-DIVIDE
+               DISPLAY FLAG
+           END-IF.
+```
+
+**`INTO` and `BY` name the operands in opposite orders.** This trips people up
+in every COBOL dialect, so it is worth stating plainly: the dividend is the
+operand `INTO` points *at*, and the one `BY` points *from*.
+
+```cobol
+           DIVIDE 20 BY 5 GIVING C.        *> C = 4   — 20 ÷ 5
+           DIVIDE 5 INTO 20 GIVING C.      *> C = 4   — 20 ÷ 5, written backwards
+           DIVIDE 5 INTO B.                *> B = B ÷ 5, in place
+           DIVIDE 2 INTO A B.              *> halves A, and halves B
+```
+
+> **Note — `REMAINDER` uses the quotient you actually stored.** The remainder is
+> the dividend minus *the receiver's value* times the divisor, truncated to that
+> receiver's PICTURE — not an integer quotient. With `C PIC 999V99`,
+> `DIVIDE 7 INTO 23 GIVING C REMAINDER R` gives `C = 3.28` and `R = 0.04`,
+> because 23 − (3.28 × 7) is 0.04. Declare `C` as an integer if you want the
+> integer-division remainder.
+
+**Every `01` under one `FD` describes the same record area.** An FD owns one
+buffer; each `01` is a different reading of it, exactly like `REDEFINES`. A
+value moved through one is immediately there through the others, and `WRITE`
+names whichever description is convenient:
+
+```cobol
+       FD  PRINT-FILE.
+       01  PRINT-REC     PICTURE X(120).
+       01  DUMMY-RECORD  PICTURE X(120).
+       ...
+           MOVE REPORT-LINE TO PRINT-REC.
+           WRITE DUMMY-RECORD AFTER ADVANCING 1 LINES.   *> writes REPORT-LINE
+```
+
+**`PERFORM` a section name and the whole section runs.** A section is its
+paragraphs, from its header to the next one; a `THRU` that names a section ends
+at that section's last paragraph. A `GO TO` whose target is inside the range
+stays inside it, and the `PERFORM` still returns when the range ends:
+
+```cobol
+           PERFORM CLEAN-UP-SECTION.
+           PERFORM OPEN-FILES THRU CLEAN-UP-SECTION.
+```
+
+**Qualification goes as deep as it needs to.** `OF` and `IN` are the same word,
+they may be mixed, and the standard allows up to 49 levels — enough that any
+duplicated name can be made unique by naming as many of its parents as it takes:
+
+```cobol
+           ADD TBL-ITEM-1 OF TABLE-LEVEL-1A IN TABLE-LEVEL-2A
+                          OF TABLE-LEVEL-3A IN TABLE-LEVEL-4A
+                          OF TABLE-LEVEL-5A
+               TO ACCUMULATOR1.
+```
+
+> **Note.** You need only enough qualifiers to be unambiguous, and they must
+> appear in inner-to-outer order — but they need not be *consecutive* levels.
 
 ### Handing a whole table to a function
 
@@ -5271,6 +5527,7 @@ is.
 | `run` | `--indexed-engine <name>`, `-I` | ISAM engine: `rust` (default), `rm-cobol85`, `fujitsu`, `redb` |
 | `run` | `--indexed-log <basic\|full>` | Per-file INDEXED transaction log → `<assign-path>.log` |
 | `run` | `--indexed-log-format <text\|json>` | Log line format; `json` is NDJSON for Grafana/Loki |
+| `run` | `--switch <NAME>=<ON\|OFF>` | Initial state of a `SPECIAL-NAMES` external switch, by its implementor name (repeatable) — see **External switches and user-defined classes** |
 | `run-form` | `--debug` | Debugger control over stdin/stdout (`@DBG` lines) |
 | `run-form` | `--designer` | Run the named form even when it is not the main one. The IDE passes this for **Run Form**; a shipped application never does. It announces itself on stderr, so a designer run cannot be mistaken for how the application starts. |
 | `build` | `--full`, `--clean` | Discard every cached artefact and rebuild from scratch |
@@ -5297,6 +5554,7 @@ is.
 | `COBOL_INDEXED_ENGINE` | Same choices as `--indexed-engine` |
 | `COBOL_INDEXED_LOG` | `off` (default), `basic`, `full` |
 | `COBOL_INDEXED_LOG_FORMAT` | `text` (default) or `json` |
+| `COBOL_SWITCHES` | `SPECIAL-NAMES` external switches, `NAME=ON\|OFF`, comma separated — the same as repeating `--switch NAME=ON` |
 
 A flag always wins over its environment variable.
 
@@ -5530,7 +5788,7 @@ division/section order — plus the form's user procedures:
 
 | Block | Goes into | Use it for |
 |-------|-----------|------------|
-| `SPECIAL-NAMES`    | CONFIGURATION SECTION | `DECIMAL-POINT IS COMMA`, mnemonic names, currency signs |
+| `SPECIAL-NAMES`    | CONFIGURATION SECTION | `DECIMAL-POINT IS COMMA`, mnemonic names, currency signs, external switches, user-defined classes |
 | `REPOSITORY`       | CONFIGURATION SECTION | class names — the Rust-FFI type bridge (see below) |
 | `FILE-CONTROL`     | INPUT-OUTPUT SECTION  | `SELECT … ASSIGN` for files the form opens |
 | `FILE SECTION`     | DATA DIVISION         | the `FD`s for those files |
@@ -5543,6 +5801,112 @@ own, however long the block is. User procedures are
 listed below the sections — **➕ Add** creates one, the name and body are edited
 in the same popup, and 🗑 removes it. Every edit marks the form dirty, so the
 next **Build / Run / Debug / Check** regenerates the `.cbl` with your changes.
+
+### External switches and user-defined classes
+
+`SPECIAL-NAMES` carries two COBOL-85 facilities you may not have needed on the
+desktop but will want the moment a program has to behave differently for a
+particular run — a nightly batch, a dry run, a customer-specific pass.
+
+**A switch is a run-time flag set from outside the program.** You declare the
+implementor's switch name, a mnemonic for it, and a condition-name for each
+state:
+
+```cobol
+       SPECIAL-NAMES.
+           SWITCH-1 IS SW-REPRINT
+               ON  STATUS IS REPRINTING
+               OFF STATUS IS NOT-REPRINTING.
+```
+
+Then test it like any other condition-name, and set it from the program when you
+need to:
+
+```cobol
+           IF  REPRINTING
+               PERFORM RE-PRINT-INVOICES
+           ELSE
+               PERFORM PRINT-NEW-INVOICES.
+
+           SET SW-REPRINT TO OFF.
+```
+
+**Nothing inside COBOL can set a switch before the run starts** — that is the
+whole point of it — so `rcrun` takes the initial state on the command line or
+from the environment, keyed by the *implementor* name (the mnemonic works too):
+
+```bash
+rcrun run invoices.cbl --switch SWITCH-1=ON
+```
+
+```bash
+COBOL_SWITCHES=SWITCH-1=ON,SWITCH-2=OFF rcrun run invoices.cbl
+```
+
+`--switch` may be repeated; `ON`/`1`/`TRUE`/`YES` and `OFF`/`0`/`FALSE`/`NO` are
+all accepted. A switch nobody sets starts **off**.
+
+**A class names a set of characters** you can then test an item against, which
+saves writing the same string of `OR`s in five places:
+
+```cobol
+       SPECIAL-NAMES.
+           CLASS VALID-GRADE  IS "A" THRU "D" "F"
+           CLASS HEX-DIGIT    IS "0" THRU "9" "A" THRU "F".
+```
+
+```cobol
+           IF  WS-GRADE IS VALID-GRADE
+               PERFORM RECORD-GRADE.
+
+           IF  WS-TOKEN IS NOT HEX-DIGIT
+               MOVE "BAD CHECKSUM" TO WS-ERROR.
+```
+
+**Every** character of the item must belong to the class for the test to be
+true — the same all-characters rule the built-in `NUMERIC` and `ALPHABETIC`
+tests follow. The `IS` is optional, as it is for the built-in class tests.
+
+> ⚠️ A class name is a *class*, not a data item: it has no storage, cannot be
+> moved to or from, and only ever appears after `IS [NOT]` in a condition.
+
+### Justified receivers and edited alphanumeric fields
+
+Two `PICTURE`-level facilities that PowerCOBOL developers reach for on report
+lines:
+
+```cobol
+       01  WS-RIGHT      PIC X(10) JUSTIFIED RIGHT.
+       01  WS-PART-NO    PIC XXBXX/XX.
+```
+
+`JUSTIFIED RIGHT` reverses the alignment rule for an alphanumeric receiver: a
+short sender is padded **on the left** and a long one loses its **leftmost**
+characters. `MOVE "AB" TO WS-RIGHT` leaves `"        AB"`.
+
+An **alphanumeric-edited** picture owns its insertion characters — `B` prints a
+space, `0` a zero, `/` a slash — and the sender fills only the `X`, `A` and `9`
+positions. `MOVE "AB12CD" TO WS-PART-NO` gives `"AB 12/CD"`. Moving spaces in
+leaves the insertions in place (`"   /  "`), which is what `INITIALIZE` does to
+such a field.
+
+### Reading an edited field back — de-editing
+
+Moving a numeric-**edited** item to a numeric one recovers the *value* its
+characters spell out, not the characters. Currency signs, grouping commas,
+asterisk protection, `/` and `B` insertions and blanks are dropped; `CR`, `DB`
+or a `-` anywhere in the field makes it negative:
+
+```cobol
+       01  WS-SHOWN   PIC $(4)9.99CR.
+       01  WS-VALUE   PIC S9(4)V99.
+...
+           MOVE -123.45 TO WS-SHOWN.     *> WS-SHOWN  = "$ 123.45CR"
+           MOVE WS-SHOWN TO WS-VALUE.    *> WS-VALUE  = -123.45
+```
+
+This is the standard's own rule, and it is the reason you can safely re-read a
+printed amount off a report line rather than keeping a second copy of it.
 
 ### Beautify — the layout rules
 

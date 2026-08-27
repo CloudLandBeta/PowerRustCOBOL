@@ -157,6 +157,7 @@ fn cmd_run(args: &[String]) {
     interp.set_indexed_log_level(resolve_indexed_log_level(args));
     interp.set_indexed_log_format(resolve_indexed_log_format(args));
     interp.set_program_args(extract_program_args(args));
+    interp.set_external_switches(&resolve_external_switches(args));
     match interp.run() {
         Ok(()) => {}
         Err(e) if e.is_exit_signal() => {}
@@ -376,6 +377,8 @@ fn cmd_help() {
         "  COBOLT_SOURCE_FORMAT  Default for --source-format (free | fixed | fixed-relaxed | auto)\n",
         "  COBOL_INDEXED_ENGINE  Indexed (ISAM) engine: rust | rm-cobol85 | fujitsu | redb\n",
         "  COBOL_INDEXED_LOG     INDEXED transaction log level: off (default) | basic | full\n",
+        "  COBOL_SWITCHES        SPECIAL-NAMES external switches: NAME=ON|OFF, comma separated\n",
+        "                        (also --switch NAME=ON|OFF, repeatable)\n",
     ));
 }
 
@@ -799,6 +802,50 @@ fn require_path(args: &[String], cmd: &str) -> PathBuf {
     }
     eprintln!("cobolt {cmd}: missing <file> argument");
     process::exit(2);
+}
+
+/// Resolve the run's **external switches**: `--switch NAME=ON|OFF` (repeatable)
+/// then the `COBOL_SWITCHES` environment variable, a comma-separated list of
+/// the same `NAME=ON|OFF` pairs.
+///
+/// `NAME` is the implementor name a `SPECIAL-NAMES` switch clause gives the
+/// switch (`SWITCH-1 IS SW-1` → `SWITCH-1`); the mnemonic works too. A switch
+/// nobody sets stays off, which is the state a program sees today.
+fn resolve_external_switches(args: &[String]) -> Vec<(String, bool)> {
+    let mut out: Vec<(String, bool)> = Vec::new();
+    let mut push = |spec: &str| {
+        let Some((name, state)) = spec.split_once('=') else {
+            return;
+        };
+        let on = match state.trim().to_ascii_uppercase().as_str() {
+            "ON" | "1" | "TRUE" | "YES" => true,
+            "OFF" | "0" | "FALSE" | "NO" => false,
+            other => {
+                eprintln!("cobolt: unknown switch state '{other}' (expected ON or OFF); ignoring");
+                return;
+            }
+        };
+        out.push((name.trim().to_ascii_uppercase(), on));
+    };
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(v) = a.strip_prefix("--switch=") {
+            push(v);
+        } else if a == "--switch" {
+            if let Some(v) = args.get(i + 1) {
+                push(v);
+            }
+            i += 1;
+        }
+        i += 1;
+    }
+    if let Ok(env) = std::env::var("COBOL_SWITCHES") {
+        for spec in env.split(',').filter(|s| !s.trim().is_empty()) {
+            push(spec);
+        }
+    }
+    out
 }
 
 /// Resolve the indexed (ISAM) engine: `--indexed-engine <name>` /

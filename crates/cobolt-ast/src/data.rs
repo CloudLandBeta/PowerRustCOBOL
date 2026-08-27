@@ -142,6 +142,13 @@ pub struct DataDecl {
     /// Nested subordinate data items (group items only).
     pub children: Vec<DataDecl>,
     pub span: Span,
+    /// `JUSTIFIED RIGHT` — an alphanumeric receiver aligns the sender at its
+    /// **right** end: a short sender is padded on the left and a long one has
+    /// its leftmost characters truncated, the mirror of the ordinary rule.
+    ///
+    /// 🔴 New fields belong at the END of this struct — `DataDecl` is
+    /// bincode-serialized field-by-field in declaration order.
+    pub justified: bool,
 }
 
 /// A 66-level `RENAMES item-1 [THRU item-2]` regrouping clause.

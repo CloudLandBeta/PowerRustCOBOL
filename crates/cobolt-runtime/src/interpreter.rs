@@ -193,6 +193,10 @@ struct NestedProgram {
     para_map: IndexMap<String, Vec<Stmt>>,
     /// Paragraph names in declaration order.
     para_order: Vec<String>,
+    /// The statements of each `para_order` entry, **by position**.
+    para_bodies: Vec<Vec<Stmt>>,
+    /// Which of `para_order`'s entries are SECTION headers.
+    section_names: std::collections::HashSet<String>,
     /// Local WORKING-STORAGE items declared inside this nested program.
     /// Format: `(uppercase_name, initial_value)`.
     local_items: Vec<(String, CobolValue)>,
@@ -217,7 +221,7 @@ struct BindingRuntimeState {
 /// Recursively register a `Program` and all of its `nested_programs` into
 /// `registry`, keyed by the program-id (uppercase).
 fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>) {
-    let (para_map, para_order) = build_para_map(&prog.procedure.body);
+    let (para_map, para_order, para_bodies, section_names) = build_para_map(&prog.procedure.body);
 
     // Collect this program's own local data items (everything in its DATA
     // DIVISION — they will be added to the env as a scope overlay on call).
@@ -252,6 +256,8 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         NestedProgram {
             para_map,
             para_order,
+            para_bodies,
+            section_names,
             local_items,
             local_symbols,
             using,
@@ -677,10 +683,31 @@ pub struct Interpreter {
     /// single `[Prop(name)]` for a flat property, or a deeper sequence for a
     /// nested place (`Grid::Rows(I)::Value`) (spec 011).
     property_shadows: std::collections::HashMap<String, (String, Vec<PathSeg>)>,
-    /// Paragraph name (uppercase) → statement list.
+    /// Paragraph name (uppercase) → statement list. **First definition wins**,
+    /// so a reference by name always resolves to the first paragraph carrying
+    /// it; see [`build_para_map`] for why a duplicate name is not an error.
     para_map: IndexMap<String, Vec<Stmt>>,
     /// Paragraph names in declaration order (for fall-through and THRU ranges).
     para_order: Vec<String>,
+    /// The statements of each `para_order` entry, **by position** rather than
+    /// by name. Sequential flow and `THRU` ranges walk positions, so a program
+    /// that declares the same paragraph name twice (NC102A does) runs each
+    /// occurrence's own statements instead of running the last definition's
+    /// body at every position.
+    para_bodies: Vec<Vec<Stmt>>,
+    /// `SPECIAL-NAMES. CLASS name IS …` — uppercased class name → the inclusive
+    /// character ranges that belong to it. Read by `Condition::UserClassTest`.
+    user_classes: HashMap<String, Vec<(char, char)>>,
+    /// External switches this program declares, `(implementor name, mnemonic)`.
+    /// Consulted by [`Self::set_external_switches`].
+    switch_names: Vec<(String, String)>,
+    /// Which of `para_order`'s entries are SECTION headers rather than
+    /// paragraphs. A section has no statements of its own — it *is* the
+    /// paragraphs that follow it, up to the next header — so `PERFORM
+    /// <section>` and a `THRU` that names one both have to expand to that
+    /// range. Without the distinction a section PERFORM ran the empty
+    /// placeholder and did nothing at all.
+    section_names: std::collections::HashSet<String>,
     /// COBOL-85 nested programs: program-id (uppercase) → compiled program.
     nested_registry: HashMap<String, NestedProgram>,
     /// Persistent local WORKING-STORAGE per nested program (program-id uppercase →
@@ -868,7 +895,14 @@ impl Interpreter {
         // and its handle id stored in the environment.
         let mut rust_bridge = crate::rust_bridge::RustBridge::new();
         let mut object_refs = build_object_refs(&program, &mut env, &mut rust_bridge);
-        let (para_map, para_order) = build_para_map(&program.procedure.body);
+        let (para_map, para_order, para_bodies, section_names) =
+            build_para_map(&program.procedure.body);
+        let user_classes: HashMap<String, Vec<(char, char)>> = program
+            .classes
+            .iter()
+            .map(|(n, r)| (n.to_ascii_uppercase(), r.clone()))
+            .collect();
+        let switch_names = program.switch_names.clone();
 
         // Register all COBOL-85 nested programs (recursively).
         let mut nested_registry: HashMap<String, NestedProgram> = HashMap::new();
@@ -916,6 +950,10 @@ impl Interpreter {
             property_shadows: std::collections::HashMap::new(),
             para_map,
             para_order,
+            para_bodies,
+            user_classes,
+            switch_names,
+            section_names,
             nested_registry,
             program_locals: HashMap::new(),
             perform_depth: 0,
@@ -1423,6 +1461,28 @@ impl Interpreter {
             return Ok(None);
         }
         self.try_exec_window_call(root, "GetFormState", &[])
+    }
+
+    /// Set the run's **external switches**, by the implementor name a
+    /// `SPECIAL-NAMES` switch clause gives them (`SWITCH-1 IS SW-1` → key
+    /// `SWITCH-1`); the mnemonic is accepted as a key too, for a caller that
+    /// knows the program rather than the environment.
+    ///
+    /// A switch lives outside the program — nothing in COBOL turns one on
+    /// before the run starts — so its initial state has to arrive from the
+    /// host. Each mnemonic is a one-character item the parser synthesised, and
+    /// this writes `"1"` (on) or `"0"` (off) into it before the first
+    /// statement runs, which is what the `ON STATUS` / `OFF STATUS`
+    /// condition-names then read.
+    pub fn set_external_switches(&mut self, states: &[(String, bool)]) {
+        for (external, mnemonic) in self.switch_names.clone() {
+            let Some((_, on)) = states.iter().find(|(k, _)| {
+                k.eq_ignore_ascii_case(&external) || k.eq_ignore_ascii_case(&mnemonic)
+            }) else {
+                continue;
+            };
+            self.env.set_str(&mnemonic, if *on { "1" } else { "0" });
+        }
     }
 
     /// Select the indexed (ISAM) file engine for this run. All engines present
@@ -2103,7 +2163,9 @@ impl Interpreter {
         while idx < self.para_order.len() {
             let name = self.para_order[idx].clone();
             self.current_paragraph = name.clone();
-            let stmts = match self.para_map.get(&name) {
+            // By position, not by name: a duplicated paragraph name must run
+            // its own statements here, not the last definition's.
+            let stmts = match self.para_bodies.get(idx) {
                 Some(s) => s.clone(),
                 None => {
                     idx += 1;
@@ -2159,14 +2221,15 @@ impl Interpreter {
     /// GOBACK is propagated as-is so the caller can treat it as a normal return.
     fn run_para_sequence(
         &mut self,
-        para_map: &IndexMap<String, Vec<Stmt>>,
+        para_bodies: &[Vec<Stmt>],
         para_order: &[String],
     ) -> Result<(), RuntimeError> {
         let mut idx = 0usize;
         while idx < para_order.len() {
             let name = &para_order[idx];
             self.current_paragraph = name.clone();
-            let stmts = match para_map.get(name) {
+            // By position — see `run_inner`.
+            let stmts = match para_bodies.get(idx) {
                 Some(s) => s.clone(),
                 None => {
                     idx += 1;
@@ -2382,15 +2445,29 @@ impl Interpreter {
                 let to_key = self.resolve_lvalue(to);
                 self.move_corresponding(&from_key, &to_key)
             }
-            Stmt::AddCorresponding { from, to, .. } => {
-                let from_key = self.resolve_lvalue(from);
-                let to_key = self.resolve_lvalue(to);
-                self.arith_corresponding(&from_key, &to_key, false)
+            Stmt::AddCorresponding {
+                from,
+                to,
+                rounded,
+                on_size_error,
+                not_on_size_error,
+                ..
             }
-            Stmt::SubtractCorresponding { from, to, .. } => {
+            | Stmt::SubtractCorresponding {
+                from,
+                to,
+                rounded,
+                on_size_error,
+                not_on_size_error,
+                ..
+            } => {
+                let subtract = matches!(stmt, Stmt::SubtractCorresponding { .. });
                 let from_key = self.resolve_lvalue(from);
                 let to_key = self.resolve_lvalue(to);
-                self.arith_corresponding(&from_key, &to_key, true)
+                let has = Self::size_error_phrase(on_size_error, not_on_size_error);
+                let size_err = self
+                    .arith_corresponding(&from_key, &to_key, subtract, *rounded, has)?;
+                self.run_size_error(size_err, on_size_error, not_on_size_error)
             }
 
             Stmt::Initialize {
@@ -2501,7 +2578,14 @@ impl Interpreter {
                     .get(&self.current_paragraph)
                     .cloned()
                     .unwrap_or_else(|| target.clone());
-                Err(RuntimeError::GoTo { target: t })
+                if t.is_empty() {
+                    // A bare `GO TO.` that no `ALTER` has redirected yet. The
+                    // standard leaves this undefined; falling through to the
+                    // next sentence is the harmless reading.
+                    Ok(())
+                } else {
+                    Err(RuntimeError::GoTo { target: t })
+                }
             }
             Stmt::Alter { from, to, .. } => {
                 self.alter_map.insert(from.to_ascii_uppercase(), to.clone());
@@ -2962,12 +3046,54 @@ impl Interpreter {
             Expr::Literal(Literal::Figurative(FigurativeConstant::All(inner)), _) => {
                 Some(literal_to_value(inner).as_display_string())
             }
+            // Every other figurative constant is one character that fills the
+            // receiver, which for an elementary item the padding below already
+            // does — but a **group** receiver is a record, and the character
+            // has to reach all of it. `MOVE ZERO TO <group>` distributed a
+            // single "0" and left every field after the first as it was, so a
+            // CCVS test that zeroes a group before measuring it (NC253A) read
+            // stale values out of it. The group is alphanumeric here even when
+            // its fields are numeric, exactly as `MOVE SPACE TO <group>`
+            // requires.
+            Expr::Literal(Literal::Figurative(fc), _) => match fc {
+                FigurativeConstant::Zero => Some("0".to_string()),
+                FigurativeConstant::Space => Some(" ".to_string()),
+                FigurativeConstant::Quote => Some("\"".to_string()),
+                FigurativeConstant::LowValue => Some("\u{0}".to_string()),
+                // HIGH-VALUE is the byte 0xFF, which is not a character: as a
+                // Rust `char` it would encode to two UTF-8 bytes and every
+                // width downstream would be wrong. It keeps the byte-accurate
+                // path through `CobolValue::figurative_high_values`.
+                FigurativeConstant::HighValue
+                | FigurativeConstant::Null
+                | FigurativeConstant::All(_) => None,
+            },
             _ => None,
         };
         // A numeric source moved to an alphanumeric receiver de-edits to its
         // zero-padded digit string (left-justified), per COBOL MOVE rules.
+        // A subscripted or qualified reference is a data item too:
+        // `MOVE FIELD-4 (IDX) TO <PIC X(4)>` de-edits exactly as
+        // `MOVE FIELD-4 TO …` does. Matching only a bare `Identifier` sent the
+        // subscripted case down the numeric-assign path, which right-aligns —
+        // `"   6"` where COBOL requires `"6   "` (NC238A).
         let src_digits = match from {
-            Expr::Identifier(s, _) => self.env.deedited_digits(s),
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.deedited_digits(&key)
+            }
+            // A numeric **literal** is an integer sender like any other:
+            // `MOVE 2 TO <PIC X(4)>` leaves `"2   "`, not `"   2"`.
+            Expr::Literal(Literal::Integer(n), _) => Some(n.unsigned_abs().to_string()),
+            _ => None,
+        };
+        // The same reference, read back as a *number* when it is numeric-edited
+        // — the de-editing source for a numeric receiver (see below).
+        let deedit_source = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.deedited_value(&key)
+            }
             _ => None,
         };
         for target in to {
@@ -2998,6 +3124,14 @@ impl Interpreter {
                 if let Some(width) = self.env.alphanumeric_capacity(&name) {
                     let repeated: String = fill.chars().cycle().take(width).collect();
                     self.env.set_str_left(&name, &repeated);
+                    continue;
+                }
+                // A group receiver is filled to the width of the whole record
+                // and then distributed, so every occurrence of every
+                // subordinate table gets its share of the repeated literal.
+                if let Some(width) = self.env.group_width(&name) {
+                    let repeated: String = fill.chars().cycle().take(width).collect();
+                    self.env.set_group(&name, &repeated);
                     continue;
                 }
             }
@@ -3034,6 +3168,19 @@ impl Interpreter {
             if self.object_refs.contains_key(&name) {
                 self.assign_object_ref(&name, &val)?;
                 continue;
+            }
+            // De-editing (COBOL-85 6.18.4 GR4b): a numeric-**edited** sender
+            // moved to a numeric receiver transfers the *value* its characters
+            // spell out, not the characters. `MOVE <PIC $(4)9.99CR holding
+            // "$ 123.45CR"> TO <PIC S9(4)V99>` stores -123.45; without this the
+            // edited string was assigned to a numeric slot and read as zero.
+            if let Some(edited) = deedit_source.as_ref() {
+                if self.env.decimal_places(&name).is_some()
+                    && !self.env.is_alphanumeric_field(&name)
+                {
+                    self.env.set(&name, CobolValue::Numeric(edited.clone()));
+                    continue;
+                }
             }
             match &src_digits {
                 Some(digits) if self.env.is_alphanumeric_field(&name) => {
@@ -3128,15 +3275,25 @@ impl Interpreter {
 
     /// `ADD/SUBTRACT CORRESPONDING g1 TO/FROM g2`: combine each matching pair of
     /// elementary numeric items, recursing through matching groups.
+    /// Add or subtract every matching pair, returning whether **any** receiver
+    /// overflowed.
+    ///
+    /// The size-error condition belongs to the statement, not to a pair: a
+    /// receiver that overflows is left unchanged and the others still receive
+    /// their results, then the one `ON SIZE ERROR` imperative runs once.
     fn arith_corresponding(
         &mut self,
         from_key: &str,
         to_key: &str,
         subtract: bool,
-    ) -> Result<(), RuntimeError> {
+        rounded: bool,
+        has_handler: bool,
+    ) -> Result<bool, RuntimeError> {
+        let mut size_err = false;
         for (fk, tk, both_groups) in self.corr_pairs(from_key, to_key) {
             if both_groups {
-                self.arith_corresponding(&fk, &tk, subtract)?;
+                size_err |=
+                    self.arith_corresponding(&fk, &tk, subtract, rounded, has_handler)?;
             } else {
                 let a = self
                     .env
@@ -3153,10 +3310,10 @@ impl Interpreter {
                 } else {
                     cur.add_val(&a)
                 };
-                self.store_arith(&tk, result, false, false);
+                size_err |= self.store_arith(&tk, result, rounded, has_handler);
             }
         }
-        Ok(())
+        Ok(size_err)
     }
 
     /// Matching subordinate pairs of two groups: `(from_child_key,
@@ -3254,13 +3411,32 @@ impl Interpreter {
                 }
             })
             .unwrap_or(0);
-        // Index = VARYING item, else the table's first INDEXED BY index.
-        let index_name = match varying {
-            Some(v) => self.expr_to_name(v),
-            None => sym
-                .as_ref()
-                .and_then(|s| s.index_names.first().cloned())
-                .unwrap_or_default(),
+        // The table's own first `INDEXED BY` index drives the search.
+        let own_index = sym
+            .as_ref()
+            .and_then(|s| s.index_names.first().cloned())
+            .unwrap_or_default();
+        // `VARYING id-2` replaces it **only when id-2 is an index of this same
+        // table** (COBOL-85 6.21.4 GR3). Otherwise the table's own index still
+        // drives the search and id-2 is stepped alongside it — which is what
+        // `SEARCH TBL-A VARYING W … WHEN ELMT-A (A) = 05` relies on: the WHEN
+        // subscripts by the table's index, and a search driven by `W` would
+        // leave `A` at 1 and always reach AT END (NC236A).
+        let varying_name = varying.map(|v| self.expr_to_name(v));
+        let varying_is_own = match (&varying_name, sym.as_ref()) {
+            (Some(v), Some(s)) => s.index_names.iter().any(|n| n.eq_ignore_ascii_case(v)),
+            _ => false,
+        };
+        let index_name = match (&varying_name, varying_is_own) {
+            (Some(v), true) => v.clone(),
+            (Some(_), false) if !own_index.is_empty() => own_index.clone(),
+            (Some(v), false) => v.clone(),
+            (None, _) => own_index.clone(),
+        };
+        // The companion item stepped in parallel, when there is one.
+        let stepped = match (&varying_name, varying_is_own) {
+            (Some(v), false) if !own_index.is_empty() => Some(v.clone()),
+            _ => None,
         };
         if index_name.is_empty() || size == 0 {
             return self.exec_stmts(at_end);
@@ -3320,9 +3496,17 @@ impl Interpreter {
         } else {
             self.env.get_i64(&index_name).unwrap_or(1).max(1)
         };
+        // A companion `VARYING` item moves with the search index, keeping the
+        // offset it started with.
+        let step_offset = stepped
+            .as_ref()
+            .map(|s| self.env.get_i64(s).unwrap_or(start) - start);
         let mut i = start;
         while i <= size as i64 {
             self.env.set_i64(&index_name, i);
+            if let (Some(s), Some(off)) = (&stepped, step_offset) {
+                self.env.set_i64(s, i + off);
+            }
             for (cond, body) in whens {
                 if self.eval_condition(cond)? {
                     return self.exec_stmts(body);
@@ -3492,7 +3676,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let sum = self.eval_sum(operands, span)?;
-        let has = !on_size_error.is_empty();
+        let has = Self::size_error_phrase(on_size_error, not_on_size_error);
         let mut size_err = false;
         if !giving.is_empty() {
             // `ADD a … TO b … GIVING c …` → c = sum(a…) + sum(b…).
@@ -3531,7 +3715,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let sub = self.eval_sum(operands, span)?;
-        let has = !on_size_error.is_empty();
+        let has = Self::size_error_phrase(on_size_error, not_on_size_error);
         let mut size_err = false;
         if !giving.is_empty() {
             // `SUBTRACT a … FROM base GIVING c …` → c = base − sum(a…).
@@ -3574,7 +3758,7 @@ impl Interpreter {
         let l = self.eval_expr(lhs, span)?;
         let r = self.eval_expr(by, span)?;
         let result = l.mul_val(&r);
-        let has = !on_size_error.is_empty();
+        let has = Self::size_error_phrase(on_size_error, not_on_size_error);
         let mut size_err = false;
         if giving.is_empty() {
             // `MULTIPLY a BY b [ROUNDED]` → b = a × b.
@@ -3606,33 +3790,60 @@ impl Interpreter {
         let quotient = match l.div_val(&r) {
             Some(q) => q,
             None => {
-                // Division by zero raises a size error if a handler is present.
-                if !on_size_error.is_empty() {
-                    return self.run_size_error(true, on_size_error, not_on_size_error);
-                }
-                return Err(RuntimeError::DivisionByZero { span });
+                // Division by zero **is** the size error condition for DIVIDE.
+                // It runs ON SIZE ERROR when there is one, suppresses NOT ON
+                // SIZE ERROR either way, and leaves the receivers untouched.
+                // Aborting the run instead ended the program mid-report —
+                // NC251A tests exactly this and printed nothing at all.
+                let _ = span;
+                return self.run_size_error(true, on_size_error, not_on_size_error);
             }
         };
 
-        if let Some(rem_expr) = remainder {
-            // COBOL REMAINDER uses the *integer* quotient: rem = dividend − (intq × divisor).
-            let int_q = CobolValue::from_i64(quotient.as_i64().unwrap_or(0));
-            let rem_val = l.sub_val(&int_q.mul_val(&r));
-            let rname = self.resolve_lvalue(rem_expr);
-            self.env.set(&rname, rem_val);
-        }
-
-        let has = !on_size_error.is_empty();
+        let has = Self::size_error_phrase(on_size_error, not_on_size_error);
         let mut size_err = false;
         if giving.is_empty() {
             // No GIVING: store the quotient back into the dividend (`lhs`).
             let name = self.resolve_lvalue(lhs);
-            size_err = self.store_arith(&name, quotient, rounded, has);
+            size_err = self.store_arith(&name, quotient.clone(), rounded, has);
         } else {
             for (g, gr) in giving {
                 let name = self.resolve_lvalue(g);
                 size_err |= self.store_arith(&name, quotient.clone(), *gr, has);
             }
+        }
+
+        // The REMAINDER is formed and stored **after** the quotient reaches its
+        // receiver (COBOL-85 6.11.4 GR4), and both halves of that ordering
+        // matter. The remainder is the dividend minus the divisor times the
+        // quotient *as stored* — truncated to the receiver's PICTURE, even when
+        // ROUNDED was written for the quotient — and the remainder receiver's
+        // own subscript is evaluated at that point too, so
+        // `DIVIDE 100 BY N GIVING ANS REMAINDER WS-REM (ANS)` indexes with the
+        // quotient just computed. Doing this first wrote the remainder into the
+        // occurrence the *previous* value of `ANS` selected.
+        if let Some(rem_expr) = remainder {
+            let q_for_rem = match giving.first() {
+                Some((g, _)) => {
+                    let gname = self.resolve_lvalue(g);
+                    // The scale comes from the receiver's PICTURE, not from what
+                    // it happens to hold: a numeric-**edited** GIVING item
+                    // stores its edited characters, so reading a scale off the
+                    // stored value found none and the remainder was formed from
+                    // the untruncated quotient. `DIVIDE 16 INTO 174 GIVING
+                    // <PIC ****.9> REMAINDER r` must use 10.8, giving r = 1.
+                    match (self.env.decimal_places(&gname), quotient.as_exact()) {
+                        (Some(scale), Some(num)) => {
+                            CobolValue::Numeric(num.truncate_to(scale))
+                        }
+                        _ => quotient.clone(),
+                    }
+                }
+                None => quotient.clone(),
+            };
+            let rem_val = l.sub_val(&q_for_rem.mul_val(&r));
+            let rname = self.resolve_lvalue(rem_expr);
+            self.env.set(&rname, rem_val);
         }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
@@ -3646,7 +3857,7 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let val = self.eval_expr(expr, span)?;
-        let has = !on_size_error.is_empty();
+        let has = Self::size_error_phrase(on_size_error, not_on_size_error);
         let mut size_err = false;
         for (target, rounded) in targets {
             let name = self.resolve_lvalue(target);
@@ -3678,6 +3889,19 @@ impl Interpreter {
     /// When `rounded`, round (half away from zero) to the field's scale;
     /// otherwise `assign` truncates, per COBOL's default. On a size error *with*
     /// a handler (`suppress_on_overflow`), the field is left unchanged.
+    /// Whether the statement carries a **size error phrase** — either half.
+    ///
+    /// COBOL-85 (6.4.4) leaves an overflowing receiver *unchanged* whenever the
+    /// statement has a size error phrase, and only truncates into it when the
+    /// statement has none. `NOT ON SIZE ERROR` on its own is such a phrase.
+    /// Testing `ON SIZE ERROR` alone let `ADD … GIVING r1 r2 … NOT ON SIZE
+    /// ERROR …` write truncated values into every receiver that overflowed,
+    /// which is what NC176A/NC177A's "SERIES" tests measure — they check the
+    /// receivers still hold their previous values.
+    fn size_error_phrase(on_size_error: &[Stmt], not_on_size_error: &[Stmt]) -> bool {
+        !on_size_error.is_empty() || !not_on_size_error.is_empty()
+    }
+
     fn store_arith(
         &mut self,
         name: &str,
@@ -3686,13 +3910,27 @@ impl Interpreter {
         suppress_on_overflow: bool,
     ) -> bool {
         let value = if rounded {
-            let scale = match self.env.get(name) {
-                Some(CobolValue::Numeric(f)) => Some(f.decimals),
-                _ => None,
-            };
-            match (scale, value.as_exact()) {
-                (Some(s), Some(num)) => CobolValue::Numeric(num.round_to(s)),
-                _ => value,
+            // `P` scaling positions move the receiver's least significant digit
+            // *above* the units, so rounding there is to the nearest power of
+            // ten, not to a count of decimals. `PIC S99P` rounds to tens.
+            let trailing_p = self.env.trailing_scale_positions(name);
+            if trailing_p > 0 {
+                match value.as_exact() {
+                    Some(num) => CobolValue::Numeric(num.round_to_power(trailing_p)),
+                    None => value,
+                }
+            } else {
+                // The receiver's scale comes from its PICTURE, not from whatever
+                // it happens to hold: a numeric-edited item stores its edited
+                // characters and would report no scale at all.
+                let scale = match self.env.get(name) {
+                    Some(CobolValue::Numeric(f)) => Some(f.decimals),
+                    _ => self.env.decimal_places(name),
+                };
+                match (scale, value.as_exact()) {
+                    (Some(s), Some(num)) => CobolValue::Numeric(num.round_to(s)),
+                    _ => value,
+                }
             }
         } else {
             value
@@ -3857,6 +4095,26 @@ impl Interpreter {
                 let _ = e;
                 self.eval_condition(c)
             }
+            // An arithmetic selection object matches the subject by value, the
+            // same rule a literal object follows.
+            (EvalSubject::Expr(e), WhenValue::Expr(obj)) => {
+                let subj = match pre {
+                    Some(v) => v.clone(),
+                    None => self.eval_expr(e, e.span())?,
+                };
+                let v = self.eval_expr(obj, obj.span())?;
+                Ok(compare_values(&subj, &v, CmpOp::Eq))
+            }
+            (EvalSubject::Expr(e), WhenValue::ExprRange(lo, hi)) => {
+                let subj = match pre {
+                    Some(v) => v.clone(),
+                    None => self.eval_expr(e, e.span())?,
+                };
+                let lo_v = self.eval_expr(lo, lo.span())?;
+                let hi_v = self.eval_expr(hi, hi.span())?;
+                Ok(compare_values(&subj, &lo_v, CmpOp::Ge)
+                    && compare_values(&subj, &hi_v, CmpOp::Le))
+            }
 
             // A **conditional expression** as the subject: `EVALUATE X NUMERIC`.
             // Its truth value is what the branches select on, so `WHEN TRUE`
@@ -3920,7 +4178,13 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         match target {
-            PerformTarget::Paragraph(name, s) => {
+            PerformTarget::Paragraph(name, s) | PerformTarget::Section(name, s) => {
+                // The parser cannot tell a section name from a paragraph name —
+                // both are just a word after PERFORM — so the decision is made
+                // here, where the procedure map knows which is which.
+                if let Some((first, last)) = self.section_span(&name.to_ascii_uppercase()) {
+                    return self.exec_para_index_range(first, last);
+                }
                 let stmts = self.para_stmts(name, *s)?;
                 // Track the active paragraph so ALTER overrides resolve correctly.
                 let prev =
@@ -3929,24 +4193,36 @@ impl Interpreter {
                 self.current_paragraph = prev;
                 r
             }
-            PerformTarget::Section(name, s) => {
-                // Treat a section PERFORM as executing all paragraphs in it.
-                // We collect paragraphs whose names start with SECTION-NAME-*
-                // (or exactly match).  Simplified: just find by name.
-                match self.para_stmts(name, *s) {
-                    Ok(stmts) => self.exec_para_body(&stmts),
-                    Err(_) => {
-                        // Try section as a block of paragraphs
-                        let upper = name.to_ascii_uppercase();
-                        let stmts = self.collect_section_stmts(&upper);
-                        self.exec_para_body(&stmts)
+            // `PERFORM paragraph OF section` — the name repeats, so the copy
+            // *inside that section* is the one meant. `para_map` is keyed by
+            // bare name and would hand back the first definition anywhere in
+            // the program.
+            PerformTarget::QualifiedParagraph {
+                name,
+                section,
+                span: s,
+            } => {
+                let upper = name.to_ascii_uppercase();
+                let pos = match self.section_span(&section.to_ascii_uppercase()) {
+                    Some((first, last)) => (first..=last)
+                        .find(|i| self.para_order.get(*i).is_some_and(|n| *n == upper)),
+                    None => None,
+                };
+                match pos {
+                    Some(i) => self.exec_para_index_range(i, i),
+                    // An unknown qualifier is not a reason to lose the PERFORM:
+                    // fall back to the unqualified lookup, which is what the
+                    // program would have got before the qualifier was read.
+                    None => {
+                        let stmts = self.para_stmts(name, *s)?;
+                        let prev = std::mem::replace(&mut self.current_paragraph, upper);
+                        let r = self.exec_para_body(&stmts);
+                        self.current_paragraph = prev;
+                        r
                     }
                 }
             }
-            PerformTarget::Thru { from, to, span: s } => {
-                let stmts = self.thru_stmts(from, to, *s)?;
-                self.exec_para_body(&stmts)
-            }
+            PerformTarget::Thru { from, to, span: s } => self.exec_para_range(from, to, *s),
             PerformTarget::Inline { stmts } => match self.exec_loop_body(stmts) {
                 LoopStep::Continue | LoopStep::Break => Ok(()),
                 LoopStep::Err(e) => Err(e),
@@ -4370,52 +4646,164 @@ impl Interpreter {
         &mut self,
         from: &Expr,
         delimited_by: &[Expr],
-        _all: bool,
+        all: bool,
         into: &[UnstringTarget],
-        _pointer: Option<&Expr>,
-        _tallying: Option<&Expr>,
+        pointer: Option<&Expr>,
+        tallying: Option<&Expr>,
         on_overflow: &[Stmt],
         not_on_overflow: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let src = self.eval_expr(from, span)?.as_display_string();
-        let delims: Vec<String> = delimited_by
+        let src: Vec<u8> = self
+            .eval_expr(from, span)?
+            .as_display_string()
+            .into_bytes();
+        let delims: Vec<Vec<u8>> = delimited_by
             .iter()
             .map(|d| {
                 self.eval_expr(d, span)
                     .unwrap_or_else(|_| CobolValue::from_str(" ", 1))
                     .as_display_string()
+                    .into_bytes()
             })
+            .filter(|d| !d.is_empty())
             .collect();
 
-        // Split source by all delimiters in sequence.
-        let mut parts: Vec<String> = vec![src];
-        for delim in &delims {
-            let mut new_parts = Vec::new();
-            for part in &parts {
-                for sub in part.split(delim.as_str()) {
-                    new_parts.push(sub.to_string());
-                }
+        // WITH POINTER names where the scan starts, 1-based, and receives where
+        // it stopped. A pointer outside the source is the overflow condition on
+        // its own and moves nothing at all (COBOL-85 6.28.4 GR7).
+        let pointer_name = match pointer {
+            Some(e) => Some(self.resolve_lvalue(e)),
+            None => None,
+        };
+        let mut cursor: i64 = match &pointer_name {
+            Some(n) => self.env.get_i64(n).unwrap_or(1),
+            None => 1,
+        };
+        if cursor < 1 || cursor as usize > src.len() {
+            return self.run_overflow(true, on_overflow, not_on_overflow);
+        }
+        let mut pos = (cursor - 1) as usize;
+        let mut filled = 0usize;
+
+        for target in into {
+            if pos >= src.len() {
+                break;
             }
-            parts = new_parts;
+            // The field runs to the earliest delimiter at or after `pos`, or to
+            // the end of the source when none is left. With `ALL`, a run of the
+            // same delimiter counts as one occurrence.
+            let name = self.resolve_lvalue(&target.target);
+            let (field_end, delim_len, unit_len) = if delims.is_empty() {
+                // No `DELIMITED BY`: the source is split by the receivers' own
+                // sizes, each taking exactly its own width (COBOL-85 6.28.4
+                // GR5). Treating the whole remainder as one field gave the
+                // first receiver everything and left the rest untouched.
+                let width = self.env.stored_width(&name).max(1);
+                ((pos + width).min(src.len()), 0, 0)
+            } else {
+                match Self::find_delimiter(&src, pos, &delims, all) {
+                    Some((at, len, unit)) => (at, len, unit),
+                    None => (src.len(), 0, 0),
+                }
+            };
+            let field = String::from_utf8_lossy(&src[pos..field_end]).into_owned();
+            // The receiver takes the field under ordinary MOVE rules: a numeric
+            // one converts, an alphanumeric one is padded or truncated.
+            if self.env.is_group(&name) {
+                // A group receiver is a record: the field is distributed across
+                // its subordinate items, exactly as a group MOVE does. Writing
+                // the group's own slot leaves every child at its old value.
+                let width = self.env.stored_width(&name);
+                self.env.set_group(&name, &format!("{field:<width$}"));
+            } else if self.env.decimal_places(&name).is_some() {
+                let n: i128 = field.trim().parse().unwrap_or(0);
+                self.env
+                    .set(&name, CobolValue::Numeric(CobolNumeric::new(n, 0)));
+            } else {
+                self.env.set_str(&name, &field);
+            }
+            if let Some(d) = &target.delimiter {
+                let dname = self.resolve_lvalue(d);
+                // Under `ALL`, the run of repetitions is consumed but only a
+                // **single** occurrence is delivered here (COBOL-85 6.28.4
+                // GR8): `DELIMITED BY ALL ZERO` on "1200000" hands a receiver
+                // "0", not "00000".
+                let text = String::from_utf8_lossy(&src[field_end..field_end + unit_len]);
+                self.env.set_str(&dname, &text);
+            }
+            if let Some(c) = &target.count {
+                let cname = self.resolve_lvalue(c);
+                self.env.set_i64(&cname, (field_end - pos) as i64);
+            }
+            pos = field_end + delim_len;
+            filled += 1;
         }
 
-        for (i, target) in into.iter().enumerate() {
-            let name = self.resolve_lvalue(&target.target);
-            let val = parts.get(i).map(|s| s.as_str()).unwrap_or("");
-            self.env.set_str(&name, val);
-            if let Some(count_expr) = &target.count {
-                let cname = self.resolve_lvalue(count_expr);
-                self.env.set_i64(&cname, val.len() as i64);
+        cursor = pos as i64 + 1;
+        if let Some(n) = &pointer_name {
+            self.env.set_i64(n, cursor);
+        }
+        if let Some(t) = tallying {
+            let tname = self.resolve_lvalue(t);
+            let prior = self.env.get_i64(&tname).unwrap_or(0);
+            self.env.set_i64(&tname, prior + filled as i64);
+        }
+        // Overflow: the receivers ran out before the source did.
+        self.run_overflow(pos < src.len(), on_overflow, not_on_overflow)
+    }
+
+    /// The next delimiter at or after `from` in `src`:
+    /// `(offset, run length, one occurrence's length)`.
+    ///
+    /// Delimiters are tried in the order they were written and the **earliest**
+    /// match wins, so `DELIMITED BY "," OR "AB"` splits at whichever comes
+    /// first. `ALL` extends the match over consecutive repetitions of the same
+    /// delimiter — that is what makes `DELIMITED BY ALL SPACE` collapse a run
+    /// of blanks into one separator — so the run length (what the scan skips)
+    /// and one occurrence (what `DELIMITER IN` receives) differ there.
+    fn find_delimiter(
+        src: &[u8],
+        from: usize,
+        delims: &[Vec<u8>],
+        all: bool,
+    ) -> Option<(usize, usize, usize)> {
+        let mut best: Option<(usize, usize, usize)> = None;
+        for d in delims {
+            let mut i = from;
+            while i + d.len() <= src.len() {
+                if &src[i..i + d.len()] == d.as_slice() {
+                    let mut len = d.len();
+                    if all {
+                        while i + len + d.len() <= src.len()
+                            && &src[i + len..i + len + d.len()] == d.as_slice()
+                        {
+                            len += d.len();
+                        }
+                    }
+                    if best.is_none_or(|(bi, _, _)| i < bi) {
+                        best = Some((i, len, d.len()));
+                    }
+                    break;
+                }
+                i += 1;
             }
         }
-        // Overflow: more source fields than receiving fields (unprocessed data).
-        if parts.len() > into.len() {
-            self.exec_stmts(on_overflow)?;
+        best
+    }
+
+    /// Run the `ON OVERFLOW` / `NOT ON OVERFLOW` imperative for STRING/UNSTRING.
+    fn run_overflow(
+        &mut self,
+        overflowed: bool,
+        on_overflow: &[Stmt],
+        not_on_overflow: &[Stmt],
+    ) -> Result<(), RuntimeError> {
+        if overflowed {
+            self.exec_stmts(on_overflow)
         } else {
-            self.exec_stmts(not_on_overflow)?;
+            self.exec_stmts(not_on_overflow)
         }
-        Ok(())
     }
 
     // ── INSPECT ───────────────────────────────────────────────────────────────
@@ -4485,13 +4873,20 @@ impl Interpreter {
                                     win.matches(pat.as_str()).count() as i64
                                 }
                             }
+                            // LEADING / TRAILING count **occurrences of the
+                            // whole pattern** that run contiguously from the
+                            // start (or the end) of the region — not characters
+                            // that happen to appear in it. `FOR LEADING "AH"`
+                            // on `"AH YES AH YES …"` is 1, and the old
+                            // character test made it 2 by accepting the `A` and
+                            // the `H` separately (NC221A).
                             TallyFor::Leading(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
-                                win.chars().take_while(|c| pat.contains(*c)).count() as i64
+                                count_run(win, &pat, true) as i64
                             }
                             TallyFor::Trailing(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
-                                win.chars().rev().take_while(|c| pat.contains(*c)).count() as i64
+                                count_run(win, &pat, false) as i64
                             }
                         };
                     }
@@ -4516,20 +4911,28 @@ impl Interpreter {
                                 win.replace_range(pos..pos + pat.len(), &by);
                             }
                         }
+                        // Each contiguous run at the end in question is
+                        // replaced, advancing past what was just written. The
+                        // old loops re-examined position 0 (or the tail) after
+                        // every replacement, so `BY` equal to the pattern —
+                        // which the standard allows, both operands being the
+                        // same size — never terminated.
                         ReplaceWhat::Leading(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            while !pat.is_empty() && win.starts_with(pat.as_str()) {
-                                let end = pat.len();
-                                let repl_len = by.len().min(end);
-                                win.replace_range(0..end, &by[..repl_len]);
+                            let runs = count_run(&win, &pat, true);
+                            for k in 0..runs {
+                                let at = k * pat.len();
+                                let repl_len = by.len().min(pat.len());
+                                win.replace_range(at..at + pat.len(), &by[..repl_len]);
                             }
                         }
                         ReplaceWhat::Trailing(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            while !pat.is_empty() && win.ends_with(pat.as_str()) {
-                                let start = win.len() - pat.len();
+                            let runs = count_run(&win, &pat, false);
+                            for k in 0..runs {
+                                let end = win.len() - k * pat.len();
                                 let repl_len = by.len().min(pat.len());
-                                win.replace_range(start.., &by[..repl_len]);
+                                win.replace_range(end - pat.len()..end, &by[..repl_len]);
                             }
                         }
                         ReplaceWhat::Characters => {
@@ -4547,6 +4950,19 @@ impl Interpreter {
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     s = s.replace(fc, &tc.to_string());
                 }
+                self.env.set_str(&name, &s);
+            }
+            InspectSpec::ConvertingIn { from, to, region } => {
+                // The same character-for-character conversion, applied only
+                // inside the BEFORE/AFTER window.
+                let (lo, hi) = self.inspect_window(&s, region, span)?;
+                let from_s = self.eval_expr(from, span)?.as_display_string();
+                let to_s = self.eval_expr(to, span)?.as_display_string();
+                let mut window = s[lo..hi].to_string();
+                for (fc, tc) in from_s.chars().zip(to_s.chars()) {
+                    window = window.replace(fc, &tc.to_string());
+                }
+                s.replace_range(lo..hi, &window);
                 self.env.set_str(&name, &s);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
@@ -5898,11 +6314,21 @@ impl Interpreter {
             _ if self.nested_registry.contains_key(&prog_name) => {
                 // Clone the para_map, para_order, local_items, and USING
                 // parameter names out of the registry before any mutable borrow.
-                let (para_map, para_order, local_items, local_symbols, params) = {
+                let (
+                    para_map,
+                    para_order,
+                    para_bodies,
+                    sec_names,
+                    local_items,
+                    local_symbols,
+                    params,
+                ) = {
                     let np = &self.nested_registry[&prog_name];
                     (
                         np.para_map.clone(),
                         np.para_order.clone(),
+                        np.para_bodies.clone(),
+                        np.section_names.clone(),
                         np.local_items.clone(),
                         np.local_symbols.clone(),
                         np.using.clone(),
@@ -5952,11 +6378,16 @@ impl Interpreter {
                 // program-local in COBOL-85 — there is no GLOBAL for them — so
                 // while this program runs, the containing program's paragraphs
                 // are not reachable and its own always are.
-                let saved_map = std::mem::replace(&mut self.para_map, para_map.clone());
+                let saved_map = std::mem::replace(&mut self.para_map, para_map);
                 let saved_order = std::mem::replace(&mut self.para_order, para_order.clone());
-                let result = self.run_para_sequence(&para_map, &para_order);
+                let saved_bodies =
+                    std::mem::replace(&mut self.para_bodies, para_bodies.clone());
+                let saved_secs = std::mem::replace(&mut self.section_names, sec_names);
+                let result = self.run_para_sequence(&para_bodies, &para_order);
                 self.para_map = saved_map;
                 self.para_order = saved_order;
+                self.para_bodies = saved_bodies;
+                self.section_names = saved_secs;
 
                 // Copy-out: BY REFERENCE arguments receive the parameter's final
                 // value (BY CONTENT / BY VALUE are not written back).
@@ -8448,6 +8879,13 @@ impl Interpreter {
                 let base_name = self.expr_to_name(base);
                 let idx = self.eval_indices(indices, *s);
                 let key = crate::environment::subscript_key(&base_name, &idx);
+                // One occurrence of a table of GROUPS has no slot of its own —
+                // it is its subordinate items' matching occurrences, exactly as
+                // an unsubscripted group is its children.
+                if let Some(g) = self.env.group_value(&key) {
+                    let n = g.len();
+                    return Ok(CobolValue::from_str(&g, n));
+                }
                 Ok(self
                     .env
                     .get(&key)
@@ -8472,7 +8910,12 @@ impl Interpreter {
                 // `MOVE T(1:2) … T(3:2) … T(5:2)` unpack slid two places left.
                 let text = match base.as_ref() {
                     Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
-                        let key = self.expr_to_name(base);
+                        // `resolve_lvalue`, not `expr_to_name`: the latter
+                        // discards subscripts, so `TABLE-1 (3 2) (2:5)` read the
+                        // table's base slot instead of occurrence (3,2) and
+                        // every reference-modified table element came back
+                        // empty (NC224A).
+                        let key = self.resolve_lvalue(base);
                         self.env.display_string(&key)
                     }
                     _ => None,
@@ -9073,6 +9516,33 @@ impl Interpreter {
                 };
                 Ok(if *negated { !result } else { result })
             }
+            // `IF item IS [NOT] class-name`, the class declared by the
+            // program's own `CLASS` clause in SPECIAL-NAMES. Every character of
+            // the operand must fall in one of the declared ranges — the same
+            // all-characters rule the built-in classes above follow.
+            //
+            // A class the parser could not resolve to any character (its
+            // operands were implementor placeholders the suite never
+            // substituted) has no ranges, and an empty range list matches
+            // nothing, so the test is simply false.
+            Condition::UserClassTest {
+                expr,
+                negated,
+                class,
+                span,
+            } => {
+                let v = self.eval_expr(expr, *span)?;
+                let s = v.as_display_string();
+                let ranges = self
+                    .user_classes
+                    .get(&class.to_ascii_uppercase())
+                    .cloned()
+                    .unwrap_or_default();
+                let result = !s.is_empty()
+                    && s.chars()
+                        .all(|c| ranges.iter().any(|(lo, hi)| c >= *lo && c <= *hi));
+                Ok(if *negated { !result } else { result })
+            }
             Condition::SignTest {
                 expr,
                 negated,
@@ -9088,7 +9558,6 @@ impl Interpreter {
                 Ok(if *negated { !result } else { result })
             }
             Condition::ConditionName(name, _) => {
-                use cobolt_ast::data::ConditionValue;
                 // 88-level condition-name: true when the parent (host) item holds
                 // one of the declared VALUEs (or falls within a THRU range).
                 if let Some(info) = self.env.cond_name(name).cloned() {
@@ -9097,21 +9566,7 @@ impl Interpreter {
                         .get(&info.parent)
                         .cloned()
                         .unwrap_or_else(|| CobolValue::from_i64(0));
-                    for cv in &info.values {
-                        let hit = match cv {
-                            ConditionValue::Single(lit) => {
-                                compare_values(&pv, &literal_to_value(lit), CmpOp::Eq)
-                            }
-                            ConditionValue::Range(lo, hi) => {
-                                compare_values(&pv, &literal_to_value(lo), CmpOp::Ge)
-                                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le)
-                            }
-                        };
-                        if hit {
-                            return Ok(true);
-                        }
-                    }
-                    return Ok(false);
+                    return Ok(condition_holds(&info, &pv));
                 }
                 // Fallback (undeclared): truthy if the slot is non-zero/non-space.
                 let upper = name.to_ascii_uppercase();
@@ -9121,6 +9576,31 @@ impl Interpreter {
                     .cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 Ok(!v.is_zero())
+            }
+
+            Condition::ConditionRef(expr, span) => {
+                // A condition-name written as a reference: `FIRSTZ (1)`,
+                // `A OF IF-D32`. The subscripts belong to the HOST item — they
+                // say which occurrence of it the VALUEs are tested against —
+                // so they are applied to the host's key, not the 88's name.
+                let leaf = condition_ref_leaf(expr);
+                let Some(info) = self.env.cond_name(&leaf).cloned() else {
+                    // Not a condition-name after all: the only reading left for
+                    // a bare reference is "holds something other than zero".
+                    let v = self.eval_expr(expr, *span)?;
+                    return Ok(!v.is_zero());
+                };
+                let idx = match expr.as_ref() {
+                    Expr::Subscript { indices, .. } => self.eval_indices(indices, *span),
+                    _ => Vec::new(),
+                };
+                let key = crate::environment::subscript_key(&info.parent, &idx);
+                let pv = self
+                    .env
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| CobolValue::from_i64(0));
+                Ok(condition_holds(&info, &pv))
             }
 
             Condition::NameOrAbbrev {
@@ -9158,6 +9638,11 @@ impl Interpreter {
 
     /// Collect all paragraphs that belong to a section (identified by
     /// consecutive paragraphs after the named entry in `para_order`).
+    ///
+    /// Superseded by [`Self::section_span`] + [`Self::exec_para_index_range`],
+    /// which stop at the next section header instead of running to the end of
+    /// the program and keep paragraph identity for `GO TO`.
+    #[allow(dead_code)]
     fn collect_section_stmts(&self, section_upper: &str) -> Vec<Stmt> {
         let mut found = false;
         let mut result = Vec::new();
@@ -9178,6 +9663,126 @@ impl Interpreter {
         result
     }
 
+    /// Execute `PERFORM from THRU to` as a **range of paragraphs**, not as one
+    /// flattened statement list.
+    ///
+    /// The distinction is the whole point: a `GO TO` whose target lies inside
+    /// the range must transfer control *within* the range and let the PERFORM
+    /// return normally when the last paragraph finishes. Flattening loses
+    /// paragraph identity, so the `GO TO` escaped to `run_inner`, which resumed
+    /// sequential execution **past** the range and never returned to the caller.
+    ///
+    /// Every CCVS85 program relies on this on every passing test:
+    /// `PRINT-DETAIL` runs `PERFORM BAIL-OUT THRU BAIL-OUT-EX`, and `BAIL-OUT`
+    /// reaches `GO TO BAIL-OUT-EX` in the ordinary case. Escaping the range fell
+    /// through `BAIL-OUT-EX` and `CCVS1-EXIT` into the test section, re-ran the
+    /// tests, and looped forever — which is why no NIST program ever finished.
+    ///
+    /// A `GO TO` that leaves the range still propagates, which is what COBOL
+    /// requires.
+    fn exec_para_range(&mut self, from: &str, to: &str, span: Span) -> Result<(), RuntimeError> {
+        let from_u = from.to_ascii_uppercase();
+        let to_u = to.to_ascii_uppercase();
+        let from_pos = self
+            .para_order
+            .iter()
+            .position(|p| p == &from_u)
+            .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                name: from_u.clone(),
+                span,
+            })?;
+        let to_pos = self
+            .para_order
+            .iter()
+            .position(|p| p == &to_u)
+            .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                name: to_u.clone(),
+                span,
+            })?;
+        // A reversed range performs the first paragraph alone, matching the
+        // single-paragraph form rather than running nothing at all.
+        let to_pos = to_pos.max(from_pos);
+        // `THRU <section>` ends at that section's LAST paragraph, not at its
+        // header — the header is a marker with no statements, so stopping there
+        // would run none of the section the range was written to include.
+        let to_pos = match self.section_span(&to_u) {
+            Some((_, last)) => last.max(to_pos),
+            None => to_pos,
+        };
+        self.exec_para_index_range(from_pos, to_pos)
+    }
+
+    /// The `para_order` index range a SECTION covers: its first paragraph
+    /// through the paragraph before the next section header.
+    ///
+    /// `None` when the name is not a section header. An empty section (a header
+    /// immediately followed by another) yields an empty range, which the range
+    /// runner treats as a no-op.
+    fn section_span(&self, upper: &str) -> Option<(usize, usize)> {
+        if !self.section_names.contains(upper) {
+            return None;
+        }
+        let start = self.para_order.iter().position(|n| n == upper)?;
+        let mut end = start;
+        for (i, name) in self.para_order.iter().enumerate().skip(start + 1) {
+            if self.section_names.contains(name) {
+                break;
+            }
+            end = i;
+        }
+        Some((start + 1, end))
+    }
+
+    /// Run `para_order[from_pos ..= to_pos]` as a range, keeping paragraph
+    /// identity so a `GO TO` inside the range stays inside it.
+    fn exec_para_index_range(
+        &mut self,
+        from_pos: usize,
+        to_pos: usize,
+    ) -> Result<(), RuntimeError> {
+        if from_pos > to_pos || from_pos >= self.para_order.len() {
+            return Ok(());
+        }
+        let outer = self.current_paragraph.clone();
+        let mut idx = from_pos;
+        let result = loop {
+            if idx > to_pos {
+                break Ok(());
+            }
+            let name = self.para_order[idx].clone();
+            self.current_paragraph = name.clone();
+            // By position — see `run_inner`.
+            let stmts = match self.para_bodies.get(idx) {
+                Some(s) => s.clone(),
+                None => {
+                    idx += 1;
+                    continue;
+                }
+            };
+            match self.exec_stmts(&stmts) {
+                // These end the current paragraph; the range continues with the
+                // next one, exactly as sequential flow does in `run_inner`.
+                Ok(())
+                | Err(RuntimeError::ExitParagraph)
+                | Err(RuntimeError::ExitSection)
+                | Err(RuntimeError::NextSentence) => idx += 1,
+                Err(RuntimeError::GoTo { target }) => {
+                    let upper = target.to_ascii_uppercase();
+                    match self.para_order.iter().position(|p| p == &upper) {
+                        // Inside the range — stay in the range.
+                        Some(pos) if pos >= from_pos && pos <= to_pos => idx = pos,
+                        // Outside it — let the jump escape to the caller.
+                        Some(_) | None => break Err(RuntimeError::GoTo { target }),
+                    }
+                }
+                Err(e) => break Err(e),
+            }
+        };
+        self.current_paragraph = outer;
+        result
+    }
+
+    #[allow(dead_code)]
     fn thru_stmts(&self, from: &str, to: &str, span: Span) -> Result<Vec<Stmt>, RuntimeError> {
         let from_u = from.to_ascii_uppercase();
         let to_u = to.to_ascii_uppercase();
@@ -9421,33 +10026,56 @@ fn stmt_span(stmt: &Stmt) -> Option<Span> {
 
 // ── Paragraph map builder ─────────────────────────────────────────────────────
 
-fn build_para_map(body: &ProcedureBody) -> (IndexMap<String, Vec<Stmt>>, Vec<String>) {
+fn build_para_map(
+    body: &ProcedureBody,
+) -> (
+    IndexMap<String, Vec<Stmt>>,
+    Vec<String>,
+    Vec<Vec<Stmt>>,
+    std::collections::HashSet<String>,
+) {
     let mut map: IndexMap<String, Vec<Stmt>> = IndexMap::new();
     let mut order: Vec<String> = Vec::new();
+    let mut bodies: Vec<Vec<Stmt>> = Vec::new();
+    let mut sections: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // A paragraph name may legitimately repeat: COBOL-85 only requires a
+    // *reference* to a duplicated name to be qualified, not the declaration to
+    // be unique. Keying the bodies by name alone made the second definition
+    // overwrite the first's statements while the first kept its place in
+    // `order`, so the first paragraph silently ran the second one's code —
+    // NC102A declares `PFM-INIT-F2-5` twice and lost its counter reset that
+    // way. `bodies` therefore carries the statements positionally, and `map`
+    // keeps only the **first** definition for lookup by name.
+    let mut push = |key: String, stmts: Vec<Stmt>, order: &mut Vec<String>, bodies: &mut Vec<Vec<Stmt>>| {
+        order.push(key.clone());
+        bodies.push(stmts.clone());
+        map.entry(key).or_insert(stmts);
+    };
 
     match body {
         ProcedureBody::Paragraphs(paras) => {
             for para in paras {
                 let key = para.name.to_ascii_uppercase();
-                order.push(key.clone());
-                map.insert(key, para.stmts.clone());
+                push(key, para.stmts.clone(), &mut order, &mut bodies);
             }
         }
-        ProcedureBody::Sections(sections) => {
-            for section in sections {
-                // Optionally register the section name itself as an entry.
+        ProcedureBody::Sections(secs) => {
+            for section in secs {
+                // The section header itself carries no statements: it is a
+                // marker in `order` that names where the section starts, and
+                // the set records that it is one.
                 let sec_key = section.name.to_ascii_uppercase();
-                order.push(sec_key.clone());
-                map.insert(sec_key, Vec::new()); // empty placeholder
+                push(sec_key.clone(), Vec::new(), &mut order, &mut bodies);
+                sections.insert(sec_key);
                 for para in &section.paragraphs {
                     let key = para.name.to_ascii_uppercase();
-                    order.push(key.clone());
-                    map.insert(key, para.stmts.clone());
+                    push(key, para.stmts.clone(), &mut order, &mut bodies);
                 }
             }
         }
     }
-    (map, order)
+    (map, order, bodies, sections)
 }
 
 // ── Free functions ────────────────────────────────────────────────────────────
@@ -9459,6 +10087,32 @@ fn build_para_map(body: &ProcedureBody) -> (IndexMap<String, Vec<Stmt>>, Vec<Str
 /// Re-adding an id UPDATES it rather than stacking a second copy: a program
 /// that redraws a route as its data changes would otherwise pile duplicates on
 /// the map, each drawn over the last, and never be able to move one.
+/// How many times `pat` repeats contiguously at one end of `hay`.
+///
+/// `from_start` picks the LEADING end; otherwise the TRAILING one. An empty
+/// pattern never matches, so a bad operand counts zero rather than looping.
+fn count_run(hay: &str, pat: &str, from_start: bool) -> usize {
+    if pat.is_empty() || pat.len() > hay.len() {
+        return 0;
+    }
+    let (h, p) = (hay.as_bytes(), pat.as_bytes());
+    let mut n = 0usize;
+    let mut i = 0usize;
+    while i + p.len() <= h.len() {
+        let window = if from_start {
+            &h[i..i + p.len()]
+        } else {
+            &h[h.len() - i - p.len()..h.len() - i]
+        };
+        if window != p {
+            break;
+        }
+        n += 1;
+        i += p.len();
+    }
+    n
+}
+
 fn append_collection_line(existing: &str, line: &str) -> String {
     let id = line.split('\t').next().unwrap_or("");
     let mut out: Vec<&str> = existing
@@ -9667,6 +10321,31 @@ fn screen_attrs(sc: &cobolt_ast::stmt::ScreenPhrase) -> String {
         s.push_str("\x1b[4m");
     }
     s
+}
+
+/// `true` when the host item's value satisfies one of a condition-name's
+/// `VALUE` entries — a single value or a `THRU` range.
+fn condition_holds(info: &crate::environment::CondName, pv: &CobolValue) -> bool {
+    use cobolt_ast::data::ConditionValue;
+    info.values.iter().any(|cv| match cv {
+        ConditionValue::Single(lit) => compare_values(pv, &literal_to_value(lit), CmpOp::Eq),
+        ConditionValue::Range(lo, hi) => {
+            compare_values(pv, &literal_to_value(lo), CmpOp::Ge)
+                && compare_values(pv, &literal_to_value(hi), CmpOp::Le)
+        }
+    })
+}
+
+/// The 88-level name a referenced condition (`FIRSTZ (1)`, `A OF IF-D32`)
+/// spells out — the leaf of the reference, with its subscripts and qualifiers
+/// stripped off.
+fn condition_ref_leaf(expr: &Expr) -> String {
+    match expr {
+        Expr::Identifier(n, _) => n.to_ascii_uppercase(),
+        Expr::Qualified { name, .. } => name.to_ascii_uppercase(),
+        Expr::Subscript { base, .. } => condition_ref_leaf(base),
+        _ => String::new(),
+    }
 }
 
 /// Flatten the `OF`/`IN` qualifier chain of a [`Expr::Qualified`] `of` operand

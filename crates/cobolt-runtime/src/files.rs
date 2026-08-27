@@ -202,6 +202,7 @@ mod tests {
             blank_when_zero: false,
             children: vec![],
             span: Span::dummy(),
+            justified: false,
         }
     }
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
@@ -221,6 +222,7 @@ mod tests {
             blank_when_zero: false,
             children,
             span: Span::dummy(),
+            justified: false,
         }
     }
 

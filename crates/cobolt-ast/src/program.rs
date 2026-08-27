@@ -267,6 +267,27 @@ pub struct Program {
     /// `CONFIGURATION SECTION`, after `REPOSITORY`.
     pub rust_items: Vec<RustItemBlock>,
     pub span: Span,
+    /// `SPECIAL-NAMES. CLASS class-name IS literal [{THROUGH|THRU} literal] …`
+    /// — a user-defined class, tested with `IF item IS class-name`.
+    ///
+    /// Each entry is `(uppercased class name, ranges)`, and a range is an
+    /// inclusive pair of characters; a single literal contributes one range per
+    /// character with both ends equal, so `CLASS ABCD IS "ABCD"` and
+    /// `CLASS A-D IS "A" THRU "D"` describe membership the same way.
+    ///
+    /// 🔴 New fields belong at the END of this struct — `Program` is
+    /// bincode-serialized field-by-field in declaration order.
+    pub classes: Vec<(String, Vec<(char, char)>)>,
+    /// `SPECIAL-NAMES. <implementor-switch-name> IS <mnemonic> …` — the
+    /// external switches this program declares, as
+    /// `(implementor name, mnemonic)`, both uppercased.
+    ///
+    /// The mnemonic is also a one-character WORKING-STORAGE item the parser
+    /// synthesises (see the parser's `switches`), so this list exists only to
+    /// let the runtime seed that item from the switch's **external** state:
+    /// a switch is set outside the program, and the implementor name is what
+    /// the outside world knows it by.
+    pub switch_names: Vec<(String, String)>,
 }
 
 /// One item-level `EXEC RUST` block (spec 041 R19).

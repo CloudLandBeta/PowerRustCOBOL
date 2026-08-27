@@ -83,10 +83,18 @@ impl<'a> TypeCtx<'a> {
     /// `Some(false)` if it's a known non-numeric item, `None` if unknown.
     fn is_numeric_expr(&self, expr: &Expr) -> Option<bool> {
         if let Expr::Identifier(name, _) = expr {
-            self.symbols.data_item(name).map(|info| {
+            self.symbols.data_item(name).and_then(|info| {
+                // A 66-level RENAMES item has no PICTURE of its own — its
+                // category comes from the items it regroups, which this table
+                // does not model. Unknown, therefore, and never an error:
+                // `ADD 3500 TO RENAME-12` is legal when what it renames is
+                // numeric, and rejecting it stopped a whole program compiling.
+                if info.level == 66 {
+                    return None;
+                }
                 // Numeric by PIC category, or by a numeric USAGE that needs no PIC
                 // (COMP-1/COMP-2 are floating-point numeric items).
-                matches!(
+                Some(matches!(
                     info.pic_kind,
                     Some(PicKind::Numeric | PicKind::NumericEdited)
                 ) || matches!(
@@ -98,7 +106,7 @@ impl<'a> TypeCtx<'a> {
                         | Usage::Comp3
                         | Usage::Comp5
                         | Usage::PackedDecimal
-                )
+                ))
             })
         } else {
             None
