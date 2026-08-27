@@ -9511,12 +9511,35 @@ impl Interpreter {
 
     // ── Condition evaluation ──────────────────────────────────────────────────
 
+    /// Read a comparison operand the way the comparison should see it.
+    ///
+    /// A `BLANK WHEN ZERO` item holding zero *is* spaces — that is the item's
+    /// character form — but the stored value stays numeric so arithmetic on it
+    /// is unaffected. `compare_values` sees values and not items, so the
+    /// substitution has to happen here, where the operand is still an
+    /// expression that names one (NC107A BZERO-TEST-1/2).
+    fn as_comparand(&mut self, e: &Expr, v: CobolValue) -> CobolValue {
+        if !v.is_numeric() || !v.is_zero() || !matches!(e, Expr::Identifier(..)) {
+            return v;
+        }
+        let name = self.resolve_lvalue(e);
+        if !self.env.is_blank_when_zero(&name) {
+            return v;
+        }
+        match self.env.display_string(&name) {
+            Some(s) => CobolValue::from_str(&s, s.len()),
+            None => v,
+        }
+    }
+
     /// Evaluate a boolean condition.
     pub fn eval_condition(&mut self, cond: &Condition) -> Result<bool, RuntimeError> {
         match cond {
             Condition::Comparison { lhs, op, rhs, span } => {
                 let l = self.eval_expr(lhs, *span)?;
                 let r = self.eval_expr(rhs, *span)?;
+                let l = self.as_comparand(lhs, l);
+                let r = self.as_comparand(rhs, r);
                 Ok(compare_values(&l, &r, *op))
             }
             Condition::Not(inner, _) => Ok(!self.eval_condition(inner)?),

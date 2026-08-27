@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.26] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): assertions 183 → 181 failing.** Execution stays at
+68 / 95 and compile at 94 / 95. No other module was touched (GOLDEN RULE #9).
+
+### Fixed — `BLANK WHEN ZERO` was ignored on an unedited PICTURE
+
+The clause was registered only for *numeric-edited* items, so
+`77 DATA-F PICTURE IS 9(10) BLANK WHEN ZERO.` holding zero still read as ten
+`0` characters instead of ten spaces. It now applies to any numeric DISPLAY
+item, which is what the standard allows, and the blanking covers the whole
+item — a `SIGN … SEPARATE` position included, since the clause blanks the item
+rather than only its digits.
+
+The stored value stays numeric, so arithmetic on such an item is unchanged;
+only its character form is blank. A comparison against an alphanumeric operand
+reads that character form, which is what `IF DATA-F EQUAL TO "          "`
+needs (NC107A BZERO-TEST-1/BZERO-TEST-2).
+
+> **Note on the NC107A count.** The program's failures moved 9 → 10 across
+> 1.62.25–26 even though two of them were fixed here. `RDF-TEST-9` was passing
+> only because a non-numeric string coerced to `0.0`: `RDFDATA18` actually
+> holds **spaces**, not `"00000000000000"`, because a REDEFINES description
+> wider than the storage it redescribes is not backed past its target's end.
+> That bug is pre-existing and unrelated to these changes — it was invisible
+> while every string equalled zero, and is now visible.
+
 ## [PowerRustCOBOL 1.62.25] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): execution 66 → 68 of 95, assertions 191 → 183

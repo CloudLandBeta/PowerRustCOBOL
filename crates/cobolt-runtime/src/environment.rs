@@ -1041,6 +1041,16 @@ impl CobolEnvironment {
                 // No `S` in the template means the item has no sign position
                 // to store one in, so it holds the **absolute** value of
                 // whatever is moved or computed into it.
+                // BLANK WHEN ZERO is not confined to an *edited* picture: the
+                // standard allows it on any numeric DISPLAY item, and
+                // `PIC 9(10) BLANK WHEN ZERO` holding zero reads as ten spaces.
+                // Registering it only for NumericEdited meant a plain picture
+                // kept its digits, and NC107A's BZERO-TEST-1/2 only passed
+                // because comparing those digits against spaces coerced both
+                // sides to 0.0.
+                if decl.blank_when_zero {
+                    self.blank_when_zero.insert(upper.to_string());
+                }
                 if !pic.template.to_ascii_uppercase().contains('S') {
                     self.unsigned_numeric.insert(upper.to_string());
                 } else if let Some(sign) = decl.sign.filter(|s| s.separate) {
@@ -1605,6 +1615,17 @@ impl CobolEnvironment {
         self.refresh_redefine_peers(&key);
     }
 
+    /// `true` when `name` is declared `BLANK WHEN ZERO`.
+    ///
+    /// Such an item holding zero *is* spaces — that is its character form — but
+    /// the value stays numeric so arithmetic on it is unaffected. A comparison
+    /// against an alphanumeric operand has to read the character form, and the
+    /// comparison itself sees only values, so the caller asks here.
+    pub fn is_blank_when_zero(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
+        self.blank_when_zero.contains(&key) || self.blank_when_zero.contains(base_name(&key))
+    }
+
     /// `Some(leading?)` when `key` is a `SIGN IS … SEPARATE CHARACTER` item.
     fn separate_sign_of(&self, key: &str) -> Option<bool> {
         self.sign_separate
@@ -1623,6 +1644,18 @@ impl CobolEnvironment {
     /// (LEADING) or the back (TRAILING). `MOVE 15759 TO <S9(5) SIGN LEADING
     /// SEPARATE>` therefore stores `+15759`, six characters, not `15759`
     /// (NC116A SIG-TEST-GF-1 / GF-15 / GF-16).
+    /// Finish an unedited numeric item's character form: place a separate sign
+    /// if it has one, then blank the whole field if it is `BLANK WHEN ZERO` and
+    /// holds zero. Blanking comes last so the sign position is blanked too —
+    /// the clause blanks the *item*, not just its digits.
+    fn finish_numeric_display(&self, key: &str, n: &CobolNumeric, rendered: String) -> String {
+        let out = self.apply_separate_sign(key, n, rendered);
+        if n.mantissa == 0 && self.blank_when_zero.contains(base_name(key)) {
+            return " ".repeat(out.chars().count());
+        }
+        out
+    }
+
     fn apply_separate_sign(&self, key: &str, n: &CobolNumeric, rendered: String) -> String {
         let Some(leading) = self.separate_sign_of(key) else {
             return rendered;
@@ -1677,13 +1710,13 @@ impl CobolEnvironment {
                         n.mantissa / 10i128.pow(trailing_p.min(38)),
                         stored_dec.min(u8::MAX as u32) as u8,
                     );
-                    return Some(self.apply_separate_sign(
+                    return Some(self.finish_numeric_display(
                         &key,
                         &scaled,
                         format_display_numeric(&scaled, stored_int.min(u8::MAX as u32) as u8),
                     ));
                 }
-                return Some(self.apply_separate_sign(
+                return Some(self.finish_numeric_display(
                     &key,
                     n,
                     format_display_numeric(n, int_digits),

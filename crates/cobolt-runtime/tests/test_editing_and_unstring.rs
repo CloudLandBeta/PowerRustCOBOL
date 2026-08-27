@@ -529,3 +529,41 @@ fn rounded_respects_p_scaling_positions() {
 "#;
     assert_eq!(run_capture(src), vec!["R=-10"]);
 }
+
+/// `BLANK WHEN ZERO` is not confined to an *edited* picture — the standard
+/// allows it on any numeric DISPLAY item. `PIC 9(10) BLANK WHEN ZERO` holding
+/// zero reads as ten spaces, and compares equal to a blank literal, while the
+/// stored value stays numeric so arithmetic on it is untouched
+/// (NC107A BZERO-TEST-1/BZERO-TEST-2).
+#[test]
+fn blank_when_zero_applies_to_an_unedited_picture() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BZERO.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       77  DATA-F PICTURE IS 9(10) BLANK WHEN ZERO.
+       77  DATA-M PICTURE IS W9999 BLANK WHEN ZERO.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           MOVE 0000000000 TO DATA-F.
+           DISPLAY "F=[" DATA-F "]".
+           IF DATA-F EQUAL TO "          "
+               DISPLAY "F-BLANK" ELSE DISPLAY "F-NOT-BLANK" END-IF.
+           MOVE 0000 TO DATA-M.
+           IF DATA-M EQUAL TO SPACE
+               DISPLAY "M-BLANK" ELSE DISPLAY "M-NOT-BLANK" END-IF.
+           ADD 7 TO DATA-F.
+           DISPLAY "F=[" DATA-F "]".
+           STOP RUN.
+"#;
+    assert_eq!(
+        run_capture(src),
+        vec![
+            "F=[          ]",
+            "F-BLANK",
+            "M-BLANK",
+            "F=[0000000007]",
+        ]
+    );
+}
