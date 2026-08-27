@@ -155,6 +155,9 @@ struct FileSpec {
     persist: bool,
     /// Byte layout of the primary FD record (subfield offsets/widths).
     layout: crate::files::RecordLayout,
+    /// `LINAGE` page layout, when the FD declares one. Its presence is what
+    /// makes `LINAGE-COUNTER` and the `AT END-OF-PAGE` condition meaningful.
+    linage: Option<cobolt_ast::data::Linage>,
 }
 
 /// A currently-open file handle. The variant follows the file's ORGANIZATION,
@@ -480,6 +483,7 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
     // Collect each FD's 01-record names + the primary record's byte layout.
     let mut fd_records: HashMap<String, Vec<String>> = HashMap::new();
     let mut fd_layout: HashMap<String, crate::files::RecordLayout> = HashMap::new();
+    let mut fd_linage: HashMap<String, cobolt_ast::data::Linage> = HashMap::new();
     if let Some(data) = &program.data {
         for section in &data.sections {
             if let DataSection::FileSection(fds) = section {
@@ -493,6 +497,9 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                     let fkey = fd.name.to_ascii_uppercase();
                     if let Some(first) = fd.records.first() {
                         fd_layout.insert(fkey.clone(), crate::files::compute_layout(first));
+                    }
+                    if let Some(l) = fd.linage.clone() {
+                        fd_linage.insert(fkey.clone(), l);
                     }
                     fd_records.insert(fkey, names);
                 }
@@ -522,6 +529,7 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                         data_compressing: fc.data_compressing,
                         persist: fc.persist,
                         layout: fd_layout.get(&key).cloned().unwrap_or_default(),
+                        linage: fd_linage.get(&key).cloned(),
                     },
                 );
             }
@@ -783,6 +791,9 @@ pub struct Interpreter {
     /// Files closed `WITH LOCK`. COBOL-85 forbids reopening them in the same
     /// run unit, so a later OPEN reports file status 38 rather than succeeding.
     locked_files: std::collections::HashSet<String>,
+    /// `LINAGE-COUNTER` per LINAGE file: lines written into the current page
+    /// body, counting from 1. Reset when a new page begins.
+    linage_counters: HashMap<String, u32>,
     /// Selected indexed (ISAM) file engine (default: the built-in Rust engine).
     indexed_engine: crate::indexed::IndexedEngine,
     /// Per-file INDEXED observability log level (redb engine; default Off).
@@ -939,6 +950,7 @@ impl Interpreter {
             record_to_file,
             open_files: HashMap::new(),
             locked_files: std::collections::HashSet::new(),
+            linage_counters: HashMap::new(),
             indexed_engine: crate::indexed::IndexedEngine::default(),
             indexed_log_level: crate::indexed_log::LogLevel::Off,
             indexed_log_format: crate::indexed_log::LogFormat::Text,
@@ -2573,11 +2585,22 @@ impl Interpreter {
             Stmt::Write {
                 record,
                 from,
+                advancing,
                 invalid_key,
                 not_invalid_key,
+                at_eop,
+                not_at_eop,
                 span,
-                ..
-            } => self.exec_write(record, from.as_ref(), invalid_key, not_invalid_key, *span),
+            } => self.exec_write(
+                record,
+                from.as_ref(),
+                advancing.as_ref(),
+                invalid_key,
+                not_invalid_key,
+                at_eop,
+                not_at_eop,
+                *span,
+            ),
             Stmt::Read {
                 file,
                 into,
@@ -4977,12 +5000,16 @@ impl Interpreter {
         self.exec_close(&[file.to_string()], &[])
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_write(
         &mut self,
         record: &Expr,
         from: Option<&Expr>,
+        advancing: Option<&cobolt_ast::stmt::AdvancingClause>,
         invalid_key: &[Stmt],
         not_invalid_key: &[Stmt],
+        at_eop: &[Stmt],
+        not_at_eop: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
         use std::io::Write as _;
@@ -5034,7 +5061,87 @@ impl Interpreter {
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
+        self.advance_linage(&file, advancing, at_eop, not_at_eop)?;
         Ok(())
+    }
+
+    /// Advance `LINAGE-COUNTER` for a LINAGE file and run the end-of-page
+    /// phrase.
+    ///
+    /// COBOL-85 divides a LINAGE page into a top margin, a body of `lines`
+    /// lines and a bottom margin. The counter counts lines written into the
+    /// body, from 1. `AT END-OF-PAGE` is raised when the write reaches or
+    /// passes `FOOTING`; `ADVANCING PAGE` starts a new page and resets it.
+    ///
+    /// Only files that declare `LINAGE` have a page at all, so a file without
+    /// the clause is left alone — including its `AT END-OF-PAGE` phrase, which
+    /// the standard gives no meaning without a page to end.
+    fn advance_linage(
+        &mut self,
+        file: &str,
+        advancing: Option<&cobolt_ast::stmt::AdvancingClause>,
+        at_eop: &[Stmt],
+        not_at_eop: &[Stmt],
+    ) -> Result<(), RuntimeError> {
+        let Some(linage) = self
+            .file_specs
+            .get(file)
+            .and_then(|s| s.linage.as_ref())
+            .cloned()
+        else {
+            return Ok(());
+        };
+
+        // How far this write moved down the page. `ADVANCING PAGE` is a new
+        // page rather than a line count.
+        let (lines, new_page) = match advancing {
+            None => (1u32, false),
+            Some(a) => match self.advancing_lines(a) {
+                Some(n) => (n, false),
+                None => (1, true), // ADVANCING PAGE
+            },
+        };
+
+        let counter = self.linage_counters.entry(file.to_string()).or_insert(0);
+        if new_page {
+            *counter = 1;
+        } else {
+            *counter += lines;
+            if *counter > linage.lines {
+                // The body is full: this record begins the next page.
+                *counter = lines.max(1);
+            }
+        }
+        let now = *counter;
+        // `LINAGE-COUNTER` is readable from COBOL. One print file is the
+        // overwhelmingly common shape (and the only one CCVS85 uses), so the
+        // name refers to the file just written.
+        self.env.set_i64("LINAGE-COUNTER", now as i64);
+
+        if now >= linage.footing {
+            if !at_eop.is_empty() {
+                self.exec_stmts(at_eop)?;
+            }
+        } else if !not_at_eop.is_empty() {
+            self.exec_stmts(not_at_eop)?;
+        }
+        Ok(())
+    }
+
+    /// The line count of an `ADVANCING` clause, or `None` for `ADVANCING PAGE`.
+    ///
+    /// `PAGE` is not a lexer keyword, so it arrives as an ordinary identifier
+    /// and is recognised by name. Matching it explicitly matters: an undeclared
+    /// identifier evaluates to zero rather than failing, so inferring "PAGE"
+    /// from a failed evaluation would silently treat it as "advance 0 lines".
+    fn advancing_lines(&mut self, a: &cobolt_ast::stmt::AdvancingClause) -> Option<u32> {
+        if let Expr::Identifier(name, _) = &a.lines {
+            if name.eq_ignore_ascii_case("PAGE") {
+                return None;
+            }
+        }
+        let v = self.eval_expr(&a.lines, a.lines.span()).ok()?;
+        Some(v.as_i64().unwrap_or(1).max(0) as u32)
     }
 
     #[allow(clippy::too_many_arguments)]

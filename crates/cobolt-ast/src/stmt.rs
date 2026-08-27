@@ -567,6 +567,13 @@ pub enum Stmt {
         advancing: Option<AdvancingClause>,
         invalid_key: Vec<Stmt>,
         not_invalid_key: Vec<Stmt>,
+        /// `AT END-OF-PAGE` / `AT EOP` — run when writing this record reaches
+        /// the FOOTING line of a LINAGE file's page body.
+        #[serde(default)]
+        at_eop: Vec<Stmt>,
+        /// `NOT AT END-OF-PAGE` — run when it does not.
+        #[serde(default)]
+        not_at_eop: Vec<Stmt>,
         span: Span,
     },
 

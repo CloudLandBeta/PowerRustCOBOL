@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.17] — 2026-08-27
+
+### Added — `LINAGE`: the printed page, and `AT END-OF-PAGE`
+
+A report file can now declare its page layout, and a `WRITE` can ask whether it
+has reached the foot of that page:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE IS 50 LINES
+               WITH FOOTING AT 45
+               LINES AT TOP 10
+               LINES AT BOTTOM 6.
+       ...
+           WRITE PRINT-REC BEFORE ADVANCING 1 LINE
+               AT END-OF-PAGE     PERFORM PAGE-TRAILER
+               NOT AT END-OF-PAGE CONTINUE
+           END-WRITE.
+```
+
+COBOL-85 divides the page into a top margin, a body of `n` lines and a bottom
+margin. `LINAGE-COUNTER` counts lines written into the body from 1; reaching
+`FOOTING` raises the end-of-page condition, which is how a report knows to print
+its trailer. `ADVANCING PAGE` starts a new page and resets the counter. Omitting
+`FOOTING` defaults it to the body size, so the condition waits for a full page.
+
+`AT EOP` is accepted as the short spelling, and the `AT` is optional in both.
+
+The FD parser used to skip the whole `LINAGE` clause and `AT END-OF-PAGE` was a
+parse error, so a report program could not compile.
+
+> **Parsing it alone would have been worse than leaving it broken.** The phrase
+> would have compiled and then never fired — a wrong answer in silence instead
+> of an honest failure — so the counter is implemented, not stubbed. A file with
+> no `LINAGE` clause has no page, and its `AT END-OF-PAGE` correctly never
+> raises.
+
+### NIST COBOL-85 conformance: 376 → 380 of 434 in-scope programs
+
+Sequential I/O 77 → 81. The four remaining SQ report programs (SQ201M, SQ208M,
+SQ209M, SQ401M) were all waiting on this.
+
+
 ## [PowerRustCOBOL 1.62.16] — 2026-08-27
 
 ### Fixed — the `AT` in `AT END` is optional

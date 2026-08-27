@@ -1411,7 +1411,7 @@ fn parse_close(p: &mut Parser) -> Stmt {
 // ── READ ──────────────────────────────────────────────────────────────────────
 
 /// True if `tok` is an identifier equal (case-insensitively) to `w`.
-fn is_word(tok: &Token, w: &str) -> bool {
+pub(crate) fn is_word(tok: &Token, w: &str) -> bool {
     matches!(tok, Token::Identifier(s) if s.eq_ignore_ascii_case(w))
 }
 
@@ -1438,6 +1438,39 @@ fn eat_not_invalid_key(p: &mut Parser) -> bool {
         p.advance(); // NOT
         p.advance(); // INVALID
         p.eat(&Token::Key);
+        return true;
+    }
+    false
+}
+
+/// Consume `[AT] {END-OF-PAGE | EOP}`.
+///
+/// The `AT` is optional here for the same reason it is on `AT END`, and both
+/// spellings of the condition appear in CCVS85 — SQ209M writes `AT EOP` where
+/// SQ201M writes `AT END-OF-PAGE`.
+fn eat_end_of_page(p: &mut Parser) -> bool {
+    let at_offset = usize::from(is_word(p.peek(), "AT"));
+    let word = p.peek_at(at_offset);
+    if is_word(word, "END-OF-PAGE") || is_word(word, "EOP") {
+        for _ in 0..=at_offset {
+            p.advance();
+        }
+        return true;
+    }
+    false
+}
+
+/// Consume `NOT [AT] {END-OF-PAGE | EOP}`.
+fn eat_not_end_of_page(p: &mut Parser) -> bool {
+    if !p.at(&Token::Not) {
+        return false;
+    }
+    let at_offset = 1 + usize::from(is_word(p.peek_at(1), "AT"));
+    let word = p.peek_at(at_offset);
+    if is_word(word, "END-OF-PAGE") || is_word(word, "EOP") {
+        for _ in 0..=at_offset {
+            p.advance();
+        }
         return true;
     }
     false
@@ -1641,8 +1674,16 @@ fn parse_write(p: &mut Parser) -> Stmt {
         matches!(
             tok,
             Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndWrite
-        )
+        ) || is_word(tok, "AT")
+            || is_word(tok, "END-OF-PAGE")
+            || is_word(tok, "EOP")
     };
+    // `[AT] {END-OF-PAGE | EOP}` and its NOT form. These belong to a LINAGE
+    // file: writing a record that reaches the page body's FOOTING line raises
+    // the condition, which is how a report prints its page trailer. Neither
+    // word is a lexer keyword, so both are matched by spelling.
+    let mut at_eop = Vec::new();
+    let mut not_at_eop = Vec::new();
     let invalid_key = if eat_invalid_key(p) {
         parse_stmts(p, &stop)
     } else {
@@ -1653,6 +1694,17 @@ fn parse_write(p: &mut Parser) -> Stmt {
     } else {
         Vec::new()
     };
+    loop {
+        if eat_end_of_page(p) {
+            at_eop = parse_stmts(p, &stop);
+            continue;
+        }
+        if eat_not_end_of_page(p) {
+            not_at_eop = parse_stmts(p, &stop);
+            continue;
+        }
+        break;
+    }
 
     p.eat(&Token::EndWrite);
 
@@ -1662,6 +1714,8 @@ fn parse_write(p: &mut Parser) -> Stmt {
         advancing,
         invalid_key,
         not_invalid_key,
+        at_eop,
+        not_at_eop,
         span,
     }
 }

@@ -11,13 +11,15 @@
 //! items.
 
 use cobolt_ast::data::{
-    ConditionValue, DataDecl, FileDescription, OccursClause, PicClause, PicKind, ScreenItem, Usage,
+    ConditionValue, DataDecl, FileDescription, Linage, OccursClause, PicClause, PicKind, ScreenItem,
+    Usage,
 };
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{DataDivision, DataSection};
 use cobolt_lexer::{Span, Token};
 
 use crate::expr::parse_literal;
+use crate::stmt::is_word;
 use crate::parser::Parser;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -122,10 +124,17 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         p.advance(); // FD or SD
         let name = p.expect_identifier("file name");
         let mut is_global = false;
-        // Consume optional clauses until period
+        let mut linage: Option<Linage> = None;
+        // Consume optional clauses until period. Most are recorded elsewhere or
+        // do not affect execution; LINAGE does, so it is read rather than
+        // skipped.
         while !p.at(&Token::Period) && !p.at(&Token::Eof) {
             if p.at(&Token::Global) {
                 is_global = true;
+            }
+            if is_word(p.peek(), "LINAGE") {
+                linage = parse_linage_clause(p);
+                continue;
             }
             p.advance();
         }
@@ -136,10 +145,82 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             name,
             is_global,
             records: build_tree(records),
+            linage,
             span,
         });
     }
     fds
+}
+
+/// Parse `LINAGE IS n LINES [WITH FOOTING AT f] [LINES AT TOP t]
+/// [LINES AT BOTTOM b]`, positioned on the word `LINAGE`.
+///
+/// Every noise word is optional (`IS`, `LINES`, `WITH`, `AT`), so the clause is
+/// read by looking for its four numbers in order rather than by matching a
+/// fixed shape — which is also why a missing `FOOTING` defaults to the body
+/// size: end of page is then raised only when the body is full, exactly as the
+/// standard says.
+///
+/// None of `LINAGE`, `FOOTING`, `TOP` or `BOTTOM` is a lexer keyword, so they
+/// are matched by spelling — the same approach `CLOSE … WITH LOCK` uses, and it
+/// leaves a developer free to name an item `TOP`.
+fn parse_linage_clause(p: &mut Parser) -> Option<Linage> {
+    p.advance(); // LINAGE
+    p.eat(&Token::Is);
+    let lines = eat_required_integer(p)?;
+    // `LINES` and `LINE` are lexer keywords; the rest of the clause's words are
+    // not. Both spellings are noise here.
+    if !p.eat(&Token::Lines) {
+        p.eat(&Token::Line);
+    }
+
+    let mut footing = None;
+    let mut top = 0u32;
+    let mut bottom = 0u32;
+
+    loop {
+        p.eat(&Token::With);
+        if is_word(p.peek(), "FOOTING") {
+            p.advance();
+            if is_word(p.peek(), "AT") { p.advance(); }
+            footing = eat_required_integer(p);
+            continue;
+        }
+        if p.at(&Token::Lines) || p.at(&Token::Line) {
+            // `LINES AT TOP n` / `LINES AT BOTTOM n`
+            p.advance();
+            if is_word(p.peek(), "AT") { p.advance(); }
+            if is_word(p.peek(), "TOP") {
+                p.advance();
+                top = eat_required_integer(p).unwrap_or(0);
+                continue;
+            }
+            if is_word(p.peek(), "BOTTOM") {
+                p.advance();
+                bottom = eat_required_integer(p).unwrap_or(0);
+                continue;
+            }
+            continue;
+        }
+        if is_word(p.peek(), "TOP") {
+            p.advance();
+            top = eat_required_integer(p).unwrap_or(0);
+            continue;
+        }
+        if is_word(p.peek(), "BOTTOM") {
+            p.advance();
+            bottom = eat_required_integer(p).unwrap_or(0);
+            continue;
+        }
+        break;
+    }
+
+    Some(Linage {
+        lines,
+        footing: footing.unwrap_or(lines),
+        top,
+        bottom,
+    })
 }
 
 // ── Screen section (simplified) ───────────────────────────────────────────────

@@ -173,7 +173,32 @@ pub struct FileDescription {
     pub is_global: bool,
     /// Record descriptions belonging to this file.
     pub records: Vec<DataDecl>,
+    /// `LINAGE IS n LINES [WITH FOOTING AT f] [LINES AT TOP t] [LINES AT BOTTOM b]`
+    /// — the file is a printed report with a page body, and the runtime keeps a
+    /// `LINAGE-COUNTER` for it. `None` for an ordinary file.
+    #[serde(default)]
+    pub linage: Option<Linage>,
     pub span: Span,
+}
+
+/// The page layout of a `LINAGE` file.
+///
+/// COBOL-85 divides each page into a top margin, a **body** of `lines` lines,
+/// and a bottom margin. `LINAGE-COUNTER` counts lines written into the body,
+/// starting at 1; when it reaches `footing`, the `AT END-OF-PAGE` condition is
+/// true, which is how a report knows to print its page trailer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Linage {
+    /// Lines in the page body (`LINAGE IS n LINES`).
+    pub lines: u32,
+    /// `WITH FOOTING AT f` — the line at which end-of-page begins. Defaults to
+    /// `lines`, so without a FOOTING clause the condition is raised only when
+    /// the body is full.
+    pub footing: u32,
+    /// `LINES AT TOP t` — blank lines before the body.
+    pub top: u32,
+    /// `LINES AT BOTTOM b` — blank lines after the body.
+    pub bottom: u32,
 }
 
 // ── Screen items ──────────────────────────────────────────────────────────────
